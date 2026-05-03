@@ -36,6 +36,8 @@ vi.mock("@/lib/meta/warehouse", () => ({
   buildMetaRawSnapshotHash: vi.fn(() => "snapshot-hash"),
   createMetaSyncJob: vi.fn(),
   persistMetaRawSnapshot: vi.fn().mockResolvedValue("snapshot-id"),
+  deleteMetaSyncCheckpointsForPartition: vi.fn().mockResolvedValue(1),
+  supersedeMetaRawSnapshotsForPartition: vi.fn().mockResolvedValue(1),
   replaceMetaAccountDailySlice: vi.fn().mockResolvedValue(undefined),
   replaceMetaAdDailySlice: vi.fn().mockResolvedValue(undefined),
   replaceMetaCampaignDailySlice: vi.fn().mockResolvedValue(undefined),
@@ -71,6 +73,8 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     vi.mocked(warehouse.heartbeatMetaPartitionLease).mockResolvedValue(true);
     vi.mocked(warehouse.listMetaRawSnapshotsForRun).mockResolvedValue([]);
     vi.mocked(warehouse.persistMetaRawSnapshot).mockResolvedValue("snapshot-id");
+    vi.mocked(warehouse.deleteMetaSyncCheckpointsForPartition).mockResolvedValue(1);
+    vi.mocked(warehouse.supersedeMetaRawSnapshotsForPartition).mockResolvedValue(1);
     vi.mocked(warehouse.upsertMetaAccountDailyRows).mockResolvedValue(undefined);
     vi.mocked(warehouse.upsertMetaCampaignDailyRows).mockResolvedValue(undefined);
     vi.mocked(warehouse.upsertMetaAdSetDailyRows).mockResolvedValue(undefined);
@@ -666,6 +670,13 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       campaignRowsWritten: 1,
     });
 
+    expect(warehouse.supersedeMetaRawSnapshotsForPartition).toHaveBeenCalledWith({
+      partitionId: "partition-failed",
+    });
+    expect(warehouse.deleteMetaSyncCheckpointsForPartition).toHaveBeenCalledWith({
+      partitionId: "partition-failed",
+    });
+    expect(warehouse.listMetaRawSnapshotsForRun).not.toHaveBeenCalled();
     expect(warehouse.publishMetaAuthoritativeSliceVersion).toHaveBeenCalled();
     expect(warehouse.createMetaAuthoritativeReconciliationEvent).toHaveBeenCalledWith(
       expect.objectContaining({

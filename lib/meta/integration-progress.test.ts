@@ -55,6 +55,7 @@ function buildStatus(
         historicalCompletedDays: 180,
         historicalTotalDays: 365,
         readyThroughDate: "2026-04-10",
+        oldestStoredDate: "2025-10-13",
       },
       campaign_daily: {
         recentCompletedDays: 10,
@@ -62,6 +63,7 @@ function buildStatus(
         historicalCompletedDays: 180,
         historicalTotalDays: 365,
         readyThroughDate: "2026-04-10",
+        oldestStoredDate: "2025-10-13",
       },
       adset_daily: {
         recentCompletedDays: 8,
@@ -76,6 +78,7 @@ function buildStatus(
         historicalCompletedDays: 120,
         historicalTotalDays: 365,
         readyThroughDate: "2026-04-06",
+        oldestStoredDate: "2025-12-08",
       },
       ad_daily: {
         recentCompletedDays: 6,
@@ -83,6 +86,7 @@ function buildStatus(
         historicalCompletedDays: 110,
         historicalTotalDays: 365,
         readyThroughDate: "2026-04-05",
+        oldestStoredDate: "2025-12-18",
       },
     },
     recentExtendedReady: false,
@@ -298,12 +302,21 @@ describe("resolveMetaIntegrationProgress", () => {
       label: "worker active",
       evidence: "Queue 8 • Leased 2",
     });
+    expect(model?.stages[2]).toMatchObject({
+      state: "ready",
+      label: "core ready",
+      evidence: expect.stringContaining("Oldest stored date:"),
+    });
+    expect(model?.stages[2]?.evidence).not.toContain("Ready through");
     expect(model?.stages[3]).toMatchObject({
       state: "working",
       label: "history continuing",
       detail: "Ads and creatives continue backfilling in the background.",
       evidence: expect.stringContaining("Pending breakdowns.age"),
     });
+    expect(model?.stages[3]?.evidence).toContain("Oldest stored date:");
+    expect(model?.stages[3]?.evidence).not.toContain("Ready through");
+    expect(model?.stages[3]?.evidence).not.toContain("days");
   });
 
   it("renders worker-unavailable queue truth instead of generic waiting", () => {

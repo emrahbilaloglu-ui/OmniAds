@@ -5674,6 +5674,36 @@ export async function listMetaRawSnapshotsForRun(input: {
   }>;
 }
 
+export async function supersedeMetaRawSnapshotsForPartition(input: {
+  partitionId: string;
+}) {
+  await assertMetaMutationTablesReady("meta_warehouse");
+  const sql = getDb();
+  const rows = await sql`
+    UPDATE meta_raw_snapshots
+    SET
+      status = 'superseded',
+      updated_at = now()
+    WHERE partition_id = ${input.partitionId}::uuid
+      AND status <> 'superseded'
+    RETURNING id
+  ` as Array<{ id: string }>;
+  return rows.length;
+}
+
+export async function deleteMetaSyncCheckpointsForPartition(input: {
+  partitionId: string;
+}) {
+  await assertMetaMutationTablesReady("meta_warehouse");
+  const sql = getDb();
+  const rows = await sql`
+    DELETE FROM meta_sync_checkpoints
+    WHERE partition_id = ${input.partitionId}::uuid
+    RETURNING id
+  ` as Array<{ id: string }>;
+  return rows.length;
+}
+
 export async function heartbeatMetaPartitionLease(input: {
   partitionId: string;
   workerId: string;
@@ -6425,6 +6455,20 @@ export async function requeueMetaRetryableFailedPartitions(input: {
   return rows.map((row) => row.id);
 }
 
+type MetaCoverageResult = {
+  completed_days: number;
+  first_completed_date?: string | null;
+  ready_through_date: string | null;
+  latest_updated_at: string | null;
+  total_rows: number;
+};
+
+type MetaRawSnapshotEndpointCoverage = {
+  completed_days: number;
+  first_completed_date?: string | null;
+  ready_through_date: string | null;
+};
+
 async function getMetaCoverageForTable(input: {
   tableName: string;
   scope: MetaWarehouseScope;
@@ -6433,7 +6477,7 @@ async function getMetaCoverageForTable(input: {
   startDate: string;
   endDate: string;
   timeoutMs?: number;
-}) {
+}): Promise<MetaCoverageResult> {
   await assertMetaRequestReadTablesReady(
     [input.tableName, "meta_sync_partitions"],
     "meta_coverage",
@@ -6444,6 +6488,7 @@ async function getMetaCoverageForTable(input: {
       `
         SELECT
           COUNT(DISTINCT date) AS completed_days,
+          COALESCE(MIN(date), NULL) AS first_completed_date,
           COALESCE(MAX(date), NULL) AS ready_through_date,
           COALESCE(MAX(updated_at), NULL) AS latest_updated_at,
           COUNT(*) AS total_rows
@@ -6464,6 +6509,7 @@ async function getMetaCoverageForTable(input: {
       `
         SELECT
           COUNT(DISTINCT partition_date) AS completed_days,
+          COALESCE(MIN(partition_date), NULL) AS first_completed_date,
           COALESCE(MAX(partition_date), NULL) AS ready_through_date,
           COALESCE(MAX(updated_at), NULL) AS latest_updated_at
         FROM meta_sync_partitions
@@ -6485,8 +6531,14 @@ async function getMetaCoverageForTable(input: {
   ]);
   const row = rows[0] ?? {};
   const partitionRow = partitionRows[0] ?? {};
+  const firstCompletedDate =
+    [partitionRow.first_completed_date, row.first_completed_date]
+      .filter(Boolean)
+      .map((value) => normalizeDate(value))
+      .sort((left, right) => left.localeCompare(right))[0] ?? null;
   return {
     completed_days: Math.max(toNumber(row.completed_days), toNumber(partitionRow.completed_days)),
+    first_completed_date: firstCompletedDate,
     ready_through_date:
       partitionRow.ready_through_date || row.ready_through_date
         ? normalizeDate(partitionRow.ready_through_date ?? row.ready_through_date)
@@ -6688,10 +6740,10 @@ export async function getMetaRawSnapshotCoverageByEndpoint(input: {
   providerAccountId?: string | null;
   startDate: string;
   endDate: string;
-}) {
+}): Promise<Map<string, MetaRawSnapshotEndpointCoverage>> {
   const endpointNames = Array.from(new Set(input.endpointNames.filter(Boolean)));
   if (endpointNames.length === 0) {
-    return new Map<string, { completed_days: number; ready_through_date: string | null }>();
+    return new Map<string, MetaRawSnapshotEndpointCoverage>();
   }
 
   await assertMetaRequestReadTablesReady(
@@ -6703,6 +6755,7 @@ export async function getMetaRawSnapshotCoverageByEndpoint(input: {
     SELECT
       endpoint_name,
       COUNT(DISTINCT start_date::date)::int AS completed_days,
+      MIN(start_date::date)::text AS first_completed_date,
       MAX(start_date::date)::text AS ready_through_date
     FROM meta_raw_snapshots
     WHERE business_id = ${input.businessId}
@@ -6715,16 +6768,22 @@ export async function getMetaRawSnapshotCoverageByEndpoint(input: {
   ` as Array<{
     endpoint_name: string;
     completed_days: number;
+    first_completed_date: string | null;
     ready_through_date: string | null;
   }>;
 
-  const map = new Map<string, { completed_days: number; ready_through_date: string | null }>();
+  const map = new Map<string, MetaRawSnapshotEndpointCoverage>();
   for (const endpointName of endpointNames) {
-    map.set(endpointName, { completed_days: 0, ready_through_date: null });
+    map.set(endpointName, {
+      completed_days: 0,
+      first_completed_date: null,
+      ready_through_date: null,
+    });
   }
   for (const row of rows) {
     map.set(row.endpoint_name, {
       completed_days: Number(row.completed_days ?? 0),
+      first_completed_date: row.first_completed_date ?? null,
       ready_through_date: row.ready_through_date ?? null,
     });
   }

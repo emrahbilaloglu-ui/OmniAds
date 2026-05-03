@@ -55,6 +55,14 @@ function earliestDate(values: Array<string | null | undefined>) {
   );
 }
 
+function latestDate(values: Array<string | null | undefined>) {
+  return (
+    values
+      .filter((value): value is string => Boolean(value))
+      .sort((left, right) => right.localeCompare(left))[0] ?? null
+  );
+}
+
 function minCount(values: Array<number | null | undefined>) {
   const numeric = values.filter((value): value is number => Number.isFinite(value));
   if (numeric.length === 0) return null;
@@ -126,6 +134,16 @@ function getCoreReadyThroughDate(status: MetaIntegrationSummaryInput) {
   ]);
 }
 
+function getCoreOldestStoredDate(status: MetaIntegrationSummaryInput) {
+  return latestDate([
+    status.warehouse?.coverage?.selectedRange?.oldestStoredDate ?? null,
+    status.rangeCompletionBySurface?.account_daily?.oldestStoredDate ?? null,
+    status.rangeCompletionBySurface?.campaign_daily?.oldestStoredDate ?? null,
+    status.warehouse?.coverage?.historical?.oldestStoredDate ?? null,
+    status.warehouse?.firstDate ?? null,
+  ]);
+}
+
 function getBreakdownMetrics(status: MetaIntegrationSummaryInput) {
   const breakdownsBySurface = status.warehouse?.coverage?.breakdownsBySurface;
   if (breakdownsBySurface) {
@@ -146,6 +164,11 @@ function getBreakdownMetrics(status: MetaIntegrationSummaryInput) {
         breakdownsBySurface.location.readyThroughDate,
         breakdownsBySurface.placement.readyThroughDate,
       ]),
+      oldestStoredDate: latestDate([
+        breakdownsBySurface.age.oldestStoredDate,
+        breakdownsBySurface.location.oldestStoredDate,
+        breakdownsBySurface.placement.oldestStoredDate,
+      ]),
     };
   }
 
@@ -155,6 +178,7 @@ function getBreakdownMetrics(status: MetaIntegrationSummaryInput) {
     completedDays: breakdowns.completedDays,
     totalDays: breakdowns.totalDays,
     readyThroughDate: breakdowns.readyThroughDate,
+    oldestStoredDate: breakdowns.oldestStoredDate ?? null,
   };
 }
 
@@ -186,6 +210,7 @@ function getPriorityMetrics(
       totalDays,
       percent: percentFromCounts(completedDays, totalDays),
       readyThroughDate,
+      oldestStoredDate: selectedRangeCoverage?.oldestStoredDate ?? null,
     };
   }
 
@@ -207,6 +232,12 @@ function getPriorityMetrics(
       account?.readyThroughDate ?? null,
       campaign?.readyThroughDate ?? null,
       status.latestSync?.readyThroughDate ?? null,
+    ]),
+    oldestStoredDate: latestDate([
+      account?.oldestStoredDate ?? null,
+      campaign?.oldestStoredDate ?? null,
+      status.warehouse?.coverage?.historical?.oldestStoredDate ?? null,
+      status.warehouse?.firstDate ?? null,
     ]),
   };
 }
@@ -240,6 +271,10 @@ function getExtendedSurfaceMetrics(status: MetaIntegrationSummaryInput) {
     readyThroughDate: earliestDate([
       creative?.readyThroughDate ?? null,
       ad?.readyThroughDate ?? null,
+    ]),
+    oldestStoredDate: latestDate([
+      creative?.oldestStoredDate ?? null,
+      ad?.oldestStoredDate ?? null,
     ]),
   };
 }
@@ -389,6 +424,7 @@ function buildCoreStage(
   status: MetaIntegrationSummaryInput
 ): MetaIntegrationSummaryStage {
   const readyThroughDate = getCoreReadyThroughDate(status);
+  const oldestStoredDate = getCoreOldestStoredDate(status);
   const percent =
     status.coreReadiness && !status.coreReadiness.complete
       ? clampPercent(status.coreReadiness.percent)
@@ -403,7 +439,7 @@ function buildCoreStage(
       state: "blocked",
       percent,
       code: "core_blocked",
-      evidence: compactEvidence({ readyThroughDate }),
+      evidence: compactEvidence({ readyThroughDate, oldestStoredDate }),
     };
   }
 
@@ -413,7 +449,7 @@ function buildCoreStage(
       state: "ready",
       percent: null,
       code: "core_ready",
-      evidence: compactEvidence({ readyThroughDate }),
+      evidence: compactEvidence({ readyThroughDate, oldestStoredDate }),
     };
   }
 
@@ -423,7 +459,7 @@ function buildCoreStage(
       state: "waiting",
       percent,
       code: "core_waiting",
-      evidence: compactEvidence({ readyThroughDate }),
+      evidence: compactEvidence({ readyThroughDate, oldestStoredDate }),
     };
   }
 
@@ -432,7 +468,7 @@ function buildCoreStage(
     state: "working",
     percent,
     code: "core_preparing",
-    evidence: compactEvidence({ readyThroughDate }),
+    evidence: compactEvidence({ readyThroughDate, oldestStoredDate }),
   };
 }
 
@@ -447,6 +483,7 @@ function buildPriorityStage(
     completedDays: metrics.completedDays,
     totalDays: metrics.totalDays,
     readyThroughDate: metrics.readyThroughDate,
+    oldestStoredDate: metrics.oldestStoredDate,
     blockerCount:
       getBlockingCodes(status).length > 0
         ? getBlockingCodes(status).length
@@ -640,6 +677,12 @@ function buildExtendedStage(
       : extendedSurfaceMetrics.readyThroughDate
     : breakdownMetrics?.readyThroughDate ??
       extendedSurfaceMetrics.readyThroughDate;
+  const progressOldestStoredDate = recentWindowScope
+    ? historicalOnlyExtendedLag
+      ? breakdownMetrics?.oldestStoredDate ?? extendedSurfaceMetrics.oldestStoredDate
+      : extendedSurfaceMetrics.oldestStoredDate
+    : breakdownMetrics?.oldestStoredDate ??
+      extendedSurfaceMetrics.oldestStoredDate;
 
   if (!recentWindowScope && status.extendedCompleteness?.state === "blocked") {
     return {
@@ -655,6 +698,9 @@ function buildExtendedStage(
         readyThroughDate:
           breakdownMetrics?.readyThroughDate ??
           extendedSurfaceMetrics.readyThroughDate,
+        oldestStoredDate:
+          breakdownMetrics?.oldestStoredDate ??
+          extendedSurfaceMetrics.oldestStoredDate,
       }),
     };
   }
@@ -672,6 +718,9 @@ function buildExtendedStage(
         readyThroughDate:
           breakdownMetrics?.readyThroughDate ??
           extendedSurfaceMetrics.readyThroughDate,
+        oldestStoredDate:
+          breakdownMetrics?.oldestStoredDate ??
+          extendedSurfaceMetrics.oldestStoredDate,
       }),
     };
   }
@@ -688,6 +737,7 @@ function buildExtendedStage(
         pendingSurfaceCount,
         pendingSurfaces,
         readyThroughDate: progressReadyThroughDate,
+        oldestStoredDate: progressOldestStoredDate,
       }),
     };
   }
@@ -703,6 +753,7 @@ function buildExtendedStage(
       pendingSurfaceCount,
       pendingSurfaces,
       readyThroughDate: progressReadyThroughDate,
+      oldestStoredDate: progressOldestStoredDate,
     }),
   };
 }

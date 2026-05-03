@@ -1,5 +1,9 @@
 import { buildMetaIntegrationSummary } from "@/lib/meta/integration-summary";
-import { formatMetaReadyThroughDate, getMetaSyncDescription } from "@/lib/meta/ui";
+import {
+  formatMetaHistoricalOldestReachedDate,
+  formatMetaReadyThroughDate,
+  getMetaSyncDescription,
+} from "@/lib/meta/ui";
 import type {
   MetaIntegrationSummary,
   MetaIntegrationSummaryScope,
@@ -395,18 +399,23 @@ function buildStageEvidence(
       : null;
   if (blockerEvidence) parts.push(blockerEvidence);
 
-  const countEvidence = buildCountEvidence(
-    evidence.completedDays,
-    evidence.totalDays,
+  const countEvidence =
+    stage.code === "historical_extended_preparing"
+      ? null
+      : buildCountEvidence(evidence.completedDays, evidence.totalDays, language);
+  if (countEvidence) parts.push(countEvidence);
+
+  const oldestStored = formatMetaHistoricalOldestReachedDate(
+    evidence.oldestStoredDate,
     language
   );
-  if (countEvidence) parts.push(countEvidence);
+  if (oldestStored) parts.push(oldestStored);
 
   const readyThrough = formatMetaReadyThroughDate(
     evidence.readyThroughDate,
     language
   );
-  if (readyThrough) parts.push(readyThrough);
+  if (readyThrough && !oldestStored) parts.push(readyThrough);
 
   return parts.length > 0 ? parts.join(" • ") : null;
 }

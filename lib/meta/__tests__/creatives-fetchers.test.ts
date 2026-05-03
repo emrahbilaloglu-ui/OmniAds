@@ -91,8 +91,8 @@ describe("creative detail field contracts", () => {
   it("keeps unsupported catalog fields out of the safe detail request", () => {
     expect(getCreativeDetailFields()).not.toMatch(/(^|[{,])catalog_id(?=[,}])/);
     expect(getCreativeDetailFields()).not.toMatch(/(^|[{,])product_set_id(?=[,}])/);
-    expect(getCreativeDetailAdvancedFields()).toContain("catalog_id");
-    expect(getCreativeDetailAdvancedFields()).toContain("product_set_id");
+    expect(getCreativeDetailAdvancedFields()).not.toMatch(/(^|[{,])catalog_id(?=[,}])/);
+    expect(getCreativeDetailAdvancedFields()).not.toMatch(/(^|[{,])product_set_id(?=[,}])/);
   });
 
   it("keeps thumbnail_url out of ids and nested ad creative field sets", () => {
@@ -113,6 +113,8 @@ describe("creative detail field contracts", () => {
     expect(getNestedCreativeSummaryFields()).not.toMatch(/(^|[{,])product_set_id(?=[,}])/);
     expect(getCreativeDetailFields()).not.toContain("image_hash,");
     expect(getCreativeMediaFields()).not.toContain("image_hash,");
+    expect(getCreativeMediaFields()).not.toMatch(/(^|[{,])catalog_id(?=[,}])/);
+    expect(getCreativeMediaFields()).not.toMatch(/(^|[{,])product_set_id(?=[,}])/);
     expect(getNestedCreativeMediaFields()).not.toContain("image_hash,");
   });
 });
@@ -123,7 +125,7 @@ describe("fetchCreativeDetailsMap", () => {
     vi.restoreAllMocks();
   });
 
-  it("keeps safe detail results when optional advanced fields fail", async () => {
+  it("keeps safe detail results without issuing unsupported advanced fields", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -143,19 +145,13 @@ describe("fetchCreativeDetailsMap", () => {
             headers: { "content-type": "application/json" },
           }
         )
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ error: { message: "unsupported field" } }), {
-          status: 400,
-          headers: { "content-type": "application/json" },
-        })
       );
 
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await fetchCreativeDetailsMap(["cr_1"], "token-fetchers-test");
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(result.get("cr_1")).toMatchObject({
       id: "cr_1",
       object_type: "VIDEO",

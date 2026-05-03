@@ -6642,30 +6642,32 @@ export async function getMetaCreativeMediaPreviewCoverage(input: {
     SELECT
       COUNT(*)::int AS total_rows,
       COUNT(*) FILTER (
-        WHERE
-          media.creative_id IS NOT NULL AND (
-            NULLIF(media.preview_url, '') IS NOT NULL OR
-            NULLIF(media.thumbnail_url, '') IS NOT NULL OR
-            NULLIF(media.image_url, '') IS NOT NULL OR
-            NULLIF(media.table_thumbnail_url, '') IS NOT NULL OR
-            NULLIF(media.card_preview_url, '') IS NOT NULL OR
-            NULLIF(media.video_url, '') IS NOT NULL OR
-            NULLIF(media.poster_url, '') IS NOT NULL OR
-            NULLIF(media.preview_html, '') IS NOT NULL OR
-            NULLIF(media.payload_json->>'preview_url', '') IS NOT NULL OR
-            NULLIF(media.payload_json->>'thumbnail_url', '') IS NOT NULL OR
-            NULLIF(media.payload_json->>'image_url', '') IS NOT NULL OR
-            NULLIF(media.payload_json->'preview'->>'image_url', '') IS NOT NULL OR
-            NULLIF(media.payload_json->'preview'->>'poster_url', '') IS NOT NULL OR
-            NULLIF(media.payload_json->'preview'->>'video_url', '') IS NOT NULL
+        WHERE EXISTS (
+          SELECT 1
+          FROM meta_creative_media media
+          WHERE media.business_id = creative.business_id
+            AND media.provider_account_id = creative.provider_account_id
+            AND media.date = creative.date
+            AND media.creative_id = creative.creative_id
+            AND (
+              NULLIF(media.preview_url, '') IS NOT NULL OR
+              NULLIF(media.thumbnail_url, '') IS NOT NULL OR
+              NULLIF(media.image_url, '') IS NOT NULL OR
+              NULLIF(media.table_thumbnail_url, '') IS NOT NULL OR
+              NULLIF(media.card_preview_url, '') IS NOT NULL OR
+              NULLIF(media.video_url, '') IS NOT NULL OR
+              NULLIF(media.poster_url, '') IS NOT NULL OR
+              NULLIF(media.preview_html, '') IS NOT NULL OR
+              NULLIF(media.payload_json->>'preview_url', '') IS NOT NULL OR
+              NULLIF(media.payload_json->>'thumbnail_url', '') IS NOT NULL OR
+              NULLIF(media.payload_json->>'image_url', '') IS NOT NULL OR
+              NULLIF(media.payload_json->'preview'->>'image_url', '') IS NOT NULL OR
+              NULLIF(media.payload_json->'preview'->>'poster_url', '') IS NOT NULL OR
+              NULLIF(media.payload_json->'preview'->>'video_url', '') IS NOT NULL
+            )
           )
       )::int AS preview_ready_rows
     FROM meta_creative_daily creative
-    LEFT JOIN meta_creative_media media
-      ON media.business_id = creative.business_id
-      AND media.provider_account_id = creative.provider_account_id
-      AND media.date = creative.date
-      AND media.creative_id = creative.creative_id
     WHERE creative.business_id = ${input.businessId}
       AND (${input.providerAccountId ?? null}::text IS NULL OR creative.provider_account_id = ${input.providerAccountId ?? null})
       AND creative.date::date BETWEEN ${normalizeDate(input.startDate)}::date AND ${normalizeDate(input.endDate)}::date
@@ -8630,7 +8632,7 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
           row.ctr,
           row.cpc,
           row.linkClicks ?? null,
-          row.outboundClicks ?? null,
+          row.outboundClicks ?? 0,
           row.sourceSnapshotId,
           row.sourceRunId ?? null,
           row.metricSchemaVersion ?? META_CANONICAL_METRIC_SCHEMA_VERSION,

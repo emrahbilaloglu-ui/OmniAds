@@ -255,6 +255,109 @@ describe("meta creatives warehouse", () => {
     });
   });
 
+  it("hydrates creative-group warehouse rows from the richest retained media row", async () => {
+    vi.mocked(warehouse.getMetaCreativeDailyRange).mockResolvedValue([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adId: "ad-1",
+        creativeId: "crt-1",
+        creativeName: "Creative 1",
+        headline: null,
+        primaryText: null,
+        destinationUrl: null,
+        thumbnailUrl: null,
+        assetType: "image",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 25,
+        impressions: 100,
+        clicks: 4,
+        conversions: 2,
+        revenue: 50,
+        roas: 2,
+        ctr: 4,
+        cpc: 6.25,
+        linkClicks: 3,
+        sourceSnapshotId: null,
+        payloadJson: {},
+      },
+    ] as never);
+    vi.mocked(requestModelStore.readMetaCreativeDimensions).mockResolvedValue(
+      new Map([
+        [
+          "crt-1",
+          {
+            projectionJson: buildProjectionRow({
+              preview_url: null,
+              thumbnail_url: null,
+              image_url: null,
+              table_thumbnail_url: null,
+              card_preview_url: null,
+              preview: {
+                render_mode: "missing",
+                image_url: null,
+                video_url: null,
+                poster_url: null,
+                source: null,
+                is_catalog: false,
+              },
+            }),
+          },
+        ],
+      ]) as never,
+    );
+    vi.mocked(warehouse.getMetaCreativeMediaRange).mockResolvedValue([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adId: "ad-1",
+        creativeId: "crt-1",
+        previewUrl: null,
+        thumbnailUrl: null,
+        imageUrl: null,
+        payloadJson: {},
+      },
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-2",
+        adId: "ad-2",
+        creativeId: "crt-1",
+        previewUrl: "https://example.com/rich-preview.jpg",
+        thumbnailUrl: "https://example.com/rich-thumb.jpg",
+        imageUrl: "https://example.com/rich-image.jpg",
+        posterUrl: "https://example.com/rich-poster.jpg",
+        payloadJson: {},
+      },
+    ] as never);
+
+    const payload = await getMetaCreativesWarehousePayload({
+      businessId: "biz-1",
+      start: "2026-04-03",
+      end: "2026-04-03",
+      groupBy: "creative",
+      format: "all",
+      sort: "spend",
+      mediaMode: "full",
+    });
+
+    expect(payload.rows[0]).toMatchObject({
+      creative_id: "crt-1",
+      preview_url: "https://example.com/rich-poster.jpg",
+      image_url: "https://example.com/rich-image.jpg",
+      preview_status: "ready",
+    });
+  });
+
   it("builds ad-group payloads from ad dimensions instead of daily payloadJson", async () => {
     vi.mocked(warehouse.getMetaAdDailyRange).mockResolvedValue([
       {

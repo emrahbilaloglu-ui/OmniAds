@@ -45,6 +45,7 @@ const {
   getMetaAdSetDailyRange,
   getMetaBreakdownDailyRange,
   getMetaCampaignDailyRange,
+  getMetaCreativeMediaPreviewCoverage,
   getMetaDirtyRecentDates,
   getMetaRecentAuthoritativeSliceGuard,
   leaseMetaSyncPartitions,
@@ -778,7 +779,7 @@ describe("meta warehouse ownership safety", () => {
 
   it("batches meta creative daily upserts instead of writing one row per query", async () => {
     const queries: string[] = [];
-    const queryMock = vi.fn(async (query: string) => {
+    const queryMock = vi.fn(async (query: string, _values?: unknown[]) => {
       queries.push(query);
       return [];
     });
@@ -868,6 +869,11 @@ describe("meta warehouse ownership safety", () => {
     expect(creativeDailyQueries[0]).toContain(
       "ON CONFLICT (business_id, provider_account_id, date, creative_id) DO UPDATE SET",
     );
+    const creativeDailyCall = queryMock.mock.calls.find(([query]) =>
+      String(query).includes("INSERT INTO meta_creative_daily"),
+    );
+    expect((creativeDailyCall?.[1] as unknown[])[30]).toBe(0);
+    expect((creativeDailyCall?.[1] as unknown[])[85]).toBe(0);
   });
 
   it("batches meta ad daily upserts instead of writing one row per query", async () => {
@@ -3826,6 +3832,33 @@ describe("meta warehouse config columns", () => {
     expect(mediaQuery).toContain(
       "ON CONFLICT (business_id, provider_account_id, date, creative_id, (COALESCE(ad_id, ''))) DO UPDATE SET",
     );
+  });
+
+  it("counts creative media preview coverage at creative fact grain", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const queryText = strings.join(" ");
+      queries.push(queryText);
+      if (queryText.includes("FROM meta_creative_daily creative")) {
+        return [{ total_rows: 2, preview_ready_rows: 1 }];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const coverage = await getMetaCreativeMediaPreviewCoverage({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      startDate: "2026-04-03",
+      endDate: "2026-04-03",
+    });
+
+    const coverageQuery = queries.find((query) =>
+      query.includes("FROM meta_creative_daily creative"),
+    );
+    expect(coverage).toEqual({ total_rows: 2, preview_ready_rows: 1 });
+    expect(coverageQuery).toContain("WHERE EXISTS");
+    expect(coverageQuery).not.toContain("LEFT JOIN meta_creative_media media");
   });
 
   it("emits full lifecycle placeholders for breakdown upserts", async () => {

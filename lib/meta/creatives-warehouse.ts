@@ -294,6 +294,45 @@ function pickMediaPayloadValue(row: MetaCreativeApiRow, media: MetaCreativeMedia
   } satisfies Partial<MetaCreativeApiRow>;
 }
 
+function hasMediaValue(value: unknown) {
+  return typeof value === "string" ? value.trim().length > 0 : Boolean(value);
+}
+
+function mediaReadinessScore(row: MetaCreativeMediaRow) {
+  const payload =
+    row.payloadJson && typeof row.payloadJson === "object"
+      ? (row.payloadJson as Partial<MetaCreativeApiRow>)
+      : {};
+  const preview =
+    payload.preview && typeof payload.preview === "object"
+      ? (payload.preview as unknown as Record<string, unknown>)
+      : {};
+  return [
+    row.previewUrl,
+    row.thumbnailUrl,
+    row.imageUrl,
+    row.tableThumbnailUrl,
+    row.cardPreviewUrl,
+    row.videoUrl,
+    row.posterUrl,
+    row.previewHtml,
+    payload.preview_url,
+    payload.thumbnail_url,
+    payload.image_url,
+    preview.image_url,
+    preview.poster_url,
+    preview.video_url,
+  ].filter(hasMediaValue).length;
+}
+
+function chooseRicherMediaRow(
+  existing: MetaCreativeMediaRow | undefined,
+  candidate: MetaCreativeMediaRow,
+) {
+  if (!existing) return candidate;
+  return mediaReadinessScore(candidate) > mediaReadinessScore(existing) ? candidate : existing;
+}
+
 function overlayCreativeMedia(row: RawCreativeRow, media: MetaCreativeMediaRow | null): RawCreativeRow {
   if (!media) return row;
   const payload = pickMediaPayloadValue(row as unknown as MetaCreativeApiRow, media);
@@ -696,9 +735,7 @@ export async function getMetaCreativesWarehousePayload(input: {
     }).catch(() => []);
     for (const row of mediaRows) {
       const creativeKey = `${row.providerAccountId}|${row.date}|${row.creativeId}`;
-      if (!mediaByCreativeKey.has(creativeKey)) {
-        mediaByCreativeKey.set(creativeKey, row);
-      }
+      mediaByCreativeKey.set(creativeKey, chooseRicherMediaRow(mediaByCreativeKey.get(creativeKey), row));
       if (row.adId) {
         mediaByAdKey.set(`${row.providerAccountId}|${row.date}|${row.adId}`, row);
       }

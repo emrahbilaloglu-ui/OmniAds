@@ -399,11 +399,10 @@ function buildStageEvidence(
       : null;
   if (blockerEvidence) parts.push(blockerEvidence);
 
-  const countEvidence = buildCountEvidence(
-    evidence.completedDays,
-    evidence.totalDays,
-    language
-  );
+  const countEvidence =
+    stage.code === "historical_extended_preparing"
+      ? null
+      : buildCountEvidence(evidence.completedDays, evidence.totalDays, language);
   if (countEvidence) parts.push(countEvidence);
 
   const historicalOldest =

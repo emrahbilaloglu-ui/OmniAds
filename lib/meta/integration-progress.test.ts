@@ -308,6 +308,7 @@ describe("resolveMetaIntegrationProgress", () => {
     });
     expect(model?.stages[3]?.evidence).toContain("Oldest stored date:");
     expect(model?.stages[3]?.evidence).not.toContain("Ready through");
+    expect(model?.stages[3]?.evidence).not.toContain("days");
   });
 
   it("renders worker-unavailable queue truth instead of generic waiting", () => {

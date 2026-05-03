@@ -1186,15 +1186,16 @@ function enumerateDays(
 
 function getMetaReferenceToday(
   credentials: Awaited<ReturnType<typeof resolveMetaCredentials>>,
+  providerAccountId?: string | null,
 ) {
-  const primaryAccountId = credentials?.accountIds[0] ?? null;
-  const primaryTimeZone =
-    primaryAccountId &&
-    credentials?.accountProfiles?.[primaryAccountId]?.timezone
-      ? credentials.accountProfiles[primaryAccountId].timezone
+  const referenceAccountId = providerAccountId ?? credentials?.accountIds[0] ?? null;
+  const referenceTimeZone =
+    referenceAccountId &&
+    credentials?.accountProfiles?.[referenceAccountId]?.timezone
+      ? credentials.accountProfiles[referenceAccountId].timezone
       : null;
-  return primaryTimeZone
-    ? getTodayIsoForTimeZoneServer(primaryTimeZone)
+  return referenceTimeZone
+    ? getTodayIsoForTimeZoneServer(referenceTimeZone)
     : toIsoDate(new Date());
 }
 
@@ -2130,7 +2131,7 @@ async function syncMetaPartitionDay(input: {
     throw new Error("Meta credentials are not available for this business.");
   }
   const assignedAccountIds = credentials.accountIds;
-  const referenceToday = getMetaReferenceToday(credentials);
+  const referenceToday = getMetaReferenceToday(credentials, input.providerAccountId);
   const coverageState = await captureMetaPartitionStage({
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
@@ -2447,7 +2448,7 @@ async function syncMetaPartitionDay(input: {
     providerAccountId: input.providerAccountId,
     partitionDate: normalizedDay,
     scopes: input.scopes,
-    sourceTodayWindow: normalizedDay === getMetaReferenceToday(credentials),
+    sourceTodayWindow: normalizedDay === referenceToday,
     truthState,
     source: input.source,
     productCoreCompleteBefore: beforeCoverage.productCoreComplete,

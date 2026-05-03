@@ -459,6 +459,54 @@ describe("processMetaLifecyclePartition lease epoch", () => {
     vi.useRealTimers();
   });
 
+  it("uses the partition account timezone when deciding creative current-day freshness", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-06T12:30:00.000Z"));
+    vi.mocked(apiMeta.resolveMetaCredentials).mockResolvedValue({
+      businessId: "biz-1",
+      accessToken: "token-1",
+      accountIds: ["act_1", "act_2"],
+      currency: "USD",
+      accountProfiles: {
+        act_1: { currency: "USD", timezone: "America/Anchorage", name: "Account 1" },
+        act_2: { currency: "USD", timezone: "Pacific/Kiritimati", name: "Account 2" },
+      },
+    } as never);
+    vi.mocked(warehouse.getMetaCreativeDailyCoverage).mockResolvedValue({
+      completed_days: 1,
+      latest_updated_at: "2026-04-06T08:00:00.000Z",
+      ready_through_date: "2026-04-07",
+    } as never);
+
+    const processed = await processMetaLifecyclePartition({
+      partition: {
+        id: "partition-creative-kiritimati",
+        businessId: "biz-1",
+        providerAccountId: "act_2",
+        lane: "extended",
+        scope: "creative_daily",
+        partitionDate: "2026-04-07",
+        attemptCount: 1,
+        leaseEpoch: 22,
+        source: "today_observe",
+      },
+      workerId: "worker-1",
+    });
+
+    expect(processed).toBe(true);
+    expect(creativesWarehouse.syncMetaCreativesWarehouseDay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz-1",
+        day: "2026-04-07",
+        assignedAccountIds: ["act_2"],
+        sourceRunId: "partition-creative-kiritimati",
+        mediaMode: "full",
+      }),
+    );
+
+    vi.useRealTimers();
+  });
+
   it("returns false and records lease_conflict when completion loses the current epoch", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     vi.mocked(warehouse.completeMetaPartitionAttempt).mockResolvedValue({

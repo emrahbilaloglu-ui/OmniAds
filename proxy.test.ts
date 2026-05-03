@@ -92,6 +92,17 @@ describe("proxy internal sync auth", () => {
     expect(response.headers.get("x-middleware-next")).toBe("1");
   });
 
+  it("allows the lightweight health route without a session", () => {
+    const response = proxy(
+      buildRequest({
+        pathname: "/api/healthz",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
   it("hydrates a default language cookie for authenticated page requests", () => {
     const response = proxy(
       buildRequest({

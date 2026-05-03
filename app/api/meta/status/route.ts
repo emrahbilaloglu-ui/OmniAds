@@ -240,6 +240,22 @@ function earliestReadyThroughDate(values: Array<string | null | undefined>) {
   );
 }
 
+function latestDate(values: Array<string | null | undefined>) {
+  return (
+    values
+      .filter((value): value is string => Boolean(value))
+      .sort((left, right) => right.localeCompare(left))[0] ?? null
+  );
+}
+
+function withOldestStoredDate<T extends Record<string, unknown>>(
+  value: T,
+  oldestStoredDate: string | null | undefined
+): T & { oldestStoredDate?: string } {
+  if (!oldestStoredDate) return value;
+  return { ...value, oldestStoredDate };
+}
+
 function buildPhaseLabel(input: {
   selectedRangeIncomplete: boolean;
   selectedRangeIsToday: boolean;
@@ -635,6 +651,11 @@ export async function GET(request: NextRequest) {
     )
       .filter((value): value is string => Boolean(value))
       .sort((a, b) => a.localeCompare(b))[0] ?? null;
+  const breakdownOldestStoredDate = latestDate(
+    META_BREAKDOWN_ENDPOINTS.map(
+      (endpointName) => breakdownCoverageByEndpoint?.get(endpointName)?.first_completed_date ?? null
+    )
+  );
 
   const historicalArchiveCompletedDays = minCompletedDays(
     [
@@ -851,6 +872,12 @@ export async function GET(request: NextRequest) {
           selectedRangeCoverage?.ready_through_date ?? null,
           selectedRangeCampaignCoverage?.ready_through_date ?? null,
         ]);
+  const selectedRangeCoreOldestStoredDate = selectedRangeUsesLiveFallback
+    ? null
+    : latestDate([
+        selectedRangeCoverage?.first_completed_date ?? null,
+        selectedRangeCampaignCoverage?.first_completed_date ?? null,
+      ]);
   const selectedRangeBreakdownReadyThroughDate =
     selectedRangeRequested
       ? META_BREAKDOWN_ENDPOINTS.map(
@@ -880,6 +907,7 @@ export async function GET(request: NextRequest) {
       states: accountDailyStates,
       fallbackCompletedDays: accountCoverage?.completed_days ?? 0,
       fallbackReadyThroughDate: accountCoverage?.ready_through_date ?? null,
+      fallbackOldestStoredDate: accountCoverage?.first_completed_date ?? null,
       totalDays: historicalTotalDays,
     },
     {
@@ -887,6 +915,7 @@ export async function GET(request: NextRequest) {
       states: campaignDailyStates,
       fallbackCompletedDays: campaignCoverage?.completed_days ?? 0,
       fallbackReadyThroughDate: campaignCoverage?.ready_through_date ?? null,
+      fallbackOldestStoredDate: campaignCoverage?.first_completed_date ?? null,
       totalDays: historicalTotalDays,
     },
     {
@@ -894,6 +923,7 @@ export async function GET(request: NextRequest) {
       states: adsetDailyStates,
       fallbackCompletedDays: adsetCoverage?.completed_days ?? 0,
       fallbackReadyThroughDate: adsetCoverage?.ready_through_date ?? null,
+      fallbackOldestStoredDate: adsetCoverage?.first_completed_date ?? null,
       totalDays: historicalTotalDays,
     },
     {
@@ -901,6 +931,7 @@ export async function GET(request: NextRequest) {
       states: creativeDailyStates,
       fallbackCompletedDays: creativeCoverage?.completed_days ?? 0,
       fallbackReadyThroughDate: creativeCoverage?.ready_through_date ?? null,
+      fallbackOldestStoredDate: creativeCoverage?.first_completed_date ?? null,
       totalDays: creativeHistoricalTotalDays,
     },
     {
@@ -908,6 +939,7 @@ export async function GET(request: NextRequest) {
       states: adDailyStates,
       fallbackCompletedDays: adDailyCoverage?.completed_days ?? 0,
       fallbackReadyThroughDate: adDailyCoverage?.ready_through_date ?? null,
+      fallbackOldestStoredDate: adDailyCoverage?.first_completed_date ?? null,
       totalDays: historicalTotalDays,
     },
   ].map((entry) => ({
@@ -922,6 +954,7 @@ export async function GET(request: NextRequest) {
         .map((row) => row.readyThroughDate)
         .filter((value): value is string => Boolean(value))
         .sort((a, b) => a.localeCompare(b))[0] ?? entry.fallbackReadyThroughDate,
+    oldestStoredDate: entry.fallbackOldestStoredDate,
     latestBackgroundActivityAt:
       entry.states
         .map((row) => row.latestBackgroundActivityAt)
@@ -1070,10 +1103,13 @@ export async function GET(request: NextRequest) {
             ? selectedRangeEffectiveHistoricalEndDate ?? null
             : null)
         : null;
+      const oldestStoredDate = selectedRangeRequested
+        ? coverage?.first_completed_date ?? null
+        : null;
       const isBlocked = Boolean(selectedRangeBreakdownGuardrailBlocked);
       return [
         surface.coverageKey,
-        {
+        withOldestStoredDate({
           completedDays,
           totalDays,
           readyThroughDate,
@@ -1082,7 +1118,7 @@ export async function GET(request: NextRequest) {
             (selectedRangePublishedBreakdownsReady || completedDays >= totalDays),
           supportStartDate: breakdownSupportStartDate,
           isBlocked,
-        },
+        }, oldestStoredDate),
       ];
     })
   ) as {
@@ -1090,6 +1126,7 @@ export async function GET(request: NextRequest) {
       completedDays: number;
       totalDays: number;
       readyThroughDate: string | null;
+      oldestStoredDate?: string | null;
       isComplete: boolean;
       supportStartDate: string | null;
       isBlocked: boolean;
@@ -1098,6 +1135,7 @@ export async function GET(request: NextRequest) {
       completedDays: number;
       totalDays: number;
       readyThroughDate: string | null;
+      oldestStoredDate?: string | null;
       isComplete: boolean;
       supportStartDate: string | null;
       isBlocked: boolean;
@@ -1106,6 +1144,7 @@ export async function GET(request: NextRequest) {
       completedDays: number;
       totalDays: number;
       readyThroughDate: string | null;
+      oldestStoredDate?: string | null;
       isComplete: boolean;
       supportStartDate: string | null;
       isBlocked: boolean;
@@ -1118,14 +1157,14 @@ export async function GET(request: NextRequest) {
       const completedDays = Math.min(totalDays, coverage?.completed_days ?? 0);
       return [
         surface.coverageKey,
-        {
+        withOldestStoredDate({
           completedDays,
           totalDays,
           readyThroughDate: coverage?.ready_through_date ?? null,
           isComplete: totalDays > 0 && completedDays >= totalDays,
           supportStartDate: breakdownSupportStartDate,
           isBlocked: false,
-        },
+        }, coverage?.first_completed_date ?? null),
       ];
     })
   ) as {
@@ -1133,6 +1172,7 @@ export async function GET(request: NextRequest) {
       completedDays: number;
       totalDays: number;
       readyThroughDate: string | null;
+      oldestStoredDate?: string | null;
       isComplete: boolean;
       supportStartDate: string | null;
       isBlocked: boolean;
@@ -1141,6 +1181,7 @@ export async function GET(request: NextRequest) {
       completedDays: number;
       totalDays: number;
       readyThroughDate: string | null;
+      oldestStoredDate?: string | null;
       isComplete: boolean;
       supportStartDate: string | null;
       isBlocked: boolean;
@@ -1149,6 +1190,7 @@ export async function GET(request: NextRequest) {
       completedDays: number;
       totalDays: number;
       readyThroughDate: string | null;
+      oldestStoredDate?: string | null;
       isComplete: boolean;
       supportStartDate: string | null;
       isBlocked: boolean;
@@ -1165,14 +1207,14 @@ export async function GET(request: NextRequest) {
       const completedDays = Math.min(totalDays, coverage?.completed_days ?? 0);
       return [
         surface.coverageKey,
-        {
+        withOldestStoredDate({
           completedDays,
           totalDays,
           readyThroughDate: coverage?.ready_through_date ?? null,
           isComplete: totalDays > 0 && completedDays >= totalDays,
           supportStartDate: breakdownSupportStartDate,
           isBlocked: false,
-        },
+        }, coverage?.first_completed_date ?? null),
       ];
     })
   ) as {
@@ -1180,6 +1222,7 @@ export async function GET(request: NextRequest) {
       completedDays: number;
       totalDays: number;
       readyThroughDate: string | null;
+      oldestStoredDate?: string | null;
       isComplete: boolean;
       supportStartDate: string | null;
       isBlocked: boolean;
@@ -1188,6 +1231,7 @@ export async function GET(request: NextRequest) {
       completedDays: number;
       totalDays: number;
       readyThroughDate: string | null;
+      oldestStoredDate?: string | null;
       isComplete: boolean;
       supportStartDate: string | null;
       isBlocked: boolean;
@@ -1196,6 +1240,7 @@ export async function GET(request: NextRequest) {
       completedDays: number;
       totalDays: number;
       readyThroughDate: string | null;
+      oldestStoredDate?: string | null;
       isComplete: boolean;
       supportStartDate: string | null;
       isBlocked: boolean;
@@ -1959,6 +2004,7 @@ export async function GET(request: NextRequest) {
       historicalCompletedDays: Math.min(historicalTotalDays, accountCoverage?.completed_days ?? 0),
       historicalTotalDays,
       readyThroughDate: accountCoverage?.ready_through_date ?? null,
+      oldestStoredDate: accountCoverage?.first_completed_date ?? null,
     },
     campaign_daily: {
       recentCompletedDays: Math.min(recentWindowTotalDays, recentCampaignCoverage?.completed_days ?? 0),
@@ -1966,6 +2012,7 @@ export async function GET(request: NextRequest) {
       historicalCompletedDays: Math.min(historicalTotalDays, campaignCoverage?.completed_days ?? 0),
       historicalTotalDays,
       readyThroughDate: campaignCoverage?.ready_through_date ?? null,
+      oldestStoredDate: campaignCoverage?.first_completed_date ?? null,
     },
     adset_daily: {
       recentCompletedDays: Math.min(recentWindowTotalDays, recentAdsetCoverage?.completed_days ?? 0),
@@ -1973,6 +2020,7 @@ export async function GET(request: NextRequest) {
       historicalCompletedDays: Math.min(historicalTotalDays, adsetCoverage?.completed_days ?? 0),
       historicalTotalDays,
       readyThroughDate: adsetCoverage?.ready_through_date ?? null,
+      oldestStoredDate: adsetCoverage?.first_completed_date ?? null,
     },
     creative_daily: {
       recentCompletedDays: Math.min(recentWindowTotalDays, recentCreativeCoverage?.completed_days ?? 0),
@@ -1980,6 +2028,7 @@ export async function GET(request: NextRequest) {
       historicalCompletedDays: Math.min(creativeHistoricalTotalDays, creativeCoverage?.completed_days ?? 0),
       historicalTotalDays: creativeHistoricalTotalDays,
       readyThroughDate: creativeCoverage?.ready_through_date ?? null,
+      oldestStoredDate: creativeCoverage?.first_completed_date ?? null,
     },
     ad_daily: {
       recentCompletedDays: Math.min(recentWindowTotalDays, recentAdCoverage?.completed_days ?? 0),
@@ -1987,6 +2036,7 @@ export async function GET(request: NextRequest) {
       historicalCompletedDays: Math.min(historicalTotalDays, adDailyCoverage?.completed_days ?? 0),
       historicalTotalDays,
       readyThroughDate: adDailyCoverage?.ready_through_date ?? null,
+      oldestStoredDate: adDailyCoverage?.first_completed_date ?? null,
     },
   } as const;
 
@@ -2188,6 +2238,10 @@ export async function GET(request: NextRequest) {
             completedDays: historicalArchiveCompletedDays,
             totalDays: historicalTotalDays,
             readyThroughDate: historicalArchiveReadyThroughDate,
+            oldestStoredDate: latestDate([
+              accountCoverage?.first_completed_date ?? null,
+              campaignCoverage?.first_completed_date ?? null,
+            ]),
           },
           selectedRange:
             selectedStartDate && selectedEndDate && selectedRangeTotalDays
@@ -2198,6 +2252,7 @@ export async function GET(request: NextRequest) {
                   completedDays: selectedRangeEffectiveCompletedDays,
                   totalDays: selectedRangeReadyTargetDays,
                   readyThroughDate: selectedRangeCoreReadyThroughDate,
+                  oldestStoredDate: selectedRangeCoreOldestStoredDate,
                   isComplete: !selectedRangeIncomplete,
                 }
               : null,
@@ -2206,21 +2261,25 @@ export async function GET(request: NextRequest) {
             completedDays: accountCoverage?.completed_days ?? 0,
             totalDays: historicalTotalDays,
             readyThroughDate: accountCoverage?.ready_through_date ?? null,
+            oldestStoredDate: accountCoverage?.first_completed_date ?? null,
           },
           campaignDaily: {
             completedDays: campaignCoverage?.completed_days ?? 0,
             totalDays: historicalTotalDays,
             readyThroughDate: campaignCoverage?.ready_through_date ?? null,
+            oldestStoredDate: campaignCoverage?.first_completed_date ?? null,
           },
           adsetDaily: {
             completedDays: adsetCoverage?.completed_days ?? 0,
             totalDays: historicalTotalDays,
             readyThroughDate: adsetCoverage?.ready_through_date ?? null,
+            oldestStoredDate: adsetCoverage?.first_completed_date ?? null,
           },
           breakdowns: {
             completedDays: breakdownCoverageDays,
             totalDays: Math.min(historicalTotalDays, META_BREAKDOWN_MAX_HISTORY_DAYS),
             readyThroughDate: breakdownReadyThroughDate,
+            oldestStoredDate: breakdownOldestStoredDate,
           },
           breakdownsBySurface: selectedRangeRequested
             ? selectedRangeBreakdownsBySurface
@@ -2229,6 +2288,7 @@ export async function GET(request: NextRequest) {
             completedDays: creativeCoverage?.completed_days ?? 0,
             totalDays: creativeHistoricalTotalDays,
             readyThroughDate: creativeCoverage?.ready_through_date ?? null,
+            oldestStoredDate: creativeCoverage?.first_completed_date ?? null,
             previewReadyRows: creativePreviewCoverage?.preview_ready_rows ?? 0,
             totalRows: creativePreviewCoverage?.total_rows ?? 0,
             previewReadyPercent:

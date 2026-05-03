@@ -76,6 +76,7 @@ function buildStatus(
         historicalCompletedDays: 120,
         historicalTotalDays: 365,
         readyThroughDate: "2026-04-06",
+        oldestStoredDate: "2025-12-08",
       },
       ad_daily: {
         recentCompletedDays: 6,
@@ -83,6 +84,7 @@ function buildStatus(
         historicalCompletedDays: 110,
         historicalTotalDays: 365,
         readyThroughDate: "2026-04-05",
+        oldestStoredDate: "2025-12-18",
       },
     },
     recentExtendedReady: false,
@@ -168,6 +170,7 @@ describe("buildMetaIntegrationSummary", () => {
         totalDays: 365,
         pendingSurfaceCount: 1,
         pendingSurfaces: ["breakdowns.age"],
+        oldestStoredDate: "2025-12-18",
       },
     });
   });

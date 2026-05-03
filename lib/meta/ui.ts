@@ -52,7 +52,7 @@ export function formatMetaReadyThroughDate(
   return language === "tr" ? `Hazır: ${formatted}` : `Ready through ${formatted}`;
 }
 
-function formatMetaHistoricalOldestReachedDate(
+export function formatMetaHistoricalOldestReachedDate(
   value: string | null | undefined,
   language: MetaUiLanguage
 ) {

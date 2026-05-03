@@ -55,6 +55,14 @@ function earliestDate(values: Array<string | null | undefined>) {
   );
 }
 
+function latestDate(values: Array<string | null | undefined>) {
+  return (
+    values
+      .filter((value): value is string => Boolean(value))
+      .sort((left, right) => right.localeCompare(left))[0] ?? null
+  );
+}
+
 function minCount(values: Array<number | null | undefined>) {
   const numeric = values.filter((value): value is number => Number.isFinite(value));
   if (numeric.length === 0) return null;
@@ -146,6 +154,11 @@ function getBreakdownMetrics(status: MetaIntegrationSummaryInput) {
         breakdownsBySurface.location.readyThroughDate,
         breakdownsBySurface.placement.readyThroughDate,
       ]),
+      oldestStoredDate: latestDate([
+        breakdownsBySurface.age.oldestStoredDate,
+        breakdownsBySurface.location.oldestStoredDate,
+        breakdownsBySurface.placement.oldestStoredDate,
+      ]),
     };
   }
 
@@ -155,6 +168,7 @@ function getBreakdownMetrics(status: MetaIntegrationSummaryInput) {
     completedDays: breakdowns.completedDays,
     totalDays: breakdowns.totalDays,
     readyThroughDate: breakdowns.readyThroughDate,
+    oldestStoredDate: breakdowns.oldestStoredDate ?? null,
   };
 }
 
@@ -240,6 +254,10 @@ function getExtendedSurfaceMetrics(status: MetaIntegrationSummaryInput) {
     readyThroughDate: earliestDate([
       creative?.readyThroughDate ?? null,
       ad?.readyThroughDate ?? null,
+    ]),
+    oldestStoredDate: latestDate([
+      creative?.oldestStoredDate ?? null,
+      ad?.oldestStoredDate ?? null,
     ]),
   };
 }
@@ -640,6 +658,12 @@ function buildExtendedStage(
       : extendedSurfaceMetrics.readyThroughDate
     : breakdownMetrics?.readyThroughDate ??
       extendedSurfaceMetrics.readyThroughDate;
+  const progressOldestStoredDate = recentWindowScope
+    ? historicalOnlyExtendedLag
+      ? breakdownMetrics?.oldestStoredDate ?? extendedSurfaceMetrics.oldestStoredDate
+      : extendedSurfaceMetrics.oldestStoredDate
+    : breakdownMetrics?.oldestStoredDate ??
+      extendedSurfaceMetrics.oldestStoredDate;
 
   if (!recentWindowScope && status.extendedCompleteness?.state === "blocked") {
     return {
@@ -655,6 +679,9 @@ function buildExtendedStage(
         readyThroughDate:
           breakdownMetrics?.readyThroughDate ??
           extendedSurfaceMetrics.readyThroughDate,
+        oldestStoredDate:
+          breakdownMetrics?.oldestStoredDate ??
+          extendedSurfaceMetrics.oldestStoredDate,
       }),
     };
   }
@@ -672,6 +699,9 @@ function buildExtendedStage(
         readyThroughDate:
           breakdownMetrics?.readyThroughDate ??
           extendedSurfaceMetrics.readyThroughDate,
+        oldestStoredDate:
+          breakdownMetrics?.oldestStoredDate ??
+          extendedSurfaceMetrics.oldestStoredDate,
       }),
     };
   }
@@ -688,6 +718,7 @@ function buildExtendedStage(
         pendingSurfaceCount,
         pendingSurfaces,
         readyThroughDate: progressReadyThroughDate,
+        oldestStoredDate: progressOldestStoredDate,
       }),
     };
   }
@@ -703,6 +734,7 @@ function buildExtendedStage(
       pendingSurfaceCount,
       pendingSurfaces,
       readyThroughDate: progressReadyThroughDate,
+      oldestStoredDate: progressOldestStoredDate,
     }),
   };
 }

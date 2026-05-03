@@ -192,6 +192,7 @@ export interface MetaIntegrationSummaryStageEvidence {
   retryableFailedPartitions?: number;
   deadLetterPartitions?: number;
   readyThroughDate?: string | null;
+  oldestStoredDate?: string | null;
   completedDays?: number;
   totalDays?: number;
   pendingSurfaceCount?: number;
@@ -380,6 +381,7 @@ export interface MetaStatusResponse {
         completedDays: number;
         totalDays: number;
         readyThroughDate: string | null;
+        oldestStoredDate?: string | null;
       } | null;
       selectedRange?: {
         startDate: string;
@@ -388,12 +390,14 @@ export interface MetaStatusResponse {
         totalDays: number;
         readyThroughDate: string | null;
         isComplete: boolean;
+        oldestStoredDate?: string | null;
       } | null;
       scopes?: Array<{
         scope: string;
         completedDays: number;
         totalDays: number;
         readyThroughDate: string | null;
+        oldestStoredDate?: string | null;
         latestBackgroundActivityAt: string | null;
         deadLetterCount: number;
       }>;
@@ -401,27 +405,32 @@ export interface MetaStatusResponse {
         completedDays: number;
         totalDays: number;
         readyThroughDate: string | null;
+        oldestStoredDate?: string | null;
       } | null;
       campaignDaily?: {
         completedDays: number;
         totalDays: number;
         readyThroughDate: string | null;
+        oldestStoredDate?: string | null;
       } | null;
       adsetDaily?: {
         completedDays: number;
         totalDays: number;
         readyThroughDate: string | null;
+        oldestStoredDate?: string | null;
       } | null;
       breakdowns?: {
         completedDays: number;
         totalDays: number;
         readyThroughDate: string | null;
+        oldestStoredDate?: string | null;
       } | null;
       breakdownsBySurface?: {
         age: {
           completedDays: number;
           totalDays: number;
           readyThroughDate: string | null;
+          oldestStoredDate?: string | null;
           isComplete: boolean;
           supportStartDate?: string | null;
           isBlocked?: boolean;
@@ -430,6 +439,7 @@ export interface MetaStatusResponse {
           completedDays: number;
           totalDays: number;
           readyThroughDate: string | null;
+          oldestStoredDate?: string | null;
           isComplete: boolean;
           supportStartDate?: string | null;
           isBlocked?: boolean;
@@ -438,6 +448,7 @@ export interface MetaStatusResponse {
           completedDays: number;
           totalDays: number;
           readyThroughDate: string | null;
+          oldestStoredDate?: string | null;
           isComplete: boolean;
           supportStartDate?: string | null;
           isBlocked?: boolean;
@@ -447,6 +458,7 @@ export interface MetaStatusResponse {
         completedDays: number;
         totalDays: number;
         readyThroughDate: string | null;
+        oldestStoredDate?: string | null;
         previewReadyRows?: number;
         totalRows?: number;
         previewReadyPercent?: number;
@@ -626,6 +638,7 @@ export interface MetaStatusResponse {
       historicalCompletedDays: number;
       historicalTotalDays: number;
       readyThroughDate: string | null;
+      oldestStoredDate?: string | null;
     }
   >;
   priorityWindow?: {

@@ -10,6 +10,7 @@ let mockDateRange = {
   sinceDate: "",
 };
 let mockSearchParams = new URLSearchParams();
+let mockMetaReferenceState: Record<string, unknown> = {};
 let observedQueryKeys: Record<string, unknown[]> = {};
 let observedQueryOptions: Record<string, { enabled?: boolean }> = {};
 const mutateRunAnalysis = vi.fn();
@@ -40,6 +41,16 @@ vi.mock("@tanstack/react-query", () => ({
     observedQueryOptions[key] = { enabled: input.enabled };
     if (key === "meta-creatives-creatives-metadata") {
       return baseQueryState({ data: { status: "ok", rows: [] } });
+    }
+    if (key === "meta-creatives-reference") {
+      return baseQueryState({
+        data: {
+          currentDateInTimezone: "2026-04-14",
+          primaryAccountTimezone: "UTC",
+        },
+        isSuccess: true,
+        ...mockMetaReferenceState,
+      });
     }
     if (key === "creative-decision-os-snapshot") {
       return baseQueryState({
@@ -250,6 +261,7 @@ describe("Creatives page Decision OS snapshot contract", () => {
       sinceDate: "",
     };
     mockSearchParams = new URLSearchParams();
+    mockMetaReferenceState = {};
   });
 
   it("loads snapshots without date range in the Decision OS query identity", () => {
@@ -278,6 +290,21 @@ describe("Creatives page Decision OS snapshot contract", () => {
 
     expect(observedQueryKeys["creative-decision-os-snapshot"]).toEqual(firstSnapshotKey);
     expect(observedQueryKeys["meta-creatives-creatives-metadata"]).toContain("2026-03-16");
+  });
+
+  it("keeps the table in loading state while waiting for the Meta reference day", () => {
+    mockMetaReferenceState = {
+      data: undefined,
+      isLoading: true,
+      isFetching: true,
+      isSuccess: false,
+    };
+
+    const html = renderToStaticMarkup(React.createElement(CreativesPage));
+
+    expect(observedQueryOptions["meta-creatives-creatives-metadata"]?.enabled).toBe(false);
+    expect(html).toContain("table-shell");
+    expect(html).not.toContain("No creative performance data found for the selected range");
   });
 
   it("shows the v2 buyer preview by default and only hides it with explicit off query values", () => {

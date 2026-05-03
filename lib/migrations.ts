@@ -2264,6 +2264,31 @@ export async function runMigrations(options?: {
           created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
+        sql`DO $$
+          BEGIN
+            IF EXISTS (
+              SELECT 1
+              FROM pg_constraint
+              WHERE conrelid = 'meta_raw_snapshots'::regclass
+                AND conname = 'meta_raw_snapshots_status_check'
+                AND pg_get_constraintdef(oid) NOT ILIKE '%superseded%'
+            ) THEN
+              ALTER TABLE meta_raw_snapshots
+                DROP CONSTRAINT meta_raw_snapshots_status_check;
+              ALTER TABLE meta_raw_snapshots
+                ADD CONSTRAINT meta_raw_snapshots_status_check
+                CHECK (status IN ('fetched', 'partial', 'failed', 'superseded'));
+            ELSIF NOT EXISTS (
+              SELECT 1
+              FROM pg_constraint
+              WHERE conrelid = 'meta_raw_snapshots'::regclass
+                AND conname = 'meta_raw_snapshots_status_check'
+            ) THEN
+              ALTER TABLE meta_raw_snapshots
+                ADD CONSTRAINT meta_raw_snapshots_status_check
+                CHECK (status IN ('fetched', 'partial', 'failed', 'superseded'));
+            END IF;
+          END $$`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshots_business ON meta_raw_snapshots (business_id, fetched_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshots_account ON meta_raw_snapshots (provider_account_id, fetched_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshots_window ON meta_raw_snapshots (business_id, provider_account_id, start_date, end_date)`.catch(() => {}),

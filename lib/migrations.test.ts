@@ -85,6 +85,11 @@ describe("runMigrations", () => {
     expect(queries.join("\n")).toContain("cost_fulfillment_percent");
     expect(queries.join("\n")).toContain("cost_payment_processing_percent");
     expect(queries.join("\n")).toContain("idx_meta_account_daily_business_account_date");
+    expect(queries.join("\n")).toContain("pg_get_constraintdef(oid) NOT ILIKE '%superseded%'");
+    expect(queries.join("\n")).toContain("DROP CONSTRAINT meta_raw_snapshots_status_check");
+    expect(queries.join("\n")).toContain(
+      "CHECK (status IN ('fetched', 'partial', 'failed', 'superseded'))",
+    );
     expect(queries.join("\n")).toContain("idx_meta_creative_daily_business_account_date_creative");
     expect(queries.join("\n")).toContain("CREATE TABLE IF NOT EXISTS meta_creative_media");
     expect(queries.join("\n")).toContain(

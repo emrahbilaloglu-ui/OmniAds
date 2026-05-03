@@ -1,12 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mapApiRowToUiRow } from "@/app/(dashboard)/creatives/page-support";
 import {
   applyCreativeFilters,
   filterRowsForCreativeBenchmarkScope,
+  resolveCreativeDateRange,
   resolveCreativeBenchmarkCampaignContext,
   resolveCreativeBenchmarkScopeSelection,
 } from "@/components/creatives/creatives-top-section-support";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
+
+const ORIGINAL_TZ = process.env.TZ;
 
 function buildApiRow(overrides: Partial<MetaCreativeApiRow> = {}): MetaCreativeApiRow {
   return {
@@ -96,6 +99,33 @@ function buildApiRow(overrides: Partial<MetaCreativeApiRow> = {}): MetaCreativeA
     ...overrides,
   };
 }
+
+describe("resolveCreativeDateRange", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    if (ORIGINAL_TZ === undefined) {
+      delete process.env.TZ;
+    } else {
+      process.env.TZ = ORIGINAL_TZ;
+    }
+  });
+
+  it("keeps today on the local calendar day instead of shifting to UTC yesterday", () => {
+    process.env.TZ = "Europe/Istanbul";
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-03T16:00:00.000Z"));
+
+    expect(
+      resolveCreativeDateRange({
+        preset: "today",
+        customStart: "",
+        customEnd: "",
+        lastDays: 1,
+        sinceDate: "",
+      }),
+    ).toEqual({ start: "2026-05-03", end: "2026-05-03" });
+  });
+});
 
 describe("applyCreativeFilters", () => {
   it("filters deterministic taxonomy fields directly from the creative row", () => {

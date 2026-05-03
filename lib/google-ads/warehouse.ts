@@ -5146,7 +5146,7 @@ export async function getGoogleAdsCoveredDates(input: {
 
 export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
   await assertGoogleAdsRequestReadTablesReady(
-    ["google_ads_sync_partitions"],
+    ["google_ads_sync_partitions", "google_ads_sync_checkpoints"],
     "google_ads_queue_health",
   );
   const sql = getDb();
@@ -5205,6 +5205,42 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
       COUNT(*) FILTER (WHERE lane = 'maintenance' AND status = 'queued') AS maintenance_queue_depth,
       COUNT(*) FILTER (WHERE lane = 'maintenance' AND status IN ('leased', 'running')) AS maintenance_leased_partitions,
       COUNT(*) FILTER (WHERE status = 'dead_letter') AS dead_letter_partitions,
+      COUNT(*) FILTER (
+        WHERE status = 'dead_letter'
+          AND NOT (
+            lane = 'extended'
+            AND (
+              source IN ('historical', 'historical_recovery')
+              OR (
+                source = 'core_success'
+                AND partition_date < CURRENT_DATE - interval '13 days'
+              )
+            )
+            AND EXISTS (
+              SELECT 1
+              FROM google_ads_sync_checkpoints checkpoint
+              WHERE checkpoint.partition_id = google_ads_sync_partitions.id
+                AND checkpoint.poisoned_at IS NOT NULL
+            )
+          )
+      ) AS blocking_dead_letter_partitions,
+      COUNT(*) FILTER (
+        WHERE status = 'dead_letter'
+          AND lane = 'extended'
+          AND (
+            source IN ('historical', 'historical_recovery')
+            OR (
+              source = 'core_success'
+              AND partition_date < CURRENT_DATE - interval '13 days'
+            )
+          )
+          AND EXISTS (
+            SELECT 1
+            FROM google_ads_sync_checkpoints checkpoint
+            WHERE checkpoint.partition_id = google_ads_sync_partitions.id
+              AND checkpoint.poisoned_at IS NOT NULL
+          )
+      ) AS quarantined_historical_dead_letter_partitions,
       MIN(partition_date) FILTER (WHERE status = 'queued') AS oldest_queued_partition,
       MAX(updated_at) FILTER (WHERE lane = 'core') AS latest_core_activity_at,
       MAX(updated_at) FILTER (WHERE lane = 'extended') AS latest_extended_activity_at,
@@ -5231,6 +5267,10 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
     maintenanceQueueDepth: toNumber(row.maintenance_queue_depth),
     maintenanceLeasedPartitions: toNumber(row.maintenance_leased_partitions),
     deadLetterPartitions: toNumber(row.dead_letter_partitions),
+    blockingDeadLetterPartitions: toNumber(row.blocking_dead_letter_partitions),
+    quarantinedHistoricalDeadLetterPartitions: toNumber(
+      row.quarantined_historical_dead_letter_partitions,
+    ),
     oldestQueuedPartition: row.oldest_queued_partition
       ? normalizeDate(row.oldest_queued_partition)
       : null,

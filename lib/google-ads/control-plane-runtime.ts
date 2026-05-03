@@ -72,7 +72,8 @@ export function resolveGoogleAdsControlPlaneSyncTruth(input: {
       input.deadLetterPartitions === 0 &&
       effectiveLatestSyncStatus !== "failed" &&
       (effectiveLatestSyncStatus === "succeeded" ||
-        hasRecentSuccessfulScopeSync),
+        hasRecentSuccessfulScopeSync ||
+        coreServingReady),
   };
 }
 
@@ -194,14 +195,16 @@ export async function buildGoogleAdsReleaseGateCanaries(
       });
       const latestSyncStatus =
         latestSyncHealth?.status != null ? String(latestSyncHealth.status) : null;
+      const blockingDeadLetterPartitions =
+        queueHealth.blockingDeadLetterPartitions ?? queueHealth.deadLetterPartitions;
       const controlPlaneSyncTruth = resolveGoogleAdsControlPlaneSyncTruth({
         latestSyncStatus,
         queueDepth: queueHealth.queueDepth,
-        deadLetterPartitions: queueHealth.deadLetterPartitions,
+        deadLetterPartitions: blockingDeadLetterPartitions,
         scopeStates: flattenedScopeStates,
       });
       const blocked =
-        queueHealth.deadLetterPartitions > 0 ||
+        blockingDeadLetterPartitions > 0 ||
         controlPlaneSyncTruth.effectiveLatestSyncStatus === "failed";
       const progressState = deriveProviderProgressState({
         queueDepth: queueHealth.queueDepth,
@@ -230,7 +233,7 @@ export async function buildGoogleAdsReleaseGateCanaries(
         blocked,
         staleRunPressure: 0,
         progressEvidence,
-        blockedReasonCodes: queueHealth.deadLetterPartitions > 0
+        blockedReasonCodes: blockingDeadLetterPartitions > 0
           ? ["required_dead_letter_partitions"]
           : controlPlaneSyncTruth.effectiveLatestSyncStatus === "failed"
             ? ["latest_sync_failed"]
@@ -255,7 +258,7 @@ export async function buildGoogleAdsReleaseGateCanaries(
         queueDepth: queueHealth.queueDepth,
         leasedPartitions: queueHealth.leasedPartitions,
         retryableFailedPartitions: 0,
-        deadLetterPartitions: queueHealth.deadLetterPartitions,
+        deadLetterPartitions: blockingDeadLetterPartitions,
         staleLeasePartitions: 0,
         syncTruthState: unifiedTruth.syncTruthState,
         truthReady: controlPlaneSyncTruth.servingReady,
@@ -269,6 +272,9 @@ export async function buildGoogleAdsReleaseGateCanaries(
         blockerClass: candidate?.blockerClass ?? "not_release_ready",
         evidence: {
           ...(candidate?.evidence ?? {}),
+          totalDeadLetterPartitions: queueHealth.deadLetterPartitions,
+          quarantinedHistoricalDeadLetterPartitions:
+            queueHealth.quarantinedHistoricalDeadLetterPartitions ?? 0,
           latestSyncStatus: controlPlaneSyncTruth.effectiveLatestSyncStatus,
         },
       };

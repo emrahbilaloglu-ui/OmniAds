@@ -78,6 +78,7 @@ const {
   cleanupGoogleAdsPartitionOrchestration,
   completeGoogleAdsPartitionAttempt,
   getGoogleAdsPartitionHealth,
+  getGoogleAdsQueueHealth,
   getGoogleAdsWarehouseIntegrityIncidents,
   heartbeatGoogleAdsPartitionLease,
   leaseGoogleAdsSyncPartitions,
@@ -1063,6 +1064,52 @@ describe("getGoogleAdsPartitionHealth", () => {
     expect(result.latestActivityAt).toBeNull();
     expect(result.queueDepth).toBe(0);
     expect(result.leasedPartitions).toBe(0);
+  });
+});
+
+describe("getGoogleAdsQueueHealth", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("separates quarantined historical dead letters from release-blocking dead letters", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      queries.push(query);
+      return [
+        {
+          queue_depth: 0,
+          leased_partitions: 0,
+          core_queue_depth: 0,
+          core_leased_partitions: 0,
+          extended_queue_depth: 0,
+          extended_leased_partitions: 0,
+          extended_recent_queue_depth: 0,
+          extended_recent_leased_partitions: 0,
+          extended_historical_queue_depth: 0,
+          extended_historical_leased_partitions: 0,
+          maintenance_queue_depth: 0,
+          maintenance_leased_partitions: 0,
+          dead_letter_partitions: 3,
+          blocking_dead_letter_partitions: 0,
+          quarantined_historical_dead_letter_partitions: 3,
+          oldest_queued_partition: null,
+          latest_core_activity_at: null,
+          latest_extended_activity_at: null,
+          latest_maintenance_activity_at: null,
+        },
+      ];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await getGoogleAdsQueueHealth({ businessId: "biz-1" });
+
+    expect(result.deadLetterPartitions).toBe(3);
+    expect(result.blockingDeadLetterPartitions).toBe(0);
+    expect(result.quarantinedHistoricalDeadLetterPartitions).toBe(3);
+    expect(queries[0]).toContain("poisoned_at IS NOT NULL");
+    expect(queries[0]).toContain("blocking_dead_letter_partitions");
   });
 });
 

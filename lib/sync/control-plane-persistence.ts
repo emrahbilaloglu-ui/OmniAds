@@ -156,6 +156,7 @@ export async function getSyncControlPlanePersistenceStatus(input?: {
         WHERE build_id = ${identity.buildId}
           AND environment = ${identity.environment}
         ORDER BY emitted_at DESC
+        LIMIT 100
       ` as Promise<Array<Record<string, unknown>>>,
       sql`
         SELECT id, build_id, environment, gate_kind, verdict, emitted_at
@@ -163,6 +164,7 @@ export async function getSyncControlPlanePersistenceStatus(input?: {
         FROM sync_release_gates
         WHERE build_id = ${identity.buildId}
         ORDER BY emitted_at DESC
+        LIMIT 100
       ` as Promise<Array<Record<string, unknown>>>,
       sql`
         SELECT
@@ -170,6 +172,7 @@ export async function getSyncControlPlanePersistenceStatus(input?: {
           gate_scope, mode, base_result, blocker_class, summary, break_glass, override_reason, evidence_json
         FROM sync_release_gates
         ORDER BY emitted_at DESC
+        LIMIT 100
       ` as Promise<Array<Record<string, unknown>>>,
       sql`
         SELECT id, build_id, environment, provider_scope, eligible, emitted_at

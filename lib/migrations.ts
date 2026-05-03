@@ -2086,6 +2086,8 @@ export async function runMigrations(options?: {
           ADD COLUMN IF NOT EXISTS gate_scope TEXT NOT NULL DEFAULT 'release_readiness'`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_release_gates_build
           ON sync_release_gates (build_id, environment, gate_kind, emitted_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_sync_release_gates_emitted
+          ON sync_release_gates (emitted_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS sync_repair_plans (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           build_id            TEXT NOT NULL,
@@ -2107,6 +2109,8 @@ export async function runMigrations(options?: {
           DROP CONSTRAINT IF EXISTS sync_repair_plans_build_id_environment_provider_scope_plan_mode_key`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_repair_plans_build
           ON sync_repair_plans (build_id, environment, provider_scope, emitted_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_sync_repair_plans_provider_latest
+          ON sync_repair_plans (provider_scope, emitted_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS sync_repair_executions (
           id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           build_id                TEXT NOT NULL,

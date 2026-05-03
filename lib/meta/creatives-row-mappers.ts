@@ -779,15 +779,32 @@ export function groupRows(
     }
     const previewRow =
       list.find((item) =>
-        Boolean(item.preview?.video_url || item.preview?.image_url || item.preview?.poster_url)
+        Boolean(
+          item.preview?.video_url ||
+            item.preview?.image_url ||
+            item.preview?.poster_url ||
+            item.preview_url ||
+            item.image_url ||
+            item.thumbnail_url
+        )
       ) ?? null;
     const groupedPreview = previewRow?.preview ?? {
-      render_mode: "unavailable" as const,
+      render_mode:
+        previewRow?.preview_url || previewRow?.image_url || previewRow?.thumbnail_url
+          ? ("image" as const)
+          : ("unavailable" as const),
       html: null,
-      image_url: null,
+      image_url: previewRow?.image_url ?? previewRow?.preview_url ?? null,
       video_url: null,
-      poster_url: null,
-      source: null,
+      poster_url: previewRow?.thumbnail_url ?? null,
+      source:
+        previewRow?.image_url
+          ? ("image_url" as const)
+          : previewRow?.thumbnail_url
+            ? ("thumbnail_url" as const)
+            : previewRow?.preview_url
+              ? ("preview_url" as const)
+              : null,
       is_catalog: list.some((item) => Boolean(item.preview?.is_catalog ?? item.is_catalog)),
     };
     const groupedLegacyState: LegacyPreviewState = groupedPreview.render_mode === "unavailable" ? "unavailable" : "preview";

@@ -332,6 +332,80 @@ describe("meta creatives warehouse", () => {
     });
   });
 
+  it("infers preview mode from retained top-level media URLs when nested preview is absent", async () => {
+    const projectionWithoutPreview = buildProjectionRow({
+      name: "Dimension Creative",
+      preview_url: "https://example.com/preview.jpg",
+      thumbnail_url: "https://example.com/thumb.jpg",
+      image_url: "https://example.com/image.jpg",
+      table_thumbnail_url: null,
+      card_preview_url: null,
+    });
+    delete (projectionWithoutPreview as Record<string, unknown>).preview;
+    vi.mocked(warehouse.getMetaCreativeDailyRange).mockResolvedValue([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adId: "ad-1",
+        creativeId: "crt-1",
+        creativeName: "Creative 1",
+        headline: null,
+        primaryText: null,
+        destinationUrl: null,
+        thumbnailUrl: null,
+        assetType: "image",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 25,
+        impressions: 100,
+        clicks: 4,
+        conversions: 2,
+        revenue: 50,
+        roas: 2,
+        ctr: 4,
+        cpc: 6.25,
+        linkClicks: 3,
+        sourceSnapshotId: null,
+        payloadJson: {},
+      },
+    ] as never);
+    vi.mocked(requestModelStore.readMetaCreativeDimensions).mockResolvedValue(
+      new Map([
+        [
+          "crt-1",
+          {
+            projectionJson: projectionWithoutPreview,
+          },
+        ],
+      ]) as never,
+    );
+
+    const payload = await getMetaCreativesWarehousePayload({
+      businessId: "biz-1",
+      start: "2026-04-03",
+      end: "2026-04-03",
+      groupBy: "creative",
+      format: "all",
+      sort: "spend",
+      mediaMode: "metadata",
+    });
+
+    expect(payload.rows[0]).toMatchObject({
+      creative_id: "crt-1",
+      preview_status: "ready",
+      preview_url: "https://example.com/image.jpg",
+      image_url: "https://example.com/image.jpg",
+    });
+    expect(payload.rows[0]?.preview).toMatchObject({
+      render_mode: "image",
+      image_url: "https://example.com/image.jpg",
+      poster_url: "https://example.com/thumb.jpg",
+    });
+  });
+
   it("hydrates creative-group warehouse rows from the richest retained media row", async () => {
     vi.mocked(warehouse.getMetaCreativeDailyRange).mockResolvedValue([
       {

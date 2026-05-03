@@ -204,13 +204,15 @@ export async function getMetaCreativesApiPayload(input: MetaCreativesLivePayload
     start <= rangeContext.selectedRangeTruthEndDate
       ? rangeContext.selectedRangeTruthEndDate
       : end;
-  const liveReadSource = rangeContext.isSelectedCurrentDay
+  const selectedRangeNeedsCurrentDayLive =
+    rangeContext.isSelectedCurrentDay || rangeContext.selectedRangeIncludesCurrentDay;
+  const liveReadSource = selectedRangeNeedsCurrentDayLive
     ? "current_day_live"
     : "live_fallback";
-  const fallbackEnd = rangeContext.isSelectedCurrentDay ? end : effectiveEnd;
+  const fallbackEnd = selectedRangeNeedsCurrentDayLive ? end : effectiveEnd;
 
   if (
-    !rangeContext.isSelectedCurrentDay &&
+    !selectedRangeNeedsCurrentDayLive &&
     !shouldBypassCreativeWarehouse(input) &&
     (await hasCreativeWarehouseCoverage({
       businessId,
@@ -275,12 +277,12 @@ export async function getMetaCreativesApiPayload(input: MetaCreativesLivePayload
       .then((payload) => {
         const rows = Array.isArray(payload.rows) ? payload.rows : [];
         const isCurrentDayPartial =
-          rangeContext.isSelectedCurrentDay && rows.length === 0;
+          selectedRangeNeedsCurrentDayLive && rows.length === 0;
         return {
           ...payload,
           snapshot_source: "live",
           readSource: liveReadSource,
-          ...(rangeContext.isSelectedCurrentDay
+          ...(selectedRangeNeedsCurrentDayLive
             ? {
                 isPartial: isCurrentDayPartial,
                 notReadyReason: isCurrentDayPartial
@@ -294,7 +296,7 @@ export async function getMetaCreativesApiPayload(input: MetaCreativesLivePayload
         };
       })
       .catch((error: unknown) => {
-        if (!rangeContext.isSelectedCurrentDay) throw error;
+        if (!selectedRangeNeedsCurrentDayLive) throw error;
         console.warn("[meta-creatives] current_day_live_failed", {
           businessId,
           message: error instanceof Error ? error.message : String(error),

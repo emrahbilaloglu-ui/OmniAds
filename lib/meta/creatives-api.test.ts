@@ -136,7 +136,7 @@ describe("getMetaCreativesApiPayload", () => {
     expect(service.buildCreativesResponse).not.toHaveBeenCalled();
   });
 
-  it("uses yesterday as the warehouse truth end when a selected range includes today", async () => {
+  it("reads ranges ending today live so current-day creative rows are included", async () => {
     vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
       primaryAccountTimezone: "UTC",
       currentDateInTimezone: "2026-03-31",
@@ -148,53 +148,6 @@ describe("getMetaCreativesApiPayload", () => {
       withinBreakdownHistory: true,
       historicalReadMode: "historical_authoritative",
       breakdownReadMode: "historical_authoritative",
-    } as never);
-    vi.mocked(warehouse.getMetaCreativeDailyCoverage).mockResolvedValue({
-      completed_days: 30,
-      ready_through_date: "2026-03-30",
-      latest_updated_at: "2026-03-31T03:00:00.000Z",
-    } as never);
-    vi.mocked(warehousePayloads.getMetaCreativesWarehousePayload).mockResolvedValue({
-      status: "ok",
-      rows: [],
-      snapshot_source: "persisted",
-    } as never);
-
-    const result = await getMetaCreativesApiPayload(buildInput());
-
-    expect((result as { readSource?: string }).readSource).toBe("warehouse");
-    expect(warehouse.getMetaCreativeDailyCoverage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        startDate: "2026-03-01",
-        endDate: "2026-03-30",
-      }),
-    );
-    expect(warehousePayloads.getMetaCreativesWarehousePayload).toHaveBeenCalledWith(
-      expect.objectContaining({
-        start: "2026-03-01",
-        end: "2026-03-30",
-      }),
-    );
-    expect(service.buildCreativesResponse).not.toHaveBeenCalled();
-  });
-
-  it("excludes current-day rows from historical live fallback when a range ends today", async () => {
-    vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
-      primaryAccountTimezone: "UTC",
-      currentDateInTimezone: "2026-03-31",
-      isSelectedCurrentDay: false,
-      selectedRangeIncludesCurrentDay: true,
-      selectedRangeHistoricalEndDate: "2026-03-30",
-      selectedRangeTruthEndDate: "2026-03-30",
-      withinAuthoritativeHistory: true,
-      withinBreakdownHistory: true,
-      historicalReadMode: "historical_authoritative",
-      breakdownReadMode: "historical_authoritative",
-    } as never);
-    vi.mocked(warehouse.getMetaCreativeDailyCoverage).mockResolvedValue({
-      completed_days: 0,
-      ready_through_date: null,
-      latest_updated_at: null,
     } as never);
     vi.mocked(service.buildCreativesResponse).mockResolvedValue({
       status: "ok",
@@ -206,11 +159,49 @@ describe("getMetaCreativesApiPayload", () => {
 
     const result = await getMetaCreativesApiPayload(buildInput(request));
 
-    expect((result as { readSource?: string }).readSource).toBe("live_fallback");
+    expect((result as { readSource?: string }).readSource).toBe("current_day_live");
+    expect(warehouse.getMetaCreativeDailyCoverage).not.toHaveBeenCalled();
+    expect(warehousePayloads.getMetaCreativesWarehousePayload).not.toHaveBeenCalled();
+    expect(service.buildCreativesResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz",
+        start: "2026-03-01",
+        end: "2026-03-31",
+        allowSnapshotPersistence: false,
+        allowSnapshotRefreshTrigger: false,
+      }),
+      request,
+    );
+  });
+
+  it("uses the original end date for current-day live reads when a range ends today", async () => {
+    vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
+      primaryAccountTimezone: "UTC",
+      currentDateInTimezone: "2026-03-31",
+      isSelectedCurrentDay: false,
+      selectedRangeIncludesCurrentDay: true,
+      selectedRangeHistoricalEndDate: "2026-03-30",
+      selectedRangeTruthEndDate: "2026-03-30",
+      withinAuthoritativeHistory: true,
+      withinBreakdownHistory: true,
+      historicalReadMode: "historical_authoritative",
+      breakdownReadMode: "historical_authoritative",
+    } as never);
+    vi.mocked(service.buildCreativesResponse).mockResolvedValue({
+      status: "ok",
+      rows: [],
+      media_mode: "full",
+      media_hydrated: false,
+    } as never);
+    const request = new NextRequest("http://localhost/api/meta/creatives?businessId=biz");
+
+    const result = await getMetaCreativesApiPayload(buildInput(request));
+
+    expect((result as { readSource?: string }).readSource).toBe("current_day_live");
     expect(service.buildCreativesResponse).toHaveBeenCalledWith(
       expect.objectContaining({
         start: "2026-03-01",
-        end: "2026-03-30",
+        end: "2026-03-31",
         allowSnapshotPersistence: false,
         allowSnapshotRefreshTrigger: false,
       }),

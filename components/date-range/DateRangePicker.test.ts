@@ -2,6 +2,7 @@ import {
   DATE_RANGE_PICKER_INTERNALS,
   DEFAULT_DATE_RANGE,
   getPresetDates,
+  getPresetDatesForReferenceDate,
   getPickerKeyboardAction,
   resolveRangeCalendarDateClick,
   resolveRangePresetSelection,
@@ -136,6 +137,17 @@ describe("DateRangePicker quick-apply behavior", () => {
     const result = getPresetDates("today");
 
     expect(result).toEqual({ start: "2026-04-01", end: "2026-04-01" });
+  });
+
+  it("resolves rolling presets as completed windows that exclude today", () => {
+    expect(getPresetDatesForReferenceDate("7d", "2026-05-03")).toEqual({
+      start: "2026-04-26",
+      end: "2026-05-02",
+    });
+    expect(getPresetDatesForReferenceDate("30d", "2026-05-03")).toEqual({
+      start: "2026-04-03",
+      end: "2026-05-02",
+    });
   });
 });
 

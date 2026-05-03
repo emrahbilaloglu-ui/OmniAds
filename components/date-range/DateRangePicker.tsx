@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Popover } from "radix-ui";
 import {
   CalendarIcon,
@@ -121,6 +121,13 @@ export function getPresetDatesForReferenceDate(
   customEnd?: string
 ): { start: string; end: string } {
   const today = parseISODate(referenceDate);
+  const completedRollingWindow = (days: number) => {
+    const end = addDays(today, -1);
+    return {
+      start: toISO(addDays(end, -(days - 1))),
+      end: toISO(end),
+    };
+  };
 
   switch (preset) {
     case "today":
@@ -130,17 +137,17 @@ export function getPresetDatesForReferenceDate(
       return { start: yesterday, end: yesterday };
     }
     case "3d":
-      return { start: toISO(addDays(today, -2)), end: referenceDate };
+      return completedRollingWindow(3);
     case "7d":
-      return { start: toISO(addDays(today, -6)), end: referenceDate };
+      return completedRollingWindow(7);
     case "14d":
-      return { start: toISO(addDays(today, -13)), end: referenceDate };
+      return completedRollingWindow(14);
     case "30d":
-      return { start: toISO(addDays(today, -29)), end: referenceDate };
+      return completedRollingWindow(30);
     case "90d":
-      return { start: toISO(addDays(today, -89)), end: referenceDate };
+      return completedRollingWindow(90);
     case "365d":
-      return { start: toISO(addDays(today, -364)), end: referenceDate };
+      return completedRollingWindow(365);
     case "lastMonth": {
       const year = today.getUTCFullYear();
       const month = today.getUTCMonth();
@@ -627,12 +634,22 @@ function RangePanel({
   const [pickStep, setPickStep] = useState<"start" | "end">("start");
   const [hoverDate, setHoverDate] = useState("");
   const [visibleMonthDate, setVisibleMonthDate] = useState<Date>(() => parseISODate(resolvedRange.end));
+  const previousPresetRef = useRef(draft.rangePreset);
+  const previousReferenceDateRef = useRef(referenceDate);
 
   useEffect(() => {
+    const presetChanged = previousPresetRef.current !== draft.rangePreset;
+    const referenceChanged = previousReferenceDateRef.current !== referenceDate;
+    previousPresetRef.current = draft.rangePreset;
+    previousReferenceDateRef.current = referenceDate;
+
+    if (!presetChanged && !referenceChanged) return;
+    if (draft.rangePreset === "custom") return;
+
     setVisibleMonthDate(parseISODate(resolvedRange.end));
     setPickStep("start");
     setHoverDate("");
-  }, [draft.rangePreset, resolvedRange.end, resolvedRange.start]);
+  }, [draft.rangePreset, referenceDate, resolvedRange.end]);
 
   const visibleYear = visibleMonthDate.getUTCFullYear();
   const visibleMonth = visibleMonthDate.getUTCMonth();
@@ -671,7 +688,9 @@ function RangePanel({
                       onClick={() => {
                         const selection = resolveRangePresetSelection(draft, preset.value, referenceDate);
                         onDraftChange(selection.nextDraft);
+                        setVisibleMonthDate(parseISODate(selection.nextDraft.customEnd));
                         setPickStep("start");
+                        setHoverDate("");
                         if (selection.shouldApply) onApply(selection.nextDraft);
                       }}
                       className={cn(
@@ -952,6 +971,7 @@ export function DateRangePicker({
 }: DateRangePickerProps) {
   const [openMode, setOpenMode] = useState<"range" | "comparison" | null>(null);
   const [draft, setDraft] = useState<DateRangeValue>(value);
+  const [, startApplyTransition] = useTransition();
   const panelRef = useRef<HTMLDivElement | null>(null);
 
   const availableRangePresets = useMemo(
@@ -993,8 +1013,11 @@ export function DateRangePicker({
   }
 
   function handleApply(nextDraft?: DateRangeValue) {
-    onChange(nextDraft ?? draft);
+    const appliedDraft = nextDraft ?? draft;
     setOpenMode(null);
+    startApplyTransition(() => {
+      onChange(appliedDraft);
+    });
   }
 
   function handleCancel() {

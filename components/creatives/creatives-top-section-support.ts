@@ -68,11 +68,23 @@ export interface CreativeBenchmarkScopeSelection {
   scopeLabel: string;
 }
 
-export function resolveCreativeDateRange(value: CreativeDateRangeValue): {
+function startOfReferenceDay(referenceDate?: string | null): Date {
+  if (!referenceDate) return startOfDay(new Date());
+  const [year, month, day] = referenceDate.split("-").map((part) => Number(part));
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return startOfDay(new Date());
+  }
+  return new Date(year, month - 1, day);
+}
+
+export function resolveCreativeDateRange(
+  value: CreativeDateRangeValue,
+  referenceDate?: string | null,
+): {
   start: string;
   end: string;
 } {
-  const today = startOfDay(new Date());
+  const today = startOfReferenceDay(referenceDate);
   const completedRollingWindow = (days: number) => {
     const end = addDays(today, -1);
     return {

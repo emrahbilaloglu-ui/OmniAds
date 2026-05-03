@@ -83,10 +83,11 @@ import {
 
 function clampCreativeDateRangeToHistoryLimit(
   value: CreativeDateRangeValue,
-  maxHistoryDays: number | null
+  maxHistoryDays: number | null,
+  referenceDate?: string | null,
 ): CreativeDateRangeValue {
   if (maxHistoryDays === null) return value;
-  const resolved = resolveCreativeDateRange(value);
+  const resolved = resolveCreativeDateRange(value, referenceDate);
   const totalDays = dayCountInclusive(resolved.start, resolved.end);
   if (totalDays <= maxHistoryDays) return value;
   return {
@@ -95,6 +96,40 @@ function clampCreativeDateRangeToHistoryLimit(
     customStart: addDaysToIsoDate(resolved.end, -(maxHistoryDays - 1)),
     customEnd: resolved.end,
     lastDays: Math.min(value.lastDays, maxHistoryDays),
+  };
+}
+
+async function fetchCreativeMetaReferenceStatus(businessId: string): Promise<{
+  currentDateInTimezone: string | null;
+  primaryAccountTimezone: string | null;
+}> {
+  const params = new URLSearchParams({ businessId });
+  const response = await fetch(`/api/meta/status?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | {
+        currentDateInTimezone?: unknown;
+        primaryAccountTimezone?: unknown;
+      }
+    | null;
+  if (!response.ok) {
+    throw new Error(
+      payload && typeof payload === "object" && "message" in payload
+        ? String((payload as { message?: unknown }).message)
+        : "Could not load Meta account calendar.",
+    );
+  }
+  return {
+    currentDateInTimezone:
+      typeof payload?.currentDateInTimezone === "string"
+        ? payload.currentDateInTimezone
+        : null,
+    primaryAccountTimezone:
+      typeof payload?.primaryAccountTimezone === "string"
+        ? payload.primaryAccountTimezone
+        : null,
   };
 }
 
@@ -208,15 +243,48 @@ export default function CreativesPage() {
       (bootstrapStatus !== "ready" && !metaView.isConnected));
   const assignedMetaAccounts = assignedAccountsByBusiness[businessId]?.meta ?? [];
   const metaHasAssignments = isDemoBusiness || assignedMetaAccounts.length > 0;
+  const canResolveMetaReference =
+    platform === "meta" &&
+    platformConnected &&
+    metaHasAssignments &&
+    !isDemoBusiness &&
+    Boolean(businessId);
+  const metaReferenceQuery = useQuery({
+    queryKey: ["meta-creatives-reference", businessId],
+    enabled: canResolveMetaReference,
+    staleTime: 60 * 1000,
+    queryFn: () => fetchCreativeMetaReferenceStatus(businessId),
+  });
+  const effectiveMetaReferenceDate =
+    metaReferenceQuery.data?.currentDateInTimezone ?? null;
+  const shouldFallbackToLocalMetaReference =
+    canResolveMetaReference &&
+    !effectiveMetaReferenceDate &&
+    (metaReferenceQuery.isSuccess || metaReferenceQuery.isError);
+  const isMetaReferenceReady =
+    !canResolveMetaReference ||
+    Boolean(effectiveMetaReferenceDate) ||
+    shouldFallbackToLocalMetaReference;
+  const isWaitingForMetaReference =
+    canResolveMetaReference && !isMetaReferenceReady;
   const canLoadCreatives =
-    platform === "meta" && platformConnected && metaHasAssignments;
+    platform === "meta" && platformConnected && metaHasAssignments && isMetaReferenceReady;
 
-  const { start: drStart, end: drEnd } = resolveCreativeDateRange(dateRangeValue);
+  const { start: drStart, end: drEnd } = resolveCreativeDateRange(
+    dateRangeValue,
+    effectiveMetaReferenceDate,
+  );
   const setBoundedDateRangeValue = useCallback(
     (next: CreativeDateRangeValue) => {
-      setDateRangeValue(clampCreativeDateRangeToHistoryLimit(next, allowedHistoryDays));
+      setDateRangeValue(
+        clampCreativeDateRangeToHistoryLimit(
+          next,
+          allowedHistoryDays,
+          effectiveMetaReferenceDate,
+        ),
+      );
     },
-    [allowedHistoryDays, setDateRangeValue]
+    [allowedHistoryDays, effectiveMetaReferenceDate, setDateRangeValue]
   );
   const mainTableApiGroupBy = mapCreativeGroupByToApi(groupBy);
   const endDate = new Date(`${drEnd}T00:00:00.000Z`);
@@ -230,11 +298,15 @@ export default function CreativesPage() {
   );
 
   useEffect(() => {
-    const normalized = clampCreativeDateRangeToHistoryLimit(dateRangeValue, allowedHistoryDays);
+    const normalized = clampCreativeDateRangeToHistoryLimit(
+      dateRangeValue,
+      allowedHistoryDays,
+      effectiveMetaReferenceDate,
+    );
     if (JSON.stringify(normalized) !== JSON.stringify(dateRangeValue)) {
       setDateRangeValue(normalized);
     }
-  }, [allowedHistoryDays, dateRangeValue, setDateRangeValue]);
+  }, [allowedHistoryDays, dateRangeValue, effectiveMetaReferenceDate, setDateRangeValue]);
 
   useEffect(() => {
     setHistoryPhaseStarted(false);
@@ -1174,7 +1246,7 @@ export default function CreativesPage() {
               onOpenRow={(rowId) => openCreativeDrawer(rowId, true)}
             />
 
-            {creativesMetadataQuery.isLoading && <CreativesTableShell />}
+            {(creativesMetadataQuery.isLoading || isWaitingForMetaReference) && <CreativesTableShell />}
 
             {creativesMetadataQuery.isError && (
               <ErrorState
@@ -1189,6 +1261,7 @@ export default function CreativesPage() {
             )}
 
             {!creativesMetadataQuery.isLoading &&
+              !isWaitingForMetaReference &&
               !creativesMetadataQuery.isError &&
               (deferredFilteredRows.length === 0 || dataStatus === "no_data") && (
                 <EmptyState
@@ -1214,6 +1287,7 @@ export default function CreativesPage() {
               )}
 
             {!creativesMetadataQuery.isLoading &&
+              !isWaitingForMetaReference &&
               !creativesMetadataQuery.isError &&
               deferredFilteredRows.length > 0 &&
               dataStatus !== "no_data" && (

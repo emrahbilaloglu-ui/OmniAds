@@ -11,7 +11,7 @@ const previewComponentFile =
 const creativesPageFile = "app/(dashboard)/creatives/page.tsx";
 const dataServiceFile = "src/services/data-service-ai.ts";
 const previewSurfaceMarker = "<CreativeDecisionOsV2PreviewSurface";
-const postPreviewMarker = "{creativesMetadataQuery.isLoading";
+const postPreviewMarker = "<CreativeDecisionCenterSurface";
 const mutatingRouteHandlerPattern =
   /export async function (POST|PUT|PATCH|DELETE)\b/;
 const commandCenterBoundaryPattern =

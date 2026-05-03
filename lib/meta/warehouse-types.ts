@@ -65,7 +65,7 @@ export type MetaWarehouseDataState =
   | "ready"
   | "action_required";
 
-export type MetaRawSnapshotStatus = "fetched" | "partial" | "failed";
+export type MetaRawSnapshotStatus = "fetched" | "partial" | "failed" | "superseded";
 
 export type MetaWarehouseScope =
   | "account_daily"

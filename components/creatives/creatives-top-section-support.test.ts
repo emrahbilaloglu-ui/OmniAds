@@ -126,6 +126,38 @@ describe("resolveCreativeDateRange", () => {
     ).toEqual({ start: "2026-05-03", end: "2026-05-03" });
   });
 
+  it("uses the Meta account reference day when provided", () => {
+    process.env.TZ = "Europe/Istanbul";
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-03T22:30:00.000Z"));
+
+    expect(
+      resolveCreativeDateRange(
+        {
+          preset: "today",
+          customStart: "",
+          customEnd: "",
+          lastDays: 1,
+          sinceDate: "",
+        },
+        "2026-05-03",
+      ),
+    ).toEqual({ start: "2026-05-03", end: "2026-05-03" });
+
+    expect(
+      resolveCreativeDateRange(
+        {
+          preset: "last7Days",
+          customStart: "",
+          customEnd: "",
+          lastDays: 7,
+          sinceDate: "",
+        },
+        "2026-05-03",
+      ),
+    ).toEqual({ start: "2026-04-26", end: "2026-05-02" });
+  });
+
   it("resolves last-day presets as completed windows that exclude today", () => {
     process.env.TZ = "Europe/Istanbul";
     vi.useFakeTimers();

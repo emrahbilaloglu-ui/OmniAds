@@ -2166,6 +2166,8 @@ async function syncMetaPartitionDay(input: {
     day: normalizedDay,
     referenceToday,
   });
+  const requiresAuthoritativePublication =
+    input.scopes.some((scope) => isMetaProductCoreCoverageScope(scope));
   const freshStart =
     truthState === "finalized" &&
     isMetaAuthoritativeHistoricalSource(input.source);
@@ -2371,6 +2373,7 @@ async function syncMetaPartitionDay(input: {
 
   if (
     truthState === "finalized" &&
+    requiresAuthoritativePublication &&
     isMetaAuthoritativeFinalizationV2EnabledForBusiness(input.businessId)
   ) {
     const { verification, plannerStates } = await captureMetaPartitionStage({

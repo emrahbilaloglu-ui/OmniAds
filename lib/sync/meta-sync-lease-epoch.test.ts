@@ -1047,6 +1047,50 @@ describe("processMetaLifecyclePartition lease epoch", () => {
     );
   });
 
+  it("does not requeue creative warehouse partitions on core authoritative publication state", async () => {
+    process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
+
+    const processed = await processMetaLifecyclePartition({
+      partition: {
+        id: "partition-creative-finalize",
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        lane: "extended",
+        scope: "creative_daily",
+        partitionDate: "2026-04-03",
+        attemptCount: 1,
+        leaseEpoch: 26,
+        source: "finalize_day",
+      },
+      workerId: "worker-1",
+    });
+
+    expect(processed).toBe(true);
+    expect(creativesWarehouse.syncMetaCreativesWarehouseDay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz-1",
+        day: "2026-04-03",
+        assignedAccountIds: ["act_1"],
+        sourceRunId: "partition-creative-finalize",
+      }),
+    );
+    expect(warehouse.getMetaAuthoritativeDayVerification).not.toHaveBeenCalled();
+    expect(warehouse.completeMetaPartitionAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        partitionId: "partition-creative-finalize",
+        partitionStatus: "succeeded",
+        runStatus: "succeeded",
+      }),
+    );
+    expect(warehouse.queueMetaSyncPartition).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: "creative_daily",
+        partitionDate: "2026-04-03",
+        status: "queued",
+      }),
+    );
+  });
+
   it("recovers the current running run id when run creation returns null", async () => {
     vi.mocked(warehouse.createMetaSyncRun).mockResolvedValue(null as never);
     vi.mocked(warehouse.getLatestRunningMetaSyncRunIdForPartition).mockResolvedValue("run-recovered");

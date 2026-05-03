@@ -3824,7 +3824,7 @@ describe("meta warehouse config columns", () => {
     expect(mediaQuery).toContain("payload_json");
     expect(mediaQuery).toContain("$20::jsonb");
     expect(mediaQuery).toContain(
-      "ON CONFLICT (business_id, provider_account_id, date, creative_id) DO UPDATE SET",
+      "ON CONFLICT (business_id, provider_account_id, date, creative_id, (COALESCE(ad_id, ''))) DO UPDATE SET",
     );
   });
 

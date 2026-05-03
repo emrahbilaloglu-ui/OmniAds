@@ -2630,9 +2630,26 @@ export async function runMigrations(options?: {
           payload_json            JSONB NOT NULL DEFAULT '{}'::jsonb,
           source_run_id           TEXT,
           created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
-          updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
-          UNIQUE (business_id, provider_account_id, date, creative_id)
+          updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
+        sql`ALTER TABLE meta_creative_media
+          DROP CONSTRAINT IF EXISTS meta_creative_media_business_id_provider_account_id_date_creative_id_key`.catch(() => {}),
+        sql`DO $migration$
+          DECLARE old_constraint_name TEXT;
+          BEGIN
+            SELECT conname INTO old_constraint_name
+            FROM pg_constraint
+            WHERE conrelid = 'meta_creative_media'::regclass
+              AND contype = 'u'
+              AND pg_get_constraintdef(oid) LIKE 'UNIQUE (business_id, provider_account_id, date, creative_id)%'
+            LIMIT 1;
+            IF old_constraint_name IS NOT NULL THEN
+              EXECUTE format('ALTER TABLE meta_creative_media DROP CONSTRAINT %I', old_constraint_name);
+            END IF;
+          END
+        $migration$`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_meta_creative_media_ad_grain
+          ON meta_creative_media (business_id, provider_account_id, date, creative_id, (COALESCE(ad_id, '')))`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_media_business_date
           ON meta_creative_media (business_id, date DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_media_account_date

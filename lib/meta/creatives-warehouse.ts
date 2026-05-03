@@ -498,7 +498,7 @@ async function syncMetaCreativesAccountDay(input: {
   });
   const creativeMediaRows: MetaCreativeMediaRow[] =
     mediaMode === "full"
-      ? creativeRows.map((row) =>
+      ? rawRows.map((row) =>
           extractCreativeMediaRow({
             businessId: input.businessId,
             providerAccountId: input.accountId,
@@ -695,7 +695,10 @@ export async function getMetaCreativesWarehousePayload(input: {
       adIds: useCreativeWarehouse ? null : adIds,
     }).catch(() => []);
     for (const row of mediaRows) {
-      mediaByCreativeKey.set(`${row.providerAccountId}|${row.date}|${row.creativeId}`, row);
+      const creativeKey = `${row.providerAccountId}|${row.date}|${row.creativeId}`;
+      if (!mediaByCreativeKey.has(creativeKey)) {
+        mediaByCreativeKey.set(creativeKey, row);
+      }
       if (row.adId) {
         mediaByAdKey.set(`${row.providerAccountId}|${row.date}|${row.adId}`, row);
       }

@@ -87,6 +87,11 @@ describe("runMigrations", () => {
     expect(queries.join("\n")).toContain("idx_meta_account_daily_business_account_date");
     expect(queries.join("\n")).toContain("idx_meta_creative_daily_business_account_date_creative");
     expect(queries.join("\n")).toContain("CREATE TABLE IF NOT EXISTS meta_creative_media");
+    expect(queries.join("\n")).toContain(
+      "DROP CONSTRAINT IF EXISTS meta_creative_media_business_id_provider_account_id_date_creative_id_key",
+    );
+    expect(queries.join("\n")).toContain("old_constraint_name");
+    expect(queries.join("\n")).toContain("idx_meta_creative_media_ad_grain");
     expect(queries.join("\n")).toContain("idx_meta_creative_media_business_date");
     expect(queries.join("\n")).toContain("idx_google_ads_account_daily_business_account_date");
     expect(queries.join("\n")).toContain("idx_shopify_orders_business_account_created_local");

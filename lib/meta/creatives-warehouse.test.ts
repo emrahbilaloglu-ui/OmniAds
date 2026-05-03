@@ -12,6 +12,7 @@ vi.mock("@/lib/meta/warehouse", () => ({
   getMetaCreativeDailyRange: vi.fn(),
   upsertMetaAdDailyRows: vi.fn(),
   upsertMetaCreativeDailyRows: vi.fn(),
+  upsertMetaCreativeMediaRows: vi.fn(),
 }));
 
 vi.mock("@/lib/meta/request-model-store", () => ({
@@ -19,11 +20,22 @@ vi.mock("@/lib/meta/request-model-store", () => ({
   readMetaCreativeDimensions: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/creatives-service", () => ({
+  buildCreativesResponse: vi.fn(),
+}));
+
+vi.mock("@/lib/meta/cleanup", () => ({
+  pruneMetaCreativeMediaOutsideRetention: vi.fn(),
+}));
+
 const creativeFetchers = await import("@/lib/meta/creatives-fetchers");
+const creativesService = await import("@/lib/meta/creatives-service");
+const cleanup = await import("@/lib/meta/cleanup");
 const requestModelStore = await import("@/lib/meta/request-model-store");
 const warehouse = await import("@/lib/meta/warehouse");
 const {
   getMetaCreativesWarehousePayload,
+  syncMetaCreativesWarehouseDay,
 } = await import("@/lib/meta/creatives-warehouse");
 
 function buildProjectionRow(overrides: Record<string, unknown> = {}) {
@@ -111,6 +123,67 @@ describe("meta creatives warehouse", () => {
     vi.mocked(requestModelStore.readMetaCreativeDimensions).mockResolvedValue(new Map());
     vi.mocked(requestModelStore.readMetaAdDimensions).mockResolvedValue(new Map());
     vi.mocked(warehouse.getMetaCreativeMediaRange).mockResolvedValue([] as never);
+    vi.mocked(cleanup.pruneMetaCreativeMediaOutsideRetention).mockResolvedValue(undefined as never);
+  });
+
+  it("persists full creative media at ad grain when a creative is reused", async () => {
+    vi.mocked(creativesService.buildCreativesResponse).mockResolvedValue({
+      rows: [
+        buildProjectionRow({
+          id: "ad-1",
+          creative_id: "shared-creative",
+          preview_url: "https://example.com/ad-1-preview.jpg",
+          thumbnail_url: "https://example.com/ad-1-thumb.jpg",
+        }),
+        buildProjectionRow({
+          id: "ad-2",
+          creative_id: "shared-creative",
+          campaign_id: "cmp-2",
+          campaign_name: "Campaign 2",
+          adset_id: "adset-2",
+          adset_name: "Adset 2",
+          preview_url: "https://example.com/ad-2-preview.jpg",
+          thumbnail_url: "https://example.com/ad-2-thumb.jpg",
+        }),
+      ],
+    } as never);
+
+    await syncMetaCreativesWarehouseDay({
+      businessId: "biz-1",
+      day: "2026-04-03",
+      accessToken: "token",
+      assignedAccountIds: ["act_1"],
+      mediaMode: "full",
+      sourceRunId: "run-1",
+    });
+
+    const mediaRows = vi.mocked(warehouse.upsertMetaCreativeMediaRows).mock.calls[0]?.[0] ?? [];
+
+    expect(mediaRows).toHaveLength(2);
+    expect(mediaRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          adId: "ad-1",
+          creativeId: "shared-creative",
+          previewUrl: "https://example.com/ad-1-preview.jpg",
+          sourceRunId: "run-1",
+        }),
+        expect.objectContaining({
+          adId: "ad-2",
+          creativeId: "shared-creative",
+          previewUrl: "https://example.com/ad-2-preview.jpg",
+          sourceRunId: "run-1",
+        }),
+      ]),
+    );
+    const creativeRows =
+      vi.mocked(warehouse.upsertMetaCreativeDailyRows).mock.calls[0]?.[0] ?? [];
+    expect(creativeRows).toHaveLength(1);
+    expect(creativeRows[0]).toEqual(
+      expect.objectContaining({
+        creativeId: "shared-creative",
+      }),
+    );
   });
 
   it("builds creative-group payloads from creative dimensions instead of daily payloadJson", async () => {

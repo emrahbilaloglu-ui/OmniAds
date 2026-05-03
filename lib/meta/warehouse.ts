@@ -8855,7 +8855,7 @@ export async function upsertMetaCreativeMediaRows(rows: MetaCreativeMediaRow[]) 
           updated_at
         )
         VALUES ${placeholders}
-        ON CONFLICT (business_id, provider_account_id, date, creative_id) DO UPDATE SET
+        ON CONFLICT (business_id, provider_account_id, date, creative_id, (COALESCE(ad_id, ''))) DO UPDATE SET
           business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_creative_media.business_ref_id),
           provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_creative_media.provider_account_ref_id),
           campaign_id = EXCLUDED.campaign_id,
@@ -10762,7 +10762,7 @@ export async function getMetaCreativeMediaRange(input: {
         ${input.adIds ?? null}::text[] IS NULL
         OR ad_id = ANY(${input.adIds ?? null}::text[])
       )
-    ORDER BY date ASC, provider_account_id ASC, creative_id ASC
+    ORDER BY date ASC, provider_account_id ASC, creative_id ASC, ad_id ASC
   ` as Array<Record<string, unknown>>;
 
   return rows.map((row) => ({

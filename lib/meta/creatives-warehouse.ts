@@ -673,19 +673,32 @@ export async function getMetaCreativesWarehousePayload(input: {
           ?.map((row) => row.adId)
           .filter((value): value is string => Boolean(value)) ?? [],
       });
-  const mediaByKey = new Map<string, MetaCreativeMediaRow>();
-  if (useCreativeWarehouse && input.mediaMode === "full" && creativeSourceRows?.length) {
+  const mediaByCreativeKey = new Map<string, MetaCreativeMediaRow>();
+  const mediaByAdKey = new Map<string, MetaCreativeMediaRow>();
+  if (input.mediaMode === "full" && sourceRows.length) {
+    const creativeIds = useCreativeWarehouse
+      ? creativeSourceRows
+          ?.map((row) => row.creativeId)
+          .filter((value): value is string => Boolean(value)) ?? []
+      : [];
+    const adIds = !useCreativeWarehouse
+      ? adSourceRows
+          ?.map((row) => row.adId)
+          .filter((value): value is string => Boolean(value)) ?? []
+      : [];
     const mediaRows = await getMetaCreativeMediaRange({
       businessId: input.businessId,
       startDate: input.start,
       endDate: input.end,
       providerAccountIds: assignedAccountIds,
-      creativeIds: creativeSourceRows
-        .map((row) => row.creativeId)
-        .filter((value): value is string => Boolean(value)),
+      creativeIds: useCreativeWarehouse ? creativeIds : null,
+      adIds: useCreativeWarehouse ? null : adIds,
     }).catch(() => []);
     for (const row of mediaRows) {
-      mediaByKey.set(`${row.providerAccountId}|${row.date}|${row.creativeId}`, row);
+      mediaByCreativeKey.set(`${row.providerAccountId}|${row.date}|${row.creativeId}`, row);
+      if (row.adId) {
+        mediaByAdKey.set(`${row.providerAccountId}|${row.date}|${row.adId}`, row);
+      }
     }
   }
   const rawRows: RawCreativeRow[] = sourceRows.reduce<RawCreativeRow[]>((acc, row) => {
@@ -698,10 +711,12 @@ export async function getMetaCreativesWarehousePayload(input: {
           );
       if (!projectionRow) return acc;
       const mediaRow = useCreativeWarehouse
-        ? mediaByKey.get(
+        ? mediaByCreativeKey.get(
             `${(row as MetaCreativeDailyRow).providerAccountId}|${(row as MetaCreativeDailyRow).date}|${(row as MetaCreativeDailyRow).creativeId}`,
           ) ?? null
-        : null;
+        : mediaByAdKey.get(
+            `${(row as MetaAdDailyRow).providerAccountId}|${(row as MetaAdDailyRow).date}|${(row as MetaAdDailyRow).adId}`,
+          ) ?? null;
       acc.push(
         hydrateWarehouseCreativeMetrics({
           row: overlayCreativeMedia(projectionRow, mediaRow),

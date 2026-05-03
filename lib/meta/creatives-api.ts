@@ -207,6 +207,7 @@ export async function getMetaCreativesApiPayload(input: MetaCreativesLivePayload
   const liveReadSource = rangeContext.isSelectedCurrentDay
     ? "current_day_live"
     : "live_fallback";
+  const fallbackEnd = rangeContext.isSelectedCurrentDay ? end : effectiveEnd;
 
   if (
     !rangeContext.isSelectedCurrentDay &&
@@ -249,7 +250,7 @@ export async function getMetaCreativesApiPayload(input: MetaCreativesLivePayload
         format,
         sort,
         start,
-        end,
+        end: fallbackEnd,
         debugPreview,
         debugThumbnail,
         debugPerf,

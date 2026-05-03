@@ -10716,6 +10716,7 @@ export async function getMetaCreativeMediaRange(input: {
   endDate: string;
   providerAccountIds?: string[] | null;
   creativeIds?: string[] | null;
+  adIds?: string[] | null;
 }): Promise<MetaCreativeMediaRow[]> {
   await assertMetaRequestReadTablesReady(
     ["meta_creative_media"],
@@ -10756,6 +10757,10 @@ export async function getMetaCreativeMediaRange(input: {
       AND (
         ${input.creativeIds ?? null}::text[] IS NULL
         OR creative_id = ANY(${input.creativeIds ?? null}::text[])
+      )
+      AND (
+        ${input.adIds ?? null}::text[] IS NULL
+        OR ad_id = ANY(${input.adIds ?? null}::text[])
       )
     ORDER BY date ASC, provider_account_id ASC, creative_id ASC
   ` as Array<Record<string, unknown>>;

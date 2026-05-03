@@ -186,13 +186,13 @@ export async function fetchAccountInsights(
         account_id: accountId,
         time_range: { since: startDate, until: endDate },
         level: "ad",
-        fields: "ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,spend,cpm,cpc,ctr,clicks,date_start,actions,action_values,purchase_roas",
+        fields: "ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,spend,cpm,cpc,ctr,clicks,reach,frequency,date_start,actions,action_values,purchase_roas,outbound_clicks,attribution_setting,quality_ranking,engagement_rate_ranking,conversion_rate_ranking",
       });
 
       const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/insights`);
       url.searchParams.set(
         "fields",
-        "ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,spend,cpm,cpc,ctr,clicks,impressions,inline_link_clicks,date_start,actions,action_values,purchase_roas,video_play_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p100_watched_actions"
+        "ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,spend,cpm,cpc,ctr,clicks,impressions,reach,frequency,inline_link_clicks,outbound_clicks,attribution_setting,quality_ranking,engagement_rate_ranking,conversion_rate_ranking,date_start,actions,action_values,purchase_roas,video_play_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p100_watched_actions"
       );
       url.searchParams.set("level", "ad");
       url.searchParams.set("time_range", JSON.stringify({ since: startDate, until: endDate }));
@@ -295,8 +295,14 @@ export async function fetchAccountAdsMap(
         [
           "id",
           "name",
+          "effective_status",
+          "status",
+          "bid_strategy",
+          "optimization_goal",
+          "attribution_setting",
           "adset_id",
-          "adset{id,name,promoted_object{product_set_id,catalog_id}}",
+          "adset{id,name,daily_budget,lifetime_budget,bid_strategy,optimization_goal,promoted_object{product_set_id,catalog_id}}",
+          "campaign{id,name,objective,daily_budget,lifetime_budget,bid_strategy}",
           "promoted_object{product_set_id,catalog_id}",
           "created_time",
           `creative{${getNestedCreativeMediaFields()}}`,
@@ -387,8 +393,14 @@ export async function batchFetchAdsByIds(
   const fields = [
     "id",
     "name",
+    "effective_status",
+    "status",
+    "bid_strategy",
+    "optimization_goal",
+    "attribution_setting",
     "adset_id",
-    "adset{id,name}",
+    "adset{id,name,daily_budget,lifetime_budget,bid_strategy,optimization_goal}",
+    "campaign{id,name,objective,daily_budget,lifetime_budget,bid_strategy}",
     ...(mode === "full" ? ["created_time"] : []),
     `creative{${mode === "full" ? getNestedCreativeMediaFields() : getNestedCreativeSummaryFields()}}`,
   ].join(",");

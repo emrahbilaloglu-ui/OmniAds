@@ -138,7 +138,17 @@ describe("processMetaLifecyclePartition lease epoch", () => {
       latest_updated_at: null,
       ready_through_date: null,
     } as never);
+    vi.mocked(warehouse.getMetaAdSetDailyCoverage).mockResolvedValue({
+      completed_days: 0,
+      latest_updated_at: null,
+      ready_through_date: null,
+    } as never);
     vi.mocked(warehouse.getMetaAdDailyCoverage).mockResolvedValue({
+      completed_days: 0,
+      latest_updated_at: null,
+      ready_through_date: null,
+    } as never);
+    vi.mocked(warehouse.getMetaCreativeDailyCoverage).mockResolvedValue({
       completed_days: 0,
       latest_updated_at: null,
       ready_through_date: null,

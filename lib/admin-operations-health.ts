@@ -44,6 +44,7 @@ import {
   getMetaRetentionRuntimeStatus,
 } from "@/lib/meta/warehouse-retention";
 import { getGoogleAdsRetentionRuntimeStatus } from "@/lib/google-ads/warehouse-retention";
+import { META_CREATIVE_WAREHOUSE_HISTORY_DAYS } from "@/lib/meta/history";
 import {
   deriveProviderActivityState,
   buildProviderProgressEvidence,
@@ -1455,7 +1456,8 @@ export function buildAdminSyncHealth(input: {
       recentCreativeCompletedDays >= recentRangeTotalDays &&
       recentAdCompletedDays >= recentRangeTotalDays;
     const historicalExtendedReady =
-      creativeCompletedDays >= 365 && adCompletedDays >= 365;
+      creativeCompletedDays >= META_CREATIVE_WAREHOUSE_HISTORY_DAYS &&
+      adCompletedDays >= 365;
     const metaProgressHeartbeat =
       row.latest_progress_heartbeat_at ?? row.latest_checkpoint_updated_at ?? null;
     const effectiveMode =
@@ -2832,7 +2834,8 @@ export async function getMetaReleaseGateBusinessHealthSnapshot(input: {
     recentCreativeCompletedDays >= recentRangeTotalDays &&
     recentAdCompletedDays >= recentRangeTotalDays;
   const historicalExtendedReady =
-    creativeCompletedDays >= 365 && adCompletedDays >= 365;
+    creativeCompletedDays >= META_CREATIVE_WAREHOUSE_HISTORY_DAYS &&
+    adCompletedDays >= 365;
   const metaProgressHeartbeat =
     row.latest_progress_heartbeat_at ?? row.latest_checkpoint_updated_at ?? null;
   const metaProviderWorkerObservation = getProviderScopeWorkerObservation({

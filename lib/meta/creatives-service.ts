@@ -115,6 +115,8 @@ export interface CreativesQueryParams {
   enableDeepAudit: boolean;
   perAccountSampleLimit: number;
   requestStartedAt: number;
+  allowSnapshotPersistence?: boolean;
+  allowSnapshotRefreshTrigger?: boolean;
 }
 
 export type CreativesApiResponse = {
@@ -156,6 +158,8 @@ export async function buildCreativesResponse(
     enableDeepAudit,
     perAccountSampleLimit,
     requestStartedAt,
+    allowSnapshotPersistence = true,
+    allowSnapshotRefreshTrigger = true,
   } = query;
   const debugLoggingEnabled = isRuntimeLogLevelEnabled("debug");
   const shouldEnableCreativeBasicsFallback =
@@ -213,12 +217,18 @@ export async function buildCreativesResponse(
             ),
             suspicious_copy_empty: hasSuspiciousCopyEmptySnapshot,
           });
-          triggerSnapshotRefresh(request, snapshotQuery);
+          if (allowSnapshotRefreshTrigger) {
+            triggerSnapshotRefresh(request, snapshotQuery);
+          }
         } else {
-        if (freshness.freshnessState !== "fresh" && !snapshotWarm) {
-          triggerSnapshotRefresh(request, snapshotQuery);
-        }
-        return snapshotPayload;
+          if (
+            freshness.freshnessState !== "fresh" &&
+            !snapshotWarm &&
+            allowSnapshotRefreshTrigger
+          ) {
+            triggerSnapshotRefresh(request, snapshotQuery);
+          }
+          return snapshotPayload;
         }
       }
     }
@@ -1078,6 +1088,7 @@ export async function buildCreativesResponse(
   });
 
   const snapshotPersistEligible =
+    allowSnapshotPersistence &&
     !debugPreview &&
     !debugThumbnail &&
     !debugPerf;
@@ -1127,7 +1138,12 @@ export async function buildCreativesResponse(
     }
   }
 
-  if (snapshotEligible && mediaMode === "metadata" && !snapshotWarm) {
+  if (
+    snapshotEligible &&
+    mediaMode === "metadata" &&
+    !snapshotWarm &&
+    allowSnapshotRefreshTrigger
+  ) {
     triggerSnapshotRefresh(request, snapshotQuery);
   }
 

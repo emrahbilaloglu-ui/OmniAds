@@ -86,6 +86,8 @@ describe("runMigrations", () => {
     expect(queries.join("\n")).toContain("cost_payment_processing_percent");
     expect(queries.join("\n")).toContain("idx_meta_account_daily_business_account_date");
     expect(queries.join("\n")).toContain("idx_meta_creative_daily_business_account_date_creative");
+    expect(queries.join("\n")).toContain("CREATE TABLE IF NOT EXISTS meta_creative_media");
+    expect(queries.join("\n")).toContain("idx_meta_creative_media_business_date");
     expect(queries.join("\n")).toContain("idx_google_ads_account_daily_business_account_date");
     expect(queries.join("\n")).toContain("idx_shopify_orders_business_account_created_local");
   });

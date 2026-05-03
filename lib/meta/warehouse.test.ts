@@ -63,6 +63,7 @@ const {
   upsertMetaCreativeDailyRows,
   upsertMetaAuthoritativeDayState,
   upsertMetaSyncCheckpoint,
+  stripMetaCreativeMediaPayload,
 } = await import(
   "@/lib/meta/warehouse"
 );
@@ -863,7 +864,7 @@ describe("meta warehouse ownership safety", () => {
     expect(creativeDailyQueries).toHaveLength(1);
     expect(creativeDimensionQueries).toHaveLength(1);
     expect(creativeDailyQueries[0]).toContain("VALUES ($1,$2,$3");
-    expect(creativeDailyQueries[0]).toContain("), ($31,$32,$33");
+    expect(creativeDailyQueries[0]).toContain("), ($56,$57,$58");
     expect(creativeDailyQueries[0]).toContain(
       "ON CONFLICT (business_id, provider_account_id, date, creative_id) DO UPDATE SET",
     );
@@ -3765,8 +3766,66 @@ describe("meta warehouse config columns", () => {
 
     expect(adQuery).toContain("$32");
     expect(adQuery).toContain("$33::jsonb");
-    expect(creativeQuery).toContain("$29");
-    expect(creativeQuery).toContain("$30::jsonb");
+    expect(creativeQuery).toContain("$54");
+    expect(creativeQuery).toContain("$55::jsonb");
+  });
+
+  it("keeps long-retention creative payloads free of media URLs", () => {
+    expect(
+      stripMetaCreativeMediaPayload({
+        creative_id: "creative-1",
+        image_hash: "hash-1",
+        preview_url: "https://cdn.example.com/preview.png",
+        nested: {
+          thumbnail_url: "https://cdn.example.com/thumb.png",
+          objective: "SALES",
+        },
+      }),
+    ).toEqual({
+      creative_id: "creative-1",
+      image_hash: "hash-1",
+      nested: {
+        objective: "SALES",
+      },
+    });
+  });
+
+  it("writes creative media payloads to the 90-day media table", async () => {
+    vi.resetModules();
+    const dbModule = await import("@/lib/db");
+    const { upsertMetaCreativeMediaRows } = await import("@/lib/meta/warehouse");
+
+    const query = vi.fn().mockResolvedValue(undefined);
+    const sql = vi.fn(async () => []) as unknown as { query: typeof query };
+    sql.query = query;
+    vi.mocked(dbModule.getDb).mockReturnValue(sql as never);
+
+    await upsertMetaCreativeMediaRows([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adId: "ad-1",
+        creativeId: "creative-1",
+        previewUrl: "https://cdn.example.com/preview.png",
+        thumbnailUrl: "https://cdn.example.com/thumb.png",
+        imageHash: "hash-1",
+        payloadJson: { preview_url: "https://cdn.example.com/preview.png" },
+        sourceRunId: "run-1",
+      },
+    ]);
+
+    const mediaQuery = query.mock.calls
+      .map(([text]) => String(text))
+      .find((text) => text.includes("INSERT INTO meta_creative_media"));
+
+    expect(mediaQuery).toContain("payload_json");
+    expect(mediaQuery).toContain("$20::jsonb");
+    expect(mediaQuery).toContain(
+      "ON CONFLICT (business_id, provider_account_id, date, creative_id) DO UPDATE SET",
+    );
   });
 
   it("emits full lifecycle placeholders for breakdown upserts", async () => {

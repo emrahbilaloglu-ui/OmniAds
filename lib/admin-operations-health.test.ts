@@ -644,7 +644,7 @@ describe("buildAdminSyncHealth", () => {
           account_ready_through_date: "2026-03-28",
           adset_completed_days: 400,
           adset_ready_through_date: "2026-03-28",
-          creative_completed_days: 365,
+          creative_completed_days: 455,
           creative_ready_through_date: "2026-03-28",
           ad_completed_days: 365,
           ad_ready_through_date: "2026-03-28",

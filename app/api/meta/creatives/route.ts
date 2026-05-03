@@ -109,9 +109,11 @@ export async function GET(request: NextRequest) {
     mediaMode,
     rowCount: Array.isArray(result.rows) ? result.rows.length : 0,
     readSource:
-      "snapshot_source" in result && typeof result.snapshot_source === "string"
-        ? result.snapshot_source
-        : "live",
+      "readSource" in result && typeof result.readSource === "string"
+        ? result.readSource
+        : "snapshot_source" in result && typeof result.snapshot_source === "string"
+          ? result.snapshot_source
+          : "live",
     freshnessState:
       "freshness_state" in result && typeof result.freshness_state === "string"
         ? result.freshness_state

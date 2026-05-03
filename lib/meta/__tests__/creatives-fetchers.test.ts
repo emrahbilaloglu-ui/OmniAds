@@ -105,7 +105,8 @@ describe("batchFetchAdsByIds", () => {
     const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
     const fields = requestUrl.searchParams.get("fields") ?? "";
 
-    expect(fields).toContain("adset{id,name}");
+    expect(fields).toContain("adset{id,name,daily_budget,lifetime_budget");
+    expect(fields).toContain("campaign{id,name,objective,daily_budget,lifetime_budget");
     expect(fields).not.toContain("promoted_object");
     expect(fields).toContain("template_data");
     expect(fields).not.toMatch(/(^|[{,])catalog_id(?=[,}])/);

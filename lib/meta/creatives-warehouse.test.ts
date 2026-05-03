@@ -6,7 +6,7 @@ vi.mock("@/lib/meta/creatives-fetchers", () => ({
 
 vi.mock("@/lib/meta/warehouse", () => ({
   getMetaAdDailyCoverage: vi.fn(),
-  getMetaAdDailyPreviewCoverage: vi.fn(),
+  getMetaCreativeMediaPreviewCoverage: vi.fn(),
   getMetaAdDailyRange: vi.fn(),
   getMetaCreativeDailyRange: vi.fn(),
   upsertMetaAdDailyRows: vi.fn(),

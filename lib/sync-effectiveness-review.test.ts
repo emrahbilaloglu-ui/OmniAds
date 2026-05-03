@@ -280,7 +280,7 @@ describe("buildSyncEffectivenessReview", () => {
           todayAdsetRows: 5,
           accountCompletedDays: 365,
           adsetCompletedDays: 365,
-          creativeCompletedDays: 365,
+          creativeCompletedDays: 455,
           recentExtendedReady: true,
           historicalExtendedReady: true,
           progressState: "ready",

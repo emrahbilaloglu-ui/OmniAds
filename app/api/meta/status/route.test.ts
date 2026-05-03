@@ -35,7 +35,7 @@ vi.mock("@/lib/meta/warehouse", () => ({
   getMetaCampaignDailyCoverage: vi.fn(),
   getMetaAccountDailyStats: vi.fn(),
   getMetaAdDailyCoverage: vi.fn(),
-  getMetaAdDailyPreviewCoverage: vi.fn(),
+  getMetaCreativeMediaPreviewCoverage: vi.fn(),
   getMetaAdSetDailyCoverage: vi.fn(),
   getMetaCheckpointHealth: vi.fn(),
   getMetaCreativeDailyCoverage: vi.fn(),
@@ -326,7 +326,7 @@ describe("GET /api/meta/status", () => {
       completed_days: 365,
       ready_through_date: "2026-03-30",
     } as never);
-    vi.mocked(warehouse.getMetaAdDailyPreviewCoverage).mockResolvedValue({
+    vi.mocked(warehouse.getMetaCreativeMediaPreviewCoverage).mockResolvedValue({
       total_rows: 0,
       preview_ready_rows: 0,
     } as never);

@@ -240,7 +240,14 @@ export interface MetaInsightRecord {
   ctr?: string;
   clicks?: string;
   impressions?: string;
+  reach?: string;
+  frequency?: string;
   inline_link_clicks?: string;
+  outbound_clicks?: MetaActionValue[];
+  attribution_setting?: string;
+  quality_ranking?: string;
+  engagement_rate_ranking?: string;
+  conversion_rate_ranking?: string;
   date_start?: string;
   actions?: MetaActionValue[];
   action_values?: MetaActionValue[];
@@ -269,16 +276,33 @@ export interface MetaAdImageRecord {
 export interface MetaAdRecord {
   id?: string;
   name?: string;
+  effective_status?: string | null;
+  status?: string | null;
+  bid_strategy?: string | null;
+  optimization_goal?: string | null;
+  attribution_setting?: string | null;
   object_story_id?: string | null;
   effective_object_story_id?: string | null;
   adset_id?: string;
   adset?: {
     id?: string;
     name?: string;
+    daily_budget?: string | number | null;
+    lifetime_budget?: string | number | null;
+    bid_strategy?: string | null;
+    optimization_goal?: string | null;
     promoted_object?: {
       product_set_id?: string | null;
       catalog_id?: string | null;
     } | null;
+  } | null;
+  campaign?: {
+    id?: string;
+    name?: string;
+    objective?: string | null;
+    daily_budget?: string | number | null;
+    lifetime_budget?: string | number | null;
+    bid_strategy?: string | null;
   } | null;
   promoted_object?: {
     product_set_id?: string | null;
@@ -457,6 +481,26 @@ export interface CreativePreviewFields {
   is_catalog: boolean;
   preview_state: LegacyPreviewState;
   preview: NormalizedRenderPreviewPayload;
+  image_hash?: string | null;
+  image_hashes?: string[];
+}
+
+export interface CreativeWarehouseCommonFields {
+  reach?: number;
+  frequency?: number | null;
+  outbound_clicks?: number;
+  effective_status?: string | null;
+  objective?: string | null;
+  attribution_setting?: string | null;
+  quality_ranking?: string | null;
+  engagement_rate_ranking?: string | null;
+  conversion_rate_ranking?: string | null;
+  bid_strategy?: string | null;
+  optimization_goal?: string | null;
+  campaign_daily_budget?: number | null;
+  adset_daily_budget?: number | null;
+  campaign_lifetime_budget?: number | null;
+  adset_lifetime_budget?: number | null;
 }
 
 export interface CreativePreviewManifest {
@@ -527,7 +571,8 @@ export interface RawCreativeRow
     CreativeCopyFields,
     CreativePreviewFields,
     CreativeClassificationFields,
-    CreativeMetricFields {
+    CreativeMetricFields,
+    CreativeWarehouseCommonFields {
   debug?: CreativeDebugInfo;
 }
 
@@ -539,7 +584,8 @@ export interface MetaCreativeApiRow
   extends CreativeIdentityFields,
     CreativePreviewFields,
     CreativeClassificationFields,
-    CreativeMetricFields {
+    CreativeMetricFields,
+    CreativeWarehouseCommonFields {
   copy_text?: string | null;
   copy_variants?: string[];
   headline_variants?: string[];

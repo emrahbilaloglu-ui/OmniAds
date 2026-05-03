@@ -37,6 +37,7 @@ import {
   getMetaCampaignDailyCoverage,
   getMetaCreativeDailyCoverage,
   getMetaDirtyRecentDates,
+  getMetaIncompleteCoverageDates,
   getMetaPartitionStatesForDate,
   getMetaPublishedVerificationSummary,
   getMetaRecentAuthoritativeSliceGuard,
@@ -75,6 +76,7 @@ import type {
 } from "@/lib/meta/warehouse-types";
 import {
   getCreativeMediaRetentionStart,
+  META_CREATIVE_WAREHOUSE_HISTORY_DAYS,
   META_WAREHOUSE_HISTORY_DAYS,
   dayCountInclusive,
 } from "@/lib/meta/history";
@@ -507,10 +509,7 @@ async function backfillMetaRunTerminalState(input: {
 
 const META_DEPRECATED_SCOPE_REASONS: Partial<
   Record<MetaWarehouseScope, string>
-> = {
-  creative_daily:
-    "creative_daily sync disabled after moving creative scoring to the live/snapshot path",
-};
+> = {};
 
 export function getDeprecatedMetaPartitionCancellationReason(
   scope: MetaWarehouseScope,
@@ -597,6 +596,22 @@ const META_ENQUEUE_BATCH_SIZE = envNumber("META_ENQUEUE_BATCH_SIZE", 25);
 const META_HISTORICAL_ENQUEUE_DAYS_PER_RUN = envNumber(
   "META_HISTORICAL_ENQUEUE_DAYS_PER_RUN",
   21,
+);
+const META_CREATIVE_WAREHOUSE_HISTORICAL_ENQUEUE_DAYS_PER_RUN = envNumber(
+  "META_CREATIVE_WAREHOUSE_HISTORICAL_ENQUEUE_DAYS_PER_RUN",
+  30,
+);
+const META_CREATIVE_WAREHOUSE_RECENT_ENQUEUE_DAYS = envNumber(
+  "META_CREATIVE_WAREHOUSE_RECENT_ENQUEUE_DAYS",
+  2,
+);
+const META_CREATIVE_WAREHOUSE_DAILY_FULL_UTC_HOUR = envNumber(
+  "META_CREATIVE_WAREHOUSE_DAILY_FULL_UTC_HOUR",
+  3,
+);
+const META_CREATIVE_WAREHOUSE_INCREMENTAL_COOLDOWN_MINUTES = envNumber(
+  "META_CREATIVE_WAREHOUSE_INCREMENTAL_COOLDOWN_MINUTES",
+  55,
 );
 const META_RECENT_RECOVERY_DAYS = envNumber("META_RECENT_RECOVERY_DAYS", 14);
 const META_RUN_PROGRESS_GRACE_MINUTES = envNumber(
@@ -1784,7 +1799,7 @@ async function getMetaDailyCoverageState(input: {
       providerAccountIds: [input.providerAccountId],
       surfaces: requiredSurfaces,
     }).catch(() => null);
-    const creativeCoverage = await getMetaAdDailyCoverage({
+    const creativeCoverage = await getMetaCreativeDailyCoverage({
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
       startDate: input.day,
@@ -1816,7 +1831,7 @@ async function getMetaDailyCoverageState(input: {
         startDate: input.day,
         endDate: input.day,
       }).catch(() => null),
-      getMetaAdDailyCoverage({
+      getMetaCreativeDailyCoverage({
         businessId: input.businessId,
         providerAccountId: input.providerAccountId,
         startDate: input.day,
@@ -2314,7 +2329,7 @@ async function syncMetaPartitionDay(input: {
         businessId: input.businessId,
         day: normalizedDay,
         accessToken: credentials.accessToken,
-        assignedAccountIds,
+        assignedAccountIds: [input.providerAccountId],
         sourceRunId: input.partitionId,
         mediaMode:
           input.day >= getCreativeMediaRetentionStart(referenceToday)
@@ -2844,6 +2859,129 @@ async function enqueueMetaMaintenancePartitions(
   };
 }
 
+function isMetaCreativeDailyFullScanWindow(now = new Date()) {
+  return now.getUTCHours() === META_CREATIVE_WAREHOUSE_DAILY_FULL_UTC_HOUR;
+}
+
+function isRecentCreativeWarehouseAttemptFresh(
+  finishedAt: string | null | undefined,
+  nowMs = Date.now(),
+) {
+  const finishedAtMs = parseTimestampMs(finishedAt);
+  if (!finishedAtMs) return false;
+  return (
+    nowMs - finishedAtMs <
+    META_CREATIVE_WAREHOUSE_INCREMENTAL_COOLDOWN_MINUTES * 60_000
+  );
+}
+
+async function enqueueMetaCreativeWarehouseDate(input: {
+  businessId: string;
+  providerAccountId: string;
+  date: string;
+  source: MetaSyncPartitionSource;
+  priority: number;
+  enforceIncrementalCooldown?: boolean;
+}) {
+  const existingPartitions = await getMetaPartitionStatesForDate({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    lane: "extended",
+    partitionDate: input.date,
+    scopes: ["creative_daily"],
+  }).catch(() => new Map());
+  const existing = existingPartitions.get("creative_daily");
+  if (existing && ["queued", "leased", "running"].includes(existing.status)) {
+    return 0;
+  }
+  if (
+    input.enforceIncrementalCooldown &&
+    existing?.status === "succeeded" &&
+    isRecentCreativeWarehouseAttemptFresh(existing.finishedAt)
+  ) {
+    return 0;
+  }
+  const row = await queueMetaSyncPartition({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    lane: "extended",
+    scope: "creative_daily",
+    partitionDate: input.date,
+    status: "queued",
+    priority: input.priority,
+    source: input.source,
+    attemptCount: 0,
+  }).catch(() => null);
+  return row?.id && row.status === "queued" ? 1 : 0;
+}
+
+async function enqueueMetaCreativeWarehousePartitions(
+  businessId: string,
+  credentials: MetaCredentials,
+) {
+  if (!credentials?.accountIds?.length) return 0;
+  let queued = 0;
+  const shouldRunDailyFullScan = isMetaCreativeDailyFullScanWindow();
+
+  for (const providerAccountId of credentials.accountIds) {
+    const accountTimezone =
+      credentials.accountProfiles?.[providerAccountId]?.timezone ?? "UTC";
+    const today = getTodayIsoForTimeZoneServer(accountTimezone);
+    const finalizedEndDate = addUtcDays(today, -1);
+    const recentStartDate = addUtcDays(
+      today,
+      -(Math.max(1, META_CREATIVE_WAREHOUSE_RECENT_ENQUEUE_DAYS) - 1),
+    );
+    const recentDates = Array.from(
+      new Set([finalizedEndDate, ...enumerateDays(recentStartDate, today, true)]),
+    ).sort();
+
+    for (const date of recentDates) {
+      const source =
+        date === today
+          ? "today_observe"
+          : date === finalizedEndDate
+            ? "finalize_day"
+            : "recent_recovery";
+      queued += await enqueueMetaCreativeWarehouseDate({
+        businessId,
+        providerAccountId,
+        date,
+        source,
+        priority:
+          source === "finalize_day" ? 64 : source === "today_observe" ? 62 : 58,
+        enforceIncrementalCooldown: true,
+      });
+    }
+
+    if (!shouldRunDailyFullScan) continue;
+    const historicalStartDate = addUtcDays(
+      finalizedEndDate,
+      -(META_CREATIVE_WAREHOUSE_HISTORY_DAYS - 1),
+    );
+    const missingDates = await getMetaIncompleteCoverageDates({
+      businessId,
+      providerAccountId,
+      startDate: historicalStartDate,
+      endDate: finalizedEndDate,
+      scopes: ["creative_daily"],
+      limit: META_CREATIVE_WAREHOUSE_HISTORICAL_ENQUEUE_DAYS_PER_RUN,
+    }).catch(() => []);
+
+    for (const date of missingDates) {
+      queued += await enqueueMetaCreativeWarehouseDate({
+        businessId,
+        providerAccountId,
+        date,
+        source: "historical_recovery",
+        priority: 35,
+      });
+    }
+  }
+
+  return queued;
+}
+
 export async function enqueueMetaScheduledWork(businessId: string) {
   const credentials = await resolveMetaCredentials(businessId).catch(
     () => null,
@@ -2857,6 +2995,7 @@ export async function enqueueMetaScheduledWork(businessId: string) {
   }).catch(() => null);
   let queuedCore = 0;
   let queuedMaintenance = 0;
+  let queuedCreative = 0;
   let queueDepth = 0;
   let leasedPartitions = 0;
   let recentAutoHeal = emptyMetaRecentAutoHealSummary();
@@ -2910,12 +3049,17 @@ export async function enqueueMetaScheduledWork(businessId: string) {
         recentAutoHeal = maintenanceResult.recentAutoHeal;
       }
     }
+    queuedCreative = await enqueueMetaCreativeWarehousePartitions(
+      businessId,
+      credentials,
+    ).catch(() => 0);
   }
 
   return {
     businessId,
     queuedCore,
     queuedMaintenance,
+    queuedCreative,
     d1Recovery,
     queueDepth,
     leasedPartitions,
@@ -2978,39 +3122,43 @@ export async function refreshMetaSyncStateForBusiness(input: {
   await Promise.all(
     credentials.accountIds.flatMap((providerAccountId) =>
       META_STATE_SCOPES.map(async (scope) => {
+        const scopeStartDate =
+          scope === "creative_daily"
+            ? addUtcDays(endDate, -(META_CREATIVE_WAREHOUSE_HISTORY_DAYS - 1))
+            : startDate;
         const coverage =
           scope === "account_daily"
             ? await getMetaAccountDailyCoverage({
                 businessId: input.businessId,
                 providerAccountId,
-                startDate,
+                startDate: scopeStartDate,
                 endDate,
               }).catch(() => null)
             : scope === "campaign_daily"
               ? await getMetaCampaignDailyCoverage({
                   businessId: input.businessId,
                   providerAccountId,
-                  startDate,
+                  startDate: scopeStartDate,
                   endDate,
                 }).catch(() => null)
               : scope === "adset_daily"
                 ? await getMetaAdSetDailyCoverage({
                     businessId: input.businessId,
                     providerAccountId,
-                    startDate,
+                    startDate: scopeStartDate,
                     endDate,
                   }).catch(() => null)
                 : scope === "creative_daily"
                   ? await getMetaCreativeDailyCoverage({
                       businessId: input.businessId,
                       providerAccountId,
-                      startDate,
+                      startDate: scopeStartDate,
                       endDate,
                     }).catch(() => null)
                   : await getMetaAdDailyCoverage({
                       businessId: input.businessId,
                       providerAccountId,
-                      startDate,
+                      startDate: scopeStartDate,
                       endDate,
                     }).catch(() => null);
 
@@ -3024,9 +3172,9 @@ export async function refreshMetaSyncStateForBusiness(input: {
           businessId: input.businessId,
           providerAccountId,
           scope,
-          historicalTargetStart: startDate,
+          historicalTargetStart: scopeStartDate,
           historicalTargetEnd: endDate,
-          effectiveTargetStart: startDate,
+          effectiveTargetStart: scopeStartDate,
           effectiveTargetEnd: endDate,
           readyThroughDate: coverage?.ready_through_date ?? null,
           lastSuccessfulPartitionDate: coverage?.ready_through_date ?? null,

@@ -190,6 +190,7 @@ vi.mock("@/lib/pricing/plans", () => ({
 
 vi.mock("@/lib/meta/history", () => ({
   META_WAREHOUSE_HISTORY_DAYS: 365,
+  META_CREATIVE_WAREHOUSE_HISTORY_DAYS: 455,
   addDaysToIsoDate: (value: string) => value,
   dayCountInclusive: () => 14,
 }));

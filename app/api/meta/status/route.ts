@@ -21,11 +21,11 @@ import {
   getMetaCampaignDailyCoverage,
   getMetaAccountDailyStats,
   getMetaAdDailyCoverage,
-  getMetaAdDailyPreviewCoverage,
   getMetaAdSetDailyCoverage,
   getMetaCheckpointHealth,
   getMetaSyncPhaseTimingSummaries,
   getMetaCreativeDailyCoverage,
+  getMetaCreativeMediaPreviewCoverage,
   getMetaAuthoritativeDayVerification,
   getMetaAuthoritativeBusinessOpsSnapshot,
   getMetaQueueComposition,
@@ -34,7 +34,11 @@ import {
   getMetaSyncJobHealth,
   getMetaSyncState,
 } from "@/lib/meta/warehouse";
-import { META_WAREHOUSE_HISTORY_DAYS, dayCountInclusive } from "@/lib/meta/history";
+import {
+  META_CREATIVE_WAREHOUSE_HISTORY_DAYS,
+  META_WAREHOUSE_HISTORY_DAYS,
+  dayCountInclusive,
+} from "@/lib/meta/history";
 import { getMetaBreakdownSupportedStart, META_BREAKDOWN_MAX_HISTORY_DAYS } from "@/lib/meta/constraints";
 import {
   getMetaHistoricalVerificationReason,
@@ -475,6 +479,13 @@ export async function GET(request: NextRequest) {
     .toISOString()
     .slice(0, 10);
   const historicalTotalDays = dayCountInclusive(initialBackfillStart, initialBackfillEnd);
+  const creativeBackfillStart = addDays(
+    new Date(`${initialBackfillEnd}T00:00:00Z`),
+    -(META_CREATIVE_WAREHOUSE_HISTORY_DAYS - 1)
+  )
+    .toISOString()
+    .slice(0, 10);
+  const creativeHistoricalTotalDays = dayCountInclusive(creativeBackfillStart, initialBackfillEnd);
   const breakdownHistoricalStart =
     initialBackfillStart > getMetaBreakdownSupportedStart(initialBackfillEnd)
       ? initialBackfillStart
@@ -523,13 +534,13 @@ export async function GET(request: NextRequest) {
           getMetaCreativeDailyCoverage({
             businessId: businessId!,
             providerAccountId: null,
-            startDate: initialBackfillStart,
+            startDate: creativeBackfillStart,
             endDate: initialBackfillEnd,
           }).catch(() => null),
-          getMetaAdDailyPreviewCoverage({
+          getMetaCreativeMediaPreviewCoverage({
             businessId: businessId!,
             providerAccountId: null,
-            startDate: initialBackfillStart,
+            startDate: creativeBackfillStart,
             endDate: initialBackfillEnd,
           }).catch(() => null),
           getMetaRawSnapshotCoverageByEndpoint({
@@ -867,30 +878,35 @@ export async function GET(request: NextRequest) {
       states: accountDailyStates,
       fallbackCompletedDays: accountCoverage?.completed_days ?? 0,
       fallbackReadyThroughDate: accountCoverage?.ready_through_date ?? null,
+      totalDays: historicalTotalDays,
     },
     {
       scope: "campaign_daily",
       states: campaignDailyStates,
       fallbackCompletedDays: campaignCoverage?.completed_days ?? 0,
       fallbackReadyThroughDate: campaignCoverage?.ready_through_date ?? null,
+      totalDays: historicalTotalDays,
     },
     {
       scope: "adset_daily",
       states: adsetDailyStates,
       fallbackCompletedDays: adsetCoverage?.completed_days ?? 0,
       fallbackReadyThroughDate: adsetCoverage?.ready_through_date ?? null,
+      totalDays: historicalTotalDays,
     },
     {
       scope: "creative_daily",
       states: creativeDailyStates,
       fallbackCompletedDays: creativeCoverage?.completed_days ?? 0,
       fallbackReadyThroughDate: creativeCoverage?.ready_through_date ?? null,
+      totalDays: creativeHistoricalTotalDays,
     },
     {
       scope: "ad_daily",
       states: adDailyStates,
       fallbackCompletedDays: adDailyCoverage?.completed_days ?? 0,
       fallbackReadyThroughDate: adDailyCoverage?.ready_through_date ?? null,
+      totalDays: historicalTotalDays,
     },
   ].map((entry) => ({
     scope: entry.scope,
@@ -898,7 +914,7 @@ export async function GET(request: NextRequest) {
       entry.states.length > 0
         ? Math.min(...entry.states.map((row) => row.completedDays))
         : entry.fallbackCompletedDays,
-    totalDays: historicalTotalDays,
+    totalDays: entry.totalDays,
     readyThroughDate:
       entry.states
         .map((row) => row.readyThroughDate)
@@ -1959,8 +1975,8 @@ export async function GET(request: NextRequest) {
     creative_daily: {
       recentCompletedDays: Math.min(recentWindowTotalDays, recentCreativeCoverage?.completed_days ?? 0),
       recentTotalDays: recentWindowTotalDays,
-      historicalCompletedDays: Math.min(historicalTotalDays, creativeCoverage?.completed_days ?? 0),
-      historicalTotalDays,
+      historicalCompletedDays: Math.min(creativeHistoricalTotalDays, creativeCoverage?.completed_days ?? 0),
+      historicalTotalDays: creativeHistoricalTotalDays,
       readyThroughDate: creativeCoverage?.ready_through_date ?? null,
     },
     ad_daily: {
@@ -2209,7 +2225,7 @@ export async function GET(request: NextRequest) {
             : recentBreakdownsBySurface,
           creatives: {
             completedDays: creativeCoverage?.completed_days ?? 0,
-            totalDays: historicalTotalDays,
+            totalDays: creativeHistoricalTotalDays,
             readyThroughDate: creativeCoverage?.ready_through_date ?? null,
             previewReadyRows: creativePreviewCoverage?.preview_ready_rows ?? 0,
             totalRows: creativePreviewCoverage?.total_rows ?? 0,
@@ -2278,7 +2294,7 @@ export async function GET(request: NextRequest) {
               {
                 key: "creatives_preview",
                 state:
-                  (creativeCoverage?.completed_days ?? 0) < historicalTotalDays
+                  (creativeCoverage?.completed_days ?? 0) < creativeHistoricalTotalDays
                     ? "building"
                     : ((creativePreviewCoverage?.total_rows ?? 0) === 0) ||
                         ((creativePreviewCoverage?.preview_ready_rows ?? 0) >=
@@ -2286,7 +2302,7 @@ export async function GET(request: NextRequest) {
                       ? "ready"
                       : "building",
                 detail:
-                  (creativeCoverage?.completed_days ?? 0) < historicalTotalDays
+                  (creativeCoverage?.completed_days ?? 0) < creativeHistoricalTotalDays
                     ? "Creative daily history is still backfilling."
                     : `Creative previews ready: ${creativePreviewCoverage?.preview_ready_rows ?? 0}/${creativePreviewCoverage?.total_rows ?? 0}.`,
               },

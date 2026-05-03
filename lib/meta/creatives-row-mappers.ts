@@ -21,7 +21,7 @@ import {
   getLegacyCreativeTypeLabel,
 } from "@/lib/meta/creative-taxonomy";
 import { normalizeMediaUrl, extractPostIdFromStoryIdentifier, extractVideoIdsFromCreative } from "@/lib/meta/creatives-utils";
-import { buildNormalizedPreview, resolveThumbnailUrl } from "@/lib/meta/creatives-preview";
+import { buildNormalizedPreview, extractImageHashesFromCreative, resolveThumbnailUrl } from "@/lib/meta/creatives-preview";
 import {
   resolveCreativeCopyExtraction,
   normalizeCopyText,
@@ -33,6 +33,13 @@ import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 export function r2(n: number) {
   return Math.round(n * 100) / 100;
+}
+
+function parseMetaBudgetAmount(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return r2(parsed / 100);
 }
 
 export function toISODate(date: Date) {
@@ -331,7 +338,14 @@ export function toRawRow(
     ctr?: string;
     clicks?: string;
     impressions?: string;
+    reach?: string;
+    frequency?: string;
     inline_link_clicks?: string;
+    outbound_clicks?: MetaActionValue[];
+    attribution_setting?: string;
+    quality_ranking?: string;
+    engagement_rate_ranking?: string;
+    conversion_rate_ranking?: string;
     date_start?: string;
     actions?: MetaActionValue[];
     action_values?: MetaActionValue[];
@@ -379,8 +393,13 @@ export function toRawRow(
   const clicks = Math.round(parseFloat(insight.clicks ?? "0") || 0);
 
   const impressions = parseFloat(insight.impressions ?? "0") || 0;
+  const reach = parseFloat(insight.reach ?? "0") || impressions;
+  const frequency = parseFloat(insight.frequency ?? "0") || null;
   const inlineLinkClicks = parseFloat(insight.inline_link_clicks ?? "0") || 0;
   const effectiveLinkClicks = linkClicks || inlineLinkClicks;
+  const outboundClicks = Math.round(
+    parseActionAny(insight.outbound_clicks, ["outbound_click", "omni_outbound_click"]),
+  );
   const landingPageViews = Math.round(
     parseActionAny(insight.actions, [
       "landing_page_view",
@@ -492,6 +511,7 @@ export function toRawRow(
   const name = insight.ad_name ?? ad?.name ?? creative?.name ?? "Unnamed ad";
   const copyExtraction = resolveCreativeCopyExtraction(creative);
   const creativeId = creative?.id ?? adId;
+  const imageHashes = extractImageHashesFromCreative(creative);
   const objectStoryId =
     typeof creative?.object_story_id === "string" && creative.object_story_id.trim().length > 0
       ? creative.object_story_id.trim()
@@ -554,8 +574,8 @@ export function toRawRow(
     associated_ads_count: 1,
     account_id: accountMeta.id,
     account_name: accountMeta.name,
-    campaign_id: insight.campaign_id ?? null,
-    campaign_name: insight.campaign_name ?? null,
+    campaign_id: insight.campaign_id ?? ad?.campaign?.id ?? null,
+    campaign_name: insight.campaign_name ?? ad?.campaign?.name ?? null,
     currency: accountMeta.currency,
     adset_id: insight.adset_id ?? ad?.adset_id ?? ad?.adset?.id ?? null,
     adset_name: insight.adset_name ?? ad?.adset?.name ?? null,
@@ -583,6 +603,8 @@ export function toRawRow(
       image_url: finalPreviewImage,
       poster_url: finalPreviewPoster,
     },
+    image_hash: imageHashes[0] ?? null,
+    image_hashes: imageHashes,
     launch_date: launchDate,
     tags: [],
     ai_tags: {},
@@ -606,7 +628,22 @@ export function toRawRow(
     ctr_all: r2(ctrAll),
     purchases,
     impressions,
+    reach,
+    frequency,
     link_clicks: effectiveLinkClicks,
+    outbound_clicks: outboundClicks,
+    effective_status: ad?.effective_status ?? ad?.status ?? null,
+    objective: ad?.campaign?.objective ?? null,
+    attribution_setting: insight.attribution_setting ?? ad?.attribution_setting ?? null,
+    quality_ranking: insight.quality_ranking ?? null,
+    engagement_rate_ranking: insight.engagement_rate_ranking ?? null,
+    conversion_rate_ranking: insight.conversion_rate_ranking ?? null,
+    bid_strategy: ad?.bid_strategy ?? ad?.adset?.bid_strategy ?? ad?.campaign?.bid_strategy ?? null,
+    optimization_goal: ad?.optimization_goal ?? ad?.adset?.optimization_goal ?? null,
+    campaign_daily_budget: parseMetaBudgetAmount(ad?.campaign?.daily_budget),
+    adset_daily_budget: parseMetaBudgetAmount(ad?.adset?.daily_budget),
+    campaign_lifetime_budget: parseMetaBudgetAmount(ad?.campaign?.lifetime_budget),
+    adset_lifetime_budget: parseMetaBudgetAmount(ad?.adset?.lifetime_budget),
     landing_page_views: landingPageViews,
     add_to_cart: addToCart,
     initiate_checkout: initiateCheckout,
@@ -690,6 +727,7 @@ export function groupRows(
     const impressions = list.reduce((acc, item) => acc + item.impressions, 0);
     const clicks = list.reduce((acc, item) => acc + item.clicks, 0);
     const linkClicks = list.reduce((acc, item) => acc + item.link_clicks, 0);
+    const outboundClicks = list.reduce((acc, item) => acc + (item.outbound_clicks ?? 0), 0);
     const landingPageViews = list.reduce((acc, item) => acc + item.landing_page_views, 0);
     const addToCart = list.reduce((acc, item) => acc + item.add_to_cart, 0);
     const initiateCheckout = list.reduce((acc, item) => acc + item.initiate_checkout, 0);
@@ -701,6 +739,9 @@ export function groupRows(
     const video75Views = list.reduce((acc, item) => acc + (item.impressions > 0 ? (item.video75 / 100) * item.impressions : 0), 0);
     const video100Views = list.reduce((acc, item) => acc + (item.impressions > 0 ? (item.video100 / 100) * item.impressions : 0), 0);
     const weightedCtr = impressions > 0 ? list.reduce((acc, item) => acc + item.ctr_all * item.impressions, 0) / impressions : 0;
+    const weightedFrequency = impressions > 0
+      ? list.reduce((acc, item) => acc + Number(item.frequency ?? 0) * item.impressions, 0) / impressions
+      : null;
     const weightedCpm = impressions > 0 ? (spend / impressions) * 1000 : 0;
     const weightedCpc = linkClicks > 0 ? spend / linkClicks : 0;
     const earliestLaunch = [...list]
@@ -747,6 +788,13 @@ export function groupRows(
     const groupedCopyVariants = uniqueNormalizedText(list.flatMap((item) => item.copy_variants ?? []));
     const groupedHeadlineVariants = uniqueNormalizedText(list.flatMap((item) => item.headline_variants ?? []));
     const groupedDescriptionVariants = uniqueNormalizedText(list.flatMap((item) => item.description_variants ?? []));
+    const groupedImageHashes = Array.from(
+      new Set(
+        list
+          .flatMap((item) => [item.image_hash, ...(item.image_hashes ?? [])])
+          .filter((value): value is string => Boolean(value)),
+      ),
+    );
     const groupedCopySource =
       list.map((item) => item.copy_source ?? null).find((value): value is CopySourceLabel => Boolean(value)) ?? null;
     const groupedCopyDebugSources = mergeDebugSources([], list.flatMap((item) => item.copy_debug_sources ?? []));
@@ -799,6 +847,8 @@ export function groupRows(
       is_catalog: groupedPreview.is_catalog,
       preview_state: groupedLegacyState,
       preview: groupedPreview,
+      image_hash: groupedImageHashes[0] ?? null,
+      image_hashes: groupedImageHashes,
       launch_date: earliestLaunch ?? sample.launch_date,
       tags: [],
       ai_tags: list.reduce<MetaAiTags>((acc, item) => {
@@ -834,7 +884,22 @@ export function groupRows(
       ctr_all: r2(weightedCtr),
       purchases,
       impressions,
+      reach: list.reduce((acc, item) => acc + Number(item.reach ?? item.impressions ?? 0), 0),
+      frequency: weightedFrequency == null ? null : r2(weightedFrequency),
       link_clicks: linkClicks,
+      outbound_clicks: outboundClicks,
+      effective_status: list.map((item) => item.effective_status ?? null).find((value): value is string => Boolean(value)) ?? null,
+      objective: list.map((item) => item.objective ?? null).find((value): value is string => Boolean(value)) ?? null,
+      attribution_setting: list.map((item) => item.attribution_setting ?? null).find((value): value is string => Boolean(value)) ?? null,
+      quality_ranking: list.map((item) => item.quality_ranking ?? null).find((value): value is string => Boolean(value)) ?? null,
+      engagement_rate_ranking: list.map((item) => item.engagement_rate_ranking ?? null).find((value): value is string => Boolean(value)) ?? null,
+      conversion_rate_ranking: list.map((item) => item.conversion_rate_ranking ?? null).find((value): value is string => Boolean(value)) ?? null,
+      bid_strategy: list.map((item) => item.bid_strategy ?? null).find((value): value is string => Boolean(value)) ?? null,
+      optimization_goal: list.map((item) => item.optimization_goal ?? null).find((value): value is string => Boolean(value)) ?? null,
+      campaign_daily_budget: list.map((item) => item.campaign_daily_budget ?? null).find((value): value is number => value != null) ?? null,
+      adset_daily_budget: list.map((item) => item.adset_daily_budget ?? null).find((value): value is number => value != null) ?? null,
+      campaign_lifetime_budget: list.map((item) => item.campaign_lifetime_budget ?? null).find((value): value is number => value != null) ?? null,
+      adset_lifetime_budget: list.map((item) => item.adset_lifetime_budget ?? null).find((value): value is number => value != null) ?? null,
       landing_page_views: landingPageViews,
       add_to_cart: addToCart,
       initiate_checkout: initiateCheckout,

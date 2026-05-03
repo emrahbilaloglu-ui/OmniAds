@@ -81,6 +81,7 @@ const SYNC_REFRESH_META_TABLES = [
   "meta_breakdown_daily",
   "meta_ad_daily",
   "meta_creative_daily",
+  "meta_creative_media",
 ] as const;
 const SYNC_REFRESH_SHOPIFY_TABLES = [
   ...SYNC_REFRESH_COMMON_TABLES,

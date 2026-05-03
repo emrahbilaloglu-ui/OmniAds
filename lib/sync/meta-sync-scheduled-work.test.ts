@@ -14,7 +14,7 @@ vi.mock("@/lib/meta/creatives-warehouse", () => ({
 vi.mock("@/lib/meta/core-config", () => ({
   META_PRODUCT_CORE_PARTITION_SCOPE: "account_daily",
   META_CORE_PARTITION_SCOPES: ["account_daily", "campaign_daily", "adset_daily", "ad_daily"],
-  META_EXTENDED_SCOPES: ["breakdown_age"],
+  META_EXTENDED_SCOPES: ["creative_daily", "ad_daily"],
   META_PRODUCT_CORE_COVERAGE_SCOPES: ["account_daily", "campaign_daily", "adset_daily", "ad_daily"],
   META_RUNTIME_STATE_SCOPES: ["account_daily", "campaign_daily", "adset_daily", "creative_daily", "ad_daily"],
   isMetaProductCoreCoverageScope: vi.fn(() => true),
@@ -22,7 +22,12 @@ vi.mock("@/lib/meta/core-config", () => ({
 
 vi.mock("@/lib/meta/history", () => ({
   META_WAREHOUSE_HISTORY_DAYS: 365,
-  dayCountInclusive: vi.fn(() => 365),
+  META_CREATIVE_WAREHOUSE_HISTORY_DAYS: 455,
+  dayCountInclusive: vi.fn((start: string, end: string) => {
+    const startMs = Date.parse(`${start}T00:00:00Z`);
+    const endMs = Date.parse(`${end}T00:00:00Z`);
+    return Math.floor((endMs - startMs) / 86_400_000) + 1;
+  }),
   getCreativeMediaRetentionStart: vi.fn(() => "2026-01-01"),
 }));
 
@@ -74,6 +79,7 @@ vi.mock("@/lib/meta/warehouse", () => ({
   getMetaCampaignDailyCoverage: vi.fn().mockResolvedValue({ completed_days: 0, ready_through_date: null, latest_updated_at: null }),
   getMetaCreativeDailyCoverage: vi.fn().mockResolvedValue({ completed_days: 0, ready_through_date: null, latest_updated_at: null }),
   getMetaDirtyRecentDates: vi.fn().mockResolvedValue([]),
+  getMetaIncompleteCoverageDates: vi.fn().mockResolvedValue([]),
   listMetaAuthoritativeDayStates: vi.fn().mockResolvedValue([]),
   getMetaPartitionStatesForDate: vi.fn().mockResolvedValue(new Map()),
   getMetaPublishedVerificationSummary: vi.fn().mockResolvedValue({
@@ -237,6 +243,56 @@ describe("enqueueMetaScheduledWork", () => {
     expect(vi.mocked(warehouse.getMetaDirtyRecentDates).mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({
         slowPathDates: ["2026-04-05"],
+      }),
+    );
+
+    vi.useRealTimers();
+  });
+
+  it("queues creative_daily recent increments and 03:00 UTC gap repair", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-06T03:10:00.000Z"));
+    vi.mocked(warehouse.getMetaIncompleteCoverageDates).mockResolvedValue([
+      "2025-04-07",
+      "2025-04-08",
+    ] as never);
+
+    const result = await enqueueMetaScheduledWork("biz-1");
+
+    const creativeCalls = vi
+      .mocked(warehouse.queueMetaSyncPartition)
+      .mock.calls.map(([input]) => input)
+      .filter((input) => input.scope === "creative_daily");
+
+    expect(result.queuedCreative).toBeGreaterThanOrEqual(4);
+    expect(creativeCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          providerAccountId: "act_1",
+          partitionDate: "2026-04-05",
+          lane: "extended",
+          source: "today_observe",
+        }),
+        expect.objectContaining({
+          providerAccountId: "act_1",
+          partitionDate: "2026-04-04",
+          lane: "extended",
+          source: "finalize_day",
+        }),
+        expect.objectContaining({
+          providerAccountId: "act_1",
+          partitionDate: "2025-04-07",
+          lane: "extended",
+          source: "historical_recovery",
+        }),
+      ]),
+    );
+    expect(warehouse.getMetaIncompleteCoverageDates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        scopes: ["creative_daily"],
+        limit: expect.any(Number),
       }),
     );
 

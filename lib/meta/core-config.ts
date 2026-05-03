@@ -17,13 +17,13 @@ export const META_SECONDARY_REPORTING_SCOPES = [
 ] as const satisfies readonly MetaWarehouseScope[];
 
 export const META_EXTENDED_SCOPES = [
+  "creative_daily",
   "ad_daily",
 ] as const satisfies readonly MetaWarehouseScope[];
 
 export const META_RUNTIME_STATE_SCOPES = [
   ...META_PRODUCT_CORE_COVERAGE_SCOPES,
   ...META_SECONDARY_REPORTING_SCOPES,
-  "creative_daily",
   ...META_EXTENDED_SCOPES,
 ] as const satisfies readonly MetaWarehouseScope[];
 

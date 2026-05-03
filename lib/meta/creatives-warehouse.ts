@@ -737,7 +737,8 @@ export async function getMetaCreativesWarehousePayload(input: {
       const creativeKey = `${row.providerAccountId}|${row.date}|${row.creativeId}`;
       mediaByCreativeKey.set(creativeKey, chooseRicherMediaRow(mediaByCreativeKey.get(creativeKey), row));
       if (row.adId) {
-        mediaByAdKey.set(`${row.providerAccountId}|${row.date}|${row.adId}`, row);
+        const adKey = `${row.providerAccountId}|${row.date}|${row.adId}`;
+        mediaByAdKey.set(adKey, chooseRicherMediaRow(mediaByAdKey.get(adKey), row));
       }
     }
   }

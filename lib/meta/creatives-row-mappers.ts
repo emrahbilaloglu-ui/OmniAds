@@ -739,9 +739,8 @@ export function groupRows(
     const video75Views = list.reduce((acc, item) => acc + (item.impressions > 0 ? (item.video75 / 100) * item.impressions : 0), 0);
     const video100Views = list.reduce((acc, item) => acc + (item.impressions > 0 ? (item.video100 / 100) * item.impressions : 0), 0);
     const weightedCtr = impressions > 0 ? list.reduce((acc, item) => acc + item.ctr_all * item.impressions, 0) / impressions : 0;
-    const weightedFrequency = impressions > 0
-      ? list.reduce((acc, item) => acc + Number(item.frequency ?? 0) * item.impressions, 0) / impressions
-      : null;
+    const reach = list.reduce((acc, item) => acc + Number(item.reach ?? item.impressions ?? 0), 0);
+    const groupedFrequency = reach > 0 ? impressions / reach : null;
     const weightedCpm = impressions > 0 ? (spend / impressions) * 1000 : 0;
     const weightedCpc = linkClicks > 0 ? spend / linkClicks : 0;
     const earliestLaunch = [...list]
@@ -884,8 +883,8 @@ export function groupRows(
       ctr_all: r2(weightedCtr),
       purchases,
       impressions,
-      reach: list.reduce((acc, item) => acc + Number(item.reach ?? item.impressions ?? 0), 0),
-      frequency: weightedFrequency == null ? null : r2(weightedFrequency),
+      reach,
+      frequency: groupedFrequency == null ? null : r2(groupedFrequency),
       link_clicks: linkClicks,
       outbound_clicks: outboundClicks,
       effective_status: list.map((item) => item.effective_status ?? null).find((value): value is string => Boolean(value)) ?? null,

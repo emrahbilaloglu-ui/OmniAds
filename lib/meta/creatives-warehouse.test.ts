@@ -500,6 +500,19 @@ describe("meta creatives warehouse", () => {
         posterUrl: "https://example.com/media-poster.jpg",
         payloadJson: {},
       },
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adId: "ad-1",
+        creativeId: "crt-1",
+        previewUrl: null,
+        thumbnailUrl: null,
+        imageUrl: null,
+        payloadJson: {},
+      },
     ] as never);
 
     const payload = await getMetaCreativesWarehousePayload({

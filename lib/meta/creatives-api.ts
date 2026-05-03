@@ -204,8 +204,7 @@ export async function getMetaCreativesApiPayload(input: MetaCreativesLivePayload
     start <= rangeContext.selectedRangeTruthEndDate
       ? rangeContext.selectedRangeTruthEndDate
       : end;
-  const selectedRangeNeedsCurrentDayLive =
-    rangeContext.isSelectedCurrentDay || rangeContext.selectedRangeIncludesCurrentDay;
+  const selectedRangeNeedsCurrentDayLive = rangeContext.isSelectedCurrentDay;
   const liveReadSource = selectedRangeNeedsCurrentDayLive
     ? "current_day_live"
     : "live_fallback";

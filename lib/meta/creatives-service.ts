@@ -305,8 +305,11 @@ export async function buildCreativesResponse(
       addPerfStageMs(perf, "parallel_fetch_ms", Date.now() - tParallelStart);
       accountPerf.insights_rows = insights.length;
 
+      const positiveSpendInsights = insights.filter(
+        (item) => (parseFloat(item.spend ?? "0") || 0) > 0,
+      );
       const adMap = new Map<string, MetaAdRecord>();
-      const insightAdIds = insights
+      const insightAdIds = positiveSpendInsights
         .map((item) => item.ad_id)
         .filter((id): id is string => typeof id === "string" && id.length > 0);
       totalInsightAdIds += insightAdIds.length;
@@ -322,7 +325,9 @@ export async function buildCreativesResponse(
 
       const creativeMissingAdIds = insightAdIds.filter((id) => {
         const ad = adMap.get(id);
-        return !ad?.creative?.thumbnail_url && !ad?.creative?.image_url;
+        if (!ad?.creative?.id) return true;
+        if (!enableFullMediaHydration) return false;
+        return !ad.creative.thumbnail_url && !ad.creative.image_url;
       });
       if (shouldEnableCreativeBasicsFallback && creativeMissingAdIds.length > 0) {
         logRuntimeDebug("meta-creatives", "creative_enrichment_fallback", {
@@ -438,7 +443,7 @@ export async function buildCreativesResponse(
       accountPerf.creative_thumb_small_ms += Date.now() - tSmallThumbs;
       const cardThumbnailCreativeIds = resolveCardThumbnailCreativeIds({
         mergedCreativeById,
-        insights,
+        insights: positiveSpendInsights,
         adMap,
       });
       const tCardThumbs = Date.now();
@@ -504,6 +509,7 @@ export async function buildCreativesResponse(
           account_name: accountMeta.name,
           currency: accountMeta.currency,
           insights: insights.length,
+          spend_insights: positiveSpendInsights.length,
           ads_loaded: adMap.size,
           creative_ids_seen: creativeIds.length,
           creative_ids_for_details: creativeIdsForDetails.length,
@@ -525,7 +531,7 @@ export async function buildCreativesResponse(
       let accountSampleCount = 0;
 
       const tRowsBuild = Date.now();
-      for (const insight of insights) {
+      for (const insight of positiveSpendInsights) {
         const ad = insight.ad_id ? adMap.get(insight.ad_id) : undefined;
         const rawAd = ad;
         const rawAdAny = (rawAd ?? null) as Record<string, unknown> | null;

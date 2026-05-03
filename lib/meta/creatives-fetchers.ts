@@ -66,7 +66,9 @@ export function metaCacheKey(parts: Array<string | number | boolean | null | und
     .join(":");
 }
 
-const META_BATCH_ADS_FIELDSET_VERSION = "v2";
+const META_BATCH_ADS_FIELDSET_VERSION = "v5";
+const META_CREATIVE_INSIGHTS_FIELDSET_VERSION = "v2";
+const META_CREATIVE_INSIGHTS_MAX_PAGES = 20;
 
 export function toAdAccountNodeId(accountId: string): string {
   return accountId.startsWith("act_") ? accountId : `act_${accountId}`;
@@ -99,8 +101,8 @@ export function getCreativeSummaryFields(): string {
     "name",
     "object_type",
     "video_id",
-    "object_story_spec{link_data{child_attachments{link,picture,image_url,image_hash}},video_data{video_id},template_data}",
-    "asset_feed_spec{images{hash,image_hash},videos{video_id},bodies{text},titles{text},descriptions{text}}",
+    "object_story_spec{link_data{child_attachments{link,picture}},video_data{video_id},template_data}",
+    "asset_feed_spec{images{hash},videos{video_id},bodies{text},titles{text},descriptions{text}}",
   ].join(",");
 }
 
@@ -133,8 +135,8 @@ export function getNestedCreativeSummaryFields(): string {
     "name",
     "object_type",
     "video_id",
-    "object_story_spec{link_data{child_attachments{link,picture,image_url,image_hash}},video_data{video_id},template_data}",
-    "asset_feed_spec{images{hash,image_hash},videos{video_id},bodies{text},titles{text},descriptions{text}}",
+    "object_story_spec{link_data{child_attachments{link,picture}},video_data{video_id},template_data}",
+    "asset_feed_spec{images{hash},videos{video_id},bodies{text},titles{text},descriptions{text}}",
   ].join(",");
 }
 
@@ -178,7 +180,14 @@ export async function fetchAccountInsights(
   endDate: string
 ): Promise<MetaInsightRecord[]> {
   return getCachedValue({
-    key: metaCacheKey(["meta-insights", accountId, startDate, endDate, hashForCache(accessToken)]),
+    key: metaCacheKey([
+      "meta-insights",
+      META_CREATIVE_INSIGHTS_FIELDSET_VERSION,
+      accountId,
+      startDate,
+      endDate,
+      hashForCache(accessToken),
+    ]),
     ttlMs: 120_000,
     staleWhileRevalidateMs: 300_000,
     loader: async () => {
@@ -199,12 +208,27 @@ export async function fetchAccountInsights(
       url.searchParams.set("limit", "500");
       url.searchParams.set("access_token", accessToken);
 
-      const payload = await metaGet<{ data?: MetaInsightRecord[] }>(url, "insights", { accountId });
+      const rows: MetaInsightRecord[] = [];
+      let nextUrl: string | null = url.toString();
+      let pageCount = 0;
+      while (nextUrl && pageCount < META_CREATIVE_INSIGHTS_MAX_PAGES) {
+        const pageUrl: URL = new URL(nextUrl);
+        const payload: {
+          data?: MetaInsightRecord[];
+          paging?: { next?: string };
+        } | null = await metaGet(pageUrl, "insights", { accountId, page: pageCount });
+        if (!payload) break;
+        rows.push(...(payload.data ?? []));
+        nextUrl = payload.paging?.next ?? null;
+        pageCount += 1;
+      }
       logRuntimeDebug("meta-creatives", "insights_response", {
         account_id: accountId,
-        rows: payload?.data?.length ?? 0,
+        rows: rows.length,
+        pages: pageCount,
+        truncated: Boolean(nextUrl),
       });
-      return payload?.data ?? [];
+      return rows;
     },
   }).then((result) => result.value);
 }
@@ -297,9 +321,6 @@ export async function fetchAccountAdsMap(
           "name",
           "effective_status",
           "status",
-          "bid_strategy",
-          "optimization_goal",
-          "attribution_setting",
           "adset_id",
           "adset{id,name,daily_budget,lifetime_budget,bid_strategy,optimization_goal,promoted_object{product_set_id,catalog_id}}",
           "campaign{id,name,objective,daily_budget,lifetime_budget,bid_strategy}",
@@ -395,9 +416,6 @@ export async function batchFetchAdsByIds(
     "name",
     "effective_status",
     "status",
-    "bid_strategy",
-    "optimization_goal",
-    "attribution_setting",
     "adset_id",
     "adset{id,name,daily_budget,lifetime_budget,bid_strategy,optimization_goal}",
     "campaign{id,name,objective,daily_budget,lifetime_budget,bid_strategy}",

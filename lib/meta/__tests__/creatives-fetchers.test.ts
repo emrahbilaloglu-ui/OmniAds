@@ -24,7 +24,7 @@ describe("fetchAccountInsights", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            data: [{ ad_id: "ad_zero", spend: "0" }],
+            data: [{ ad_id: "ad_zero", spend: "0", date_start: "2026-05-03" }],
             paging: { next: "https://graph.facebook.com/v25.0/next-page" },
           }),
           {
@@ -36,7 +36,24 @@ describe("fetchAccountInsights", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            data: [{ ad_id: "ad_spend", spend: "12.34" }],
+            data: [{ ad_id: "ad_spend", spend: "12.34", date_start: "2026-05-03" }],
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                ad_id: "ad_spend",
+                date_start: "2026-05-03",
+                attribution_setting: "1d_view_7d_click",
+              },
+            ],
           }),
           {
             status: 200,
@@ -53,11 +70,19 @@ describe("fetchAccountInsights", () => {
       "2026-05-03"
     );
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(String(fetchMock.mock.calls[1]?.[0])).toBe("https://graph.facebook.com/v25.0/next-page");
+    const richRequestUrl = new URL(String(fetchMock.mock.calls[2]?.[0]));
+    expect(richRequestUrl.searchParams.get("fields")).toContain("quality_ranking");
+    expect(richRequestUrl.searchParams.get("filtering")).toContain('"field":"ad.id"');
     expect(rows).toEqual([
-      { ad_id: "ad_zero", spend: "0" },
-      { ad_id: "ad_spend", spend: "12.34" },
+      { ad_id: "ad_zero", spend: "0", date_start: "2026-05-03" },
+      {
+        ad_id: "ad_spend",
+        spend: "12.34",
+        date_start: "2026-05-03",
+        attribution_setting: "1d_view_7d_click",
+      },
     ]);
   });
 });

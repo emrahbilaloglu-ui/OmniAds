@@ -67,8 +67,44 @@ export function metaCacheKey(parts: Array<string | number | boolean | null | und
 }
 
 const META_BATCH_ADS_FIELDSET_VERSION = "v5";
-const META_CREATIVE_INSIGHTS_FIELDSET_VERSION = "v2";
+const META_CREATIVE_INSIGHTS_FIELDSET_VERSION = "v3";
 const META_CREATIVE_INSIGHTS_MAX_PAGES = 20;
+const META_CREATIVE_INSIGHTS_RICH_AD_ID_CHUNK_SIZE = 200;
+const META_CREATIVE_INSIGHTS_BASE_FIELDS = [
+  "ad_id",
+  "ad_name",
+  "campaign_id",
+  "campaign_name",
+  "adset_id",
+  "adset_name",
+  "spend",
+  "cpm",
+  "cpc",
+  "ctr",
+  "clicks",
+  "impressions",
+  "reach",
+  "frequency",
+  "inline_link_clicks",
+  "date_start",
+  "actions",
+  "action_values",
+  "purchase_roas",
+  "video_play_actions",
+  "video_p25_watched_actions",
+  "video_p50_watched_actions",
+  "video_p75_watched_actions",
+  "video_p100_watched_actions",
+].join(",");
+const META_CREATIVE_INSIGHTS_RICH_FIELDS = [
+  "ad_id",
+  "outbound_clicks",
+  "attribution_setting",
+  "quality_ranking",
+  "engagement_rate_ranking",
+  "conversion_rate_ranking",
+  "date_start",
+].join(",");
 
 export function toAdAccountNodeId(accountId: string): string {
   return accountId.startsWith("act_") ? accountId : `act_${accountId}`;
@@ -179,6 +215,86 @@ export async function fetchAccountInsights(
   startDate: string,
   endDate: string
 ): Promise<MetaInsightRecord[]> {
+  const fetchInsightsPages = async (input: {
+    fields: string;
+    filtering?: Array<Record<string, unknown>>;
+    warnLabel: string;
+  }) => {
+    const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/insights`);
+    url.searchParams.set("fields", input.fields);
+    url.searchParams.set("level", "ad");
+    url.searchParams.set("time_range", JSON.stringify({ since: startDate, until: endDate }));
+    url.searchParams.set("limit", "500");
+    url.searchParams.set("access_token", accessToken);
+    if (input.filtering) {
+      url.searchParams.set("filtering", JSON.stringify(input.filtering));
+    }
+
+    const rows: MetaInsightRecord[] = [];
+    let nextUrl: string | null = url.toString();
+    let pageCount = 0;
+    while (nextUrl && pageCount < META_CREATIVE_INSIGHTS_MAX_PAGES) {
+      const pageUrl: URL = new URL(nextUrl);
+      const payload: {
+        data?: MetaInsightRecord[];
+        paging?: { next?: string };
+      } | null = await metaGet(pageUrl, input.warnLabel, { accountId, page: pageCount });
+      if (!payload) break;
+      rows.push(...(payload.data ?? []));
+      nextUrl = payload.paging?.next ?? null;
+      pageCount += 1;
+    }
+    logRuntimeDebug("meta-creatives", `${input.warnLabel}_response`, {
+      account_id: accountId,
+      rows: rows.length,
+      pages: pageCount,
+      truncated: Boolean(nextUrl),
+    });
+    return rows;
+  };
+
+  const mergeRichInsights = async (baseRows: MetaInsightRecord[]) => {
+    const adIds = Array.from(
+      new Set(
+        baseRows
+          .map((row) => row.ad_id)
+          .filter((adId): adId is string => typeof adId === "string" && adId.length > 0),
+      ),
+    );
+    if (adIds.length === 0) return baseRows;
+
+    const richRows: MetaInsightRecord[] = [];
+    for (let index = 0; index < adIds.length; index += META_CREATIVE_INSIGHTS_RICH_AD_ID_CHUNK_SIZE) {
+      const chunk = adIds.slice(index, index + META_CREATIVE_INSIGHTS_RICH_AD_ID_CHUNK_SIZE);
+      richRows.push(
+        ...(await fetchInsightsPages({
+          fields: META_CREATIVE_INSIGHTS_RICH_FIELDS,
+          filtering: [{ field: "ad.id", operator: "IN", value: chunk }],
+          warnLabel: "insights_rich",
+        })),
+      );
+    }
+
+    const richByKey = new Map<string, MetaInsightRecord>();
+    for (const row of richRows) {
+      if (!row.ad_id) continue;
+      richByKey.set(`${row.ad_id}:${row.date_start ?? ""}`, row);
+    }
+
+    return baseRows.map((row) => {
+      const rich = row.ad_id ? richByKey.get(`${row.ad_id}:${row.date_start ?? ""}`) : null;
+      if (!rich) return row;
+      return {
+        ...row,
+        outbound_clicks: rich.outbound_clicks ?? row.outbound_clicks,
+        attribution_setting: rich.attribution_setting ?? row.attribution_setting,
+        quality_ranking: rich.quality_ranking ?? row.quality_ranking,
+        engagement_rate_ranking: rich.engagement_rate_ranking ?? row.engagement_rate_ranking,
+        conversion_rate_ranking: rich.conversion_rate_ranking ?? row.conversion_rate_ranking,
+      };
+    });
+  };
+
   return getCachedValue({
     key: metaCacheKey([
       "meta-insights",
@@ -195,40 +311,20 @@ export async function fetchAccountInsights(
         account_id: accountId,
         time_range: { since: startDate, until: endDate },
         level: "ad",
-        fields: "ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,spend,cpm,cpc,ctr,clicks,reach,frequency,date_start,actions,action_values,purchase_roas,outbound_clicks,attribution_setting,quality_ranking,engagement_rate_ranking,conversion_rate_ranking",
+        base_fields: META_CREATIVE_INSIGHTS_BASE_FIELDS,
+        rich_fields: META_CREATIVE_INSIGHTS_RICH_FIELDS,
       });
 
-      const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/insights`);
-      url.searchParams.set(
-        "fields",
-        "ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,spend,cpm,cpc,ctr,clicks,impressions,reach,frequency,inline_link_clicks,outbound_clicks,attribution_setting,quality_ranking,engagement_rate_ranking,conversion_rate_ranking,date_start,actions,action_values,purchase_roas,video_play_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p100_watched_actions"
-      );
-      url.searchParams.set("level", "ad");
-      url.searchParams.set("time_range", JSON.stringify({ since: startDate, until: endDate }));
-      url.searchParams.set("limit", "500");
-      url.searchParams.set("access_token", accessToken);
-
-      const rows: MetaInsightRecord[] = [];
-      let nextUrl: string | null = url.toString();
-      let pageCount = 0;
-      while (nextUrl && pageCount < META_CREATIVE_INSIGHTS_MAX_PAGES) {
-        const pageUrl: URL = new URL(nextUrl);
-        const payload: {
-          data?: MetaInsightRecord[];
-          paging?: { next?: string };
-        } | null = await metaGet(pageUrl, "insights", { accountId, page: pageCount });
-        if (!payload) break;
-        rows.push(...(payload.data ?? []));
-        nextUrl = payload.paging?.next ?? null;
-        pageCount += 1;
-      }
+      const rows = await fetchInsightsPages({
+        fields: META_CREATIVE_INSIGHTS_BASE_FIELDS,
+        warnLabel: "insights_base",
+      });
+      const enrichedRows = await mergeRichInsights(rows);
       logRuntimeDebug("meta-creatives", "insights_response", {
         account_id: accountId,
-        rows: rows.length,
-        pages: pageCount,
-        truncated: Boolean(nextUrl),
+        rows: enrichedRows.length,
       });
-      return rows;
+      return enrichedRows;
     },
   }).then((result) => result.value);
 }

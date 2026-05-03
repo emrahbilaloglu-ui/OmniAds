@@ -36,6 +36,7 @@ import {
   buildMetaRawSnapshotHash,
   createMetaSyncJob,
   persistMetaRawSnapshot,
+  deleteMetaSyncCheckpointsForPartition,
   replaceMetaAccountDailySlice,
   replaceMetaAdDailySlice,
   replaceMetaAdSetDailySlice,
@@ -46,6 +47,7 @@ import {
   updateMetaAuthoritativeSourceManifest,
   upsertMetaSyncCheckpoint,
   updateMetaSyncJob,
+  supersedeMetaRawSnapshotsForPartition,
   upsertMetaAccountDailyRows,
   upsertMetaAdDailyRows,
   upsertMetaAdSetDailyRows,
@@ -477,10 +479,8 @@ function withinMetaTruthTolerance(sourceValue: number, warehouseValue: number) {
 }
 
 async function resetMetaPartitionFreshState(partitionId: string) {
-  if (!process.env.DATABASE_URL) return;
-  const sql = getDb();
-  await sql`DELETE FROM meta_raw_snapshots WHERE partition_id = ${partitionId}::uuid`;
-  await sql`DELETE FROM meta_sync_checkpoints WHERE partition_id = ${partitionId}::uuid`;
+  await supersedeMetaRawSnapshotsForPartition({ partitionId });
+  await deleteMetaSyncCheckpointsForPartition({ partitionId });
 }
 
 async function fetchMetaAccountDaySpend(input: {

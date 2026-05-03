@@ -5674,6 +5674,36 @@ export async function listMetaRawSnapshotsForRun(input: {
   }>;
 }
 
+export async function supersedeMetaRawSnapshotsForPartition(input: {
+  partitionId: string;
+}) {
+  await assertMetaMutationTablesReady("meta_warehouse");
+  const sql = getDb();
+  const rows = await sql`
+    UPDATE meta_raw_snapshots
+    SET
+      status = 'superseded',
+      updated_at = now()
+    WHERE partition_id = ${input.partitionId}::uuid
+      AND status <> 'superseded'
+    RETURNING id
+  ` as Array<{ id: string }>;
+  return rows.length;
+}
+
+export async function deleteMetaSyncCheckpointsForPartition(input: {
+  partitionId: string;
+}) {
+  await assertMetaMutationTablesReady("meta_warehouse");
+  const sql = getDb();
+  const rows = await sql`
+    DELETE FROM meta_sync_checkpoints
+    WHERE partition_id = ${input.partitionId}::uuid
+    RETURNING id
+  ` as Array<{ id: string }>;
+  return rows.length;
+}
+
 export async function heartbeatMetaPartitionLease(input: {
   partitionId: string;
   workerId: string;

@@ -11,6 +11,7 @@ import type {
   FormatFilter,
   GroupBy,
   MetaCreativeApiRow,
+  NormalizedRenderPreviewPayload,
   RawCreativeRow,
   SortKey,
 } from "@/lib/meta/creatives-types";
@@ -78,10 +79,44 @@ function buildCreativeUsageMap(rows: RawCreativeRow[]) {
   return map;
 }
 
+function buildUnavailablePreview(isCatalog: boolean): NormalizedRenderPreviewPayload {
+  return {
+    render_mode: "unavailable",
+    image_url: null,
+    video_url: null,
+    poster_url: null,
+    source: null,
+    is_catalog: isCatalog,
+  };
+}
+
+function normalizeStoredPreview(
+  value: unknown,
+  isCatalog: boolean,
+): NormalizedRenderPreviewPayload {
+  if (!value || typeof value !== "object") {
+    return buildUnavailablePreview(isCatalog);
+  }
+  const preview = value as Partial<NormalizedRenderPreviewPayload>;
+  const renderMode =
+    preview.render_mode === "video" || preview.render_mode === "image"
+      ? preview.render_mode
+      : "unavailable";
+  return {
+    render_mode: renderMode,
+    image_url: typeof preview.image_url === "string" ? preview.image_url : null,
+    video_url: typeof preview.video_url === "string" ? preview.video_url : null,
+    poster_url: typeof preview.poster_url === "string" ? preview.poster_url : null,
+    source: preview.source ?? null,
+    is_catalog: Boolean(preview.is_catalog ?? isCatalog),
+  };
+}
+
 export function coerceRawCreativeRow(value: unknown): RawCreativeRow | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Partial<RawCreativeRow>;
   if (typeof row.id === "string" && typeof row.creative_id === "string" && "copy_text" in row) {
+    const preview = normalizeStoredPreview(row.preview, Boolean(row.is_catalog));
     const creativeTaxonomy =
       row.creative_primary_type
         ? {
@@ -99,7 +134,7 @@ export function coerceRawCreativeRow(value: unknown): RawCreativeRow | null {
             is_catalog: row.is_catalog ?? false,
           });
     const reconciledCreativeTaxonomy = reconcileCreativeTaxonomyWithVideoEvidence(creativeTaxonomy, {
-      preview: row.preview,
+      preview,
       thumbstop: row.thumbstop,
       video25: row.video25,
       video50: row.video50,
@@ -110,6 +145,7 @@ export function coerceRawCreativeRow(value: unknown): RawCreativeRow | null {
 
     return {
       ...(row as RawCreativeRow),
+      preview,
       format: legacyCreativeClassification.format,
       creative_type: legacyCreativeClassification.creative_type,
       creative_type_label: legacyCreativeClassification.creative_type_label,
@@ -124,6 +160,7 @@ export function coerceRawCreativeRow(value: unknown): RawCreativeRow | null {
   }
   const apiRow = value as Partial<MetaCreativeApiRow>;
   if (typeof apiRow.id !== "string" || typeof apiRow.creative_id !== "string") return null;
+  const apiPreview = normalizeStoredPreview(apiRow.preview, Boolean(apiRow.is_catalog));
   const creativeTaxonomy =
     apiRow.creative_primary_type
       ? {
@@ -141,7 +178,7 @@ export function coerceRawCreativeRow(value: unknown): RawCreativeRow | null {
           is_catalog: apiRow.is_catalog ?? false,
         });
   const reconciledCreativeTaxonomy = reconcileCreativeTaxonomyWithVideoEvidence(creativeTaxonomy, {
-    preview: apiRow.preview,
+    preview: apiPreview,
     thumbstop: Number(apiRow.thumbstop ?? 0),
     video25: Number(apiRow.video25 ?? 0),
     video50: Number(apiRow.video50 ?? 0),
@@ -180,14 +217,7 @@ export function coerceRawCreativeRow(value: unknown): RawCreativeRow | null {
     card_preview_url: apiRow.card_preview_url ?? null,
     is_catalog: Boolean(apiRow.is_catalog),
     preview_state: apiRow.preview_state ?? "unavailable",
-    preview: apiRow.preview ?? {
-      render_mode: "unavailable",
-      image_url: null,
-      video_url: null,
-      poster_url: null,
-      source: null,
-      is_catalog: Boolean(apiRow.is_catalog),
-    },
+    preview: apiPreview,
     tags: apiRow.tags ?? [],
     ai_tags: apiRow.ai_tags ?? {},
     format: legacyCreativeClassification.format,

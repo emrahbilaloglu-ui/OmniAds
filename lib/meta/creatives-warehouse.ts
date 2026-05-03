@@ -90,25 +90,61 @@ function buildUnavailablePreview(isCatalog: boolean): NormalizedRenderPreviewPay
   };
 }
 
+function firstNonEmptyString(...values: Array<string | null | undefined>) {
+  return values.find((value): value is string => typeof value === "string" && value.trim().length > 0) ?? null;
+}
+
 function normalizeStoredPreview(
   value: unknown,
   isCatalog: boolean,
+  fallback?: {
+    previewUrl?: string | null;
+    thumbnailUrl?: string | null;
+    imageUrl?: string | null;
+    videoUrl?: string | null;
+    posterUrl?: string | null;
+  },
 ): NormalizedRenderPreviewPayload {
-  if (!value || typeof value !== "object") {
+  const preview =
+    value && typeof value === "object"
+      ? (value as Partial<NormalizedRenderPreviewPayload>)
+      : null;
+  const videoUrl = firstNonEmptyString(preview?.video_url, fallback?.videoUrl);
+  const imageUrl = firstNonEmptyString(
+    preview?.image_url,
+    fallback?.imageUrl,
+    fallback?.previewUrl,
+  );
+  const posterUrl = firstNonEmptyString(
+    preview?.poster_url,
+    fallback?.posterUrl,
+    fallback?.thumbnailUrl,
+  );
+  if (!preview && !videoUrl && !imageUrl && !posterUrl) {
     return buildUnavailablePreview(isCatalog);
   }
-  const preview = value as Partial<NormalizedRenderPreviewPayload>;
+  const storedRenderMode = preview?.render_mode;
   const renderMode =
-    preview.render_mode === "video" || preview.render_mode === "image"
-      ? preview.render_mode
-      : "unavailable";
+    storedRenderMode === "video" || storedRenderMode === "image"
+      ? storedRenderMode
+      : videoUrl
+        ? "video"
+        : imageUrl || posterUrl
+          ? "image"
+          : "unavailable";
   return {
     render_mode: renderMode,
-    image_url: typeof preview.image_url === "string" ? preview.image_url : null,
-    video_url: typeof preview.video_url === "string" ? preview.video_url : null,
-    poster_url: typeof preview.poster_url === "string" ? preview.poster_url : null,
-    source: preview.source ?? null,
-    is_catalog: Boolean(preview.is_catalog ?? isCatalog),
+    image_url: imageUrl,
+    video_url: videoUrl,
+    poster_url: posterUrl,
+    source:
+      preview?.source ??
+      (imageUrl
+        ? "image_url"
+        : posterUrl
+          ? "thumbnail_url"
+          : null),
+    is_catalog: Boolean(preview?.is_catalog ?? isCatalog),
   };
 }
 
@@ -116,7 +152,11 @@ export function coerceRawCreativeRow(value: unknown): RawCreativeRow | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Partial<RawCreativeRow>;
   if (typeof row.id === "string" && typeof row.creative_id === "string" && "copy_text" in row) {
-    const preview = normalizeStoredPreview(row.preview, Boolean(row.is_catalog));
+    const preview = normalizeStoredPreview(row.preview, Boolean(row.is_catalog), {
+      previewUrl: row.preview_url,
+      thumbnailUrl: row.thumbnail_url,
+      imageUrl: row.image_url,
+    });
     const creativeTaxonomy =
       row.creative_primary_type
         ? {
@@ -160,7 +200,11 @@ export function coerceRawCreativeRow(value: unknown): RawCreativeRow | null {
   }
   const apiRow = value as Partial<MetaCreativeApiRow>;
   if (typeof apiRow.id !== "string" || typeof apiRow.creative_id !== "string") return null;
-  const apiPreview = normalizeStoredPreview(apiRow.preview, Boolean(apiRow.is_catalog));
+  const apiPreview = normalizeStoredPreview(apiRow.preview, Boolean(apiRow.is_catalog), {
+    previewUrl: apiRow.preview_url,
+    thumbnailUrl: apiRow.thumbnail_url,
+    imageUrl: apiRow.image_url,
+  });
   const creativeTaxonomy =
     apiRow.creative_primary_type
       ? {

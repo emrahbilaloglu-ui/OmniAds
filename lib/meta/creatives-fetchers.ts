@@ -127,7 +127,7 @@ export function getCreativeMediaFields(): string {
     "object_type",
     "video_id",
     "object_story_spec{link_data{link,message,name,description,picture,call_to_action{type,value{link}},child_attachments{link,picture}},video_data{video_id,message,title,call_to_action{type,value{link}}},photo_data{message,caption,call_to_action{type,value{link}}},template_data}",
-    "asset_feed_spec{catalog_id,product_set_id,bodies{text},titles{text},descriptions{text},videos{video_id}}",
+    "asset_feed_spec{bodies{text},titles{text},descriptions{text},videos{video_id}}",
   ].join(",");
 }
 
@@ -177,10 +177,7 @@ export function getNestedCreativeSummaryFields(): string {
 }
 
 export function getCreativeDetailAdvancedFields(): string {
-  return [
-    "id",
-    "asset_feed_spec{catalog_id,product_set_id}",
-  ].join(",");
+  return "";
 }
 
 export async function fetchAssignedAccountIds(businessId: string): Promise<string[]> {
@@ -628,6 +625,8 @@ export async function fetchCreativeDetailsMap(
           if (!creative || typeof creative !== "object") continue;
           map.set(creativeId, creative as NonNullable<MetaAdRecord["creative"]>);
         }
+
+        if (!advancedFields) continue;
 
         const advancedUrl = new URL("https://graph.facebook.com/v25.0/");
         advancedUrl.searchParams.set("ids", idsChunk.join(","));

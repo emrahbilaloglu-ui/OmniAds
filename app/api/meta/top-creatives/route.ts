@@ -207,7 +207,7 @@ async function fetchAdCreativeMap(
               "creative{",
               "id,name,object_type,effective_object_story_id,thumbnail_url,image_url,",
               "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_url}},video_data{image_url,thumbnail_url},photo_data{image_url},template_data},",
-              "asset_feed_spec{catalog_id,product_set_id,images{url,image_url,original_url,hash,image_hash},videos{thumbnail_url,image_url}}",
+              "asset_feed_spec{images{url,image_url,original_url,hash,image_hash},videos{thumbnail_url,image_url}}",
               "}",
             ].join(""),
           ].join(",")

@@ -134,4 +134,24 @@ describe("sync control-plane persistence", () => {
     expect(result.fallbackByBuild.releaseGate?.environment).toBe("unknown");
     expect(result.fallbackByBuild.repairPlan?.environment).toBe("unknown");
   });
+
+  it("bounds release gate lookups so build-info readiness stays cheap", async () => {
+    const queries: string[] = [];
+    vi.mocked(db.getDb).mockReturnValue(
+      (async (strings: TemplateStringsArray) => {
+        queries.push(strings.join(" "));
+        return [];
+      }) as never,
+    );
+
+    await controlPlanePersistence.getSyncControlPlanePersistenceStatus({
+      buildId: "build-1",
+      environment: "production",
+      providerScope: "google_ads",
+    });
+
+    const gateQueries = queries.filter((query) => query.includes("FROM sync_release_gates"));
+    expect(gateQueries).toHaveLength(3);
+    expect(gateQueries.every((query) => query.includes("LIMIT 100"))).toBe(true);
+  });
 });

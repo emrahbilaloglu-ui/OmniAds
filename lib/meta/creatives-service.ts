@@ -127,6 +127,41 @@ export type CreativesApiResponse = {
   [key: string]: unknown;
 };
 
+type MetaInsightRow = Awaited<ReturnType<typeof fetchAccountInsights>>[number];
+
+function metricNumber(value: unknown): number {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+function actionMetricTotal(value: unknown): number {
+  if (!Array.isArray(value)) return 0;
+  return value.reduce((sum, item) => {
+    if (!item || typeof item !== "object") return sum;
+    return sum + metricNumber((item as { value?: unknown }).value);
+  }, 0);
+}
+
+function hasRetainedCreativeInsightActivity(insight: MetaInsightRow): boolean {
+  return (
+    metricNumber(insight.impressions) > 0 ||
+    metricNumber(insight.reach) > 0 ||
+    metricNumber(insight.clicks) > 0 ||
+    metricNumber(insight.inline_link_clicks) > 0 ||
+    actionMetricTotal(insight.actions) > 0 ||
+    actionMetricTotal(insight.action_values) > 0 ||
+    actionMetricTotal(insight.outbound_clicks) > 0
+  );
+}
+
+function shouldBuildCreativeRowFromInsight(insight: MetaInsightRow): boolean {
+  return metricNumber(insight.spend) > 0 || hasRetainedCreativeInsightActivity(insight);
+}
+
 export async function buildCreativesResponse(
   query: CreativesQueryParams,
   request: NextRequest
@@ -305,11 +340,12 @@ export async function buildCreativesResponse(
       addPerfStageMs(perf, "parallel_fetch_ms", Date.now() - tParallelStart);
       accountPerf.insights_rows = insights.length;
 
-      const positiveSpendInsights = insights.filter(
-        (item) => (parseFloat(item.spend ?? "0") || 0) > 0,
+      const rowCandidateInsights = insights.filter(shouldBuildCreativeRowFromInsight);
+      const positiveSpendInsights = rowCandidateInsights.filter(
+        (item) => metricNumber(item.spend) > 0,
       );
       const adMap = new Map<string, MetaAdRecord>();
-      const insightAdIds = positiveSpendInsights
+      const insightAdIds = rowCandidateInsights
         .map((item) => item.ad_id)
         .filter((id): id is string => typeof id === "string" && id.length > 0);
       totalInsightAdIds += insightAdIds.length;
@@ -443,7 +479,7 @@ export async function buildCreativesResponse(
       accountPerf.creative_thumb_small_ms += Date.now() - tSmallThumbs;
       const cardThumbnailCreativeIds = resolveCardThumbnailCreativeIds({
         mergedCreativeById,
-        insights: positiveSpendInsights,
+        insights: rowCandidateInsights,
         adMap,
       });
       const tCardThumbs = Date.now();
@@ -509,6 +545,7 @@ export async function buildCreativesResponse(
           account_name: accountMeta.name,
           currency: accountMeta.currency,
           insights: insights.length,
+          row_candidate_insights: rowCandidateInsights.length,
           spend_insights: positiveSpendInsights.length,
           ads_loaded: adMap.size,
           creative_ids_seen: creativeIds.length,
@@ -531,7 +568,7 @@ export async function buildCreativesResponse(
       let accountSampleCount = 0;
 
       const tRowsBuild = Date.now();
-      for (const insight of positiveSpendInsights) {
+      for (const insight of rowCandidateInsights) {
         const ad = insight.ad_id ? adMap.get(insight.ad_id) : undefined;
         const rawAd = ad;
         const rawAdAny = (rawAd ?? null) as Record<string, unknown> | null;

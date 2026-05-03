@@ -547,6 +547,18 @@ describe("buildCreativesResponse snapshot freshness", () => {
     const batchSpy = vi.spyOn(creativesFetchers, "batchFetchAdsByIds").mockResolvedValue(
       new Map([
         [
+          "ad_zero",
+          {
+            id: "ad_zero",
+            name: "Zero spend",
+            creative: {
+              id: "cr_zero",
+              name: "Zero spend creative",
+              object_type: "SHARE",
+            },
+          },
+        ],
+        [
           "ad_1",
           {
             id: "ad_1",
@@ -581,11 +593,16 @@ describe("buildCreativesResponse snapshot freshness", () => {
     );
 
     expect(basicsSpy).not.toHaveBeenCalled();
-    expect(batchSpy).toHaveBeenCalledWith(["ad_1"], "token", "metadata");
+    expect(batchSpy).toHaveBeenCalledWith(["ad_zero", "ad_1"], "token", "metadata");
     expect(response.status).toBe("ok");
-    expect(response.rows[0]).toMatchObject({
+    expect(response.rows.find((row) => row.creative_id === "cr_1")).toMatchObject({
       creative_id: "cr_1",
       spend: 120,
+    });
+    expect(response.rows.find((row) => row.creative_id === "cr_zero")).toMatchObject({
+      creative_id: "cr_zero",
+      spend: 0,
+      impressions: 10,
     });
   });
 });

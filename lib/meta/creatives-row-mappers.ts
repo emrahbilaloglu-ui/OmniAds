@@ -90,6 +90,11 @@ export function parseActionAny(arr: MetaActionValue[] | undefined, candidates: s
   return 0;
 }
 
+function parseActionTotal(arr: MetaActionValue[] | undefined): number {
+  if (!Array.isArray(arr)) return 0;
+  return arr.reduce((total, item) => total + (parseFloat(item?.value ?? "0") || 0), 0);
+}
+
 export function parsePurchaseCount(actions: MetaActionValue[] | undefined): number {
   return parseActionAny(actions, [
     "purchase",
@@ -377,8 +382,6 @@ export function toRawRow(
   if (!adId) return null;
 
   const spend = parseFloat(insight.spend ?? "0") || 0;
-  if (spend <= 0) return null;
-
   const purchases = Math.round(parsePurchaseCount(insight.actions));
   const purchaseValue = parsePurchaseValue(insight.action_values);
   const purchaseRoas = parsePurchaseRoas(insight.purchase_roas);
@@ -435,6 +438,25 @@ export function toRawRow(
   const video50Views = parseFloat(insight.video_p50_watched_actions?.[0]?.value ?? "0") || 0;
   const video75Views = parseFloat(insight.video_p75_watched_actions?.[0]?.value ?? "0") || 0;
   const video100Views = parseFloat(insight.video_p100_watched_actions?.[0]?.value ?? "0") || 0;
+  const allActionTotal = parseActionTotal(insight.actions);
+  const hasRetainedZeroSpendActivity =
+    impressions > 0 ||
+    reach > 0 ||
+    clicks > 0 ||
+    effectiveLinkClicks > 0 ||
+    outboundClicks > 0 ||
+    purchases > 0 ||
+    purchaseValue > 0 ||
+    landingPageViews > 0 ||
+    addToCart > 0 ||
+    initiateCheckout > 0 ||
+    allActionTotal > 0 ||
+    video3sViews > 0 ||
+    video25Views > 0 ||
+    video50Views > 0 ||
+    video75Views > 0 ||
+    video100Views > 0;
+  if (spend <= 0 && !hasRetainedZeroSpendActivity) return null;
 
   const thumbstop = impressions > 0 ? r2((video3sViews / impressions) * 100) : 0;
   const clickToAtc = effectiveLinkClicks > 0 ? r2((addToCart / effectiveLinkClicks) * 100) : 0;
@@ -620,7 +642,7 @@ export function toRawRow(
     classification_signals: creativeTaxonomy.classification_signals,
     spend: r2(spend),
     purchase_value: r2(derivedPurchaseValue),
-    roas: r2(derivedPurchaseValue > 0 ? derivedPurchaseValue / spend : 0),
+    roas: r2(spend > 0 && derivedPurchaseValue > 0 ? derivedPurchaseValue / spend : 0),
     cpa: r2(cpa),
     clicks,
     cpc_link: r2(cpcLink),

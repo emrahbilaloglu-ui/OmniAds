@@ -215,6 +215,19 @@ describe("groupRows", () => {
     expect(result[0].link_clicks).toBe(140);
   });
 
+  it("computes grouped frequency from aggregate impressions and reach", () => {
+    const rows = [
+      makeRow({ id: "a1", name: "Ad X", format: "image", impressions: 100, reach: 100, frequency: 10 }),
+      makeRow({ id: "a2", name: "Ad X", format: "image", impressions: 300, reach: 100, frequency: 1 }),
+    ];
+
+    const result = groupRows(rows, "creative", new Map());
+
+    expect(result[0].impressions).toBe(400);
+    expect(result[0].reach).toBe(200);
+    expect(result[0].frequency).toBe(2);
+  });
+
   it("groups by adset_id for groupBy=adset", () => {
     const rows = [
       makeRow({ id: "a1", adset_id: "adset_A", name: "Ad 1", spend: 100 }),

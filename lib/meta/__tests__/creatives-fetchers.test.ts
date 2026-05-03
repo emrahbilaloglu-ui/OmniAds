@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   batchFetchAdsByIds,
   fetchAdCreativeBasicsByAdIds,
+  fetchAccountInsights,
   fetchCreativeDetailsMap,
   getCreativeDetailAdvancedFields,
   getCreativeDetailFields,
@@ -10,6 +11,56 @@ import {
   getNestedCreativeMediaFields,
   getNestedCreativeSummaryFields,
 } from "@/lib/meta/creatives-fetchers";
+
+describe("fetchAccountInsights", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("follows Meta insights paging so spend rows beyond the first page are retained", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [{ ad_id: "ad_zero", spend: "0" }],
+            paging: { next: "https://graph.facebook.com/v25.0/next-page" },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [{ ad_id: "ad_spend", spend: "12.34" }],
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }
+        )
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const rows = await fetchAccountInsights(
+      "act_1",
+      "token-paged-insights-test",
+      "2026-05-03",
+      "2026-05-03"
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe("https://graph.facebook.com/v25.0/next-page");
+    expect(rows).toEqual([
+      { ad_id: "ad_zero", spend: "0" },
+      { ad_id: "ad_spend", spend: "12.34" },
+    ]);
+  });
+});
 
 describe("creative detail field contracts", () => {
   it("keeps unsupported catalog fields out of the safe detail request", () => {
@@ -23,11 +74,15 @@ describe("creative detail field contracts", () => {
     expect(getCreativeDetailFields().startsWith("id,name,object_type,video_id,object_story_spec")).toBe(true);
     expect(getCreativeMediaFields().startsWith("id,name,object_type,video_id,object_story_spec")).toBe(true);
     expect(getCreativeSummaryFields()).not.toContain("thumbnail_url");
+    expect(getCreativeSummaryFields()).not.toContain("image_url");
+    expect(getCreativeSummaryFields()).not.toContain("image_hash");
     expect(getCreativeSummaryFields()).toContain("template_data");
     expect(getCreativeSummaryFields()).not.toMatch(/(^|[{,])catalog_id(?=[,}])/);
     expect(getCreativeSummaryFields()).not.toMatch(/(^|[{,])product_set_id(?=[,}])/);
     expect(getNestedCreativeMediaFields().startsWith("id,name,object_type,video_id,object_story_spec")).toBe(true);
     expect(getNestedCreativeSummaryFields()).not.toContain("thumbnail_url");
+    expect(getNestedCreativeSummaryFields()).not.toContain("image_url");
+    expect(getNestedCreativeSummaryFields()).not.toContain("image_hash");
     expect(getNestedCreativeSummaryFields()).toContain("template_data");
     expect(getNestedCreativeSummaryFields()).not.toMatch(/(^|[{,])catalog_id(?=[,}])/);
     expect(getNestedCreativeSummaryFields()).not.toMatch(/(^|[{,])product_set_id(?=[,}])/);
@@ -105,7 +160,11 @@ describe("batchFetchAdsByIds", () => {
     const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
     const fields = requestUrl.searchParams.get("fields") ?? "";
 
-    expect(fields).toContain("adset{id,name}");
+    expect(fields).toContain("adset{id,name,daily_budget,lifetime_budget");
+    expect(fields).toContain("campaign{id,name,objective,daily_budget,lifetime_budget");
+    expect(fields).not.toContain("status,bid_strategy");
+    expect(fields).not.toContain("status,optimization_goal");
+    expect(fields).not.toContain("status,attribution_setting");
     expect(fields).not.toContain("promoted_object");
     expect(fields).toContain("template_data");
     expect(fields).not.toMatch(/(^|[{,])catalog_id(?=[,}])/);

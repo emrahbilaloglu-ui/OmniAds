@@ -19,7 +19,7 @@ import {
 import { buildCreativeHistoricalAnalysis } from "@/lib/creative-historical-intelligence";
 import {
   addDaysToIsoDate,
-  META_WAREHOUSE_HISTORY_DAYS,
+  META_CREATIVE_WAREHOUSE_HISTORY_DAYS,
 } from "@/lib/meta/history";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
 import {
@@ -399,7 +399,7 @@ export async function getCreativeDecisionOsForRange(input: {
       allHistory: {
         startDate: addDaysToIsoDate(
           decisionContext.decisionAsOf,
-          -(META_WAREHOUSE_HISTORY_DAYS - 1),
+          -(META_CREATIVE_WAREHOUSE_HISTORY_DAYS - 1),
         ),
         endDate: decisionContext.decisionAsOf,
       },

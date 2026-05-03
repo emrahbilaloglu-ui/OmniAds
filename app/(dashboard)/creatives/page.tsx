@@ -70,7 +70,7 @@ import { PlanGate } from "@/components/pricing/PlanGate";
 import { usePlanState } from "@/lib/pricing/usePlan";
 import { PRICING_PLANS } from "@/lib/pricing/plans";
 import {
-  META_WAREHOUSE_HISTORY_DAYS,
+  META_CREATIVE_WAREHOUSE_HISTORY_DAYS,
   addDaysToIsoDate,
   dayCountInclusive,
 } from "@/lib/meta/history";
@@ -285,7 +285,7 @@ export default function CreativesPage() {
       { key: "last14", start: offsetIso(13), end: drEnd },
       { key: "last30", start: offsetIso(29), end: drEnd },
       { key: "last90", start: offsetIso(89), end: drEnd },
-      { key: "allHistory", start: offsetIso(META_WAREHOUSE_HISTORY_DAYS - 1), end: drEnd },
+      { key: "allHistory", start: offsetIso(META_CREATIVE_WAREHOUSE_HISTORY_DAYS - 1), end: drEnd },
     ],
     [drEnd, offsetIso]
   );

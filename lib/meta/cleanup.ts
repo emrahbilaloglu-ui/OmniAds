@@ -9,6 +9,7 @@ const META_PURGE_TABLES = [
   "provider_reporting_snapshots",
   "meta_config_snapshots",
   "meta_creatives_snapshots",
+  "meta_creative_media",
   "meta_creative_daily",
   "meta_ad_daily",
   "meta_adset_daily",
@@ -33,6 +34,7 @@ const META_TERMINAL_RUN_REPAIR_TABLES = [
   "meta_sync_partitions",
 ] as const;
 const META_CREATIVE_MEDIA_PRUNE_TABLES = [
+  "meta_creative_media",
   "meta_ad_daily",
   "meta_creative_daily",
 ] as const;
@@ -58,6 +60,7 @@ export interface MetaCacheCleanupSummary {
 }
 
 export interface MetaCreativeMediaPruneSummary {
+  metaCreativeMediaDeleted: number;
   metaAdDailyUpdated: number;
   metaCreativeDailyUpdated: number;
 }
@@ -126,6 +129,13 @@ export async function purgeAllMetaDataAndDisconnect(): Promise<MetaCleanupSummar
   const metaCreativesSnapshotsDeleted = await execCount(sql`
     WITH deleted AS (
       DELETE FROM meta_creatives_snapshots
+      RETURNING 1
+    )
+    SELECT COUNT(*)::int AS count FROM deleted
+  `);
+  await execCount(sql`
+    WITH deleted AS (
+      DELETE FROM meta_creative_media
       RETURNING 1
     )
     SELECT COUNT(*)::int AS count FROM deleted
@@ -551,6 +561,16 @@ export async function pruneMetaCreativeMediaOutsideRetention(input: {
   );
   const sql = getDb();
 
+  const metaCreativeMediaDeleted = await execCount(sql`
+    WITH deleted AS (
+      DELETE FROM meta_creative_media
+      WHERE (${input.businessId ?? null}::text IS NULL OR business_id = ${input.businessId ?? null})
+        AND date::date < ${input.keepFromDate}::date
+      RETURNING 1
+    )
+    SELECT COUNT(*)::int AS count FROM deleted
+  `);
+
   const metaAdDailyUpdated = await execCount(sql`
     WITH updated AS (
       UPDATE meta_ad_daily
@@ -680,6 +700,7 @@ export async function pruneMetaCreativeMediaOutsideRetention(input: {
   `);
 
   return {
+    metaCreativeMediaDeleted,
     metaAdDailyUpdated,
     metaCreativeDailyUpdated,
   };

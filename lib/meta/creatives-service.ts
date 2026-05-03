@@ -115,6 +115,8 @@ export interface CreativesQueryParams {
   enableDeepAudit: boolean;
   perAccountSampleLimit: number;
   requestStartedAt: number;
+  allowSnapshotPersistence?: boolean;
+  allowSnapshotRefreshTrigger?: boolean;
 }
 
 export type CreativesApiResponse = {
@@ -124,6 +126,41 @@ export type CreativesApiResponse = {
   media_hydrated: boolean;
   [key: string]: unknown;
 };
+
+type MetaInsightRow = Awaited<ReturnType<typeof fetchAccountInsights>>[number];
+
+function metricNumber(value: unknown): number {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+function actionMetricTotal(value: unknown): number {
+  if (!Array.isArray(value)) return 0;
+  return value.reduce((sum, item) => {
+    if (!item || typeof item !== "object") return sum;
+    return sum + metricNumber((item as { value?: unknown }).value);
+  }, 0);
+}
+
+function hasRetainedCreativeInsightActivity(insight: MetaInsightRow): boolean {
+  return (
+    metricNumber(insight.impressions) > 0 ||
+    metricNumber(insight.reach) > 0 ||
+    metricNumber(insight.clicks) > 0 ||
+    metricNumber(insight.inline_link_clicks) > 0 ||
+    actionMetricTotal(insight.actions) > 0 ||
+    actionMetricTotal(insight.action_values) > 0 ||
+    actionMetricTotal(insight.outbound_clicks) > 0
+  );
+}
+
+function shouldBuildCreativeRowFromInsight(insight: MetaInsightRow): boolean {
+  return metricNumber(insight.spend) > 0 || hasRetainedCreativeInsightActivity(insight);
+}
 
 export async function buildCreativesResponse(
   query: CreativesQueryParams,
@@ -156,6 +193,8 @@ export async function buildCreativesResponse(
     enableDeepAudit,
     perAccountSampleLimit,
     requestStartedAt,
+    allowSnapshotPersistence = true,
+    allowSnapshotRefreshTrigger = true,
   } = query;
   const debugLoggingEnabled = isRuntimeLogLevelEnabled("debug");
   const shouldEnableCreativeBasicsFallback =
@@ -213,12 +252,18 @@ export async function buildCreativesResponse(
             ),
             suspicious_copy_empty: hasSuspiciousCopyEmptySnapshot,
           });
-          triggerSnapshotRefresh(request, snapshotQuery);
+          if (allowSnapshotRefreshTrigger) {
+            triggerSnapshotRefresh(request, snapshotQuery);
+          }
         } else {
-        if (freshness.freshnessState !== "fresh" && !snapshotWarm) {
-          triggerSnapshotRefresh(request, snapshotQuery);
-        }
-        return snapshotPayload;
+          if (
+            freshness.freshnessState !== "fresh" &&
+            !snapshotWarm &&
+            allowSnapshotRefreshTrigger
+          ) {
+            triggerSnapshotRefresh(request, snapshotQuery);
+          }
+          return snapshotPayload;
         }
       }
     }
@@ -295,8 +340,12 @@ export async function buildCreativesResponse(
       addPerfStageMs(perf, "parallel_fetch_ms", Date.now() - tParallelStart);
       accountPerf.insights_rows = insights.length;
 
+      const rowCandidateInsights = insights.filter(shouldBuildCreativeRowFromInsight);
+      const positiveSpendInsights = rowCandidateInsights.filter(
+        (item) => metricNumber(item.spend) > 0,
+      );
       const adMap = new Map<string, MetaAdRecord>();
-      const insightAdIds = insights
+      const insightAdIds = rowCandidateInsights
         .map((item) => item.ad_id)
         .filter((id): id is string => typeof id === "string" && id.length > 0);
       totalInsightAdIds += insightAdIds.length;
@@ -312,7 +361,9 @@ export async function buildCreativesResponse(
 
       const creativeMissingAdIds = insightAdIds.filter((id) => {
         const ad = adMap.get(id);
-        return !ad?.creative?.thumbnail_url && !ad?.creative?.image_url;
+        if (!ad?.creative?.id) return true;
+        if (!enableFullMediaHydration) return false;
+        return !ad.creative.thumbnail_url && !ad.creative.image_url;
       });
       if (shouldEnableCreativeBasicsFallback && creativeMissingAdIds.length > 0) {
         logRuntimeDebug("meta-creatives", "creative_enrichment_fallback", {
@@ -428,7 +479,7 @@ export async function buildCreativesResponse(
       accountPerf.creative_thumb_small_ms += Date.now() - tSmallThumbs;
       const cardThumbnailCreativeIds = resolveCardThumbnailCreativeIds({
         mergedCreativeById,
-        insights,
+        insights: rowCandidateInsights,
         adMap,
       });
       const tCardThumbs = Date.now();
@@ -494,6 +545,8 @@ export async function buildCreativesResponse(
           account_name: accountMeta.name,
           currency: accountMeta.currency,
           insights: insights.length,
+          row_candidate_insights: rowCandidateInsights.length,
+          spend_insights: positiveSpendInsights.length,
           ads_loaded: adMap.size,
           creative_ids_seen: creativeIds.length,
           creative_ids_for_details: creativeIdsForDetails.length,
@@ -515,7 +568,7 @@ export async function buildCreativesResponse(
       let accountSampleCount = 0;
 
       const tRowsBuild = Date.now();
-      for (const insight of insights) {
+      for (const insight of rowCandidateInsights) {
         const ad = insight.ad_id ? adMap.get(insight.ad_id) : undefined;
         const rawAd = ad;
         const rawAdAny = (rawAd ?? null) as Record<string, unknown> | null;
@@ -1078,6 +1131,7 @@ export async function buildCreativesResponse(
   });
 
   const snapshotPersistEligible =
+    allowSnapshotPersistence &&
     !debugPreview &&
     !debugThumbnail &&
     !debugPerf;
@@ -1127,7 +1181,12 @@ export async function buildCreativesResponse(
     }
   }
 
-  if (snapshotEligible && mediaMode === "metadata" && !snapshotWarm) {
+  if (
+    snapshotEligible &&
+    mediaMode === "metadata" &&
+    !snapshotWarm &&
+    allowSnapshotRefreshTrigger
+  ) {
     triggerSnapshotRefresh(request, snapshotQuery);
   }
 

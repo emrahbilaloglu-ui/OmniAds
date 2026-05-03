@@ -66,7 +66,9 @@ export function metaCacheKey(parts: Array<string | number | boolean | null | und
     .join(":");
 }
 
-const META_BATCH_ADS_FIELDSET_VERSION = "v2";
+const META_BATCH_ADS_FIELDSET_VERSION = "v5";
+const META_CREATIVE_INSIGHTS_FIELDSET_VERSION = "v2";
+const META_CREATIVE_INSIGHTS_MAX_PAGES = 20;
 
 export function toAdAccountNodeId(accountId: string): string {
   return accountId.startsWith("act_") ? accountId : `act_${accountId}`;
@@ -99,8 +101,8 @@ export function getCreativeSummaryFields(): string {
     "name",
     "object_type",
     "video_id",
-    "object_story_spec{link_data{child_attachments{link,picture,image_url,image_hash}},video_data{video_id},template_data}",
-    "asset_feed_spec{images{hash,image_hash},videos{video_id},bodies{text},titles{text},descriptions{text}}",
+    "object_story_spec{link_data{child_attachments{link,picture}},video_data{video_id},template_data}",
+    "asset_feed_spec{images{hash},videos{video_id},bodies{text},titles{text},descriptions{text}}",
   ].join(",");
 }
 
@@ -133,8 +135,8 @@ export function getNestedCreativeSummaryFields(): string {
     "name",
     "object_type",
     "video_id",
-    "object_story_spec{link_data{child_attachments{link,picture,image_url,image_hash}},video_data{video_id},template_data}",
-    "asset_feed_spec{images{hash,image_hash},videos{video_id},bodies{text},titles{text},descriptions{text}}",
+    "object_story_spec{link_data{child_attachments{link,picture}},video_data{video_id},template_data}",
+    "asset_feed_spec{images{hash},videos{video_id},bodies{text},titles{text},descriptions{text}}",
   ].join(",");
 }
 
@@ -178,7 +180,14 @@ export async function fetchAccountInsights(
   endDate: string
 ): Promise<MetaInsightRecord[]> {
   return getCachedValue({
-    key: metaCacheKey(["meta-insights", accountId, startDate, endDate, hashForCache(accessToken)]),
+    key: metaCacheKey([
+      "meta-insights",
+      META_CREATIVE_INSIGHTS_FIELDSET_VERSION,
+      accountId,
+      startDate,
+      endDate,
+      hashForCache(accessToken),
+    ]),
     ttlMs: 120_000,
     staleWhileRevalidateMs: 300_000,
     loader: async () => {
@@ -186,25 +195,40 @@ export async function fetchAccountInsights(
         account_id: accountId,
         time_range: { since: startDate, until: endDate },
         level: "ad",
-        fields: "ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,spend,cpm,cpc,ctr,clicks,date_start,actions,action_values,purchase_roas",
+        fields: "ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,spend,cpm,cpc,ctr,clicks,reach,frequency,date_start,actions,action_values,purchase_roas,outbound_clicks,attribution_setting,quality_ranking,engagement_rate_ranking,conversion_rate_ranking",
       });
 
       const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/insights`);
       url.searchParams.set(
         "fields",
-        "ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,spend,cpm,cpc,ctr,clicks,impressions,inline_link_clicks,date_start,actions,action_values,purchase_roas,video_play_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p100_watched_actions"
+        "ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,spend,cpm,cpc,ctr,clicks,impressions,reach,frequency,inline_link_clicks,outbound_clicks,attribution_setting,quality_ranking,engagement_rate_ranking,conversion_rate_ranking,date_start,actions,action_values,purchase_roas,video_play_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p100_watched_actions"
       );
       url.searchParams.set("level", "ad");
       url.searchParams.set("time_range", JSON.stringify({ since: startDate, until: endDate }));
       url.searchParams.set("limit", "500");
       url.searchParams.set("access_token", accessToken);
 
-      const payload = await metaGet<{ data?: MetaInsightRecord[] }>(url, "insights", { accountId });
+      const rows: MetaInsightRecord[] = [];
+      let nextUrl: string | null = url.toString();
+      let pageCount = 0;
+      while (nextUrl && pageCount < META_CREATIVE_INSIGHTS_MAX_PAGES) {
+        const pageUrl: URL = new URL(nextUrl);
+        const payload: {
+          data?: MetaInsightRecord[];
+          paging?: { next?: string };
+        } | null = await metaGet(pageUrl, "insights", { accountId, page: pageCount });
+        if (!payload) break;
+        rows.push(...(payload.data ?? []));
+        nextUrl = payload.paging?.next ?? null;
+        pageCount += 1;
+      }
       logRuntimeDebug("meta-creatives", "insights_response", {
         account_id: accountId,
-        rows: payload?.data?.length ?? 0,
+        rows: rows.length,
+        pages: pageCount,
+        truncated: Boolean(nextUrl),
       });
-      return payload?.data ?? [];
+      return rows;
     },
   }).then((result) => result.value);
 }
@@ -295,8 +319,11 @@ export async function fetchAccountAdsMap(
         [
           "id",
           "name",
+          "effective_status",
+          "status",
           "adset_id",
-          "adset{id,name,promoted_object{product_set_id,catalog_id}}",
+          "adset{id,name,daily_budget,lifetime_budget,bid_strategy,optimization_goal,promoted_object{product_set_id,catalog_id}}",
+          "campaign{id,name,objective,daily_budget,lifetime_budget,bid_strategy}",
           "promoted_object{product_set_id,catalog_id}",
           "created_time",
           `creative{${getNestedCreativeMediaFields()}}`,
@@ -387,8 +414,11 @@ export async function batchFetchAdsByIds(
   const fields = [
     "id",
     "name",
+    "effective_status",
+    "status",
     "adset_id",
-    "adset{id,name}",
+    "adset{id,name,daily_budget,lifetime_budget,bid_strategy,optimization_goal}",
+    "campaign{id,name,objective,daily_budget,lifetime_budget,bid_strategy}",
     ...(mode === "full" ? ["created_time"] : []),
     `creative{${mode === "full" ? getNestedCreativeMediaFields() : getNestedCreativeSummaryFields()}}`,
   ].join(",");

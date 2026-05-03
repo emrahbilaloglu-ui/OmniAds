@@ -76,6 +76,26 @@ describe("Meta warehouse retention policy", () => {
         }),
       ]),
     );
+    expect(
+      policy.filter((entry) => entry.tier === "creative_warehouse"),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tableName: "meta_creative_daily",
+          retentionDays: 455,
+        }),
+      ]),
+    );
+    expect(
+      policy.filter((entry) => entry.tier === "creative_media"),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tableName: "meta_creative_media",
+          retentionDays: 90,
+        }),
+      ]),
+    );
   });
 
   it("keeps retention execution disabled by default and produces a dry run", async () => {

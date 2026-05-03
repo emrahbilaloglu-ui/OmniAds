@@ -32,6 +32,7 @@ import type {
   MetaBreakdownType,
   MetaCampaignDailyRow,
   MetaCreativeDailyRow,
+  MetaCreativeMediaRow,
   MetaDirtyRecentDateRow,
   MetaDirtyRecentReason,
   MetaDirtyRecentSeverity,
@@ -100,6 +101,7 @@ const META_MUTATION_TABLES = [
   "meta_breakdown_daily",
   "meta_ad_daily",
   "meta_creative_daily",
+  "meta_creative_media",
   "meta_campaign_dimensions",
   "meta_campaign_config_history",
   "meta_adset_dimensions",
@@ -155,6 +157,44 @@ function normalizeTimestamp(value: unknown) {
 function toNumber(value: unknown) {
   const parsed = typeof value === "number" ? value : Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function toNullableNumber(value: unknown) {
+  if (value == null) return null;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+const META_CREATIVE_MEDIA_PAYLOAD_KEYS = new Set([
+  "preview_url",
+  "thumbnail_url",
+  "image_url",
+  "table_thumbnail_url",
+  "card_preview_url",
+  "cached_thumbnail_url",
+  "video_url",
+  "poster_url",
+  "preview",
+  "preview_manifest",
+  "debug_stage_raw_ad_creative_thumbnail_url",
+  "debug_stage_enriched_ad_creative_thumbnail_url",
+  "debug_raw_creative_thumbnail_url",
+  "debug_enriched_creative_thumbnail_url",
+  "debug_stage_final_thumbnail_url",
+  "debug_stage_row_input_thumbnail_url",
+]);
+
+export function stripMetaCreativeMediaPayload(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripMetaCreativeMediaPayload(item));
+  }
+  if (!value || typeof value !== "object") return value;
+  const output: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    if (META_CREATIVE_MEDIA_PAYLOAD_KEYS.has(key)) continue;
+    output[key] = stripMetaCreativeMediaPayload(nested);
+  }
+  return output;
 }
 
 function getTodayIsoForTimeZone(timeZone: string) {
@@ -6587,6 +6627,61 @@ export async function getMetaAdDailyPreviewCoverage(input: {
   };
 }
 
+export async function getMetaCreativeMediaPreviewCoverage(input: {
+  businessId: string;
+  providerAccountId?: string | null;
+  startDate: string;
+  endDate: string;
+}) {
+  await assertMetaRequestReadTablesReady(
+    ["meta_creative_daily", "meta_creative_media"],
+    "meta_creative_media_preview_coverage",
+  );
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      COUNT(*)::int AS total_rows,
+      COUNT(*) FILTER (
+        WHERE EXISTS (
+          SELECT 1
+          FROM meta_creative_media media
+          WHERE media.business_id = creative.business_id
+            AND media.provider_account_id = creative.provider_account_id
+            AND media.date = creative.date
+            AND media.creative_id = creative.creative_id
+            AND (
+              NULLIF(media.preview_url, '') IS NOT NULL OR
+              NULLIF(media.thumbnail_url, '') IS NOT NULL OR
+              NULLIF(media.image_url, '') IS NOT NULL OR
+              NULLIF(media.table_thumbnail_url, '') IS NOT NULL OR
+              NULLIF(media.card_preview_url, '') IS NOT NULL OR
+              NULLIF(media.video_url, '') IS NOT NULL OR
+              NULLIF(media.poster_url, '') IS NOT NULL OR
+              NULLIF(media.preview_html, '') IS NOT NULL OR
+              NULLIF(media.payload_json->>'preview_url', '') IS NOT NULL OR
+              NULLIF(media.payload_json->>'thumbnail_url', '') IS NOT NULL OR
+              NULLIF(media.payload_json->>'image_url', '') IS NOT NULL OR
+              NULLIF(media.payload_json->'preview'->>'image_url', '') IS NOT NULL OR
+              NULLIF(media.payload_json->'preview'->>'poster_url', '') IS NOT NULL OR
+              NULLIF(media.payload_json->'preview'->>'video_url', '') IS NOT NULL
+            )
+          )
+      )::int AS preview_ready_rows
+    FROM meta_creative_daily creative
+    WHERE creative.business_id = ${input.businessId}
+      AND (${input.providerAccountId ?? null}::text IS NULL OR creative.provider_account_id = ${input.providerAccountId ?? null})
+      AND creative.date::date BETWEEN ${normalizeDate(input.startDate)}::date AND ${normalizeDate(input.endDate)}::date
+  ` as Array<{
+    total_rows: number;
+    preview_ready_rows: number;
+  }>;
+  const row = rows[0] ?? { total_rows: 0, preview_ready_rows: 0 };
+  return {
+    total_rows: Number(row.total_rows ?? 0),
+    preview_ready_rows: Number(row.preview_ready_rows ?? 0),
+  };
+}
+
 export async function getMetaRawSnapshotCoverageByEndpoint(input: {
   businessId: string;
   endpointNames: string[];
@@ -8189,7 +8284,9 @@ async function upsertMetaAdDimensionRows(
     const placeholders = chunk.map((row, index) => {
       const offset = index * 14;
       const projectionJson =
-        row.payloadJson && typeof row.payloadJson === "object" ? JSON.stringify(row.payloadJson) : "{}";
+        row.payloadJson && typeof row.payloadJson === "object"
+          ? JSON.stringify(stripMetaCreativeMediaPayload(row.payloadJson))
+          : "{}";
       const creativeId =
         row.payloadJson && typeof row.payloadJson === "object" && "creative_id" in (row.payloadJson as Record<string, unknown>)
           ? String((row.payloadJson as Record<string, unknown>).creative_id ?? "")
@@ -8269,7 +8366,9 @@ async function upsertMetaCreativeDimensionRows(
     const placeholders = chunk.map((row, index) => {
       const offset = index * 17;
       const projectionJson =
-        row.payloadJson && typeof row.payloadJson === "object" ? JSON.stringify(row.payloadJson) : "{}";
+        row.payloadJson && typeof row.payloadJson === "object"
+          ? JSON.stringify(stripMetaCreativeMediaPayload(row.payloadJson))
+          : "{}";
       values.push(
         row.businessId,
         referenceContext.businessRefIds.get(row.businessId) ?? null,
@@ -8493,13 +8592,21 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
-        const offset = index * 30;
+        const offset = index * 55;
+        const normalizedRowDate = normalizeDate(row.date);
+        const launchDate = row.launchDate ? normalizeDate(row.launchDate) : null;
+        const firstSeenAt =
+          normalizeTimestamp(row.firstSeenAt) ??
+          (launchDate ? `${launchDate}T00:00:00.000Z` : `${normalizedRowDate}T00:00:00.000Z`);
+        const firstSpendAt =
+          normalizeTimestamp(row.firstSpendAt) ??
+          (Number(row.spend ?? 0) > 0 ? `${normalizedRowDate}T00:00:00.000Z` : null);
         values.push(
           row.businessId,
           referenceContext.businessRefIds.get(row.businessId) ?? null,
           row.providerAccountId,
           referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
-          normalizeDate(row.date),
+          normalizedRowDate,
           row.campaignId,
           row.adsetId,
           row.adId,
@@ -8507,6 +8614,7 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
           row.creativeName,
           row.headline,
           row.primaryText,
+          row.descriptionText ?? null,
           row.destinationUrl,
           row.thumbnailUrl,
           row.assetType,
@@ -8515,18 +8623,42 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
           row.spend,
           row.impressions,
           row.clicks,
+          row.reach ?? 0,
+          row.frequency ?? null,
           row.conversions,
           row.revenue,
           row.roas,
+          row.cpa ?? null,
           row.ctr,
           row.cpc,
           row.linkClicks ?? null,
+          row.outboundClicks ?? 0,
           row.sourceSnapshotId,
           row.sourceRunId ?? null,
           row.metricSchemaVersion ?? META_CANONICAL_METRIC_SCHEMA_VERSION,
-          JSON.stringify(row.payloadJson ?? null)
+          launchDate,
+          firstSeenAt,
+          firstSpendAt,
+          row.effectiveStatus ?? null,
+          row.objective ?? null,
+          row.attributionSetting ?? null,
+          row.qualityRanking ?? null,
+          row.engagementRateRanking ?? null,
+          row.conversionRateRanking ?? null,
+          row.bidStrategy ?? null,
+          row.optimizationGoal ?? null,
+          row.campaignDailyBudget ?? null,
+          row.adsetDailyBudget ?? null,
+          row.campaignLifetimeBudget ?? null,
+          row.adsetLifetimeBudget ?? null,
+          row.creativeDeliveryType ?? null,
+          row.creativeVisualFormat ?? null,
+          row.creativePrimaryType ?? null,
+          row.creativeSecondaryType ?? null,
+          row.imageHash ?? null,
+          JSON.stringify(stripMetaCreativeMediaPayload(row.payloadJson ?? null))
         );
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30}::jsonb,now())`;
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},$${offset + 37},$${offset + 38},$${offset + 39},$${offset + 40},$${offset + 41},$${offset + 42},$${offset + 43},$${offset + 44},$${offset + 45},$${offset + 46},$${offset + 47},$${offset + 48},$${offset + 49},$${offset + 50},$${offset + 51},$${offset + 52},$${offset + 53},$${offset + 54},$${offset + 55}::jsonb,now())`;
       })
       .join(", ");
 
@@ -8545,6 +8677,7 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
         creative_name,
         headline,
         primary_text,
+        description_text,
         destination_url,
         thumbnail_url,
         asset_type,
@@ -8553,15 +8686,39 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
         spend,
         impressions,
         clicks,
+        reach,
+        frequency,
         conversions,
         revenue,
         roas,
+        cpa,
         ctr,
         cpc,
         link_clicks,
+        outbound_clicks,
         source_snapshot_id,
         source_run_id,
         metric_schema_version,
+        launch_date,
+        first_seen_at,
+        first_spend_at,
+        effective_status,
+        objective,
+        attribution_setting,
+        quality_ranking,
+        engagement_rate_ranking,
+        conversion_rate_ranking,
+        bid_strategy,
+        optimization_goal,
+        campaign_daily_budget,
+        adset_daily_budget,
+        campaign_lifetime_budget,
+        adset_lifetime_budget,
+        creative_delivery_type,
+        creative_visual_format,
+        creative_primary_type,
+        creative_secondary_type,
+        image_hash,
         payload_json,
         updated_at
       )
@@ -8575,6 +8732,7 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
         creative_name = EXCLUDED.creative_name,
         headline = EXCLUDED.headline,
         primary_text = EXCLUDED.primary_text,
+        description_text = EXCLUDED.description_text,
         destination_url = EXCLUDED.destination_url,
         thumbnail_url = EXCLUDED.thumbnail_url,
         asset_type = EXCLUDED.asset_type,
@@ -8583,21 +8741,144 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
         spend = EXCLUDED.spend,
         impressions = EXCLUDED.impressions,
         clicks = EXCLUDED.clicks,
+        reach = EXCLUDED.reach,
+        frequency = EXCLUDED.frequency,
         conversions = EXCLUDED.conversions,
         revenue = EXCLUDED.revenue,
         roas = EXCLUDED.roas,
+        cpa = EXCLUDED.cpa,
         ctr = EXCLUDED.ctr,
         cpc = EXCLUDED.cpc,
         link_clicks = COALESCE(EXCLUDED.link_clicks, meta_creative_daily.link_clicks),
+        outbound_clicks = COALESCE(EXCLUDED.outbound_clicks, meta_creative_daily.outbound_clicks),
         source_snapshot_id = EXCLUDED.source_snapshot_id,
         source_run_id = COALESCE(EXCLUDED.source_run_id, meta_creative_daily.source_run_id),
         metric_schema_version = EXCLUDED.metric_schema_version,
+        launch_date = COALESCE(EXCLUDED.launch_date, meta_creative_daily.launch_date),
+        first_seen_at = LEAST(COALESCE(meta_creative_daily.first_seen_at, EXCLUDED.first_seen_at), EXCLUDED.first_seen_at),
+        first_spend_at = CASE
+          WHEN EXCLUDED.first_spend_at IS NULL THEN meta_creative_daily.first_spend_at
+          ELSE LEAST(COALESCE(meta_creative_daily.first_spend_at, EXCLUDED.first_spend_at), EXCLUDED.first_spend_at)
+        END,
+        effective_status = COALESCE(EXCLUDED.effective_status, meta_creative_daily.effective_status),
+        objective = COALESCE(EXCLUDED.objective, meta_creative_daily.objective),
+        attribution_setting = COALESCE(EXCLUDED.attribution_setting, meta_creative_daily.attribution_setting),
+        quality_ranking = COALESCE(EXCLUDED.quality_ranking, meta_creative_daily.quality_ranking),
+        engagement_rate_ranking = COALESCE(EXCLUDED.engagement_rate_ranking, meta_creative_daily.engagement_rate_ranking),
+        conversion_rate_ranking = COALESCE(EXCLUDED.conversion_rate_ranking, meta_creative_daily.conversion_rate_ranking),
+        bid_strategy = COALESCE(EXCLUDED.bid_strategy, meta_creative_daily.bid_strategy),
+        optimization_goal = COALESCE(EXCLUDED.optimization_goal, meta_creative_daily.optimization_goal),
+        campaign_daily_budget = COALESCE(EXCLUDED.campaign_daily_budget, meta_creative_daily.campaign_daily_budget),
+        adset_daily_budget = COALESCE(EXCLUDED.adset_daily_budget, meta_creative_daily.adset_daily_budget),
+        campaign_lifetime_budget = COALESCE(EXCLUDED.campaign_lifetime_budget, meta_creative_daily.campaign_lifetime_budget),
+        adset_lifetime_budget = COALESCE(EXCLUDED.adset_lifetime_budget, meta_creative_daily.adset_lifetime_budget),
+        creative_delivery_type = COALESCE(EXCLUDED.creative_delivery_type, meta_creative_daily.creative_delivery_type),
+        creative_visual_format = COALESCE(EXCLUDED.creative_visual_format, meta_creative_daily.creative_visual_format),
+        creative_primary_type = COALESCE(EXCLUDED.creative_primary_type, meta_creative_daily.creative_primary_type),
+        creative_secondary_type = COALESCE(EXCLUDED.creative_secondary_type, meta_creative_daily.creative_secondary_type),
+        image_hash = COALESCE(EXCLUDED.image_hash, meta_creative_daily.image_hash),
         payload_json = EXCLUDED.payload_json,
         updated_at = now()
     `,
       values
     );
     await upsertMetaCreativeDimensionRows(chunk, referenceContext);
+  }
+}
+
+export async function upsertMetaCreativeMediaRows(rows: MetaCreativeMediaRow[]) {
+  if (rows.length === 0) return;
+  await assertMetaMutationTablesReady("meta_warehouse");
+  const sql = getDb();
+  for (const chunk of chunkRows(rows, 150)) {
+    const referenceContext = await resolveMetaChunkReferenceContext(
+      chunk.map((row) => ({
+        businessId: row.businessId,
+        providerAccountId: row.providerAccountId,
+        accountCurrency: "USD",
+        accountTimezone: "UTC",
+      })),
+    );
+    const values: unknown[] = [];
+    const placeholders = chunk
+      .map((row, index) => {
+        const offset = index * 21;
+        values.push(
+          row.businessId,
+          referenceContext.businessRefIds.get(row.businessId) ?? null,
+          row.providerAccountId,
+          referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
+          normalizeDate(row.date),
+          row.campaignId ?? null,
+          row.adsetId ?? null,
+          row.adId ?? null,
+          row.creativeId,
+          row.previewUrl ?? null,
+          row.thumbnailUrl ?? null,
+          row.imageUrl ?? null,
+          row.tableThumbnailUrl ?? null,
+          row.cardPreviewUrl ?? null,
+          row.videoUrl ?? null,
+          row.posterUrl ?? null,
+          row.previewHtml ?? null,
+          row.mediaCacheKey ?? null,
+          row.imageHash ?? null,
+          JSON.stringify(row.payloadJson ?? {}),
+          row.sourceRunId ?? null,
+        );
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20}::jsonb,$${offset + 21},now())`;
+      })
+      .join(", ");
+
+    await sql.query(
+      `
+        INSERT INTO meta_creative_media (
+          business_id,
+          business_ref_id,
+          provider_account_id,
+          provider_account_ref_id,
+          date,
+          campaign_id,
+          adset_id,
+          ad_id,
+          creative_id,
+          preview_url,
+          thumbnail_url,
+          image_url,
+          table_thumbnail_url,
+          card_preview_url,
+          video_url,
+          poster_url,
+          preview_html,
+          media_cache_key,
+          image_hash,
+          payload_json,
+          source_run_id,
+          updated_at
+        )
+        VALUES ${placeholders}
+        ON CONFLICT (business_id, provider_account_id, date, creative_id, (COALESCE(ad_id, ''))) DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_creative_media.business_ref_id),
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_creative_media.provider_account_ref_id),
+          campaign_id = EXCLUDED.campaign_id,
+          adset_id = EXCLUDED.adset_id,
+          ad_id = EXCLUDED.ad_id,
+          preview_url = EXCLUDED.preview_url,
+          thumbnail_url = EXCLUDED.thumbnail_url,
+          image_url = EXCLUDED.image_url,
+          table_thumbnail_url = EXCLUDED.table_thumbnail_url,
+          card_preview_url = EXCLUDED.card_preview_url,
+          video_url = EXCLUDED.video_url,
+          poster_url = EXCLUDED.poster_url,
+          preview_html = EXCLUDED.preview_html,
+          media_cache_key = EXCLUDED.media_cache_key,
+          image_hash = COALESCE(EXCLUDED.image_hash, meta_creative_media.image_hash),
+          payload_json = EXCLUDED.payload_json,
+          source_run_id = COALESCE(EXCLUDED.source_run_id, meta_creative_media.source_run_id),
+          updated_at = now()
+      `,
+      values,
+    );
   }
 }
 
@@ -10257,6 +10538,7 @@ export async function getMetaCreativeDailyRange(input: {
       creative_name,
       headline,
       primary_text,
+      description_text,
       destination_url,
       thumbnail_url,
       asset_type,
@@ -10265,15 +10547,39 @@ export async function getMetaCreativeDailyRange(input: {
       spend,
       impressions,
       clicks,
+      reach,
+      frequency,
       conversions,
       revenue,
       roas,
+      cpa,
       ctr,
       cpc,
       link_clicks,
+      outbound_clicks,
       source_snapshot_id,
       source_run_id,
       metric_schema_version,
+      launch_date,
+      first_seen_at,
+      first_spend_at,
+      effective_status,
+      objective,
+      attribution_setting,
+      quality_ranking,
+      engagement_rate_ranking,
+      conversion_rate_ranking,
+      bid_strategy,
+      optimization_goal,
+      campaign_daily_budget,
+      adset_daily_budget,
+      campaign_lifetime_budget,
+      adset_lifetime_budget,
+      creative_delivery_type,
+      creative_visual_format,
+      creative_primary_type,
+      creative_secondary_type,
+      image_hash,
       payload_json,
       created_at,
       updated_at
@@ -10297,6 +10603,7 @@ export async function getMetaCreativeDailyRange(input: {
     creative_name: string | null;
     headline: string | null;
     primary_text: string | null;
+    description_text: string | null;
     destination_url: string | null;
     thumbnail_url: string | null;
     asset_type: string | null;
@@ -10305,15 +10612,39 @@ export async function getMetaCreativeDailyRange(input: {
     spend: number;
     impressions: number;
     clicks: number;
+    reach: number;
+    frequency: number | null;
     conversions: number;
     revenue: number;
     roas: number;
+    cpa: number | null;
     ctr: number | null;
     cpc: number | null;
     link_clicks: number | null;
+    outbound_clicks: number | null;
     source_snapshot_id: string | null;
     source_run_id: string | null;
     metric_schema_version: number | null;
+    launch_date: string | null;
+    first_seen_at: string | null;
+    first_spend_at: string | null;
+    effective_status: string | null;
+    objective: string | null;
+    attribution_setting: string | null;
+    quality_ranking: string | null;
+    engagement_rate_ranking: string | null;
+    conversion_rate_ranking: string | null;
+    bid_strategy: string | null;
+    optimization_goal: string | null;
+    campaign_daily_budget: number | null;
+    adset_daily_budget: number | null;
+    campaign_lifetime_budget: number | null;
+    adset_lifetime_budget: number | null;
+    creative_delivery_type: string | null;
+    creative_visual_format: string | null;
+    creative_primary_type: string | null;
+    creative_secondary_type: string | null;
+    image_hash: string | null;
     payload_json: unknown;
     created_at: string;
     updated_at: string;
@@ -10330,6 +10661,7 @@ export async function getMetaCreativeDailyRange(input: {
     creativeName: row.creative_name,
     headline: row.headline,
     primaryText: row.primary_text,
+    descriptionText: row.description_text,
     destinationUrl: row.destination_url,
     thumbnailUrl: row.thumbnail_url,
     assetType: row.asset_type,
@@ -10338,24 +10670,125 @@ export async function getMetaCreativeDailyRange(input: {
     spend: Number(row.spend ?? 0),
     impressions: Number(row.impressions ?? 0),
     clicks: Number(row.clicks ?? 0),
-    reach: 0,
-    frequency: null,
+    reach: Number(row.reach ?? 0),
+    frequency: row.frequency == null ? null : Number(row.frequency),
     conversions: Number(row.conversions ?? 0),
     revenue: Number(row.revenue ?? 0),
     roas: Number(row.roas ?? 0),
-    cpa: null,
+    cpa: row.cpa == null ? null : Number(row.cpa),
     ctr: row.ctr == null ? null : Number(row.ctr),
     cpc: row.cpc == null ? null : Number(row.cpc),
     linkClicks: row.link_clicks == null ? null : Number(row.link_clicks),
+    outboundClicks: row.outbound_clicks == null ? null : Number(row.outbound_clicks),
     sourceSnapshotId: row.source_snapshot_id,
     sourceRunId: row.source_run_id,
     metricSchemaVersion:
       row.metric_schema_version == null
         ? undefined
         : Number(row.metric_schema_version),
+    launchDate: row.launch_date ? normalizeDate(row.launch_date) : null,
+    firstSeenAt: normalizeTimestamp(row.first_seen_at),
+    firstSpendAt: normalizeTimestamp(row.first_spend_at),
+    effectiveStatus: row.effective_status,
+    objective: row.objective,
+    attributionSetting: row.attribution_setting,
+    qualityRanking: row.quality_ranking,
+    engagementRateRanking: row.engagement_rate_ranking,
+    conversionRateRanking: row.conversion_rate_ranking,
+    bidStrategy: row.bid_strategy,
+    optimizationGoal: row.optimization_goal,
+    campaignDailyBudget: toNullableNumber(row.campaign_daily_budget),
+    adsetDailyBudget: toNullableNumber(row.adset_daily_budget),
+    campaignLifetimeBudget: toNullableNumber(row.campaign_lifetime_budget),
+    adsetLifetimeBudget: toNullableNumber(row.adset_lifetime_budget),
+    creativeDeliveryType: row.creative_delivery_type,
+    creativeVisualFormat: row.creative_visual_format,
+    creativePrimaryType: row.creative_primary_type,
+    creativeSecondaryType: row.creative_secondary_type,
+    imageHash: row.image_hash,
     payloadJson: row.payload_json,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  }));
+}
+
+export async function getMetaCreativeMediaRange(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  providerAccountIds?: string[] | null;
+  creativeIds?: string[] | null;
+  adIds?: string[] | null;
+}): Promise<MetaCreativeMediaRow[]> {
+  await assertMetaRequestReadTablesReady(
+    ["meta_creative_media"],
+    "meta_creative_media_range",
+  );
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      business_id,
+      provider_account_id,
+      date,
+      campaign_id,
+      adset_id,
+      ad_id,
+      creative_id,
+      preview_url,
+      thumbnail_url,
+      image_url,
+      table_thumbnail_url,
+      card_preview_url,
+      video_url,
+      poster_url,
+      preview_html,
+      media_cache_key,
+      image_hash,
+      payload_json,
+      source_run_id,
+      created_at,
+      updated_at
+    FROM meta_creative_media
+    WHERE business_id = ${input.businessId}
+      AND date >= ${normalizeDate(input.startDate)}
+      AND date <= ${normalizeDate(input.endDate)}
+      AND (
+        ${input.providerAccountIds ?? null}::text[] IS NULL
+        OR provider_account_id = ANY(${input.providerAccountIds ?? null}::text[])
+      )
+      AND (
+        ${input.creativeIds ?? null}::text[] IS NULL
+        OR creative_id = ANY(${input.creativeIds ?? null}::text[])
+      )
+      AND (
+        ${input.adIds ?? null}::text[] IS NULL
+        OR ad_id = ANY(${input.adIds ?? null}::text[])
+      )
+    ORDER BY date ASC, provider_account_id ASC, creative_id ASC, ad_id ASC
+  ` as Array<Record<string, unknown>>;
+
+  return rows.map((row) => ({
+    businessId: String(row.business_id),
+    providerAccountId: String(row.provider_account_id),
+    date: normalizeDate(row.date),
+    campaignId: row.campaign_id == null ? null : String(row.campaign_id),
+    adsetId: row.adset_id == null ? null : String(row.adset_id),
+    adId: row.ad_id == null ? null : String(row.ad_id),
+    creativeId: String(row.creative_id),
+    previewUrl: row.preview_url == null ? null : String(row.preview_url),
+    thumbnailUrl: row.thumbnail_url == null ? null : String(row.thumbnail_url),
+    imageUrl: row.image_url == null ? null : String(row.image_url),
+    tableThumbnailUrl: row.table_thumbnail_url == null ? null : String(row.table_thumbnail_url),
+    cardPreviewUrl: row.card_preview_url == null ? null : String(row.card_preview_url),
+    videoUrl: row.video_url == null ? null : String(row.video_url),
+    posterUrl: row.poster_url == null ? null : String(row.poster_url),
+    previewHtml: row.preview_html == null ? null : String(row.preview_html),
+    mediaCacheKey: row.media_cache_key == null ? null : String(row.media_cache_key),
+    imageHash: row.image_hash == null ? null : String(row.image_hash),
+    payloadJson: row.payload_json,
+    sourceRunId: row.source_run_id == null ? null : String(row.source_run_id),
+    createdAt: row.created_at == null ? undefined : String(row.created_at),
+    updatedAt: row.updated_at == null ? undefined : String(row.updated_at),
   }));
 }
 

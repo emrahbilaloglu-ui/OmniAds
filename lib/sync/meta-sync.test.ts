@@ -17,6 +17,7 @@ import {
   resolveMetaTruthState,
   resolveMetaHistoricalReplaySource,
   resolveMetaWorkerRequestedLimit,
+  shouldBypassMetaCreativeCoverageShortCircuit,
   shouldBypassMetaCoverageShortCircuit,
 } from "@/lib/sync/meta-sync";
 
@@ -467,11 +468,22 @@ describe("meta creatives sync gating", () => {
     expect(source).not.toContain("creativesMediaReadyAfter");
   });
 
-  it("cancels deprecated creative_daily partitions before any warehouse fetch runs", () => {
-    expect(
-      getDeprecatedMetaPartitionCancellationReason("creative_daily"),
-    ).toContain("live/snapshot path");
+  it("keeps creative_daily active for warehouse sync partitions", () => {
+    expect(getDeprecatedMetaPartitionCancellationReason("creative_daily")).toBeNull();
     expect(getDeprecatedMetaPartitionCancellationReason("ad_daily")).toBeNull();
+  });
+
+  it("bypasses the creative coverage short-circuit for provisional current-day partitions", () => {
+    expect(
+      shouldBypassMetaCreativeCoverageShortCircuit({
+        truthState: "provisional",
+      }),
+    ).toBe(true);
+    expect(
+      shouldBypassMetaCreativeCoverageShortCircuit({
+        truthState: "finalized",
+      }),
+    ).toBe(false);
   });
 });
 

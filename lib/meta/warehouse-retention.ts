@@ -5,7 +5,11 @@ import {
   META_AUTHORITATIVE_HISTORY_DAYS,
   META_BREAKDOWN_AUTHORITATIVE_HISTORY_DAYS,
 } from "@/lib/meta/contract";
-import { addDaysToIsoDate } from "@/lib/meta/history";
+import {
+  addDaysToIsoDate,
+  META_CREATIVE_MEDIA_RETENTION_DAYS,
+  META_CREATIVE_WAREHOUSE_HISTORY_DAYS,
+} from "@/lib/meta/history";
 import type { MetaWarehouseScope } from "@/lib/meta/warehouse-types";
 import {
   acquireSyncRunnerLease,
@@ -18,7 +22,9 @@ import type {
 
 export type MetaRetentionTier =
   | "core_authoritative"
-  | "breakdown_authoritative";
+  | "breakdown_authoritative"
+  | "creative_warehouse"
+  | "creative_media";
 
 type MetaRetentionDateColumn = "date" | "day";
 type MetaRetentionDeleteStrategy =
@@ -308,6 +314,24 @@ export const META_RETENTION_POLICY: MetaRetentionPolicyEntry[] = [
     deleteStrategy: "date_id",
   },
   {
+    tier: "creative_warehouse",
+    label: "Meta creative daily warehouse",
+    retentionDays: META_CREATIVE_WAREHOUSE_HISTORY_DAYS,
+    tableName: "meta_creative_daily",
+    summaryKey: "meta_creative_daily",
+    dateColumn: "date",
+    deleteStrategy: "date_id",
+  },
+  {
+    tier: "creative_media",
+    label: "Meta creative media warehouse",
+    retentionDays: META_CREATIVE_MEDIA_RETENTION_DAYS,
+    tableName: "meta_creative_media",
+    summaryKey: "meta_creative_media",
+    dateColumn: "date",
+    deleteStrategy: "date_id",
+  },
+  {
     tier: "breakdown_authoritative",
     label: "Meta breakdown authoritative",
     retentionDays: META_BREAKDOWN_AUTHORITATIVE_HISTORY_DAYS,
@@ -477,6 +501,8 @@ export const META_RETENTION_REQUIRED_TABLES = [
   "meta_campaign_daily",
   "meta_adset_daily",
   "meta_ad_daily",
+  "meta_creative_daily",
+  "meta_creative_media",
   "meta_breakdown_daily",
   "meta_authoritative_publication_pointers",
   "meta_authoritative_slice_versions",

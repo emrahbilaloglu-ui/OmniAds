@@ -262,11 +262,57 @@ export interface MetaCreativeDailyRow extends MetaWarehouseBaseRow {
   creativeName: string | null;
   headline: string | null;
   primaryText: string | null;
+  descriptionText?: string | null;
   destinationUrl: string | null;
   thumbnailUrl: string | null;
   assetType: string | null;
+  launchDate?: string | null;
+  firstSeenAt?: string | null;
+  firstSpendAt?: string | null;
+  outboundClicks?: number | null;
+  effectiveStatus?: string | null;
+  objective?: string | null;
+  attributionSetting?: string | null;
+  qualityRanking?: string | null;
+  engagementRateRanking?: string | null;
+  conversionRateRanking?: string | null;
+  bidStrategy?: string | null;
+  optimizationGoal?: string | null;
+  campaignDailyBudget?: number | null;
+  adsetDailyBudget?: number | null;
+  campaignLifetimeBudget?: number | null;
+  adsetLifetimeBudget?: number | null;
+  creativeDeliveryType?: string | null;
+  creativeVisualFormat?: string | null;
+  creativePrimaryType?: string | null;
+  creativeSecondaryType?: string | null;
+  imageHash?: string | null;
   linkClicks?: number | null;
   payloadJson?: unknown;
+}
+
+export interface MetaCreativeMediaRow {
+  businessId: string;
+  providerAccountId: string;
+  date: string;
+  campaignId?: string | null;
+  adsetId?: string | null;
+  adId?: string | null;
+  creativeId: string;
+  previewUrl?: string | null;
+  thumbnailUrl?: string | null;
+  imageUrl?: string | null;
+  tableThumbnailUrl?: string | null;
+  cardPreviewUrl?: string | null;
+  videoUrl?: string | null;
+  posterUrl?: string | null;
+  previewHtml?: string | null;
+  mediaCacheKey?: string | null;
+  imageHash?: string | null;
+  payloadJson?: unknown;
+  sourceRunId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface MetaWarehouseIntegrityDelta {

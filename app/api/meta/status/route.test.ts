@@ -35,7 +35,7 @@ vi.mock("@/lib/meta/warehouse", () => ({
   getMetaCampaignDailyCoverage: vi.fn(),
   getMetaAccountDailyStats: vi.fn(),
   getMetaAdDailyCoverage: vi.fn(),
-  getMetaAdDailyPreviewCoverage: vi.fn(),
+  getMetaCreativeMediaPreviewCoverage: vi.fn(),
   getMetaAdSetDailyCoverage: vi.fn(),
   getMetaCheckpointHealth: vi.fn(),
   getMetaCreativeDailyCoverage: vi.fn(),
@@ -326,7 +326,7 @@ describe("GET /api/meta/status", () => {
       completed_days: 365,
       ready_through_date: "2026-03-30",
     } as never);
-    vi.mocked(warehouse.getMetaAdDailyPreviewCoverage).mockResolvedValue({
+    vi.mocked(warehouse.getMetaCreativeMediaPreviewCoverage).mockResolvedValue({
       total_rows: 0,
       preview_ready_rows: 0,
     } as never);
@@ -527,6 +527,30 @@ describe("GET /api/meta/status", () => {
       historicalOutsideCoreHorizon: "live_fallback",
       breakdownOutsideHorizon: "unsupported_degraded",
     });
+  });
+
+  it("scopes creative preview coverage to the media retention window", async () => {
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/status?businessId=biz&diagnostics=1")
+    );
+
+    expect(response.status).toBe(200);
+    expect(warehouse.getMetaCreativeDailyCoverage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz",
+        providerAccountId: null,
+        startDate: "2025-01-13",
+        endDate: "2026-04-12",
+      }),
+    );
+    expect(warehouse.getMetaCreativeMediaPreviewCoverage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz",
+        providerAccountId: null,
+        startDate: "2026-01-13",
+        endDate: "2026-04-12",
+      }),
+    );
   });
 
   it("includes Meta phase timing telemetry when recent samples exist", async () => {

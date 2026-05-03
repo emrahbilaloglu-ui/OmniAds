@@ -509,4 +509,100 @@ describe("buildCreativesResponse snapshot freshness", () => {
     expect(response.rows[0]?.ai_tags?.assetType).toEqual(["Catalog"]);
     expect(response.rows[0]?.ai_tags?.visualFormat).toEqual(["Catalog"]);
   });
+
+  it("does not refetch creative basics in metadata mode when batch ads already include creative IDs", async () => {
+    vi.mocked(snapshotStore.persistMetaCreativesSnapshot).mockResolvedValue(undefined);
+    vi.spyOn(creativesFetchers, "fetchAccountInsights").mockResolvedValue([
+      {
+        ad_id: "ad_zero",
+        ad_name: "Zero spend",
+        spend: "0",
+        impressions: "10",
+        clicks: "0",
+        date_start: "2026-03-01",
+      },
+      {
+        ad_id: "ad_1",
+        ad_name: "Creative with id",
+        adset_id: "adset_1",
+        adset_name: "Ad Set 1",
+        campaign_id: "cmp_1",
+        campaign_name: "Campaign 1",
+        spend: "120",
+        impressions: "1000",
+        clicks: "80",
+        ctr: "8",
+        cpm: "120",
+        cpc: "1.5",
+        inline_link_clicks: "80",
+        date_start: "2026-03-01",
+        actions: [{ action_type: "link_click", value: "80" }],
+      },
+    ]);
+    vi.spyOn(creativesFetchers, "fetchAccountMeta").mockResolvedValue({
+      id: "act_1",
+      name: "Main",
+      currency: "USD",
+    });
+    const batchSpy = vi.spyOn(creativesFetchers, "batchFetchAdsByIds").mockResolvedValue(
+      new Map([
+        [
+          "ad_zero",
+          {
+            id: "ad_zero",
+            name: "Zero spend",
+            creative: {
+              id: "cr_zero",
+              name: "Zero spend creative",
+              object_type: "SHARE",
+            },
+          },
+        ],
+        [
+          "ad_1",
+          {
+            id: "ad_1",
+            name: "Creative with id",
+            adset_id: "adset_1",
+            adset: { id: "adset_1", name: "Ad Set 1" },
+            creative: {
+              id: "cr_1",
+              name: "Creative with id",
+              object_type: "SHARE",
+            },
+          },
+        ],
+      ])
+    );
+    const basicsSpy = vi.spyOn(creativesFetchers, "fetchAdCreativeBasicsByAdIds").mockResolvedValue(new Map());
+    vi.spyOn(creativesFetchers, "fetchAdImageUrlMap").mockResolvedValue(new Map());
+    vi.spyOn(creativesFetchers, "fetchVideoSourceMap").mockResolvedValue(new Map());
+    vi.spyOn(creativesFetchers, "fetchCreativeThumbnailMap").mockResolvedValue(new Map());
+    vi.spyOn(creativesFetchers, "fetchCreativeDetailsMap").mockResolvedValue(new Map());
+    vi.spyOn(creativesFetchers, "fetchAdCreativeMediaByAdIds").mockResolvedValue(new Map());
+    vi.spyOn(creativesFetchers, "fetchAdCreativeMediaDirectByAdIds").mockResolvedValue(new Map());
+    vi.spyOn(creativesFetchers, "fetchCreativeDetailPreviewHtml").mockResolvedValue(null);
+
+    const response = await buildCreativesResponse(
+      {
+        ...buildQuery(),
+        snapshotBypass: true,
+        assignedAccountIds: ["act_1"],
+      },
+      new NextRequest("http://localhost/api/meta/creatives?businessId=biz&snapshotBypass=1")
+    );
+
+    expect(basicsSpy).not.toHaveBeenCalled();
+    expect(batchSpy).toHaveBeenCalledWith(["ad_zero", "ad_1"], "token", "metadata");
+    expect(response.status).toBe("ok");
+    expect(response.rows.find((row) => row.creative_id === "cr_1")).toMatchObject({
+      creative_id: "cr_1",
+      spend: 120,
+    });
+    expect(response.rows.find((row) => row.creative_id === "cr_zero")).toMatchObject({
+      creative_id: "cr_zero",
+      spend: 0,
+      impressions: 10,
+    });
+  });
 });

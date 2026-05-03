@@ -25,21 +25,21 @@ import {
   assertMetaCanonicalClicksSource,
 } from "@/lib/meta/canonical-metrics";
 import {
-  getMetaAdDailyCoverage,
-  getMetaAdDailyPreviewCoverage,
   getMetaAdDailyRange,
+  getMetaCreativeDailyCoverage,
   getMetaCreativeDailyRange,
+  getMetaCreativeMediaPreviewCoverage,
+  getMetaCreativeMediaRange,
   upsertMetaAdDailyRows,
   upsertMetaCreativeDailyRows,
+  upsertMetaCreativeMediaRows,
 } from "@/lib/meta/warehouse";
 import {
   readMetaAdDimensions,
   readMetaCreativeDimensions,
 } from "@/lib/meta/request-model-store";
-import type { MetaAdDailyRow, MetaCreativeDailyRow } from "@/lib/meta/warehouse-types";
-import {
-  getCreativeMediaRetentionStart,
-} from "@/lib/meta/history";
+import type { MetaAdDailyRow, MetaCreativeDailyRow, MetaCreativeMediaRow } from "@/lib/meta/warehouse-types";
+import { getCreativeMediaRetentionStart } from "@/lib/meta/history";
 import { pruneMetaCreativeMediaOutsideRetention } from "@/lib/meta/cleanup";
 
 function toIsoDate(date: Date) {
@@ -273,6 +273,123 @@ function buildPreviewCoverage(rows: MetaCreativeApiRow[]) {
   };
 }
 
+function pickMediaPayloadValue(row: MetaCreativeApiRow, media: MetaCreativeMediaRow | null) {
+  const preview = media?.payloadJson && typeof media.payloadJson === "object"
+    ? (media.payloadJson as Partial<MetaCreativeApiRow>)
+    : {};
+  return {
+    ...preview,
+    preview_url: media?.previewUrl ?? preview.preview_url ?? row.preview_url ?? null,
+    thumbnail_url: media?.thumbnailUrl ?? preview.thumbnail_url ?? row.thumbnail_url ?? null,
+    image_url: media?.imageUrl ?? preview.image_url ?? row.image_url ?? null,
+    table_thumbnail_url:
+      media?.tableThumbnailUrl ?? preview.table_thumbnail_url ?? row.table_thumbnail_url ?? null,
+    card_preview_url:
+      media?.cardPreviewUrl ?? preview.card_preview_url ?? row.card_preview_url ?? null,
+    preview:
+      preview.preview && typeof preview.preview === "object"
+        ? preview.preview
+        : row.preview,
+    image_hash: media?.imageHash ?? preview.image_hash ?? row.image_hash ?? null,
+  } satisfies Partial<MetaCreativeApiRow>;
+}
+
+function hasMediaValue(value: unknown) {
+  return typeof value === "string" ? value.trim().length > 0 : Boolean(value);
+}
+
+function mediaReadinessScore(row: MetaCreativeMediaRow) {
+  const payload =
+    row.payloadJson && typeof row.payloadJson === "object"
+      ? (row.payloadJson as Partial<MetaCreativeApiRow>)
+      : {};
+  const preview =
+    payload.preview && typeof payload.preview === "object"
+      ? (payload.preview as unknown as Record<string, unknown>)
+      : {};
+  return [
+    row.previewUrl,
+    row.thumbnailUrl,
+    row.imageUrl,
+    row.tableThumbnailUrl,
+    row.cardPreviewUrl,
+    row.videoUrl,
+    row.posterUrl,
+    row.previewHtml,
+    payload.preview_url,
+    payload.thumbnail_url,
+    payload.image_url,
+    preview.image_url,
+    preview.poster_url,
+    preview.video_url,
+  ].filter(hasMediaValue).length;
+}
+
+function chooseRicherMediaRow(
+  existing: MetaCreativeMediaRow | undefined,
+  candidate: MetaCreativeMediaRow,
+) {
+  if (!existing) return candidate;
+  return mediaReadinessScore(candidate) > mediaReadinessScore(existing) ? candidate : existing;
+}
+
+function overlayCreativeMedia(row: RawCreativeRow, media: MetaCreativeMediaRow | null): RawCreativeRow {
+  if (!media) return row;
+  const payload = pickMediaPayloadValue(row as unknown as MetaCreativeApiRow, media);
+  const previewPayload =
+    payload.preview && typeof payload.preview === "object"
+      ? (payload.preview as RawCreativeRow["preview"])
+      : row.preview;
+  return {
+    ...row,
+    preview_url: payload.preview_url ?? row.preview_url,
+    thumbnail_url: payload.thumbnail_url ?? row.thumbnail_url,
+    image_url: payload.image_url ?? row.image_url,
+    table_thumbnail_url: payload.table_thumbnail_url ?? row.table_thumbnail_url,
+    card_preview_url: payload.card_preview_url ?? row.card_preview_url,
+    preview: {
+      ...previewPayload,
+      video_url: media.videoUrl ?? previewPayload.video_url ?? null,
+      poster_url: media.posterUrl ?? previewPayload.poster_url ?? null,
+    },
+    image_hash: payload.image_hash ?? row.image_hash ?? null,
+    image_hashes: Array.from(
+      new Set([payload.image_hash, row.image_hash, ...(row.image_hashes ?? [])].filter(Boolean) as string[]),
+    ),
+  };
+}
+
+function extractCreativeMediaRow(input: {
+  businessId: string;
+  providerAccountId: string;
+  date: string;
+  row: RawCreativeRow;
+  payloadRow: MetaCreativeApiRow;
+  sourceRunId?: string | null;
+}): MetaCreativeMediaRow {
+  return {
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    date: input.date,
+    campaignId: input.row.campaign_id,
+    adsetId: input.row.adset_id,
+    adId: input.row.id,
+    creativeId: input.row.creative_id,
+    previewUrl: input.payloadRow.preview_url ?? input.row.preview_url ?? null,
+    thumbnailUrl: input.payloadRow.thumbnail_url ?? input.row.thumbnail_url ?? null,
+    imageUrl: input.payloadRow.image_url ?? input.row.image_url ?? null,
+    tableThumbnailUrl: input.payloadRow.table_thumbnail_url ?? input.row.table_thumbnail_url ?? null,
+    cardPreviewUrl: input.payloadRow.card_preview_url ?? input.row.card_preview_url ?? null,
+    videoUrl: input.payloadRow.preview?.video_url ?? input.row.preview?.video_url ?? null,
+    posterUrl: input.payloadRow.preview?.poster_url ?? input.row.preview?.poster_url ?? null,
+    previewHtml: null,
+    mediaCacheKey: input.payloadRow.cached_thumbnail_url ?? null,
+    imageHash: input.payloadRow.image_hash ?? input.row.image_hash ?? input.row.image_hashes?.[0] ?? null,
+    payloadJson: input.payloadRow,
+    sourceRunId: input.sourceRunId ?? null,
+  };
+}
+
 async function syncMetaCreativesAccountDay(input: {
   businessId: string;
   accountId: string;
@@ -311,6 +428,8 @@ async function syncMetaCreativesAccountDay(input: {
       enableDeepAudit: false,
       perAccountSampleLimit: 10,
       requestStartedAt: Date.now(),
+      allowSnapshotPersistence: false,
+      allowSnapshotRefreshTrigger: false,
     },
     new NextRequest(`http://localhost/api/meta/creatives?businessId=${input.businessId}`)
   );
@@ -338,8 +457,8 @@ async function syncMetaCreativesAccountDay(input: {
     spend: row.spend,
     impressions: row.impressions,
     clicks: row.clicks,
-    reach: 0,
-    frequency: null,
+    reach: row.reach ?? row.impressions,
+    frequency: row.frequency ?? null,
     conversions: row.purchases,
     revenue: row.purchase_value,
     roas: row.roas,
@@ -371,16 +490,38 @@ async function syncMetaCreativesAccountDay(input: {
       creativeName: row.name,
       headline: row.headline_variants?.[0] ?? null,
       primaryText: row.copy_text ?? row.copy_variants?.[0] ?? null,
+      descriptionText: row.description_variants?.[0] ?? null,
       destinationUrl: null,
       thumbnailUrl: row.thumbnail_url ?? row.preview_url ?? null,
       assetType: row.creative_type ?? row.format ?? null,
+      launchDate: row.launch_date,
+      firstSeenAt: row.launch_date ? `${row.launch_date}T00:00:00.000Z` : null,
+      firstSpendAt: row.spend > 0 ? `${input.day}T00:00:00.000Z` : null,
+      outboundClicks: row.outbound_clicks ?? null,
+      effectiveStatus: row.effective_status ?? null,
+      objective: row.objective ?? null,
+      attributionSetting: row.attribution_setting ?? null,
+      qualityRanking: row.quality_ranking ?? null,
+      engagementRateRanking: row.engagement_rate_ranking ?? null,
+      conversionRateRanking: row.conversion_rate_ranking ?? null,
+      bidStrategy: row.bid_strategy ?? null,
+      optimizationGoal: row.optimization_goal ?? null,
+      campaignDailyBudget: row.campaign_daily_budget ?? null,
+      adsetDailyBudget: row.adset_daily_budget ?? null,
+      campaignLifetimeBudget: row.campaign_lifetime_budget ?? null,
+      adsetLifetimeBudget: row.adset_lifetime_budget ?? null,
+      creativeDeliveryType: row.creative_delivery_type ?? null,
+      creativeVisualFormat: row.creative_visual_format ?? null,
+      creativePrimaryType: row.creative_primary_type ?? null,
+      creativeSecondaryType: row.creative_secondary_type ?? null,
+      imageHash: row.image_hash ?? row.image_hashes?.[0] ?? null,
       accountTimezone: "UTC",
       accountCurrency: row.currency ?? "USD",
       spend: row.spend,
       impressions: row.impressions,
       clicks: row.clicks,
-      reach: 0,
-      frequency: null,
+      reach: row.reach ?? row.impressions,
+      frequency: row.frequency ?? null,
       conversions: row.purchases,
       revenue: row.purchase_value,
       roas: row.roas,
@@ -394,10 +535,29 @@ async function syncMetaCreativesAccountDay(input: {
       payloadJson: payloadRow,
     };
   });
+  const creativeMediaRows: MetaCreativeMediaRow[] =
+    mediaMode === "full"
+      ? rawRows.map((row) =>
+          extractCreativeMediaRow({
+            businessId: input.businessId,
+            providerAccountId: input.accountId,
+            date: input.day,
+            row,
+            payloadRow: buildMetaCreativeApiRow({
+              row,
+              cachedThumbnailUrl: null,
+              cardFallbackThumbnailUrl: null,
+              includeDebugFields: false,
+            }),
+            sourceRunId: input.sourceRunId ?? null,
+          }),
+        )
+      : [];
 
   await Promise.all([
     upsertMetaAdDailyRows(adDailyRows),
     upsertMetaCreativeDailyRows(creativeDailyRows),
+    upsertMetaCreativeMediaRows(creativeMediaRows),
   ]);
 }
 
@@ -409,6 +569,11 @@ export async function syncMetaCreativesWarehouseDay(input: {
   mediaMode?: "metadata" | "full";
   sourceRunId?: string | null;
 }) {
+  const retentionReferenceDay = toIsoDate(new Date());
+  await pruneMetaCreativeMediaOutsideRetention({
+    businessId: input.businessId,
+    keepFromDate: getCreativeMediaRetentionStart(retentionReferenceDay),
+  }).catch(() => null);
   for (const accountId of input.assignedAccountIds) {
     await syncMetaCreativesAccountDay({
       businessId: input.businessId,
@@ -435,13 +600,13 @@ export async function ensureMetaCreativesWarehouseRangeFilled(input: {
   const [integration, assignedAccountIds, coverage, previewCoverage] = await Promise.all([
     getIntegration(input.businessId, "meta").catch(() => null),
     fetchAssignedAccountIds(input.businessId),
-    getMetaAdDailyCoverage({
+    getMetaCreativeDailyCoverage({
       businessId: input.businessId,
       providerAccountId: null,
       startDate: input.startDate,
       endDate: input.endDate,
     }).catch(() => null),
-    getMetaAdDailyPreviewCoverage({
+    getMetaCreativeMediaPreviewCoverage({
       businessId: input.businessId,
       providerAccountId: null,
       startDate: input.startDate,
@@ -471,7 +636,7 @@ export async function ensureMetaCreativesWarehouseRangeFilled(input: {
   const days = enumerateDays(input.startDate, input.endDate, true);
   for (const day of days) {
     const shouldRetainMedia = day >= retentionStart;
-    const dayCoverage = await getMetaAdDailyCoverage({
+    const dayCoverage = await getMetaCreativeDailyCoverage({
       businessId: input.businessId,
       providerAccountId: null,
       startDate: day,
@@ -479,7 +644,7 @@ export async function ensureMetaCreativesWarehouseRangeFilled(input: {
     }).catch(() => null);
     if ((dayCoverage?.completed_days ?? 0) >= 1) {
       if (input.mediaMode !== "full") continue;
-      const dayPreviewCoverage = await getMetaAdDailyPreviewCoverage({
+      const dayPreviewCoverage = await getMetaCreativeMediaPreviewCoverage({
         businessId: input.businessId,
         providerAccountId: null,
         startDate: day,
@@ -547,6 +712,36 @@ export async function getMetaCreativesWarehousePayload(input: {
           ?.map((row) => row.adId)
           .filter((value): value is string => Boolean(value)) ?? [],
       });
+  const mediaByCreativeKey = new Map<string, MetaCreativeMediaRow>();
+  const mediaByAdKey = new Map<string, MetaCreativeMediaRow>();
+  if (input.mediaMode === "full" && sourceRows.length) {
+    const creativeIds = useCreativeWarehouse
+      ? creativeSourceRows
+          ?.map((row) => row.creativeId)
+          .filter((value): value is string => Boolean(value)) ?? []
+      : [];
+    const adIds = !useCreativeWarehouse
+      ? adSourceRows
+          ?.map((row) => row.adId)
+          .filter((value): value is string => Boolean(value)) ?? []
+      : [];
+    const mediaRows = await getMetaCreativeMediaRange({
+      businessId: input.businessId,
+      startDate: input.start,
+      endDate: input.end,
+      providerAccountIds: assignedAccountIds,
+      creativeIds: useCreativeWarehouse ? creativeIds : null,
+      adIds: useCreativeWarehouse ? null : adIds,
+    }).catch(() => []);
+    for (const row of mediaRows) {
+      const creativeKey = `${row.providerAccountId}|${row.date}|${row.creativeId}`;
+      mediaByCreativeKey.set(creativeKey, chooseRicherMediaRow(mediaByCreativeKey.get(creativeKey), row));
+      if (row.adId) {
+        const adKey = `${row.providerAccountId}|${row.date}|${row.adId}`;
+        mediaByAdKey.set(adKey, chooseRicherMediaRow(mediaByAdKey.get(adKey), row));
+      }
+    }
+  }
   const rawRows: RawCreativeRow[] = sourceRows.reduce<RawCreativeRow[]>((acc, row) => {
       const projectionRow = useCreativeWarehouse
         ? coerceRawCreativeRow(
@@ -556,9 +751,16 @@ export async function getMetaCreativesWarehousePayload(input: {
             dimensionRows.get((row as MetaAdDailyRow).adId)?.projectionJson,
           );
       if (!projectionRow) return acc;
+      const mediaRow = useCreativeWarehouse
+        ? mediaByCreativeKey.get(
+            `${(row as MetaCreativeDailyRow).providerAccountId}|${(row as MetaCreativeDailyRow).date}|${(row as MetaCreativeDailyRow).creativeId}`,
+          ) ?? null
+        : mediaByAdKey.get(
+            `${(row as MetaAdDailyRow).providerAccountId}|${(row as MetaAdDailyRow).date}|${(row as MetaAdDailyRow).adId}`,
+          ) ?? null;
       acc.push(
         hydrateWarehouseCreativeMetrics({
-          row: projectionRow,
+          row: overlayCreativeMedia(projectionRow, mediaRow),
           factRow: row,
         }),
       );

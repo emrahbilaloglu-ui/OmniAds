@@ -60,6 +60,7 @@ vi.mock("@/lib/meta/warehouse", async () => {
 });
 
 const apiMeta = await import("@/lib/api/meta");
+const creativesWarehouse = await import("@/lib/meta/creatives-warehouse");
 const warehouse = await import("@/lib/meta/warehouse");
 const { processMetaLifecyclePartition } = await import("@/lib/sync/meta-sync");
 
@@ -414,6 +415,44 @@ describe("processMetaLifecyclePartition lease epoch", () => {
         leaseEpoch: 7,
         endpointName:
           "breakdown_publisher_platform,platform_position,impression_device",
+      }),
+    );
+
+    vi.useRealTimers();
+  });
+
+  it("refreshes current-day creative warehouse partitions even when coverage is already complete", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-05T12:00:00.000Z"));
+    vi.mocked(warehouse.getMetaCreativeDailyCoverage).mockResolvedValue({
+      completed_days: 1,
+      latest_updated_at: "2026-04-05T08:00:00.000Z",
+      ready_through_date: "2026-04-05",
+    } as never);
+
+    const processed = await processMetaLifecyclePartition({
+      partition: {
+        id: "partition-creative-today",
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        lane: "extended",
+        scope: "creative_daily",
+        partitionDate: "2026-04-05",
+        attemptCount: 1,
+        leaseEpoch: 21,
+        source: "today_observe",
+      },
+      workerId: "worker-1",
+    });
+
+    expect(processed).toBe(true);
+    expect(creativesWarehouse.syncMetaCreativesWarehouseDay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz-1",
+        day: "2026-04-05",
+        assignedAccountIds: ["act_1"],
+        sourceRunId: "partition-creative-today",
+        mediaMode: "full",
       }),
     );
 

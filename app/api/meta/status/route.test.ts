@@ -529,6 +529,30 @@ describe("GET /api/meta/status", () => {
     });
   });
 
+  it("scopes creative preview coverage to the media retention window", async () => {
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/status?businessId=biz&diagnostics=1")
+    );
+
+    expect(response.status).toBe(200);
+    expect(warehouse.getMetaCreativeDailyCoverage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz",
+        providerAccountId: null,
+        startDate: "2025-01-13",
+        endDate: "2026-04-12",
+      }),
+    );
+    expect(warehouse.getMetaCreativeMediaPreviewCoverage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz",
+        providerAccountId: null,
+        startDate: "2026-01-13",
+        endDate: "2026-04-12",
+      }),
+    );
+  });
+
   it("includes Meta phase timing telemetry when recent samples exist", async () => {
     vi.mocked(warehouse.getMetaSyncPhaseTimingSummaries).mockResolvedValue([
       {

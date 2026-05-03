@@ -38,6 +38,7 @@ import {
   META_CREATIVE_WAREHOUSE_HISTORY_DAYS,
   META_WAREHOUSE_HISTORY_DAYS,
   dayCountInclusive,
+  getCreativeMediaRetentionStart,
 } from "@/lib/meta/history";
 import { getMetaBreakdownSupportedStart, META_BREAKDOWN_MAX_HISTORY_DAYS } from "@/lib/meta/constraints";
 import {
@@ -486,6 +487,7 @@ export async function GET(request: NextRequest) {
     .toISOString()
     .slice(0, 10);
   const creativeHistoricalTotalDays = dayCountInclusive(creativeBackfillStart, initialBackfillEnd);
+  const creativeMediaPreviewStart = getCreativeMediaRetentionStart(initialBackfillEnd);
   const breakdownHistoricalStart =
     initialBackfillStart > getMetaBreakdownSupportedStart(initialBackfillEnd)
       ? initialBackfillStart
@@ -540,7 +542,7 @@ export async function GET(request: NextRequest) {
           getMetaCreativeMediaPreviewCoverage({
             businessId: businessId!,
             providerAccountId: null,
-            startDate: creativeBackfillStart,
+            startDate: creativeMediaPreviewStart,
             endDate: initialBackfillEnd,
           }).catch(() => null),
           getMetaRawSnapshotCoverageByEndpoint({

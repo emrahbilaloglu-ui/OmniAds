@@ -1891,6 +1891,12 @@ export function shouldBypassMetaCoverageShortCircuit(input: {
   );
 }
 
+export function shouldBypassMetaCreativeCoverageShortCircuit(input: {
+  truthState: "provisional" | "finalized";
+}) {
+  return input.truthState === "provisional";
+}
+
 export function resolveMetaTruthState(input: {
   day: string;
   referenceToday: string;
@@ -2324,7 +2330,10 @@ async function syncMetaPartitionDay(input: {
   }
 
   if (input.scopes.includes("creative_daily")) {
-    if (!coverageState.creativesComplete) {
+    const forceCreativeRefetch = shouldBypassMetaCreativeCoverageShortCircuit({
+      truthState,
+    });
+    if (forceCreativeRefetch || !coverageState.creativesComplete) {
       await syncMetaCreativesWarehouseDay({
         businessId: input.businessId,
         day: normalizedDay,

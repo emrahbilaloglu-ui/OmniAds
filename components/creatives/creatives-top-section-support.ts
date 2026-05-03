@@ -73,6 +73,13 @@ export function resolveCreativeDateRange(value: CreativeDateRangeValue): {
   end: string;
 } {
   const today = startOfDay(new Date());
+  const completedRollingWindow = (days: number) => {
+    const end = addDays(today, -1);
+    return {
+      start: toISO(addDays(end, -(days - 1))),
+      end: toISO(end),
+    };
+  };
 
   switch (value.preset) {
     case "today":
@@ -110,18 +117,18 @@ export function resolveCreativeDateRange(value: CreativeDateRangeValue): {
       return { start: toISO(start), end: toISO(end) };
     }
     case "last7Days":
-      return { start: toISO(addDays(today, -6)), end: toISO(today) };
+      return completedRollingWindow(7);
     case "last14Days":
-      return { start: toISO(addDays(today, -13)), end: toISO(today) };
+      return completedRollingWindow(14);
     case "last30Days":
-      return { start: toISO(addDays(today, -29)), end: toISO(today) };
+      return completedRollingWindow(30);
     case "last365Days":
-      return { start: toISO(addDays(today, -364)), end: toISO(today) };
+      return completedRollingWindow(365);
     case "last": {
       const days = Number.isFinite(value.lastDays)
         ? Math.max(1, Math.floor(value.lastDays))
         : 14;
-      return { start: toISO(addDays(today, -(days - 1))), end: toISO(today) };
+      return completedRollingWindow(days);
     }
     case "since": {
       if (!value.sinceDate) {

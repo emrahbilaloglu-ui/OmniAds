@@ -122,6 +122,7 @@ function aggregateSeriesPoints(
 
 function resolveDateRangePreset(preset: CustomReportDocument["dateRangePreset"]) {
   const end = new Date();
+  end.setUTCDate(end.getUTCDate() - 1);
   const endDate = end.toISOString().slice(0, 10);
   const start = new Date(end);
   const days = preset === "7" ? 6 : preset === "90" ? 89 : 29;

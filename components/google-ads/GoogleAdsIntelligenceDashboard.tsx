@@ -27,7 +27,6 @@ import {
   fmtPct,
   fmtRoas,
   isCampaignActive,
-  mapRangePresetToApi,
   PANEL_ITEMS,
   resolveTrendTimeline,
   type Campaign,
@@ -302,16 +301,33 @@ function filterAdvisorByTypes(
 
 function buildAdvisorQueryParams(input: {
   businessId: string;
-  apiDateRange?: string;
   startDate?: string;
   endDate?: string;
   refresh?: boolean;
 }) {
   const params = new URLSearchParams({ businessId: input.businessId });
-  if (input.apiDateRange) params.set("dateRange", input.apiDateRange);
-  if (input.startDate) params.set("customStart", input.startDate);
-  if (input.endDate) params.set("customEnd", input.endDate);
+  if (input.startDate && input.endDate) {
+    params.set("dateRange", "custom");
+    params.set("customStart", input.startDate);
+    params.set("customEnd", input.endDate);
+  }
   if (input.refresh) params.set("refresh", "1");
+  return params;
+}
+
+function buildGoogleAdsDataQueryParams(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  compareMode?: string;
+}) {
+  const params = new URLSearchParams({
+    businessId: input.businessId,
+    dateRange: "custom",
+    customStart: input.startDate,
+    customEnd: input.endDate,
+  });
+  if (input.compareMode) params.set("compareMode", input.compareMode);
   return params;
 }
 
@@ -377,7 +393,6 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
           dateRange.customEnd
         );
   const compareMode = dateRange.comparisonPreset === "none" ? "none" : "previous_period";
-  const apiDateRange = mapRangePresetToApi(dateRange.rangePreset);
   const { labelMode: trendLabelMode } = useMemo(
     () => resolveTrendTimeline(startDate, endDate),
     [startDate, endDate]
@@ -398,11 +413,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const { data, isLoading, isError } = useQuery<CampaignsResponse>({
     queryKey: ["gads-campaigns", businessId, startDate, endDate, compareMode],
     queryFn: async () => {
-      const params = new URLSearchParams({ businessId, dateRange: apiDateRange, compareMode });
-      if (apiDateRange === "custom") {
-        params.set("customStart", startDate);
-        params.set("customEnd", endDate);
-      }
+      const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate, compareMode });
       const res = await fetch(`/api/google-ads/campaigns?${params}`);
       if (!res.ok) throw new Error("fetch failed");
       return res.json();
@@ -422,7 +433,6 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     mutationFn: async ({ refresh }) => {
       const params = buildAdvisorQueryParams({
         businessId,
-        apiDateRange,
         startDate,
         endDate,
         refresh,
@@ -444,11 +454,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const { data: assetGroupData, isLoading: isAssetGroupsLoading } = useQuery<AssetGroupsResponse>({
     queryKey: ["gads-asset-groups", businessId, startDate, endDate],
     queryFn: async () => {
-      const params = new URLSearchParams({ businessId, dateRange: apiDateRange });
-      if (apiDateRange === "custom") {
-        params.set("customStart", startDate);
-        params.set("customEnd", endDate);
-      }
+      const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate });
       const res = await fetch(`/api/google-ads/asset-groups?${params}`);
       if (!res.ok) throw new Error("asset groups fetch failed");
       return res.json();
@@ -460,11 +466,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const { data: audiencesData, isLoading: isAudiencesLoading } = useQuery<AudiencesResponse>({
     queryKey: ["gads-audiences", businessId, startDate, endDate],
     queryFn: async () => {
-      const params = new URLSearchParams({ businessId, dateRange: apiDateRange });
-      if (apiDateRange === "custom") {
-        params.set("customStart", startDate);
-        params.set("customEnd", endDate);
-      }
+      const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate });
       const res = await fetch(`/api/google-ads/audiences?${params}`);
       if (!res.ok) throw new Error("audiences fetch failed");
       return res.json();
@@ -476,11 +478,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const { data: assetsData, isLoading: isAssetsLoading } = useQuery<AssetsResponse>({
     queryKey: ["gads-assets", businessId, startDate, endDate],
     queryFn: async () => {
-      const params = new URLSearchParams({ businessId, dateRange: apiDateRange });
-      if (apiDateRange === "custom") {
-        params.set("customStart", startDate);
-        params.set("customEnd", endDate);
-      }
+      const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate });
       const res = await fetch(`/api/google-ads/assets?${params}`);
       if (!res.ok) throw new Error("assets fetch failed");
       return res.json();
@@ -492,11 +490,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const { data: productsData, isLoading: isProductsLoading } = useQuery<ProductsResponse>({
     queryKey: ["gads-products", businessId, startDate, endDate],
     queryFn: async () => {
-      const params = new URLSearchParams({ businessId, dateRange: apiDateRange });
-      if (apiDateRange === "custom") {
-        params.set("customStart", startDate);
-        params.set("customEnd", endDate);
-      }
+      const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate });
       const res = await fetch(`/api/google-ads/products?${params}`);
       if (!res.ok) throw new Error("products fetch failed");
       return res.json();
@@ -508,11 +502,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const { data: searchTermsData, isLoading: isSearchTermsLoading } = useQuery<SearchIntelligenceResponse>({
     queryKey: ["gads-search-intelligence", businessId, startDate, endDate],
     queryFn: async () => {
-      const params = new URLSearchParams({ businessId, dateRange: apiDateRange });
-      if (apiDateRange === "custom") {
-        params.set("customStart", startDate);
-        params.set("customEnd", endDate);
-      }
+      const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate });
       const res = await fetch(`/api/google-ads/search-intelligence?${params}`);
       if (!res.ok) throw new Error("search intelligence fetch failed");
       return res.json();
@@ -524,11 +514,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const { data: geoData, isLoading: isGeoLoading } = useQuery<GeoResponse>({
     queryKey: ["gads-geo", businessId, startDate, endDate],
     queryFn: async () => {
-      const params = new URLSearchParams({ businessId, dateRange: apiDateRange });
-      if (apiDateRange === "custom") {
-        params.set("customStart", startDate);
-        params.set("customEnd", endDate);
-      }
+      const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate });
       const res = await fetch(`/api/google-ads/geo?${params}`);
       if (!res.ok) throw new Error("geo fetch failed");
       return res.json();
@@ -540,11 +526,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const { data: devicesData, isLoading: isDevicesLoading } = useQuery<DevicesResponse>({
     queryKey: ["gads-devices", businessId, startDate, endDate],
     queryFn: async () => {
-      const params = new URLSearchParams({ businessId, dateRange: apiDateRange });
-      if (apiDateRange === "custom") {
-        params.set("customStart", startDate);
-        params.set("customEnd", endDate);
-      }
+      const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate });
       const res = await fetch(`/api/google-ads/devices?${params}`);
       if (!res.ok) throw new Error("devices fetch failed");
       return res.json();

@@ -592,30 +592,27 @@ export function getDateRangeForQuery(
   customStart?: string,
   customEnd?: string,
 ): { startDate: string; endDate: string } {
+  if (dateRange === "custom" && customStart && customEnd) {
+    return {
+      startDate: customStart,
+      endDate: customEnd,
+    };
+  }
+
   const endDate = new Date();
   const startDate = new Date(endDate);
+  const rollingDays = Number(dateRange);
 
-  if (dateRange === "3") {
-    startDate.setDate(endDate.getDate() - 3);
-  } else if (dateRange === "7") {
-    startDate.setDate(endDate.getDate() - 7);
-  } else if (dateRange === "14") {
-    startDate.setDate(endDate.getDate() - 14);
-  } else if (dateRange === "30") {
-    startDate.setDate(endDate.getDate() - 30);
-  } else if (dateRange === "90") {
-    startDate.setDate(endDate.getDate() - 90);
+  if (Number.isFinite(rollingDays) && rollingDays > 0) {
+    endDate.setDate(endDate.getDate() - 1);
+    startDate.setTime(endDate.getTime());
+    startDate.setDate(endDate.getDate() - (rollingDays - 1));
   } else if (dateRange === "mtd") {
     startDate.setDate(1);
   } else if (dateRange === "qtd") {
     const month = endDate.getMonth();
     const quarterStartMonth = Math.floor(month / 3) * 3;
     startDate.setMonth(quarterStartMonth, 1);
-  } else if (dateRange === "custom" && customStart && customEnd) {
-    return {
-      startDate: customStart,
-      endDate: customEnd,
-    };
   }
 
   return {

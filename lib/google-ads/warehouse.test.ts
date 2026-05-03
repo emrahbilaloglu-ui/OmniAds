@@ -93,6 +93,7 @@ const {
   createGoogleAdsSyncJob,
   createGoogleAdsSyncRun,
   getGoogleAdsDailyCoverage,
+  getLatestGoogleAdsSyncHealth,
   queueGoogleAdsSyncPartition,
   upsertGoogleAdsSyncState,
 } = await import("@/lib/google-ads/warehouse");
@@ -175,6 +176,33 @@ describe("getGoogleAdsDailyCoverage", () => {
       "2026-04-03",
       "campaign_daily",
     ]);
+  });
+});
+
+describe("getLatestGoogleAdsSyncHealth", () => {
+  it("derives run trigger source from the immutable run payload", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      queries.push(query);
+      if (query.includes("FROM google_ads_sync_runs run")) return [];
+      if (query.includes("FROM google_ads_sync_partitions")) return [];
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await getLatestGoogleAdsSyncHealth({
+      businessId: "biz_1",
+      providerAccountId: null,
+    });
+
+    const runQuery = queries.find((query) =>
+      query.includes("FROM google_ads_sync_runs run"),
+    );
+    expect(runQuery).toBeTruthy();
+    expect(runQuery).toContain("COALESCE(NULLIF(run.meta_json ->> 'source', ''), 'background_partition') AS trigger_source");
+    expect(runQuery).not.toContain("JOIN google_ads_sync_partitions partition");
+    expect(runQuery).not.toContain("source AS trigger_source");
   });
 });
 

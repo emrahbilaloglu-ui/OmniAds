@@ -5796,27 +5796,29 @@ export async function getLatestGoogleAdsSyncHealth(input: {
   const [runRows, partitionRows] = await Promise.all([
     sql`
       SELECT
-        id,
-        provider_account_id,
+        run.id,
+        run.provider_account_id,
         CASE
-          WHEN lane = 'maintenance' THEN 'incremental_recent'
+          WHEN run.lane = 'maintenance' AND COALESCE(NULLIF(run.meta_json ->> 'source', ''), 'background_partition') = 'finalize_day' THEN 'repair_window'
+          WHEN run.lane = 'maintenance' AND COALESCE(NULLIF(run.meta_json ->> 'source', ''), 'background_partition') = 'today' THEN 'today_refresh'
+          WHEN run.lane = 'maintenance' THEN 'incremental_recent'
           ELSE 'initial_backfill'
         END AS sync_type,
-        scope,
-        partition_date AS start_date,
-        partition_date AS end_date,
-        source AS trigger_source,
-        created_at AS triggered_at,
-        status,
-        error_message AS last_error,
+        run.scope,
+        run.partition_date AS start_date,
+        run.partition_date AS end_date,
+        COALESCE(NULLIF(run.meta_json ->> 'source', ''), 'background_partition') AS trigger_source,
+        run.created_at AS triggered_at,
+        run.status,
+        run.error_message AS last_error,
         NULL::double precision AS progress_percent,
-        finished_at,
-        started_at,
-        updated_at
-      FROM google_ads_sync_runs
-      WHERE business_id = ${input.businessId}
-        AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
-      ORDER BY updated_at DESC
+        run.finished_at,
+        run.started_at,
+        run.updated_at
+      FROM google_ads_sync_runs run
+      WHERE run.business_id = ${input.businessId}
+        AND (${input.providerAccountId ?? null}::text IS NULL OR run.provider_account_id = ${input.providerAccountId ?? null})
+      ORDER BY run.updated_at DESC
       LIMIT 1
     `.catch(() => []) as Promise<Array<Record<string, unknown>>>,
     sql`

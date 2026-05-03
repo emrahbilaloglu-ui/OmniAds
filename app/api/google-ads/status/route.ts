@@ -592,14 +592,14 @@ export async function GET(request: NextRequest) {
   const recentRepairAttemptRowsPromise = sql`
     SELECT DISTINCT ON (scope)
       scope,
-      trigger_source,
+      source AS trigger_source,
       status,
-      error_message,
+      last_error AS error_message,
       finished_at,
       updated_at
-    FROM google_ads_sync_runs
+    FROM google_ads_sync_partitions
     WHERE business_id = ${businessId!}
-      AND trigger_source LIKE 'auto_recent_repair:%'
+      AND source = 'recent_recovery'
       AND scope IN ('search_term_daily', 'product_daily', 'asset_daily')
     ORDER BY scope, updated_at DESC
   ` as Promise<Array<{

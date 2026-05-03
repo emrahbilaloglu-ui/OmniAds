@@ -27,6 +27,7 @@ const PUBLIC_API_PREFIXES = [
   "/api/auth/me",
   "/api/auth/demo-login",
   "/api/build-info",
+  "/api/healthz",
   "/api/release-authority",
   "/api/invite",
   "/api/creatives/share",

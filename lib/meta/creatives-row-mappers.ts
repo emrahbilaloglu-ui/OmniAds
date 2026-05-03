@@ -777,9 +777,10 @@ export function groupRows(
         currencies: uniqueCurrencies,
       });
     }
-    const previewRow = list.find((item) =>
-      Boolean(item.preview.video_url || item.preview.image_url || item.preview.poster_url)
-    ) ?? null;
+    const previewRow =
+      list.find((item) =>
+        Boolean(item.preview?.video_url || item.preview?.image_url || item.preview?.poster_url)
+      ) ?? null;
     const groupedPreview = previewRow?.preview ?? {
       render_mode: "unavailable" as const,
       html: null,
@@ -787,7 +788,7 @@ export function groupRows(
       video_url: null,
       poster_url: null,
       source: null,
-      is_catalog: list.some((item) => item.preview.is_catalog),
+      is_catalog: list.some((item) => Boolean(item.preview?.is_catalog ?? item.is_catalog)),
     };
     const groupedLegacyState: LegacyPreviewState = groupedPreview.render_mode === "unavailable" ? "unavailable" : "preview";
     const groupedTaxonomy = aggregateCreativeTaxonomy(list);

@@ -255,6 +255,83 @@ describe("meta creatives warehouse", () => {
     });
   });
 
+  it("keeps metadata warehouse reads working when retained dimensions omit nested preview", async () => {
+    const projectionWithoutPreview = buildProjectionRow({
+      name: "Dimension Creative",
+      preview_url: null,
+      thumbnail_url: null,
+      image_url: null,
+      table_thumbnail_url: null,
+      card_preview_url: null,
+    });
+    delete (projectionWithoutPreview as Record<string, unknown>).preview;
+    vi.mocked(warehouse.getMetaCreativeDailyRange).mockResolvedValue([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adId: "ad-1",
+        creativeId: "crt-1",
+        creativeName: "Creative 1",
+        headline: null,
+        primaryText: null,
+        destinationUrl: null,
+        thumbnailUrl: null,
+        assetType: "image",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 25,
+        impressions: 100,
+        clicks: 4,
+        conversions: 2,
+        revenue: 50,
+        roas: 2,
+        ctr: 4,
+        cpc: 6.25,
+        linkClicks: 3,
+        sourceSnapshotId: null,
+        payloadJson: {},
+      },
+    ] as never);
+    vi.mocked(requestModelStore.readMetaCreativeDimensions).mockResolvedValue(
+      new Map([
+        [
+          "crt-1",
+          {
+            projectionJson: projectionWithoutPreview,
+          },
+        ],
+      ]) as never,
+    );
+
+    const payload = await getMetaCreativesWarehousePayload({
+      businessId: "biz-1",
+      start: "2026-04-03",
+      end: "2026-04-03",
+      groupBy: "creative",
+      format: "all",
+      sort: "spend",
+      mediaMode: "metadata",
+    });
+
+    expect(payload.status).toBe("ok");
+    expect(payload.rows[0]).toMatchObject({
+      creative_id: "crt-1",
+      name: "Dimension Creative",
+      preview_status: "missing",
+      spend: 25,
+      purchase_value: 50,
+    });
+    expect(payload.rows[0]?.preview).toMatchObject({
+      render_mode: "unavailable",
+      image_url: null,
+      video_url: null,
+      poster_url: null,
+    });
+  });
+
   it("hydrates creative-group warehouse rows from the richest retained media row", async () => {
     vi.mocked(warehouse.getMetaCreativeDailyRange).mockResolvedValue([
       {

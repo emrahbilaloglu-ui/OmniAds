@@ -55,6 +55,7 @@ function buildStatus(
         historicalCompletedDays: 180,
         historicalTotalDays: 365,
         readyThroughDate: "2026-04-10",
+        oldestStoredDate: "2025-10-13",
       },
       campaign_daily: {
         recentCompletedDays: 10,
@@ -62,6 +63,7 @@ function buildStatus(
         historicalCompletedDays: 180,
         historicalTotalDays: 365,
         readyThroughDate: "2026-04-10",
+        oldestStoredDate: "2025-10-13",
       },
       adset_daily: {
         recentCompletedDays: 8,
@@ -300,6 +302,12 @@ describe("resolveMetaIntegrationProgress", () => {
       label: "worker active",
       evidence: "Queue 8 • Leased 2",
     });
+    expect(model?.stages[2]).toMatchObject({
+      state: "ready",
+      label: "core ready",
+      evidence: expect.stringContaining("Oldest stored date:"),
+    });
+    expect(model?.stages[2]?.evidence).not.toContain("Ready through");
     expect(model?.stages[3]).toMatchObject({
       state: "working",
       label: "history continuing",

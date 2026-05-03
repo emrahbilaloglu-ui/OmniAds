@@ -55,6 +55,7 @@ function buildStatus(
         historicalCompletedDays: 180,
         historicalTotalDays: 365,
         readyThroughDate: "2026-04-10",
+        oldestStoredDate: "2025-10-13",
       },
       campaign_daily: {
         recentCompletedDays: 10,
@@ -62,6 +63,7 @@ function buildStatus(
         historicalCompletedDays: 180,
         historicalTotalDays: 365,
         readyThroughDate: "2026-04-10",
+        oldestStoredDate: "2025-10-13",
       },
       adset_daily: {
         recentCompletedDays: 8,
@@ -171,6 +173,11 @@ describe("buildMetaIntegrationSummary", () => {
         pendingSurfaceCount: 1,
         pendingSurfaces: ["breakdowns.age"],
         oldestStoredDate: "2025-12-18",
+      },
+    });
+    expect(summary.stages.find((stage) => stage.key === "core_data")).toMatchObject({
+      evidence: {
+        oldestStoredDate: "2025-10-13",
       },
     });
   });

@@ -405,17 +405,17 @@ function buildStageEvidence(
       : buildCountEvidence(evidence.completedDays, evidence.totalDays, language);
   if (countEvidence) parts.push(countEvidence);
 
-  const historicalOldest =
-    stage.code === "historical_extended_preparing"
-      ? formatMetaHistoricalOldestReachedDate(evidence.oldestStoredDate, language)
-      : null;
-  if (historicalOldest) parts.push(historicalOldest);
+  const oldestStored = formatMetaHistoricalOldestReachedDate(
+    evidence.oldestStoredDate,
+    language
+  );
+  if (oldestStored) parts.push(oldestStored);
 
   const readyThrough = formatMetaReadyThroughDate(
     evidence.readyThroughDate,
     language
   );
-  if (readyThrough && !historicalOldest) parts.push(readyThrough);
+  if (readyThrough && !oldestStored) parts.push(readyThrough);
 
   return parts.length > 0 ? parts.join(" • ") : null;
 }

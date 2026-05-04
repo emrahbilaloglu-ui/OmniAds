@@ -11,6 +11,8 @@ const getDb = vi.fn();
 const runMigrations = vi.fn();
 const getProviderAccountAssignments = vi.fn();
 const readProviderAccountSnapshot = vi.fn();
+const getProviderPlatformDateBoundaries = vi.fn();
+const getProviderPlatformPreviousDate = vi.fn();
 
 vi.mock("@/lib/sync/meta-sync", () => ({
   enqueueMetaScheduledWork,
@@ -56,7 +58,8 @@ vi.mock("@/lib/google-ads/warehouse", () => ({
 }));
 
 vi.mock("@/lib/provider-platform-date", () => ({
-  getProviderPlatformPreviousDate: vi.fn(() => Promise.resolve("2026-04-06")),
+  getProviderPlatformDateBoundaries,
+  getProviderPlatformPreviousDate,
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -92,6 +95,18 @@ describe("provider repair engine", () => {
     syncGoogleAdsRange.mockResolvedValue(undefined);
     getProviderAccountAssignments.mockResolvedValue(null);
     readProviderAccountSnapshot.mockResolvedValue(null);
+    getProviderPlatformDateBoundaries.mockResolvedValue([
+      {
+        provider: "meta",
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        timeZone: "UTC",
+        currentDate: "2026-04-07",
+        previousDate: "2026-04-06",
+        isPrimary: true,
+      },
+    ]);
+    getProviderPlatformPreviousDate.mockResolvedValue("2026-04-06");
   });
 
   afterEach(() => {
@@ -528,6 +543,13 @@ describe("provider repair engine", () => {
       queueWarehouseRepairs: true,
     });
 
+    expect(metaWarehouse.getMetaWarehouseIntegrityIncidents).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz-1",
+        endDate: "2026-04-06",
+        persistReconciliationEvents: true,
+      }),
+    );
     expect(syncMetaRepairRange).toHaveBeenCalledWith(
       expect.objectContaining({
         businessId: "biz-1",

@@ -5,7 +5,7 @@
  * built in parallel.
  */
 
-export const ENGINE_VERSION = "v3-2026-05-04-phase-3.6";
+export const ENGINE_VERSION = "v3-2026-05-04-phase-3.7";
 
 /** Final decision label. */
 export type DecisionLabel =
@@ -162,6 +162,7 @@ export interface DecisionBadge {
   type:
     | "fatigue_watch"
     | "fatigue_fatigued"
+    | "cut_candidate"
     | "low_ctr"
     | "truth_account_baseline"
     | "truth_account_baseline_thin"
@@ -186,6 +187,7 @@ export const DECISION_BADGE_DISPLAY: Record<
 > = {
   fatigue_watch: { label: "Fatigue watch", severity: "warning" },
   fatigue_fatigued: { label: "Fatigued", severity: "warning" },
+  cut_candidate: { label: "Cut candidate", severity: "warning" },
   low_ctr: { label: "Low CTR", severity: "info" },
   truth_account_baseline: { label: "Truth: account baseline", severity: "info" },
   truth_account_baseline_thin: {

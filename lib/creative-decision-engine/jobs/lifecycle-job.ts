@@ -1005,6 +1005,8 @@ function mapLifecycleComputationRow(input: {
   const ctr28d = toNumberOrNull(input.row.ctr_28d);
   const roas28d = toNumberOrNull(input.row.roas_28d);
   const frequency28d = toNumberOrNull(input.row.frequency_28d);
+  const targetRoas = toNumberOrNull(input.row.target_roas);
+  const breakevenRoas = toNumberOrNull(input.row.breakeven_roas);
   const ageDays = toIntegerOrNull(input.row.age_days);
   const activeDays30d = toIntegerOrNull(input.row.active_days_30d) ?? 0;
   const eligibleForLifecycle =
@@ -1052,6 +1054,8 @@ function mapLifecycleComputationRow(input: {
       purchases28d > 0 && linkClicks28d !== null && linkClicks28d > 0
         ? purchases28d / linkClicks28d
         : null,
+    effectiveTargetRoas: targetRoas,
+    breakevenRoas,
     historicalWindows: {
       last14: toHistoricalWindow(input.row, "last14"),
       last30: toHistoricalWindow(input.row, "last30"),
@@ -1135,8 +1139,8 @@ function mapLifecycleComputationRow(input: {
     },
     effective_status: toStringOrNull(input.row.effective_status),
     objective: toStringOrNull(input.row.objective),
-    target_roas: toNumberOrNull(input.row.target_roas),
-    breakeven_roas: toNumberOrNull(input.row.breakeven_roas),
+    target_roas: targetRoas,
+    breakeven_roas: breakevenRoas,
     data_freshness_hours: freshnessHours(sourceMaxUpdatedAt),
     source_max_date: toIsoDateOrNull(input.row.source_max_date),
     source_max_updated_at: sourceMaxUpdatedAt,

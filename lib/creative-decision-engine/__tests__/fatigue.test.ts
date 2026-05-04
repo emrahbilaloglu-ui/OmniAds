@@ -92,6 +92,128 @@ describe("computeFatigue", () => {
     expect(output.ctrDecay).toBe(0.25);
   });
 
+  it("requires target-relative ROAS for strong historical windows", () => {
+    const targetLightWindow: HistoricalWindow = {
+      ...strongWindow,
+      spend: 300,
+      purchases: 5,
+      roas: 1.6,
+    };
+    const output = computeFatigue(
+      makeInput({
+        effectiveTargetRoas: 2.2,
+        historicalWindows: {
+          last30: targetLightWindow,
+          last90: targetLightWindow,
+        },
+      }),
+    );
+
+    expect(output.winnerMemory).toBe(false);
+  });
+
+  it("accepts target-relative ROAS once the historical window clears the target floor", () => {
+    const targetStrongWindow: HistoricalWindow = {
+      ...strongWindow,
+      spend: 300,
+      purchases: 5,
+      roas: 2.0,
+    };
+    const output = computeFatigue(
+      makeInput({
+        effectiveTargetRoas: 2.2,
+        historicalWindows: {
+          last30: targetStrongWindow,
+          last90: targetStrongWindow,
+        },
+      }),
+    );
+
+    expect(output.winnerMemory).toBe(true);
+  });
+
+  it("uses the absolute ROAS fallback when no target context is available", () => {
+    const fallbackStrongWindow: HistoricalWindow = {
+      ...strongWindow,
+      spend: 300,
+      purchases: 5,
+      roas: 1.5,
+    };
+    const output = computeFatigue(
+      makeInput({
+        effectiveTargetRoas: null,
+        breakevenRoas: null,
+        historicalWindows: {
+          last30: fallbackStrongWindow,
+          last90: fallbackStrongWindow,
+        },
+      }),
+    );
+
+    expect(output.winnerMemory).toBe(true);
+  });
+
+  it("uses breakeven-relative ROAS when target context is unavailable", () => {
+    const breakevenStrongWindow: HistoricalWindow = {
+      ...strongWindow,
+      spend: 300,
+      purchases: 5,
+      roas: 2.21,
+    };
+    const output = computeFatigue(
+      makeInput({
+        effectiveTargetRoas: null,
+        breakevenRoas: 2.0,
+        historicalWindows: {
+          last30: breakevenStrongWindow,
+          last90: breakevenStrongWindow,
+        },
+      }),
+    );
+
+    expect(output.winnerMemory).toBe(true);
+  });
+
+  it("requires at least three purchases for strong historical windows", () => {
+    const lowPurchaseWindow: HistoricalWindow = {
+      ...strongWindow,
+      spend: 300,
+      purchases: 2,
+      roas: 10,
+    };
+    const output = computeFatigue(
+      makeInput({
+        effectiveTargetRoas: 2.2,
+        historicalWindows: {
+          last30: lowPurchaseWindow,
+          last90: lowPurchaseWindow,
+        },
+      }),
+    );
+
+    expect(output.winnerMemory).toBe(false);
+  });
+
+  it("requires at least $150 spend for strong historical windows", () => {
+    const lowSpendWindow: HistoricalWindow = {
+      ...strongWindow,
+      spend: 100,
+      purchases: 5,
+      roas: 10,
+    };
+    const output = computeFatigue(
+      makeInput({
+        effectiveTargetRoas: 2.2,
+        historicalWindows: {
+          last30: lowSpendWindow,
+          last90: lowSpendWindow,
+        },
+      }),
+    );
+
+    expect(output.winnerMemory).toBe(false);
+  });
+
   it("keeps two decay signals at watch without pressure or benchmark weakening", () => {
     const output = computeFatigue(
       makeInput({

@@ -81,7 +81,7 @@ describe("creative-decision-engine v3", () => {
 
     expect(out.label).toBe("keep");
     expect(out.reason).toBe(
-      "[near scale] ROAS 3.00 (28d) = 136% of target — only 8 purchases (28d), need ≥10 for scale; observe.",
+      "[near scale] ROAS 3.00 (28d) above target (136%) — spend $500 / purchases 8 below scale floor (need ≥$600, ≥10); observe.",
     );
     expect(out.truthSource).toBe("commercial_truth");
     expect(out.effectiveTargetRoas).toBe(2.2);

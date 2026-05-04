@@ -20,6 +20,8 @@ export interface FatigueInput {
   ctr: number | null;
   roas: number | null;
   clickToPurchaseRate: number | null;
+  effectiveTargetRoas?: number | null;
+  breakevenRoas?: number | null;
 
   historicalWindows: {
     // Legacy short windows can be passed by callers, but are intentionally
@@ -58,11 +60,47 @@ export interface FatigueOutput {
 const SIGNIFICANT_DECAY_THRESHOLD = 0.18;
 const SPEND_CONCENTRATION_THRESHOLD = 0.55;
 const FREQUENCY_PRESSURE_THRESHOLD = 2.5;
-const STRONG_WINDOW_ROAS = 1.5;
-const STRONG_WINDOW_PURCHASES = 1;
+const STRONG_WINDOW_MIN_SPEND = 150;
+const STRONG_WINDOW_MIN_PURCHASES = 3;
+// Absolute fallback when no business target is available.
+const STRONG_WINDOW_FALLBACK_ROAS = 1.5;
 
 function roundMetric(value: number | null, precision: number) {
   return value === null ? null : Number(value.toFixed(precision));
+}
+
+function isFinitePositive(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function isStrongHistoricalWindow(
+  window: HistoricalWindow,
+  effectiveTargetRoas: number | null | undefined,
+  breakevenRoas: number | null | undefined,
+): boolean {
+  if (!Number.isFinite(window.spend) || window.spend < STRONG_WINDOW_MIN_SPEND) {
+    return false;
+  }
+  if (
+    !Number.isFinite(window.purchases) ||
+    window.purchases < STRONG_WINDOW_MIN_PURCHASES
+  ) {
+    return false;
+  }
+
+  const targetThresholds: number[] = [];
+  if (isFinitePositive(effectiveTargetRoas)) {
+    targetThresholds.push(effectiveTargetRoas * 0.85);
+  }
+  if (isFinitePositive(breakevenRoas)) {
+    targetThresholds.push(breakevenRoas * 1.1);
+  }
+
+  if (targetThresholds.length > 0) {
+    return window.roas >= Math.max(...targetThresholds);
+  }
+
+  return window.roas >= STRONG_WINDOW_FALLBACK_ROAS;
 }
 
 export function computeFatigue(input: FatigueInput): FatigueOutput {
@@ -75,8 +113,11 @@ export function computeFatigue(input: FatigueInput): FatigueOutput {
 
   const strongCount = eligibleWindows.filter(
     (window) =>
-      window.roas >= STRONG_WINDOW_ROAS &&
-      window.purchases >= STRONG_WINDOW_PURCHASES,
+      isStrongHistoricalWindow(
+        window,
+        input.effectiveTargetRoas,
+        input.breakevenRoas,
+      ),
   ).length;
   const winnerMemory = strongCount >= 2;
   const bestWindow =

@@ -132,6 +132,23 @@ export function applyPostProcess(
     confidenceDeltas.push(-10);
   }
 
+  if (
+    ctx.ratioToTarget != null &&
+    ctx.ratioToTarget < 0.6 &&
+    ctx.input.spend >= 300 &&
+    (label === "test_more" || label === "keep")
+  ) {
+    badges.push({
+      type: "cut_candidate",
+      label: `Cut candidate — ROAS ${(
+        ctx.ratioToTarget * 100
+      ).toFixed(0)}% of target on $${ctx.input.spend.toFixed(
+        0,
+      )} spend; consider manual cut or wait for hard threshold`,
+      severity: "warning",
+    });
+  }
+
   const lifecyclePosition = ctx.input.lifecyclePosition;
   const peakAgeSuffix =
     ctx.input.daysSincePeak != null

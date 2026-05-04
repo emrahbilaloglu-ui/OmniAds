@@ -97,10 +97,30 @@ describe("ratioZonesGate - scale zone", () => {
 
     expect(output.label).toBe("keep");
     expect(output.reason).toBe(
-      "[near scale] ROAS 3.00 (28d) = 150% of target — only 8 purchases (28d), need ≥10 for scale; observe.",
+      "[near scale] ROAS 3.00 (28d) above target (150%) — spend $600 / purchases 8 below scale floor (need ≥$600, ≥10); observe.",
     );
     expect(output.reason.startsWith("[near scale]")).toBe(true);
-    expect(output.reason).toContain("only 8 purchases");
+    expect(output.reason).toContain("purchases 8 below scale floor");
+  });
+
+  it("keeps scale-zone creatives without enough spend for scale", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(1.5, {
+          input: {
+            spend: 500,
+            purchases: 15,
+            recent7dRoas: 2.2,
+          },
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.reason).toBe(
+      "[near scale] ROAS 3.00 (28d) above target (150%) — spend $500 / purchases 15 below scale floor (need ≥$600, ≥10); observe.",
+    );
+    expect(output.reason).toContain("spend $500");
   });
 
   it("keeps scale-zone creatives when recent 7d ROAS is missing", () => {
@@ -145,6 +165,16 @@ describe("ratioZonesGate - scale zone", () => {
 });
 
 describe("ratioZonesGate - target band", () => {
+  it("keeps weak-target creatives in the weak target sub-band", () => {
+    const output = terminalOutput(ratioZonesGate(ratioContext(0.9)));
+
+    expect(output.label).toBe("keep");
+    expect(output.reason).toBe(
+      "[weak target] ROAS 1.80 (28d) just above breakeven (90% of target) — keep observing; consider tightening if recent 7d weakens.",
+    );
+    expect(output.reason.startsWith("[weak target]")).toBe(true);
+  });
+
   it("keeps creatives at target without fatigue", () => {
     const output = terminalOutput(ratioZonesGate(ratioContext(1.0)));
 
@@ -154,6 +184,16 @@ describe("ratioZonesGate - target band", () => {
     );
     expect(output.reason.startsWith("[at target]")).toBe(true);
     expect(output.badges).toEqual([]);
+  });
+
+  it("keeps approaching-scale creatives in the near-scale sub-band", () => {
+    const output = terminalOutput(ratioZonesGate(ratioContext(1.2)));
+
+    expect(output.label).toBe("keep");
+    expect(output.reason).toBe(
+      "[near scale] ROAS 2.40 (28d) approaching scale threshold (120%) — needs $600+ spend or 10+ purchases for full scale.",
+    );
+    expect(output.reason.startsWith("[near scale]")).toBe(true);
   });
 
   it("keeps creatives at target and adds fatigue watch badge", () => {
@@ -238,6 +278,13 @@ describe("ratioZonesGate - target band", () => {
     );
 
     expect(output.label).toBe("keep");
+    expect(output.badges).toEqual([
+      {
+        type: "fatigue_fatigued",
+        label: "Fatigued",
+        severity: "warning",
+      },
+    ]);
   });
 });
 
@@ -390,13 +437,39 @@ describe("ratioZonesGate - edge cases", () => {
     );
   });
 
-  it("uses refresh ratio fallback when calibration is unavailable", () => {
+  it("keeps fatigued creatives on the less-sensitive refresh fallback", () => {
     const output = terminalOutput(
       ratioZonesGate(
         ratioContext(1.0, {
           input: {
             fatigueStatus: "fatigued",
             recent7dRoas: 1.6,
+            recent7dSpend: 80,
+          },
+          calibration: {
+            refreshRatioP10: null,
+          },
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.badges).toEqual([
+      {
+        type: "fatigue_fatigued",
+        label: "Fatigued",
+        severity: "warning",
+      },
+    ]);
+  });
+
+  it("refreshes fatigued creatives below the cold-start refresh fallback", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(1.0, {
+          input: {
+            fatigueStatus: "fatigued",
+            recent7dRoas: 1.4,
             recent7dSpend: 80,
           },
           calibration: {

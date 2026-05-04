@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { defaultBusinessConfig } from "../../config";
-import { applyPostProcess } from "../../gates/types";
+import { applyPostProcess, type GateContext } from "../../gates/types";
 import type {
   AccountCalibration,
   BusinessConfig,
@@ -23,6 +23,9 @@ function runPostProcess(
     businessConfig?: Partial<BusinessConfig>;
     calibration?: Partial<AccountCalibration>;
     dataHealth?: DataHealth;
+    gate?: Partial<
+      Omit<GateContext, "input" | "businessConfig" | "calibration">
+    >;
   } = {},
 ) {
   const businessConfig = {
@@ -36,6 +39,7 @@ function runPostProcess(
       businessConfig,
       calibration: makeAccountCalibration(overrides.calibration),
       dataHealth: overrides.dataHealth,
+      gate: overrides.gate,
     }),
     label,
   );
@@ -243,6 +247,51 @@ describe("applyPostProcess - missing recent data", () => {
 
     expect(result.badges).toEqual([]);
     expect(result.confidenceDeltas).toEqual([]);
+  });
+});
+
+describe("applyPostProcess - cut candidate", () => {
+  it("adds cut_candidate for low-ratio test_more decisions with enough spend", () => {
+    const result = runPostProcess("test_more", {
+      input: { spend: 300 },
+      gate: { ratioToTarget: 0.5 },
+    });
+
+    expect(result.badges).toContainEqual({
+      type: "cut_candidate",
+      label:
+        "Cut candidate — ROAS 50% of target on $300 spend; consider manual cut or wait for hard threshold",
+      severity: "warning",
+    });
+    expect(result.confidenceDeltas).toEqual([]);
+  });
+
+  it("adds cut_candidate for low-ratio keep decisions with enough spend", () => {
+    const result = runPostProcess("keep", {
+      input: { spend: 450 },
+      gate: { ratioToTarget: 0.59 },
+    });
+
+    expect(badgeTypes(result)).toContain("cut_candidate");
+    expect(result.confidenceDeltas).toEqual([]);
+  });
+
+  it("does not add cut_candidate below the spend floor", () => {
+    const result = runPostProcess("test_more", {
+      input: { spend: 299 },
+      gate: { ratioToTarget: 0.5 },
+    });
+
+    expect(badgeTypes(result)).not.toContain("cut_candidate");
+  });
+
+  it("does not add cut_candidate to hard cut decisions", () => {
+    const result = runPostProcess("cut", {
+      input: { spend: 500 },
+      gate: { ratioToTarget: 0.5 },
+    });
+
+    expect(badgeTypes(result)).not.toContain("cut_candidate");
   });
 });
 

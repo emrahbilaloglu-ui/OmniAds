@@ -891,6 +891,8 @@ function mapCreativeHydrationRow(input: {
   const ctr = toNumberOrNull(input.row.ctr);
   const roas = toNumberOrNull(input.row.roas);
   const frequency = toNumberOrNull(input.row.frequency);
+  const targetRoas = toNumberOrNull(input.row.target_roas);
+  const breakevenRoas = toNumberOrNull(input.row.break_even_roas);
   const fatigue = computeFatigue({
     ctr,
     roas,
@@ -898,6 +900,8 @@ function mapCreativeHydrationRow(input: {
       purchases,
       linkClicks,
     }),
+    effectiveTargetRoas: targetRoas,
+    breakevenRoas,
     historicalWindows: {
       last14: toHistoricalWindow(input.row, "last14"),
       last30: toHistoricalWindow(input.row, "last30"),
@@ -935,8 +939,8 @@ function mapCreativeHydrationRow(input: {
     policyReason: toStringOrNull(input.row.policy_reason),
     dataFreshnessHours: toIntegerOrNull(input.row.data_freshness_hours),
     fatigueStatus: fatigue.status,
-    targetRoas: toNumberOrNull(input.row.target_roas),
-    breakevenRoas: toNumberOrNull(input.row.break_even_roas),
+    targetRoas,
+    breakevenRoas,
     lifecyclePosition: null,
     daysSincePeak: null,
     peakRoas30d: null,

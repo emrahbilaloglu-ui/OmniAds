@@ -8,10 +8,12 @@ import type {
 import { finalizeDecision, type GateContext, type GateResult } from "./types";
 
 const TARGET_BAND_MIN_RATIO = 0.85;
+const WEAK_TARGET_MAX_RATIO = 0.95;
+const AT_TARGET_MAX_RATIO = 1.15;
 const WORKING_ZONE_MIN_RATIO = 0.7;
 const SUSTAINED_LOSER_MIN_SPEND = 500;
 const SUSTAINED_LOSER_MAX_RATIO = 0.4;
-const REFRESH_RATIO_FALLBACK = 0.85;
+const REFRESH_RATIO_FALLBACK = 0.75;
 
 const FATIGUE_WATCH_BADGE: DecisionBadge = {
   type: "fatigue_watch",
@@ -44,6 +46,8 @@ function formatRatioPercent(value: number): string {
 }
 
 function buildNearScaleBlockers(input: {
+  spend: number;
+  spendThreshold: number;
   purchases: number;
   purchasesThreshold: number;
   recent7dRoas: number | null;
@@ -51,9 +55,14 @@ function buildNearScaleBlockers(input: {
 }): string[] {
   const blockers: string[] = [];
 
-  if (input.purchases < input.purchasesThreshold) {
+  if (
+    input.spend < input.spendThreshold ||
+    input.purchases < input.purchasesThreshold
+  ) {
     blockers.push(
-      `only ${input.purchases} purchases (28d), need ≥${input.purchasesThreshold} for scale`,
+      `spend $${formatSpend(input.spend)} / purchases ${input.purchases} below scale floor (need ≥$${formatSpend(
+        input.spendThreshold,
+      )}, ≥${input.purchasesThreshold})`,
     );
   }
 
@@ -68,6 +77,10 @@ function buildNearScaleBlockers(input: {
   }
 
   return blockers;
+}
+
+function scaleMinSpend(businessConfig: BusinessConfig): number {
+  return Math.max(500, businessConfig.maturitySpendThreshold * 2);
 }
 
 function recentToTotalRoasRatio(input: CreativeInput): number | null {
@@ -179,15 +192,17 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
   }
 
   if (ratio >= businessConfig.scaleRatioThreshold) {
+    const scaleSpendThreshold = scaleMinSpend(businessConfig);
     const scalePurchasesThreshold =
       businessConfig.maturityPurchasesThreshold * 2;
     const recent7dRoas = input.recent7dRoas;
-    const hasScalePurchaseDepth =
-      purchases >= scalePurchasesThreshold;
+    const hasScaleSpendDepth = input.spend >= scaleSpendThreshold;
+    const hasScalePurchaseDepth = purchases >= scalePurchasesThreshold;
     const fatigueBadges =
       input.fatigueStatus === "fatigued" ? [FATIGUE_FATIGUED_BADGE] : [];
 
     if (
+      hasScaleSpendDepth &&
       hasScalePurchaseDepth &&
       recent7dRoas !== null &&
       recent7dRoas >= ctx.effectiveTargetRoas
@@ -207,6 +222,8 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
     }
 
     const blockers = buildNearScaleBlockers({
+      spend: input.spend,
+      spendThreshold: scaleSpendThreshold,
       purchases,
       purchasesThreshold: scalePurchasesThreshold,
       recent7dRoas,
@@ -216,14 +233,17 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
     return terminal(
       ctx,
       "keep",
-      `[near scale] ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
+      `[near scale] ROAS ${formatRoas(roas)} (28d) above target (${formatRatioPercent(
         ratio,
-      )}% of target — ${blockers.join("; ")}; observe.`,
+      )}%) — ${blockers.join("; ")}; observe.`,
       fatigueBadges,
     );
   }
 
   if (ratio >= TARGET_BAND_MIN_RATIO) {
+    const scaleSpendThreshold = scaleMinSpend(businessConfig);
+    const scalePurchasesThreshold =
+      businessConfig.maturityPurchasesThreshold * 2;
     const recentRatio = recentToTotalRoasRatio(input);
 
     if (
@@ -252,13 +272,31 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       input.fatigueStatus === "watch"
         ? "; fatigue watch — monitor for refresh signal"
         : "";
+    const targetBandReason =
+      ratio < WEAK_TARGET_MAX_RATIO
+        ? `[weak target] ROAS ${formatRoas(
+            roas,
+          )} (28d) just above breakeven (${formatRatioPercent(
+            ratio,
+          )}% of target) — keep observing; consider tightening if recent 7d weakens`
+        : ratio < AT_TARGET_MAX_RATIO
+          ? `[at target] ROAS ${formatRoas(
+              roas,
+            )} (28d) at/around target ${formatRoas(
+              ctx.effectiveTargetRoas,
+            )} (${formatRatioPercent(ratio)}%) — stable, let it run`
+          : `[near scale] ROAS ${formatRoas(
+              roas,
+            )} (28d) approaching scale threshold (${formatRatioPercent(
+              ratio,
+            )}%) — needs $${formatSpend(
+              scaleSpendThreshold,
+            )}+ spend or ${scalePurchasesThreshold}+ purchases for full scale`;
 
     return terminal(
       ctx,
       "keep",
-      `[at target] ROAS ${formatRoas(roas)} (28d) at/around target ${formatRoas(
-        ctx.effectiveTargetRoas,
-      )} (${formatRatioPercent(ratio)}%) — stable, let it run${fatigueWatchSuffix}.`,
+      `${targetBandReason}${fatigueWatchSuffix}.`,
       fatigueBadges,
     );
   }

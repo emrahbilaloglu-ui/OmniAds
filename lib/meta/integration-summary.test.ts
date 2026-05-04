@@ -166,9 +166,9 @@ describe("buildMetaIntegrationSummary", () => {
       key: "extended_surfaces",
       state: "working",
       code: "historical_extended_preparing",
-      percent: null,
+      percent: 30,
       evidence: {
-        completedDays: 120,
+        completedDays: 110,
         totalDays: 365,
         pendingSurfaceCount: 1,
         pendingSurfaces: ["breakdowns.age"],
@@ -202,9 +202,9 @@ describe("buildMetaIntegrationSummary", () => {
       key: "extended_surfaces",
       state: "working",
       code: "historical_extended_preparing",
-      percent: null,
+      percent: 30,
       evidence: {
-        completedDays: 120,
+        completedDays: 110,
         totalDays: 365,
         pendingSurfaceCount: 1,
         pendingSurfaces: ["breakdowns.age"],
@@ -490,7 +490,7 @@ describe("buildMetaIntegrationSummary", () => {
     });
   });
 
-  it("uses historical breakdown progress when recent extended queues are idle but background extended truth is still incomplete", () => {
+  it("uses creative/ad history progress when recent extended queues are idle but background extended truth is still incomplete", () => {
     const summary = buildMetaIntegrationSummary(
       buildStatus({
         extendedCompleteness: {
@@ -531,13 +531,13 @@ describe("buildMetaIntegrationSummary", () => {
     expect(summary.stages.find((stage) => stage.key === "extended_surfaces")).toMatchObject({
       state: "working",
       code: "historical_extended_preparing",
-      percent: null,
+      percent: 30,
       evidence: {
-        completedDays: 5,
-        totalDays: 6,
+        completedDays: 110,
+        totalDays: 365,
         pendingSurfaceCount: 1,
         pendingSurfaces: ["breakdowns.age"],
-        readyThroughDate: "2026-04-18",
+        readyThroughDate: "2026-04-05",
       },
     });
   });

@@ -251,15 +251,38 @@ function getExtendedSurfaceMetrics(status: MetaIntegrationSummaryInput) {
   );
   const recentCompleted =
     minCount([creative?.recentCompletedDays ?? 0, ad?.recentCompletedDays ?? 0]) ?? 0;
+  const historicalSurfaces = [
+    {
+      completedDays: creative?.historicalCompletedDays ?? 0,
+      totalDays: creative?.historicalTotalDays ?? 0,
+      readyThroughDate: creative?.readyThroughDate ?? null,
+      oldestStoredDate: creative?.oldestStoredDate ?? null,
+    },
+    {
+      completedDays: ad?.historicalCompletedDays ?? 0,
+      totalDays: ad?.historicalTotalDays ?? 0,
+      readyThroughDate: ad?.readyThroughDate ?? null,
+      oldestStoredDate: ad?.oldestStoredDate ?? null,
+    },
+  ].filter((surface) => surface.totalDays > 0);
+  const historicalProgressSurfaces =
+    historicalSurfaces.filter(
+      (surface) => surface.completedDays < surface.totalDays
+    );
+  const trackedHistoricalSurfaces =
+    historicalProgressSurfaces.length > 0
+      ? historicalProgressSurfaces
+      : historicalSurfaces;
   const historicalTotal = Math.max(
-    creative?.historicalTotalDays ?? 0,
-    ad?.historicalTotalDays ?? 0
+    ...trackedHistoricalSurfaces.map((surface) => surface.totalDays),
+    0
   );
   const historicalCompleted =
-    minCount([
-      creative?.historicalCompletedDays ?? 0,
-      ad?.historicalCompletedDays ?? 0,
-    ]) ?? 0;
+    historicalProgressSurfaces.length === 0 && historicalTotal > 0
+      ? historicalTotal
+      : minCount(
+          trackedHistoricalSurfaces.map((surface) => surface.completedDays)
+        ) ?? 0;
 
   return {
     recentCompleted,
@@ -268,14 +291,12 @@ function getExtendedSurfaceMetrics(status: MetaIntegrationSummaryInput) {
     historicalCompleted,
     historicalTotal,
     historicalPercent: percentFromCounts(historicalCompleted, historicalTotal),
-    readyThroughDate: earliestDate([
-      creative?.readyThroughDate ?? null,
-      ad?.readyThroughDate ?? null,
-    ]),
-    oldestStoredDate: latestDate([
-      creative?.oldestStoredDate ?? null,
-      ad?.oldestStoredDate ?? null,
-    ]),
+    readyThroughDate: earliestDate(
+      trackedHistoricalSurfaces.map((surface) => surface.readyThroughDate)
+    ),
+    oldestStoredDate: latestDate(
+      trackedHistoricalSurfaces.map((surface) => surface.oldestStoredDate)
+    ),
   };
 }
 
@@ -618,7 +639,7 @@ function buildExtendedStage(
       ? status.extendedCompleteness?.complete
         ? null
         : historicalOnlyExtendedLag
-          ? null
+          ? extendedSurfaceMetrics.historicalPercent
           : recentLag
             ? extendedSurfaceMetrics.recentPercent
             : null
@@ -627,14 +648,14 @@ function buildExtendedStage(
           status.extendedCompleteness.percent != null
         ? clampPercent(status.extendedCompleteness.percent)
         : historicalLag
-          ? null
+          ? extendedSurfaceMetrics.historicalPercent
           : null;
 
   const progressCompletedDays = recentWindowScope
     ? status.extendedCompleteness?.complete
       ? null
       : historicalOnlyExtendedLag
-        ? breakdownMetrics?.completedDays ?? extendedSurfaceMetrics.historicalCompleted
+        ? extendedSurfaceMetrics.historicalCompleted
         : recentLag
           ? extendedSurfaceMetrics.recentCompleted
           : null
@@ -648,7 +669,7 @@ function buildExtendedStage(
     ? status.extendedCompleteness?.complete
       ? null
       : historicalOnlyExtendedLag
-        ? breakdownMetrics?.totalDays ?? extendedSurfaceMetrics.historicalTotal
+        ? extendedSurfaceMetrics.historicalTotal
         : recentLag
           ? extendedSurfaceMetrics.recentTotal
           : null
@@ -670,13 +691,13 @@ function buildExtendedStage(
 
   const progressReadyThroughDate = recentWindowScope
     ? historicalOnlyExtendedLag
-      ? breakdownMetrics?.readyThroughDate ?? extendedSurfaceMetrics.readyThroughDate
+      ? extendedSurfaceMetrics.readyThroughDate
       : extendedSurfaceMetrics.readyThroughDate
     : breakdownMetrics?.readyThroughDate ??
       extendedSurfaceMetrics.readyThroughDate;
   const progressOldestStoredDate = recentWindowScope
     ? historicalOnlyExtendedLag
-      ? breakdownMetrics?.oldestStoredDate ?? extendedSurfaceMetrics.oldestStoredDate
+      ? extendedSurfaceMetrics.oldestStoredDate
       : extendedSurfaceMetrics.oldestStoredDate
     : breakdownMetrics?.oldestStoredDate ??
       extendedSurfaceMetrics.oldestStoredDate;

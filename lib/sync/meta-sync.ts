@@ -599,7 +599,7 @@ const META_HISTORICAL_ENQUEUE_DAYS_PER_RUN = envNumber(
 );
 const META_CREATIVE_WAREHOUSE_HISTORICAL_ENQUEUE_DAYS_PER_RUN = envNumber(
   "META_CREATIVE_WAREHOUSE_HISTORICAL_ENQUEUE_DAYS_PER_RUN",
-  30,
+  90,
 );
 const META_CREATIVE_WAREHOUSE_RECENT_ENQUEUE_DAYS = envNumber(
   "META_CREATIVE_WAREHOUSE_RECENT_ENQUEUE_DAYS",
@@ -2934,8 +2934,6 @@ async function enqueueMetaCreativeWarehousePartitions(
 ) {
   if (!credentials?.accountIds?.length) return 0;
   let queued = 0;
-  const shouldRunDailyFullScan = isMetaCreativeDailyFullScanWindow();
-
   for (const providerAccountId of credentials.accountIds) {
     const accountTimezone =
       credentials.accountProfiles?.[providerAccountId]?.timezone ?? "UTC";
@@ -2967,7 +2965,6 @@ async function enqueueMetaCreativeWarehousePartitions(
       });
     }
 
-    if (!shouldRunDailyFullScan) continue;
     const historicalStartDate = addUtcDays(
       finalizedEndDate,
       -(META_CREATIVE_WAREHOUSE_HISTORY_DAYS - 1),

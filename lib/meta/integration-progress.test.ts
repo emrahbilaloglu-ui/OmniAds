@@ -314,9 +314,9 @@ describe("resolveMetaIntegrationProgress", () => {
       detail: "Ads and creatives continue backfilling in the background.",
       evidence: expect.stringContaining("Pending breakdowns.age"),
     });
+    expect(model?.stages[3]?.evidence).toContain("110/365 days");
     expect(model?.stages[3]?.evidence).toContain("Oldest stored date:");
     expect(model?.stages[3]?.evidence).not.toContain("Ready through");
-    expect(model?.stages[3]?.evidence).not.toContain("days");
   });
 
   it("renders worker-unavailable queue truth instead of generic waiting", () => {

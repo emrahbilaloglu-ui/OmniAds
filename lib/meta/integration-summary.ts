@@ -251,15 +251,37 @@ function getExtendedSurfaceMetrics(status: MetaIntegrationSummaryInput) {
   );
   const recentCompleted =
     minCount([creative?.recentCompletedDays ?? 0, ad?.recentCompletedDays ?? 0]) ?? 0;
+  const historicalSurfaces = [
+    {
+      completedDays: creative?.historicalCompletedDays ?? 0,
+      totalDays: creative?.historicalTotalDays ?? 0,
+      readyThroughDate: creative?.readyThroughDate ?? null,
+      oldestStoredDate: creative?.oldestStoredDate ?? null,
+    },
+    {
+      completedDays: ad?.historicalCompletedDays ?? 0,
+      totalDays: ad?.historicalTotalDays ?? 0,
+      readyThroughDate: ad?.readyThroughDate ?? null,
+      oldestStoredDate: ad?.oldestStoredDate ?? null,
+    },
+  ].filter((surface) => surface.totalDays > 0);
+  const historicalProgressSurfaces =
+    historicalSurfaces.filter(
+      (surface) => surface.completedDays < surface.totalDays
+    );
+  const hasHistoricalBacklog = historicalProgressSurfaces.length > 0;
+  const trackedHistoricalSurfaces =
+    hasHistoricalBacklog
+      ? historicalProgressSurfaces
+      : historicalSurfaces;
   const historicalTotal = Math.max(
-    creative?.historicalTotalDays ?? 0,
-    ad?.historicalTotalDays ?? 0
+    ...trackedHistoricalSurfaces.map((surface) => surface.totalDays),
+    0
   );
   const historicalCompleted =
-    minCount([
-      creative?.historicalCompletedDays ?? 0,
-      ad?.historicalCompletedDays ?? 0,
-    ]) ?? 0;
+    minCount(
+      trackedHistoricalSurfaces.map((surface) => surface.completedDays)
+    ) ?? 0;
 
   return {
     recentCompleted,
@@ -268,15 +290,25 @@ function getExtendedSurfaceMetrics(status: MetaIntegrationSummaryInput) {
     historicalCompleted,
     historicalTotal,
     historicalPercent: percentFromCounts(historicalCompleted, historicalTotal),
-    readyThroughDate: earliestDate([
-      creative?.readyThroughDate ?? null,
-      ad?.readyThroughDate ?? null,
-    ]),
-    oldestStoredDate: latestDate([
-      creative?.oldestStoredDate ?? null,
-      ad?.oldestStoredDate ?? null,
-    ]),
+    hasHistoricalBacklog,
+    readyThroughDate: earliestDate(
+      trackedHistoricalSurfaces.map((surface) => surface.readyThroughDate)
+    ),
+    oldestStoredDate: latestDate(
+      trackedHistoricalSurfaces.map((surface) => surface.oldestStoredDate)
+    ),
   };
+}
+
+function areRecentExtendedQueuesIdle(status: MetaIntegrationSummaryInput) {
+  const recentQueueDepth = status.jobHealth?.extendedRecentQueueDepth;
+  const recentLeasedPartitions = status.jobHealth?.extendedRecentLeasedPartitions;
+  const hasRecentQueueHealth =
+    typeof recentQueueDepth === "number" ||
+    typeof recentLeasedPartitions === "number";
+
+  if (!hasRecentQueueHealth) return true;
+  return (recentQueueDepth ?? 0) === 0 && (recentLeasedPartitions ?? 0) === 0;
 }
 
 function isWaitingState(status: MetaIntegrationSummaryInput) {
@@ -613,53 +645,71 @@ function buildExtendedStage(
     recentWindowScope &&
     historicalLag &&
     !recentWindowReady;
+  const useHistoricalExtendedProgress =
+    historicalOnlyExtendedLag &&
+    extendedSurfaceMetrics.hasHistoricalBacklog &&
+    areRecentExtendedQueuesIdle(status);
+  const hasRecentExtendedBacklog =
+    extendedSurfaceMetrics.recentTotal > 0 &&
+    extendedSurfaceMetrics.recentCompleted < extendedSurfaceMetrics.recentTotal;
+  const useRecentExtendedProgress =
+    recentWindowScope &&
+    !useHistoricalExtendedProgress &&
+    recentLag &&
+    hasRecentExtendedBacklog;
+  const extendedCompletenessPercent =
+    status.extendedCompleteness &&
+    !status.extendedCompleteness.complete &&
+    status.extendedCompleteness.percent != null
+      ? clampPercent(status.extendedCompleteness.percent)
+      : null;
   const percent =
     recentWindowScope
       ? status.extendedCompleteness?.complete
         ? null
-        : historicalOnlyExtendedLag
-          ? null
+        : useHistoricalExtendedProgress
+          ? extendedSurfaceMetrics.historicalPercent
+        : useRecentExtendedProgress
+          ? extendedSurfaceMetrics.recentPercent
           : recentLag
-            ? extendedSurfaceMetrics.recentPercent
+            ? extendedCompletenessPercent
             : null
-      : status.extendedCompleteness &&
-          !status.extendedCompleteness.complete &&
-          status.extendedCompleteness.percent != null
-        ? clampPercent(status.extendedCompleteness.percent)
-        : historicalLag
-          ? null
+      : extendedCompletenessPercent != null
+        ? extendedCompletenessPercent
+        : historicalLag && extendedSurfaceMetrics.hasHistoricalBacklog
+          ? extendedSurfaceMetrics.historicalPercent
           : null;
 
   const progressCompletedDays = recentWindowScope
     ? status.extendedCompleteness?.complete
       ? null
-      : historicalOnlyExtendedLag
-        ? breakdownMetrics?.completedDays ?? extendedSurfaceMetrics.historicalCompleted
-        : recentLag
+      : useHistoricalExtendedProgress
+        ? extendedSurfaceMetrics.historicalCompleted
+        : useRecentExtendedProgress
           ? extendedSurfaceMetrics.recentCompleted
           : null
     : !status.extendedCompleteness?.complete
       ? breakdownMetrics?.completedDays ?? null
-      : historicalLag
+      : historicalLag && extendedSurfaceMetrics.hasHistoricalBacklog
         ? extendedSurfaceMetrics.historicalCompleted
         : null;
 
   const progressTotalDays = recentWindowScope
     ? status.extendedCompleteness?.complete
       ? null
-      : historicalOnlyExtendedLag
-        ? breakdownMetrics?.totalDays ?? extendedSurfaceMetrics.historicalTotal
-        : recentLag
+      : useHistoricalExtendedProgress
+        ? extendedSurfaceMetrics.historicalTotal
+        : useRecentExtendedProgress
           ? extendedSurfaceMetrics.recentTotal
           : null
     : !status.extendedCompleteness?.complete
       ? breakdownMetrics?.totalDays ?? null
-      : historicalLag
+      : historicalLag && extendedSurfaceMetrics.hasHistoricalBacklog
         ? extendedSurfaceMetrics.historicalTotal
         : null;
 
   const progressCode = recentWindowScope
-    ? historicalOnlyExtendedLag
+    ? useHistoricalExtendedProgress
       ? "historical_extended_preparing"
       : "recent_extended_preparing"
     : !status.extendedCompleteness?.complete
@@ -670,13 +720,13 @@ function buildExtendedStage(
 
   const progressReadyThroughDate = recentWindowScope
     ? historicalOnlyExtendedLag
-      ? breakdownMetrics?.readyThroughDate ?? extendedSurfaceMetrics.readyThroughDate
+      ? extendedSurfaceMetrics.readyThroughDate
       : extendedSurfaceMetrics.readyThroughDate
     : breakdownMetrics?.readyThroughDate ??
       extendedSurfaceMetrics.readyThroughDate;
   const progressOldestStoredDate = recentWindowScope
     ? historicalOnlyExtendedLag
-      ? breakdownMetrics?.oldestStoredDate ?? extendedSurfaceMetrics.oldestStoredDate
+      ? extendedSurfaceMetrics.oldestStoredDate
       : extendedSurfaceMetrics.oldestStoredDate
     : breakdownMetrics?.oldestStoredDate ??
       extendedSurfaceMetrics.oldestStoredDate;

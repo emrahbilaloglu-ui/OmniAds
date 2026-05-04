@@ -166,9 +166,9 @@ describe("buildMetaIntegrationSummary", () => {
       key: "extended_surfaces",
       state: "working",
       code: "historical_extended_preparing",
-      percent: null,
+      percent: 30,
       evidence: {
-        completedDays: 120,
+        completedDays: 110,
         totalDays: 365,
         pendingSurfaceCount: 1,
         pendingSurfaces: ["breakdowns.age"],
@@ -202,13 +202,110 @@ describe("buildMetaIntegrationSummary", () => {
       key: "extended_surfaces",
       state: "working",
       code: "historical_extended_preparing",
-      percent: null,
+      percent: 30,
       evidence: {
-        completedDays: 120,
+        completedDays: 110,
         totalDays: 365,
         pendingSurfaceCount: 1,
         pendingSurfaces: ["breakdowns.age"],
       },
+    });
+  });
+
+  it("keeps recent extended progress while recent extended queues are active", () => {
+    const summary = buildMetaIntegrationSummary(
+      buildStatus({
+        jobHealth: {
+          queueDepth: 3,
+          leasedPartitions: 1,
+          retryableFailedPartitions: 0,
+          deadLetterPartitions: 0,
+          extendedRecentQueueDepth: 2,
+          extendedRecentLeasedPartitions: 1,
+          extendedHistoricalQueueDepth: 3,
+          extendedHistoricalLeasedPartitions: 1,
+        } as never,
+      })
+    );
+
+    expect(summary.stages[3]).toMatchObject({
+      key: "extended_surfaces",
+      state: "working",
+      code: "recent_extended_preparing",
+      percent: 43,
+      evidence: {
+        completedDays: 6,
+        totalDays: 14,
+        pendingSurfaceCount: 1,
+        pendingSurfaces: ["breakdowns.age"],
+      },
+    });
+  });
+
+  it("does not report complete creative/ad history as 100 while breakdown history lags", () => {
+    const summary = buildMetaIntegrationSummary(
+      buildStatus({
+        rangeCompletionBySurface: {
+          account_daily: {
+            recentCompletedDays: 14,
+            recentTotalDays: 14,
+            historicalCompletedDays: 365,
+            historicalTotalDays: 365,
+            readyThroughDate: "2026-04-14",
+          },
+          campaign_daily: {
+            recentCompletedDays: 14,
+            recentTotalDays: 14,
+            historicalCompletedDays: 365,
+            historicalTotalDays: 365,
+            readyThroughDate: "2026-04-14",
+          },
+          adset_daily: {
+            recentCompletedDays: 14,
+            recentTotalDays: 14,
+            historicalCompletedDays: 365,
+            historicalTotalDays: 365,
+            readyThroughDate: "2026-04-14",
+          },
+          creative_daily: {
+            recentCompletedDays: 14,
+            recentTotalDays: 14,
+            historicalCompletedDays: 455,
+            historicalTotalDays: 455,
+            readyThroughDate: "2026-04-14",
+          },
+          ad_daily: {
+            recentCompletedDays: 14,
+            recentTotalDays: 14,
+            historicalCompletedDays: 365,
+            historicalTotalDays: 365,
+            readyThroughDate: "2026-04-14",
+          },
+        },
+        jobHealth: {
+          queueDepth: 0,
+          leasedPartitions: 0,
+          retryableFailedPartitions: 0,
+          deadLetterPartitions: 0,
+          extendedRecentQueueDepth: 0,
+          extendedRecentLeasedPartitions: 0,
+        } as never,
+      })
+    );
+
+    expect(summary.stages[3]).toMatchObject({
+      key: "extended_surfaces",
+      state: "working",
+      code: "recent_extended_preparing",
+      percent: 33,
+      evidence: {
+        pendingSurfaceCount: 1,
+        pendingSurfaces: ["breakdowns.age"],
+      },
+    });
+    expect(summary.stages[3]?.evidence).not.toMatchObject({
+      completedDays: expect.any(Number),
+      totalDays: expect.any(Number),
     });
   });
 
@@ -490,7 +587,7 @@ describe("buildMetaIntegrationSummary", () => {
     });
   });
 
-  it("uses historical breakdown progress when recent extended queues are idle but background extended truth is still incomplete", () => {
+  it("uses creative/ad history progress when recent extended queues are idle but background extended truth is still incomplete", () => {
     const summary = buildMetaIntegrationSummary(
       buildStatus({
         extendedCompleteness: {
@@ -531,13 +628,13 @@ describe("buildMetaIntegrationSummary", () => {
     expect(summary.stages.find((stage) => stage.key === "extended_surfaces")).toMatchObject({
       state: "working",
       code: "historical_extended_preparing",
-      percent: null,
+      percent: 30,
       evidence: {
-        completedDays: 5,
-        totalDays: 6,
+        completedDays: 110,
+        totalDays: 365,
         pendingSurfaceCount: 1,
         pendingSurfaces: ["breakdowns.age"],
-        readyThroughDate: "2026-04-18",
+        readyThroughDate: "2026-04-05",
       },
     });
   });

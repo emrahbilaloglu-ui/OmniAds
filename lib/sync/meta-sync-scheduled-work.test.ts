@@ -249,7 +249,7 @@ describe("enqueueMetaScheduledWork", () => {
     vi.useRealTimers();
   });
 
-  it("queues creative_daily recent increments and 03:00 UTC gap repair", async () => {
+  it("queues creative_daily recent increments and historical gap repair", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-06T03:10:00.000Z"));
     vi.mocked(warehouse.getMetaIncompleteCoverageDates).mockResolvedValue([
@@ -294,6 +294,46 @@ describe("enqueueMetaScheduledWork", () => {
         scopes: ["creative_daily"],
         limit: expect.any(Number),
       }),
+    );
+
+    vi.useRealTimers();
+  });
+
+  it("keeps creative_daily historical backfill queued outside the daily full-scan hour", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-06T09:10:00.000Z"));
+    vi.mocked(warehouse.getMetaIncompleteCoverageDates).mockResolvedValue([
+      "2025-04-07",
+      "2025-04-08",
+    ] as never);
+
+    const result = await enqueueMetaScheduledWork("biz-1");
+
+    const historicalCreativeCalls = vi
+      .mocked(warehouse.queueMetaSyncPartition)
+      .mock.calls.map(([input]) => input)
+      .filter(
+        (input) =>
+          input.scope === "creative_daily" &&
+          input.source === "historical_recovery",
+      );
+
+    expect(result.queuedCreative).toBeGreaterThanOrEqual(2);
+    expect(historicalCreativeCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          providerAccountId: "act_1",
+          partitionDate: "2025-04-07",
+          lane: "extended",
+          source: "historical_recovery",
+        }),
+        expect.objectContaining({
+          providerAccountId: "act_1",
+          partitionDate: "2025-04-08",
+          lane: "extended",
+          source: "historical_recovery",
+        }),
+      ]),
     );
 
     vi.useRealTimers();

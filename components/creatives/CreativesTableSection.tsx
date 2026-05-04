@@ -45,11 +45,6 @@ import {
 import { cn } from "@/lib/utils";
 import { getCreativeStaticPreviewSources, getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
-import { type CreativeDecisionOs } from "@/src/services";
-import type {
-  CreativeDecisionCenterRowDecision,
-  DecisionCenterSnapshot,
-} from "@/lib/creative-decision-center/contracts";
 import { createPortal } from "react-dom";
 import { getCreativeVisualFormatLabel } from "@/lib/meta/creative-taxonomy";
 import type { CreativeHistoricalWindows } from "@/src/services";
@@ -152,8 +147,6 @@ interface TablePreset {
 interface CreativesTableSectionProps {
   rows: MetaCreativeRow[];
   creativeHistoryById?: Map<string, CreativeHistoricalWindows>;
-  decisionOs?: CreativeDecisionOs | null;
-  decisionCenter?: DecisionCenterSnapshot | null;
   defaultCurrency: string | null;
   initialPresetName?: string;
   selectedMetricIds: string[];
@@ -223,8 +216,6 @@ export interface HeatEvaluation {
 
 interface CreativeTableRowProps {
   row: MetaCreativeRow;
-  decisionCenterRow?: CreativeDecisionCenterRowDecision | null;
-  showDecisionCenterColumn: boolean;
   isSelected: boolean;
   highlighted: boolean;
   defaultCurrency: string | null;
@@ -271,7 +262,6 @@ function logPerf(label: string, startMs: number, rowCount: number) {
 }
 const STATIC_COLUMN_SPECS = {
   creativeName: { minWidth: 220, preferredWidth: 240 },
-  decisionCenter: { minWidth: 150, preferredWidth: 170 },
   launchDate: { minWidth: 120, preferredWidth: 120 },
   activeStatus: { minWidth: 100, preferredWidth: 110 },
   adLength: { minWidth: 90, preferredWidth: 110 },
@@ -284,7 +274,6 @@ function getDefaultColumnWidths(): Record<string, number> {
   }, {});
   return {
     creativeName: STATIC_COLUMN_SPECS.creativeName.preferredWidth,
-    decisionCenter: STATIC_COLUMN_SPECS.decisionCenter.preferredWidth,
     launchDate: STATIC_COLUMN_SPECS.launchDate.preferredWidth,
     activeStatus: STATIC_COLUMN_SPECS.activeStatus.preferredWidth,
     adLength: STATIC_COLUMN_SPECS.adLength.preferredWidth,
@@ -730,7 +719,6 @@ const TABLE_METRIC_CONFIG: Partial<Record<TableColumnKey, TableMetricConfig>> = 
 export function CreativesTableSection({
   rows,
   creativeHistoryById,
-  decisionCenter = null,
   defaultCurrency,
   initialPresetName = "Facebook Ecommerce",
   selectedMetricIds,
@@ -902,15 +890,6 @@ export function CreativesTableSection({
     () => pagedRows.slice(virtualWindowStart, virtualWindowEnd),
     [pagedRows, virtualWindowEnd, virtualWindowStart]
   );
-  const decisionCenterRowById = useMemo(() => {
-    const lookup = new Map<string, CreativeDecisionCenterRowDecision>();
-    for (const item of decisionCenter?.rowDecisions ?? []) {
-      if (item.rowId) lookup.set(item.rowId, item);
-      lookup.set(item.creativeId, item);
-    }
-    return lookup;
-  }, [decisionCenter]);
-  const showDecisionCenterColumn = Boolean(decisionCenter);
   const topSpacerHeight = virtualizationEnabled ? virtualWindowStart * VIRTUAL_ROW_HEIGHT : 0;
   const bottomSpacerHeight = virtualizationEnabled
     ? Math.max(0, (pagedRows.length - virtualWindowEnd) * VIRTUAL_ROW_HEIGHT)
@@ -958,7 +937,6 @@ export function CreativesTableSection({
   const totalTableWidth = useMemo(() => {
     const cw = (key: string, min: number, pref: number) => Math.max(min, columnWidths[key] ?? pref);
     let w = cw("creativeName", STATIC_COLUMN_SPECS.creativeName.minWidth, STATIC_COLUMN_SPECS.creativeName.preferredWidth);
-    if (showDecisionCenterColumn) w += cw("decisionCenter", STATIC_COLUMN_SPECS.decisionCenter.minWidth, STATIC_COLUMN_SPECS.decisionCenter.preferredWidth);
     if (tablePreset.showLaunchDate) w += cw("launchDate", STATIC_COLUMN_SPECS.launchDate.minWidth, STATIC_COLUMN_SPECS.launchDate.preferredWidth);
     if (tablePreset.showActiveStatus) w += cw("activeStatus", STATIC_COLUMN_SPECS.activeStatus.minWidth, STATIC_COLUMN_SPECS.activeStatus.preferredWidth);
     if (tablePreset.showAdLength) w += cw("adLength", STATIC_COLUMN_SPECS.adLength.minWidth, STATIC_COLUMN_SPECS.adLength.preferredWidth);
@@ -970,10 +948,9 @@ export function CreativesTableSection({
       w += cw(col.key, col.minWidth, col.preferredWidth);
     }
     return w;
-  }, [columnWidths, showDecisionCenterColumn, tablePreset, selectedAiTagColumns, selectedColumns]);
+  }, [columnWidths, tablePreset, selectedAiTagColumns, selectedColumns]);
   const tableColumnCount =
     1 +
-    Number(showDecisionCenterColumn) +
     selectedColumns.length +
     selectedAiTagColumns.length +
     Number(tablePreset.showLaunchDate) +
@@ -1483,37 +1460,6 @@ export function CreativesTableSection({
                 </div>
               </th>
 
-              {showDecisionCenterColumn && (
-                <th
-                  className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-[#6B7280]"
-                  style={{
-                    minWidth: STATIC_COLUMN_SPECS.decisionCenter.minWidth,
-                    width: getColumnWidth(
-                      "decisionCenter",
-                      STATIC_COLUMN_SPECS.decisionCenter.minWidth,
-                      STATIC_COLUMN_SPECS.decisionCenter.preferredWidth
-                    ),
-                  }}
-                >
-                  Decision Center
-                  <button
-                    type="button"
-                    aria-label="Resize Decision Center column"
-                    className="absolute right-0 top-0 h-full w-2 cursor-col-resize opacity-0 transition-opacity group-hover:opacity-100"
-                    onMouseDown={(event) =>
-                      startColumnResize(
-                        event,
-                        "decisionCenter",
-                        STATIC_COLUMN_SPECS.decisionCenter.minWidth,
-                        STATIC_COLUMN_SPECS.decisionCenter.preferredWidth
-                      )
-                    }
-                  >
-                    <span className="mx-auto block h-full w-px bg-[#D1D5DB]" />
-                  </button>
-                </th>
-              )}
-
               {tablePreset.showLaunchDate && (
                 <th
                   className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-[#6B7280]"
@@ -1728,12 +1674,10 @@ export function CreativesTableSection({
               </tr>
             )}
             {visiblePagedRows.map((row) => (
-              <CreativeTableRow
-                key={row.id}
-                row={row}
-                decisionCenterRow={decisionCenterRowById.get(row.id) ?? null}
-                showDecisionCenterColumn={showDecisionCenterColumn}
-                isSelected={selectedRowIdSet.has(row.id)}
+	              <CreativeTableRow
+	                key={row.id}
+	                row={row}
+	                isSelected={selectedRowIdSet.has(row.id)}
                 highlighted={highlightedRowId === row.id}
                 defaultCurrency={defaultCurrency}
                 tablePreset={tablePreset}
@@ -1770,8 +1714,7 @@ export function CreativesTableSection({
                 Net Results
               </td>
 
-              {showDecisionCenterColumn && <td className="px-2.5 py-1.5 text-[9px] text-muted-foreground">-</td>}
-              {tablePreset.showLaunchDate && <td className="px-2.5 py-1.5 text-[9px] text-muted-foreground">-</td>}
+	              {tablePreset.showLaunchDate && <td className="px-2.5 py-1.5 text-[9px] text-muted-foreground">-</td>}
               {tablePreset.showActiveStatus && <td className="px-2.5 py-1.5 text-[9px] text-muted-foreground">-</td>}
               {tablePreset.showAdLength && <td className="px-2.5 py-1.5 text-[9px] text-muted-foreground">-</td>}
               {selectedAiTagColumns.map((tagKey) => (
@@ -1883,8 +1826,6 @@ export function CreativesTableSection({
 
 const CreativeTableRow = memo(function CreativeTableRow({
   row,
-  decisionCenterRow,
-  showDecisionCenterColumn,
   isSelected,
   highlighted,
   defaultCurrency,
@@ -1957,12 +1898,6 @@ const CreativeTableRow = memo(function CreativeTableRow({
         </div>
       </td>
 
-      {showDecisionCenterColumn && (
-        <td className="border-b px-2.5 py-1.5 text-[10px]">
-          <DecisionCenterRowBadge decision={decisionCenterRow ?? null} />
-        </td>
-      )}
-
       {tablePreset.showLaunchDate && (
         <td className="border-b px-2.5 py-1.5 text-[10px] font-medium">{row.launchDate}</td>
       )}
@@ -2020,30 +1955,6 @@ const CreativeTableRow = memo(function CreativeTableRow({
     </tr>
   );
 });
-
-function DecisionCenterRowBadge({
-  decision,
-}: {
-  decision: CreativeDecisionCenterRowDecision | null;
-}) {
-  if (!decision) {
-    return (
-      <div className="inline-flex max-w-full flex-col gap-0.5 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-slate-500">
-        <span className="truncate font-semibold">Legacy only</span>
-        <span className="truncate text-[9px]">No V2.1 row decision</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="inline-flex max-w-full flex-col gap-0.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700">
-      <span className="truncate font-semibold text-slate-950">{decision.buyerLabel}</span>
-      <span className="truncate text-[9px] text-slate-500">
-        {decision.engine.primaryDecision} · {decision.confidenceBand} · {decision.priority}
-      </span>
-    </div>
-  );
-}
 
 function MetricHeaderTooltip({ tooltip }: { tooltip: MetricTooltipState | null }) {
   const [mounted, setMounted] = useState(false);

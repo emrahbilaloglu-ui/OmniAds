@@ -1,0 +1,613 @@
+{
+  "capturedAt": "2026-05-03T22:32:45.692Z",
+  "businessId": null,
+  "dbRuntime": {
+    "sampledAt": "2026-05-03T22:32:45.705Z",
+    "runtime": "web",
+    "applicationName": "omniads-web",
+    "settings": {
+      "runtime": "web",
+      "applicationName": "omniads-web",
+      "poolMax": 10,
+      "queryTimeoutMs": 8000,
+      "connectionTimeoutMs": 10000,
+      "idleTimeoutMs": 30000,
+      "maxLifetimeSeconds": null,
+      "statementTimeoutMs": null,
+      "idleInTransactionSessionTimeoutMs": null,
+      "retryAttempts": 4,
+      "retryBackoffMs": 400,
+      "retryMaxBackoffMs": 4000,
+      "allowExitOnIdle": true
+    },
+    "pool": {
+      "max": 10,
+      "totalCount": 10,
+      "idleCount": 10,
+      "waitingCount": 0,
+      "utilizationPercent": 100,
+      "saturationState": "busy",
+      "maxObservedWaitingCount": 9,
+      "maxObservedUtilizationPercent": 100,
+      "poolWaitEventCount": 9,
+      "lastPoolWaitAt": "2026-05-03T22:32:44.409Z"
+    },
+    "counters": {
+      "queryCount": 11,
+      "successCount": 11,
+      "failureCount": 0,
+      "retriedQueryCount": 0,
+      "retryAttemptCount": 0,
+      "retryableErrorCount": 0,
+      "timeoutCount": 0,
+      "connectionErrorCount": 0,
+      "lastSuccessfulQueryAt": "2026-05-03T22:32:45.692Z",
+      "lastRetryableErrorAt": null,
+      "lastTimeoutAt": null,
+      "lastConnectionErrorAt": null
+    },
+    "lastError": null
+  },
+  "metaQueue": {
+    "queueDepth": 57,
+    "leasedPartitions": 0,
+    "retryableFailedPartitions": 0,
+    "deadLetterPartitions": 32,
+    "staleLeases": 0,
+    "oldestQueuedPartition": "2025-03-12",
+    "latestActivityAt": "2026-05-03T22:30:10.765Z"
+  },
+  "backlogByBusiness": [
+    {
+      "businessId": "67a9b51a-663d-425e-b6fe-1d24aaa70dab",
+      "businessName": "Silveristic",
+      "queueDepth": 35,
+      "leasedPartitions": 0,
+      "retryableFailedPartitions": 0,
+      "deadLetterPartitions": 1,
+      "oldestQueuedPartition": "2025-03-12",
+      "latestActivityAt": "2026-05-03T22:30:10.644Z"
+    },
+    {
+      "businessId": "979a04f6-1ca9-41d8-be0a-5d58dd7c4bc7",
+      "businessName": "Tiles Workshop",
+      "queueDepth": 11,
+      "leasedPartitions": 0,
+      "retryableFailedPartitions": 0,
+      "deadLetterPartitions": 1,
+      "oldestQueuedPartition": "2026-04-21",
+      "latestActivityAt": "2026-05-03T22:30:10.354Z"
+    },
+    {
+      "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+      "businessName": "Grandmix",
+      "queueDepth": 2,
+      "leasedPartitions": 0,
+      "retryableFailedPartitions": 0,
+      "deadLetterPartitions": 4,
+      "oldestQueuedPartition": "2026-05-01",
+      "latestActivityAt": "2026-05-03T22:30:10.765Z"
+    },
+    {
+      "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+      "businessName": "IwaStore",
+      "queueDepth": 2,
+      "leasedPartitions": 0,
+      "retryableFailedPartitions": 0,
+      "deadLetterPartitions": 2,
+      "oldestQueuedPartition": "2026-05-01",
+      "latestActivityAt": "2026-05-03T22:30:10.343Z"
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "queueDepth": 1,
+      "leasedPartitions": 0,
+      "retryableFailedPartitions": 0,
+      "deadLetterPartitions": 1,
+      "oldestQueuedPartition": "2026-05-02",
+      "latestActivityAt": "2026-05-03T22:16:15.919Z"
+    },
+    {
+      "businessId": "59dac76f-eb5e-409b-958c-bba440d1036b",
+      "businessName": "Vornom",
+      "queueDepth": 1,
+      "leasedPartitions": 0,
+      "retryableFailedPartitions": 0,
+      "deadLetterPartitions": 4,
+      "oldestQueuedPartition": "2026-05-03",
+      "latestActivityAt": "2026-05-03T22:15:03.154Z"
+    },
+    {
+      "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+      "businessName": "Bilsem Zeka",
+      "queueDepth": 1,
+      "leasedPartitions": 0,
+      "retryableFailedPartitions": 0,
+      "deadLetterPartitions": 4,
+      "oldestQueuedPartition": "2026-05-03",
+      "latestActivityAt": "2026-05-03T22:14:46.421Z"
+    },
+    {
+      "businessId": "75f65b18-97e5-426c-a791-a8f693d34c84",
+      "businessName": "Halıcızade",
+      "queueDepth": 1,
+      "leasedPartitions": 0,
+      "retryableFailedPartitions": 0,
+      "deadLetterPartitions": 7,
+      "oldestQueuedPartition": "2026-05-03",
+      "latestActivityAt": "2026-05-03T22:15:17.122Z"
+    },
+    {
+      "businessId": "ae9114a3-2492-4be7-91e7-53fff0c2b1e8",
+      "businessName": "BskTR",
+      "queueDepth": 1,
+      "leasedPartitions": 0,
+      "retryableFailedPartitions": 0,
+      "deadLetterPartitions": 2,
+      "oldestQueuedPartition": "2026-05-03",
+      "latestActivityAt": "2026-05-03T22:15:10.300Z"
+    },
+    {
+      "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+      "businessName": "IwaTR",
+      "queueDepth": 1,
+      "leasedPartitions": 0,
+      "retryableFailedPartitions": 0,
+      "deadLetterPartitions": 3,
+      "oldestQueuedPartition": "2026-05-03",
+      "latestActivityAt": "2026-05-03T22:14:58.579Z"
+    },
+    {
+      "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+      "businessName": "ColorFullWorldsTR",
+      "queueDepth": 1,
+      "leasedPartitions": 0,
+      "retryableFailedPartitions": 0,
+      "deadLetterPartitions": 3,
+      "oldestQueuedPartition": "2026-05-03",
+      "latestActivityAt": "2026-05-03T22:15:00.835Z"
+    }
+  ],
+  "leaseAndReclaim": {
+    "activeRunnerLeases": [],
+    "recentReclaimEvents24h": [
+      {
+        "businessId": "979a04f6-1ca9-41d8-be0a-5d58dd7c4bc7",
+        "eventType": "reclaimed",
+        "count": 3766,
+        "latestAt": "2026-05-03T22:30:06.950Z"
+      },
+      {
+        "businessId": "67a9b51a-663d-425e-b6fe-1d24aaa70dab",
+        "eventType": "reclaimed",
+        "count": 1889,
+        "latestAt": "2026-05-03T22:30:02.085Z"
+      },
+      {
+        "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+        "eventType": "reclaimed",
+        "count": 15,
+        "latestAt": "2026-05-03T13:23:18.067Z"
+      },
+      {
+        "businessId": "59dac76f-eb5e-409b-958c-bba440d1036b",
+        "eventType": "reclaimed",
+        "count": 15,
+        "latestAt": "2026-05-03T22:08:26.832Z"
+      },
+      {
+        "businessId": "ae9114a3-2492-4be7-91e7-53fff0c2b1e8",
+        "eventType": "reclaimed",
+        "count": 15,
+        "latestAt": "2026-05-03T22:08:30.302Z"
+      },
+      {
+        "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+        "eventType": "reclaimed",
+        "count": 11,
+        "latestAt": "2026-05-03T21:39:32.120Z"
+      },
+      {
+        "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+        "eventType": "reclaimed",
+        "count": 10,
+        "latestAt": "2026-05-03T22:04:23.850Z"
+      },
+      {
+        "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+        "eventType": "reclaimed",
+        "count": 8,
+        "latestAt": "2026-05-03T22:08:18.725Z"
+      },
+      {
+        "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+        "eventType": "reclaimed",
+        "count": 8,
+        "latestAt": "2026-05-03T22:08:23.364Z"
+      },
+      {
+        "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+        "eventType": "reclaimed",
+        "count": 6,
+        "latestAt": "2026-05-03T22:07:57.525Z"
+      },
+      {
+        "businessId": "75f65b18-97e5-426c-a791-a8f693d34c84",
+        "eventType": "reclaimed",
+        "count": 3,
+        "latestAt": "2026-05-03T22:08:34.749Z"
+      }
+    ],
+    "workerHeartbeats": [
+      {
+        "workerId": "sync-worker:18:hlznouvp:meta",
+        "providerScope": "meta",
+        "status": "running",
+        "lastHeartbeatAt": "2026-05-03T22:16:15.962Z",
+        "lastBusinessId": "5dbc7147-f051-4681-a4d6-20617170074f"
+      },
+      {
+        "workerId": "sync-worker:18:hlznouvp",
+        "providerScope": "all",
+        "status": "stopping",
+        "lastHeartbeatAt": "2026-05-03T22:16:08.007Z",
+        "lastBusinessId": null
+      },
+      {
+        "workerId": "sync-worker:18:jf6wh0a6",
+        "providerScope": "all",
+        "status": "stopped",
+        "lastHeartbeatAt": "2026-05-03T22:03:37.784Z",
+        "lastBusinessId": null
+      },
+      {
+        "workerId": "sync-worker:18:jf6wh0a6:meta",
+        "providerScope": "meta",
+        "status": "idle",
+        "lastHeartbeatAt": "2026-05-03T22:02:47.011Z",
+        "lastBusinessId": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f"
+      },
+      {
+        "workerId": "sync-worker:18:2q05bjie:meta",
+        "providerScope": "meta",
+        "status": "running",
+        "lastHeartbeatAt": "2026-05-03T21:53:23.254Z",
+        "lastBusinessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2"
+      },
+      {
+        "workerId": "sync-worker:18:2q05bjie",
+        "providerScope": "all",
+        "status": "stopping",
+        "lastHeartbeatAt": "2026-05-03T21:53:20.511Z",
+        "lastBusinessId": null
+      },
+      {
+        "workerId": "sync-worker:18:jusn6fsq:meta",
+        "providerScope": "meta",
+        "status": "running",
+        "lastHeartbeatAt": "2026-05-03T21:21:02.170Z",
+        "lastBusinessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3"
+      },
+      {
+        "workerId": "sync-worker:18:jusn6fsq",
+        "providerScope": "all",
+        "status": "idle",
+        "lastHeartbeatAt": "2026-05-03T21:16:56.237Z",
+        "lastBusinessId": null
+      },
+      {
+        "workerId": "sync-worker:18:x6j6tct4",
+        "providerScope": "all",
+        "status": "stopping",
+        "lastHeartbeatAt": "2026-05-03T20:49:27.503Z",
+        "lastBusinessId": null
+      },
+      {
+        "workerId": "sync-worker:18:x6j6tct4:meta",
+        "providerScope": "meta",
+        "status": "running",
+        "lastHeartbeatAt": "2026-05-03T20:48:30.452Z",
+        "lastBusinessId": "5dbc7147-f051-4681-a4d6-20617170074f"
+      },
+      {
+        "workerId": "sync-worker:18:f5l4ef0f:meta",
+        "providerScope": "meta",
+        "status": "running",
+        "lastHeartbeatAt": "2026-05-03T20:16:32.316Z",
+        "lastBusinessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51"
+      },
+      {
+        "workerId": "sync-worker:18:f5l4ef0f",
+        "providerScope": "all",
+        "status": "stopping",
+        "lastHeartbeatAt": "2026-05-03T20:16:22.787Z",
+        "lastBusinessId": null
+      }
+    ]
+  },
+  "pgStatActivity": {
+    "summary": [
+      {
+        "applicationName": "omniads-web",
+        "state": "idle",
+        "waitEventType": "Client",
+        "waitEvent": "ClientRead",
+        "connectionCount": 16
+      },
+      {
+        "applicationName": "omniads-web",
+        "state": "active",
+        "waitEventType": "IO",
+        "waitEvent": "DataFileRead",
+        "connectionCount": 2
+      },
+      {
+        "applicationName": "omniads-web",
+        "state": "active",
+        "waitEventType": "",
+        "waitEvent": "",
+        "connectionCount": 2
+      },
+      {
+        "applicationName": "omniads-worker",
+        "state": "active",
+        "waitEventType": "IO",
+        "waitEvent": "DataFileRead",
+        "connectionCount": 1
+      }
+    ],
+    "longTransactions": [],
+    "blockedLocks": []
+  },
+  "pgStatStatements": {
+    "enabled": false,
+    "topStatements": [],
+    "error": null
+  },
+  "storage": {
+    "relations": [
+      {
+        "relationName": "meta_adset_daily",
+        "liveRows": 1967414,
+        "totalSize": "2603 MB",
+        "tableSize": "1382 MB",
+        "indexSize": "1221 MB"
+      },
+      {
+        "relationName": "meta_campaign_daily",
+        "liveRows": 1445289,
+        "totalSize": "1693 MB",
+        "tableSize": "911 MB",
+        "indexSize": "783 MB"
+      },
+      {
+        "relationName": "meta_raw_snapshots",
+        "liveRows": 141952,
+        "totalSize": "1620 MB",
+        "tableSize": "115 MB",
+        "indexSize": "1505 MB"
+      },
+      {
+        "relationName": "meta_ad_daily",
+        "liveRows": 242628,
+        "totalSize": "584 MB",
+        "tableSize": "442 MB",
+        "indexSize": "143 MB"
+      },
+      {
+        "relationName": "meta_sync_checkpoints",
+        "liveRows": 27226,
+        "totalSize": "80 MB",
+        "tableSize": "23 MB",
+        "indexSize": "57 MB"
+      },
+      {
+        "relationName": "meta_sync_runs",
+        "liveRows": 92243,
+        "totalSize": "59 MB",
+        "tableSize": "34 MB",
+        "indexSize": "25 MB"
+      },
+      {
+        "relationName": "meta_authoritative_slice_versions",
+        "liveRows": 40185,
+        "totalSize": "43 MB",
+        "tableSize": "22 MB",
+        "indexSize": "21 MB"
+      },
+      {
+        "relationName": "meta_authoritative_source_manifests",
+        "liveRows": 41895,
+        "totalSize": "38 MB",
+        "tableSize": "24 MB",
+        "indexSize": "15 MB"
+      },
+      {
+        "relationName": "meta_authoritative_publication_pointers",
+        "liveRows": 40160,
+        "totalSize": "24 MB",
+        "tableSize": "11 MB",
+        "indexSize": "13 MB"
+      },
+      {
+        "relationName": "meta_sync_jobs",
+        "liveRows": 29876,
+        "totalSize": "20 MB",
+        "tableSize": "9232 kB",
+        "indexSize": "11 MB"
+      },
+      {
+        "relationName": "sync_reclaim_events",
+        "liveRows": 37540,
+        "totalSize": "18 MB",
+        "tableSize": "12 MB",
+        "indexSize": "6544 kB"
+      },
+      {
+        "relationName": "sync_worker_heartbeats",
+        "liveRows": 471,
+        "totalSize": "18 MB",
+        "tableSize": "9440 kB",
+        "indexSize": "8808 kB"
+      },
+      {
+        "relationName": "meta_sync_partitions",
+        "liveRows": 17937,
+        "totalSize": "18 MB",
+        "tableSize": "6520 kB",
+        "indexSize": "11 MB"
+      },
+      {
+        "relationName": "meta_account_daily",
+        "liveRows": 8914,
+        "totalSize": "9304 kB",
+        "tableSize": "4264 kB",
+        "indexSize": "5040 kB"
+      },
+      {
+        "relationName": "meta_creative_daily",
+        "liveRows": 549,
+        "totalSize": "3432 kB",
+        "tableSize": "968 kB",
+        "indexSize": "2464 kB"
+      },
+      {
+        "relationName": "meta_sync_state",
+        "liveRows": 102,
+        "totalSize": "2128 kB",
+        "tableSize": "888 kB",
+        "indexSize": "1240 kB"
+      },
+      {
+        "relationName": "sync_runner_leases",
+        "liveRows": 1,
+        "totalSize": "352 kB",
+        "tableSize": "48 kB",
+        "indexSize": "304 kB"
+      }
+    ],
+    "indexes": [
+      {
+        "relationName": "meta_adset_daily",
+        "indexName": "meta_adset_daily_business_id_provider_account_id_date_adset_key",
+        "indexSize": "413 MB",
+        "idxScan": 6576130
+      },
+      {
+        "relationName": "meta_adset_daily",
+        "indexName": "idx_meta_adset_daily_business_date_adset",
+        "indexSize": "313 MB",
+        "idxScan": 2366
+      },
+      {
+        "relationName": "meta_campaign_daily",
+        "indexName": "meta_campaign_daily_business_id_provider_account_id_date_ca_key",
+        "indexSize": "270 MB",
+        "idxScan": 4385546
+      },
+      {
+        "relationName": "meta_campaign_daily",
+        "indexName": "idx_meta_campaign_daily_business_date_campaign",
+        "indexSize": "207 MB",
+        "idxScan": 3013
+      },
+      {
+        "relationName": "meta_adset_daily",
+        "indexName": "idx_meta_adset_daily_adset",
+        "indexSize": "149 MB",
+        "idxScan": 217105
+      },
+      {
+        "relationName": "meta_campaign_daily",
+        "indexName": "idx_meta_campaign_daily_campaign",
+        "indexSize": "101 MB",
+        "idxScan": 47466
+      },
+      {
+        "relationName": "meta_adset_daily",
+        "indexName": "meta_adset_daily_pkey",
+        "indexSize": "96 MB",
+        "idxScan": 7
+      },
+      {
+        "relationName": "meta_campaign_daily",
+        "indexName": "meta_campaign_daily_pkey",
+        "indexSize": "67 MB",
+        "idxScan": 2
+      },
+      {
+        "relationName": "meta_adset_daily",
+        "indexName": "idx_meta_adset_daily_business_account_date",
+        "indexSize": "57 MB",
+        "idxScan": 230030
+      },
+      {
+        "relationName": "meta_adset_daily",
+        "indexName": "idx_meta_adset_daily_business_date",
+        "indexSize": "56 MB",
+        "idxScan": 317912
+      },
+      {
+        "relationName": "meta_adset_daily",
+        "indexName": "idx_meta_adset_daily_account_date",
+        "indexSize": "55 MB",
+        "idxScan": 478
+      },
+      {
+        "relationName": "meta_ad_daily",
+        "indexName": "meta_ad_daily_business_id_provider_account_id_date_ad_id_key",
+        "indexSize": "45 MB",
+        "idxScan": 711879
+      },
+      {
+        "relationName": "meta_adset_daily",
+        "indexName": "idx_meta_adset_daily_provider_account_ref",
+        "indexSize": "41 MB",
+        "idxScan": 296
+      },
+      {
+        "relationName": "meta_adset_daily",
+        "indexName": "idx_meta_adset_daily_business_ref",
+        "indexSize": "41 MB",
+        "idxScan": 284
+      },
+      {
+        "relationName": "meta_ad_daily",
+        "indexName": "idx_meta_ad_daily_business_date_ad",
+        "indexSize": "36 MB",
+        "idxScan": 97237
+      },
+      {
+        "relationName": "meta_raw_snapshots",
+        "indexName": "idx_meta_raw_snapshots_business",
+        "indexSize": "30 MB",
+        "idxScan": 0
+      },
+      {
+        "relationName": "meta_campaign_daily",
+        "indexName": "idx_meta_campaign_daily_business_account_date",
+        "indexSize": "29 MB",
+        "idxScan": 288663
+      },
+      {
+        "relationName": "meta_campaign_daily",
+        "indexName": "idx_meta_campaign_daily_business_date",
+        "indexSize": "29 MB",
+        "idxScan": 247032
+      },
+      {
+        "relationName": "meta_campaign_daily",
+        "indexName": "idx_meta_campaign_daily_account_date",
+        "indexSize": "28 MB",
+        "idxScan": 873
+      },
+      {
+        "relationName": "meta_campaign_daily",
+        "indexName": "idx_meta_campaign_daily_provider_account_ref",
+        "indexSize": "26 MB",
+        "idxScan": 320
+      }
+    ]
+  }
+}

@@ -1,0 +1,37 @@
+import { finalizeDecision, type GateContext, type GateResult } from "./types";
+
+export const ZERO_CONV_MIN_SPEND = 200;
+export const ZERO_CONV_MIN_AGE_DAYS = 7;
+
+function formatSpend(value: number): string {
+  return value.toLocaleString("en-US", { maximumFractionDigits: 0 });
+}
+
+export function zeroConvBurnerGate(ctx: GateContext): GateResult {
+  const purchases = ctx.input.purchases ?? 0;
+  const ageDays = ctx.input.ageDays ?? 0;
+
+  if (
+    purchases === 0 &&
+    ctx.input.spend >= ZERO_CONV_MIN_SPEND &&
+    ageDays >= ZERO_CONV_MIN_AGE_DAYS
+  ) {
+    const nextCtx: GateContext = {
+      ...ctx,
+      confidenceDeltas: [...ctx.confidenceDeltas, 5],
+    };
+
+    return {
+      kind: "terminal",
+      output: finalizeDecision(
+        nextCtx,
+        "cut",
+        `0 purchases on $${formatSpend(
+          ctx.input.spend,
+        )} spend (28d cumulative, age ${ageDays}d) — sustained zero-conversion burn.`,
+      ),
+    };
+  }
+
+  return { kind: "advance", context: ctx };
+}

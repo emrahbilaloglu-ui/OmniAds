@@ -4208,6 +4208,228 @@ export async function runMigrations(options?: {
           ON platform_overview_summary_range_accounts (provider_account_ref_id)`.catch(() => {}),
       ]);
 
+      // ── Engine v3 pre-computed analytics tables (schema only) ─────────────
+      await runMigrationBatchSequentially([
+        sql`CREATE TABLE IF NOT EXISTS engine_v3_job_runs (
+          id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          job_name                   TEXT NOT NULL,
+          business_ref_id            UUID NOT NULL,
+          business_id                TEXT,
+          as_of_date                 DATE NOT NULL,
+          engine_version             TEXT NOT NULL,
+          status                     TEXT NOT NULL CHECK (status IN ('running', 'success', 'failed', 'skipped')),
+          dependency_run_id          UUID REFERENCES engine_v3_job_runs(id) ON DELETE SET NULL,
+          started_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          finished_at                TIMESTAMPTZ,
+          duration_ms                INTEGER,
+          row_count                  INTEGER,
+          source_min_date            DATE,
+          source_max_date            DATE,
+          source_max_updated_at      TIMESTAMPTZ,
+          input_hash                 TEXT,
+          retry_count                INTEGER NOT NULL DEFAULT 0,
+          error_code                 TEXT,
+          error_message              TEXT,
+          error_json                 JSONB,
+          created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_job_runs_lookup
+          ON engine_v3_job_runs (job_name, business_ref_id, as_of_date DESC)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_job_runs_status
+          ON engine_v3_job_runs (status, started_at DESC)
+          WHERE status IN ('running', 'failed')`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_job_runs_business_recent
+          ON engine_v3_job_runs (business_ref_id, started_at DESC)`,
+        sql`CREATE TABLE IF NOT EXISTS engine_v3_account_calibration_daily (
+          id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_ref_id            UUID NOT NULL,
+          business_id                TEXT,
+          scope_type                 TEXT NOT NULL DEFAULT 'account',
+          scope_id                   TEXT NOT NULL DEFAULT '*',
+          as_of_date                 DATE NOT NULL,
+          engine_version             TEXT NOT NULL,
+          sample_window_start        DATE NOT NULL,
+          sample_window_end          DATE NOT NULL,
+          sample_window_days         INTEGER NOT NULL,
+          eligible_creative_count    INTEGER NOT NULL DEFAULT 0,
+          mature_creative_count      INTEGER NOT NULL DEFAULT 0,
+          zero_conversion_count      INTEGER NOT NULL DEFAULT 0,
+          roas_p75                   DOUBLE PRECISION,
+          roas_p60                   DOUBLE PRECISION,
+          refresh_ratio_p10          DOUBLE PRECISION,
+          low_ctr_p10                DOUBLE PRECISION,
+          source_min_date            DATE,
+          source_max_date            DATE,
+          source_max_updated_at      TIMESTAMPTZ,
+          quality_status             TEXT NOT NULL DEFAULT 'ready' CHECK (quality_status IN ('ready', 'low_sample', 'stale', 'fallback')),
+          job_run_id                 UUID REFERENCES engine_v3_job_runs(id) ON DELETE SET NULL,
+          input_hash                 TEXT,
+          computed_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+          created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_ref_id, scope_type, scope_id, as_of_date, engine_version)
+        )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_calibration_latest
+          ON engine_v3_account_calibration_daily
+          (business_ref_id, scope_type, scope_id, as_of_date DESC)
+          INCLUDE (roas_p75, roas_p60, refresh_ratio_p10, low_ctr_p10, quality_status, source_max_date)`,
+        sql`CREATE TABLE IF NOT EXISTS engine_v3_creative_lifecycle_daily (
+          id                            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_ref_id               UUID NOT NULL,
+          business_id                   TEXT,
+          provider_account_ref_id       UUID,
+          provider_account_id           TEXT,
+          campaign_id                   TEXT,
+          adset_id                      TEXT,
+          ad_id                         TEXT,
+          creative_id                   TEXT NOT NULL,
+          effective_object_story_id     TEXT,
+          post_id                       TEXT,
+          creative_identity_hash        TEXT,
+          as_of_date                    DATE NOT NULL,
+          engine_version                TEXT NOT NULL,
+          spend_28d                     DOUBLE PRECISION,
+          purchases_28d                 DOUBLE PRECISION,
+          purchase_value_28d            DOUBLE PRECISION,
+          impressions_28d               BIGINT,
+          link_clicks_28d               BIGINT,
+          roas_28d                      DOUBLE PRECISION,
+          cpa_28d                       DOUBLE PRECISION,
+          ctr_28d                       DOUBLE PRECISION,
+          frequency_28d                 DOUBLE PRECISION,
+          spend_7d                      DOUBLE PRECISION,
+          purchases_7d                  DOUBLE PRECISION,
+          roas_7d                       DOUBLE PRECISION,
+          impressions_7d                BIGINT,
+          first_seen_date               DATE,
+          last_active_date              DATE,
+          active_days_30d               INTEGER,
+          age_days                      INTEGER,
+          peak_roas_30d                 DOUBLE PRECISION,
+          peak_roas_date                DATE,
+          days_since_peak               INTEGER,
+          peak_confidence               DOUBLE PRECISION,
+          peak_spend_30d                DOUBLE PRECISION,
+          peak_purchases_30d            DOUBLE PRECISION,
+          spend_slope_7d                DOUBLE PRECISION,
+          spend_slope_30d               DOUBLE PRECISION,
+          roas_slope_7d                 DOUBLE PRECISION,
+          roas_slope_30d                DOUBLE PRECISION,
+          spend_trajectory_30d          TEXT CHECK (spend_trajectory_30d IN ('rising', 'flat', 'falling', 'volatile', 'unknown')),
+          lifecycle_position            TEXT CHECK (lifecycle_position IN (
+            'rising', 'plateau', 'closing',
+            'past_peak_inaction', 'past_peak_natural', 'past_peak_unclear',
+            'volatile', 'insufficient_history'
+          )),
+          fatigue_status                TEXT CHECK (fatigue_status IN ('none', 'watch', 'fatigued', 'unknown')),
+          fatigue_confidence            DOUBLE PRECISION,
+          fatigue_evidence              JSONB,
+          decision_recommended_at       TIMESTAMPTZ,
+          operator_response_detected_at TIMESTAMPTZ,
+          operator_response_type        TEXT CHECK (operator_response_type IN (
+            'scaled', 'ignored', 'paused', 'budget_cut', 'unknown'
+          )),
+          effective_status              TEXT,
+          objective                      TEXT,
+          target_roas                   DOUBLE PRECISION,
+          breakeven_roas                DOUBLE PRECISION,
+          data_freshness_hours          INTEGER,
+          source_max_date               DATE,
+          source_max_updated_at         TIMESTAMPTZ,
+          eligible_for_lifecycle        BOOLEAN NOT NULL DEFAULT true,
+          job_run_id                    UUID REFERENCES engine_v3_job_runs(id) ON DELETE SET NULL,
+          input_hash                    TEXT,
+          computed_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),
+          created_at                    TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                    TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_ref_id, creative_id, as_of_date, engine_version)
+        )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_lifecycle_business_day
+          ON engine_v3_creative_lifecycle_daily
+          (business_ref_id, as_of_date DESC, creative_id)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_lifecycle_creative_timeline
+          ON engine_v3_creative_lifecycle_daily
+          (business_ref_id, creative_id, as_of_date DESC)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_lifecycle_attention
+          ON engine_v3_creative_lifecycle_daily
+          (business_ref_id, as_of_date DESC, lifecycle_position)
+          WHERE lifecycle_position IN ('rising', 'plateau', 'past_peak_inaction', 'past_peak_unclear')`,
+        sql`CREATE TABLE IF NOT EXISTS engine_v3_decision_snapshots_daily (
+          id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_ref_id            UUID NOT NULL,
+          business_id                TEXT,
+          creative_id                TEXT NOT NULL,
+          as_of_date                 DATE NOT NULL,
+          engine_version             TEXT NOT NULL,
+          label                      TEXT NOT NULL CHECK (label IN (
+            'scale', 'keep', 'refresh', 'cut', 'test_more', 'diagnose', 'out_of_scope'
+          )),
+          confidence                 INTEGER NOT NULL CHECK (confidence >= 0 AND confidence <= 100),
+          truth_source               TEXT NOT NULL CHECK (truth_source IN (
+            'commercial_truth', 'account_baseline', 'account_baseline_thin', 'global_default'
+          )),
+          effective_target_roas      DOUBLE PRECISION NOT NULL,
+          ratio_to_target            DOUBLE PRECISION,
+          badges                     JSONB NOT NULL DEFAULT '[]'::jsonb,
+          reason                     TEXT NOT NULL,
+          spend                      DOUBLE PRECISION,
+          purchases                  DOUBLE PRECISION,
+          roas                       DOUBLE PRECISION,
+          recent7d_roas              DOUBLE PRECISION,
+          job_run_id                 UUID REFERENCES engine_v3_job_runs(id) ON DELETE SET NULL,
+          lifecycle_row_id           UUID REFERENCES engine_v3_creative_lifecycle_daily(id) ON DELETE SET NULL,
+          calibration_row_id         UUID REFERENCES engine_v3_account_calibration_daily(id) ON DELETE SET NULL,
+          input_hash                 TEXT,
+          computed_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+          created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_ref_id, creative_id, as_of_date, engine_version)
+        )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_decisions_business_day_label
+          ON engine_v3_decision_snapshots_daily
+          (business_ref_id, as_of_date DESC, label)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_decisions_creative_timeline
+          ON engine_v3_decision_snapshots_daily
+          (business_ref_id, creative_id, as_of_date DESC)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_decisions_first_scale
+          ON engine_v3_decision_snapshots_daily
+          (business_ref_id, creative_id, as_of_date)
+          WHERE label = 'scale'`,
+        sql`CREATE TABLE IF NOT EXISTS engine_v3_decision_events (
+          id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_ref_id            UUID NOT NULL,
+          business_id                TEXT,
+          creative_id                TEXT NOT NULL,
+          event_date                 DATE NOT NULL,
+          event_type                 TEXT NOT NULL CHECK (event_type IN (
+            'decision_changed',
+            'operator_action',
+            'data_disabled',
+            'manual_override'
+          )),
+          previous_label             TEXT,
+          current_label              TEXT,
+          previous_confidence        INTEGER,
+          current_confidence         INTEGER,
+          operator_action_type       TEXT CHECK (operator_action_type IN (
+            'scaled', 'paused', 'budget_increased', 'budget_decreased', 'creative_archived', 'unknown'
+          )),
+          operator_evidence          JSONB,
+          decision_snapshot_id       UUID REFERENCES engine_v3_decision_snapshots_daily(id) ON DELETE SET NULL,
+          job_run_id                 UUID REFERENCES engine_v3_job_runs(id) ON DELETE SET NULL,
+          notes                      TEXT,
+          created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_events_business_date
+          ON engine_v3_decision_events
+          (business_ref_id, event_date DESC, event_type)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_events_creative_timeline
+          ON engine_v3_decision_events
+          (business_ref_id, creative_id, event_date DESC)`,
+      ]);
+
       await runMigrationBatchSequentially([
         ...CANONICAL_BUSINESS_REF_TABLES.map((tableName) =>
           sql.query(

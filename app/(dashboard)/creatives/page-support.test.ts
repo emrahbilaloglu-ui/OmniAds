@@ -1,11 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  buildSharedCreativeAnalysis,
-  buildSharedCreativeAnalysisLookup,
+  fetchCreativeDecisionEngineV3,
   mapApiRowToUiRow,
-  getSharedCreativeAnalysisForRow,
   toCsv,
   toSharedCreative,
+  type DecisionEngineV3Response,
 } from "@/app/(dashboard)/creatives/page-support";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 
@@ -109,6 +108,10 @@ function buildApiRow(overrides: Partial<MetaCreativeApiRow> = {}): MetaCreativeA
     ...overrides,
   };
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("mapApiRowToUiRow", () => {
   it("maps new taxonomy labels to the UI row", () => {
@@ -250,111 +253,6 @@ describe("mapApiRowToUiRow", () => {
     expect(shared.clickToPurchase).toBe(15);
   });
 
-  it("attaches compact Decision OS analysis to shared creative payloads", () => {
-    const row = mapApiRowToUiRow(buildApiRow());
-    const analysis = buildSharedCreativeAnalysis({
-      creativeId: row.id,
-      name: row.name,
-      primaryAction: "promote_to_scaling",
-      legacyAction: "scale",
-      confidence: 0.91,
-      summary: "Strong relative winner selected for buyer review.",
-      benchmarkScopeLabel: "Account-wide",
-      benchmarkReliability: "strong",
-      previewStatus: {
-        selectedWindow: "ready",
-        liveDecisionWindow: "ready",
-        reason: null,
-      },
-      relativeBaseline: {
-        scopeLabel: "Account-wide",
-      },
-      deployment: {
-        whatWouldChangeThisDecision: ["CPA rises above target."],
-        constraints: ["Do not change spend without buyer confirmation."],
-      },
-      report: {
-        summary: "Review controlled scale.",
-        coreVerdict: "ROAS and purchase volume clear the evidence bar.",
-        factors: [
-          {
-            label: "ROAS",
-            value: "2.50",
-            reason: "Above the selected benchmark.",
-            impact: "positive",
-          },
-        ],
-      },
-    } as never);
-
-    const shared = toSharedCreative(row, analysis);
-
-    expect(shared.analysis).toMatchObject({
-      creativeId: row.id,
-      actionLabel: "Scale",
-      confidenceLabel: "High",
-      summary: "Strong relative winner selected for buyer review.",
-      whatToDo: "Review controlled scale.",
-      why: "ROAS and purchase volume clear the evidence bar.",
-      benchmarkLabel: "Account-wide",
-      benchmarkReliability: "Strong",
-      previewState: "ready",
-    });
-    expect(shared.analysis?.nextObservation).toContain("CPA rises above target.");
-    expect(shared.analysis?.factors[0]).toMatchObject({
-      label: "ROAS",
-      value: "2.50",
-    });
-  });
-
-  it("matches shared export analysis by row id or creative id", () => {
-    const row = mapApiRowToUiRow(buildApiRow({ id: "ad_1", creative_id: "cr_1" }));
-    const lookup = buildSharedCreativeAnalysisLookup({
-      creatives: [
-        {
-          creativeId: "cr_1",
-          name: row.name,
-          primaryAction: "promote_to_scaling",
-          legacyAction: "scale",
-          confidence: 0.84,
-          summary: "Creative-id match selected for buyer review.",
-          report: {
-            summary: "Review controlled scale.",
-            coreVerdict: "Creative id matched even though the visible row id is an ad id.",
-            factors: [],
-          },
-        } as never,
-      ],
-    });
-
-    const analysis = getSharedCreativeAnalysisForRow(row, lookup);
-
-    expect(analysis).toMatchObject({
-      creativeId: "cr_1",
-      actionLabel: "Scale",
-      summary: "Creative-id match selected for buyer review.",
-      whatToDo: "Review controlled scale.",
-      why: "Creative id matched even though the visible row id is an ad id.",
-    });
-  });
-
-  it("creates a metrics-only export analysis when no Decision OS row matches", () => {
-    const row = mapApiRowToUiRow(buildApiRow({ id: "ad_9", creative_id: "cr_9" }));
-    const analysis = getSharedCreativeAnalysisForRow(row, new Map(), {
-      includeMetricsOnlyFallback: true,
-    });
-
-    expect(analysis).toMatchObject({
-      creativeId: "ad_9",
-      actionLabel: "Review",
-      authorityLabel: "Metrics only",
-      confidenceLabel: "Limited",
-      headline: "Review: Creative name",
-    });
-    expect(analysis?.why).toContain("2.5x ROAS");
-    expect(analysis?.invalidActions).toContain("Do not scale or cut from selected-period metrics alone.");
-  });
-
   it("exports truthful CSV headers and values without misleading duplicate columns", () => {
     const row = mapApiRowToUiRow(
       buildApiRow({
@@ -383,5 +281,90 @@ describe("mapApiRowToUiRow", () => {
     expect(values[headers.indexOf("Click through rate (link clicks)")]).toBe("5.00");
     expect(values[headers.indexOf("Click to add-to-cart ratio")]).toBe("30.00");
     expect(values[headers.indexOf("Click to purchase ratio")]).toBe("20.00");
+  });
+});
+
+describe("fetchCreativeDecisionEngineV3", () => {
+  it("fetches v3 decisions with business, date, and creative id filters", async () => {
+    const payload: DecisionEngineV3Response = {
+      businessId: "biz-1",
+      asOf: "2026-05-04",
+      engineVersion: "v3-2026-05-04-stub",
+      dataSource: "warehouse",
+      dataHealth: {
+        calibration: {
+          asOfDate: "2026-05-04",
+          computedAt: "2026-05-04T12:00:00.000Z",
+          sourceFreshnessHours: 0,
+          staleTier: "none",
+          fallbackMode: "runtime_sql",
+          note: null,
+        },
+        lifecycle: {
+          asOfDate: "2026-05-04",
+          computedAt: "2026-05-04T12:00:00.000Z",
+          sourceFreshnessHours: 0,
+          staleTier: "none",
+          fallbackMode: "runtime_sql",
+          note: null,
+        },
+        decisions: {
+          asOfDate: "2026-05-04",
+          computedAt: "2026-05-04T12:00:00.000Z",
+          sourceFreshnessHours: 0,
+          staleTier: "none",
+          fallbackMode: "runtime_sql",
+          note: null,
+        },
+        worstTier: "none",
+        degraded: false,
+      },
+      decisions: [
+        {
+          creativeId: "creative-1",
+          creativeName: "Creative One",
+          label: "test_more",
+          reason: "Engine v3 stub - real gate logic not yet implemented.",
+          confidence: 50,
+          truthSource: "commercial_truth",
+          effectiveTargetRoas: 2.2,
+          ratioToTarget: 1.1,
+          badges: [],
+          metrics: {
+            spend: 100,
+            purchases: 2,
+            roas: 2.4,
+            recent7dRoas: 2.1,
+          },
+          engineVersion: "v3-2026-05-04-stub",
+          generatedAt: "2026-05-04T12:00:00.000Z",
+        },
+      ],
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("window", {
+      location: { origin: "https://app.example" },
+    });
+
+    const result = await fetchCreativeDecisionEngineV3({
+      businessId: "biz-1",
+      asOf: "2026-05-04",
+      creativeIds: ["creative-1", "creative-2"],
+    });
+
+    expect(result).toEqual(payload);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(requestUrl.origin).toBe("https://app.example");
+    expect(requestUrl.pathname).toBe("/api/creatives/decision-engine-v3");
+    expect(requestUrl.searchParams.get("businessId")).toBe("biz-1");
+    expect(requestUrl.searchParams.get("asOf")).toBe("2026-05-04");
+    expect(requestUrl.searchParams.get("creativeIds")).toBe("creative-1,creative-2");
   });
 });

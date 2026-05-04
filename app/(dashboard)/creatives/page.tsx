@@ -1,10 +1,9 @@
 "use client";
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Sparkles } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
@@ -20,10 +19,8 @@ import { Button } from "@/components/ui/button";
 import {
   type MetaCreativeRow,
 } from "@/components/creatives/metricConfig";
+import { CreativeDecisionEngineV3Surface } from "@/components/creatives/CreativeDecisionEngineV3Surface";
 import { CreativesTableSection } from "@/components/creatives/CreativesTableSection";
-import { CreativeDecisionCenterSurface } from "@/components/creatives/CreativeDecisionCenterSurface";
-import { CreativeBenchmarkScopeControl } from "@/components/creatives/CreativeBenchmarkScopeControl";
-import { CreativeDecisionOsV2PreviewSurface } from "@/components/creatives/CreativeDecisionOsV2PreviewSurface";
 import {
   applyCreativeFilters,
   formatCreativeDateLabel,
@@ -34,22 +31,12 @@ import {
   CreativesTopSection,
   resolveCreativeDateRange,
 } from "@/components/creatives/CreativesTopSection";
-import {
-  filterRowsForCreativeBenchmarkScope,
-  resolveCreativeBenchmarkCampaignContext,
-  resolveCreativeBenchmarkScopeSelection,
-  type CreativeBenchmarkScopeMode,
-} from "@/components/creatives/creatives-top-section-support";
 import { usePersistentCreativeDateRange } from "@/hooks/use-persistent-date-range";
 import type { ShareMetricKey, SharePayload } from "@/components/creatives/shareCreativeTypes";
 import {
-  getCreativeDecisionOsSnapshot,
-  getCreativeDecisionOsV2Preview,
-  runCreativeDecisionOsAnalysis,
-} from "@/src/services";
-import {
   CreativesTableShell,
   buildCreativeHistoryById,
+  fetchCreativeDecisionEngineV3,
   fetchMetaCreatives,
   fetchMetaCreativesHistory,
   getPreviewPollingInterval,
@@ -58,8 +45,6 @@ import {
   PLATFORM_LABELS,
   PreviewStripState,
   SHARE_METRIC_IDS,
-  buildSharedCreativeAnalysisLookup,
-  getSharedCreativeAnalysisForRow,
   shouldPollForPreviewReadiness,
   toCsv,
   toSharedCreative,
@@ -75,11 +60,6 @@ import {
   dayCountInclusive,
 } from "@/lib/meta/history";
 import { getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
-import {
-  buildCreativeQuickFilters,
-  creativeQuickFilterShortLabel,
-  type CreativeQuickFilterKey,
-} from "@/lib/creative-operator-surface";
 
 function clampCreativeDateRangeToHistoryLimit(
   value: CreativeDateRangeValue,
@@ -163,22 +143,8 @@ const CreativeAdBreakdownDrawer = dynamic(
   () => import("@/components/creatives/CreativeAdBreakdownDrawer").then((mod) => mod.CreativeAdBreakdownDrawer),
   { ssr: false, loading: () => null }
 );
-const CreativeDecisionOsDrawer = dynamic(
-  () => import("@/components/creatives/CreativeDecisionOsDrawer").then((mod) => mod.CreativeDecisionOsDrawer),
-  { ssr: false, loading: () => null }
-);
-
-function formatSnapshotTimestamp(value: string | null | undefined) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return `${date.toISOString().slice(0, 16).replace("T", " ")} UTC`;
-}
-
 export default function CreativesPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const queryClient = useQueryClient();
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businesses = useAppStore((state) => state.businesses);
   const { plan: currentPlan } = usePlanState();
@@ -223,11 +189,6 @@ export default function CreativesPage() {
   const [csvError, setCsvError] = useState<string | null>(null);
   const [historyPhaseStarted, setHistoryPhaseStarted] = useState(false);
   const [tableSortedRows, setTableSortedRows] = useState<MetaCreativeRow[]>([]);
-  const [decisionOsFamilyFilter, setDecisionOsFamilyFilter] = useState<string | null>(null);
-  const [activeQuickFilterKey, setActiveQuickFilterKey] = useState<CreativeQuickFilterKey | null>(null);
-  const [decisionOsDrawerOpen, setDecisionOsDrawerOpen] = useState(false);
-  const [benchmarkScopeMode, setBenchmarkScopeMode] =
-    useState<CreativeBenchmarkScopeMode>("account");
 
   const platform: "meta" = "meta";
   const metaView = deriveProviderViewState(
@@ -319,6 +280,7 @@ export default function CreativesPage() {
       drStart,
       drEnd,
       groupBy,
+      "full",
     ],
     enabled: canLoadCreatives,
     queryFn: () =>
@@ -329,12 +291,21 @@ export default function CreativesPage() {
         groupBy: mainTableApiGroupBy,
         format: "all",
         sort: "spend",
-        mediaMode: "metadata",
+        mediaMode: "full",
       }),
     staleTime: 30 * 1000,
     refetchOnWindowFocus: false,
     refetchInterval: (query) => getPreviewPollingInterval(query.state.data),
     placeholderData: (previousData) => previousData,
+  });
+  const decisionEngineV3Query = useQuery({
+    queryKey: ["creative-decision-engine-v3", selectedBusinessId],
+    queryFn: () => {
+      if (!selectedBusinessId) throw new Error("no business selected");
+      return fetchCreativeDecisionEngineV3({ businessId: selectedBusinessId });
+    },
+    enabled: Boolean(selectedBusinessId) && canLoadCreatives,
+    staleTime: 60_000,
   });
   const shouldLoadHistory =
     historyPhaseStarted || creativeDrawerState.open || breakdownDrawerState.open;
@@ -466,191 +437,11 @@ export default function CreativesPage() {
     }
     return rows;
   }, [activeCreativesPayload?.media_mode, activeCreativesPayload?.rows]);
-  const filterScopedRows = useMemo(
-    () => applyCreativeFilters(allRows, topFilters),
-    [allRows, topFilters],
-  );
-  const campaignBenchmarkContext = useMemo(
-    () => resolveCreativeBenchmarkCampaignContext(filterScopedRows),
-    [filterScopedRows],
-  );
-  const activeBenchmarkScope = useMemo(
-    () =>
-      resolveCreativeBenchmarkScopeSelection({
-        mode: benchmarkScopeMode,
-        campaignContext: campaignBenchmarkContext,
-      }),
-    [benchmarkScopeMode, campaignBenchmarkContext],
-  );
-  const benchmarkRows = useMemo(
-    () => filterRowsForCreativeBenchmarkScope(allRows, activeBenchmarkScope),
-    [activeBenchmarkScope, allRows],
-  );
-  useEffect(() => {
-    if (benchmarkScopeMode === "campaign" && !campaignBenchmarkContext) {
-      setBenchmarkScopeMode("account");
-    }
-  }, [benchmarkScopeMode, campaignBenchmarkContext]);
-  const creativeDecisionOsSnapshotQueryKey = useMemo(
-    () => [
-      "creative-decision-os-snapshot",
-      businessId,
-      activeBenchmarkScope.scope,
-      activeBenchmarkScope.scopeId ?? null,
-    ],
-    [activeBenchmarkScope.scope, activeBenchmarkScope.scopeId, businessId],
-  );
-  const creativeDecisionOsSnapshotQuery = useQuery({
-    queryKey: [
-      ...creativeDecisionOsSnapshotQueryKey,
-    ],
-    enabled: canLoadCreatives,
-    staleTime: 60 * 1000,
-    refetchOnWindowFocus: false,
-    queryFn: () =>
-      getCreativeDecisionOsSnapshot(businessId, {
-        benchmarkScope: activeBenchmarkScope,
-      }),
-  });
-  const creativeDecisionOsV2PreviewDisabled =
-    searchParams.get("creativeDecisionOsV2Preview") === "0" ||
-    searchParams.get("creativeDecisionOsV2Preview")?.toLowerCase() === "false" ||
-    searchParams.get("v2Preview") === "0" ||
-    searchParams.get("v2Preview")?.toLowerCase() === "false";
-  const creativeDecisionOsV2PreviewEnabled = !creativeDecisionOsV2PreviewDisabled;
-  const creativeDecisionOsV2PreviewQuery = useQuery({
-    queryKey: [
-      "creative-decision-os-v2-preview",
-      businessId,
-      activeBenchmarkScope.scope,
-      activeBenchmarkScope.scopeId ?? null,
-      creativeDecisionOsV2PreviewEnabled,
-    ],
-    enabled: canLoadCreatives && creativeDecisionOsV2PreviewEnabled,
-    staleTime: 60 * 1000,
-    refetchOnWindowFocus: false,
-    queryFn: () =>
-      getCreativeDecisionOsV2Preview(businessId, {
-        benchmarkScope: activeBenchmarkScope,
-        enabled: creativeDecisionOsV2PreviewEnabled,
-      }),
-  });
-  const creativeDecisionOsRunMutation = useMutation({
-    mutationFn: () =>
-      runCreativeDecisionOsAnalysis(businessId, drStart, drEnd, {
-        benchmarkScope: activeBenchmarkScope,
-      }),
-    onSuccess: (payload) => {
-      queryClient.setQueryData(creativeDecisionOsSnapshotQueryKey, payload);
-    },
-  });
-  const creativeDecisionSnapshotResponse = creativeDecisionOsSnapshotQuery.data ?? null;
-  const creativeDecisionSnapshot = creativeDecisionSnapshotResponse?.snapshot ?? null;
-  const creativeDecisionOs = creativeDecisionSnapshotResponse?.decisionOs ?? null;
-  const creativeDecisionCenter = creativeDecisionSnapshotResponse?.decisionCenter ?? null;
-  const creativeDecisionOsV2Preview =
-    creativeDecisionOsV2PreviewQuery.data?.decisionOsV2Preview ?? null;
-  const decisionSnapshotGeneratedAt = formatSnapshotTimestamp(
-    creativeDecisionSnapshot?.generatedAt,
-  );
-  const decisionSnapshotReportingRangeDiffers =
-    Boolean(creativeDecisionSnapshot) &&
-    (creativeDecisionSnapshot?.sourceWindow.reportingStartDate !== drStart ||
-      creativeDecisionSnapshot?.sourceWindow.reportingEndDate !== drEnd);
-  const decisionSnapshotStatusLabel = creativeDecisionOsRunMutation.isPending
-    ? "Decision OS: Running"
-    : creativeDecisionOs
-      ? `Last analyzed: ${decisionSnapshotGeneratedAt ?? "available"}`
-      : creativeDecisionOsSnapshotQuery.isLoading
-        ? "Decision OS snapshot loading"
-        : "Decision OS has not been run for this scope.";
-  const decisionSnapshotSafeError =
-    creativeDecisionOsRunMutation.error instanceof Error
-      ? creativeDecisionOsRunMutation.error.message
-      : creativeDecisionOsSnapshotQuery.error instanceof Error
-        ? creativeDecisionOsSnapshotQuery.error.message
-        : creativeDecisionSnapshotResponse?.error?.message ?? null;
-  const handleRunCreativeAnalysis = useCallback(() => {
-    if (!canLoadCreatives || creativeDecisionOsRunMutation.isPending) return;
-    creativeDecisionOsRunMutation.mutate();
-  }, [canLoadCreatives, creativeDecisionOsRunMutation]);
-
-  const familyFocusIds = useMemo(() => {
-    if (!creativeDecisionOs || !decisionOsFamilyFilter) return null;
-    const family = creativeDecisionOs.families.find((item) => item.familyId === decisionOsFamilyFilter);
-    return family ? new Set(family.creativeIds) : null;
-  }, [creativeDecisionOs, decisionOsFamilyFilter]);
-  const clearCreativeFocusFilters = useCallback(() => {
-    hasUserInteractedSelectionRef.current = true;
-    setDecisionOsFamilyFilter(null);
-    setActiveQuickFilterKey(null);
-    setSelectionState({ selectedRowIds: [] });
-  }, []);
-  const activeDecisionOsFamily = useMemo(
-    () =>
-      decisionOsFamilyFilter
-        ? creativeDecisionOs?.families.find((item) => item.familyId === decisionOsFamilyFilter) ?? null
-        : null,
-    [creativeDecisionOs, decisionOsFamilyFilter],
-  );
   const baseFilteredRows = useMemo(() => {
     if (platform !== "meta") return [];
-    const baseRows = applyCreativeFilters(allRows, topFilters, creativeDecisionOs);
-    if (!familyFocusIds || familyFocusIds.size === 0) return baseRows;
-    return baseRows.filter((row) => familyFocusIds.has(row.id));
-  }, [allRows, creativeDecisionOs, familyFocusIds, platform, topFilters]);
-  const quickFilters = useMemo(
-    () =>
-      buildCreativeQuickFilters(creativeDecisionOs, {
-        visibleIds: new Set(baseFilteredRows.map((row) => row.id)),
-        includeZeroCounts: true,
-      }),
-    [baseFilteredRows, creativeDecisionOs],
-  );
-  const activeQuickFilter = useMemo(
-    () =>
-      activeQuickFilterKey
-        ? quickFilters.find((filter) => filter.key === activeQuickFilterKey) ?? null
-        : null,
-    [activeQuickFilterKey, quickFilters],
-  );
-  const handlePerformanceQuickFilter = useCallback(
-    (key: CreativeQuickFilterKey) => {
-      hasUserInteractedSelectionRef.current = true;
-
-      if (activeQuickFilterKey === key) {
-        setActiveQuickFilterKey(null);
-        setSelectionState({ selectedRowIds: [] });
-        return;
-      }
-
-      const nextFilter = quickFilters.find((filter) => filter.key === key) ?? null;
-      const nextFilterIds = new Set(nextFilter?.creativeIds ?? []);
-      const nextSelectedRowIds = baseFilteredRows
-        .filter((row) => nextFilterIds.has(row.id))
-        .map((row) => row.id);
-
-      setActiveQuickFilterKey(key);
-      setSelectionState({ selectedRowIds: nextSelectedRowIds });
-    },
-    [activeQuickFilterKey, baseFilteredRows, quickFilters],
-  );
-  const filteredRows = useMemo(() => {
-    if (!activeQuickFilter || activeQuickFilter.creativeIds.length === 0) return baseFilteredRows;
-    const quickFilterIds = new Set(activeQuickFilter.creativeIds);
-    return baseFilteredRows.filter((row) => quickFilterIds.has(row.id));
-  }, [activeQuickFilter, baseFilteredRows]);
-  useEffect(() => {
-    if (!activeQuickFilterKey) return;
-    const stillAvailable = quickFilters.some(
-      (filter) => filter.key === activeQuickFilterKey && filter.count > 0,
-    );
-    if (!stillAvailable) {
-      hasUserInteractedSelectionRef.current = true;
-      setActiveQuickFilterKey(null);
-      setSelectionState({ selectedRowIds: [] });
-    }
-  }, [activeQuickFilterKey, quickFilters]);
+    return applyCreativeFilters(allRows, topFilters);
+  }, [allRows, platform, topFilters]);
+  const filteredRows = baseFilteredRows;
   const creativeHistoryById = useMemo(() => {
     const historyRows: Partial<Record<CreativeHistoryWindowKey, MetaCreativeRow[]>> = {};
     creativeHistoryQueries.forEach((query, index) => {
@@ -840,23 +631,14 @@ export default function CreativesPage() {
     }
   };
 
-  const handleShareExport = async () => {
-    setShareError(null);
-    setShareExportLoading(true);
-    try {
-      let decisionOsForShare = creativeDecisionOs;
-      if (!decisionOsForShare || decisionSnapshotReportingRangeDiffers) {
-        const snapshotPayload = await runCreativeDecisionOsAnalysis(businessId, drStart, drEnd, {
-          benchmarkScope: activeBenchmarkScope,
-        });
-        queryClient.setQueryData(creativeDecisionOsSnapshotQueryKey, snapshotPayload);
-        decisionOsForShare = snapshotPayload.decisionOs ?? null;
-      }
-      const analysisLookup = buildSharedCreativeAnalysisLookup(decisionOsForShare);
-      const selectedForShare =
-        selectionState.selectedRowIds.length > 0
-          ? filteredRows.filter((row) => selectionState.selectedRowIds.includes(row.id))
-          : filteredRows;
+	  const handleShareExport = async () => {
+	    setShareError(null);
+	    setShareExportLoading(true);
+	    try {
+	      const selectedForShare =
+	        selectionState.selectedRowIds.length > 0
+	          ? filteredRows.filter((row) => selectionState.selectedRowIds.includes(row.id))
+	          : filteredRows;
       const shareMetrics = topMetricIds.filter((id): id is ShareMetricKey => SHARE_METRIC_IDS.has(id as ShareMetricKey));
       const payload: Omit<SharePayload, "token" | "createdAt"> = {
         title: "Top Creatives",
@@ -870,14 +652,7 @@ export default function CreativesPage() {
         metrics: shareMetrics.length > 0 ? shareMetrics : ["spend", "roas"],
         includeNotes: false,
         note: "",
-        creatives: selectedForShare.map((row) =>
-          toSharedCreative(
-            row,
-            getSharedCreativeAnalysisForRow(row, analysisLookup, {
-              includeMetricsOnlyFallback: true,
-            }),
-          ),
-        ),
+	        creatives: selectedForShare.map((row) => toSharedCreative(row)),
         // Keep share payload compact; public page falls back to `creatives` as benchmark when omitted.
         benchmarkCreatives: undefined,
       };
@@ -1028,223 +803,32 @@ export default function CreativesPage() {
 
         return (
           <>
-            <CreativesTopSection
-              businessId={businessId}
-              showHeader={false}
-              showGroupByControl={false}
-              showAiActionsRow={false}
-              dateRange={dateRangeValue}
-              onDateRangeChange={setBoundedDateRangeValue}
-              groupBy={groupBy}
-              onGroupByChange={setGroupBy}
+	            <CreativesTopSection
+	              businessId={businessId}
+	              showHeader={false}
+	              showGroupByControl={false}
+	              dateRange={dateRangeValue}
+	              onDateRangeChange={setBoundedDateRangeValue}
+	              groupBy={groupBy}
+	              onGroupByChange={setGroupBy}
               filters={topFilters}
               onFiltersChange={setTopFilters}
-              selectedMetricIds={topMetricIds}
-              onSelectedMetricIdsChange={setTopMetricIds}
-              selectedRows={topPreviewRows}
-              allRowsForHeatmap={filteredRows}
-              benchmarkRows={benchmarkRows}
-              defaultCurrency={selectedBusinessCurrency}
-              onOpenRow={(rowId) => openCreativeDrawer(rowId, true)}
-              onShareExport={handleShareExport}
-              onCsvExport={handleCsvExport}
+	              selectedMetricIds={topMetricIds}
+	              onSelectedMetricIdsChange={setTopMetricIds}
+	              selectedRows={topPreviewRows}
+	              allRowsForHeatmap={filteredRows}
+	              defaultCurrency={selectedBusinessCurrency}
+	              onOpenRow={(rowId) => openCreativeDrawer(rowId, true)}
+	              onShareExport={handleShareExport}
+	              onCsvExport={handleCsvExport}
               shareExportLoading={shareExportLoading}
               csvExportLoading={csvExportLoading}
               shareUrl={shareUrl}
               shareError={shareError}
-              csvError={csvError}
-              previewStripState={previewStripState}
-              previewStripSummary={previewStripSummary}
-              decisionOs={creativeDecisionOs}
-              quickFilters={[]}
-              activeQuickFilterKey={activeQuickFilterKey}
-              onToggleQuickFilter={handlePerformanceQuickFilter}
-              showDecisionSupportSurface={false}
-              belowToolbar={
-                <div
-                  className="rounded-2xl border border-slate-200 bg-white shadow-sm"
-                  style={{ padding: "16px 18px", fontFamily: "Inter, system-ui, -apple-system, sans-serif" }}
-                >
-                  {/* Row 1: benchmark (left) · status + actions (right) */}
-                  <div className="flex flex-wrap items-center justify-between gap-2.5">
-                    <CreativeBenchmarkScopeControl
-                      value={benchmarkScopeMode}
-                      campaignContext={campaignBenchmarkContext}
-                      onChange={setBenchmarkScopeMode}
-                    />
-                    <div className="flex flex-wrap items-center gap-3.5">
-                      {creativeDecisionOs ? (
-                        <div
-                          className="text-[12px] text-slate-400"
-                          style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "0.005em" }}
-                        >
-                          {decisionSnapshotGeneratedAt ? (
-                            <>
-                              Last run <span className="text-slate-500">{decisionSnapshotGeneratedAt}</span>
-                            </>
-                          ) : null}
-                          {creativeDecisionOs.decisionAsOf ? (
-                            <>
-                              <span className="mx-2 text-slate-200">·</span>
-                              Decision as of <span className="text-slate-500">{creativeDecisionOs.decisionAsOf}</span>
-                            </>
-                          ) : null}
-                        </div>
-                      ) : null}
-                      {/* Run / Re-run analysis */}
-                      <button
-                        type="button"
-                        disabled={!canLoadCreatives || creativeDecisionOsRunMutation.isPending}
-                        onClick={handleRunCreativeAnalysis}
-                        className={`inline-flex h-11 items-center gap-2 rounded-full border px-[18px] text-[13px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-                          creativeDecisionOs
-                            ? "border-slate-200 bg-white text-slate-900 hover:border-slate-300 hover:bg-slate-50"
-                            : "border-slate-900 bg-slate-900 text-white shadow-sm hover:bg-slate-800"
-                        }`}
-                      >
-                        <Sparkles
-                          className={`h-4 w-4 ${creativeDecisionOsRunMutation.isPending ? "animate-spin" : ""}`}
-                        />
-                        {creativeDecisionOsRunMutation.isPending
-                          ? "Running analysis"
-                          : creativeDecisionOs
-                            ? "Re-run analysis"
-                            : "Run Creative Analysis"}
-                      </button>
-                      {/* Decision OS */}
-                      <button
-                        type="button"
-                        onClick={() => setDecisionOsDrawerOpen(true)}
-                        className={`inline-flex h-11 items-center gap-2 rounded-full border px-[18px] text-[13px] font-semibold transition-colors ${
-                          creativeDecisionOs
-                            ? "border-slate-900 bg-slate-900 text-white shadow-sm hover:bg-slate-800"
-                            : "border-slate-200 bg-white text-slate-900 hover:border-slate-300 hover:bg-slate-50"
-                        }`}
-                      >
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 14 14"
-                          fill="none"
-                          className={creativeDecisionOs ? "text-white" : "text-slate-500"}
-                          aria-hidden="true"
-                        >
-                          <rect x="2" y="2" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.4" />
-                          <path d="M5 7l1.5 1.5L9.5 5.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        Decision OS
-                        {creativeDecisionOs ? (
-                          <span className="ml-0.5 rounded-full bg-white/[0.18] px-[7px] py-px text-[11px] font-medium text-white">
-                            Open
-                          </span>
-                        ) : null}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Row 2: segment pills */}
-                  {quickFilters.length > 0 ? (
-                    <div className="mt-3.5 flex flex-wrap items-center gap-2">
-                      {quickFilters.map((filter) => {
-                        const active = activeQuickFilterKey === filter.key;
-                        const toneMap: Record<string, { button: string; count: string }> = {
-                          act_now: {
-                            button: active
-                              ? "border-emerald-700 bg-emerald-600 text-white shadow-sm"
-                              : "border-emerald-200 bg-emerald-50 text-emerald-800 hover:shadow-sm",
-                            count: active ? "bg-white/20 text-white" : "bg-emerald-100 text-emerald-800",
-                          },
-                          watch: {
-                            button: active
-                              ? "border-blue-700 bg-blue-600 text-white shadow-sm"
-                              : "border-blue-200 bg-blue-50 text-blue-700 hover:shadow-sm",
-                            count: active ? "bg-white/20 text-white" : "bg-blue-100 text-blue-700",
-                          },
-                          needs_truth: {
-                            button: active
-                              ? "border-amber-700 bg-amber-600 text-white shadow-sm"
-                              : "border-amber-200 bg-amber-50 text-amber-800 hover:shadow-sm",
-                            count: active ? "bg-white/20 text-white" : "bg-amber-100 text-amber-800",
-                          },
-                          blocked: {
-                            button: active
-                              ? "border-amber-700 bg-amber-600 text-white shadow-sm"
-                              : "border-amber-200 bg-amber-50 text-amber-800 hover:shadow-sm",
-                            count: active ? "bg-white/20 text-white" : "bg-amber-100 text-amber-800",
-                          },
-                        };
-                        const toneClasses = toneMap[filter.tone] ?? {
-                          button: active
-                            ? "border-blue-700 bg-blue-600 text-white shadow-sm"
-                            : "border-blue-200 bg-blue-50 text-blue-700 hover:shadow-sm",
-                          count: active ? "bg-white/20 text-white" : "bg-blue-100 text-blue-700",
-                        };
-                        return (
-                          <button
-                            key={filter.key}
-                            type="button"
-                            onClick={() => handlePerformanceQuickFilter(filter.key)}
-                            aria-label={`${creativeQuickFilterShortLabel(filter.key)}: ${filter.count.toLocaleString()} creatives`}
-                            data-count={filter.count}
-                            data-testid={`creative-performance-filter-${filter.key}`}
-                            style={{ height: 30, padding: "0 4px 0 12px", transition: "box-shadow 120ms ease" }}
-                            className={`inline-flex items-center gap-2 rounded-full border text-[12px] font-semibold ${toneClasses.button}`}
-                          >
-                            <span>{creativeQuickFilterShortLabel(filter.key)}</span>
-                            <span
-                              style={{ minWidth: 22, height: 22, padding: "0 7px", fontVariantNumeric: "tabular-nums" }}
-                              className={`inline-flex items-center justify-center rounded-full text-[11px] font-semibold ${toneClasses.count}`}
-                            >
-                              {filter.count.toLocaleString()}
-                            </span>
-                          </button>
-                        );
-                      })}
-                      {(activeQuickFilter || activeDecisionOsFamily) ? (
-                        <button
-                          type="button"
-                          onClick={clearCreativeFocusFilters}
-                          style={{ height: 30 }}
-                          className="rounded-full border border-slate-200 bg-white px-3 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
-                        >
-                          Clear
-                        </button>
-                      ) : null}
-                    </div>
-                  ) : null}
-
-                  {/* Warnings */}
-                  {decisionSnapshotReportingRangeDiffers ? (
-                    <p className="mt-2 text-[11px] text-amber-700" data-testid="creative-decision-os-snapshot-status">
-                      Reporting range changed. Snapshot unchanged until you re-run analysis.
-                    </p>
-                  ) : null}
-                  {decisionSnapshotSafeError ? (
-                    <p className="mt-2 text-[11px] text-rose-700" data-testid="creative-decision-os-snapshot-status">
-                      {decisionSnapshotSafeError}
-                    </p>
-                  ) : null}
-                </div>
-              }
-            />
-
-            {creativeDecisionOsV2PreviewEnabled ? (
-              <CreativeDecisionOsV2PreviewSurface
-                preview={creativeDecisionOsV2Preview}
-                isLoading={creativeDecisionOsV2PreviewQuery.isLoading}
-                error={
-                  creativeDecisionOsV2PreviewQuery.error instanceof Error
-                    ? creativeDecisionOsV2PreviewQuery.error.message
-                    : creativeDecisionOsV2PreviewQuery.data?.error?.message ?? null
-                }
-                onOpenRow={(rowId) => openCreativeDrawer(rowId, true)}
-              />
-            ) : null}
-
-            <CreativeDecisionCenterSurface
-              decisionCenter={creativeDecisionCenter}
-              onOpenRow={(rowId) => openCreativeDrawer(rowId, true)}
-            />
+	              csvError={csvError}
+	              previewStripState={previewStripState}
+	              previewStripSummary={previewStripSummary}
+	            />
 
             {(creativesMetadataQuery.isLoading || isWaitingForMetaReference) && <CreativesTableShell />}
 
@@ -1292,13 +876,21 @@ export default function CreativesPage() {
               deferredFilteredRows.length > 0 &&
               dataStatus !== "no_data" && (
                 <>
-                  <CreativesTableSection
-                    rows={deferredFilteredRows}
-                    creativeHistoryById={creativeHistoryById}
-                    decisionOs={creativeDecisionOs}
-                    decisionCenter={creativeDecisionCenter}
-                    selectedMetricIds={topMetricIds}
-                    onSelectedMetricIdsChange={setTopMetricIds}
+                  <CreativeDecisionEngineV3Surface
+                    businessId={selectedBusinessId}
+                    decisions={decisionEngineV3Query.data?.decisions ?? null}
+                    isLoading={decisionEngineV3Query.isLoading}
+                    isError={decisionEngineV3Query.isError}
+                    error={decisionEngineV3Query.error}
+                    engineVersion={decisionEngineV3Query.data?.engineVersion ?? null}
+                    dataSource={decisionEngineV3Query.data?.dataSource ?? null}
+                    dataHealth={decisionEngineV3Query.data?.dataHealth ?? null}
+                  />
+	                  <CreativesTableSection
+	                    rows={deferredFilteredRows}
+	                    creativeHistoryById={creativeHistoryById}
+	                    selectedMetricIds={topMetricIds}
+	                    onSelectedMetricIdsChange={setTopMetricIds}
                     selectedRowIds={selectionState.selectedRowIds}
                     highlightedRowId={highlightedRowId}
                     defaultCurrency={selectedBusinessCurrency}
@@ -1316,11 +908,10 @@ export default function CreativesPage() {
 
       <CreativeDetailExperience
         businessId={businessId}
-        row={activeCreativeRow}
-        allRows={filteredRows}
-        creativeHistoryById={creativeHistoryById}
-        decisionOs={creativeDecisionOs}
-        open={creativeDrawerState.open}
+	        row={activeCreativeRow}
+	        allRows={filteredRows}
+	        creativeHistoryById={creativeHistoryById}
+	        open={creativeDrawerState.open}
         notes={activeCreativeRow ? notesByRowId[activeCreativeRow.id] ?? "" : ""}
         dateRange={dateRangeValue}
         defaultCurrency={selectedBusinessCurrency}
@@ -1333,39 +924,17 @@ export default function CreativesPage() {
           setNotesByRowId((prev) => ({ ...prev, [activeCreativeRow.id]: value }));
         }}
       />
-      <CreativeAdBreakdownDrawer
-        open={breakdownDrawerState.open}
-        creative={activeBreakdownCreativeRow}
+	      <CreativeAdBreakdownDrawer
+	        open={breakdownDrawerState.open}
+	        creative={activeBreakdownCreativeRow}
         rows={adBreakdownRows}
         loading={adBreakdownQuery.isLoading}
         defaultCurrency={selectedBusinessCurrency}
         onOpenChange={(open) =>
           setBreakdownDrawerState((prev) => ({ ...prev, open, activeRowId: open ? prev.activeRowId : null }))
-        }
-      />
-      <CreativeDecisionOsDrawer
-        decisionOs={creativeDecisionOs}
-        decisionCenter={creativeDecisionCenter}
-        isLoading={creativeDecisionOsSnapshotQuery.isLoading || creativeDecisionOsRunMutation.isPending}
-        snapshot={creativeDecisionSnapshot}
-        snapshotStatus={creativeDecisionSnapshotResponse?.status ?? (creativeDecisionOsSnapshotQuery.isLoading ? "running" : "not_run")}
-        snapshotError={decisionSnapshotSafeError}
-        onRunAnalysis={handleRunCreativeAnalysis}
-        isRunningAnalysis={creativeDecisionOsRunMutation.isPending}
-        open={decisionOsDrawerOpen}
-        onOpenChange={setDecisionOsDrawerOpen}
-        quickFilters={quickFilters}
-        allRows={filteredRows}
-        selectedRows={topPreviewRows}
-        activeFamilyId={decisionOsFamilyFilter}
-        activeQuickFilterKey={activeQuickFilterKey}
-        onSelectFamily={(familyId) => {
-          setDecisionOsFamilyFilter(familyId);
-        }}
-        onSelectQuickFilter={handlePerformanceQuickFilter}
-        onClearFilters={clearCreativeFocusFilters}
-      />
-    </div>
+	        }
+	      />
+	    </div>
     </PlanGate>
   );
 }

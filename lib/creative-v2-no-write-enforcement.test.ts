@@ -10,8 +10,6 @@ const previewComponentFile =
   "components/creatives/CreativeDecisionOsV2PreviewSurface.tsx";
 const creativesPageFile = "app/(dashboard)/creatives/page.tsx";
 const dataServiceFile = "src/services/data-service-ai.ts";
-const previewSurfaceMarker = "<CreativeDecisionOsV2PreviewSurface";
-const postPreviewMarker = "<CreativeDecisionCenterSurface";
 const mutatingRouteHandlerPattern =
   /export async function (POST|PUT|PATCH|DELETE)\b/;
 const commandCenterBoundaryPattern =
@@ -54,20 +52,6 @@ function callbackBody(file: string, declaration: string) {
   if (end < 0)
     throw new Error(`Could not parse callback ${declaration} in ${file}`);
   return text.slice(start, end + "}, []);".length);
-}
-
-function sourceSliceBetween(
-  text: string,
-  startMarker: string,
-  endMarker: string,
-) {
-  const start = text.indexOf(startMarker);
-  if (start < 0) throw new Error(`Missing start marker ${startMarker}`);
-
-  const end = text.indexOf(endMarker, start);
-  if (end < 0) throw new Error(`Missing end marker ${endMarker}`);
-
-  return text.slice(start, end);
 }
 
 describe("Creative v2 no-write enforcement", () => {
@@ -121,16 +105,11 @@ describe("Creative v2 no-write enforcement", () => {
     );
   });
 
-  it("keeps v2 row detail/open interactions local to the existing read-only drawer", () => {
+  it("keeps row detail/open interactions local and the dashboard detached from decision UI", () => {
     const pageSource = source(creativesPageFile);
     const openDrawer = callbackBody(
       creativesPageFile,
       "const openCreativeDrawer = useCallback",
-    );
-    const v2SurfaceUsage = sourceSliceBetween(
-      pageSource,
-      previewSurfaceMarker,
-      postPreviewMarker,
     );
 
     expect(openDrawer).toContain("setCreativeDrawerState");
@@ -138,12 +117,11 @@ describe("Creative v2 no-write enforcement", () => {
     expect(openDrawer).not.toMatch(
       /\bfetch\s*\(|runCreativeDecisionOsAnalysis|mutate\(|command-center/i,
     );
-    expect(v2SurfaceUsage).toContain(
-      "onOpenRow={(rowId) => openCreativeDrawer(rowId, true)}",
-    );
-    expect(v2SurfaceUsage).not.toMatch(
-      /runCreativeDecisionOsAnalysis|CommandCenter|queue|apply/i,
-    );
+    expect(pageSource).not.toContain("CreativeDecisionOsV2PreviewSurface");
+    expect(pageSource).not.toContain("CreativeDecisionCenterSurface");
+    expect(pageSource).not.toContain("CreativeDecisionOsDrawer");
+    expect(pageSource).not.toContain("runCreativeDecisionOsAnalysis");
+    expect(pageSource).not.toContain("getCreativeDecisionOsV2Preview");
   });
 
   it("keeps the client preview fetch path GET-only with no request body", () => {

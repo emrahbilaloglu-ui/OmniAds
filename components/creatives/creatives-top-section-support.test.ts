@@ -212,9 +212,15 @@ describe("applyCreativeFilters", () => {
     expect(result[0]?.id).toBe("ad_2");
   });
 
-  it("filters Decision OS fields and AI tags without mixing the provenance sources", () => {
+  it("filters AI tags from row taxonomy data", () => {
     const rows = [
-      mapApiRowToUiRow(buildApiRow()),
+      mapApiRowToUiRow(
+        buildApiRow({
+          ai_tags: {
+            messagingAngle: ["utility"],
+          },
+        }),
+      ),
       mapApiRowToUiRow(
         buildApiRow({
           id: "ad_2",
@@ -227,51 +233,14 @@ describe("applyCreativeFilters", () => {
       ),
     ];
 
-    const decisionOs = {
-      creatives: [
-        {
-          creativeId: "ad_1",
-          lifecycleState: "scale_ready",
-          primaryAction: "promote_to_scaling",
-          familySource: "copy_signature",
-          trust: { surfaceLane: "action_core" },
-          deployment: {
-            targetLane: "Scaling",
-            compatibility: { status: "compatible" },
-          },
-        },
-        {
-          creativeId: "ad_2",
-          lifecycleState: "validating",
-          primaryAction: "keep_in_test",
-          familySource: "singleton",
-          trust: { surfaceLane: "watchlist" },
-          deployment: {
-            targetLane: "Test",
-            compatibility: { status: "limited" },
-          },
-        },
-      ],
-    } as any;
-
-    const result = applyCreativeFilters(
-      rows,
-      [
-        {
-          id: "rule_1",
-          field: "deploymentCompatibilityStatus",
-          operator: "equals",
-          query: "compatible",
-        },
-        {
-          id: "rule_2",
-          field: "messagingAngle",
-          operator: "equals",
-          query: "utility",
-        },
-      ],
-      decisionOs,
-    );
+    const result = applyCreativeFilters(rows, [
+      {
+        id: "rule_1",
+        field: "messagingAngle",
+        operator: "equals",
+        query: "utility",
+      },
+    ]);
 
     expect(result).toHaveLength(1);
     expect(result[0]?.id).toBe("ad_1");

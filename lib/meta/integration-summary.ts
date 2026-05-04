@@ -269,8 +269,9 @@ function getExtendedSurfaceMetrics(status: MetaIntegrationSummaryInput) {
     historicalSurfaces.filter(
       (surface) => surface.completedDays < surface.totalDays
     );
+  const hasHistoricalBacklog = historicalProgressSurfaces.length > 0;
   const trackedHistoricalSurfaces =
-    historicalProgressSurfaces.length > 0
+    hasHistoricalBacklog
       ? historicalProgressSurfaces
       : historicalSurfaces;
   const historicalTotal = Math.max(
@@ -278,11 +279,9 @@ function getExtendedSurfaceMetrics(status: MetaIntegrationSummaryInput) {
     0
   );
   const historicalCompleted =
-    historicalProgressSurfaces.length === 0 && historicalTotal > 0
-      ? historicalTotal
-      : minCount(
-          trackedHistoricalSurfaces.map((surface) => surface.completedDays)
-        ) ?? 0;
+    minCount(
+      trackedHistoricalSurfaces.map((surface) => surface.completedDays)
+    ) ?? 0;
 
   return {
     recentCompleted,
@@ -291,6 +290,7 @@ function getExtendedSurfaceMetrics(status: MetaIntegrationSummaryInput) {
     historicalCompleted,
     historicalTotal,
     historicalPercent: percentFromCounts(historicalCompleted, historicalTotal),
+    hasHistoricalBacklog,
     readyThroughDate: earliestDate(
       trackedHistoricalSurfaces.map((surface) => surface.readyThroughDate)
     ),
@@ -298,6 +298,17 @@ function getExtendedSurfaceMetrics(status: MetaIntegrationSummaryInput) {
       trackedHistoricalSurfaces.map((surface) => surface.oldestStoredDate)
     ),
   };
+}
+
+function areRecentExtendedQueuesIdle(status: MetaIntegrationSummaryInput) {
+  const recentQueueDepth = status.jobHealth?.extendedRecentQueueDepth;
+  const recentLeasedPartitions = status.jobHealth?.extendedRecentLeasedPartitions;
+  const hasRecentQueueHealth =
+    typeof recentQueueDepth === "number" ||
+    typeof recentLeasedPartitions === "number";
+
+  if (!hasRecentQueueHealth) return true;
+  return (recentQueueDepth ?? 0) === 0 && (recentLeasedPartitions ?? 0) === 0;
 }
 
 function isWaitingState(status: MetaIntegrationSummaryInput) {
@@ -634,53 +645,71 @@ function buildExtendedStage(
     recentWindowScope &&
     historicalLag &&
     !recentWindowReady;
+  const useHistoricalExtendedProgress =
+    historicalOnlyExtendedLag &&
+    extendedSurfaceMetrics.hasHistoricalBacklog &&
+    areRecentExtendedQueuesIdle(status);
+  const hasRecentExtendedBacklog =
+    extendedSurfaceMetrics.recentTotal > 0 &&
+    extendedSurfaceMetrics.recentCompleted < extendedSurfaceMetrics.recentTotal;
+  const useRecentExtendedProgress =
+    recentWindowScope &&
+    !useHistoricalExtendedProgress &&
+    recentLag &&
+    hasRecentExtendedBacklog;
+  const extendedCompletenessPercent =
+    status.extendedCompleteness &&
+    !status.extendedCompleteness.complete &&
+    status.extendedCompleteness.percent != null
+      ? clampPercent(status.extendedCompleteness.percent)
+      : null;
   const percent =
     recentWindowScope
       ? status.extendedCompleteness?.complete
         ? null
-        : historicalOnlyExtendedLag
+        : useHistoricalExtendedProgress
           ? extendedSurfaceMetrics.historicalPercent
+        : useRecentExtendedProgress
+          ? extendedSurfaceMetrics.recentPercent
           : recentLag
-            ? extendedSurfaceMetrics.recentPercent
+            ? extendedCompletenessPercent
             : null
-      : status.extendedCompleteness &&
-          !status.extendedCompleteness.complete &&
-          status.extendedCompleteness.percent != null
-        ? clampPercent(status.extendedCompleteness.percent)
-        : historicalLag
+      : extendedCompletenessPercent != null
+        ? extendedCompletenessPercent
+        : historicalLag && extendedSurfaceMetrics.hasHistoricalBacklog
           ? extendedSurfaceMetrics.historicalPercent
           : null;
 
   const progressCompletedDays = recentWindowScope
     ? status.extendedCompleteness?.complete
       ? null
-      : historicalOnlyExtendedLag
+      : useHistoricalExtendedProgress
         ? extendedSurfaceMetrics.historicalCompleted
-        : recentLag
+        : useRecentExtendedProgress
           ? extendedSurfaceMetrics.recentCompleted
           : null
     : !status.extendedCompleteness?.complete
       ? breakdownMetrics?.completedDays ?? null
-      : historicalLag
+      : historicalLag && extendedSurfaceMetrics.hasHistoricalBacklog
         ? extendedSurfaceMetrics.historicalCompleted
         : null;
 
   const progressTotalDays = recentWindowScope
     ? status.extendedCompleteness?.complete
       ? null
-      : historicalOnlyExtendedLag
+      : useHistoricalExtendedProgress
         ? extendedSurfaceMetrics.historicalTotal
-        : recentLag
+        : useRecentExtendedProgress
           ? extendedSurfaceMetrics.recentTotal
           : null
     : !status.extendedCompleteness?.complete
       ? breakdownMetrics?.totalDays ?? null
-      : historicalLag
+      : historicalLag && extendedSurfaceMetrics.hasHistoricalBacklog
         ? extendedSurfaceMetrics.historicalTotal
         : null;
 
   const progressCode = recentWindowScope
-    ? historicalOnlyExtendedLag
+    ? useHistoricalExtendedProgress
       ? "historical_extended_preparing"
       : "recent_extended_preparing"
     : !status.extendedCompleteness?.complete

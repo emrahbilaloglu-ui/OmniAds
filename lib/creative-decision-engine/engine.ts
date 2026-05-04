@@ -2,6 +2,7 @@ import {
   type AccountCalibration,
   type BusinessConfig,
   type CreativeInput,
+  type DataHealth,
   type DecisionOutput,
 } from "./types";
 import { diagnoseGate } from "./gates/diagnose";
@@ -16,11 +17,13 @@ function initialContext(
   input: CreativeInput,
   businessConfig: BusinessConfig,
   calibration: AccountCalibration,
+  dataHealth?: DataHealth,
 ): GateContext {
   return {
     input,
     businessConfig,
     calibration,
+    dataHealth,
     effectiveTargetRoas: businessConfig.globalDefaultTargetRoas,
     truthSource: "global_default",
     ratioToTarget: null,
@@ -35,8 +38,11 @@ export function decideCreative(
   input: CreativeInput,
   businessConfig: BusinessConfig,
   calibration: AccountCalibration,
+  dataHealth?: DataHealth,
 ): DecisionOutput {
-  let result = scopeGate(initialContext(input, businessConfig, calibration));
+  let result = scopeGate(
+    initialContext(input, businessConfig, calibration, dataHealth),
+  );
   if (result.kind === "terminal") {
     return result.output;
   }

@@ -15,8 +15,8 @@ import type {
   FallbackMode,
   LifecyclePosition,
   SpendTrajectory,
+  StaleTier,
 } from "./types";
-import { ENGINE_VERSION } from "./types";
 
 /**
  * Adapter interface for the engine's data dependencies.
@@ -243,6 +243,7 @@ type SourceMaxUpdatedAtRow = Record<string, unknown> & {
 
 type CalibrationTableRow = Record<string, unknown> & {
   business_ref_id: unknown;
+  engine_version: unknown;
   mature_creative_count: unknown;
   roas_p75: unknown;
   roas_p60: unknown;
@@ -297,6 +298,7 @@ type LifecycleHealthRow = Record<string, unknown> & {
   computed_at: unknown;
   source_max_updated_at: unknown;
   as_of_date: unknown;
+  engine_version: unknown;
   row_count: unknown;
 };
 
@@ -308,6 +310,7 @@ interface CalibrationReadMetadata {
   sourceMaxUpdatedAt: string | null;
   fallbackMode: FallbackMode;
   note: string | null;
+  staleTierOverride?: StaleTier;
 }
 
 const HYDRATE_CREATIVE_INPUTS_QUERY = `
@@ -640,9 +643,12 @@ WHERE business_ref_id = $1::uuid
   AND date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
 `;
 
+// Reads are engine_version-agnostic to avoid table invalidation on ENGINE_VERSION bumps.
+// Writes preserve engine_version for provenance.
 const READ_ACCOUNT_CALIBRATION_QUERY = `
 SELECT
   business_ref_id,
+  engine_version,
   mature_creative_count,
   roas_p75,
   roas_p60,
@@ -658,19 +664,18 @@ WHERE business_ref_id = $1::uuid
   AND scope_type = 'account'
   AND scope_id = '*'
   AND as_of_date <= $2::date
-  AND engine_version = $3
-ORDER BY as_of_date DESC
+ORDER BY as_of_date DESC, computed_at DESC
 LIMIT 1
 `;
 
 const READ_LIFECYCLE_CREATIVE_INPUTS_QUERY = `
 WITH lifecycle_rows AS (
-  SELECT l.*
+  SELECT DISTINCT ON (l.creative_id) l.*
   FROM engine_v3_creative_lifecycle_daily l
   WHERE l.business_ref_id = $1::uuid
-    AND l.as_of_date = $2::date
-    AND l.engine_version = $5
+    AND l.as_of_date <= $2::date
     AND (NOT $4::boolean OR l.creative_id = ANY($3::text[]))
+  ORDER BY l.creative_id, l.as_of_date DESC, l.computed_at DESC
 ),
 latest_meta AS (
   SELECT DISTINCT ON (d.creative_id)
@@ -740,10 +745,11 @@ SELECT
   MAX(computed_at) AS computed_at,
   MAX(source_max_updated_at) AS source_max_updated_at,
   MAX(as_of_date) AS as_of_date,
+  MAX(engine_version) AS engine_version,
   COUNT(*) AS row_count
 FROM engine_v3_creative_lifecycle_daily
 WHERE business_ref_id = $1::uuid
-  AND engine_version = $2
+  AND as_of_date <= $2::date
 `;
 
 function toNumberOrNull(value: unknown): number | null {
@@ -1032,6 +1038,28 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function buildWarehouseDataLayerHealth(input: {
+  asOfDate: string | null;
+  computedAt: string | null;
+  sourceMaxUpdatedAt: string | null;
+  fallbackMode: FallbackMode;
+  note?: string | null;
+  staleTierOverride?: StaleTier;
+}): DataLayerHealth {
+  const health = buildDataLayerHealth(input);
+  if (input.staleTierOverride) {
+    return { ...health, staleTier: input.staleTierOverride };
+  }
+  if (input.sourceMaxUpdatedAt === null) {
+    return {
+      ...health,
+      staleTier: "warning",
+      note: input.note ?? "unknown source freshness for warehouse-backed layer",
+    };
+  }
+  return health;
+}
+
 /**
  * Production warehouse implementation backed by meta_creative_daily and
  * business_target_packs. The engine still consumes the same CreativeInput
@@ -1075,13 +1103,7 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
     try {
       rows = await getDb().query<LifecycleTableHydrationRow>(
         READ_LIFECYCLE_CREATIVE_INPUTS_QUERY,
-        [
-          input.businessId,
-          input.asOf,
-          creativeIds,
-          input.creativeIds != null,
-          ENGINE_VERSION,
-        ],
+        [input.businessId, input.asOf, creativeIds, input.creativeIds != null],
       );
     } catch {
       return [];
@@ -1130,7 +1152,11 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
       return precomputed.calibration;
     }
 
-    return this.computeCalibrationViaRuntimeSql(input, precomputed.note);
+    return this.computeCalibrationViaRuntimeSql(
+      input,
+      precomputed.note,
+      precomputed.staleTierOverride,
+    );
   }
 
   private async computeCalibrationViaRuntimeSql(
@@ -1139,6 +1165,7 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
       asOf: string;
     },
     fallbackNote: string,
+    staleTierOverride?: StaleTier,
   ): Promise<AccountCalibration> {
     const computedAt = new Date().toISOString();
     let row: CalibrationRow | undefined;
@@ -1160,6 +1187,7 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
         sourceMaxUpdatedAt,
         fallbackMode: "insufficient",
         note: `Calibration unavailable; runtime SQL failed after precomputed fallback (${errorMessage(error)})`,
+        staleTierOverride,
       };
       return zeroAccountCalibration(input.businessId, computedAt);
     }
@@ -1180,7 +1208,11 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
         computedAt,
         sourceMaxUpdatedAt,
         fallbackMode: "insufficient",
-        note: "Insufficient calibration sample (matureCreativeCount=0)",
+        note:
+          fallbackNote === "no precomputed row available; runtime fallback in use"
+            ? fallbackNote
+            : "Insufficient calibration sample (matureCreativeCount=0)",
+        staleTierOverride,
       };
       return zeroAccountCalibration(input.businessId, computedAt);
     }
@@ -1218,6 +1250,7 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
       sourceMaxUpdatedAt,
       fallbackMode: "runtime_sql",
       note: fallbackNote,
+      staleTierOverride,
     };
     return calibration;
   }
@@ -1229,12 +1262,13 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
     calibration: AccountCalibration | null;
     metadata: CalibrationReadMetadata | null;
     note: string;
+    staleTierOverride?: StaleTier;
   }> {
     let row: CalibrationTableRow | undefined;
     try {
       [row] = await getDb().query<CalibrationTableRow>(
         READ_ACCOUNT_CALIBRATION_QUERY,
-        [businessId, asOf, ENGINE_VERSION],
+        [businessId, asOf],
       );
     } catch (error) {
       return {
@@ -1248,17 +1282,36 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
       return {
         calibration: null,
         metadata: null,
-        note: `Runtime SQL fallback (precomputed table empty for asOf ${asOf})`,
+        note: "no precomputed row available; runtime fallback in use",
+        staleTierOverride: "warning",
       };
     }
 
     const sourceMaxUpdatedAt = toIsoTimestampOrNull(
       row.source_max_updated_at,
     );
-    if (
-      sourceMaxUpdatedAt === null ||
-      isOlderThanHours(sourceMaxUpdatedAt, STALE_TIER_WARNING_MAX_HOURS)
-    ) {
+    const computedAt = toIsoTimestampOrNull(row.computed_at);
+    const asOfDate = toIsoDateOrNull(row.as_of_date) ?? asOf;
+    const engineVersion = toStringOrNull(row.engine_version) ?? "unknown";
+    if (sourceMaxUpdatedAt === null) {
+      return {
+        calibration: null,
+        metadata: {
+          businessId,
+          requestedAsOf: asOf,
+          asOfDate,
+          computedAt,
+          sourceMaxUpdatedAt,
+          fallbackMode: "runtime_sql",
+          note: "unknown source freshness for warehouse-backed layer",
+          staleTierOverride: "warning",
+        },
+        note: "unknown source freshness for warehouse-backed layer",
+        staleTierOverride: "warning",
+      };
+    }
+
+    if (isOlderThanHours(sourceMaxUpdatedAt, STALE_TIER_WARNING_MAX_HOURS)) {
       return {
         calibration: null,
         metadata: null,
@@ -1266,8 +1319,6 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
       };
     }
 
-    const computedAt = toIsoTimestampOrNull(row.computed_at);
-    const asOfDate = toIsoDateOrNull(row.as_of_date) ?? asOf;
     const metadata: CalibrationReadMetadata = {
       businessId,
       requestedAsOf: asOf,
@@ -1275,7 +1326,7 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
       computedAt,
       sourceMaxUpdatedAt,
       fallbackMode: "precomputed",
-      note: null,
+      note: `computed by engine ${engineVersion}`,
     };
 
     return {
@@ -1342,23 +1393,25 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
   ): Promise<DataLayerHealth> {
     const last = this.lastCalibrationMetadata;
     if (last?.businessId === businessId && last.requestedAsOf === asOf) {
-      return buildDataLayerHealth({
+      return buildWarehouseDataLayerHealth({
         asOfDate: last.asOfDate,
         computedAt: last.computedAt,
         sourceMaxUpdatedAt: last.sourceMaxUpdatedAt,
         fallbackMode: last.fallbackMode,
         note: last.note,
+        staleTierOverride: last.staleTierOverride,
       });
     }
 
     const precomputed = await this.readCalibrationFromTable(businessId, asOf);
     if (precomputed.metadata !== null) {
-      return buildDataLayerHealth({
+      return buildWarehouseDataLayerHealth({
         asOfDate: precomputed.metadata.asOfDate,
         computedAt: precomputed.metadata.computedAt,
         sourceMaxUpdatedAt: precomputed.metadata.sourceMaxUpdatedAt,
         fallbackMode: precomputed.metadata.fallbackMode,
         note: precomputed.metadata.note,
+        staleTierOverride: precomputed.metadata.staleTierOverride,
       });
     }
 
@@ -1369,15 +1422,13 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
     const fallbackMode: FallbackMode =
       sourceMaxUpdatedAt === null ? "insufficient" : "runtime_sql";
 
-    return buildDataLayerHealth({
+    return buildWarehouseDataLayerHealth({
       asOfDate: asOf,
       computedAt: new Date().toISOString(),
       sourceMaxUpdatedAt,
       fallbackMode,
-      note:
-        fallbackMode === "runtime_sql"
-          ? precomputed.note
-          : "Calibration unavailable; insufficient source data",
+      note: precomputed.note,
+      staleTierOverride: precomputed.staleTierOverride,
     });
   }
 
@@ -1389,10 +1440,10 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
     try {
       [row] = await getDb().query<LifecycleHealthRow>(
         READ_LIFECYCLE_HEALTH_QUERY,
-        [businessId, ENGINE_VERSION],
+        [businessId, asOf],
       );
     } catch (error) {
-      return buildDataLayerHealth({
+      return buildWarehouseDataLayerHealth({
         asOfDate: asOf,
         computedAt: new Date().toISOString(),
         sourceMaxUpdatedAt: null,
@@ -1403,16 +1454,17 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
 
     const rowCount = toIntegerOrNull(row?.row_count) ?? 0;
     if (rowCount === 0) {
-      return buildDataLayerHealth({
+      return buildWarehouseDataLayerHealth({
         asOfDate: asOf,
         computedAt: new Date().toISOString(),
         sourceMaxUpdatedAt: null,
         fallbackMode: "runtime_sql",
-        note: "No lifecycle rows yet; runtime SQL fallback",
+        note: "no precomputed row available; runtime fallback in use",
+        staleTierOverride: "warning",
       });
     }
 
-    return buildDataLayerHealth({
+    return buildWarehouseDataLayerHealth({
       asOfDate: toIsoDateOrNull(row?.as_of_date) ?? asOf,
       computedAt: toIsoTimestampOrNull(row?.computed_at),
       sourceMaxUpdatedAt: toIsoTimestampOrNull(row?.source_max_updated_at),

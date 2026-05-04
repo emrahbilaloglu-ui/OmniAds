@@ -5,7 +5,7 @@
  * built in parallel.
  */
 
-export const ENGINE_VERSION = "v3-2026-05-04-phase-3.5";
+export const ENGINE_VERSION = "v3-2026-05-04-phase-3.6";
 
 /** Final decision label. */
 export type DecisionLabel =
@@ -202,7 +202,7 @@ export const DECISION_BADGE_DISPLAY: Record<
   stale_lifecycle: { label: "Lifecycle stale", severity: "warning" },
   stale_decision_context: {
     label: "Stale decision context",
-    severity: "warning",
+    severity: "info",
   },
   lifecycle_unavailable: {
     label: "Lifecycle data unavailable",

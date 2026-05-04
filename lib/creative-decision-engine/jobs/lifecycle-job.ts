@@ -743,9 +743,7 @@ DO UPDATE SET
   fatigue_status = EXCLUDED.fatigue_status,
   fatigue_confidence = EXCLUDED.fatigue_confidence,
   fatigue_evidence = EXCLUDED.fatigue_evidence,
-  decision_recommended_at = NULL,
-  operator_response_detected_at = NULL,
-  operator_response_type = NULL,
+  -- Preserve Phase 3.8 operator response columns on rerun; lifecycle owns analytical fields only.
   effective_status = EXCLUDED.effective_status,
   objective = EXCLUDED.objective,
   target_roas = EXCLUDED.target_roas,

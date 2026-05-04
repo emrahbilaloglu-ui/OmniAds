@@ -32,6 +32,13 @@ type DistributionRow = Record<string, unknown> & {
   count: unknown;
 };
 
+type OperatorResponseRow = Record<string, unknown> & {
+  creative_id: unknown;
+  decision_recommended_at: unknown;
+  operator_response_detected_at: unknown;
+  operator_response_type: unknown;
+};
+
 function toNumber(value: unknown) {
   return typeof value === "number" ? value : Number(value ?? 0);
 }
@@ -174,6 +181,66 @@ describe.skipIf(!process.env.DATABASE_URL)("lifecycle job", () => {
       [businessId, AS_OF, ENGINE_VERSION, JOB_NAME],
     );
     expect(toNumber(jobRunCount?.count)).toBe(2);
+  });
+
+  it("preserves operator response columns across lifecycle reruns", async () => {
+    const businessId = TEST_BUSINESS_IDS[0]!;
+    await runCalibrationJob({ businessId, asOf: AS_OF });
+
+    const first = await runLifecycleJob({ businessId, asOf: AS_OF });
+    expect(first.status).toBe("success");
+
+    const [selected] = await getDb().query<OperatorResponseRow>(
+      `
+      SELECT creative_id
+      FROM engine_v3_creative_lifecycle_daily
+      WHERE business_ref_id = $1::uuid
+        AND as_of_date = $2::date
+        AND engine_version = $3
+      ORDER BY creative_id
+      LIMIT 1
+      `,
+      [businessId, AS_OF, ENGINE_VERSION],
+    );
+    expect(typeof selected?.creative_id).toBe("string");
+    const creativeId = String(selected?.creative_id);
+
+    await getDb().query(
+      `
+      UPDATE engine_v3_creative_lifecycle_daily
+      SET
+        decision_recommended_at = now(),
+        operator_response_detected_at = now(),
+        operator_response_type = 'scaled'
+      WHERE business_ref_id = $1::uuid
+        AND creative_id = $2
+        AND as_of_date = $3::date
+        AND engine_version = $4
+      `,
+      [businessId, creativeId, AS_OF, ENGINE_VERSION],
+    );
+
+    const second = await runLifecycleJob({ businessId, asOf: AS_OF });
+    expect(second.status).toBe("success");
+
+    const [preserved] = await getDb().query<OperatorResponseRow>(
+      `
+      SELECT
+        decision_recommended_at,
+        operator_response_detected_at,
+        operator_response_type
+      FROM engine_v3_creative_lifecycle_daily
+      WHERE business_ref_id = $1::uuid
+        AND creative_id = $2
+        AND as_of_date = $3::date
+        AND engine_version = $4
+      `,
+      [businessId, creativeId, AS_OF, ENGINE_VERSION],
+    );
+
+    expect(preserved?.operator_response_type).toBe("scaled");
+    expect(preserved?.decision_recommended_at).not.toBeNull();
+    expect(preserved?.operator_response_detected_at).not.toBeNull();
   });
 
   it("records skipped when the advisory lock is already held", async () => {

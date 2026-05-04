@@ -5,6 +5,7 @@ import {
   ENGINE_VERSION,
   MockDataSource,
 } from "..";
+import { makeDataHealth, makeDataLayerHealth } from "./helpers";
 
 describe("creative-decision-engine v3", () => {
   const mock = new MockDataSource();
@@ -142,6 +143,31 @@ describe("creative-decision-engine v3", () => {
     expect(out.badges.map((badge) => badge.type)).toContain(
       "opportunity_window_open",
     );
+    expect(out.confidence).toBe(67);
+  });
+
+  it("applies DataHealth stale badges and confidence penalties when provided", async () => {
+    const input = await getMockCreativeInput("c-1");
+    const calibration = await mock.getAccountCalibration({
+      businessId: "biz-1",
+      asOf: "2026-05-04",
+    });
+    const config = defaultBusinessConfig("biz-1");
+    const dataHealth = makeDataHealth({
+      calibration: makeDataLayerHealth({ staleTier: "disabled" }),
+      lifecycle: makeDataLayerHealth({ staleTier: "warning" }),
+      decisions: makeDataLayerHealth({ staleTier: "warning" }),
+    });
+
+    const out = decideCreative(input, config, calibration, dataHealth);
+
+    expect(out.label).toBe("keep");
+    expect(out.badges.map((badge) => badge.type)).toEqual([
+      "stale_calibration",
+      "stale_lifecycle",
+      "stale_decision_context",
+      "opportunity_window_open",
+    ]);
     expect(out.confidence).toBe(67);
   });
 

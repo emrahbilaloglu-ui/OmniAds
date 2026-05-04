@@ -3,6 +3,7 @@ import {
   type AccountCalibration,
   type BusinessConfig,
   type CreativeInput,
+  type DataHealth,
   type DecisionBadge,
   type DecisionLabel,
   type DecisionOutput,
@@ -13,6 +14,7 @@ export interface GateContext {
   input: CreativeInput;
   businessConfig: BusinessConfig;
   calibration: AccountCalibration;
+  dataHealth?: DataHealth;
   effectiveTargetRoas: number;
   truthSource: TruthSource;
   ratioToTarget: number | null;
@@ -53,6 +55,46 @@ export function applyPostProcess(
 ): { badges: DecisionBadge[]; confidenceDeltas: number[] } {
   const badges: DecisionBadge[] = [...ctx.badges];
   const confidenceDeltas: number[] = [...ctx.confidenceDeltas];
+
+  if (ctx.dataHealth) {
+    if (ctx.dataHealth.calibration.staleTier === "warning") {
+      badges.push({
+        type: "stale_calibration",
+        label: "Calibration data stale",
+        severity: "warning",
+      });
+    } else if (ctx.dataHealth.calibration.staleTier === "disabled") {
+      badges.push({
+        type: "stale_calibration",
+        label: "Calibration data too stale",
+        severity: "warning",
+      });
+      confidenceDeltas.push(-10);
+    }
+
+    if (ctx.dataHealth.lifecycle.staleTier === "warning") {
+      badges.push({
+        type: "stale_lifecycle",
+        label: "Lifecycle data stale",
+        severity: "warning",
+      });
+    } else if (ctx.dataHealth.lifecycle.staleTier === "disabled") {
+      badges.push({
+        type: "stale_lifecycle",
+        label: "Lifecycle data too stale",
+        severity: "warning",
+      });
+      confidenceDeltas.push(-15);
+    }
+
+    if (ctx.dataHealth.decisions.staleTier === "warning") {
+      badges.push({
+        type: "stale_decision_context",
+        label: "Decision context stale",
+        severity: "info",
+      });
+    }
+  }
 
   const ctrThreshold =
     ctx.calibration.lowCtrP10 ?? ctx.businessConfig.lowCtrThresholdFallback;

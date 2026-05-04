@@ -103,6 +103,10 @@ async function main() {
         businessId,
         asOf,
       });
+      const dataHealth = await dataSource.getDataHealth({
+        businessId,
+        asOf,
+      });
       const config = defaultBusinessConfig(businessId);
 
       const creativeIds = group.map((row) => row.creative_id);
@@ -162,7 +166,7 @@ async function main() {
           continue;
         }
 
-        const decision = decideCreative(input, config, calibration);
+        const decision = decideCreative(input, config, calibration, dataHealth);
         output.push({
           business_name: row.business_name,
           business_id: row.business_id,

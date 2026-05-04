@@ -314,6 +314,10 @@ export async function runDecisionsJob(
         businessId: input.businessId,
         asOf: input.asOf,
       });
+      const dataHealth = await dataSource.getDataHealth({
+        businessId: input.businessId,
+        asOf: input.asOf,
+      });
       const creativeInputs = await dataSource.listCreativeInputs({
         businessId: input.businessId,
         asOf: input.asOf,
@@ -322,7 +326,7 @@ export async function runDecisionsJob(
       const decisions: DecisionComputation[] = creativeInputs.map(
         (creativeInput) => ({
           input: creativeInput,
-          decision: decideCreative(creativeInput, config, calibration),
+          decision: decideCreative(creativeInput, config, calibration, dataHealth),
         }),
       );
 

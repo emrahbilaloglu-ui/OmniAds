@@ -4,6 +4,8 @@ import type {
   AccountCalibration,
   BusinessConfig,
   CreativeInput,
+  DataHealth,
+  DataLayerHealth,
 } from "../types";
 
 export function makeCreativeInput(
@@ -55,11 +57,53 @@ export function makeAccountCalibration(
   };
 }
 
+export function makeDataLayerHealth(
+  overrides: Partial<DataLayerHealth> = {},
+): DataLayerHealth {
+  return {
+    asOfDate: "2026-05-04",
+    computedAt: "2026-05-04T00:00:00.000Z",
+    sourceFreshnessHours: 0,
+    staleTier: "none",
+    fallbackMode: "precomputed",
+    note: null,
+    ...overrides,
+  };
+}
+
+export function makeDataHealth(
+  overrides: Partial<DataHealth> = {},
+): DataHealth {
+  const calibration = overrides.calibration ?? makeDataLayerHealth();
+  const lifecycle = overrides.lifecycle ?? makeDataLayerHealth();
+  const decisions = overrides.decisions ?? makeDataLayerHealth();
+  const staleTiers = [
+    calibration.staleTier,
+    lifecycle.staleTier,
+    decisions.staleTier,
+  ];
+  const worstTier = staleTiers.includes("disabled")
+    ? "disabled"
+    : staleTiers.includes("warning")
+      ? "warning"
+      : "none";
+
+  return {
+    calibration,
+    lifecycle,
+    decisions,
+    worstTier,
+    degraded: worstTier === "disabled",
+    ...overrides,
+  };
+}
+
 export function makeGateContext(
   overrides: {
     input?: CreativeInput;
     businessConfig?: BusinessConfig;
     calibration?: AccountCalibration;
+    dataHealth?: DataHealth;
     gate?: Partial<
       Omit<GateContext, "input" | "businessConfig" | "calibration">
     >;
@@ -72,6 +116,7 @@ export function makeGateContext(
     input: overrides.input ?? makeCreativeInput(),
     businessConfig,
     calibration: overrides.calibration ?? makeAccountCalibration(),
+    dataHealth: overrides.dataHealth,
     effectiveTargetRoas: businessConfig.globalDefaultTargetRoas,
     truthSource: "global_default",
     ratioToTarget: null,

@@ -5,11 +5,14 @@ import type {
   AccountCalibration,
   BusinessConfig,
   CreativeInput,
+  DataHealth,
   DecisionLabel,
 } from "../../types";
 import {
   makeAccountCalibration,
   makeCreativeInput,
+  makeDataHealth,
+  makeDataLayerHealth,
   makeGateContext,
 } from "../helpers";
 
@@ -19,6 +22,7 @@ function runPostProcess(
     input?: Partial<CreativeInput>;
     businessConfig?: Partial<BusinessConfig>;
     calibration?: Partial<AccountCalibration>;
+    dataHealth?: DataHealth;
   } = {},
 ) {
   const businessConfig = {
@@ -31,6 +35,7 @@ function runPostProcess(
       input: makeCreativeInput(overrides.input),
       businessConfig,
       calibration: makeAccountCalibration(overrides.calibration),
+      dataHealth: overrides.dataHealth,
     }),
     label,
   );
@@ -39,6 +44,85 @@ function runPostProcess(
 function badgeTypes(result: ReturnType<typeof runPostProcess>) {
   return result.badges.map((badge) => badge.type);
 }
+
+describe("applyPostProcess - data health", () => {
+  it("adds stale_calibration without confidence penalty for warning freshness", () => {
+    const result = runPostProcess("keep", {
+      dataHealth: makeDataHealth({
+        calibration: makeDataLayerHealth({ staleTier: "warning" }),
+      }),
+    });
+
+    expect(result.badges).toContainEqual({
+      type: "stale_calibration",
+      label: "Calibration data stale",
+      severity: "warning",
+    });
+    expect(result.confidenceDeltas).toEqual([]);
+  });
+
+  it("adds stale_calibration and -10 confidence for disabled freshness", () => {
+    const result = runPostProcess("keep", {
+      dataHealth: makeDataHealth({
+        calibration: makeDataLayerHealth({ staleTier: "disabled" }),
+      }),
+    });
+
+    expect(result.badges).toContainEqual({
+      type: "stale_calibration",
+      label: "Calibration data too stale",
+      severity: "warning",
+    });
+    expect(result.confidenceDeltas).toEqual([-10]);
+  });
+
+  it("adds stale_lifecycle and -15 confidence for disabled freshness", () => {
+    const result = runPostProcess("keep", {
+      dataHealth: makeDataHealth({
+        lifecycle: makeDataLayerHealth({ staleTier: "disabled" }),
+      }),
+    });
+
+    expect(result.badges).toContainEqual({
+      type: "stale_lifecycle",
+      label: "Lifecycle data too stale",
+      severity: "warning",
+    });
+    expect(result.confidenceDeltas).toEqual([-15]);
+  });
+
+  it("adds stale_decision_context as informational without confidence penalty", () => {
+    const result = runPostProcess("keep", {
+      dataHealth: makeDataHealth({
+        decisions: makeDataLayerHealth({ staleTier: "warning" }),
+      }),
+    });
+
+    expect(result.badges).toContainEqual({
+      type: "stale_decision_context",
+      label: "Decision context stale",
+      severity: "info",
+    });
+    expect(result.confidenceDeltas).toEqual([]);
+  });
+
+  it("emits separate stale badges and stacks disabled-layer penalties", () => {
+    const result = runPostProcess("keep", {
+      dataHealth: makeDataHealth({
+        calibration: makeDataLayerHealth({ staleTier: "disabled" }),
+        lifecycle: makeDataLayerHealth({ staleTier: "disabled" }),
+        decisions: makeDataLayerHealth({ staleTier: "warning" }),
+      }),
+    });
+
+    expect(badgeTypes(result)).toEqual([
+      "stale_calibration",
+      "stale_lifecycle",
+      "stale_decision_context",
+    ]);
+    expect(result.confidenceDeltas).toEqual([-10, -15]);
+  });
+});
 
 describe("applyPostProcess - low CTR", () => {
   it("adds a low_ctr badge for keep without a confidence penalty", () => {

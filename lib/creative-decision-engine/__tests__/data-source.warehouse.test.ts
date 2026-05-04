@@ -35,17 +35,15 @@ async function cleanupPrecomputedTestRows() {
     `
     DELETE FROM engine_v3_creative_lifecycle_daily
     WHERE business_ref_id = $1::uuid
-      AND engine_version = $2
     `,
-    [PRECOMPUTED_TEST_BUSINESS_ID, ENGINE_VERSION],
+    [PRECOMPUTED_TEST_BUSINESS_ID],
   );
   await getDb().query(
     `
     DELETE FROM engine_v3_account_calibration_daily
     WHERE business_ref_id = $1::uuid
-      AND engine_version = $2
     `,
-    [PRECOMPUTED_TEST_BUSINESS_ID, ENGINE_VERSION],
+    [PRECOMPUTED_TEST_BUSINESS_ID],
   );
 }
 
@@ -58,16 +56,18 @@ async function cleanupLifecycleRowsForAsOf(input: {
     DELETE FROM engine_v3_creative_lifecycle_daily
     WHERE business_ref_id = $1::uuid
       AND as_of_date = $2::date
-      AND engine_version = $3
     `,
-    [input.businessId, input.asOf, ENGINE_VERSION],
+    [input.businessId, input.asOf],
   );
 }
 
 async function insertPrecomputedCalibration(input?: {
   sourceMaxUpdatedAt?: string;
+  engineVersion?: string;
+  asOf?: string;
 }) {
   await cleanupPrecomputedTestRows();
+  const asOf = input?.asOf ?? AS_OF;
   await getDb().query(
     `
     INSERT INTO engine_v3_account_calibration_daily (
@@ -89,8 +89,8 @@ async function insertPrecomputedCalibration(input?: {
     `,
     [
       PRECOMPUTED_TEST_BUSINESS_ID,
-      AS_OF,
-      ENGINE_VERSION,
+      asOf,
+      input?.engineVersion ?? ENGINE_VERSION,
       input?.sourceMaxUpdatedAt ?? new Date().toISOString(),
     ],
   );
@@ -99,8 +99,15 @@ async function insertPrecomputedCalibration(input?: {
 async function insertPrecomputedLifecycle(input?: {
   sourceMaxUpdatedAt?: string;
   creativeId?: string;
+  engineVersion?: string;
+  asOf?: string;
+  spend28d?: number;
+  cleanup?: boolean;
 }) {
-  await cleanupPrecomputedTestRows();
+  if (input?.cleanup !== false) {
+    await cleanupPrecomputedTestRows();
+  }
+  const asOf = input?.asOf ?? AS_OF;
   await getDb().query(
     `
     INSERT INTO engine_v3_creative_lifecycle_daily (
@@ -120,7 +127,7 @@ async function insertPrecomputedLifecycle(input?: {
     VALUES (
       $1::uuid, $1, $2, $3::date, $4,
       'campaign-precomputed-1', 'OUTCOME_SALES',
-      321.5, 6, 963, 12345, 456,
+      $6, 6, 963, 12345, 456,
       2.995334370139969, 53.583333333333336, 1.23, 1.8,
       88.25, 2, 2.7, 2345,
       ($3::date - INTERVAL '32 days')::date, $3::date, 18, 32,
@@ -135,9 +142,10 @@ async function insertPrecomputedLifecycle(input?: {
     [
       PRECOMPUTED_TEST_BUSINESS_ID,
       input?.creativeId ?? PRECOMPUTED_LIFECYCLE_CREATIVE_ID,
-      AS_OF,
-      ENGINE_VERSION,
+      asOf,
+      input?.engineVersion ?? ENGINE_VERSION,
       input?.sourceMaxUpdatedAt ?? new Date().toISOString(),
+      input?.spend28d ?? 321.5,
     ],
   );
 }
@@ -376,7 +384,31 @@ describe.skipIf(!process.env.DATABASE_URL)(
         lowCtrP10: 0.44,
       });
       expect(health.calibration.fallbackMode).toBe("precomputed");
-      expect(health.calibration.note).toBeNull();
+      expect(health.calibration.note).toBe(
+        `computed by engine ${ENGINE_VERSION}`,
+      );
+    });
+
+    it("reads account calibration across engine version bumps", async () => {
+      await insertPrecomputedCalibration({
+        engineVersion: "v3-2026-05-04-phase-3.5",
+      });
+      const precomputedWarehouse = new WarehouseDataSource();
+
+      const calibration = await precomputedWarehouse.getAccountCalibration({
+        businessId: PRECOMPUTED_TEST_BUSINESS_ID,
+        asOf: AS_OF,
+      });
+      const health = await precomputedWarehouse.getDataHealth({
+        businessId: PRECOMPUTED_TEST_BUSINESS_ID,
+        asOf: AS_OF,
+      });
+
+      expect(calibration.matureCreativeCount).toBe(35);
+      expect(health.calibration.fallbackMode).toBe("precomputed");
+      expect(health.calibration.note).toBe(
+        "computed by engine v3-2026-05-04-phase-3.5",
+      );
     });
 
     it("reports lifecycle health as precomputed when lifecycle rows exist", async () => {
@@ -391,6 +423,44 @@ describe.skipIf(!process.env.DATABASE_URL)(
       expect(health.lifecycle.fallbackMode).toBe("precomputed");
       expect(health.lifecycle.note).toBeNull();
       expect(health.lifecycle.staleTier).toBe("none");
+    });
+
+    it("reads lifecycle rows from the latest available as-of date", async () => {
+      await insertPrecomputedLifecycle({
+        asOf: "2026-05-03",
+        engineVersion: "v3-2026-05-04-phase-3.5",
+      });
+      const precomputedWarehouse = new WarehouseDataSource();
+
+      const input = await precomputedWarehouse.getCreativeInput({
+        creativeId: PRECOMPUTED_LIFECYCLE_CREATIVE_ID,
+        businessId: PRECOMPUTED_TEST_BUSINESS_ID,
+        asOf: AS_OF,
+      });
+
+      expect(input?.creativeId).toBe(PRECOMPUTED_LIFECYCLE_CREATIVE_ID);
+      expect(input?.spend).toBe(321.5);
+    });
+
+    it("uses the latest lifecycle row on or before asOf for bulk hydration", async () => {
+      await insertPrecomputedLifecycle({
+        asOf: "2026-05-03",
+        spend28d: 111,
+      });
+      await insertPrecomputedLifecycle({
+        asOf: AS_OF,
+        spend28d: 444,
+        cleanup: false,
+      });
+      const precomputedWarehouse = new WarehouseDataSource();
+
+      const inputs = await precomputedWarehouse.listCreativeInputs({
+        businessId: PRECOMPUTED_TEST_BUSINESS_ID,
+        asOf: AS_OF,
+      });
+
+      expect(inputs[0]?.creativeId).toBe(PRECOMPUTED_LIFECYCLE_CREATIVE_ID);
+      expect(inputs[0]?.spend).toBe(444);
     });
 
     it("falls back when no precomputed calibration row exists", async () => {
@@ -412,7 +482,25 @@ describe.skipIf(!process.env.DATABASE_URL)(
         roasP60: null,
       });
       expect(health.calibration.fallbackMode).toBe("insufficient");
-      expect(health.calibration.note).toContain("Insufficient calibration sample");
+      expect(health.calibration.staleTier).toBe("warning");
+      expect(health.calibration.note).toBe(
+        "no precomputed row available; runtime fallback in use",
+      );
+    });
+
+    it("reports warehouse lifecycle health as warning when no precomputed row exists", async () => {
+      const fallbackWarehouse = new WarehouseDataSource();
+
+      const health = await fallbackWarehouse.getDataHealth({
+        businessId: PRECOMPUTED_TEST_BUSINESS_ID,
+        asOf: AS_OF,
+      });
+
+      expect(health.lifecycle.fallbackMode).toBe("runtime_sql");
+      expect(health.lifecycle.staleTier).toBe("warning");
+      expect(health.lifecycle.note).toBe(
+        "no precomputed row available; runtime fallback in use",
+      );
     });
 
     it("returns data health with calibration, lifecycle, and decision layer paths", async () => {

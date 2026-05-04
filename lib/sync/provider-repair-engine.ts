@@ -15,7 +15,10 @@ import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
-import { getProviderPlatformPreviousDate } from "@/lib/provider-platform-date";
+import {
+  getProviderPlatformDateBoundaries,
+  getProviderPlatformPreviousDate,
+} from "@/lib/provider-platform-date";
 import {
   buildBlockingReason,
   buildRepairableAction,
@@ -403,6 +406,21 @@ async function buildGoogleAdvisorRecentGapRepairs(input: {
   };
 }
 
+async function resolveMetaIntegrityRepairEndDate(businessId: string) {
+  const boundaries = await getProviderPlatformDateBoundaries({
+    provider: "meta",
+    businessId,
+  }).catch(() => []);
+  const previousDates = boundaries
+    .map((boundary) => boundary.previousDate)
+    .filter((date): date is string => Boolean(date))
+    .sort();
+  return (
+    previousDates[0] ??
+    addUtcDays(new Date().toISOString().slice(0, 10), -1)
+  );
+}
+
 export async function runGoogleAdsRepairCycle(
   businessId: string,
   options?: ProviderRepairCycleOptions
@@ -668,7 +686,7 @@ export async function runMetaRepairCycle(
     onError: () => null,
   });
   const queueHealthBeforeEnqueue = await metaWarehouse.getMetaQueueHealth({ businessId }).catch(() => null);
-  const integrityEndDate = new Date().toISOString().slice(0, 10);
+  const integrityEndDate = await resolveMetaIntegrityRepairEndDate(businessId);
   const integrityStartDate = addUtcDays(integrityEndDate, -45);
   const integrityIncidents = await captureMetaRepairStage({
     businessId,

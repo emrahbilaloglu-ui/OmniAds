@@ -166,7 +166,7 @@ describe("buildMetaIntegrationSummary", () => {
       key: "extended_surfaces",
       state: "working",
       code: "historical_extended_preparing",
-      percent: 33,
+      percent: null,
       evidence: {
         completedDays: 120,
         totalDays: 365,
@@ -202,7 +202,7 @@ describe("buildMetaIntegrationSummary", () => {
       key: "extended_surfaces",
       state: "working",
       code: "historical_extended_preparing",
-      percent: 33,
+      percent: null,
       evidence: {
         completedDays: 120,
         totalDays: 365,
@@ -531,7 +531,7 @@ describe("buildMetaIntegrationSummary", () => {
     expect(summary.stages.find((stage) => stage.key === "extended_surfaces")).toMatchObject({
       state: "working",
       code: "historical_extended_preparing",
-      percent: 83,
+      percent: null,
       evidence: {
         completedDays: 5,
         totalDays: 6,

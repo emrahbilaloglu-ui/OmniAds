@@ -618,10 +618,7 @@ function buildExtendedStage(
       ? status.extendedCompleteness?.complete
         ? null
         : historicalOnlyExtendedLag
-          ? clampPercent(
-              status.extendedCompleteness?.percent ??
-                extendedSurfaceMetrics.historicalPercent
-            )
+          ? null
           : recentLag
             ? extendedSurfaceMetrics.recentPercent
             : null
@@ -630,7 +627,7 @@ function buildExtendedStage(
           status.extendedCompleteness.percent != null
         ? clampPercent(status.extendedCompleteness.percent)
         : historicalLag
-          ? extendedSurfaceMetrics.historicalPercent
+          ? null
           : null;
 
   const progressCompletedDays = recentWindowScope

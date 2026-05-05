@@ -10,8 +10,8 @@ Universe: **154 creatives** (TheSwaf 47 + IwaStore 107; active + closed_30d).
 | keep | 18 | 7 | 28 | 23 | 34 |
 | refresh | 0 | 4 | 18 | 0 | 17 |
 | cut | 5 | 24 | 22 | 2 | 57 |
-| test_more | 99 | 96 | 73 | 128 | 0 |
-| diagnose | 17 | 22 | 0 | 0 | 33 |
+| test_more | 101 | 96 | 73 | 128 | 0 |
+| diagnose | 15 | 22 | 0 | 0 | 33 |
 | out_of_scope | 5 | 0 | 0 | 0 | 0 |
 | missing | 9 | 0 | 0 | 0 | 0 |
 
@@ -19,16 +19,16 @@ Universe: **154 creatives** (TheSwaf 47 + IwaStore 107; active + closed_30d).
 
 | | v3 | me | marcus | lin | aria |
 |---|---:|---:|---:|---:|---:|
-| v3 | 100.0% | 73.6% | 41.4% | 74.3% | 12.1% |
-| me | 73.6% | 100.0% | 55.8% | 68.2% | 24.0% |
-| marcus | 41.4% | 55.8% | 100.0% | 50.0% | 24.7% |
-| lin | 74.3% | 68.2% | 50.0% | 100.0% | 3.2% |
+| v3 | 100.0% | 75.0% | 42.1% | 75.7% | 12.1% |
+| me | 75.0% | 100.0% | 55.8% | 68.2% | 24.0% |
+| marcus | 42.1% | 55.8% | 100.0% | 50.0% | 24.7% |
+| lin | 75.7% | 68.2% | 50.0% | 100.0% | 3.2% |
 | aria | 12.1% | 24.0% | 24.7% | 3.2% | 100.0% |
 
 ## Strong consensus (5/5 same label) — 0 creatives
 
 
-## 4/5 consensus (1 outlier) — 58 creatives
+## 4/5 consensus (1 outlier) — 59 creatives
 
 | business | name | bucket | spend_28d | roas_28d | v3 | me | Marcus | Lin | Aria | outlier |
 |---|---|---|---:|---:|---|---|---|---|---|---|
@@ -58,14 +58,13 @@ Universe: **154 creatives** (TheSwaf 47 + IwaStore 107; active + closed_30d).
 | IwaStore | decorista_93 | active | $7 | 0.0000 | test_more | test_more | test_more | test_more | cut | **aria** |
 | IwaStore | It became the favorite | active | $6 | 0.0000 | test_more | test_more | test_more | test_more | cut | **aria** |
 
-_... and 33 more_
+_... and 34 more_
 
-## High disagreement (≥4 unique labels) — 7 creatives
+## High disagreement (≥4 unique labels) — 6 creatives
 
 | business | name | bucket | spend_28d | roas_28d | v3 | me | Marcus | Lin | Aria |
 |---|---|---|---:|---:|---|---|---|---|---|
 | IwaStore | WallArtCatalog | closed_30d | $865 | 3.9251 | keep | diagnose | refresh | scale | diagnose |
-| IwaStore | WoodenWallArtCatalog | active | $5 | 31.2818 | diagnose | test_more | keep | test_more | scale |
 | TheSwaf | EMB - AllRings | active | $498 | 1.4537 | keep | cut | refresh | test_more | refresh |
 | TheSwaf | TargeryenFlex | closed_30d | $0 | 1085.5263 | test_more | cut | scale | keep | diagnose |
 | IwaStore | A prayer niche | closed_30d | $116 | 3.2574 | test_more | diagnose | refresh | keep | diagnose |
@@ -74,7 +73,7 @@ _... and 33 more_
 
 ## v3 vs human consensus
 
-- **v3 matches majority consensus**: 101/154 (65.6%)
-- **v3 differs from majority**: 33/154 (21.4%)
-- **No clear consensus among humans+engine**: 20/154 (13.0%)
+- **v3 matches majority consensus**: 103/154 (66.9%)
+- **v3 differs from majority**: 32/154 (20.8%)
+- **No clear consensus among humans+engine**: 19/154 (12.3%)
 

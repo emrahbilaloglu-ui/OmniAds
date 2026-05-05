@@ -74,6 +74,7 @@ export interface MetaCreativeRow {
   campaignName?: string | null;
   adSetId?: string | null;
   adSetName?: string | null;
+  effectiveStatus?: string | null;
   currency: string | null;
   format: CreativeFormat;
   creativeType: CreativeType;

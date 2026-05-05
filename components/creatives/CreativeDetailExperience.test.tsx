@@ -5,6 +5,9 @@ import { mapApiRowToUiRow } from "@/app/(dashboard)/creatives/page-support";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 
 vi.mock("@tanstack/react-query", () => ({
+  useQueryClient: () => ({
+    invalidateQueries: vi.fn(),
+  }),
   useQuery: () => ({
     data: null,
     isLoading: false,

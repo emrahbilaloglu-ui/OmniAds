@@ -388,6 +388,7 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     campaignName: row.campaign_name ?? null,
     adSetId: row.adset_id ?? null,
     adSetName: row.adset_name ?? null,
+    effectiveStatus: row.effective_status ?? null,
     currency: row.currency ?? null,
     format: row.format ?? "image",
     creativeType: legacyCreativeType,

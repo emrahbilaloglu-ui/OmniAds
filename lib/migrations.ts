@@ -1396,6 +1396,32 @@ export async function runMigrations(options?: {
           meta        JSONB NOT NULL DEFAULT '{}'::jsonb,
           created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
         )`,
+        sql`CREATE TABLE IF NOT EXISTS meta_ads_action_log (
+          id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id     UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          ad_id           TEXT NOT NULL,
+          creative_id     TEXT,
+          action          TEXT NOT NULL CHECK (action IN ('pause', 'resume', 'duplicate')),
+          source          TEXT NOT NULL DEFAULT 'ui_manual',
+          requested_by    UUID,
+          requested_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          payload_request JSONB,
+          payload_response JSONB,
+          status          TEXT NOT NULL DEFAULT 'pending'
+            CHECK (status IN ('pending', 'success', 'failure', 'silent_failure')),
+          error_code      TEXT,
+          error_message   TEXT,
+          resulting_ad_id TEXT,
+          duration_ms     INTEGER,
+          verified_at     TIMESTAMPTZ,
+          verification_payload JSONB,
+          created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_ads_action_log_business_recent
+          ON meta_ads_action_log (business_id, requested_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_ads_action_log_ad
+          ON meta_ads_action_log (ad_id, requested_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS discount_codes (
           id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           code        TEXT NOT NULL UNIQUE,

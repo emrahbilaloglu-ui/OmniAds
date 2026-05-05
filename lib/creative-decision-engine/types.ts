@@ -5,7 +5,7 @@
  * built in parallel.
  */
 
-export const ENGINE_VERSION = "v3-2026-05-04-phase-3.9.1";
+export const ENGINE_VERSION = "v3-2026-05-04-phase-3.10";
 
 /** Final decision label. */
 export type DecisionLabel =

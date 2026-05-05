@@ -4462,7 +4462,7 @@ export async function runMigrations(options?: {
           decision_recommended_at       TIMESTAMPTZ,
           operator_response_detected_at TIMESTAMPTZ,
           operator_response_type        TEXT CHECK (operator_response_type IN (
-            'scaled', 'ignored', 'paused', 'budget_cut', 'unknown'
+            'scaled', 'ignored', 'paused', 'creative_archived', 'budget_cut', 'unknown'
           )),
           effective_status              TEXT,
           objective                      TEXT,
@@ -4510,6 +4510,48 @@ export async function runMigrations(options?: {
           ADD COLUMN IF NOT EXISTS site_responsibility_score DOUBLE PRECISION,
           ADD COLUMN IF NOT EXISTS checkout_responsibility_score DOUBLE PRECISION,
           ADD COLUMN IF NOT EXISTS tracking_anomaly_score DOUBLE PRECISION`.catch(() => {}),
+        sql`DO $$
+          DECLARE
+            old_constraint_name TEXT;
+          BEGIN
+            SELECT c.conname
+            INTO old_constraint_name
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'engine_v3_creative_lifecycle_daily'
+              AND c.contype = 'c'
+              AND pg_get_constraintdef(c.oid) LIKE '%operator_response_type%'
+              AND pg_get_constraintdef(c.oid) NOT LIKE '%creative_archived%'
+            LIMIT 1;
+
+            IF old_constraint_name IS NOT NULL THEN
+              EXECUTE format(
+                'ALTER TABLE engine_v3_creative_lifecycle_daily DROP CONSTRAINT %I',
+                old_constraint_name
+              );
+            END IF;
+
+            IF NOT EXISTS (
+              SELECT 1
+              FROM pg_constraint c
+              JOIN pg_class t ON t.oid = c.conrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+              WHERE n.nspname = current_schema()
+                AND t.relname = 'engine_v3_creative_lifecycle_daily'
+                AND c.contype = 'c'
+                AND pg_get_constraintdef(c.oid) LIKE '%operator_response_type%'
+                AND pg_get_constraintdef(c.oid) LIKE '%creative_archived%'
+            ) THEN
+              ALTER TABLE engine_v3_creative_lifecycle_daily
+                ADD CONSTRAINT engine_v3_creative_lifecycle_daily_operator_response_type_check
+                CHECK (operator_response_type IN (
+                  'scaled', 'ignored', 'paused', 'creative_archived', 'budget_cut', 'unknown'
+                ));
+            END IF;
+          END
+          $$`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_lifecycle_business_day
           ON engine_v3_creative_lifecycle_daily
           (business_ref_id, as_of_date DESC, creative_id)`,

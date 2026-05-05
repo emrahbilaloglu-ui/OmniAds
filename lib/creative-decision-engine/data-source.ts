@@ -13,13 +13,17 @@ import {
 import { classifyMetaAovQuality } from "./spend-unit-resolver";
 import type {
   AccountCalibration,
+  AccountFunnelCalibration,
   CampaignObjective,
+  CreativeFormat,
   CreativeInput,
   DataHealth,
   DataLayerHealth,
   EngineRiskPreset,
   FallbackMode,
+  FormatFunnelBaseline,
   LifecyclePosition,
+  MetaRanking,
   MetaAovQuality,
   SpendTrajectory,
   StaleTier,
@@ -67,6 +71,12 @@ export interface CreativeDecisionDataSource {
     businessId: string;
     asOf: string;
   }): Promise<AccountCalibration>;
+
+  /** Return per-format account funnel baselines (Phase 3.9). */
+  getAccountFunnelCalibration(input: {
+    businessId: string;
+    asOf: string;
+  }): Promise<AccountFunnelCalibration>;
 
   /** Bulk fetch - used by surface to render a creative list. */
   listCreativeInputs(input: {
@@ -150,6 +160,20 @@ export class MockDataSource implements CreativeDecisionDataSource {
       spendSlope30d: 0.2,
       roasSlope7d: -0.05,
       roasSlope30d: 0.0,
+      cpm: 10,
+      outboundClicks: 520,
+      landingPageViews: 480,
+      addToCart: 80,
+      initiateCheckout: 40,
+      thumbstop: 25,
+      video25Rate: 18,
+      video50Rate: 10,
+      video75Rate: 6,
+      video100Rate: 3,
+      qualityRanking: "average",
+      engagementRateRanking: "average",
+      conversionRateRanking: "average",
+      creativeFormat: "video",
     };
   }
 
@@ -180,6 +204,36 @@ export class MockDataSource implements CreativeDecisionDataSource {
       roasRatioP50: 1.0,
       roasRatioP75: 1.35,
       metaAovQuality: "ready",
+    };
+  }
+
+  async getAccountFunnelCalibration(): Promise<AccountFunnelCalibration> {
+    return {
+      byFormat: {
+        overall: {
+          creativeFormat: "overall",
+          ctrP25: 0.8,
+          ctrP50: 1.2,
+          cpmP50: 12,
+          cpmP75: 18,
+          thumbstopP25: 15,
+          thumbstopP50: 25,
+          linkToLpvP25: 60,
+          linkToLpvP50: 75,
+          linkToAtcP25: 8,
+          linkToAtcP50: 12,
+          lpvToAtcP25: 10,
+          lpvToAtcP50: 16,
+          atcToIcP25: 35,
+          atcToIcP50: 50,
+          icToPurchaseP25: 20,
+          icToPurchaseP50: 30,
+          clickToPurchaseP25: 0.8,
+          clickToPurchaseP50: 1.2,
+          sampleSize: 35,
+          qualityStatus: "ready",
+        },
+      },
     };
   }
 
@@ -297,6 +351,21 @@ const SPEND_TRAJECTORIES = new Set<SpendTrajectory>([
   "unknown",
 ]);
 
+const META_RANKINGS = new Set<MetaRanking>([
+  "above_average",
+  "average",
+  "below_average",
+  "unknown",
+]);
+
+const CREATIVE_FORMATS = new Set<CreativeFormat>([
+  "image",
+  "video",
+  "carousel",
+  "catalog",
+  "other",
+]);
+
 type CreativeHydrationRow = Record<string, unknown> & {
   creative_id: unknown;
   creative_name: unknown;
@@ -322,6 +391,20 @@ type CreativeHydrationRow = Record<string, unknown> & {
   data_freshness_hours: unknown;
   target_roas: unknown;
   break_even_roas: unknown;
+  cpm: unknown;
+  outbound_clicks: unknown;
+  landing_page_views: unknown;
+  add_to_cart: unknown;
+  initiate_checkout: unknown;
+  thumbstop: unknown;
+  video25_rate: unknown;
+  video50_rate: unknown;
+  video75_rate: unknown;
+  video100_rate: unknown;
+  quality_ranking: unknown;
+  engagement_rate_ranking: unknown;
+  conversion_rate_ranking: unknown;
+  creative_format: unknown;
 };
 
 type CalibrationRow = Record<string, unknown> & {
@@ -386,6 +469,30 @@ type CalibrationTableRow = Record<string, unknown> & {
   quality_status: unknown;
 };
 
+type FunnelCalibrationTableRow = Record<string, unknown> & {
+  creative_format: unknown;
+  ctr_p25: unknown;
+  ctr_p50: unknown;
+  cpm_p50: unknown;
+  cpm_p75: unknown;
+  thumbstop_p25: unknown;
+  thumbstop_p50: unknown;
+  link_to_lpv_p25: unknown;
+  link_to_lpv_p50: unknown;
+  link_to_atc_p25: unknown;
+  link_to_atc_p50: unknown;
+  lpv_to_atc_p25: unknown;
+  lpv_to_atc_p50: unknown;
+  atc_to_ic_p25: unknown;
+  atc_to_ic_p50: unknown;
+  ic_to_purchase_p25: unknown;
+  ic_to_purchase_p50: unknown;
+  click_to_purchase_p25: unknown;
+  click_to_purchase_p50: unknown;
+  funnel_sample_count: unknown;
+  funnel_quality_status: unknown;
+};
+
 type BusinessTargetPackRow = Record<string, unknown> & {
   target_cpa: unknown;
   target_roas: unknown;
@@ -445,6 +552,20 @@ type LifecycleTableHydrationRow = Record<string, unknown> & {
   spend_slope_30d: unknown;
   roas_slope_7d: unknown;
   roas_slope_30d: unknown;
+  cpm: unknown;
+  outbound_clicks: unknown;
+  landing_page_views: unknown;
+  add_to_cart: unknown;
+  initiate_checkout: unknown;
+  thumbstop: unknown;
+  video25_rate: unknown;
+  video50_rate: unknown;
+  video75_rate: unknown;
+  video100_rate: unknown;
+  quality_ranking: unknown;
+  engagement_rate_ranking: unknown;
+  conversion_rate_ranking: unknown;
+  creative_format: unknown;
 };
 
 type LifecycleHealthRow = Record<string, unknown> & {
@@ -515,7 +636,35 @@ cumulative AS (
       WHEN SUM(d.impressions) > 0
       THEN SUM(d.clicks)::numeric / NULLIF(SUM(d.impressions), 0) * 100
     END AS ctr,
-    AVG(d.frequency) FILTER (WHERE d.frequency > 0) AS frequency
+    AVG(d.frequency) FILTER (WHERE d.frequency > 0) AS frequency,
+    CASE
+      WHEN SUM(d.impressions) > 0
+      THEN SUM(d.spend) / NULLIF(SUM(d.impressions), 0) * 1000
+    END AS cpm,
+    SUM(COALESCE((NULLIF(d.payload_json->>'outbound_clicks', ''))::numeric, d.outbound_clicks::numeric, 0)) AS outbound_clicks,
+    SUM(COALESCE((NULLIF(d.payload_json->>'landing_page_views', ''))::numeric, 0)) AS landing_page_views,
+    SUM(COALESCE((NULLIF(d.payload_json->>'add_to_cart', ''))::numeric, 0)) AS add_to_cart,
+    SUM(COALESCE((NULLIF(d.payload_json->>'initiate_checkout', ''))::numeric, 0)) AS initiate_checkout,
+    CASE
+      WHEN SUM(d.impressions) > 0
+      THEN SUM(COALESCE((NULLIF(d.payload_json->>'thumbstop', ''))::numeric, 0) * d.impressions) / NULLIF(SUM(d.impressions), 0)
+    END AS thumbstop,
+    CASE
+      WHEN SUM(d.impressions) > 0
+      THEN SUM(COALESCE((NULLIF(d.payload_json->>'video25', ''))::numeric, 0) * d.impressions) / NULLIF(SUM(d.impressions), 0)
+    END AS video25_rate,
+    CASE
+      WHEN SUM(d.impressions) > 0
+      THEN SUM(COALESCE((NULLIF(d.payload_json->>'video50', ''))::numeric, 0) * d.impressions) / NULLIF(SUM(d.impressions), 0)
+    END AS video50_rate,
+    CASE
+      WHEN SUM(d.impressions) > 0
+      THEN SUM(COALESCE((NULLIF(d.payload_json->>'video75', ''))::numeric, 0) * d.impressions) / NULLIF(SUM(d.impressions), 0)
+    END AS video75_rate,
+    CASE
+      WHEN SUM(d.impressions) > 0
+      THEN SUM(COALESCE((NULLIF(d.payload_json->>'video100', ''))::numeric, 0) * d.impressions) / NULLIF(SUM(d.impressions), 0)
+    END AS video100_rate
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
   WHERE d.business_ref_id = $1::uuid
@@ -545,6 +694,15 @@ latest_meta AS (
     d.first_spend_at,
     d.launch_date,
     d.updated_at,
+    d.quality_ranking,
+    d.engagement_rate_ranking,
+    d.conversion_rate_ranking,
+    COALESCE(
+      NULLIF(d.payload_json->>'format', ''),
+      NULLIF(d.payload_json->>'creative_format', ''),
+      d.creative_visual_format,
+      d.creative_primary_type
+    ) AS creative_format,
     NULLIF(d.payload_json->>'policy_reason', '') AS policy_reason,
     CASE
       WHEN d.first_spend_at IS NOT NULL
@@ -673,6 +831,20 @@ SELECT
   m.policy_reason,
   m.age_days,
   m.data_freshness_hours,
+  c.cpm,
+  c.outbound_clicks,
+  c.landing_page_views,
+  c.add_to_cart,
+  c.initiate_checkout,
+  c.thumbstop,
+  c.video25_rate,
+  c.video50_rate,
+  c.video75_rate,
+  c.video100_rate,
+  m.quality_ranking,
+  m.engagement_rate_ranking,
+  m.conversion_rate_ranking,
+  m.creative_format,
   ls.last_spend_date,
   tp.target_roas,
   tp.break_even_roas,
@@ -916,9 +1088,49 @@ FROM engine_v3_account_calibration_daily
 WHERE business_ref_id = $1::uuid
   AND scope_type = 'account'
   AND scope_id = '*'
+  AND creative_format = 'overall'
   AND as_of_date <= $2::date
 ORDER BY as_of_date DESC, computed_at DESC
 LIMIT 1
+`;
+
+const READ_ACCOUNT_FUNNEL_CALIBRATION_QUERY = `
+WITH latest_day AS (
+  SELECT MAX(as_of_date) AS as_of_date
+  FROM engine_v3_account_calibration_daily
+  WHERE business_ref_id = $1::uuid
+    AND scope_type = 'account'
+    AND scope_id = '*'
+    AND as_of_date <= $2::date
+)
+SELECT
+  creative_format,
+  ctr_p25,
+  ctr_p50,
+  cpm_p50,
+  cpm_p75,
+  thumbstop_p25,
+  thumbstop_p50,
+  link_to_lpv_p25,
+  link_to_lpv_p50,
+  link_to_atc_p25,
+  link_to_atc_p50,
+  lpv_to_atc_p25,
+  lpv_to_atc_p50,
+  atc_to_ic_p25,
+  atc_to_ic_p50,
+  ic_to_purchase_p25,
+  ic_to_purchase_p50,
+  click_to_purchase_p25,
+  click_to_purchase_p50,
+  funnel_sample_count,
+  funnel_quality_status
+FROM engine_v3_account_calibration_daily
+WHERE business_ref_id = $1::uuid
+  AND scope_type = 'account'
+  AND scope_id = '*'
+  AND as_of_date = (SELECT as_of_date FROM latest_day)
+ORDER BY creative_format ASC
 `;
 
 const READ_LIFECYCLE_CREATIVE_INPUTS_QUERY = `
@@ -985,6 +1197,20 @@ SELECT
   l.spend_slope_30d,
   l.roas_slope_7d,
   l.roas_slope_30d,
+  l.cpm_28d AS cpm,
+  l.outbound_clicks_28d AS outbound_clicks,
+  l.landing_page_views_28d AS landing_page_views,
+  l.add_to_cart_28d AS add_to_cart,
+  l.initiate_checkout_28d AS initiate_checkout,
+  l.thumbstop_28d AS thumbstop,
+  l.video25_rate_28d AS video25_rate,
+  l.video50_rate_28d AS video50_rate,
+  l.video75_rate_28d AS video75_rate,
+  l.video100_rate_28d AS video100_rate,
+  l.quality_ranking,
+  l.engagement_rate_ranking,
+  l.conversion_rate_ranking,
+  l.creative_format,
   target_pack.target_roas,
   target_pack.break_even_roas
 FROM lifecycle_rows l
@@ -1161,6 +1387,38 @@ function toSpendTrajectory(value: unknown): SpendTrajectory | null {
     : null;
 }
 
+function normalizeToken(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
+}
+
+function toMetaRanking(value: unknown): MetaRanking | null {
+  const text = toStringOrNull(value);
+  if (text === null) return null;
+  const normalized = normalizeToken(text);
+  if (normalized.startsWith("above_average")) return "above_average";
+  if (normalized.startsWith("below_average")) return "below_average";
+  if (META_RANKINGS.has(normalized as MetaRanking)) {
+    return normalized as MetaRanking;
+  }
+  return null;
+}
+
+function toCreativeFormat(value: unknown): CreativeFormat | null {
+  const text = toStringOrNull(value);
+  if (text === null) return null;
+  const normalized = normalizeToken(text);
+  if (CREATIVE_FORMATS.has(normalized as CreativeFormat)) {
+    return normalized as CreativeFormat;
+  }
+  if (normalized.includes("carousel")) return "carousel";
+  if (normalized.includes("catalog")) return "catalog";
+  if (normalized.includes("video")) return "video";
+  if (normalized.includes("image") || normalized.includes("photo")) {
+    return "image";
+  }
+  return "other";
+}
+
 function toHistoricalWindow(
   row: CreativeHydrationRow,
   prefix: string,
@@ -1258,6 +1516,20 @@ function mapCreativeHydrationRow(input: {
     spendSlope30d: null,
     roasSlope7d: null,
     roasSlope30d: null,
+    cpm: toNumberOrNull(input.row.cpm),
+    outboundClicks: toIntegerOrNull(input.row.outbound_clicks),
+    landingPageViews: toIntegerOrNull(input.row.landing_page_views),
+    addToCart: toIntegerOrNull(input.row.add_to_cart),
+    initiateCheckout: toIntegerOrNull(input.row.initiate_checkout),
+    thumbstop: toNumberOrNull(input.row.thumbstop),
+    video25Rate: toNumberOrNull(input.row.video25_rate),
+    video50Rate: toNumberOrNull(input.row.video50_rate),
+    video75Rate: toNumberOrNull(input.row.video75_rate),
+    video100Rate: toNumberOrNull(input.row.video100_rate),
+    qualityRanking: toMetaRanking(input.row.quality_ranking),
+    engagementRateRanking: toMetaRanking(input.row.engagement_rate_ranking),
+    conversionRateRanking: toMetaRanking(input.row.conversion_rate_ranking),
+    creativeFormat: toCreativeFormat(input.row.creative_format),
   };
 }
 
@@ -1314,6 +1586,20 @@ function mapLifecycleHydrationRow(input: {
     spendSlope30d: toNumberOrNull(input.row.spend_slope_30d),
     roasSlope7d: toNumberOrNull(input.row.roas_slope_7d),
     roasSlope30d: toNumberOrNull(input.row.roas_slope_30d),
+    cpm: toNumberOrNull(input.row.cpm),
+    outboundClicks: toIntegerOrNull(input.row.outbound_clicks),
+    landingPageViews: toIntegerOrNull(input.row.landing_page_views),
+    addToCart: toIntegerOrNull(input.row.add_to_cart),
+    initiateCheckout: toIntegerOrNull(input.row.initiate_checkout),
+    thumbstop: toNumberOrNull(input.row.thumbstop),
+    video25Rate: toNumberOrNull(input.row.video25_rate),
+    video50Rate: toNumberOrNull(input.row.video50_rate),
+    video75Rate: toNumberOrNull(input.row.video75_rate),
+    video100Rate: toNumberOrNull(input.row.video100_rate),
+    qualityRanking: toMetaRanking(input.row.quality_ranking),
+    engagementRateRanking: toMetaRanking(input.row.engagement_rate_ranking),
+    conversionRateRanking: toMetaRanking(input.row.conversion_rate_ranking),
+    creativeFormat: toCreativeFormat(input.row.creative_format),
   };
 }
 
@@ -1352,6 +1638,59 @@ function zeroAccountCalibration(
     roasRatioP50: null,
     roasRatioP75: null,
     metaAovQuality: "unavailable",
+  };
+}
+
+function zeroAccountFunnelCalibration(): AccountFunnelCalibration {
+  return { byFormat: {} };
+}
+
+function toFunnelQualityStatus(
+  value: unknown,
+  sampleSize: number,
+): FormatFunnelBaseline["qualityStatus"] {
+  const text = toStringOrNull(value);
+  if (
+    text === "ready" ||
+    text === "low_sample" ||
+    text === "insufficient"
+  ) {
+    return text;
+  }
+  if (sampleSize >= 30) return "ready";
+  if (sampleSize >= 10) return "low_sample";
+  return "insufficient";
+}
+
+function mapFunnelCalibrationRow(
+  row: FunnelCalibrationTableRow,
+): FormatFunnelBaseline | null {
+  const creativeFormat = toStringOrNull(row.creative_format);
+  if (creativeFormat === null) return null;
+
+  const sampleSize = toIntegerOrNull(row.funnel_sample_count) ?? 0;
+  return {
+    creativeFormat,
+    ctrP25: toNumberOrNull(row.ctr_p25),
+    ctrP50: toNumberOrNull(row.ctr_p50),
+    cpmP50: toNumberOrNull(row.cpm_p50),
+    cpmP75: toNumberOrNull(row.cpm_p75),
+    thumbstopP25: toNumberOrNull(row.thumbstop_p25),
+    thumbstopP50: toNumberOrNull(row.thumbstop_p50),
+    linkToLpvP25: toNumberOrNull(row.link_to_lpv_p25),
+    linkToLpvP50: toNumberOrNull(row.link_to_lpv_p50),
+    linkToAtcP25: toNumberOrNull(row.link_to_atc_p25),
+    linkToAtcP50: toNumberOrNull(row.link_to_atc_p50),
+    lpvToAtcP25: toNumberOrNull(row.lpv_to_atc_p25),
+    lpvToAtcP50: toNumberOrNull(row.lpv_to_atc_p50),
+    atcToIcP25: toNumberOrNull(row.atc_to_ic_p25),
+    atcToIcP50: toNumberOrNull(row.atc_to_ic_p50),
+    icToPurchaseP25: toNumberOrNull(row.ic_to_purchase_p25),
+    icToPurchaseP50: toNumberOrNull(row.ic_to_purchase_p50),
+    clickToPurchaseP25: toNumberOrNull(row.click_to_purchase_p25),
+    clickToPurchaseP50: toNumberOrNull(row.click_to_purchase_p50),
+    sampleSize,
+    qualityStatus: toFunnelQualityStatus(row.funnel_quality_status, sampleSize),
   };
 }
 
@@ -1484,6 +1823,31 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
       precomputed.note,
       precomputed.staleTierOverride,
     );
+  }
+
+  async getAccountFunnelCalibration(input: {
+    businessId: string;
+    asOf: string;
+  }): Promise<AccountFunnelCalibration> {
+    let rows: FunnelCalibrationTableRow[];
+    try {
+      rows = await getDb().query<FunnelCalibrationTableRow>(
+        READ_ACCOUNT_FUNNEL_CALIBRATION_QUERY,
+        [input.businessId, input.asOf],
+      );
+    } catch {
+      return zeroAccountFunnelCalibration();
+    }
+
+    const byFormat: Record<string, FormatFunnelBaseline> = {};
+    for (const row of rows) {
+      const baseline = mapFunnelCalibrationRow(row);
+      if (baseline !== null) {
+        byFormat[baseline.creativeFormat] = baseline;
+      }
+    }
+
+    return { byFormat };
   }
 
   private async computeCalibrationViaRuntimeSql(

@@ -6,7 +6,11 @@ import type {
   DecisionCalibrationProfileConfig,
 } from "../data-source";
 import type { CreativeInput, DataHealth } from "../types";
-import { makeAccountCalibration, makeDataHealth } from "./helpers";
+import {
+  makeAccountCalibration,
+  makeAccountFunnelCalibration,
+  makeDataHealth,
+} from "./helpers";
 
 class ProfileDataSource implements CreativeDecisionDataSource {
   constructor(
@@ -22,6 +26,10 @@ class ProfileDataSource implements CreativeDecisionDataSource {
 
   async getAccountCalibration() {
     return this.calibration;
+  }
+
+  async getAccountFunnelCalibration() {
+    return makeAccountFunnelCalibration();
   }
 
   async listCreativeInputs(): Promise<CreativeInput[]> {

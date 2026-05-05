@@ -24,8 +24,11 @@ type JobRunRow = Record<string, unknown> & {
 };
 
 type CalibrationRow = Record<string, unknown> & {
+  creative_format: unknown;
   mature_creative_count: unknown;
   quality_status: unknown;
+  funnel_sample_count: unknown;
+  funnel_quality_status: unknown;
 };
 
 function toNumber(value: unknown) {
@@ -74,21 +77,34 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
     expect(result.jobRunId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     );
-    expect(result.rowsWritten).toBe(1);
+    expect(result.rowsWritten).toBe(5);
     expect(result.calibration?.businessId).toBe(businessId);
 
-    const [calibration] = await getDb().query<CalibrationRow>(
+    const rows = await getDb().query<CalibrationRow>(
       `
-      SELECT mature_creative_count, quality_status
+      SELECT creative_format, mature_creative_count, quality_status, funnel_sample_count, funnel_quality_status
       FROM engine_v3_account_calibration_daily
       WHERE business_ref_id = $1::uuid
         AND as_of_date = $2::date
         AND engine_version = $3
+      ORDER BY creative_format
       `,
       [businessId, AS_OF, ENGINE_VERSION],
     );
-    expect(toNumber(calibration?.mature_creative_count)).toBe(0);
-    expect(calibration?.quality_status).toBe("low_sample");
+    expect(rows.map((row) => row.creative_format).sort()).toEqual([
+      "catalog",
+      "carousel",
+      "image",
+      "overall",
+      "video",
+    ]);
+    const overall = rows.find((row) => row.creative_format === "overall");
+    expect(toNumber(overall?.mature_creative_count)).toBe(0);
+    expect(overall?.quality_status).toBe("low_sample");
+    expect(toNumber(overall?.funnel_sample_count)).toBeGreaterThanOrEqual(0);
+    expect(["ready", "low_sample", "insufficient"]).toContain(
+      overall?.funnel_quality_status,
+    );
 
     const [jobRun] = await getDb().query<JobRunRow>(
       `
@@ -99,7 +115,7 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
       [result.jobRunId],
     );
     expect(jobRun?.status).toBe("success");
-    expect(toNumber(jobRun?.row_count)).toBe(1);
+    expect(toNumber(jobRun?.row_count)).toBe(5);
   });
 
   it("is idempotent for calibration rows while recording each invocation", async () => {
@@ -118,7 +134,7 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
       `,
       [businessId, AS_OF, ENGINE_VERSION],
     );
-    expect(toNumber(calibrationCount?.count)).toBe(1);
+    expect(toNumber(calibrationCount?.count)).toBe(5);
 
     const [jobRunCount] = await getDb().query<CountRow>(
       `

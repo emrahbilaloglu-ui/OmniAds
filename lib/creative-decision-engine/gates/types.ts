@@ -8,6 +8,7 @@ import {
   type DecisionOutput,
   type TruthSource,
 } from "../types";
+import { computeFunnelDiagnosis } from "../funnel";
 
 export interface GateContext {
   input: CreativeInput;
@@ -113,6 +114,21 @@ export function applyPostProcess(
     }
   }
 
+  if (label === "cut" || label === "refresh") {
+    const funnelDiagnosis = computeFunnelDiagnosis({
+      creative: ctx.input,
+      funnelCalibration: ctx.profile.funnelCalibration,
+      profile: ctx.profile,
+    });
+    if (funnelDiagnosis.primaryWeakStage === "upper_funnel") {
+      badges.push({
+        type: "creative_quality_weak",
+        label: "Creative quality weak",
+        severity: "warning",
+      });
+    }
+  }
+
   const isMissingRecent =
     ctx.input.recent7dRoas == null || ctx.input.recent7dSpend == null;
   if (
@@ -211,7 +227,10 @@ export function applyPostProcess(
     lifecyclePosition == null ||
     lifecyclePosition === "insufficient_history"
   ) {
-    if (label === "scale" || label === "cut" || label === "refresh") {
+    if (
+      (label === "scale" || label === "cut" || label === "refresh") &&
+      !badges.some((badge) => badge.type === "lifecycle_unavailable")
+    ) {
       badges.push({
         type: "lifecycle_unavailable",
         label:

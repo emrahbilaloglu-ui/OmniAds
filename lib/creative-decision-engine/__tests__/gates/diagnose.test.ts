@@ -108,12 +108,15 @@ describe("diagnoseGate", () => {
     expect(output.confidence).toBe(60);
   });
 
-  it("does not diagnose tracking anomaly below minimum spend", () => {
+  it("does not diagnose tracking anomaly without healthy upstream funnel activity", () => {
     const result = diagnoseGate(
       resolvedContext({
-        spend: 30,
+        spend: 500,
         impressions: 5000,
         linkClicks: 0,
+        landingPageViews: 0,
+        addToCart: 0,
+        initiateCheckout: 0,
         purchases: 0,
       }),
     );
@@ -121,26 +124,15 @@ describe("diagnoseGate", () => {
     expect(result.kind).toBe("advance");
   });
 
-  it("does not diagnose tracking anomaly below minimum impressions", () => {
+  it("does not diagnose tracking anomaly when add-to-cart is missing", () => {
     const result = diagnoseGate(
       resolvedContext({
-        spend: 100,
-        impressions: 500,
-        linkClicks: 0,
-        purchases: 0,
-      }),
-    );
-
-    expect(result.kind).toBe("advance");
-  });
-
-  it("does not diagnose tracking anomaly for awareness objectives", () => {
-    const result = diagnoseGate(
-      resolvedContext({
-        objective: "OUTCOME_AWARENESS",
-        spend: 100,
+        spend: 500,
         impressions: 5000,
-        linkClicks: 0,
+        linkClicks: 100,
+        landingPageViews: 80,
+        addToCart: 0,
+        initiateCheckout: 0,
         purchases: 0,
       }),
     );
@@ -148,24 +140,30 @@ describe("diagnoseGate", () => {
     expect(result.kind).toBe("advance");
   });
 
-  it("diagnoses tracking anomaly when spend, impressions, and objective match", () => {
+  it("diagnoses tracking anomaly through funnel diagnosis", () => {
     const output = terminalOutput(
       diagnoseGate(
         resolvedContext({
           objective: "OUTCOME_SALES",
-          spend: 100,
+          spend: 500,
           impressions: 5000,
-          linkClicks: 0,
+          linkClicks: 100,
+          landingPageViews: 80,
+          addToCart: 20,
+          initiateCheckout: 10,
           purchases: 0,
         }),
       ),
     );
 
     expect(output.label).toBe("diagnose");
-    expect(output.reason).toBe(
-      "Spend $100 on 5000 impressions in last 28 days, but 0 clicks and 0 purchases — possible tracking anomaly (pixel/CAPI). Verify event firing before acting.",
-    );
-    expect(output.confidence).toBe(55);
+    expect(output.reason).toContain("Tracking anomaly:");
+    expect(output.badges).toContainEqual({
+      type: "tracking_anomaly",
+      label: "Tracking anomaly",
+      severity: "warning",
+    });
+    expect(output.confidence).toBe(85);
   });
 
   it("advances healthy creatives", () => {

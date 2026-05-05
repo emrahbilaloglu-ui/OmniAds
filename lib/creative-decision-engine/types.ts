@@ -5,7 +5,7 @@
  * built in parallel.
  */
 
-export const ENGINE_VERSION = "v3-2026-05-04-phase-3.8";
+export const ENGINE_VERSION = "v3-2026-05-04-phase-3.9";
 
 /** Final decision label. */
 export type DecisionLabel =
@@ -116,6 +116,75 @@ export type SpendTrajectory =
   | "volatile"
   | "unknown";
 
+export type CreativeFormat =
+  | "image"
+  | "video"
+  | "carousel"
+  | "catalog"
+  | "other";
+
+export type MetaRanking =
+  | "above_average"
+  | "average"
+  | "below_average"
+  | "unknown";
+
+export type FunnelStage =
+  | "upper_funnel"
+  | "landing_page"
+  | "checkout"
+  | "tracking"
+  | "none"
+  | "insufficient_signal";
+
+export interface FunnelRates {
+  ctr: number | null;
+  outboundClickRate: number | null;
+  linkToLpvRate: number | null;
+  linkToAtcRate: number | null;
+  lpvToAtcRate: number | null;
+  atcToIcRate: number | null;
+  icToPurchaseRate: number | null;
+  atcToPurchaseRate: number | null;
+  clickToPurchaseRate: number | null;
+}
+
+export interface FunnelDiagnosis {
+  primaryWeakStage: FunnelStage;
+  creativeResponsible: boolean;
+  confidence: number;
+  evidence: string[];
+  rates: FunnelRates;
+}
+
+export interface FormatFunnelBaseline {
+  creativeFormat: string;
+  ctrP25: number | null;
+  ctrP50: number | null;
+  cpmP50: number | null;
+  cpmP75: number | null;
+  thumbstopP25: number | null;
+  thumbstopP50: number | null;
+  linkToLpvP25: number | null;
+  linkToLpvP50: number | null;
+  linkToAtcP25: number | null;
+  linkToAtcP50: number | null;
+  lpvToAtcP25: number | null;
+  lpvToAtcP50: number | null;
+  atcToIcP25: number | null;
+  atcToIcP50: number | null;
+  icToPurchaseP25: number | null;
+  icToPurchaseP50: number | null;
+  clickToPurchaseP25: number | null;
+  clickToPurchaseP50: number | null;
+  sampleSize: number;
+  qualityStatus: "ready" | "low_sample" | "insufficient";
+}
+
+export interface AccountFunnelCalibration {
+  byFormat: Record<string, FormatFunnelBaseline>;
+}
+
 /** Per-creative metric inputs the engine needs to decide. */
 export interface CreativeInput {
   creativeId: string;
@@ -168,6 +237,22 @@ export interface CreativeInput {
   spendSlope30d?: number | null;
   roasSlope7d?: number | null;
   roasSlope30d?: number | null;
+
+  // Funnel signals (Phase 3.9); null when warehouse data is missing.
+  cpm: number | null;
+  outboundClicks: number | null;
+  landingPageViews: number | null;
+  addToCart: number | null;
+  initiateCheckout: number | null;
+  thumbstop: number | null;
+  video25Rate: number | null;
+  video50Rate: number | null;
+  video75Rate: number | null;
+  video100Rate: number | null;
+  qualityRanking: MetaRanking | null;
+  engagementRateRanking: MetaRanking | null;
+  conversionRateRanking: MetaRanking | null;
+  creativeFormat: CreativeFormat | null;
 }
 
 /** Per-business runtime configuration (Tier 2). */
@@ -257,6 +342,7 @@ export interface AccountDecisionProfile {
   multipliers: EngineMultiplierSet;
   thresholds: EngineThresholdSet;
   accountBaselines: AccountCalibration;
+  funnelCalibration: AccountFunnelCalibration;
 
   hardActionEligibility: {
     scale: boolean;
@@ -292,7 +378,12 @@ export interface DecisionBadge {
     | "opportunity_window_open"
     | "opportunity_window_closing"
     | "past_peak_unclear_signal"
-    | "volatile_trend";
+    | "volatile_trend"
+    | "tracking_anomaly"
+    | "creative_quality_weak"
+    | "landing_page_issue"
+    | "checkout_breakdown"
+    | "upper_funnel_strong_site_weak";
   label: string;
   severity: "info" | "warning";
 }
@@ -341,6 +432,26 @@ export const DECISION_BADGE_DISPLAY: Record<
   volatile_trend: {
     label: "Volatile trend — signal noisy",
     severity: "warning",
+  },
+  tracking_anomaly: {
+    label: "Tracking anomaly",
+    severity: "warning",
+  },
+  creative_quality_weak: {
+    label: "Creative quality weak",
+    severity: "warning",
+  },
+  landing_page_issue: {
+    label: "Landing page issue",
+    severity: "warning",
+  },
+  checkout_breakdown: {
+    label: "Checkout breakdown",
+    severity: "warning",
+  },
+  upper_funnel_strong_site_weak: {
+    label: "Upper funnel strong, site weak",
+    severity: "info",
   },
 };
 

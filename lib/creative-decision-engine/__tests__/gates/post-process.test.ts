@@ -199,6 +199,19 @@ describe("applyPostProcess - low CTR", () => {
   });
 });
 
+describe("applyPostProcess - funnel badges", () => {
+  it("adds creative_quality_weak for cut when upper funnel is weak", () => {
+    const result = runPostProcess("cut", {
+      input: {
+        ctr: 0.5,
+        thumbstop: 10,
+      },
+    });
+
+    expect(badgeTypes(result)).toContain("creative_quality_weak");
+  });
+});
+
 describe("applyPostProcess - missing recent data", () => {
   it("adds a missing_recent_data badge and confidence penalty for scale when recent ROAS is null", () => {
     const result = runPostProcess("scale", {

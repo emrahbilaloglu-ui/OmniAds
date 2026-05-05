@@ -9,6 +9,7 @@ import type {
 } from "../../types";
 import {
   makeAccountCalibration,
+  makeAccountDecisionProfile,
   makeCreativeInput,
   makeGateContext,
 } from "../helpers";
@@ -21,6 +22,7 @@ function ratioContext(
     input?: Partial<CreativeInput>;
     businessConfig?: Partial<BusinessConfig>;
     calibration?: Partial<AccountCalibration>;
+    profile?: ReturnType<typeof makeAccountDecisionProfile>;
     gate?: Partial<
       Omit<GateContext, "input" | "businessConfig" | "calibration">
     >;
@@ -48,6 +50,7 @@ function ratioContext(
     input,
     businessConfig,
     calibration: makeAccountCalibration(overrides.calibration),
+    profile: overrides.profile,
     gate: {
       effectiveTargetRoas: TARGET_ROAS,
       truthSource: "commercial_truth",
@@ -358,6 +361,79 @@ describe("ratioZonesGate - cut zone", () => {
       "ROAS 1.00 (28d) = 50% of target and fatigued — replace with fresh iteration.",
     );
   });
+
+  it("downgrades cut to keep when funnel points to a landing page issue", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.5, {
+          input: {
+            spend: 1500,
+            linkClicks: 1_000,
+            landingPageViews: 800,
+            addToCart: 40,
+            initiateCheckout: 20,
+            purchases: 5,
+            ctr: 1.5,
+            thumbstop: 30,
+          },
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.badges.map((badge) => badge.type)).toContain(
+      "landing_page_issue",
+    );
+    expect(output.badges.map((badge) => badge.type)).toContain(
+      "upper_funnel_strong_site_weak",
+    );
+  });
+
+  it("downgrades cut to keep when funnel points to checkout breakdown", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.5, {
+          input: {
+            spend: 1500,
+            linkClicks: 1_000,
+            landingPageViews: 800,
+            addToCart: 120,
+            initiateCheckout: 20,
+            purchases: 5,
+            ctr: 1.5,
+            thumbstop: 30,
+          },
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.badges.map((badge) => badge.type)).toContain(
+      "checkout_breakdown",
+    );
+  });
+
+  it("keeps cut when the creative is responsible", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.5, {
+          input: {
+            spend: 1500,
+            ctr: 0.5,
+            thumbstop: 10,
+          },
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("cut");
+    expect(output.badges.map((badge) => badge.type)).toContain(
+      "creative_quality_weak",
+    );
+    expect(output.badges.map((badge) => badge.type)).not.toContain(
+      "landing_page_issue",
+    );
+  });
 });
 
 describe("ratioZonesGate - working zone", () => {
@@ -395,6 +471,33 @@ describe("ratioZonesGate - working zone", () => {
     expect(output.label).toBe("refresh");
     expect(output.reason).toBe(
       "ROAS 1.50 (28d) = 75% of target and fatigued with recent 7d ROAS 1.05 decaying — iterate.",
+    );
+  });
+
+  it("downgrades refresh to keep when funnel points to a landing page issue", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.75, {
+          input: {
+            fatigueStatus: "fatigued",
+            recent7dRoas: 1.05,
+            recent7dSpend: 80,
+            lifecyclePosition: "plateau",
+            linkClicks: 1_000,
+            landingPageViews: 800,
+            addToCart: 40,
+            initiateCheckout: 20,
+            purchases: 5,
+            ctr: 1.5,
+            thumbstop: 30,
+          },
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.badges.map((badge) => badge.type)).toContain(
+      "landing_page_issue",
     );
   });
 

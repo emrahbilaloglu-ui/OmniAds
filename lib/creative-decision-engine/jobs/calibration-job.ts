@@ -6,6 +6,14 @@ export const JOB_NAME = "engine_v3_calibration_job";
 const SAMPLE_WINDOW_DAYS = 90;
 const ACCOUNT_SCOPE_TYPE = "account";
 const ACCOUNT_SCOPE_ID = "*";
+const CALIBRATION_FORMATS = [
+  "overall",
+  "image",
+  "video",
+  "carousel",
+  "catalog",
+] as const;
+type CalibrationCreativeFormat = (typeof CALIBRATION_FORMATS)[number];
 
 export interface CalibrationJobInput {
   businessId: string;
@@ -29,6 +37,7 @@ interface ComputedCalibration {
   businessId: string;
   scopeType: typeof ACCOUNT_SCOPE_TYPE;
   scopeId: string;
+  creativeFormat: CalibrationCreativeFormat;
   asOfDate: string;
   sampleWindowStart: string;
   sampleWindowEnd: string;
@@ -55,6 +64,26 @@ interface ComputedCalibration {
   roasRatioP25: number | null;
   roasRatioP50: number | null;
   roasRatioP75: number | null;
+  ctrP25: number | null;
+  ctrP50: number | null;
+  cpmP50: number | null;
+  cpmP75: number | null;
+  thumbstopP25: number | null;
+  thumbstopP50: number | null;
+  linkToLpvP25: number | null;
+  linkToLpvP50: number | null;
+  linkToAtcP25: number | null;
+  linkToAtcP50: number | null;
+  lpvToAtcP25: number | null;
+  lpvToAtcP50: number | null;
+  atcToIcP25: number | null;
+  atcToIcP50: number | null;
+  icToPurchaseP25: number | null;
+  icToPurchaseP50: number | null;
+  clickToPurchaseP25: number | null;
+  clickToPurchaseP50: number | null;
+  funnelSampleCount: number;
+  funnelQualityStatus: "ready" | "low_sample" | "insufficient";
   sourceMinDate: string | null;
   sourceMaxDate: string | null;
   sourceMaxUpdatedAt: string | null;
@@ -88,6 +117,26 @@ type CalibrationComputationRow = Record<string, unknown> & {
   roas_ratio_p25: unknown;
   roas_ratio_p50: unknown;
   roas_ratio_p75: unknown;
+  ctr_p25: unknown;
+  ctr_p50: unknown;
+  cpm_p50: unknown;
+  cpm_p75: unknown;
+  thumbstop_p25: unknown;
+  thumbstop_p50: unknown;
+  link_to_lpv_p25: unknown;
+  link_to_lpv_p50: unknown;
+  link_to_atc_p25: unknown;
+  link_to_atc_p50: unknown;
+  lpv_to_atc_p25: unknown;
+  lpv_to_atc_p50: unknown;
+  atc_to_ic_p25: unknown;
+  atc_to_ic_p50: unknown;
+  ic_to_purchase_p25: unknown;
+  ic_to_purchase_p50: unknown;
+  click_to_purchase_p25: unknown;
+  click_to_purchase_p50: unknown;
+  funnel_sample_count: unknown;
+  funnel_quality_status: unknown;
   source_min_date: unknown;
   source_max_date: unknown;
   source_max_updated_at: unknown;
@@ -112,9 +161,30 @@ WITH target_pack AS (
 per_creative_raw AS (
   SELECT
     creative_id,
+    MAX(
+      regexp_replace(
+        lower(COALESCE(
+          NULLIF(payload_json->>'format', ''),
+          NULLIF(payload_json->>'creative_format', ''),
+          creative_visual_format,
+          creative_primary_type,
+          'other'
+        )),
+        '[^a-z0-9]+',
+        '_',
+        'g'
+      )
+    ) AS raw_creative_format,
     SUM(spend) AS total_spend,
     SUM(conversions) AS total_purchases,
     SUM(revenue) AS total_revenue,
+    SUM(impressions) AS total_impressions,
+    SUM(clicks) AS total_clicks,
+    SUM(link_clicks) AS total_link_clicks,
+    SUM(COALESCE((NULLIF(payload_json->>'landing_page_views', ''))::numeric, 0)) AS lpv_total,
+    SUM(COALESCE((NULLIF(payload_json->>'add_to_cart', ''))::numeric, 0)) AS atc_total,
+    SUM(COALESCE((NULLIF(payload_json->>'initiate_checkout', ''))::numeric, 0)) AS ic_total,
+    SUM(COALESCE((NULLIF(payload_json->>'thumbstop', ''))::numeric, 0) * impressions) AS thumbstop_weighted,
     SUM(spend) FILTER (WHERE date >= ($1::date - INTERVAL '27 days')) AS cumulative_28d_spend,
     SUM(revenue) FILTER (WHERE date >= ($1::date - INTERVAL '27 days')) AS cumulative_28d_revenue,
     SUM(impressions) FILTER (WHERE date >= ($1::date - INTERVAL '27 days')) AS cumulative_28d_impressions,
@@ -129,10 +199,33 @@ per_creative_raw AS (
 per_creative AS (
   SELECT
     creative_id,
+    CASE
+      WHEN raw_creative_format IN ('image', 'video', 'carousel', 'catalog') THEN raw_creative_format
+      WHEN raw_creative_format LIKE '%carousel%' THEN 'carousel'
+      WHEN raw_creative_format LIKE '%catalog%' THEN 'catalog'
+      WHEN raw_creative_format LIKE '%video%' THEN 'video'
+      WHEN raw_creative_format LIKE '%image%' OR raw_creative_format LIKE '%photo%' THEN 'image'
+      ELSE 'other'
+    END AS creative_format,
     total_spend,
     total_purchases,
     total_revenue,
+    total_impressions,
+    total_clicks,
+    total_link_clicks,
+    lpv_total,
+    atc_total,
+    ic_total,
     CASE WHEN total_spend > 0 THEN total_revenue / total_spend END AS aggregate_roas,
+    CASE WHEN total_impressions > 0 THEN total_clicks::numeric / NULLIF(total_impressions, 0) * 100 END AS ctr_rate,
+    CASE WHEN total_impressions > 0 THEN total_spend / NULLIF(total_impressions, 0) * 1000 END AS cpm,
+    CASE WHEN total_impressions > 0 THEN thumbstop_weighted / NULLIF(total_impressions, 0) END AS thumbstop_rate,
+    CASE WHEN total_link_clicks > 0 THEN lpv_total / NULLIF(total_link_clicks, 0) * 100 END AS link_to_lpv_rate,
+    CASE WHEN total_link_clicks > 0 THEN atc_total / NULLIF(total_link_clicks, 0) * 100 END AS link_to_atc_rate,
+    CASE WHEN lpv_total > 0 THEN atc_total / NULLIF(lpv_total, 0) * 100 END AS lpv_to_atc_rate,
+    CASE WHEN atc_total > 0 THEN ic_total / NULLIF(atc_total, 0) * 100 END AS atc_to_ic_rate,
+    CASE WHEN ic_total > 0 THEN total_purchases / NULLIF(ic_total, 0) * 100 END AS ic_to_purchase_rate,
+    CASE WHEN total_link_clicks > 0 THEN total_purchases / NULLIF(total_link_clicks, 0) * 100 END AS click_to_purchase_rate,
     CASE
       WHEN cumulative_28d_spend > 0
       THEN cumulative_28d_revenue / cumulative_28d_spend
@@ -147,9 +240,14 @@ per_creative AS (
     END AS recent_7d_roas
   FROM per_creative_raw
 ),
-converter_population AS (
+scoped_per_creative AS (
   SELECT *
   FROM per_creative
+  WHERE $4::text = 'overall' OR creative_format = $4::text
+),
+converter_population AS (
+  SELECT *
+  FROM scoped_per_creative
   WHERE total_purchases >= 1
     AND total_revenue > 0
     AND total_spend > 0
@@ -168,17 +266,30 @@ recent_ratios AS (
       WHEN recent_7d_roas > 0 AND cumulative_28d_roas > 0
       THEN recent_7d_roas / cumulative_28d_roas
     END AS recent_total_ratio
-  FROM per_creative
+  FROM scoped_per_creative
 ),
 counts AS (
   SELECT
-    (SELECT COUNT(*) FROM per_creative WHERE total_spend > 0) AS eligible_creative_count,
+    (SELECT COUNT(*) FROM scoped_per_creative WHERE total_spend > 0) AS eligible_creative_count,
     (SELECT COUNT(*) FROM converter_population) AS converter_count,
     (SELECT COUNT(*) FROM winner_population) AS winner_count,
-    (SELECT COUNT(*) FROM per_creative WHERE total_purchases > 0) AS account_cpa_sample_count,
-    (SELECT COUNT(*) FROM per_creative WHERE total_spend > 0 AND COALESCE(total_purchases, 0) = 0) AS zero_conversion_count,
+    (SELECT COUNT(*) FROM scoped_per_creative WHERE total_purchases > 0) AS account_cpa_sample_count,
+    (SELECT COUNT(*) FROM scoped_per_creative WHERE total_spend > 0 AND COALESCE(total_purchases, 0) = 0) AS zero_conversion_count,
     (SELECT COUNT(*) FROM recent_ratios WHERE recent_total_ratio IS NOT NULL) AS refresh_ratio_count,
-    (SELECT COUNT(*) FROM per_creative WHERE cumulative_28d_ctr IS NOT NULL) AS ctr_count
+    (SELECT COUNT(*) FROM scoped_per_creative WHERE cumulative_28d_ctr IS NOT NULL) AS ctr_count,
+    (
+      SELECT COUNT(*)
+      FROM scoped_per_creative
+      WHERE ctr_rate IS NOT NULL
+        OR cpm IS NOT NULL
+        OR thumbstop_rate IS NOT NULL
+        OR link_to_lpv_rate IS NOT NULL
+        OR link_to_atc_rate IS NOT NULL
+        OR lpv_to_atc_rate IS NOT NULL
+        OR atc_to_ic_rate IS NOT NULL
+        OR ic_to_purchase_rate IS NOT NULL
+        OR click_to_purchase_rate IS NOT NULL
+    ) AS funnel_sample_count
 ),
 percentiles AS (
   SELECT
@@ -202,6 +313,27 @@ percentiles AS (
   FROM converter_population cp
   CROSS JOIN target_pack tp
 ),
+funnel_percentiles AS (
+  SELECT
+    (SELECT percentile_cont(0.25) WITHIN GROUP (ORDER BY ctr_rate) FROM scoped_per_creative WHERE ctr_rate IS NOT NULL) AS ctr_p25,
+    (SELECT percentile_cont(0.50) WITHIN GROUP (ORDER BY ctr_rate) FROM scoped_per_creative WHERE ctr_rate IS NOT NULL) AS ctr_p50,
+    (SELECT percentile_cont(0.50) WITHIN GROUP (ORDER BY cpm) FROM scoped_per_creative WHERE cpm IS NOT NULL) AS cpm_p50,
+    (SELECT percentile_cont(0.75) WITHIN GROUP (ORDER BY cpm) FROM scoped_per_creative WHERE cpm IS NOT NULL) AS cpm_p75,
+    (SELECT percentile_cont(0.25) WITHIN GROUP (ORDER BY thumbstop_rate) FROM scoped_per_creative WHERE thumbstop_rate IS NOT NULL) AS thumbstop_p25,
+    (SELECT percentile_cont(0.50) WITHIN GROUP (ORDER BY thumbstop_rate) FROM scoped_per_creative WHERE thumbstop_rate IS NOT NULL) AS thumbstop_p50,
+    (SELECT percentile_cont(0.25) WITHIN GROUP (ORDER BY link_to_lpv_rate) FROM scoped_per_creative WHERE link_to_lpv_rate IS NOT NULL) AS link_to_lpv_p25,
+    (SELECT percentile_cont(0.50) WITHIN GROUP (ORDER BY link_to_lpv_rate) FROM scoped_per_creative WHERE link_to_lpv_rate IS NOT NULL) AS link_to_lpv_p50,
+    (SELECT percentile_cont(0.25) WITHIN GROUP (ORDER BY link_to_atc_rate) FROM scoped_per_creative WHERE link_to_atc_rate IS NOT NULL) AS link_to_atc_p25,
+    (SELECT percentile_cont(0.50) WITHIN GROUP (ORDER BY link_to_atc_rate) FROM scoped_per_creative WHERE link_to_atc_rate IS NOT NULL) AS link_to_atc_p50,
+    (SELECT percentile_cont(0.25) WITHIN GROUP (ORDER BY lpv_to_atc_rate) FROM scoped_per_creative WHERE lpv_to_atc_rate IS NOT NULL) AS lpv_to_atc_p25,
+    (SELECT percentile_cont(0.50) WITHIN GROUP (ORDER BY lpv_to_atc_rate) FROM scoped_per_creative WHERE lpv_to_atc_rate IS NOT NULL) AS lpv_to_atc_p50,
+    (SELECT percentile_cont(0.25) WITHIN GROUP (ORDER BY atc_to_ic_rate) FROM scoped_per_creative WHERE atc_to_ic_rate IS NOT NULL) AS atc_to_ic_p25,
+    (SELECT percentile_cont(0.50) WITHIN GROUP (ORDER BY atc_to_ic_rate) FROM scoped_per_creative WHERE atc_to_ic_rate IS NOT NULL) AS atc_to_ic_p50,
+    (SELECT percentile_cont(0.25) WITHIN GROUP (ORDER BY ic_to_purchase_rate) FROM scoped_per_creative WHERE ic_to_purchase_rate IS NOT NULL) AS ic_to_purchase_p25,
+    (SELECT percentile_cont(0.50) WITHIN GROUP (ORDER BY ic_to_purchase_rate) FROM scoped_per_creative WHERE ic_to_purchase_rate IS NOT NULL) AS ic_to_purchase_p50,
+    (SELECT percentile_cont(0.25) WITHIN GROUP (ORDER BY click_to_purchase_rate) FROM scoped_per_creative WHERE click_to_purchase_rate IS NOT NULL) AS click_to_purchase_p25,
+    (SELECT percentile_cont(0.50) WITHIN GROUP (ORDER BY click_to_purchase_rate) FROM scoped_per_creative WHERE click_to_purchase_rate IS NOT NULL) AS click_to_purchase_p50
+),
 winner_percentiles AS (
   SELECT
     percentile_cont(0.25) WITHIN GROUP (ORDER BY total_spend) AS winner_spend_p25,
@@ -211,13 +343,10 @@ winner_percentiles AS (
 ),
 meta_aov AS (
   SELECT
-    CASE WHEN SUM(conversions) > 0 THEN SUM(revenue) / SUM(conversions) END AS aov_mean,
-    COALESCE(SUM(conversions), 0)::integer AS purchase_count,
-    COALESCE(SUM(revenue), 0) AS total_revenue
-  FROM meta_creative_daily
-  WHERE business_ref_id = $2::uuid
-    AND date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
-    AND objective = 'OUTCOME_SALES'
+    CASE WHEN SUM(total_purchases) > 0 THEN SUM(total_revenue) / SUM(total_purchases) END AS aov_mean,
+    COALESCE(SUM(total_purchases), 0)::integer AS purchase_count,
+    COALESCE(SUM(total_revenue), 0) AS total_revenue
+  FROM scoped_per_creative
 ),
 source_bounds AS (
   SELECT
@@ -244,7 +373,7 @@ SELECT
   ) END AS refresh_ratio_p10,
   CASE WHEN counts.ctr_count >= 20 THEN (
     SELECT percentile_cont(0.10) WITHIN GROUP (ORDER BY cumulative_28d_ctr)
-    FROM per_creative
+    FROM scoped_per_creative
     WHERE cumulative_28d_ctr IS NOT NULL
   ) END AS low_ctr_p10,
   CASE WHEN counts.account_cpa_sample_count >= 20 THEN percentiles.cpa_p50_raw END AS account_cpa_p50,
@@ -267,11 +396,36 @@ SELECT
   percentiles.roas_ratio_p25,
   percentiles.roas_ratio_p50,
   percentiles.roas_ratio_p75,
+  funnel_percentiles.ctr_p25,
+  funnel_percentiles.ctr_p50,
+  funnel_percentiles.cpm_p50,
+  funnel_percentiles.cpm_p75,
+  funnel_percentiles.thumbstop_p25,
+  funnel_percentiles.thumbstop_p50,
+  funnel_percentiles.link_to_lpv_p25,
+  funnel_percentiles.link_to_lpv_p50,
+  funnel_percentiles.link_to_atc_p25,
+  funnel_percentiles.link_to_atc_p50,
+  funnel_percentiles.lpv_to_atc_p25,
+  funnel_percentiles.lpv_to_atc_p50,
+  funnel_percentiles.atc_to_ic_p25,
+  funnel_percentiles.atc_to_ic_p50,
+  funnel_percentiles.ic_to_purchase_p25,
+  funnel_percentiles.ic_to_purchase_p50,
+  funnel_percentiles.click_to_purchase_p25,
+  funnel_percentiles.click_to_purchase_p50,
+  counts.funnel_sample_count,
+  CASE
+    WHEN counts.funnel_sample_count >= 30 THEN 'ready'
+    WHEN counts.funnel_sample_count >= 10 THEN 'low_sample'
+    ELSE 'insufficient'
+  END AS funnel_quality_status,
   source_bounds.source_min_date,
   source_bounds.source_max_date,
   source_bounds.source_max_updated_at
 FROM counts
 CROSS JOIN percentiles
+CROSS JOIN funnel_percentiles
 CROSS JOIN winner_percentiles
 CROSS JOIN meta_aov
 CROSS JOIN source_bounds
@@ -279,7 +433,7 @@ CROSS JOIN source_bounds
 
 const UPSERT_CALIBRATION_QUERY = `
 INSERT INTO engine_v3_account_calibration_daily (
-  business_ref_id, business_id, scope_type, scope_id, as_of_date, engine_version,
+  business_ref_id, business_id, scope_type, scope_id, creative_format, as_of_date, engine_version,
   sample_window_start, sample_window_end, sample_window_days,
   eligible_creative_count, mature_creative_count, zero_conversion_count,
   roas_p75, roas_p60, refresh_ratio_p10, low_ctr_p10,
@@ -289,23 +443,41 @@ INSERT INTO engine_v3_account_calibration_daily (
   mature_spend_p50, mature_spend_p75,
   winner_spend_p25, winner_spend_p50, winner_purchase_p50,
   roas_ratio_p10, roas_ratio_p25, roas_ratio_p50, roas_ratio_p75,
+  ctr_p25, ctr_p50, cpm_p50, cpm_p75,
+  thumbstop_p25, thumbstop_p50,
+  link_to_lpv_p25, link_to_lpv_p50,
+  link_to_atc_p25, link_to_atc_p50,
+  lpv_to_atc_p25, lpv_to_atc_p50,
+  atc_to_ic_p25, atc_to_ic_p50,
+  ic_to_purchase_p25, ic_to_purchase_p50,
+  click_to_purchase_p25, click_to_purchase_p50,
+  funnel_sample_count, funnel_quality_status,
   source_min_date, source_max_date, source_max_updated_at,
   quality_status, job_run_id, computed_at
 ) VALUES (
-  $1::uuid, $2, $3, $4, $5::date, $6,
-  $7::date, $8::date, $9::integer,
-  $10::integer, $11::integer, $12::integer,
-  $13::double precision, $14::double precision, $15::double precision, $16::double precision,
-  $17::double precision, $18::integer,
-  $19::double precision, $20::integer,
-  $21::double precision, $22,
-  $23::double precision, $24::double precision,
-  $25::double precision, $26::double precision, $27::double precision,
-  $28::double precision, $29::double precision, $30::double precision, $31::double precision,
-  $32::date, $33::date, $34::timestamptz,
-  $35, $36::uuid, $37::timestamptz
+  $1::uuid, $2, $3, $4, $5, $6::date, $7,
+  $8::date, $9::date, $10::integer,
+  $11::integer, $12::integer, $13::integer,
+  $14::double precision, $15::double precision, $16::double precision, $17::double precision,
+  $18::double precision, $19::integer,
+  $20::double precision, $21::integer,
+  $22::double precision, $23,
+  $24::double precision, $25::double precision,
+  $26::double precision, $27::double precision, $28::double precision,
+  $29::double precision, $30::double precision, $31::double precision, $32::double precision,
+  $33::double precision, $34::double precision, $35::double precision, $36::double precision,
+  $37::double precision, $38::double precision,
+  $39::double precision, $40::double precision,
+  $41::double precision, $42::double precision,
+  $43::double precision, $44::double precision,
+  $45::double precision, $46::double precision,
+  $47::double precision, $48::double precision,
+  $49::double precision, $50::double precision,
+  $51::integer, $52,
+  $53::date, $54::date, $55::timestamptz,
+  $56, $57::uuid, $58::timestamptz
 )
-ON CONFLICT (business_ref_id, scope_type, scope_id, as_of_date, engine_version)
+ON CONFLICT (business_ref_id, scope_type, scope_id, creative_format, as_of_date, engine_version)
 DO UPDATE SET
   sample_window_start = EXCLUDED.sample_window_start,
   sample_window_end = EXCLUDED.sample_window_end,
@@ -332,6 +504,26 @@ DO UPDATE SET
   roas_ratio_p25 = EXCLUDED.roas_ratio_p25,
   roas_ratio_p50 = EXCLUDED.roas_ratio_p50,
   roas_ratio_p75 = EXCLUDED.roas_ratio_p75,
+  ctr_p25 = EXCLUDED.ctr_p25,
+  ctr_p50 = EXCLUDED.ctr_p50,
+  cpm_p50 = EXCLUDED.cpm_p50,
+  cpm_p75 = EXCLUDED.cpm_p75,
+  thumbstop_p25 = EXCLUDED.thumbstop_p25,
+  thumbstop_p50 = EXCLUDED.thumbstop_p50,
+  link_to_lpv_p25 = EXCLUDED.link_to_lpv_p25,
+  link_to_lpv_p50 = EXCLUDED.link_to_lpv_p50,
+  link_to_atc_p25 = EXCLUDED.link_to_atc_p25,
+  link_to_atc_p50 = EXCLUDED.link_to_atc_p50,
+  lpv_to_atc_p25 = EXCLUDED.lpv_to_atc_p25,
+  lpv_to_atc_p50 = EXCLUDED.lpv_to_atc_p50,
+  atc_to_ic_p25 = EXCLUDED.atc_to_ic_p25,
+  atc_to_ic_p50 = EXCLUDED.atc_to_ic_p50,
+  ic_to_purchase_p25 = EXCLUDED.ic_to_purchase_p25,
+  ic_to_purchase_p50 = EXCLUDED.ic_to_purchase_p50,
+  click_to_purchase_p25 = EXCLUDED.click_to_purchase_p25,
+  click_to_purchase_p50 = EXCLUDED.click_to_purchase_p50,
+  funnel_sample_count = EXCLUDED.funnel_sample_count,
+  funnel_quality_status = EXCLUDED.funnel_quality_status,
   source_min_date = EXCLUDED.source_min_date,
   source_max_date = EXCLUDED.source_max_date,
   source_max_updated_at = EXCLUDED.source_max_updated_at,
@@ -386,51 +578,78 @@ export async function runCalibrationJob(
 
     await db.query("SAVEPOINT engine_v3_calibration_job_work");
     try {
-      const calibration = await computeCalibration({
+      const calibrations = await computeCalibrations({
         businessId: input.businessId,
         asOf: input.asOf,
         scopeType,
         scopeId,
       });
-      await db.query(UPSERT_CALIBRATION_QUERY, [
-        calibration.businessId,
-        calibration.businessId,
-        calibration.scopeType,
-        calibration.scopeId,
-        calibration.asOfDate,
-        ENGINE_VERSION,
-        calibration.sampleWindowStart,
-        calibration.sampleWindowEnd,
-        calibration.sampleWindowDays,
-        calibration.eligibleCreativeCount,
-        calibration.matureCreativeCount,
-        calibration.zeroConversionCount,
-        calibration.roasP75,
-        calibration.roasP60,
-        calibration.refreshRatioP10,
-        calibration.lowCtrP10,
-        calibration.accountCpaP50,
-        calibration.accountCpaSampleCount,
-        calibration.metaAttributedAovMean90d,
-        calibration.metaAttributedAovPurchaseCount90d,
-        calibration.metaAttributedRevenue90d,
-        calibration.metaAovQuality,
-        calibration.matureSpendP50,
-        calibration.matureSpendP75,
-        calibration.winnerSpendP25,
-        calibration.winnerSpendP50,
-        calibration.winnerPurchaseP50,
-        calibration.roasRatioP10,
-        calibration.roasRatioP25,
-        calibration.roasRatioP50,
-        calibration.roasRatioP75,
-        calibration.sourceMinDate,
-        calibration.sourceMaxDate,
-        calibration.sourceMaxUpdatedAt,
-        calibration.qualityStatus,
-        jobRunId,
-        calibration.computedAt,
-      ]);
+      for (const calibration of calibrations) {
+        await db.query(UPSERT_CALIBRATION_QUERY, [
+          calibration.businessId,
+          calibration.businessId,
+          calibration.scopeType,
+          calibration.scopeId,
+          calibration.creativeFormat,
+          calibration.asOfDate,
+          ENGINE_VERSION,
+          calibration.sampleWindowStart,
+          calibration.sampleWindowEnd,
+          calibration.sampleWindowDays,
+          calibration.eligibleCreativeCount,
+          calibration.matureCreativeCount,
+          calibration.zeroConversionCount,
+          calibration.roasP75,
+          calibration.roasP60,
+          calibration.refreshRatioP10,
+          calibration.lowCtrP10,
+          calibration.accountCpaP50,
+          calibration.accountCpaSampleCount,
+          calibration.metaAttributedAovMean90d,
+          calibration.metaAttributedAovPurchaseCount90d,
+          calibration.metaAttributedRevenue90d,
+          calibration.metaAovQuality,
+          calibration.matureSpendP50,
+          calibration.matureSpendP75,
+          calibration.winnerSpendP25,
+          calibration.winnerSpendP50,
+          calibration.winnerPurchaseP50,
+          calibration.roasRatioP10,
+          calibration.roasRatioP25,
+          calibration.roasRatioP50,
+          calibration.roasRatioP75,
+          calibration.ctrP25,
+          calibration.ctrP50,
+          calibration.cpmP50,
+          calibration.cpmP75,
+          calibration.thumbstopP25,
+          calibration.thumbstopP50,
+          calibration.linkToLpvP25,
+          calibration.linkToLpvP50,
+          calibration.linkToAtcP25,
+          calibration.linkToAtcP50,
+          calibration.lpvToAtcP25,
+          calibration.lpvToAtcP50,
+          calibration.atcToIcP25,
+          calibration.atcToIcP50,
+          calibration.icToPurchaseP25,
+          calibration.icToPurchaseP50,
+          calibration.clickToPurchaseP25,
+          calibration.clickToPurchaseP50,
+          calibration.funnelSampleCount,
+          calibration.funnelQualityStatus,
+          calibration.sourceMinDate,
+          calibration.sourceMaxDate,
+          calibration.sourceMaxUpdatedAt,
+          calibration.qualityStatus,
+          jobRunId,
+          calibration.computedAt,
+        ]);
+      }
+
+      const overallCalibration = calibrations.find(
+        (calibration) => calibration.creativeFormat === "overall",
+      );
 
       const durationMs = Date.now() - startedAt;
       await db.query(
@@ -440,18 +659,19 @@ export async function runCalibrationJob(
           status = 'success',
           finished_at = now(),
           duration_ms = $1::integer,
-          row_count = 1,
-          source_min_date = $2::date,
-          source_max_date = $3::date,
-          source_max_updated_at = $4::timestamptz,
+          row_count = $2::integer,
+          source_min_date = $3::date,
+          source_max_date = $4::date,
+          source_max_updated_at = $5::timestamptz,
           updated_at = now()
-        WHERE id = $5::uuid
+        WHERE id = $6::uuid
         `,
         [
           durationMs,
-          calibration.sourceMinDate,
-          calibration.sourceMaxDate,
-          calibration.sourceMaxUpdatedAt,
+          calibrations.length,
+          overallCalibration?.sourceMinDate ?? null,
+          overallCalibration?.sourceMaxDate ?? null,
+          overallCalibration?.sourceMaxUpdatedAt ?? null,
           jobRunId,
         ],
       );
@@ -459,9 +679,11 @@ export async function runCalibrationJob(
       return {
         jobRunId,
         status: "success",
-        rowsWritten: 1,
+        rowsWritten: calibrations.length,
         durationMs,
-        calibration: calibrationToAccountCalibration(calibration),
+        calibration: overallCalibration
+          ? calibrationToAccountCalibration(overallCalibration)
+          : null,
       };
     } catch (error) {
       await db
@@ -539,15 +761,44 @@ async function insertJobRun(input: {
   return id;
 }
 
+async function computeCalibrations(input: {
+  businessId: string;
+  asOf: string;
+  scopeType: typeof ACCOUNT_SCOPE_TYPE;
+  scopeId: string;
+}): Promise<ComputedCalibration[]> {
+  const computedAt = new Date().toISOString();
+  const calibrations: ComputedCalibration[] = [];
+
+  for (const creativeFormat of CALIBRATION_FORMATS) {
+    calibrations.push(
+      await computeCalibration({
+        ...input,
+        creativeFormat,
+        computedAt,
+      }),
+    );
+  }
+
+  return calibrations;
+}
+
 async function computeCalibration(input: {
   businessId: string;
   asOf: string;
   scopeType: typeof ACCOUNT_SCOPE_TYPE;
   scopeId: string;
+  creativeFormat: CalibrationCreativeFormat;
+  computedAt: string;
 }): Promise<ComputedCalibration> {
   const [row] = await getDb().query<CalibrationComputationRow>(
     COMPUTE_CALIBRATION_QUERY,
-    [input.asOf, input.businessId, SAMPLE_WINDOW_DAYS],
+    [
+      input.asOf,
+      input.businessId,
+      SAMPLE_WINDOW_DAYS,
+      input.creativeFormat,
+    ],
   );
   const matureCreativeCount =
     toIntegerOrNull(row?.mature_creative_count) ?? 0;
@@ -559,6 +810,7 @@ async function computeCalibration(input: {
     businessId: input.businessId,
     scopeType: input.scopeType,
     scopeId: input.scopeId,
+    creativeFormat: input.creativeFormat,
     asOfDate: input.asOf,
     sampleWindowStart:
       toIsoDateOrNull(row?.sample_window_start) ??
@@ -593,6 +845,26 @@ async function computeCalibration(input: {
     roasRatioP25: toNumberOrNull(row?.roas_ratio_p25),
     roasRatioP50: toNumberOrNull(row?.roas_ratio_p50),
     roasRatioP75: toNumberOrNull(row?.roas_ratio_p75),
+    ctrP25: toNumberOrNull(row?.ctr_p25),
+    ctrP50: toNumberOrNull(row?.ctr_p50),
+    cpmP50: toNumberOrNull(row?.cpm_p50),
+    cpmP75: toNumberOrNull(row?.cpm_p75),
+    thumbstopP25: toNumberOrNull(row?.thumbstop_p25),
+    thumbstopP50: toNumberOrNull(row?.thumbstop_p50),
+    linkToLpvP25: toNumberOrNull(row?.link_to_lpv_p25),
+    linkToLpvP50: toNumberOrNull(row?.link_to_lpv_p50),
+    linkToAtcP25: toNumberOrNull(row?.link_to_atc_p25),
+    linkToAtcP50: toNumberOrNull(row?.link_to_atc_p50),
+    lpvToAtcP25: toNumberOrNull(row?.lpv_to_atc_p25),
+    lpvToAtcP50: toNumberOrNull(row?.lpv_to_atc_p50),
+    atcToIcP25: toNumberOrNull(row?.atc_to_ic_p25),
+    atcToIcP50: toNumberOrNull(row?.atc_to_ic_p50),
+    icToPurchaseP25: toNumberOrNull(row?.ic_to_purchase_p25),
+    icToPurchaseP50: toNumberOrNull(row?.ic_to_purchase_p50),
+    clickToPurchaseP25: toNumberOrNull(row?.click_to_purchase_p25),
+    clickToPurchaseP50: toNumberOrNull(row?.click_to_purchase_p50),
+    funnelSampleCount: toIntegerOrNull(row?.funnel_sample_count) ?? 0,
+    funnelQualityStatus: toFunnelQualityStatus(row?.funnel_quality_status),
     sourceMinDate: toIsoDateOrNull(row?.source_min_date),
     sourceMaxDate: toIsoDateOrNull(row?.source_max_date),
     sourceMaxUpdatedAt,
@@ -601,7 +873,7 @@ async function computeCalibration(input: {
       sampleWindowDays,
       sourceMaxUpdatedAt,
     }),
-    computedAt: new Date().toISOString(),
+    computedAt: input.computedAt,
   };
 }
 
@@ -726,6 +998,20 @@ function toMetaAovQuality(value: unknown): AccountCalibration["metaAovQuality"] 
     return text;
   }
   return "unavailable";
+}
+
+function toFunnelQualityStatus(
+  value: unknown,
+): ComputedCalibration["funnelQualityStatus"] {
+  const text = toStringOrNull(value);
+  if (
+    text === "ready" ||
+    text === "low_sample" ||
+    text === "insufficient"
+  ) {
+    return text;
+  }
+  return "insufficient";
 }
 
 function toIsoDateOrNull(value: unknown): string | null {

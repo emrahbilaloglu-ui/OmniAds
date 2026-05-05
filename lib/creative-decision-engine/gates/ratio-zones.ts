@@ -3,8 +3,13 @@ import type {
   CreativeInput,
   DecisionBadge,
   DecisionLabel,
+  FunnelStage,
 } from "../types";
 import { SCALE_RATIO_BY_PRESET } from "../config";
+import {
+  computeFunnelDiagnosis,
+  hasUpperFunnelStrength,
+} from "../funnel";
 import { finalizeDecision, type GateContext, type GateResult } from "./types";
 
 const TARGET_BAND_MIN_RATIO = 0.85;
@@ -137,6 +142,110 @@ function withLifecycleHint(
   return reason;
 }
 
+function hasUsableFunnelCalibration(ctx: GateContext): boolean {
+  const format = ctx.input.creativeFormat ?? "overall";
+  const specific = ctx.profile.funnelCalibration.byFormat[format];
+  const overall = ctx.profile.funnelCalibration.byFormat.overall;
+  return Boolean(
+    (specific && specific.qualityStatus !== "insufficient") ||
+      (overall && overall.qualityStatus !== "insufficient"),
+  );
+}
+
+function appendBadgeOnce(
+  badges: readonly DecisionBadge[],
+  badge: DecisionBadge,
+): DecisionBadge[] {
+  return badges.some((existing) => existing.type === badge.type)
+    ? [...badges]
+    : [...badges, badge];
+}
+
+function issueBadge(stage: Extract<FunnelStage, "landing_page" | "checkout">) {
+  return stage === "landing_page"
+    ? ({
+        type: "landing_page_issue",
+        label: "Landing page issue",
+        severity: "warning",
+      } satisfies DecisionBadge)
+    : ({
+        type: "checkout_breakdown",
+        label: "Checkout breakdown",
+        severity: "warning",
+      } satisfies DecisionBadge);
+}
+
+function funnelAdjustedDecision(input: {
+  ctx: GateContext;
+  label: DecisionLabel;
+  reason: string;
+  badges: readonly DecisionBadge[];
+}): {
+  label: DecisionLabel;
+  reason: string;
+  badges: DecisionBadge[];
+} {
+  if (input.label !== "cut" && input.label !== "refresh") {
+    return {
+      label: input.label,
+      reason: input.reason,
+      badges: [...input.badges],
+    };
+  }
+
+  if (!hasUsableFunnelCalibration(input.ctx)) {
+    return {
+      label: input.label,
+      reason: input.reason,
+      badges: appendBadgeOnce(input.badges, {
+        type: "lifecycle_unavailable",
+        label: "Funnel calibration unavailable",
+        severity: "info",
+      }),
+    };
+  }
+
+  const diagnosis = computeFunnelDiagnosis({
+    creative: input.ctx.input,
+    funnelCalibration: input.ctx.profile.funnelCalibration,
+    profile: input.ctx.profile,
+  });
+
+  if (
+    diagnosis.confidence < 0.5 ||
+    diagnosis.creativeResponsible ||
+    (diagnosis.primaryWeakStage !== "landing_page" &&
+      diagnosis.primaryWeakStage !== "checkout")
+  ) {
+    return {
+      label: input.label,
+      reason: input.reason,
+      badges: [...input.badges],
+    };
+  }
+
+  const stage = diagnosis.primaryWeakStage;
+  let badges = appendBadgeOnce(input.badges, issueBadge(stage));
+  if (
+    hasUpperFunnelStrength({
+      creative: input.ctx.input,
+      funnelCalibration: input.ctx.profile.funnelCalibration,
+    })
+  ) {
+    badges = appendBadgeOnce(badges, {
+      type: "upper_funnel_strong_site_weak",
+      label: "Upper funnel strong, site weak",
+      severity: "info",
+    });
+  }
+
+  return {
+    label: "keep",
+    reason: `Performance below threshold but funnel diagnosis indicates ${stage} issue, not creative; operator review recommended. Original signal: ${input.reason}`,
+    badges,
+  };
+}
+
 export function shouldRefreshOnFatigue(
   input: CreativeInput,
   profile: AccountDecisionProfile,
@@ -168,15 +277,22 @@ function terminal(
   reason: string,
   badges: readonly DecisionBadge[] = [],
 ): GateResult {
+  const adjusted = funnelAdjustedDecision({
+    ctx,
+    label,
+    reason,
+    badges: [...ctx.badges, ...badges],
+  });
+
   return {
     kind: "terminal",
     output: finalizeDecision(
       {
         ...ctx,
-        badges: [...ctx.badges, ...badges],
+        badges: adjusted.badges,
       },
-      label,
-      withLifecycleHint(reason, ctx, label),
+      adjusted.label,
+      withLifecycleHint(adjusted.reason, ctx, adjusted.label),
     ),
   };
 }

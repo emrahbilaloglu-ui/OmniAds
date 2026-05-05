@@ -3,6 +3,7 @@ import type { GateContext } from "../gates/types";
 import type {
   AccountDecisionProfile,
   AccountCalibration,
+  AccountFunnelCalibration,
   BusinessConfig,
   CreativeInput,
   DataHealth,
@@ -41,6 +42,20 @@ export function makeCreativeInput(
     fatigueStatus: "none",
     targetRoas: 2.2,
     breakevenRoas: 1.71,
+    cpm: 10,
+    outboundClicks: 520,
+    landingPageViews: 480,
+    addToCart: 80,
+    initiateCheckout: 40,
+    thumbstop: 25,
+    video25Rate: 18,
+    video50Rate: 10,
+    video75Rate: 6,
+    video100Rate: 3,
+    qualityRanking: "average",
+    engagementRateRanking: "average",
+    conversionRateRanking: "average",
+    creativeFormat: "video",
     ...overrides,
   };
 }
@@ -75,11 +90,45 @@ export function makeAccountCalibration(
   };
 }
 
+export function makeAccountFunnelCalibration(
+  overrides: Partial<AccountFunnelCalibration> = {},
+): AccountFunnelCalibration {
+  return {
+    byFormat: {
+      overall: {
+        creativeFormat: "overall",
+        ctrP25: 0.8,
+        ctrP50: 1.2,
+        cpmP50: 12,
+        cpmP75: 18,
+        thumbstopP25: 15,
+        thumbstopP50: 25,
+        linkToLpvP25: 60,
+        linkToLpvP50: 75,
+        linkToAtcP25: 8,
+        linkToAtcP50: 12,
+        lpvToAtcP25: 10,
+        lpvToAtcP50: 16,
+        atcToIcP25: 35,
+        atcToIcP50: 50,
+        icToPurchaseP25: 20,
+        icToPurchaseP50: 30,
+        clickToPurchaseP25: 0.8,
+        clickToPurchaseP50: 1.2,
+        sampleSize: 35,
+        qualityStatus: "ready",
+      },
+    },
+    ...overrides,
+  };
+}
+
 type AccountDecisionProfileOverrides = Omit<
   Partial<AccountDecisionProfile>,
-  "accountBaselines" | "multipliers" | "thresholds"
+  "accountBaselines" | "funnelCalibration" | "multipliers" | "thresholds"
 > & {
     accountBaselines?: AccountCalibration;
+    funnelCalibration?: AccountFunnelCalibration;
     multipliers?: Partial<EngineMultiplierSet>;
     thresholds?: Partial<EngineThresholdSet>;
   };
@@ -89,12 +138,15 @@ export function makeAccountDecisionProfile(
 ): AccountDecisionProfile {
   const {
     accountBaselines: accountBaselinesOverride,
+    funnelCalibration: funnelCalibrationOverride,
     multipliers: multiplierOverrides,
     thresholds: thresholdOverrides,
     ...profileOverrides
   } = overrides;
   const accountBaselines =
     accountBaselinesOverride ?? makeAccountCalibration();
+  const funnelCalibration =
+    funnelCalibrationOverride ?? makeAccountFunnelCalibration();
   const multipliers: EngineMultiplierSet = {
     zeroConvBurner: 3,
     cutCandidate: 2,
@@ -161,6 +213,7 @@ export function makeAccountDecisionProfile(
     multipliers,
     thresholds,
     accountBaselines,
+    funnelCalibration,
   };
 }
 

@@ -539,6 +539,7 @@ async function findLatestCalibrationRowId(input: DecisionsJobInput) {
     WHERE business_ref_id = $1::uuid
       AND scope_type = 'account'
       AND scope_id = '*'
+      AND creative_format = 'overall'
       AND engine_version = $2
       AND as_of_date <= $3::date
     ORDER BY as_of_date DESC, computed_at DESC

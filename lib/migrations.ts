@@ -4332,6 +4332,82 @@ export async function runMigrations(options?: {
           ADD COLUMN IF NOT EXISTS roas_ratio_p25 DOUBLE PRECISION,
           ADD COLUMN IF NOT EXISTS roas_ratio_p50 DOUBLE PRECISION,
           ADD COLUMN IF NOT EXISTS roas_ratio_p75 DOUBLE PRECISION`.catch(() => {}),
+        sql`ALTER TABLE engine_v3_account_calibration_daily
+          ADD COLUMN IF NOT EXISTS creative_format TEXT NOT NULL DEFAULT 'overall',
+          ADD COLUMN IF NOT EXISTS ctr_p25 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS ctr_p50 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS cpm_p50 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS cpm_p75 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS thumbstop_p25 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS thumbstop_p50 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS link_to_lpv_p25 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS link_to_lpv_p50 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS link_to_atc_p25 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS link_to_atc_p50 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS lpv_to_atc_p25 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS lpv_to_atc_p50 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS atc_to_ic_p25 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS atc_to_ic_p50 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS ic_to_purchase_p25 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS ic_to_purchase_p50 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS click_to_purchase_p25 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS click_to_purchase_p50 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS funnel_sample_count INTEGER NOT NULL DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS funnel_quality_status TEXT
+            CHECK (funnel_quality_status IN ('ready', 'low_sample', 'insufficient'))`.catch(() => {}),
+        sql`DO $$
+          DECLARE
+            old_constraint_name TEXT;
+          BEGIN
+            SELECT c.conname
+            INTO old_constraint_name
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'engine_v3_account_calibration_daily'
+              AND c.contype = 'u'
+              AND (
+                SELECT array_agg(a.attname::text ORDER BY u.ord)
+                FROM unnest(c.conkey) WITH ORDINALITY AS u(attnum, ord)
+                JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = u.attnum
+              ) = ARRAY['business_ref_id', 'scope_type', 'scope_id', 'as_of_date', 'engine_version']
+            LIMIT 1;
+
+            IF old_constraint_name IS NOT NULL THEN
+              EXECUTE format(
+                'ALTER TABLE engine_v3_account_calibration_daily DROP CONSTRAINT %I',
+                old_constraint_name
+              );
+            END IF;
+
+            IF NOT EXISTS (
+              SELECT 1
+              FROM pg_constraint c
+              JOIN pg_class t ON t.oid = c.conrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+              WHERE n.nspname = current_schema()
+                AND t.relname = 'engine_v3_account_calibration_daily'
+                AND c.contype = 'u'
+                AND (
+                  SELECT array_agg(a.attname::text ORDER BY u.ord)
+                  FROM unnest(c.conkey) WITH ORDINALITY AS u(attnum, ord)
+                  JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = u.attnum
+                ) = ARRAY[
+                  'business_ref_id',
+                  'scope_type',
+                  'scope_id',
+                  'creative_format',
+                  'as_of_date',
+                  'engine_version'
+                ]
+            ) THEN
+              ALTER TABLE engine_v3_account_calibration_daily
+                ADD CONSTRAINT engine_v3_account_calibration_daily_format_unique
+                UNIQUE (business_ref_id, scope_type, scope_id, creative_format, as_of_date, engine_version);
+            END IF;
+          END
+          $$`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS engine_v3_creative_lifecycle_daily (
           id                            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_ref_id               UUID NOT NULL,
@@ -4403,6 +4479,37 @@ export async function runMigrations(options?: {
           updated_at                    TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (business_ref_id, creative_id, as_of_date, engine_version)
         )`,
+        sql`ALTER TABLE engine_v3_creative_lifecycle_daily
+          ADD COLUMN IF NOT EXISTS cpm_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS outbound_clicks_28d INTEGER,
+          ADD COLUMN IF NOT EXISTS landing_page_views_28d INTEGER,
+          ADD COLUMN IF NOT EXISTS add_to_cart_28d INTEGER,
+          ADD COLUMN IF NOT EXISTS initiate_checkout_28d INTEGER,
+          ADD COLUMN IF NOT EXISTS thumbstop_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS video25_rate_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS video50_rate_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS video75_rate_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS video100_rate_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS quality_ranking TEXT,
+          ADD COLUMN IF NOT EXISTS engagement_rate_ranking TEXT,
+          ADD COLUMN IF NOT EXISTS conversion_rate_ranking TEXT,
+          ADD COLUMN IF NOT EXISTS creative_format TEXT,
+          ADD COLUMN IF NOT EXISTS outbound_click_rate_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS link_to_lpv_rate_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS link_to_atc_rate_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS lpv_to_atc_rate_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS atc_to_ic_rate_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS ic_to_purchase_rate_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS atc_to_purchase_rate_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS click_to_purchase_rate_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS funnel_primary_weak_stage TEXT
+            CHECK (funnel_primary_weak_stage IN ('upper_funnel', 'landing_page', 'checkout', 'tracking', 'none', 'insufficient_signal')),
+          ADD COLUMN IF NOT EXISTS funnel_confidence DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS funnel_evidence JSONB,
+          ADD COLUMN IF NOT EXISTS creative_responsibility_score DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS site_responsibility_score DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS checkout_responsibility_score DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS tracking_anomaly_score DOUBLE PRECISION`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_lifecycle_business_day
           ON engine_v3_creative_lifecycle_daily
           (business_ref_id, as_of_date DESC, creative_id)`,

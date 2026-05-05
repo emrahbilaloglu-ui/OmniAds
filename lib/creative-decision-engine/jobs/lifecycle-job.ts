@@ -4,7 +4,18 @@ import {
   type FatigueStatus,
   type HistoricalWindow,
 } from "../fatigue";
-import { ENGINE_VERSION } from "../types";
+import { computeFunnelDiagnosis } from "../funnel";
+import { resolveAccountDecisionProfile } from "../account-decision-profile";
+import { WarehouseDataSource } from "../data-source";
+import {
+  ENGINE_VERSION,
+  type AccountDecisionProfile,
+  type CampaignObjective,
+  type CreativeFormat,
+  type CreativeInput,
+  type FunnelStage,
+  type MetaRanking,
+} from "../types";
 import {
   hashAdvisoryLock,
   JOB_NAME as CALIBRATION_JOB_NAME,
@@ -22,6 +33,30 @@ type LifecyclePosition =
   | "past_peak_unclear"
   | "volatile"
   | "insufficient_history";
+
+const CAMPAIGN_OBJECTIVES = new Set<CampaignObjective>([
+  "OUTCOME_SALES",
+  "OUTCOME_ENGAGEMENT",
+  "OUTCOME_TRAFFIC",
+  "OUTCOME_LEADS",
+  "OUTCOME_AWARENESS",
+  "OUTCOME_APP_PROMOTION",
+]);
+
+const META_RANKINGS = new Set<MetaRanking>([
+  "above_average",
+  "average",
+  "below_average",
+  "unknown",
+]);
+
+const CREATIVE_FORMATS = new Set<CreativeFormat>([
+  "image",
+  "video",
+  "carousel",
+  "catalog",
+  "other",
+]);
 
 export interface LifecycleJobInput {
   businessId: string;
@@ -94,6 +129,20 @@ type LifecycleComputationRow = Record<string, unknown> & {
   objective: unknown;
   target_roas: unknown;
   breakeven_roas: unknown;
+  cpm_28d: unknown;
+  outbound_clicks_28d: unknown;
+  landing_page_views_28d: unknown;
+  add_to_cart_28d: unknown;
+  initiate_checkout_28d: unknown;
+  thumbstop_28d: unknown;
+  video25_rate_28d: unknown;
+  video50_rate_28d: unknown;
+  video75_rate_28d: unknown;
+  video100_rate_28d: unknown;
+  quality_ranking: unknown;
+  engagement_rate_ranking: unknown;
+  conversion_rate_ranking: unknown;
+  creative_format: unknown;
   source_min_date: unknown;
   source_max_date: unknown;
   source_max_updated_at: unknown;
@@ -159,6 +208,35 @@ interface LifecycleUpsertRow {
   objective: string | null;
   target_roas: number | null;
   breakeven_roas: number | null;
+  cpm_28d: number | null;
+  outbound_clicks_28d: number | null;
+  landing_page_views_28d: number | null;
+  add_to_cart_28d: number | null;
+  initiate_checkout_28d: number | null;
+  thumbstop_28d: number | null;
+  video25_rate_28d: number | null;
+  video50_rate_28d: number | null;
+  video75_rate_28d: number | null;
+  video100_rate_28d: number | null;
+  quality_ranking: MetaRanking | null;
+  engagement_rate_ranking: MetaRanking | null;
+  conversion_rate_ranking: MetaRanking | null;
+  creative_format: CreativeFormat | null;
+  outbound_click_rate_28d: number | null;
+  link_to_lpv_rate_28d: number | null;
+  link_to_atc_rate_28d: number | null;
+  lpv_to_atc_rate_28d: number | null;
+  atc_to_ic_rate_28d: number | null;
+  ic_to_purchase_rate_28d: number | null;
+  atc_to_purchase_rate_28d: number | null;
+  click_to_purchase_rate_28d: number | null;
+  funnel_primary_weak_stage: FunnelStage;
+  funnel_confidence: number | null;
+  funnel_evidence: string[];
+  creative_responsibility_score: number;
+  site_responsibility_score: number;
+  checkout_responsibility_score: number;
+  tracking_anomaly_score: number;
   data_freshness_hours: number | null;
   source_max_date: string | null;
   source_max_updated_at: string | null;
@@ -195,6 +273,15 @@ daily AS (
     SUM(d.impressions)::bigint AS impressions,
     SUM(d.clicks)::bigint AS clicks,
     SUM(d.link_clicks)::bigint AS link_clicks,
+    SUM(COALESCE((NULLIF(d.payload_json->>'outbound_clicks', ''))::numeric, d.outbound_clicks::numeric, 0)) AS outbound_clicks,
+    SUM(COALESCE((NULLIF(d.payload_json->>'landing_page_views', ''))::numeric, 0)) AS landing_page_views,
+    SUM(COALESCE((NULLIF(d.payload_json->>'add_to_cart', ''))::numeric, 0)) AS add_to_cart,
+    SUM(COALESCE((NULLIF(d.payload_json->>'initiate_checkout', ''))::numeric, 0)) AS initiate_checkout,
+    SUM(COALESCE((NULLIF(d.payload_json->>'thumbstop', ''))::numeric, 0) * d.impressions) AS thumbstop_weighted,
+    SUM(COALESCE((NULLIF(d.payload_json->>'video25', ''))::numeric, 0) * d.impressions) AS video25_weighted,
+    SUM(COALESCE((NULLIF(d.payload_json->>'video50', ''))::numeric, 0) * d.impressions) AS video50_weighted,
+    SUM(COALESCE((NULLIF(d.payload_json->>'video75', ''))::numeric, 0) * d.impressions) AS video75_weighted,
+    SUM(COALESCE((NULLIF(d.payload_json->>'video100', ''))::numeric, 0) * d.impressions) AS video100_weighted,
     AVG(NULLIF(d.frequency, 0)) AS frequency
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
@@ -251,6 +338,40 @@ windows AS (
         NULLIF(SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')), 0) * 100
     END AS ctr_28d,
     AVG(frequency) FILTER (WHERE date >= ($2::date - INTERVAL '27 days') AND frequency > 0) AS frequency_28d,
+    CASE
+      WHEN SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) > 0
+      THEN SUM(spend) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) /
+        NULLIF(SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')), 0) * 1000
+    END AS cpm_28d,
+    SUM(outbound_clicks) FILTER (WHERE date >= ($2::date - INTERVAL '27 days'))::integer AS outbound_clicks_28d,
+    SUM(landing_page_views) FILTER (WHERE date >= ($2::date - INTERVAL '27 days'))::integer AS landing_page_views_28d,
+    SUM(add_to_cart) FILTER (WHERE date >= ($2::date - INTERVAL '27 days'))::integer AS add_to_cart_28d,
+    SUM(initiate_checkout) FILTER (WHERE date >= ($2::date - INTERVAL '27 days'))::integer AS initiate_checkout_28d,
+    CASE
+      WHEN SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) > 0
+      THEN SUM(thumbstop_weighted) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) /
+        NULLIF(SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')), 0)
+    END AS thumbstop_28d,
+    CASE
+      WHEN SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) > 0
+      THEN SUM(video25_weighted) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) /
+        NULLIF(SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')), 0)
+    END AS video25_rate_28d,
+    CASE
+      WHEN SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) > 0
+      THEN SUM(video50_weighted) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) /
+        NULLIF(SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')), 0)
+    END AS video50_rate_28d,
+    CASE
+      WHEN SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) > 0
+      THEN SUM(video75_weighted) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) /
+        NULLIF(SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')), 0)
+    END AS video75_rate_28d,
+    CASE
+      WHEN SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) > 0
+      THEN SUM(video100_weighted) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) /
+        NULLIF(SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')), 0)
+    END AS video100_rate_28d,
     COALESCE(SUM(spend) FILTER (WHERE date >= ($2::date - INTERVAL '6 days')), 0)::double precision AS spend_7d,
     COALESCE(SUM(purchases) FILTER (WHERE date >= ($2::date - INTERVAL '6 days')), 0)::double precision AS purchases_7d,
     CASE
@@ -337,6 +458,15 @@ latest_meta AS (
     d.ad_id,
     d.effective_status,
     d.objective,
+    d.quality_ranking,
+    d.engagement_rate_ranking,
+    d.conversion_rate_ranking,
+    COALESCE(
+      NULLIF(d.payload_json->>'format', ''),
+      NULLIF(d.payload_json->>'creative_format', ''),
+      d.creative_visual_format,
+      d.creative_primary_type
+    ) AS creative_format,
     NULLIF(d.payload_json->>'effective_object_story_id', '') AS effective_object_story_id,
     NULLIF(d.payload_json->>'post_id', '') AS post_id,
     NULLIF(d.payload_json->>'creative_identity_hash', '') AS creative_identity_hash
@@ -476,6 +606,20 @@ SELECT
   latest_meta.objective,
   target_pack.target_roas,
   target_pack.break_even_roas AS breakeven_roas,
+  windows.cpm_28d,
+  windows.outbound_clicks_28d,
+  windows.landing_page_views_28d,
+  windows.add_to_cart_28d,
+  windows.initiate_checkout_28d,
+  windows.thumbstop_28d,
+  windows.video25_rate_28d,
+  windows.video50_rate_28d,
+  windows.video75_rate_28d,
+  windows.video100_rate_28d,
+  latest_meta.quality_ranking,
+  latest_meta.engagement_rate_ranking,
+  latest_meta.conversion_rate_ranking,
+  latest_meta.creative_format,
   source_bounds.source_min_date,
   source_bounds.source_max_date,
   source_bounds.source_max_updated_at,
@@ -569,6 +713,35 @@ WITH payload AS (
     objective text,
     target_roas double precision,
     breakeven_roas double precision,
+    cpm_28d double precision,
+    outbound_clicks_28d integer,
+    landing_page_views_28d integer,
+    add_to_cart_28d integer,
+    initiate_checkout_28d integer,
+    thumbstop_28d double precision,
+    video25_rate_28d double precision,
+    video50_rate_28d double precision,
+    video75_rate_28d double precision,
+    video100_rate_28d double precision,
+    quality_ranking text,
+    engagement_rate_ranking text,
+    conversion_rate_ranking text,
+    creative_format text,
+    outbound_click_rate_28d double precision,
+    link_to_lpv_rate_28d double precision,
+    link_to_atc_rate_28d double precision,
+    lpv_to_atc_rate_28d double precision,
+    atc_to_ic_rate_28d double precision,
+    ic_to_purchase_rate_28d double precision,
+    atc_to_purchase_rate_28d double precision,
+    click_to_purchase_rate_28d double precision,
+    funnel_primary_weak_stage text,
+    funnel_confidence double precision,
+    funnel_evidence jsonb,
+    creative_responsibility_score double precision,
+    site_responsibility_score double precision,
+    checkout_responsibility_score double precision,
+    tracking_anomaly_score double precision,
     data_freshness_hours integer,
     source_max_date date,
     source_max_updated_at timestamptz,
@@ -631,6 +804,35 @@ INSERT INTO engine_v3_creative_lifecycle_daily (
   objective,
   target_roas,
   breakeven_roas,
+  cpm_28d,
+  outbound_clicks_28d,
+  landing_page_views_28d,
+  add_to_cart_28d,
+  initiate_checkout_28d,
+  thumbstop_28d,
+  video25_rate_28d,
+  video50_rate_28d,
+  video75_rate_28d,
+  video100_rate_28d,
+  quality_ranking,
+  engagement_rate_ranking,
+  conversion_rate_ranking,
+  creative_format,
+  outbound_click_rate_28d,
+  link_to_lpv_rate_28d,
+  link_to_atc_rate_28d,
+  lpv_to_atc_rate_28d,
+  atc_to_ic_rate_28d,
+  ic_to_purchase_rate_28d,
+  atc_to_purchase_rate_28d,
+  click_to_purchase_rate_28d,
+  funnel_primary_weak_stage,
+  funnel_confidence,
+  funnel_evidence,
+  creative_responsibility_score,
+  site_responsibility_score,
+  checkout_responsibility_score,
+  tracking_anomaly_score,
   data_freshness_hours,
   source_max_date,
   source_max_updated_at,
@@ -692,6 +894,35 @@ SELECT
   objective,
   target_roas,
   breakeven_roas,
+  cpm_28d,
+  outbound_clicks_28d,
+  landing_page_views_28d,
+  add_to_cart_28d,
+  initiate_checkout_28d,
+  thumbstop_28d,
+  video25_rate_28d,
+  video50_rate_28d,
+  video75_rate_28d,
+  video100_rate_28d,
+  quality_ranking,
+  engagement_rate_ranking,
+  conversion_rate_ranking,
+  creative_format,
+  outbound_click_rate_28d,
+  link_to_lpv_rate_28d,
+  link_to_atc_rate_28d,
+  lpv_to_atc_rate_28d,
+  atc_to_ic_rate_28d,
+  ic_to_purchase_rate_28d,
+  atc_to_purchase_rate_28d,
+  click_to_purchase_rate_28d,
+  funnel_primary_weak_stage,
+  funnel_confidence,
+  funnel_evidence,
+  creative_responsibility_score,
+  site_responsibility_score,
+  checkout_responsibility_score,
+  tracking_anomaly_score,
   data_freshness_hours,
   source_max_date,
   source_max_updated_at,
@@ -748,6 +979,35 @@ DO UPDATE SET
   objective = EXCLUDED.objective,
   target_roas = EXCLUDED.target_roas,
   breakeven_roas = EXCLUDED.breakeven_roas,
+  cpm_28d = EXCLUDED.cpm_28d,
+  outbound_clicks_28d = EXCLUDED.outbound_clicks_28d,
+  landing_page_views_28d = EXCLUDED.landing_page_views_28d,
+  add_to_cart_28d = EXCLUDED.add_to_cart_28d,
+  initiate_checkout_28d = EXCLUDED.initiate_checkout_28d,
+  thumbstop_28d = EXCLUDED.thumbstop_28d,
+  video25_rate_28d = EXCLUDED.video25_rate_28d,
+  video50_rate_28d = EXCLUDED.video50_rate_28d,
+  video75_rate_28d = EXCLUDED.video75_rate_28d,
+  video100_rate_28d = EXCLUDED.video100_rate_28d,
+  quality_ranking = EXCLUDED.quality_ranking,
+  engagement_rate_ranking = EXCLUDED.engagement_rate_ranking,
+  conversion_rate_ranking = EXCLUDED.conversion_rate_ranking,
+  creative_format = EXCLUDED.creative_format,
+  outbound_click_rate_28d = EXCLUDED.outbound_click_rate_28d,
+  link_to_lpv_rate_28d = EXCLUDED.link_to_lpv_rate_28d,
+  link_to_atc_rate_28d = EXCLUDED.link_to_atc_rate_28d,
+  lpv_to_atc_rate_28d = EXCLUDED.lpv_to_atc_rate_28d,
+  atc_to_ic_rate_28d = EXCLUDED.atc_to_ic_rate_28d,
+  ic_to_purchase_rate_28d = EXCLUDED.ic_to_purchase_rate_28d,
+  atc_to_purchase_rate_28d = EXCLUDED.atc_to_purchase_rate_28d,
+  click_to_purchase_rate_28d = EXCLUDED.click_to_purchase_rate_28d,
+  funnel_primary_weak_stage = EXCLUDED.funnel_primary_weak_stage,
+  funnel_confidence = EXCLUDED.funnel_confidence,
+  funnel_evidence = EXCLUDED.funnel_evidence,
+  creative_responsibility_score = EXCLUDED.creative_responsibility_score,
+  site_responsibility_score = EXCLUDED.site_responsibility_score,
+  checkout_responsibility_score = EXCLUDED.checkout_responsibility_score,
+  tracking_anomaly_score = EXCLUDED.tracking_anomaly_score,
   data_freshness_hours = EXCLUDED.data_freshness_hours,
   source_max_date = EXCLUDED.source_max_date,
   source_max_updated_at = EXCLUDED.source_max_updated_at,
@@ -949,6 +1209,11 @@ async function computeLifecycleRows(input: {
   asOf: string;
   jobRunId: string;
 }): Promise<ComputedLifecycleBatch> {
+  const profile = await resolveAccountDecisionProfile({
+    businessId: input.businessId,
+    asOf: input.asOf,
+    dataSource: new WarehouseDataSource(),
+  });
   const rows = await getDb().query<LifecycleComputationRow>(
     COMPUTE_LIFECYCLE_ROWS_QUERY,
     [input.businessId, input.asOf],
@@ -970,6 +1235,7 @@ async function computeLifecycleRows(input: {
           asOf: input.asOf,
           jobRunId: input.jobRunId,
           computedAt,
+          profile,
         }),
       )
       .filter((row): row is LifecycleUpsertRow => row !== null),
@@ -995,18 +1261,42 @@ function mapLifecycleComputationRow(input: {
   asOf: string;
   jobRunId: string;
   computedAt: string;
+  profile: AccountDecisionProfile;
 }): LifecycleUpsertRow | null {
   const creativeId = toStringOrNull(input.row.creative_id);
   if (creativeId === null) return null;
 
   const spend28d = toNumberOrNull(input.row.spend_28d) ?? 0;
   const purchases28d = toNumberOrNull(input.row.purchases_28d) ?? 0;
+  const purchaseValue28d = toNumberOrNull(input.row.purchase_value_28d);
+  const impressions28d = toIntegerOrNull(input.row.impressions_28d);
   const linkClicks28d = toIntegerOrNull(input.row.link_clicks_28d);
   const ctr28d = toNumberOrNull(input.row.ctr_28d);
   const roas28d = toNumberOrNull(input.row.roas_28d);
+  const cpa28d = toNumberOrNull(input.row.cpa_28d);
   const frequency28d = toNumberOrNull(input.row.frequency_28d);
   const targetRoas = toNumberOrNull(input.row.target_roas);
   const breakevenRoas = toNumberOrNull(input.row.breakeven_roas);
+  const cpm28d = toNumberOrNull(input.row.cpm_28d);
+  const outboundClicks28d = toIntegerOrNull(input.row.outbound_clicks_28d);
+  const landingPageViews28d = toIntegerOrNull(input.row.landing_page_views_28d);
+  const addToCart28d = toIntegerOrNull(input.row.add_to_cart_28d);
+  const initiateCheckout28d = toIntegerOrNull(
+    input.row.initiate_checkout_28d,
+  );
+  const thumbstop28d = toNumberOrNull(input.row.thumbstop_28d);
+  const video25Rate28d = toNumberOrNull(input.row.video25_rate_28d);
+  const video50Rate28d = toNumberOrNull(input.row.video50_rate_28d);
+  const video75Rate28d = toNumberOrNull(input.row.video75_rate_28d);
+  const video100Rate28d = toNumberOrNull(input.row.video100_rate_28d);
+  const qualityRanking = toMetaRanking(input.row.quality_ranking);
+  const engagementRateRanking = toMetaRanking(
+    input.row.engagement_rate_ranking,
+  );
+  const conversionRateRanking = toMetaRanking(
+    input.row.conversion_rate_ranking,
+  );
+  const creativeFormat = toCreativeFormat(input.row.creative_format);
   const ageDays = toIntegerOrNull(input.row.age_days);
   const activeDays30d = toIntegerOrNull(input.row.active_days_30d) ?? 0;
   const eligibleForLifecycle =
@@ -1067,6 +1357,70 @@ function mapLifecycleComputationRow(input: {
     benchmarkRoasStatus: null,
     benchmarkClickToPurchaseStatus: null,
   });
+  const funnelCreativeInput: CreativeInput = {
+    creativeId,
+    creativeName: null,
+    businessId: input.businessId,
+    campaignId: toStringOrNull(input.row.campaign_id),
+    objective: toCampaignObjective(input.row.objective),
+    spend: spend28d,
+    purchases: purchases28d,
+    purchaseValue: purchaseValue28d,
+    impressions: impressions28d,
+    linkClicks: linkClicks28d,
+    roas: roas28d,
+    cpa: cpa28d,
+    ctr: ctr28d,
+    frequency: frequency28d,
+    recent7dSpend: toNumberOrNull(input.row.spend_7d),
+    recent7dPurchases: toNumberOrNull(input.row.purchases_7d),
+    recent7dRoas,
+    recent7dImpressions: toIntegerOrNull(input.row.impressions_7d),
+    effectiveStatus: null,
+    ageDays,
+    lastSpendAt: toIsoDateOrNull(input.row.last_active_date),
+    policyReason: null,
+    dataFreshnessHours: freshnessHours(sourceMaxUpdatedAt),
+    fatigueStatus: fatigue.status,
+    targetRoas,
+    breakevenRoas,
+    lifecyclePosition,
+    daysSincePeak,
+    peakRoas30d,
+    peakConfidence,
+    spendTrajectory30d,
+    spendSlope7d: eligibleForLifecycle
+      ? toNumberOrNull(input.row.spend_slope_7d)
+      : null,
+    spendSlope30d: eligibleForLifecycle
+      ? toNumberOrNull(input.row.spend_slope_30d)
+      : null,
+    roasSlope7d: eligibleForLifecycle
+      ? toNumberOrNull(input.row.roas_slope_7d)
+      : null,
+    roasSlope30d: eligibleForLifecycle
+      ? toNumberOrNull(input.row.roas_slope_30d)
+      : null,
+    cpm: cpm28d,
+    outboundClicks: outboundClicks28d,
+    landingPageViews: landingPageViews28d,
+    addToCart: addToCart28d,
+    initiateCheckout: initiateCheckout28d,
+    thumbstop: thumbstop28d,
+    video25Rate: video25Rate28d,
+    video50Rate: video50Rate28d,
+    video75Rate: video75Rate28d,
+    video100Rate: video100Rate28d,
+    qualityRanking,
+    engagementRateRanking,
+    conversionRateRanking,
+    creativeFormat,
+  };
+  const funnelDiagnosis = computeFunnelDiagnosis({
+    creative: funnelCreativeInput,
+    funnelCalibration: input.profile.funnelCalibration,
+    profile: input.profile,
+  });
 
   return {
     business_ref_id: input.businessId,
@@ -1086,11 +1440,11 @@ function mapLifecycleComputationRow(input: {
     engine_version: ENGINE_VERSION,
     spend_28d: spend28d,
     purchases_28d: purchases28d,
-    purchase_value_28d: toNumberOrNull(input.row.purchase_value_28d),
-    impressions_28d: toIntegerOrNull(input.row.impressions_28d),
+    purchase_value_28d: purchaseValue28d,
+    impressions_28d: impressions28d,
     link_clicks_28d: linkClicks28d,
     roas_28d: roas28d,
-    cpa_28d: toNumberOrNull(input.row.cpa_28d),
+    cpa_28d: cpa28d,
     ctr_28d: ctr28d,
     frequency_28d: frequency28d,
     spend_7d: toNumberOrNull(input.row.spend_7d) ?? 0,
@@ -1141,6 +1495,42 @@ function mapLifecycleComputationRow(input: {
     objective: toStringOrNull(input.row.objective),
     target_roas: targetRoas,
     breakeven_roas: breakevenRoas,
+    cpm_28d: cpm28d,
+    outbound_clicks_28d: outboundClicks28d,
+    landing_page_views_28d: landingPageViews28d,
+    add_to_cart_28d: addToCart28d,
+    initiate_checkout_28d: initiateCheckout28d,
+    thumbstop_28d: thumbstop28d,
+    video25_rate_28d: video25Rate28d,
+    video50_rate_28d: video50Rate28d,
+    video75_rate_28d: video75Rate28d,
+    video100_rate_28d: video100Rate28d,
+    quality_ranking: qualityRanking,
+    engagement_rate_ranking: engagementRateRanking,
+    conversion_rate_ranking: conversionRateRanking,
+    creative_format: creativeFormat,
+    outbound_click_rate_28d: funnelDiagnosis.rates.outboundClickRate,
+    link_to_lpv_rate_28d: funnelDiagnosis.rates.linkToLpvRate,
+    link_to_atc_rate_28d: funnelDiagnosis.rates.linkToAtcRate,
+    lpv_to_atc_rate_28d: funnelDiagnosis.rates.lpvToAtcRate,
+    atc_to_ic_rate_28d: funnelDiagnosis.rates.atcToIcRate,
+    ic_to_purchase_rate_28d: funnelDiagnosis.rates.icToPurchaseRate,
+    atc_to_purchase_rate_28d: funnelDiagnosis.rates.atcToPurchaseRate,
+    click_to_purchase_rate_28d: funnelDiagnosis.rates.clickToPurchaseRate,
+    funnel_primary_weak_stage: funnelDiagnosis.primaryWeakStage,
+    funnel_confidence: funnelDiagnosis.confidence,
+    funnel_evidence: funnelDiagnosis.evidence,
+    creative_responsibility_score:
+      funnelDiagnosis.primaryWeakStage === "upper_funnel" &&
+      funnelDiagnosis.creativeResponsible
+        ? 1
+        : 0,
+    site_responsibility_score:
+      funnelDiagnosis.primaryWeakStage === "landing_page" ? 1 : 0,
+    checkout_responsibility_score:
+      funnelDiagnosis.primaryWeakStage === "checkout" ? 1 : 0,
+    tracking_anomaly_score:
+      funnelDiagnosis.primaryWeakStage === "tracking" ? 1 : 0,
     data_freshness_hours: freshnessHours(sourceMaxUpdatedAt),
     source_max_date: toIsoDateOrNull(input.row.source_max_date),
     source_max_updated_at: sourceMaxUpdatedAt,
@@ -1247,6 +1637,45 @@ function toHistoricalWindow(
       toNumberOrNull(row[`${prefix}_click_to_purchase_rate`]) ?? 0,
     purchases: toNumberOrNull(row[`${prefix}_purchases`]) ?? 0,
   };
+}
+
+function normalizeToken(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
+}
+
+function toCampaignObjective(value: unknown): CampaignObjective | null {
+  const text = toStringOrNull(value);
+  if (text === null) return null;
+  return CAMPAIGN_OBJECTIVES.has(text as CampaignObjective)
+    ? (text as CampaignObjective)
+    : null;
+}
+
+function toMetaRanking(value: unknown): MetaRanking | null {
+  const text = toStringOrNull(value);
+  if (text === null) return null;
+  const normalized = normalizeToken(text);
+  if (normalized.startsWith("above_average")) return "above_average";
+  if (normalized.startsWith("below_average")) return "below_average";
+  return META_RANKINGS.has(normalized as MetaRanking)
+    ? (normalized as MetaRanking)
+    : null;
+}
+
+function toCreativeFormat(value: unknown): CreativeFormat | null {
+  const text = toStringOrNull(value);
+  if (text === null) return null;
+  const normalized = normalizeToken(text);
+  if (CREATIVE_FORMATS.has(normalized as CreativeFormat)) {
+    return normalized as CreativeFormat;
+  }
+  if (normalized.includes("carousel")) return "carousel";
+  if (normalized.includes("catalog")) return "catalog";
+  if (normalized.includes("video")) return "video";
+  if (normalized.includes("image") || normalized.includes("photo")) {
+    return "image";
+  }
+  return "other";
 }
 
 function freshnessHours(timestamp: string | null) {

@@ -156,8 +156,10 @@ describe("Engine v3 precomputed table migrations", () => {
       expect(countColumnDefinitions(statement)).toBe(ENGINE_V3_COLUMN_COUNTS[tableName]);
     }
 
-    expect(normalizeSql(findCreateTableStatement(queries, "engine_v3_account_calibration_daily"))).toContain(
-      normalizeSql("UNIQUE (business_ref_id, scope_type, scope_id, as_of_date, engine_version)"),
+    expect(joined).toContain(
+      normalizeSql(
+        "UNIQUE (business_ref_id, scope_type, scope_id, creative_format, as_of_date, engine_version)",
+      ),
     );
     expect(normalizeSql(findCreateTableStatement(queries, "engine_v3_account_calibration_daily"))).toContain(
       normalizeSql("meta_aov_quality TEXT CHECK (meta_aov_quality IN ('unavailable', 'unstable', 'low_sample', 'ready'))"),
@@ -209,7 +211,7 @@ describe("Engine v3 precomputed table migrations", () => {
 
     for (const statement of firstRun) {
       expect(statement).toMatch(
-        /^(CREATE (TABLE|INDEX) IF NOT EXISTS|ALTER TABLE .* ADD COLUMN IF NOT EXISTS) /,
+        /^(CREATE (TABLE|INDEX) IF NOT EXISTS|ALTER TABLE .* ADD COLUMN IF NOT EXISTS|DO \$\$) /,
       );
     }
 

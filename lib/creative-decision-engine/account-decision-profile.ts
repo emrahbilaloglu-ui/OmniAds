@@ -133,18 +133,22 @@ export async function resolveAccountDecisionProfile(input: {
   asOf: string;
   dataSource: CreativeDecisionDataSource;
 }): Promise<AccountDecisionProfile> {
-  const [targetPack, profileConfig, accountCalibration] = await Promise.all([
-    input.dataSource.getBusinessTargetPack({ businessId: input.businessId }),
-    input.dataSource.getDecisionCalibrationProfile({
-      businessId: input.businessId,
-      channel: "meta",
-      objectiveFamily: "sales",
-    }),
-    input.dataSource.getAccountCalibration({
-      businessId: input.businessId,
-      asOf: input.asOf,
-    }),
-  ]);
+  const targetPack = await input.dataSource.getBusinessTargetPack({
+    businessId: input.businessId,
+  });
+  const profileConfig = await input.dataSource.getDecisionCalibrationProfile({
+    businessId: input.businessId,
+    channel: "meta",
+    objectiveFamily: "sales",
+  });
+  const accountCalibration = await input.dataSource.getAccountCalibration({
+    businessId: input.businessId,
+    asOf: input.asOf,
+  });
+  const funnelCalibration = await input.dataSource.getAccountFunnelCalibration({
+    businessId: input.businessId,
+    asOf: input.asOf,
+  });
 
   const needsLiveMetaAov =
     accountCalibration.metaAttributedAovMean90d === null ||
@@ -277,6 +281,7 @@ export async function resolveAccountDecisionProfile(input: {
     multipliers,
     thresholds,
     accountBaselines,
+    funnelCalibration,
     hardActionEligibility,
     quality: {
       commercialTruthReady: positiveFinite(targetPack?.targetRoas ?? null),

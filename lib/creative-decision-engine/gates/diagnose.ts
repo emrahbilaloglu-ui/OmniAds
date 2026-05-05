@@ -3,11 +3,7 @@ import {
   type GateContext,
   type GateResult,
 } from "./types";
-import type { CampaignObjective } from "../types";
-
-const TRACKING_ANOMALY_MIN_IMPRESSIONS = 1000;
-const TRACKING_ANOMALY_EXCLUDED_OBJECTIVES: ReadonlySet<CampaignObjective> =
-  new Set<CampaignObjective>(["OUTCOME_AWARENESS"]);
+import { computeFunnelDiagnosis } from "../funnel";
 
 function terminal(ctx: GateContext, reason: string, confidenceBase: number) {
   return {
@@ -25,8 +21,6 @@ function terminal(ctx: GateContext, reason: string, confidenceBase: number) {
 
 export function diagnoseGate(ctx: GateContext): GateResult {
   const spend = ctx.input.spend;
-  const impressions = ctx.input.impressions;
-  const trackingAnomalyMinSpend = ctx.profile.thresholds.recentSampleMinSpend;
 
   if (
     ctx.input.effectiveStatus === "ACTIVE" &&
@@ -67,22 +61,29 @@ export function diagnoseGate(ctx: GateContext): GateResult {
     );
   }
 
-  if (
-    trackingAnomalyMinSpend !== null &&
-    spend >= trackingAnomalyMinSpend &&
-    impressions !== null &&
-    impressions >= TRACKING_ANOMALY_MIN_IMPRESSIONS &&
-    (ctx.input.linkClicks ?? 0) === 0 &&
-    (ctx.input.purchases ?? 0) === 0 &&
-    (ctx.input.objective === null ||
-      !TRACKING_ANOMALY_EXCLUDED_OBJECTIVES.has(ctx.input.objective))
-  ) {
+  const funnelDiagnosis = computeFunnelDiagnosis({
+    creative: ctx.input,
+    funnelCalibration: ctx.profile.funnelCalibration,
+    profile: ctx.profile,
+  });
+
+  if (funnelDiagnosis.primaryWeakStage === "tracking") {
     return terminal(
-      ctx,
-      `Spend $${spend.toFixed(0)} on ${Math.round(
-        impressions,
-      )} impressions in last 28 days, but 0 clicks and 0 purchases — possible tracking anomaly (pixel/CAPI). Verify event firing before acting.`,
-      55,
+      {
+        ...ctx,
+        badges: [
+          ...ctx.badges,
+          {
+            type: "tracking_anomaly",
+            label: "Tracking anomaly",
+            severity: "warning",
+          },
+        ],
+      },
+      `Tracking anomaly: ${funnelDiagnosis.evidence.join(
+        "; ",
+      )}. Verify pixel/CAPI purchase event firing before acting.`,
+      85,
     );
   }
 

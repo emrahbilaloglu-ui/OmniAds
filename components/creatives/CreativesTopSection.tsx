@@ -170,6 +170,7 @@ interface CreativesTopSectionProps {
   };
   v3Decisions?: DecisionOutput[] | null;
   v3Flags?: EngineV3Flags | null;
+  filterBarSlot?: ReactNode;
   actionsPrefix?: ReactNode;
   belowToolbar?: ReactNode;
 }
@@ -435,6 +436,7 @@ export function CreativesTopSection({
   previewStripSummary,
   v3Decisions = null,
   v3Flags = null,
+  filterBarSlot,
   actionsPrefix,
   belowToolbar,
 }: CreativesTopSectionProps) {
@@ -486,6 +488,8 @@ export function CreativesTopSection({
 	            rows={allRowsForHeatmap}
 	            onChange={onFiltersChange}
 	          />
+
+          {filterBarSlot}
 
 	          <div className="ml-auto flex items-center gap-2">
             {actionsPrefix}

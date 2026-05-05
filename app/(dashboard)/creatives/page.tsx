@@ -20,6 +20,7 @@ import {
   type MetaCreativeRow,
 } from "@/components/creatives/metricConfig";
 import { CreativeDecisionEngineV3Surface } from "@/components/creatives/CreativeDecisionEngineV3Surface";
+import { CreativeV3LabelChips } from "@/components/creatives/CreativeV3LabelChips";
 import { CreativesTableSection } from "@/components/creatives/CreativesTableSection";
 import {
   applyCreativeFilters,
@@ -60,6 +61,7 @@ import {
   dayCountInclusive,
 } from "@/lib/meta/history";
 import { getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
+import type { DecisionLabel } from "@/lib/creative-decision-engine/types";
 
 function clampCreativeDateRangeToHistoryLimit(
   value: CreativeDateRangeValue,
@@ -190,6 +192,7 @@ export default function CreativesPage() {
   const [csvError, setCsvError] = useState<string | null>(null);
   const [historyPhaseStarted, setHistoryPhaseStarted] = useState(false);
   const [tableSortedRows, setTableSortedRows] = useState<MetaCreativeRow[]>([]);
+  const [selectedV3Labels, setSelectedV3Labels] = useState<Set<DecisionLabel>>(new Set());
 
   const platform: "meta" = "meta";
   const metaView = deriveProviderViewState(
@@ -449,6 +452,35 @@ export default function CreativesPage() {
     return applyCreativeFilters(allRows, topFilters);
   }, [allRows, platform, topFilters]);
   const filteredRows = baseFilteredRows;
+  const v3ChipsVisible = Boolean(
+    decisionEngineV3Query.data?.flags?.enabled &&
+      decisionEngineV3Query.data?.flags?.surfaceVisible,
+  );
+  const v3LabelById = useMemo(
+    () =>
+      new Map<string, DecisionLabel>(
+        (decisionEngineV3Query.data?.decisions ?? []).map((decision) => [
+          decision.creativeId,
+          decision.label,
+        ]),
+      ),
+    [decisionEngineV3Query.data],
+  );
+  const v3LabelCounts = useMemo(() => {
+    const counts: Partial<Record<DecisionLabel, number>> = {};
+    for (const row of filteredRows) {
+      const label = v3LabelById.get(row.creativeId);
+      if (label) counts[label] = (counts[label] ?? 0) + 1;
+    }
+    return counts;
+  }, [filteredRows, v3LabelById]);
+  const v3FilteredRows = useMemo(() => {
+    if (!v3ChipsVisible || selectedV3Labels.size === 0) return filteredRows;
+    return filteredRows.filter((row) => {
+      const label = v3LabelById.get(row.creativeId);
+      return label ? selectedV3Labels.has(label) : false;
+    });
+  }, [filteredRows, selectedV3Labels, v3ChipsVisible, v3LabelById]);
   const creativeHistoryById = useMemo(() => {
     const historyRows: Partial<Record<CreativeHistoryWindowKey, MetaCreativeRow[]>> = {};
     creativeHistoryQueries.forEach((query, index) => {
@@ -458,30 +490,31 @@ export default function CreativesPage() {
     });
     return buildCreativeHistoryById(historyRows);
   }, [creativeHistoryQueries, creativeHistoryWindowDefs]);
-  const deferredFilteredRows = useDeferredValue(filteredRows);
+  const deferredV3FilteredRows = useDeferredValue(v3FilteredRows);
 
   const orderedTableRows = useMemo(() => {
-    if (tableSortedRows.length === 0) return deferredFilteredRows;
+    if (tableSortedRows.length === 0) return deferredV3FilteredRows;
 
-    const filteredIds = new Set(deferredFilteredRows.map((row) => row.id));
+    const filteredIds = new Set(deferredV3FilteredRows.map((row) => row.id));
     const sortedVisibleRows = tableSortedRows.filter((row) => filteredIds.has(row.id));
 
-    return sortedVisibleRows.length === deferredFilteredRows.length
+    return sortedVisibleRows.length === deferredV3FilteredRows.length
       ? sortedVisibleRows
-      : deferredFilteredRows;
-  }, [deferredFilteredRows, tableSortedRows]);
+      : deferredV3FilteredRows;
+  }, [deferredV3FilteredRows, tableSortedRows]);
 
   useEffect(() => {
     setSelectionState((prev) => {
-      const filteredIds = new Set(filteredRows.map((row) => row.id));
+      // Selection follows the visible table/grid set, including v3 chip narrowing.
+      const filteredIds = new Set(v3FilteredRows.map((row) => row.id));
       const kept = prev.selectedRowIds.filter((id) => filteredIds.has(id));
 
       if (
         !hasUserInteractedSelectionRef.current &&
         kept.length === 0 &&
-        filteredRows.length > 0
+        v3FilteredRows.length > 0
       ) {
-        return { selectedRowIds: filteredRows.slice(0, 5).map((row) => row.id) };
+        return { selectedRowIds: v3FilteredRows.slice(0, 5).map((row) => row.id) };
       }
 
       if (kept.length !== prev.selectedRowIds.length) {
@@ -490,7 +523,7 @@ export default function CreativesPage() {
 
       return prev;
     });
-  }, [filteredRows]);
+  }, [v3FilteredRows]);
 
   const selectedRows = useMemo(() => {
     const selectedRowIdSet = new Set(selectionState.selectedRowIds);
@@ -545,7 +578,7 @@ export default function CreativesPage() {
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
-    if (topPanelRows.length === 0 && filteredRows.length === 0) return;
+    if (topPanelRows.length === 0 && v3FilteredRows.length === 0) return;
 
     console.log("[creatives-page] before CreativesTopSection", {
       total: topPanelRows.length,
@@ -561,8 +594,8 @@ export default function CreativesPage() {
     });
 
     console.log("[creatives-page] before CreativesTableSection", {
-      total: filteredRows.length,
-      samples: filteredRows.slice(0, 3).map((row) => ({
+      total: v3FilteredRows.length,
+      samples: v3FilteredRows.slice(0, 3).map((row) => ({
         id: row.id,
         name: row.name,
         previewUrl: row.previewUrl ?? null,
@@ -572,7 +605,7 @@ export default function CreativesPage() {
         isCatalog: row.isCatalog,
       })),
     });
-  }, [filteredRows, topPanelRows]);
+  }, [v3FilteredRows, topPanelRows]);
 
   const activeCreativeRow = useMemo(
     () => allRows.find((row) => row.id === creativeDrawerState.activeRowId) ?? null,
@@ -602,6 +635,19 @@ export default function CreativesPage() {
     setTimeout(() => setHighlightedRowId((prev) => (prev === rowId ? null : prev)), 1400);
   }, []);
 
+  const toggleV3Label = useCallback((label: DecisionLabel) => {
+    setSelectedV3Labels((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) {
+        next.delete(label);
+      } else {
+        next.add(label);
+      }
+      return next;
+    });
+  }, []);
+  const clearV3Labels = useCallback(() => setSelectedV3Labels(new Set()), []);
+
   const toggleRowSelection = useCallback((rowId: string) => {
     hasUserInteractedSelectionRef.current = true;
     setSelectionState((prev) => ({
@@ -613,17 +659,18 @@ export default function CreativesPage() {
 
   const toggleAllRows = useCallback(() => {
     hasUserInteractedSelectionRef.current = true;
-    const allIds = deferredFilteredRows.map((row) => row.id);
+    const allIds = deferredV3FilteredRows.map((row) => row.id);
     setSelectionState((prev) => ({
       selectedRowIds: allIds.every((id) => prev.selectedRowIds.includes(id)) ? [] : allIds,
     }));
-  }, [deferredFilteredRows]);
+  }, [deferredV3FilteredRows]);
 
   const handleCsvExport = async () => {
     setCsvError(null);
     setCsvExportLoading(true);
     try {
-      const csv = toCsv(filteredRows);
+      // CSV export follows the currently visible rows, including v3 chip narrowing.
+      const csv = toCsv(v3FilteredRows);
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -644,8 +691,8 @@ export default function CreativesPage() {
 	    try {
 	      const selectedForShare =
 	        selectionState.selectedRowIds.length > 0
-	          ? filteredRows.filter((row) => selectionState.selectedRowIds.includes(row.id))
-	          : filteredRows;
+	          ? v3FilteredRows.filter((row) => selectionState.selectedRowIds.includes(row.id))
+	          : v3FilteredRows;
       const shareMetrics = topMetricIds.filter((id): id is ShareMetricKey => SHARE_METRIC_IDS.has(id as ShareMetricKey));
       const payload: Omit<SharePayload, "token" | "createdAt"> = {
         title: "Top Creatives",
@@ -655,7 +702,7 @@ export default function CreativesPage() {
         groupBy,
         filters: topFilters.map((rule) => `${rule.field}: ${rule.query}`),
         selectedRowIds: selectionState.selectedRowIds,
-        totalRows: filteredRows.length,
+        totalRows: v3FilteredRows.length,
         metrics: shareMetrics.length > 0 ? shareMetrics : ["spend", "roas"],
         includeNotes: false,
         note: "",
@@ -712,10 +759,11 @@ export default function CreativesPage() {
     if (typeof window === "undefined") return;
     const fromUrl = new URLSearchParams(window.location.search).get("creative");
     if (!fromUrl) return;
-    const exists = filteredRows.some((row) => row.id === fromUrl);
+    // Deep links should open even when the row is outside current rule or v3 chip filters.
+    const exists = allRows.some((row) => row.id === fromUrl);
     if (!exists) return;
     setCreativeDrawerState({ open: true, activeRowId: fromUrl });
-  }, [creativeDrawerState.open, filteredRows]);
+  }, [allRows, creativeDrawerState.open]);
 
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
@@ -824,6 +872,15 @@ export default function CreativesPage() {
 	              onSelectedMetricIdsChange={setTopMetricIds}
 	              selectedRows={topPreviewRows}
 	              allRowsForHeatmap={filteredRows}
+	              filterBarSlot={
+	                <CreativeV3LabelChips
+	                  counts={v3LabelCounts}
+	                  selected={selectedV3Labels}
+	                  onToggle={toggleV3Label}
+	                  onClearAll={clearV3Labels}
+	                  visible={v3ChipsVisible}
+	                />
+	              }
 	              defaultCurrency={selectedBusinessCurrency}
 	              onOpenRow={(rowId) => openCreativeDrawer(rowId, true)}
 	              onShareExport={handleShareExport}
@@ -856,7 +913,7 @@ export default function CreativesPage() {
             {!creativesMetadataQuery.isLoading &&
               !isWaitingForMetaReference &&
               !creativesMetadataQuery.isError &&
-              (deferredFilteredRows.length === 0 || dataStatus === "no_data") && (
+              (deferredV3FilteredRows.length === 0 || dataStatus === "no_data") && (
                 <EmptyState
                   title={
                     (activeCreativesPayload?.rows?.length ?? 0) > 0
@@ -882,7 +939,7 @@ export default function CreativesPage() {
             {!creativesMetadataQuery.isLoading &&
               !isWaitingForMetaReference &&
               !creativesMetadataQuery.isError &&
-              deferredFilteredRows.length > 0 &&
+              deferredV3FilteredRows.length > 0 &&
               dataStatus !== "no_data" && (
                 <>
                   <CreativeDecisionEngineV3Surface
@@ -899,7 +956,7 @@ export default function CreativesPage() {
                     onPresetChange={handleEngineV3PresetChange}
                   />
 	                  <CreativesTableSection
-	                    rows={deferredFilteredRows}
+	                    rows={deferredV3FilteredRows}
 	                    creativeHistoryById={creativeHistoryById}
 	                    selectedMetricIds={topMetricIds}
 	                    onSelectedMetricIdsChange={setTopMetricIds}

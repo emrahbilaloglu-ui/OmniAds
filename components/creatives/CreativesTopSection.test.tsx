@@ -36,6 +36,7 @@ describe("CreativesTopSection", () => {
         onSelectedMetricIdsChange={vi.fn()}
         selectedRows={[]}
         allRowsForHeatmap={[]}
+        filterBarSlot={<span>Engine chips</span>}
         defaultCurrency="USD"
         onOpenRow={vi.fn()}
         onShareExport={vi.fn()}
@@ -45,6 +46,8 @@ describe("CreativesTopSection", () => {
 
     expect(html).toContain("Date range");
     expect(html).toContain("Add filter");
+    expect(html.indexOf("Add filter")).toBeLessThan(html.indexOf("Engine chips"));
+    expect(html.indexOf("Engine chips")).toBeLessThan(html.indexOf("Export"));
     expect(html).toContain("Select creatives in the table to populate this strip.");
     expect(html).not.toContain("Decision OS");
     expect(html).not.toContain("Decision Center");

@@ -75,10 +75,12 @@ function makeFlags(overrides: Partial<EngineV3Flags> = {}): EngineV3Flags {
     enabled: true,
     surfaceVisible: false,
     shadowOnly: false,
+    presetOverride: null,
     source: {
       enabled: "env",
       surfaceVisible: "env",
       shadowOnly: "env",
+      presetOverride: null,
     },
     envDefaults: {
       enabled: true,
@@ -115,6 +117,34 @@ describe("resolveAccountDecisionProfile", () => {
       5,
     );
     expect(profile.hardActionEligibility.scale).toBe(true);
+  });
+
+  it("uses business_engine_v3_flags preset override before calibration profile and target pack posture", async () => {
+    const profile = await resolveAccountDecisionProfile({
+      businessId: "00000000-0000-4000-8000-000000000504",
+      asOf: "2026-05-04",
+      dataSource: new ProfileDataSource({
+        targetCpa: null,
+        targetRoas: 2.2,
+        breakEvenCpa: null,
+        breakEvenRoas: 1.7,
+        operatorAovAssumption: null,
+        defaultRiskPosture: "aggressive",
+      }),
+      flags: makeFlags({
+        businessId: "00000000-0000-4000-8000-000000000504",
+        presetOverride: "conservative",
+        source: {
+          enabled: "env",
+          surfaceVisible: "env",
+          shadowOnly: "env",
+          presetOverride: "business_override",
+        },
+      }),
+    });
+
+    expect(profile.preset).toBe("conservative");
+    expect(profile.presetSource).toBe("business_engine_v3_flags_override");
   });
 
   it("keeps cold-start accounts in insufficient soft-only mode", async () => {

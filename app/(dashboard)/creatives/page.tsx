@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
@@ -145,6 +145,7 @@ const CreativeAdBreakdownDrawer = dynamic(
 );
 export default function CreativesPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businesses = useAppStore((state) => state.businesses);
   const { plan: currentPlan } = usePlanState();
@@ -307,6 +308,12 @@ export default function CreativesPage() {
     enabled: Boolean(selectedBusinessId) && canLoadCreatives,
     staleTime: 60_000,
   });
+  const handleEngineV3PresetChange = useCallback(() => {
+    if (!selectedBusinessId) return;
+    void queryClient.invalidateQueries({
+      queryKey: ["creative-decision-engine-v3", selectedBusinessId],
+    });
+  }, [queryClient, selectedBusinessId]);
   const shouldLoadHistory =
     historyPhaseStarted || creativeDrawerState.open || breakdownDrawerState.open;
   useEffect(() => {
@@ -889,6 +896,7 @@ export default function CreativesPage() {
                     dataHealth={decisionEngineV3Query.data?.dataHealth ?? null}
                     accountProfile={decisionEngineV3Query.data?.accountProfile ?? null}
                     flags={decisionEngineV3Query.data?.flags ?? null}
+                    onPresetChange={handleEngineV3PresetChange}
                   />
 	                  <CreativesTableSection
 	                    rows={deferredFilteredRows}

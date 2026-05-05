@@ -413,10 +413,12 @@ describe("fetchCreativeDecisionEngineV3", () => {
         enabled: true,
         surfaceVisible: true,
         shadowOnly: true,
+        presetOverride: null,
         source: {
           enabled: "env",
           surfaceVisible: "business_override",
           shadowOnly: "env",
+          presetOverride: null,
         },
         envDefaults: {
           enabled: true,

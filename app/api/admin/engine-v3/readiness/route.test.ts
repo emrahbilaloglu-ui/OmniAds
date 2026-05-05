@@ -326,6 +326,7 @@ describe("GET /api/admin/engine-v3/readiness", () => {
             enabled: "env",
             surfaceVisible: "env",
             shadowOnly: "env",
+            presetOverride: null,
           },
         }),
         dataHealth: expect.objectContaining({

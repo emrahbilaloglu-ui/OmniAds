@@ -92,6 +92,10 @@ describe("runMigrations", () => {
     );
     expect(queries.join("\n")).toContain("idx_meta_creative_daily_business_account_date_creative");
     expect(queries.join("\n")).toContain("CREATE TABLE IF NOT EXISTS meta_creative_media");
+    expect(queries.join("\n")).toContain("preset_override TEXT NULL");
+    expect(queries.join("\n")).toContain(
+      "preset_override IN ('aggressive', 'balanced', 'conservative')",
+    );
     expect(queries.join("\n")).toContain(
       "DROP CONSTRAINT IF EXISTS meta_creative_media_business_id_provider_account_id_date_creative_id_key",
     );

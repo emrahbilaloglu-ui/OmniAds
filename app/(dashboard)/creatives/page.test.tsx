@@ -12,6 +12,7 @@ let mockDateRange = {
 let mockMetaReferenceState: Record<string, unknown> = {};
 let observedQueryKeys: Record<string, unknown[]> = {};
 let observedQueryOptions: Record<string, { enabled?: boolean }> = {};
+const mockInvalidateQueries = vi.fn();
 
 function baseQueryState(overrides: Record<string, unknown> = {}) {
   return {
@@ -27,6 +28,13 @@ function baseQueryState(overrides: Record<string, unknown> = {}) {
 
 vi.mock("@tanstack/react-query", () => ({
   useQueries: vi.fn(() => []),
+  useMutation: vi.fn(() => ({
+    mutate: vi.fn(),
+    isPending: false,
+  })),
+  useQueryClient: vi.fn(() => ({
+    invalidateQueries: mockInvalidateQueries,
+  })),
   useQuery: vi.fn((input: { queryKey: unknown[]; enabled?: boolean }) => {
     const key = Array.isArray(input.queryKey) ? String(input.queryKey[0]) : String(input.queryKey);
     observedQueryKeys[key] = input.queryKey;
@@ -203,6 +211,7 @@ const retiredCreativeQueryKeys = [
 describe("Creatives page render contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockInvalidateQueries.mockClear();
     observedQueryKeys = {};
     observedQueryOptions = {};
     mockDateRange = {

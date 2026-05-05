@@ -14,6 +14,7 @@ import {
   readEnvDefaults,
   resolveEngineV3Flags,
 } from "./feature-flags";
+import type { EngineRiskPreset } from "./types";
 
 const FLAG_ENV_KEYS = [
   "DECISION_ENGINE_V3_ENABLED",
@@ -120,6 +121,7 @@ async function upsertFlags(input: {
   enabled?: boolean | null;
   surfaceVisible?: boolean | null;
   shadowOnly?: boolean | null;
+  presetOverride?: EngineRiskPreset | null;
 }) {
   await getDb().query(
     `
@@ -128,14 +130,16 @@ async function upsertFlags(input: {
       enabled,
       surface_visible,
       shadow_only,
+      preset_override,
       notes,
       updated_by
     )
-    VALUES ($1::uuid, $2::boolean, $3::boolean, $4::boolean, 'test override', 'vitest')
+    VALUES ($1::uuid, $2::boolean, $3::boolean, $4::boolean, $5::text, 'test override', 'vitest')
     ON CONFLICT (business_id) DO UPDATE SET
       enabled = EXCLUDED.enabled,
       surface_visible = EXCLUDED.surface_visible,
       shadow_only = EXCLUDED.shadow_only,
+      preset_override = EXCLUDED.preset_override,
       updated_at = now(),
       updated_by = EXCLUDED.updated_by
     `,
@@ -144,6 +148,7 @@ async function upsertFlags(input: {
       input.enabled ?? null,
       input.surfaceVisible ?? null,
       input.shadowOnly ?? null,
+      input.presetOverride ?? null,
     ],
   );
 }
@@ -229,10 +234,12 @@ describe.skipIf(!process.env.DATABASE_URL)("engine v3 feature flags", () => {
       enabled: false,
       surfaceVisible: true,
       shadowOnly: false,
+      presetOverride: null,
       source: {
         enabled: "env",
         surfaceVisible: "env",
         shadowOnly: "env",
+        presetOverride: null,
       },
       envDefaults: {
         enabled: false,
@@ -265,6 +272,7 @@ describe.skipIf(!process.env.DATABASE_URL)("engine v3 feature flags", () => {
         enabled: "business_override",
         surfaceVisible: "business_override",
         shadowOnly: "business_override",
+        presetOverride: null,
       },
     });
   });
@@ -290,6 +298,23 @@ describe.skipIf(!process.env.DATABASE_URL)("engine v3 feature flags", () => {
         enabled: "business_override",
         surfaceVisible: "env",
         shadowOnly: "env",
+        presetOverride: null,
+      },
+    });
+  });
+
+  it("resolves preset_override as a business-only source", async () => {
+    await upsertFlags({
+      businessId: FIXTURES[3].businessId,
+      presetOverride: "aggressive",
+    });
+
+    const flags = await resolveEngineV3Flags(FIXTURES[3].businessId);
+
+    expect(flags).toMatchObject({
+      presetOverride: "aggressive",
+      source: {
+        presetOverride: "business_override",
       },
     });
   });

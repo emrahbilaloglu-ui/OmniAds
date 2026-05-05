@@ -48,6 +48,7 @@ interface ReadinessFlags {
     enabled: FlagSource;
     surfaceVisible: FlagSource;
     shadowOnly: FlagSource;
+    presetOverride: FlagSource | null;
   };
 }
 

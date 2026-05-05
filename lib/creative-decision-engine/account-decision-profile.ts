@@ -36,10 +36,17 @@ function overrideMultiplier(
 function resolvePreset(input: {
   targetPack: BusinessTargetPack | null;
   profileConfig: DecisionCalibrationProfileConfig | null;
+  presetOverride?: EngineRiskPreset | null;
 }): {
   preset: EngineRiskPreset;
   presetSource: AccountDecisionProfile["presetSource"];
 } {
+  if (input.presetOverride) {
+    return {
+      preset: input.presetOverride,
+      presetSource: "business_engine_v3_flags_override",
+    };
+  }
   if (input.profileConfig?.enginePresetLabel) {
     return {
       preset: input.profileConfig.enginePresetLabel,
@@ -207,10 +214,13 @@ export async function resolveAccountDecisionProfile(input: {
     accountCpaSampleCount: accountBaselines.accountCpaSampleCount,
     attributionAovAdjustmentMultiplier,
   });
+  const flags =
+    input.flags ?? (await resolveEngineV3Flags(input.businessId));
 
   const { preset, presetSource } = resolvePreset({
     targetPack,
     profileConfig,
+    presetOverride: flags.presetOverride ?? null,
   });
   const multipliers = mergeMultipliers({ preset, profileConfig });
   const thresholds: EngineThresholdSet = {
@@ -271,8 +281,6 @@ export async function resolveAccountDecisionProfile(input: {
           metaAovQuality,
         }),
   };
-  const flags =
-    input.flags ?? (await resolveEngineV3Flags(input.businessId));
   const finalHardActionEligibility = flags.shadowOnly
     ? {
         scale: false,

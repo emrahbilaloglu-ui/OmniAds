@@ -333,6 +333,7 @@ export interface AccountDecisionProfile {
 
   preset: EngineRiskPreset;
   presetSource:
+    | "business_engine_v3_flags_override"
     | "business_decision_calibration_profile"
     | "target_pack_risk_posture"
     | "default";

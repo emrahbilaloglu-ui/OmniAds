@@ -4657,6 +4657,14 @@ export async function runMigrations(options?: {
           ADD COLUMN IF NOT EXISTS updated_by TEXT NULL`.catch(() => {}),
       ]);
 
+      // ── Engine v3 per-business preset override (NULL = inherit chain) ───
+      await runMigrationBatchSequentially([
+        sql`ALTER TABLE business_engine_v3_flags
+          ADD COLUMN IF NOT EXISTS preset_override TEXT NULL
+            CHECK (preset_override IS NULL
+              OR preset_override IN ('aggressive', 'balanced', 'conservative'))`.catch(() => {}),
+      ]);
+
       await runMigrationBatchSequentially([
         ...CANONICAL_BUSINESS_REF_TABLES.map((tableName) =>
           sql.query(

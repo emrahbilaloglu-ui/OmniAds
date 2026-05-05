@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db";
 import type { Pool, PoolClient } from "pg";
+import type { EngineRiskPreset } from "./types";
 
 export type EngineV3FlagSource = "env" | "business_override";
 export type EngineV3BusinessId = string | number;
@@ -9,10 +10,12 @@ export interface EngineV3Flags {
   enabled: boolean;
   surfaceVisible: boolean;
   shadowOnly: boolean;
+  presetOverride: EngineRiskPreset | null;
   source: {
     enabled: EngineV3FlagSource;
     surfaceVisible: EngineV3FlagSource;
     shadowOnly: EngineV3FlagSource;
+    presetOverride: EngineV3FlagSource | null;
   };
   envDefaults: {
     enabled: boolean;
@@ -29,6 +32,7 @@ type FlagRow = Record<string, unknown> & {
   enabled: unknown;
   surface_visible: unknown;
   shadow_only: unknown;
+  preset_override: unknown;
 };
 
 type BusinessIdRow = Record<string, unknown> & {
@@ -53,6 +57,18 @@ function parseNullableBoolean(value: unknown): boolean | null {
     const normalized = value.trim().toLowerCase();
     if (["true", "t", "1"].includes(normalized)) return true;
     if (["false", "f", "0"].includes(normalized)) return false;
+  }
+  return null;
+}
+
+function parsePresetOverride(value: unknown): EngineRiskPreset | null {
+  if (value === null || value === undefined) return null;
+  if (
+    value === "aggressive" ||
+    value === "balanced" ||
+    value === "conservative"
+  ) {
+    return value;
   }
   return null;
 }
@@ -104,7 +120,7 @@ export async function resolveEngineV3Flags(
   const rows = await queryRows<FlagRow>(
     (client ?? getDb()) as Queryable,
     `
-    SELECT enabled, surface_visible, shadow_only
+    SELECT enabled, surface_visible, shadow_only, preset_override
     FROM business_engine_v3_flags
     WHERE business_id = $1
     LIMIT 1
@@ -121,16 +137,20 @@ export async function resolveEngineV3Flags(
     row?.shadow_only,
     envDefaults.shadowOnly,
   );
+  const presetOverride = parsePresetOverride(row?.preset_override);
 
   return {
     businessId,
     enabled: enabled.value,
     surfaceVisible: surfaceVisible.value,
     shadowOnly: shadowOnly.value,
+    presetOverride,
     source: {
       enabled: enabled.source,
       surfaceVisible: surfaceVisible.source,
       shadowOnly: shadowOnly.source,
+      presetOverride:
+        presetOverride === null ? null : "business_override",
     },
     envDefaults,
   };

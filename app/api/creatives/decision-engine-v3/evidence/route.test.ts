@@ -176,10 +176,12 @@ function makeFlags(overrides: Partial<EngineV3Flags> = {}): EngineV3Flags {
     enabled: true,
     surfaceVisible: true,
     shadowOnly: true,
+    presetOverride: null,
     source: {
       enabled: "env",
       surfaceVisible: "env",
       shadowOnly: "env",
+      presetOverride: null,
     },
     envDefaults: {
       enabled: true,

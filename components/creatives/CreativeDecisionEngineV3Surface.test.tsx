@@ -1,7 +1,11 @@
 import React from "react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { CreativeDecisionEngineV3Surface } from "@/components/creatives/CreativeDecisionEngineV3Surface";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  CreativeDecisionEngineV3Surface,
+  updateEngineV3PresetOverride,
+} from "@/components/creatives/CreativeDecisionEngineV3Surface";
 import type {
   AccountDecisionProfile,
   DataHealth,
@@ -69,10 +73,12 @@ function makeFlags(overrides: Partial<EngineV3Flags> = {}): EngineV3Flags {
     enabled: true,
     surfaceVisible: true,
     shadowOnly: false,
+    presetOverride: null,
     source: {
       enabled: "env",
       surfaceVisible: "business_override",
       shadowOnly: "business_override",
+      presetOverride: null,
     },
     envDefaults: {
       enabled: true,
@@ -173,23 +179,35 @@ function makeAccountProfile(): AccountDecisionProfile {
 function renderSurface(
   overrides: Partial<React.ComponentProps<typeof CreativeDecisionEngineV3Surface>> = {},
 ) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
   return renderToStaticMarkup(
-    <CreativeDecisionEngineV3Surface
-      businessId="biz-1"
-      decisions={[decision]}
-      isLoading={false}
-      isError={false}
-      error={null}
-      engineVersion="v3-2026-05-04-phase-3.4"
-      dataHealth={null}
-      accountProfile={null}
-      flags={makeFlags()}
-      {...overrides}
-    />,
+    <QueryClientProvider client={queryClient}>
+      <CreativeDecisionEngineV3Surface
+        businessId="biz-1"
+        decisions={[decision]}
+        isLoading={false}
+        isError={false}
+        error={null}
+        engineVersion="v3-2026-05-04-phase-3.4"
+        dataHealth={null}
+        accountProfile={null}
+        flags={makeFlags()}
+        {...overrides}
+      />
+    </QueryClientProvider>,
   );
 }
 
 describe("CreativeDecisionEngineV3Surface", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("renders the v3 preview header, distribution, and decision row fields", () => {
     const html = renderSurface();
 
@@ -219,6 +237,7 @@ describe("CreativeDecisionEngineV3Surface", () => {
             enabled: "env",
             surfaceVisible: "env",
             shadowOnly: "business_override",
+            presetOverride: null,
           },
         }),
       }),
@@ -360,9 +379,74 @@ describe("CreativeDecisionEngineV3Surface", () => {
 
     expect(html).toContain("<details");
     expect(html).toContain("Account profile");
+    expect(html).toContain('aria-label="Engine v3 preset"');
     expect(html).toContain("Preset");
     expect(html).toContain("Spend unit");
     expect(html).toContain("Target ROAS / break-even");
+  });
+
+  it("renders the preset dropdown with the active account preset selected", () => {
+    const profile = {
+      ...makeAccountProfile(),
+      preset: "conservative" as const,
+    };
+    const html = renderSurface({ accountProfile: profile });
+
+    expect(html).toContain('aria-label="Engine v3 preset"');
+    expect(html).toContain(
+      '<option value="conservative" selected="">conservative</option>',
+    );
+  });
+
+  it("sends the selected preset to the preset mutation endpoint", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          ...makeFlags(),
+          presetOverride: "aggressive",
+          source: {
+            enabled: "env",
+            surfaceVisible: "business_override",
+            shadowOnly: "business_override",
+            presetOverride: "business_override",
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const flags = await updateEngineV3PresetOverride({
+      businessId: "biz-1",
+      preset: "aggressive",
+    });
+
+    expect(flags.presetOverride).toBe("aggressive");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/engine-v3/preset",
+      expect.objectContaining({
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          businessId: "biz-1",
+          preset: "aggressive",
+        }),
+      }),
+    );
+  });
+
+  it("renders Clear override only when the preset comes from the v3 flags override", () => {
+    const inheritedHtml = renderSurface({ accountProfile: makeAccountProfile() });
+    const overrideHtml = renderSurface({
+      accountProfile: {
+        ...makeAccountProfile(),
+        preset: "aggressive",
+        presetSource: "business_engine_v3_flags_override",
+      },
+    });
+
+    expect(inheritedHtml).not.toContain("Clear override");
+    expect(overrideHtml).toContain("Clear override");
   });
 
   it("renders the disclosure collapsed and includes profile fields", () => {

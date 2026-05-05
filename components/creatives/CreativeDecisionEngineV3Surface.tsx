@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import type {
   AccountDecisionProfile,
   DataHealth,
   DecisionLabel,
   DecisionOutput,
+  EngineRiskPreset,
   EngineV3Flags,
   EngineMultiplierSet,
 } from "@/lib/creative-decision-engine";
@@ -30,6 +32,28 @@ interface CreativeDecisionEngineV3SurfaceProps {
   dataHealth: DataHealth | null;
   accountProfile: AccountDecisionProfile | null;
   flags: EngineV3Flags | null;
+  onPresetChange?: () => void;
+}
+
+const ENGINE_RISK_PRESETS = [
+  "aggressive",
+  "balanced",
+  "conservative",
+] as const satisfies readonly EngineRiskPreset[];
+
+export async function updateEngineV3PresetOverride(input: {
+  businessId: string;
+  preset: EngineRiskPreset | null;
+}): Promise<EngineV3Flags> {
+  const response = await fetch("/api/admin/engine-v3/preset", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to update preset: ${response.status}`);
+  }
+  return (await response.json()) as EngineV3Flags;
 }
 
 export function CreativeDecisionEngineV3Surface(
@@ -118,7 +142,14 @@ export function CreativeDecisionEngineV3Surface(
           </div>
         )}
         {props.accountProfile && (
-          <AccountProfileDisclosure profile={props.accountProfile} />
+          <div className="basis-full space-y-2">
+            <PresetOverrideControl
+              businessId={props.businessId}
+              profile={props.accountProfile}
+              onPresetChange={props.onPresetChange}
+            />
+            <AccountProfileDisclosure profile={props.accountProfile} />
+          </div>
         )}
       </header>
 
@@ -153,6 +184,85 @@ export function CreativeDecisionEngineV3Surface(
   );
 }
 
+function PresetOverrideControl({
+  businessId,
+  profile,
+  onPresetChange,
+}: {
+  businessId: string | null;
+  profile: AccountDecisionProfile;
+  onPresetChange?: () => void;
+}) {
+  const [errorVisible, setErrorVisible] = useState(false);
+  const mutation = useMutation({
+    mutationFn: (preset: EngineRiskPreset | null) => {
+      if (!businessId) {
+        throw new Error("businessId is required");
+      }
+      return updateEngineV3PresetOverride({ businessId, preset });
+    },
+    onSuccess: () => {
+      setErrorVisible(false);
+      onPresetChange?.();
+    },
+    onError: () => {
+      setErrorVisible(true);
+    },
+  });
+
+  useEffect(() => {
+    if (!errorVisible) return undefined;
+    const timeout = window.setTimeout(() => setErrorVisible(false), 5_000);
+    return () => window.clearTimeout(timeout);
+  }, [errorVisible]);
+
+  const hasOverride =
+    profile.presetSource === "business_engine_v3_flags_override";
+
+  return (
+    <div className="flex flex-wrap items-start gap-2 rounded-md border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs text-slate-700">
+      <label className="flex items-center gap-2">
+        <span className="font-semibold text-slate-700">Preset</span>
+        <select
+          className="h-7 rounded border border-slate-300 bg-white px-2 text-xs font-medium text-slate-900 shadow-sm outline-none focus:border-slate-500"
+          value={profile.preset}
+          disabled={mutation.isPending || !businessId}
+          onChange={(event) => {
+            const preset = event.currentTarget.value as EngineRiskPreset;
+            if (preset === profile.preset) return;
+            mutation.mutate(preset);
+          }}
+          aria-label="Engine v3 preset"
+        >
+          {ENGINE_RISK_PRESETS.map((preset) => (
+            <option key={preset} value={preset}>
+              {preset}
+            </option>
+          ))}
+        </select>
+      </label>
+      {hasOverride && (
+        <button
+          type="button"
+          className="mt-1 text-[11px] font-medium text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline disabled:cursor-not-allowed disabled:text-slate-400"
+          disabled={mutation.isPending || !businessId}
+          onClick={() => mutation.mutate(null)}
+        >
+          Clear override
+        </button>
+      )}
+      {mutation.isPending && (
+        <span className="mt-1 text-[11px] text-slate-500">Saving...</span>
+      )}
+      {errorVisible && (
+        <span className="mt-1 text-[11px] font-medium text-rose-600">
+          Failed to update preset
+        </span>
+      )}
+    </div>
+  );
+}
+
 function AccountProfileDisclosure({
   profile,
 }: {
@@ -164,7 +274,7 @@ function AccountProfileDisclosure({
       : profile.spendUnitEvidence.operatorAovAssumption;
 
   return (
-    <details className="basis-full rounded-md border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs text-slate-700">
+    <details className="rounded-md border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs text-slate-700">
       <summary className="cursor-pointer select-none font-semibold text-slate-800">
         Account profile
       </summary>

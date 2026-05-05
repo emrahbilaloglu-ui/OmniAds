@@ -35,6 +35,12 @@ const WEAK_PERFORMANCE_BADGE: DecisionBadge = {
   severity: "warning",
 };
 
+const BELOW_BREAKEVEN_BADGE: DecisionBadge = {
+  type: "below_breakeven",
+  label: "Below breakeven",
+  severity: "warning",
+};
+
 function formatRoas(value: number): string {
   return value.toFixed(2);
 }
@@ -492,6 +498,37 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
 
   const fatigueBadges =
     input.fatigueStatus === "fatigued" ? [FATIGUE_FATIGUED_BADGE] : [];
+
+  const breakevenRoas = profile.spendUnitEvidence.breakEvenRoas;
+  const breakevenRatio =
+    breakevenRoas !== null && ctx.effectiveTargetRoas > 0
+      ? breakevenRoas / ctx.effectiveTargetRoas
+      : null;
+  const hardCutSpend = profile.thresholds.hardCutSpend;
+  const matureSpend = hardCutSpend !== null && input.spend >= hardCutSpend;
+
+  if (
+    breakevenRatio !== null &&
+    ratio < breakevenRatio &&
+    matureSpend
+  ) {
+    return terminal(
+      ctx,
+      "keep",
+      `[demote candidate] ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
+        ratio,
+      )}% of target — above account bottom quartile (${formatRatioPercent(
+        profile.thresholds.bottomQuartileRatio ?? 0.7,
+      )}%) but below breakeven (${formatRoas(
+        breakevenRoas ?? 0,
+      )} = ${formatRatioPercent(
+        breakevenRatio,
+      )}% of target) at $${formatSpend(
+        input.spend,
+      )} mature spend — consider demote to test placement or refresh creative concept.`,
+      [BELOW_BREAKEVEN_BADGE, WEAK_PERFORMANCE_BADGE, ...fatigueBadges],
+    );
+  }
 
   return terminal(
     ctx,

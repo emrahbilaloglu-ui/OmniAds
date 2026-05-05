@@ -67,6 +67,26 @@ function terminalOutput(result: ReturnType<typeof ratioZonesGate>) {
   return result.output;
 }
 
+function profileWithBreakeven(input: {
+  breakEvenRoas: number | null;
+  bottomQuartileRatio?: number;
+  hardCutSpend?: number | null;
+}) {
+  const baseProfile = makeAccountDecisionProfile();
+
+  return makeAccountDecisionProfile({
+    thresholds: {
+      bottomQuartileRatio: input.bottomQuartileRatio ?? 0.52,
+      hardCutSpend:
+        input.hardCutSpend === undefined ? 1000 : input.hardCutSpend,
+    },
+    spendUnitEvidence: {
+      ...baseProfile.spendUnitEvidence,
+      breakEvenRoas: input.breakEvenRoas,
+    },
+  });
+}
+
 describe("ratioZonesGate - scale zone", () => {
   it("scales mature winners with recent 7d holding", () => {
     const output = terminalOutput(
@@ -527,6 +547,122 @@ describe("ratioZonesGate - working zone", () => {
         severity: "warning",
       },
     ]);
+  });
+});
+
+describe("ratioZonesGate - below-breakeven demote-candidate branch", () => {
+  it("keeps mature working-zone creatives with a demote-candidate reason when below breakeven", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.6, {
+          input: {
+            spend: 9000,
+          },
+          profile: profileWithBreakeven({
+            breakEvenRoas: TARGET_ROAS * 0.78,
+          }),
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.reason.startsWith("[demote candidate]")).toBe(true);
+    expect(output.reason).toContain(
+      "above account bottom quartile (52%) but below breakeven (1.56 = 78% of target) at $9,000 mature spend",
+    );
+    expect(output.badges.map((badge) => badge.type)).toContain(
+      "below_breakeven",
+    );
+    expect(output.badges.map((badge) => badge.type)).toContain(
+      "weak_performance",
+    );
+  });
+
+  it("falls back to weak-zone keep when below breakeven spend is not mature", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.6, {
+          input: {
+            spend: 200,
+          },
+          profile: profileWithBreakeven({
+            breakEvenRoas: TARGET_ROAS * 0.78,
+          }),
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.reason.startsWith("[weak zone]")).toBe(true);
+    expect(output.reason.startsWith("[demote candidate]")).toBe(false);
+    expect(output.badges.map((badge) => badge.type)).not.toContain(
+      "below_breakeven",
+    );
+  });
+
+  it("falls through normally when mature working-zone ratio is above breakeven", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.85, {
+          input: {
+            spend: 9000,
+          },
+          profile: profileWithBreakeven({
+            breakEvenRoas: TARGET_ROAS * 0.78,
+          }),
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.reason.startsWith("[weak target]")).toBe(true);
+    expect(output.reason.startsWith("[demote candidate]")).toBe(false);
+    expect(output.badges.map((badge) => badge.type)).not.toContain(
+      "below_breakeven",
+    );
+  });
+
+  it("falls back to weak-zone keep when profile breakeven ROAS is unavailable", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.6, {
+          input: {
+            spend: 9000,
+          },
+          profile: profileWithBreakeven({
+            breakEvenRoas: null,
+          }),
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.reason.startsWith("[weak zone]")).toBe(true);
+    expect(output.reason.startsWith("[demote candidate]")).toBe(false);
+    expect(output.badges.map((badge) => badge.type)).not.toContain(
+      "below_breakeven",
+    );
+  });
+
+  it("keeps cut-zone precedence when ratio is below the account bottom quartile", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.4, {
+          input: {
+            spend: 9000,
+          },
+          profile: profileWithBreakeven({
+            breakEvenRoas: TARGET_ROAS * 0.78,
+          }),
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("cut");
+    expect(output.reason.startsWith("[demote candidate]")).toBe(false);
+    expect(output.badges.map((badge) => badge.type)).not.toContain(
+      "below_breakeven",
+    );
   });
 });
 

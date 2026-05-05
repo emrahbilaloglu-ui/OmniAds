@@ -8,7 +8,7 @@
 import type { EngineV3Flags } from "./feature-flags";
 import type { OperatorResponseResult } from "./operator-response-detection";
 
-export const ENGINE_VERSION = "v3-2026-05-04-phase-3.10";
+export const ENGINE_VERSION = "v3-2026-05-06-phase-6";
 
 /** Final decision label. */
 export type DecisionLabel =
@@ -375,6 +375,7 @@ export interface DecisionBadge {
     | "truth_global_default"
     | "missing_recent_data"
     | "weak_performance"
+    | "below_breakeven"
     | "stale_calibration"
     | "stale_lifecycle"
     | "stale_decision_context"
@@ -411,6 +412,7 @@ export const DECISION_BADGE_DISPLAY: Record<
   },
   missing_recent_data: { label: "Recent data missing", severity: "warning" },
   weak_performance: { label: "Below target", severity: "warning" },
+  below_breakeven: { label: "Below breakeven", severity: "warning" },
   stale_calibration: { label: "Calibration stale", severity: "warning" },
   stale_lifecycle: { label: "Lifecycle stale", severity: "warning" },
   stale_decision_context: {

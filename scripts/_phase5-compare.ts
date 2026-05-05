@@ -247,7 +247,7 @@ async function main() {
   md.push(`| | ${labelers.join(" | ")} |`);
   md.push(`|---|${labelers.map(() => "---:").join("|")}|`);
   for (const a of labelers) {
-    const row = [a];
+    const row: string[] = [a];
     for (const b of labelers) {
       row.push(`${(pairwise[a][b] * 100).toFixed(1)}%`);
     }

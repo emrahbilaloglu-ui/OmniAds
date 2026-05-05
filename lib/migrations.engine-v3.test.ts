@@ -25,7 +25,7 @@ const ENGINE_V3_INDEXES = [
 
 const ENGINE_V3_COLUMN_COUNTS = {
   engine_v3_job_runs: 22,
-  engine_v3_account_calibration_daily: 26,
+  engine_v3_account_calibration_daily: 41,
   engine_v3_creative_lifecycle_daily: 62,
   engine_v3_decision_snapshots_daily: 24,
   engine_v3_decision_events: 17,
@@ -159,6 +159,9 @@ describe("Engine v3 precomputed table migrations", () => {
     expect(normalizeSql(findCreateTableStatement(queries, "engine_v3_account_calibration_daily"))).toContain(
       normalizeSql("UNIQUE (business_ref_id, scope_type, scope_id, as_of_date, engine_version)"),
     );
+    expect(normalizeSql(findCreateTableStatement(queries, "engine_v3_account_calibration_daily"))).toContain(
+      normalizeSql("meta_aov_quality TEXT CHECK (meta_aov_quality IN ('unavailable', 'unstable', 'low_sample', 'ready'))"),
+    );
     expect(normalizeSql(findCreateTableStatement(queries, "engine_v3_creative_lifecycle_daily"))).toContain(
       normalizeSql("UNIQUE (business_ref_id, creative_id, as_of_date, engine_version)"),
     );
@@ -205,7 +208,9 @@ describe("Engine v3 precomputed table migrations", () => {
     expect(secondRun).toEqual(firstRun);
 
     for (const statement of firstRun) {
-      expect(statement).toMatch(/^CREATE (TABLE|INDEX) IF NOT EXISTS /);
+      expect(statement).toMatch(
+        /^(CREATE (TABLE|INDEX) IF NOT EXISTS|ALTER TABLE .* ADD COLUMN IF NOT EXISTS) /,
+      );
     }
 
     expect(firstRun.join("\n")).not.toMatch(

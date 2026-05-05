@@ -1,6 +1,5 @@
 import { finalizeDecision, type GateContext, type GateResult } from "./types";
 
-export const ZERO_CONV_MIN_SPEND = 200;
 export const ZERO_CONV_MIN_AGE_DAYS = 7;
 
 function formatSpend(value: number): string {
@@ -10,10 +9,12 @@ function formatSpend(value: number): string {
 export function zeroConvBurnerGate(ctx: GateContext): GateResult {
   const purchases = ctx.input.purchases ?? 0;
   const ageDays = ctx.input.ageDays ?? 0;
+  const spendThreshold = ctx.profile.thresholds.zeroConvBurnerSpend;
 
   if (
+    spendThreshold !== null &&
     purchases === 0 &&
-    ctx.input.spend >= ZERO_CONV_MIN_SPEND &&
+    ctx.input.spend >= spendThreshold &&
     ageDays >= ZERO_CONV_MIN_AGE_DAYS
   ) {
     const nextCtx: GateContext = {

@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   decideCreative,
-  defaultBusinessConfig,
   ENGINE_VERSION,
   MockDataSource,
 } from "..";
-import { makeDataHealth, makeDataLayerHealth } from "./helpers";
+import {
+  makeAccountDecisionProfile,
+  makeDataHealth,
+  makeDataLayerHealth,
+} from "./helpers";
 
 describe("creative-decision-engine v3", () => {
   const mock = new MockDataSource();
@@ -22,15 +25,27 @@ describe("creative-decision-engine v3", () => {
     return input;
   }
 
-  it("returns a typed decision for any input", async () => {
-    const input = await getMockCreativeInput("c-1");
+  async function getMockProfile() {
     const calibration = await mock.getAccountCalibration({
       businessId: "biz-1",
       asOf: "2026-05-04",
     });
-    const config = defaultBusinessConfig("biz-1");
+    return makeAccountDecisionProfile({
+      accountBaselines: calibration,
+      spendUnit: 100,
+      thresholds: {
+        scaleMinEvidenceSpend: 600,
+        scaleMinPurchases: 10,
+        zeroConvBurnerSpend: 200,
+      },
+    });
+  }
 
-    const out = decideCreative(input, config, calibration);
+  it("returns a typed decision for any input", async () => {
+    const input = await getMockCreativeInput("c-1");
+    const profile = await getMockProfile();
+
+    const out = decideCreative(input, profile);
     expect(out.creativeId).toBe("c-1");
     expect(out.creativeName).toBe(input.creativeName);
     expect(out.label).toBe("keep");
@@ -41,13 +56,9 @@ describe("creative-decision-engine v3", () => {
 
   it("resolves truth source via fallback chain", async () => {
     const input = await getMockCreativeInput("c-1");
-    const calibration = await mock.getAccountCalibration({
-      businessId: "biz-1",
-      asOf: "2026-05-04",
-    });
-    const config = defaultBusinessConfig("biz-1");
+    const profile = await getMockProfile();
 
-    const out = decideCreative(input, config, calibration);
+    const out = decideCreative(input, profile);
     expect(out.truthSource).toBe("commercial_truth");
     expect(out.effectiveTargetRoas).toBe(2.2);
   });
@@ -58,26 +69,20 @@ describe("creative-decision-engine v3", () => {
       businessId: "biz-1",
       asOf: "2026-05-04",
     });
-    const config = defaultBusinessConfig("biz-1");
+    const profile = makeAccountDecisionProfile({
+      accountBaselines: calibration,
+    });
 
-    const out = decideCreative(
-      { ...input, targetRoas: null },
-      config,
-      calibration,
-    );
+    const out = decideCreative({ ...input, targetRoas: null }, profile);
     expect(out.truthSource).toBe("account_baseline");
     expect(out.effectiveTargetRoas).toBe(2.4);
   });
 
   it("returns keep for mock creative in scale zone without scale purchase depth", async () => {
     const input = await getMockCreativeInput("c-1");
-    const calibration = await mock.getAccountCalibration({
-      businessId: "biz-1",
-      asOf: "2026-05-04",
-    });
-    const config = defaultBusinessConfig("biz-1");
+    const profile = await getMockProfile();
 
-    const out = decideCreative(input, config, calibration);
+    const out = decideCreative(input, profile);
 
     expect(out.label).toBe("keep");
     expect(out.reason).toBe(
@@ -100,13 +105,11 @@ describe("creative-decision-engine v3", () => {
       businessId: "biz-1",
       asOf: "2026-05-04",
     });
-    const config = defaultBusinessConfig("biz-1");
+    const profile = makeAccountDecisionProfile({
+      accountBaselines: { ...calibration, lowCtrP10: 1.0 },
+    });
 
-    const out = decideCreative(
-      { ...input, ctr: 0.5 },
-      config,
-      { ...calibration, lowCtrP10: 1.0 },
-    );
+    const out = decideCreative({ ...input, ctr: 0.5 }, profile);
 
     expect(out.label).toBe("keep");
     expect(out.badges).toContainEqual({
@@ -122,17 +125,9 @@ describe("creative-decision-engine v3", () => {
 
   it("adds missing_recent_data badge from post-process when recent 7d ROAS is null", async () => {
     const input = await getMockCreativeInput("c-1");
-    const calibration = await mock.getAccountCalibration({
-      businessId: "biz-1",
-      asOf: "2026-05-04",
-    });
-    const config = defaultBusinessConfig("biz-1");
+    const profile = await getMockProfile();
 
-    const out = decideCreative(
-      { ...input, recent7dRoas: null },
-      config,
-      calibration,
-    );
+    const out = decideCreative({ ...input, recent7dRoas: null }, profile);
 
     expect(out.label).toBe("keep");
     expect(out.badges).toContainEqual({
@@ -148,18 +143,14 @@ describe("creative-decision-engine v3", () => {
 
   it("applies DataHealth stale badges and confidence penalties when provided", async () => {
     const input = await getMockCreativeInput("c-1");
-    const calibration = await mock.getAccountCalibration({
-      businessId: "biz-1",
-      asOf: "2026-05-04",
-    });
-    const config = defaultBusinessConfig("biz-1");
+    const profile = await getMockProfile();
     const dataHealth = makeDataHealth({
       calibration: makeDataLayerHealth({ staleTier: "disabled" }),
       lifecycle: makeDataLayerHealth({ staleTier: "warning" }),
       decisions: makeDataLayerHealth({ staleTier: "warning" }),
     });
 
-    const out = decideCreative(input, config, calibration, dataHealth);
+    const out = decideCreative(input, profile, dataHealth);
 
     expect(out.label).toBe("keep");
     expect(out.badges.map((badge) => badge.type)).toEqual([
@@ -177,7 +168,15 @@ describe("creative-decision-engine v3", () => {
       businessId: "biz-1",
       asOf: "2026-05-04",
     });
-    const config = defaultBusinessConfig("biz-1");
+    const profile = makeAccountDecisionProfile({
+      accountBaselines: {
+        ...calibration,
+        matureCreativeCount: 0,
+        roasP75: null,
+        roasP60: null,
+        lowCtrP10: 1.0,
+      },
+    });
 
     const out = decideCreative(
       {
@@ -192,14 +191,7 @@ describe("creative-decision-engine v3", () => {
         ageDays: 14,
         targetRoas: null,
       },
-      config,
-      {
-        ...calibration,
-        matureCreativeCount: 0,
-        roasP75: null,
-        roasP60: null,
-        lowCtrP10: 1.0,
-      },
+      profile,
     );
 
     expect(out.label).toBe("cut");
@@ -213,11 +205,7 @@ describe("creative-decision-engine v3", () => {
 
   it("refreshes fatigued mature creatives below target with recent drop", async () => {
     const input = await getMockCreativeInput("c-1");
-    const calibration = await mock.getAccountCalibration({
-      businessId: "biz-1",
-      asOf: "2026-05-04",
-    });
-    const config = defaultBusinessConfig("biz-1");
+    const profile = await getMockProfile();
 
     const out = decideCreative(
       {
@@ -229,8 +217,7 @@ describe("creative-decision-engine v3", () => {
         recent7dSpend: 80,
         fatigueStatus: "fatigued",
       },
-      config,
-      calibration,
+      profile,
     );
 
     expect(out.label).toBe("refresh");
@@ -241,11 +228,7 @@ describe("creative-decision-engine v3", () => {
 
   it("cuts sustained zero-conversion burners", async () => {
     const input = await getMockCreativeInput("c-1");
-    const calibration = await mock.getAccountCalibration({
-      businessId: "biz-1",
-      asOf: "2026-05-04",
-    });
-    const config = defaultBusinessConfig("biz-1");
+    const profile = await getMockProfile();
 
     const out = decideCreative(
       {
@@ -257,8 +240,7 @@ describe("creative-decision-engine v3", () => {
         cpa: null,
         ageDays: 14,
       },
-      config,
-      calibration,
+      profile,
     );
 
     expect(out.label).toBe("cut");
@@ -267,13 +249,62 @@ describe("creative-decision-engine v3", () => {
     );
   });
 
+  it("downgrades scale decisions in soft-only mode", async () => {
+    const input = await getMockCreativeInput("c-1");
+    const profile = makeAccountDecisionProfile({
+      hardActionEligibility: {
+        scale: false,
+        cut: false,
+        refresh: false,
+        reason: "threshold baseline meta_derived_aov has low confidence",
+      },
+    });
+
+    const out = decideCreative(
+      {
+        ...input,
+        spend: 1000,
+        purchases: 15,
+        roas: 3.5,
+        recent7dRoas: 3.0,
+      },
+      profile,
+    );
+
+    expect(out.label).toBe("keep");
+    expect(out.reason).toContain("[near scale, soft-only]");
+  });
+
+  it("downgrades cut decisions in soft-only mode", async () => {
+    const input = await getMockCreativeInput("c-1");
+    const profile = makeAccountDecisionProfile({
+      hardActionEligibility: {
+        scale: false,
+        cut: false,
+        refresh: false,
+        reason: "threshold baseline account_history has medium confidence",
+      },
+    });
+
+    const out = decideCreative(
+      {
+        ...input,
+        spend: 1500,
+        purchases: 5,
+        roas: 0.8,
+        recent7dRoas: 0.7,
+      },
+      profile,
+    );
+
+    expect(out.label).toBe("test_more");
+    expect(out.reason).toContain("[soft-only - cut blocked]");
+    expect(out.badges.map((badge) => badge.type)).toContain("cut_candidate");
+  });
+
   it("returns out_of_scope for non-sales objectives", async () => {
     const input = await getMockCreativeInput("c-1");
-    const calibration = await mock.getAccountCalibration({
-      businessId: "biz-1",
-      asOf: "2026-05-04",
-    });
-    const config = defaultBusinessConfig("biz-1");
+    const profile = await getMockProfile();
 
     const out = decideCreative(
       {
@@ -281,13 +312,12 @@ describe("creative-decision-engine v3", () => {
         objective: "OUTCOME_ENGAGEMENT",
         lifecyclePosition: "rising",
       },
-      config,
-      calibration,
+      profile,
     );
 
     expect(out.label).toBe("out_of_scope");
     expect(out.truthSource).toBe("global_default");
-    expect(out.effectiveTargetRoas).toBe(config.globalDefaultTargetRoas);
+    expect(out.effectiveTargetRoas).toBe(2.0);
     expect(out.ratioToTarget).toBeNull();
     expect(out.reason).not.toContain("; lifecycle:");
     expect(out.reason).not.toContain("; momentum:");
@@ -295,11 +325,7 @@ describe("creative-decision-engine v3", () => {
 
   it("returns diagnose for active creatives with no recent spend", async () => {
     const input = await getMockCreativeInput("c-1");
-    const calibration = await mock.getAccountCalibration({
-      businessId: "biz-1",
-      asOf: "2026-05-04",
-    });
-    const config = defaultBusinessConfig("biz-1");
+    const profile = await getMockProfile();
 
     const out = decideCreative(
       {
@@ -309,8 +335,7 @@ describe("creative-decision-engine v3", () => {
         spend: 500,
         lifecyclePosition: "past_peak_unclear",
       },
-      config,
-      calibration,
+      profile,
     );
 
     expect(out.label).toBe("diagnose");

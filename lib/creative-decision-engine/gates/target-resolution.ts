@@ -31,6 +31,7 @@ function truthBadge(
 }
 
 export function targetResolutionGate(ctx: GateContext): GateResult {
+  const calibration = ctx.profile.accountBaselines;
   let effectiveTargetRoas: number;
   let truthSource: TruthSource;
   let badge: DecisionBadge | null = null;
@@ -40,23 +41,23 @@ export function targetResolutionGate(ctx: GateContext): GateResult {
     effectiveTargetRoas = ctx.input.targetRoas;
     truthSource = "commercial_truth";
   } else if (
-    ctx.calibration.matureCreativeCount >= 30 &&
-    isFinitePositive(ctx.calibration.roasP75)
+    calibration.matureCreativeCount >= 30 &&
+    isFinitePositive(calibration.roasP75)
   ) {
-    effectiveTargetRoas = ctx.calibration.roasP75;
+    effectiveTargetRoas = calibration.roasP75;
     truthSource = "account_baseline";
     badge = truthBadge(truthSource);
     confidenceDelta = -5;
   } else if (
-    ctx.calibration.matureCreativeCount >= 10 &&
-    isFinitePositive(ctx.calibration.roasP60)
+    calibration.matureCreativeCount >= 10 &&
+    isFinitePositive(calibration.roasP60)
   ) {
-    effectiveTargetRoas = ctx.calibration.roasP60;
+    effectiveTargetRoas = calibration.roasP60;
     truthSource = "account_baseline_thin";
     badge = truthBadge(truthSource);
     confidenceDelta = -15;
   } else {
-    effectiveTargetRoas = ctx.businessConfig.globalDefaultTargetRoas;
+    effectiveTargetRoas = 2.0;
     truthSource = "global_default";
     badge = truthBadge(truthSource);
     confidenceDelta = -25;

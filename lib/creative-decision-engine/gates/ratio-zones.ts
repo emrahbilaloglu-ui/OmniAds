@@ -1,18 +1,15 @@
 import type {
-  AccountCalibration,
-  BusinessConfig,
+  AccountDecisionProfile,
   CreativeInput,
   DecisionBadge,
   DecisionLabel,
 } from "../types";
+import { SCALE_RATIO_BY_PRESET } from "../config";
 import { finalizeDecision, type GateContext, type GateResult } from "./types";
 
 const TARGET_BAND_MIN_RATIO = 0.85;
 const WEAK_TARGET_MAX_RATIO = 0.95;
 const AT_TARGET_MAX_RATIO = 1.15;
-const WORKING_ZONE_MIN_RATIO = 0.7;
-const SUSTAINED_LOSER_MIN_SPEND = 500;
-const SUSTAINED_LOSER_MAX_RATIO = 0.4;
 const REFRESH_RATIO_FALLBACK = 0.75;
 
 const FATIGUE_WATCH_BADGE: DecisionBadge = {
@@ -47,7 +44,7 @@ function formatRatioPercent(value: number): string {
 
 function buildNearScaleBlockers(input: {
   spend: number;
-  spendThreshold: number;
+  spendThreshold: number | null;
   purchases: number;
   purchasesThreshold: number;
   recent7dRoas: number | null;
@@ -55,7 +52,9 @@ function buildNearScaleBlockers(input: {
 }): string[] {
   const blockers: string[] = [];
 
-  if (
+  if (input.spendThreshold === null) {
+    blockers.push("scale spend floor unavailable");
+  } else if (
     input.spend < input.spendThreshold ||
     input.purchases < input.purchasesThreshold
   ) {
@@ -79,8 +78,8 @@ function buildNearScaleBlockers(input: {
   return blockers;
 }
 
-function scaleMinSpend(businessConfig: BusinessConfig): number {
-  return Math.max(500, businessConfig.maturitySpendThreshold * 2);
+function scaleRatioThreshold(profile: AccountDecisionProfile): number {
+  return SCALE_RATIO_BY_PRESET[profile.preset];
 }
 
 function recentToTotalRoasRatio(input: CreativeInput): number | null {
@@ -94,6 +93,10 @@ function recentToTotalRoasRatio(input: CreativeInput): number | null {
 function appendReasonSuffix(reason: string, suffix: string): string {
   const stem = reason.endsWith(".") ? reason.slice(0, -1) : reason;
   return `${stem}${suffix}`;
+}
+
+function formatScaleSpendNeed(value: number | null): string {
+  return value === null ? "account-relative" : `$${formatSpend(value)}+`;
 }
 
 function withLifecycleHint(
@@ -136,8 +139,7 @@ function withLifecycleHint(
 
 export function shouldRefreshOnFatigue(
   input: CreativeInput,
-  calibration: AccountCalibration,
-  businessConfig: BusinessConfig,
+  profile: AccountDecisionProfile,
 ): boolean {
   if (input.fatigueStatus !== "fatigued") {
     return false;
@@ -149,12 +151,14 @@ export function shouldRefreshOnFatigue(
 
   if (
     input.recent7dSpend === null ||
-    input.recent7dSpend < businessConfig.recentSampleMinSpend
+    profile.thresholds.recentSampleMinSpend === null ||
+    input.recent7dSpend < profile.thresholds.recentSampleMinSpend
   ) {
     return false;
   }
 
-  const threshold = calibration.refreshRatioP10 ?? REFRESH_RATIO_FALLBACK;
+  const threshold =
+    profile.accountBaselines.refreshRatioP10 ?? REFRESH_RATIO_FALLBACK;
   return input.recent7dRoas / input.roas < threshold;
 }
 
@@ -178,10 +182,11 @@ function terminal(
 }
 
 export function ratioZonesGate(ctx: GateContext): GateResult {
-  const { input, businessConfig, calibration } = ctx;
+  const { input, profile } = ctx;
   const ratio = ctx.ratioToTarget;
   const roas = input.roas;
   const purchases = input.purchases ?? 0;
+  const workingZoneMinRatio = profile.thresholds.bottomQuartileRatio ?? 0.7;
 
   if (ratio === null || roas === null) {
     return terminal(
@@ -191,12 +196,12 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
     );
   }
 
-  if (ratio >= businessConfig.scaleRatioThreshold) {
-    const scaleSpendThreshold = scaleMinSpend(businessConfig);
-    const scalePurchasesThreshold =
-      businessConfig.maturityPurchasesThreshold * 2;
+  if (ratio >= scaleRatioThreshold(profile)) {
+    const scaleSpendThreshold = profile.thresholds.scaleMinEvidenceSpend;
+    const scalePurchasesThreshold = profile.thresholds.scaleMinPurchases;
     const recent7dRoas = input.recent7dRoas;
-    const hasScaleSpendDepth = input.spend >= scaleSpendThreshold;
+    const hasScaleSpendDepth =
+      scaleSpendThreshold !== null && input.spend >= scaleSpendThreshold;
     const hasScalePurchaseDepth = purchases >= scalePurchasesThreshold;
     const fatigueBadges =
       input.fatigueStatus === "fatigued" ? [FATIGUE_FATIGUED_BADGE] : [];
@@ -241,13 +246,12 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
   }
 
   if (ratio >= TARGET_BAND_MIN_RATIO) {
-    const scaleSpendThreshold = scaleMinSpend(businessConfig);
-    const scalePurchasesThreshold =
-      businessConfig.maturityPurchasesThreshold * 2;
+    const scaleSpendThreshold = profile.thresholds.scaleMinEvidenceSpend;
+    const scalePurchasesThreshold = profile.thresholds.scaleMinPurchases;
     const recentRatio = recentToTotalRoasRatio(input);
 
     if (
-      shouldRefreshOnFatigue(input, calibration, businessConfig) &&
+      shouldRefreshOnFatigue(input, profile) &&
       input.recent7dRoas !== null &&
       recentRatio !== null
     ) {
@@ -289,9 +293,9 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
               roas,
             )} (28d) approaching scale threshold (${formatRatioPercent(
               ratio,
-            )}%) — needs $${formatSpend(
+            )}%) — needs ${formatScaleSpendNeed(
               scaleSpendThreshold,
-            )}+ spend or ${scalePurchasesThreshold}+ purchases for full scale`;
+            )} spend or ${scalePurchasesThreshold}+ purchases for full scale`;
 
     return terminal(
       ctx,
@@ -301,8 +305,12 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
     );
   }
 
-  if (ratio < WORKING_ZONE_MIN_RATIO) {
-    if (input.spend >= businessConfig.cutMaturitySpendThreshold) {
+  if (ratio < workingZoneMinRatio) {
+    const hardCutSpend = profile.thresholds.hardCutSpend;
+    const sustainedLoserSpend = profile.thresholds.sustainedLoserSpend;
+    const severeLoserRatio = profile.thresholds.severeLoserRatio;
+
+    if (hardCutSpend !== null && input.spend >= hardCutSpend) {
       return terminal(
         ctx,
         "cut",
@@ -315,8 +323,10 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
     }
 
     if (
-      input.spend >= SUSTAINED_LOSER_MIN_SPEND &&
-      ratio < SUSTAINED_LOSER_MAX_RATIO
+      sustainedLoserSpend !== null &&
+      severeLoserRatio !== null &&
+      input.spend >= sustainedLoserSpend &&
+      ratio < severeLoserRatio
     ) {
       return terminal(
         ctx,
@@ -350,7 +360,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
 
   const recent7dRoas = input.recent7dRoas;
   if (
-    shouldRefreshOnFatigue(input, calibration, businessConfig) &&
+    shouldRefreshOnFatigue(input, profile) &&
     recent7dRoas !== null
   ) {
     return terminal(

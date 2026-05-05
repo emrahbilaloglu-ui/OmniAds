@@ -5,7 +5,6 @@ import {
 } from "./types";
 import type { CampaignObjective } from "../types";
 
-const TRACKING_ANOMALY_MIN_SPEND = 50;
 const TRACKING_ANOMALY_MIN_IMPRESSIONS = 1000;
 const TRACKING_ANOMALY_EXCLUDED_OBJECTIVES: ReadonlySet<CampaignObjective> =
   new Set<CampaignObjective>(["OUTCOME_AWARENESS"]);
@@ -27,6 +26,7 @@ function terminal(ctx: GateContext, reason: string, confidenceBase: number) {
 export function diagnoseGate(ctx: GateContext): GateResult {
   const spend = ctx.input.spend;
   const impressions = ctx.input.impressions;
+  const trackingAnomalyMinSpend = ctx.profile.thresholds.recentSampleMinSpend;
 
   if (
     ctx.input.effectiveStatus === "ACTIVE" &&
@@ -68,7 +68,8 @@ export function diagnoseGate(ctx: GateContext): GateResult {
   }
 
   if (
-    spend >= TRACKING_ANOMALY_MIN_SPEND &&
+    trackingAnomalyMinSpend !== null &&
+    spend >= trackingAnomalyMinSpend &&
     impressions !== null &&
     impressions >= TRACKING_ANOMALY_MIN_IMPRESSIONS &&
     (ctx.input.linkClicks ?? 0) === 0 &&

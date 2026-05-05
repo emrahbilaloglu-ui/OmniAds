@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import {
   decideCreative,
-  defaultBusinessConfig,
+  resolveAccountDecisionProfile,
   WarehouseDataSource,
   type CreativeInput,
 } from "@/lib/creative-decision-engine";
@@ -99,15 +99,15 @@ async function main() {
 
       const businessId = first.business_id;
       const asOf = first.snapshot_at.slice(0, 10);
-      const calibration = await dataSource.getAccountCalibration({
+      const profile = await resolveAccountDecisionProfile({
         businessId,
         asOf,
+        dataSource,
       });
       const dataHealth = await dataSource.getDataHealth({
         businessId,
         asOf,
       });
-      const config = defaultBusinessConfig(businessId);
 
       const creativeIds = group.map((row) => row.creative_id);
       const warehouseCreativeIdBySourceId = await resolveWarehouseCreativeIds({
@@ -166,7 +166,7 @@ async function main() {
           continue;
         }
 
-        const decision = decideCreative(input, config, calibration, dataHealth);
+        const decision = decideCreative(input, profile, dataHealth);
         output.push({
           business_name: row.business_name,
           business_id: row.business_id,

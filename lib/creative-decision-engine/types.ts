@@ -5,7 +5,7 @@
  * built in parallel.
  */
 
-export const ENGINE_VERSION = "v3-2026-05-04-phase-3.7";
+export const ENGINE_VERSION = "v3-2026-05-04-phase-3.8";
 
 /** Final decision label. */
 export type DecisionLabel =
@@ -35,6 +35,69 @@ export type CampaignObjective =
 
 /** Aggression preset that maps to scale_ratio_threshold. */
 export type AggressionPreset = "aggressive" | "balanced" | "conservative";
+
+export type EngineRiskPreset = "aggressive" | "balanced" | "conservative";
+
+export type SpendUnitSource =
+  | "target_cpa"
+  | "operator_aov"
+  | "meta_derived_aov"
+  | "account_history"
+  | "break_even_aov"
+  | "insufficient";
+
+export type SpendUnitConfidence =
+  | "high"
+  | "medium"
+  | "low"
+  | "insufficient";
+
+export type MetaAovQuality =
+  | "unavailable"
+  | "unstable"
+  | "low_sample"
+  | "ready";
+
+export type ThresholdQuality = "ready" | "degraded" | "insufficient";
+
+export interface SpendUnitEvidence {
+  targetCpa: number | null;
+  operatorAovAssumption: number | null;
+  metaAttributedAovMean90d: number | null;
+  metaAttributedAovPurchaseCount90d: number;
+  metaAttributedRevenue90d: number;
+  targetRoas: number | null;
+  breakEvenRoas: number | null;
+  accountCpaP50: number | null;
+  accountCpaSampleCount: number;
+  warnings: string[];
+}
+
+export interface EngineMultiplierSet {
+  zeroConvBurner: number;
+  cutCandidate: number;
+  sustainedLoser: number;
+  hardCut: number;
+  scaleEvidence: number;
+  scalePurchase: number;
+  winnerMemory: number;
+  recentSample: number;
+  weakFunnelRate: number;
+}
+
+export interface EngineThresholdSet {
+  zeroConvBurnerSpend: number | null;
+  cutCandidateSpend: number | null;
+  sustainedLoserSpend: number | null;
+  hardCutSpend: number | null;
+  recentSampleMinSpend: number | null;
+  scaleMinEvidenceSpend: number | null;
+  winnerMemoryMinSpend: number | null;
+  scaleMinPurchases: number;
+  winnerMemoryMinPurchases: number;
+  bottomQuartileRatio: number | null;
+  severeLoserRatio: number | null;
+}
 
 export type LifecyclePosition =
   | "rising"
@@ -155,6 +218,59 @@ export interface AccountCalibration {
 
   // CTR P10 (drives "low CTR" badge threshold)
   lowCtrP10: number | null;
+
+  // Phase 3.8 account-relative threshold evidence
+  accountCpaP50: number | null;
+  accountCpaSampleCount: number;
+  metaAttributedAovMean90d: number | null;
+  metaAttributedAovPurchaseCount90d: number;
+  metaAttributedRevenue90d: number;
+  matureSpendP50: number | null;
+  matureSpendP75: number | null;
+  winnerSpendP25: number | null;
+  winnerSpendP50: number | null;
+  winnerPurchaseP50: number | null;
+  roasRatioP10: number | null;
+  roasRatioP25: number | null;
+  roasRatioP50: number | null;
+  roasRatioP75: number | null;
+  metaAovQuality: MetaAovQuality;
+}
+
+export interface AccountDecisionProfile {
+  businessId: string;
+  asOfDate: string;
+  channel: "meta";
+  objectiveFamily: "sales";
+
+  preset: EngineRiskPreset;
+  presetSource:
+    | "business_decision_calibration_profile"
+    | "target_pack_risk_posture"
+    | "default";
+
+  spendUnit: number | null;
+  spendUnitSource: SpendUnitSource;
+  spendUnitConfidence: SpendUnitConfidence;
+  spendUnitEvidence: SpendUnitEvidence;
+
+  multipliers: EngineMultiplierSet;
+  thresholds: EngineThresholdSet;
+  accountBaselines: AccountCalibration;
+
+  hardActionEligibility: {
+    scale: boolean;
+    cut: boolean;
+    refresh: boolean;
+    reason: string | null;
+  };
+
+  quality: {
+    commercialTruthReady: boolean;
+    calibrationReady: boolean;
+    metaAovQuality: MetaAovQuality;
+    thresholdQuality: ThresholdQuality;
+  };
 }
 
 /** Output badge - UI hint, does not change label. */

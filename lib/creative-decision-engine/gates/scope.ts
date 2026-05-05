@@ -11,7 +11,7 @@ export function scopeGate(ctx: GateContext): GateResult {
   if (objective === null || !SUPPORTED_OBJECTIVES.has(objective)) {
     const nextCtx: GateContext = {
       ...ctx,
-      effectiveTargetRoas: ctx.businessConfig.globalDefaultTargetRoas,
+      effectiveTargetRoas: 2.0,
       truthSource: "global_default",
       ratioToTarget: null,
       badges: [],

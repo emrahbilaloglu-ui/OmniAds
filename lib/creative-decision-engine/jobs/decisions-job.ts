@@ -1,5 +1,5 @@
 import { getDb, runDbTransaction } from "@/lib/db";
-import { defaultBusinessConfig } from "../config";
+import { resolveAccountDecisionProfile } from "../account-decision-profile";
 import { WarehouseDataSource } from "../data-source";
 import { decideCreative } from "../engine";
 import {
@@ -310,9 +310,10 @@ export async function runDecisionsJob(
     await db.query("SAVEPOINT engine_v3_decisions_job_work");
     try {
       const dataSource = new WarehouseDataSource();
-      const calibration = await dataSource.getAccountCalibration({
+      const profile = await resolveAccountDecisionProfile({
         businessId: input.businessId,
         asOf: input.asOf,
+        dataSource,
       });
       const dataHealth = await dataSource.getDataHealth({
         businessId: input.businessId,
@@ -322,11 +323,10 @@ export async function runDecisionsJob(
         businessId: input.businessId,
         asOf: input.asOf,
       });
-      const config = defaultBusinessConfig(input.businessId);
       const decisions: DecisionComputation[] = creativeInputs.map(
         (creativeInput) => ({
           input: creativeInput,
-          decision: decideCreative(creativeInput, config, calibration, dataHealth),
+          decision: decideCreative(creativeInput, profile, dataHealth),
         }),
       );
 

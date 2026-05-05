@@ -174,7 +174,7 @@ describe("computeFatigue", () => {
     expect(output.winnerMemory).toBe(true);
   });
 
-  it("requires at least three purchases for strong historical windows", () => {
+  it("requires configured purchase depth for strong historical windows", () => {
     const lowPurchaseWindow: HistoricalWindow = {
       ...strongWindow,
       spend: 300,
@@ -184,6 +184,7 @@ describe("computeFatigue", () => {
     const output = computeFatigue(
       makeInput({
         effectiveTargetRoas: 2.2,
+        winnerMemoryMinPurchases: 3,
         historicalWindows: {
           last30: lowPurchaseWindow,
           last90: lowPurchaseWindow,
@@ -194,7 +195,7 @@ describe("computeFatigue", () => {
     expect(output.winnerMemory).toBe(false);
   });
 
-  it("requires at least $150 spend for strong historical windows", () => {
+  it("requires configured spend depth for strong historical windows", () => {
     const lowSpendWindow: HistoricalWindow = {
       ...strongWindow,
       spend: 100,
@@ -204,6 +205,7 @@ describe("computeFatigue", () => {
     const output = computeFatigue(
       makeInput({
         effectiveTargetRoas: 2.2,
+        winnerMemoryMinSpend: 150,
         historicalWindows: {
           last30: lowSpendWindow,
           last90: lowSpendWindow,

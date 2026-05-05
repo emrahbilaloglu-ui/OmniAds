@@ -22,6 +22,8 @@ export interface FatigueInput {
   clickToPurchaseRate: number | null;
   effectiveTargetRoas?: number | null;
   breakevenRoas?: number | null;
+  winnerMemoryMinSpend?: number | null;
+  winnerMemoryMinPurchases?: number | null;
 
   historicalWindows: {
     // Legacy short windows can be passed by callers, but are intentionally
@@ -60,8 +62,6 @@ export interface FatigueOutput {
 const SIGNIFICANT_DECAY_THRESHOLD = 0.18;
 const SPEND_CONCENTRATION_THRESHOLD = 0.55;
 const FREQUENCY_PRESSURE_THRESHOLD = 2.5;
-const STRONG_WINDOW_MIN_SPEND = 150;
-const STRONG_WINDOW_MIN_PURCHASES = 3;
 // Absolute fallback when no business target is available.
 const STRONG_WINDOW_FALLBACK_ROAS = 1.5;
 
@@ -77,13 +77,15 @@ function isStrongHistoricalWindow(
   window: HistoricalWindow,
   effectiveTargetRoas: number | null | undefined,
   breakevenRoas: number | null | undefined,
+  winnerMemoryMinSpend: number,
+  winnerMemoryMinPurchases: number,
 ): boolean {
-  if (!Number.isFinite(window.spend) || window.spend < STRONG_WINDOW_MIN_SPEND) {
+  if (!Number.isFinite(window.spend) || window.spend < winnerMemoryMinSpend) {
     return false;
   }
   if (
     !Number.isFinite(window.purchases) ||
-    window.purchases < STRONG_WINDOW_MIN_PURCHASES
+    window.purchases < winnerMemoryMinPurchases
   ) {
     return false;
   }
@@ -104,6 +106,13 @@ function isStrongHistoricalWindow(
 }
 
 export function computeFatigue(input: FatigueInput): FatigueOutput {
+  const winnerMemoryMinSpend =
+    isFinitePositive(input.winnerMemoryMinSpend) ? input.winnerMemoryMinSpend : 0;
+  const winnerMemoryMinPurchases = isFinitePositive(
+    input.winnerMemoryMinPurchases,
+  )
+    ? input.winnerMemoryMinPurchases
+    : 1;
   const eligibleWindows = [
     input.historicalWindows.last14,
     input.historicalWindows.last30,
@@ -117,6 +126,8 @@ export function computeFatigue(input: FatigueInput): FatigueOutput {
         window,
         input.effectiveTargetRoas,
         input.breakevenRoas,
+        winnerMemoryMinSpend,
+        winnerMemoryMinPurchases,
       ),
   ).length;
   const winnerMemory = strongCount >= 2;

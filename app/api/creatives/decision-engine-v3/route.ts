@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import {
   decideCreative,
-  defaultBusinessConfig,
+  resolveAccountDecisionProfile,
 } from "@/lib/creative-decision-engine";
 import { resolveDataSource } from "./data-source";
 
@@ -28,10 +28,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const resolvedBusinessId = access.membership.businessId;
 
   const { instance: dataSource, label: dataSourceLabel } = resolveDataSource();
-  const config = defaultBusinessConfig(resolvedBusinessId);
-  const calibration = await dataSource.getAccountCalibration({
+  const profile = await resolveAccountDecisionProfile({
     businessId: resolvedBusinessId,
     asOf,
+    dataSource,
   });
   const dataHealth = await dataSource.getDataHealth({
     businessId: resolvedBusinessId,
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       : undefined,
   });
   const decisions = inputs.map((input) =>
-    decideCreative(input, config, calibration, dataHealth),
+    decideCreative(input, profile, dataHealth),
   );
 
   return NextResponse.json({

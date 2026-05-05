@@ -6,17 +6,47 @@ import {
   STALE_TIER_WARNING_MAX_HOURS,
 } from "./data-health";
 import { computeFatigue, type HistoricalWindow } from "./fatigue";
+import {
+  computeMetaAttributedAov,
+  type MetaAttributedAovResult,
+} from "./meta-aov-calculator";
+import { classifyMetaAovQuality } from "./spend-unit-resolver";
 import type {
   AccountCalibration,
   CampaignObjective,
   CreativeInput,
   DataHealth,
   DataLayerHealth,
+  EngineRiskPreset,
   FallbackMode,
   LifecyclePosition,
+  MetaAovQuality,
   SpendTrajectory,
   StaleTier,
 } from "./types";
+
+export interface BusinessTargetPack {
+  targetCpa: number | null;
+  targetRoas: number | null;
+  breakEvenCpa: number | null;
+  breakEvenRoas: number | null;
+  operatorAovAssumption: number | null;
+  defaultRiskPosture: EngineRiskPreset | null;
+}
+
+export interface DecisionCalibrationProfileConfig {
+  enginePresetLabel: EngineRiskPreset | null;
+  zeroConvBurnerMultiplier: number | null;
+  cutCandidateMultiplier: number | null;
+  sustainedLoserMultiplier: number | null;
+  hardCutMultiplier: number | null;
+  scaleEvidenceMultiplier: number | null;
+  scalePurchaseMultiplier: number | null;
+  winnerMemoryMultiplier: number | null;
+  recentSampleMultiplier: number | null;
+  weakFunnelRateMultiplier: number | null;
+  attributionAovAdjustmentMultiplier: number | null;
+}
 
 /**
  * Adapter interface for the engine's data dependencies.
@@ -53,6 +83,25 @@ export interface CreativeDecisionDataSource {
     businessId: string;
     asOf: string;
   }): Promise<DataHealth>;
+
+  /** Commercial truth used by the account-relative threshold resolver. */
+  getBusinessTargetPack(input: {
+    businessId: string;
+  }): Promise<BusinessTargetPack | null>;
+
+  /** Optional operator profile with preset and multiplier overrides. */
+  getDecisionCalibrationProfile(input: {
+    businessId: string;
+    channel: "meta";
+    objectiveFamily: "sales";
+  }): Promise<DecisionCalibrationProfileConfig | null>;
+
+  /** Live Meta-attributed AOV fallback for first-run calibration gaps. */
+  getMetaAttributedAov(input: {
+    businessId: string;
+    asOf: string;
+    windowDays?: number;
+  }): Promise<MetaAttributedAovResult>;
 }
 
 /**
@@ -116,6 +165,21 @@ export class MockDataSource implements CreativeDecisionDataSource {
       roasP60: 1.9,
       refreshRatioP10: 0.82,
       lowCtrP10: 0.7,
+      accountCpaP50: 58,
+      accountCpaSampleCount: 24,
+      metaAttributedAovMean90d: 50,
+      metaAttributedAovPurchaseCount90d: 42,
+      metaAttributedRevenue90d: 2100,
+      matureSpendP50: 300,
+      matureSpendP75: 450,
+      winnerSpendP25: 250,
+      winnerSpendP50: 500,
+      winnerPurchaseP50: 5,
+      roasRatioP10: 0.4,
+      roasRatioP25: 0.6,
+      roasRatioP50: 1.0,
+      roasRatioP75: 1.35,
+      metaAovQuality: "ready",
     };
   }
 
@@ -150,6 +214,42 @@ export class MockDataSource implements CreativeDecisionDataSource {
       lifecycle: freshDataLayerHealth(input.asOf),
       decisions: freshDataLayerHealth(input.asOf),
     });
+  }
+
+  async getBusinessTargetPack(): Promise<BusinessTargetPack | null> {
+    return {
+      targetCpa: null,
+      targetRoas: 2.2,
+      breakEvenCpa: null,
+      breakEvenRoas: 1.71,
+      operatorAovAssumption: null,
+      defaultRiskPosture: "balanced",
+    };
+  }
+
+  async getDecisionCalibrationProfile(): Promise<DecisionCalibrationProfileConfig | null> {
+    return null;
+  }
+
+  async getMetaAttributedAov(input: {
+    businessId: string;
+    asOf: string;
+    windowDays?: number;
+  }): Promise<MetaAttributedAovResult> {
+    const windowDays = input.windowDays ?? 90;
+    const end = new Date(`${input.asOf}T00:00:00.000Z`);
+    const start = Number.isNaN(end.getTime())
+      ? input.asOf
+      : new Date(
+          end.getTime() - (windowDays - 1) * 24 * 60 * 60 * 1000,
+        ).toISOString().slice(0, 10);
+    return {
+      aovMean: 50,
+      purchaseCount: 42,
+      totalRevenue: 2100,
+      windowStart: start,
+      windowEnd: input.asOf,
+    };
   }
 }
 
@@ -232,6 +332,21 @@ type CalibrationRow = Record<string, unknown> & {
   refresh_ratio_count: unknown;
   low_ctr_p10: unknown;
   ctr_count: unknown;
+  account_cpa_p50: unknown;
+  account_cpa_sample_count: unknown;
+  meta_attributed_aov_mean_90d: unknown;
+  meta_attributed_aov_purchase_count_90d: unknown;
+  meta_attributed_revenue_90d: unknown;
+  meta_aov_quality: unknown;
+  mature_spend_p50: unknown;
+  mature_spend_p75: unknown;
+  winner_spend_p25: unknown;
+  winner_spend_p50: unknown;
+  winner_purchase_p50: unknown;
+  roas_ratio_p10: unknown;
+  roas_ratio_p25: unknown;
+  roas_ratio_p50: unknown;
+  roas_ratio_p75: unknown;
   source_min_date: unknown;
   source_max_date: unknown;
   source_max_updated_at: unknown;
@@ -249,11 +364,49 @@ type CalibrationTableRow = Record<string, unknown> & {
   roas_p60: unknown;
   refresh_ratio_p10: unknown;
   low_ctr_p10: unknown;
+  account_cpa_p50: unknown;
+  account_cpa_sample_count: unknown;
+  meta_attributed_aov_mean_90d: unknown;
+  meta_attributed_aov_purchase_count_90d: unknown;
+  meta_attributed_revenue_90d: unknown;
+  meta_aov_quality: unknown;
+  mature_spend_p50: unknown;
+  mature_spend_p75: unknown;
+  winner_spend_p25: unknown;
+  winner_spend_p50: unknown;
+  winner_purchase_p50: unknown;
+  roas_ratio_p10: unknown;
+  roas_ratio_p25: unknown;
+  roas_ratio_p50: unknown;
+  roas_ratio_p75: unknown;
   computed_at: unknown;
   source_max_updated_at: unknown;
   source_max_date: unknown;
   as_of_date: unknown;
   quality_status: unknown;
+};
+
+type BusinessTargetPackRow = Record<string, unknown> & {
+  target_cpa: unknown;
+  target_roas: unknown;
+  break_even_cpa: unknown;
+  break_even_roas: unknown;
+  aov_assumption: unknown;
+  default_risk_posture: unknown;
+};
+
+type DecisionCalibrationProfileRow = Record<string, unknown> & {
+  engine_preset_label: unknown;
+  zero_conv_burner_multiplier: unknown;
+  cut_candidate_multiplier: unknown;
+  sustained_loser_multiplier: unknown;
+  hard_cut_multiplier: unknown;
+  scale_evidence_multiplier: unknown;
+  scale_purchase_multiplier: unknown;
+  winner_memory_multiplier: unknown;
+  recent_sample_multiplier: unknown;
+  weak_funnel_rate_multiplier: unknown;
+  attribution_aov_adjustment_multiplier: unknown;
 };
 
 type LifecycleTableHydrationRow = Record<string, unknown> & {
@@ -557,13 +710,19 @@ ORDER BY c.spend DESC, c.creative_id ASC
 `;
 
 const ACCOUNT_CALIBRATION_QUERY = `
-WITH per_creative_raw AS (
+WITH target_pack AS (
+  SELECT target_roas
+  FROM business_target_packs
+  WHERE business_id = $2::uuid
+  ORDER BY updated_at DESC
+  LIMIT 1
+),
+per_creative_raw AS (
   SELECT
     creative_id,
     SUM(spend) AS total_spend,
     SUM(conversions) AS total_purchases,
     SUM(revenue) AS total_revenue,
-    MIN(first_spend_at) FILTER (WHERE first_spend_at IS NOT NULL) AS first_spend_at,
     SUM(spend) FILTER (WHERE date >= ($1::date - INTERVAL '27 days')) AS cumulative_28d_spend,
     SUM(revenue) FILTER (WHERE date >= ($1::date - INTERVAL '27 days')) AS cumulative_28d_revenue,
     SUM(impressions) FILTER (WHERE date >= ($1::date - INTERVAL '27 days')) AS cumulative_28d_impressions,
@@ -580,6 +739,7 @@ per_creative AS (
     creative_id,
     total_spend,
     total_purchases,
+    total_revenue,
     CASE WHEN total_spend > 0 THEN total_revenue / total_spend END AS aggregate_roas,
     CASE
       WHEN cumulative_28d_spend > 0
@@ -592,17 +752,22 @@ per_creative AS (
     CASE
       WHEN recent_7d_spend > 0
       THEN recent_7d_revenue / recent_7d_spend
-    END AS recent_7d_roas,
-    first_spend_at
+    END AS recent_7d_roas
   FROM per_creative_raw
 ),
-mature AS (
+converter_population AS (
   SELECT *
   FROM per_creative
-  WHERE total_spend >= 300
-    AND total_purchases >= 3
-    AND first_spend_at IS NOT NULL
-    AND first_spend_at::date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
+  WHERE total_purchases >= 1
+    AND total_revenue > 0
+    AND total_spend > 0
+),
+winner_population AS (
+  SELECT cp.*
+  FROM converter_population cp
+  CROSS JOIN target_pack tp
+  WHERE tp.target_roas IS NOT NULL
+    AND cp.aggregate_roas >= tp.target_roas
 ),
 recent_ratios AS (
   SELECT
@@ -612,6 +777,55 @@ recent_ratios AS (
       THEN recent_7d_roas / cumulative_28d_roas
     END AS recent_total_ratio
   FROM per_creative
+),
+counts AS (
+  SELECT
+    (SELECT COUNT(*) FROM per_creative WHERE total_spend > 0) AS eligible_creative_count,
+    (SELECT COUNT(*) FROM converter_population) AS converter_count,
+    (SELECT COUNT(*) FROM winner_population) AS winner_count,
+    (SELECT COUNT(*) FROM per_creative WHERE total_purchases > 0) AS account_cpa_sample_count,
+    (SELECT COUNT(*) FROM per_creative WHERE total_spend > 0 AND COALESCE(total_purchases, 0) = 0) AS zero_conversion_count,
+    (SELECT COUNT(*) FROM recent_ratios WHERE recent_total_ratio IS NOT NULL) AS refresh_ratio_count,
+    (SELECT COUNT(*) FROM per_creative WHERE cumulative_28d_ctr IS NOT NULL) AS ctr_count
+),
+percentiles AS (
+  SELECT
+    percentile_cont(0.50) WITHIN GROUP (ORDER BY total_spend / NULLIF(total_purchases, 0))
+      FILTER (WHERE total_purchases > 0) AS cpa_p50_raw,
+    percentile_cont(0.10) WITHIN GROUP (ORDER BY aggregate_roas) AS roas_p10_raw,
+    percentile_cont(0.25) WITHIN GROUP (ORDER BY aggregate_roas) AS roas_p25_raw,
+    percentile_cont(0.50) WITHIN GROUP (ORDER BY aggregate_roas) AS roas_p50_raw,
+    percentile_cont(0.60) WITHIN GROUP (ORDER BY aggregate_roas) AS roas_p60_raw,
+    percentile_cont(0.75) WITHIN GROUP (ORDER BY aggregate_roas) AS roas_p75_raw,
+    percentile_cont(0.50) WITHIN GROUP (ORDER BY total_spend) AS mature_spend_p50,
+    percentile_cont(0.75) WITHIN GROUP (ORDER BY total_spend) AS mature_spend_p75,
+    percentile_cont(0.10) WITHIN GROUP (ORDER BY aggregate_roas / NULLIF(tp.target_roas, 0))
+      FILTER (WHERE tp.target_roas IS NOT NULL) AS roas_ratio_p10,
+    percentile_cont(0.25) WITHIN GROUP (ORDER BY aggregate_roas / NULLIF(tp.target_roas, 0))
+      FILTER (WHERE tp.target_roas IS NOT NULL) AS roas_ratio_p25,
+    percentile_cont(0.50) WITHIN GROUP (ORDER BY aggregate_roas / NULLIF(tp.target_roas, 0))
+      FILTER (WHERE tp.target_roas IS NOT NULL) AS roas_ratio_p50,
+    percentile_cont(0.75) WITHIN GROUP (ORDER BY aggregate_roas / NULLIF(tp.target_roas, 0))
+      FILTER (WHERE tp.target_roas IS NOT NULL) AS roas_ratio_p75
+  FROM converter_population cp
+  CROSS JOIN target_pack tp
+),
+winner_percentiles AS (
+  SELECT
+    percentile_cont(0.25) WITHIN GROUP (ORDER BY total_spend) AS winner_spend_p25,
+    percentile_cont(0.50) WITHIN GROUP (ORDER BY total_spend) AS winner_spend_p50,
+    percentile_cont(0.50) WITHIN GROUP (ORDER BY total_purchases) AS winner_purchase_p50
+  FROM winner_population
+),
+meta_aov AS (
+  SELECT
+    CASE WHEN SUM(conversions) > 0 THEN SUM(revenue) / SUM(conversions) END AS aov_mean,
+    COALESCE(SUM(conversions), 0)::integer AS purchase_count,
+    COALESCE(SUM(revenue), 0) AS total_revenue
+  FROM meta_creative_daily
+  WHERE business_ref_id = $2::uuid
+    AND date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
+    AND objective = 'OUTCOME_SALES'
 ),
 source_bounds AS (
   SELECT
@@ -623,17 +837,41 @@ source_bounds AS (
     AND date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
 )
 SELECT
-  (SELECT COUNT(*) FROM mature) AS mature_count,
-  (SELECT percentile_cont(0.75) WITHIN GROUP (ORDER BY aggregate_roas) FROM mature WHERE aggregate_roas IS NOT NULL) AS roas_p75,
-  (SELECT percentile_cont(0.60) WITHIN GROUP (ORDER BY aggregate_roas) FROM mature WHERE aggregate_roas IS NOT NULL) AS roas_p60,
+  counts.converter_count AS mature_count,
+  CASE WHEN counts.converter_count >= 30 THEN percentiles.roas_p75_raw END AS roas_p75,
+  CASE WHEN counts.converter_count >= 10 THEN percentiles.roas_p60_raw END AS roas_p60,
   (SELECT percentile_cont(0.10) WITHIN GROUP (ORDER BY recent_total_ratio) FROM recent_ratios WHERE recent_total_ratio IS NOT NULL) AS refresh_ratio_p10,
-  (SELECT COUNT(*) FROM recent_ratios WHERE recent_total_ratio IS NOT NULL) AS refresh_ratio_count,
+  counts.refresh_ratio_count,
   (SELECT percentile_cont(0.10) WITHIN GROUP (ORDER BY cumulative_28d_ctr) FROM per_creative WHERE cumulative_28d_ctr IS NOT NULL) AS low_ctr_p10,
-  (SELECT COUNT(*) FROM per_creative WHERE cumulative_28d_ctr IS NOT NULL) AS ctr_count,
+  counts.ctr_count,
+  CASE WHEN counts.account_cpa_sample_count >= 20 THEN percentiles.cpa_p50_raw END AS account_cpa_p50,
+  counts.account_cpa_sample_count,
+  meta_aov.aov_mean AS meta_attributed_aov_mean_90d,
+  meta_aov.purchase_count AS meta_attributed_aov_purchase_count_90d,
+  meta_aov.total_revenue AS meta_attributed_revenue_90d,
+  CASE
+    WHEN meta_aov.purchase_count >= 20 THEN 'ready'
+    WHEN meta_aov.purchase_count >= 5 THEN 'low_sample'
+    WHEN meta_aov.purchase_count >= 1 THEN 'unstable'
+    ELSE 'unavailable'
+  END AS meta_aov_quality,
+  percentiles.mature_spend_p50,
+  percentiles.mature_spend_p75,
+  winner_percentiles.winner_spend_p25,
+  winner_percentiles.winner_spend_p50,
+  winner_percentiles.winner_purchase_p50,
+  percentiles.roas_ratio_p10,
+  percentiles.roas_ratio_p25,
+  percentiles.roas_ratio_p50,
+  percentiles.roas_ratio_p75,
   source_bounds.source_min_date,
   source_bounds.source_max_date,
   source_bounds.source_max_updated_at
-FROM source_bounds
+FROM counts
+CROSS JOIN percentiles
+CROSS JOIN winner_percentiles
+CROSS JOIN meta_aov
+CROSS JOIN source_bounds
 `;
 
 const SOURCE_MAX_UPDATED_AT_QUERY = `
@@ -654,6 +892,21 @@ SELECT
   roas_p60,
   refresh_ratio_p10,
   low_ctr_p10,
+  account_cpa_p50,
+  account_cpa_sample_count,
+  meta_attributed_aov_mean_90d,
+  meta_attributed_aov_purchase_count_90d,
+  meta_attributed_revenue_90d,
+  meta_aov_quality,
+  mature_spend_p50,
+  mature_spend_p75,
+  winner_spend_p25,
+  winner_spend_p50,
+  winner_purchase_p50,
+  roas_ratio_p10,
+  roas_ratio_p25,
+  roas_ratio_p50,
+  roas_ratio_p75,
   computed_at,
   source_max_updated_at,
   source_max_date,
@@ -752,6 +1005,44 @@ WHERE business_ref_id = $1::uuid
   AND as_of_date <= $2::date
 `;
 
+const READ_BUSINESS_TARGET_PACK_QUERY = `
+SELECT
+  target_cpa,
+  target_roas,
+  break_even_cpa,
+  break_even_roas,
+  aov_assumption,
+  default_risk_posture
+FROM business_target_packs
+WHERE business_id = $1::uuid
+ORDER BY updated_at DESC
+LIMIT 1
+`;
+
+const READ_DECISION_CALIBRATION_PROFILE_QUERY = `
+SELECT
+  engine_preset_label,
+  zero_conv_burner_multiplier,
+  cut_candidate_multiplier,
+  sustained_loser_multiplier,
+  hard_cut_multiplier,
+  scale_evidence_multiplier,
+  scale_purchase_multiplier,
+  winner_memory_multiplier,
+  recent_sample_multiplier,
+  weak_funnel_rate_multiplier,
+  attribution_aov_adjustment_multiplier
+FROM business_decision_calibration_profiles
+WHERE business_id = $1::uuid
+  AND channel = $2
+  AND objective_family = $3
+ORDER BY
+  CASE WHEN bid_regime = 'open' THEN 0 WHEN bid_regime = 'unknown' THEN 1 ELSE 2 END,
+  CASE WHEN archetype = 'default' THEN 0 ELSE 1 END,
+  updated_at DESC
+LIMIT 1
+`;
+
 function toNumberOrNull(value: unknown): number | null {
   if (value == null) return null;
   if (typeof value === "number") {
@@ -778,6 +1069,23 @@ function toStringOrNull(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+function toEngineRiskPreset(value: unknown): EngineRiskPreset | null {
+  const text = toStringOrNull(value);
+  return text === "aggressive" || text === "balanced" || text === "conservative"
+    ? text
+    : null;
+}
+
+function toMetaAovQuality(value: unknown): MetaAovQuality | null {
+  const text = toStringOrNull(value);
+  return text === "unavailable" ||
+    text === "unstable" ||
+    text === "low_sample" ||
+    text === "ready"
+    ? text
+    : null;
 }
 
 function toIsoDateOrNull(value: unknown): string | null {
@@ -1029,6 +1337,21 @@ function zeroAccountCalibration(
     roasP60: null,
     refreshRatioP10: null,
     lowCtrP10: null,
+    accountCpaP50: null,
+    accountCpaSampleCount: 0,
+    metaAttributedAovMean90d: null,
+    metaAttributedAovPurchaseCount90d: 0,
+    metaAttributedRevenue90d: 0,
+    matureSpendP50: null,
+    matureSpendP75: null,
+    winnerSpendP25: null,
+    winnerSpendP50: null,
+    winnerPurchaseP50: null,
+    roasRatioP10: null,
+    roasRatioP25: null,
+    roasRatioP50: null,
+    roasRatioP75: null,
+    metaAovQuality: "unavailable",
   };
 }
 
@@ -1204,23 +1527,6 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
     );
     const sourceMaxDate = toIsoDateOrNull(row?.source_max_date);
 
-    if (matureCount === 0) {
-      this.lastCalibrationMetadata = {
-        businessId: input.businessId,
-        requestedAsOf: input.asOf,
-        asOfDate: sourceMaxDate ?? input.asOf,
-        computedAt,
-        sourceMaxUpdatedAt,
-        fallbackMode: "insufficient",
-        note:
-          fallbackNote === "no precomputed row available; runtime fallback in use"
-            ? fallbackNote
-            : "Insufficient calibration sample (matureCreativeCount=0)",
-        staleTierOverride,
-      };
-      return zeroAccountCalibration(input.businessId, computedAt);
-    }
-
     const calibration: AccountCalibration = {
       businessId: input.businessId,
       computedAt,
@@ -1245,6 +1551,30 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
         count: ctrCount,
         minimumCount: 20,
       }),
+      accountCpaP50: toNumberOrNull(row?.account_cpa_p50),
+      accountCpaSampleCount:
+        toIntegerOrNull(row?.account_cpa_sample_count) ?? 0,
+      metaAttributedAovMean90d: toNumberOrNull(
+        row?.meta_attributed_aov_mean_90d,
+      ),
+      metaAttributedAovPurchaseCount90d:
+        toIntegerOrNull(row?.meta_attributed_aov_purchase_count_90d) ?? 0,
+      metaAttributedRevenue90d:
+        toNumberOrNull(row?.meta_attributed_revenue_90d) ?? 0,
+      matureSpendP50: toNumberOrNull(row?.mature_spend_p50),
+      matureSpendP75: toNumberOrNull(row?.mature_spend_p75),
+      winnerSpendP25: toNumberOrNull(row?.winner_spend_p25),
+      winnerSpendP50: toNumberOrNull(row?.winner_spend_p50),
+      winnerPurchaseP50: toNumberOrNull(row?.winner_purchase_p50),
+      roasRatioP10: toNumberOrNull(row?.roas_ratio_p10),
+      roasRatioP25: toNumberOrNull(row?.roas_ratio_p25),
+      roasRatioP50: toNumberOrNull(row?.roas_ratio_p50),
+      roasRatioP75: toNumberOrNull(row?.roas_ratio_p75),
+      metaAovQuality:
+        toMetaAovQuality(row?.meta_aov_quality) ??
+        classifyMetaAovQuality(
+          toIntegerOrNull(row?.meta_attributed_aov_purchase_count_90d) ?? 0,
+        ),
     };
     this.lastCalibrationMetadata = {
       businessId: input.businessId,
@@ -1343,6 +1673,30 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
         roasP60: toNumberOrNull(row.roas_p60),
         refreshRatioP10: toNumberOrNull(row.refresh_ratio_p10),
         lowCtrP10: toNumberOrNull(row.low_ctr_p10),
+        accountCpaP50: toNumberOrNull(row.account_cpa_p50),
+        accountCpaSampleCount:
+          toIntegerOrNull(row.account_cpa_sample_count) ?? 0,
+        metaAttributedAovMean90d: toNumberOrNull(
+          row.meta_attributed_aov_mean_90d,
+        ),
+        metaAttributedAovPurchaseCount90d:
+          toIntegerOrNull(row.meta_attributed_aov_purchase_count_90d) ?? 0,
+        metaAttributedRevenue90d:
+          toNumberOrNull(row.meta_attributed_revenue_90d) ?? 0,
+        matureSpendP50: toNumberOrNull(row.mature_spend_p50),
+        matureSpendP75: toNumberOrNull(row.mature_spend_p75),
+        winnerSpendP25: toNumberOrNull(row.winner_spend_p25),
+        winnerSpendP50: toNumberOrNull(row.winner_spend_p50),
+        winnerPurchaseP50: toNumberOrNull(row.winner_purchase_p50),
+        roasRatioP10: toNumberOrNull(row.roas_ratio_p10),
+        roasRatioP25: toNumberOrNull(row.roas_ratio_p25),
+        roasRatioP50: toNumberOrNull(row.roas_ratio_p50),
+        roasRatioP75: toNumberOrNull(row.roas_ratio_p75),
+        metaAovQuality:
+          toMetaAovQuality(row.meta_aov_quality) ??
+          classifyMetaAovQuality(
+            toIntegerOrNull(row.meta_attributed_aov_purchase_count_90d) ?? 0,
+          ),
       },
       metadata,
       note: "",
@@ -1487,5 +1841,81 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
     );
 
     return toIsoTimestampOrNull(row?.source_max_updated_at);
+  }
+
+  async getBusinessTargetPack(input: {
+    businessId: string;
+  }): Promise<BusinessTargetPack | null> {
+    let row: BusinessTargetPackRow | undefined;
+    try {
+      [row] = await getDb().query<BusinessTargetPackRow>(
+        READ_BUSINESS_TARGET_PACK_QUERY,
+        [input.businessId],
+      );
+    } catch {
+      return null;
+    }
+    if (!row) return null;
+
+    return {
+      targetCpa: toNumberOrNull(row.target_cpa),
+      targetRoas: toNumberOrNull(row.target_roas),
+      breakEvenCpa: toNumberOrNull(row.break_even_cpa),
+      breakEvenRoas: toNumberOrNull(row.break_even_roas),
+      operatorAovAssumption: toNumberOrNull(row.aov_assumption),
+      defaultRiskPosture: toEngineRiskPreset(row.default_risk_posture),
+    };
+  }
+
+  async getDecisionCalibrationProfile(input: {
+    businessId: string;
+    channel: "meta";
+    objectiveFamily: "sales";
+  }): Promise<DecisionCalibrationProfileConfig | null> {
+    let row: DecisionCalibrationProfileRow | undefined;
+    try {
+      [row] = await getDb().query<DecisionCalibrationProfileRow>(
+        READ_DECISION_CALIBRATION_PROFILE_QUERY,
+        [input.businessId, input.channel, input.objectiveFamily],
+      );
+    } catch {
+      return null;
+    }
+    if (!row) return null;
+
+    return {
+      enginePresetLabel: toEngineRiskPreset(row.engine_preset_label),
+      zeroConvBurnerMultiplier: toNumberOrNull(
+        row.zero_conv_burner_multiplier,
+      ),
+      cutCandidateMultiplier: toNumberOrNull(row.cut_candidate_multiplier),
+      sustainedLoserMultiplier: toNumberOrNull(
+        row.sustained_loser_multiplier,
+      ),
+      hardCutMultiplier: toNumberOrNull(row.hard_cut_multiplier),
+      scaleEvidenceMultiplier: toNumberOrNull(row.scale_evidence_multiplier),
+      scalePurchaseMultiplier: toNumberOrNull(row.scale_purchase_multiplier),
+      winnerMemoryMultiplier: toNumberOrNull(row.winner_memory_multiplier),
+      recentSampleMultiplier: toNumberOrNull(row.recent_sample_multiplier),
+      weakFunnelRateMultiplier: toNumberOrNull(
+        row.weak_funnel_rate_multiplier,
+      ),
+      attributionAovAdjustmentMultiplier: toNumberOrNull(
+        row.attribution_aov_adjustment_multiplier,
+      ),
+    };
+  }
+
+  async getMetaAttributedAov(input: {
+    businessId: string;
+    asOf: string;
+    windowDays?: number;
+  }): Promise<MetaAttributedAovResult> {
+    return computeMetaAttributedAov({
+      businessId: input.businessId,
+      asOf: input.asOf,
+      windowDays: input.windowDays,
+      db: getDb(),
+    });
   }
 }

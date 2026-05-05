@@ -1,7 +1,6 @@
 import {
   ENGINE_VERSION,
-  type AccountCalibration,
-  type BusinessConfig,
+  type AccountDecisionProfile,
   type CreativeInput,
   type DataHealth,
   type DecisionBadge,
@@ -12,8 +11,7 @@ import {
 
 export interface GateContext {
   input: CreativeInput;
-  businessConfig: BusinessConfig;
-  calibration: AccountCalibration;
+  profile: AccountDecisionProfile;
   dataHealth?: DataHealth;
   effectiveTargetRoas: number;
   truthSource: TruthSource;
@@ -96,8 +94,7 @@ export function applyPostProcess(
     }
   }
 
-  const ctrThreshold =
-    ctx.calibration.lowCtrP10 ?? ctx.businessConfig.lowCtrThresholdFallback;
+  const ctrThreshold = ctx.profile.accountBaselines.lowCtrP10 ?? 1.0;
   if (
     typeof ctx.input.ctr === "number" &&
     ctrThreshold > 0 &&
@@ -134,8 +131,10 @@ export function applyPostProcess(
 
   if (
     ctx.ratioToTarget != null &&
-    ctx.ratioToTarget < 0.6 &&
-    ctx.input.spend >= 300 &&
+    ctx.ratioToTarget <
+      Math.min(0.6, ctx.profile.thresholds.bottomQuartileRatio ?? 0.6) &&
+    ctx.profile.thresholds.cutCandidateSpend !== null &&
+    ctx.input.spend >= ctx.profile.thresholds.cutCandidateSpend &&
     (label === "test_more" || label === "keep")
   ) {
     badges.push({
@@ -227,6 +226,51 @@ export function applyPostProcess(
   return { badges, confidenceDeltas };
 }
 
+function applySoftOnlyLabel(input: {
+  label: DecisionLabel;
+  reason: string;
+  badges: DecisionBadge[];
+  profile: AccountDecisionProfile;
+}): { label: DecisionLabel; reason: string; badges: DecisionBadge[] } {
+  const reason = input.profile.hardActionEligibility.reason;
+
+  if (input.label === "scale" && !input.profile.hardActionEligibility.scale) {
+    return {
+      label: "keep",
+      reason: `[near scale, soft-only] ${input.reason} (Reason for soft mode: ${reason})`,
+      badges: input.badges,
+    };
+  }
+
+  if (input.label === "cut" && !input.profile.hardActionEligibility.cut) {
+    return {
+      label: "test_more",
+      reason: `[soft-only - cut blocked] ${input.reason} (${reason})`,
+      badges: [
+        ...input.badges,
+        {
+          type: "cut_candidate",
+          label: "Soft-cut candidate",
+          severity: "warning",
+        },
+      ],
+    };
+  }
+
+  if (
+    input.label === "refresh" &&
+    !input.profile.hardActionEligibility.refresh
+  ) {
+    return {
+      label: "keep",
+      reason: `[soft-only - refresh blocked] ${input.reason} (${reason})`,
+      badges: input.badges,
+    };
+  }
+
+  return input;
+}
+
 export function buildDecisionOutput(
   ctx: GateContext,
   output: BuildDecisionOutputInput,
@@ -260,12 +304,58 @@ export function finalizeDecision(
   label: DecisionLabel,
   reason: string,
 ): DecisionOutput {
-  const { badges, confidenceDeltas } = applyPostProcess(ctx, label);
-
-  return buildDecisionOutput(ctx, {
+  const softOnly = applySoftOnlyLabel({
     label,
     reason,
+    badges: ctx.badges,
+    profile: ctx.profile,
+  });
+  const nextCtx = { ...ctx, badges: softOnly.badges };
+  const { badges, confidenceDeltas } = applyPostProcess(
+    nextCtx,
+    softOnly.label,
+  );
+
+  return buildDecisionOutput(nextCtx, {
+    label: softOnly.label,
+    reason: softOnly.reason,
     confidence: clampConfidence(ctx.confidenceBase, confidenceDeltas),
     badges,
   });
+}
+
+export function enforceHardActionEligibility(
+  decision: DecisionOutput,
+  profile: AccountDecisionProfile,
+): DecisionOutput {
+  if (decision.label === "scale" && !profile.hardActionEligibility.scale) {
+    return {
+      ...decision,
+      label: "keep",
+      reason: `[near scale, soft-only] ${decision.reason} (Reason for soft mode: ${profile.hardActionEligibility.reason})`,
+    };
+  }
+  if (decision.label === "cut" && !profile.hardActionEligibility.cut) {
+    return {
+      ...decision,
+      label: "test_more",
+      reason: `[soft-only - cut blocked] ${decision.reason} (${profile.hardActionEligibility.reason})`,
+      badges: [
+        ...decision.badges,
+        {
+          type: "cut_candidate",
+          label: "Soft-cut candidate",
+          severity: "warning",
+        },
+      ],
+    };
+  }
+  if (decision.label === "refresh" && !profile.hardActionEligibility.refresh) {
+    return {
+      ...decision,
+      label: "keep",
+      reason: `[soft-only - refresh blocked] ${decision.reason} (${profile.hardActionEligibility.reason})`,
+    };
+  }
+  return decision;
 }

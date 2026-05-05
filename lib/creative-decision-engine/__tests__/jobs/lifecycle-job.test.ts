@@ -10,11 +10,24 @@ import {
   runLifecycleJob,
 } from "../../jobs/lifecycle-job";
 import { ENGINE_VERSION } from "../../types";
+import {
+  cleanupMixedObjectiveFixture,
+  MIXED_OBJECTIVE_ENGAGEMENT_CREATIVE_IDS,
+  MIXED_OBJECTIVE_SALES_CREATIVE_IDS,
+  setupMixedObjectiveFixture,
+  type MixedObjectiveFixture,
+} from "./mixed-objective-fixture";
 
 const AS_OF = "2026-05-04";
+const MIXED_OBJECTIVE_FIXTURE: MixedObjectiveFixture = {
+  businessId: "00000000-0000-4000-8000-000000000393",
+  userId: "00000000-0000-4000-8000-000000000394",
+  userEmail: "engine-v3-mixed-lifecycle@example.test",
+};
 const TEST_BUSINESS_IDS = [
   "172d0ab8-495b-4679-a4c6-ffa404c389d3",
   "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+  MIXED_OBJECTIVE_FIXTURE.businessId,
 ];
 
 type CountRow = Record<string, unknown> & {
@@ -37,6 +50,11 @@ type OperatorResponseRow = Record<string, unknown> & {
   decision_recommended_at: unknown;
   operator_response_detected_at: unknown;
   operator_response_type: unknown;
+};
+
+type LifecycleObjectiveRow = Record<string, unknown> & {
+  creative_id: unknown;
+  objective: unknown;
 };
 
 function toNumber(value: unknown) {
@@ -104,10 +122,12 @@ async function lifecycleDistribution(businessId: string) {
 describe.skipIf(!process.env.DATABASE_URL)("lifecycle job", () => {
   beforeEach(async () => {
     await cleanupEngineRows();
+    await cleanupMixedObjectiveFixture(MIXED_OBJECTIVE_FIXTURE);
   });
 
   afterEach(async () => {
     await cleanupEngineRows();
+    await cleanupMixedObjectiveFixture(MIXED_OBJECTIVE_FIXTURE);
   });
 
   afterAll(() => {
@@ -181,6 +201,41 @@ describe.skipIf(!process.env.DATABASE_URL)("lifecycle job", () => {
       [businessId, AS_OF, ENGINE_VERSION, JOB_NAME],
     );
     expect(toNumber(jobRunCount?.count)).toBe(2);
+  });
+
+  it("only writes lifecycle rows for supported objectives", async () => {
+    const businessId = MIXED_OBJECTIVE_FIXTURE.businessId;
+    await setupMixedObjectiveFixture(MIXED_OBJECTIVE_FIXTURE, AS_OF);
+
+    const calibration = await runCalibrationJob({ businessId, asOf: AS_OF });
+    expect(calibration.status).toBe("success");
+
+    const result = await runLifecycleJob({ businessId, asOf: AS_OF });
+
+    expect(result.status).toBe("success");
+    expect(result.rowsWritten).toBe(MIXED_OBJECTIVE_SALES_CREATIVE_IDS.length);
+    expect(await countLifecycleRows(businessId)).toBe(
+      MIXED_OBJECTIVE_SALES_CREATIVE_IDS.length,
+    );
+
+    const rows = await getDb().query<LifecycleObjectiveRow>(
+      `
+      SELECT creative_id, objective
+      FROM engine_v3_creative_lifecycle_daily
+      WHERE business_ref_id = $1::uuid
+        AND as_of_date = $2::date
+        AND engine_version = $3
+      ORDER BY creative_id
+      `,
+      [businessId, AS_OF, ENGINE_VERSION],
+    );
+    expect(rows.map((row) => String(row.creative_id))).toEqual([
+      ...MIXED_OBJECTIVE_SALES_CREATIVE_IDS,
+    ]);
+    expect(rows.every((row) => row.objective === "OUTCOME_SALES")).toBe(true);
+    for (const creativeId of MIXED_OBJECTIVE_ENGAGEMENT_CREATIVE_IDS) {
+      expect(rows.some((row) => row.creative_id === creativeId)).toBe(false);
+    }
   });
 
   it("preserves operator response columns across lifecycle reruns", async () => {

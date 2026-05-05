@@ -1,4 +1,5 @@
 import { getDb, runDbTransaction } from "@/lib/db";
+import { SUPPORTED_OBJECTIVES } from "../config";
 import {
   computeFatigue,
   type FatigueStatus,
@@ -259,6 +260,7 @@ WITH selected_creatives AS (
   FROM meta_creative_daily d
   WHERE d.business_ref_id = $1::uuid
     AND d.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
+    AND d.objective = ANY($3::text[])
   GROUP BY d.creative_id
   HAVING SUM(d.spend) > 0
 ),
@@ -287,6 +289,7 @@ daily AS (
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
   WHERE d.business_ref_id = $1::uuid
     AND d.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
+    AND d.objective = ANY($3::text[])
   GROUP BY d.business_ref_id, d.creative_id, d.date
 ),
 daily_with_roas AS (
@@ -303,6 +306,7 @@ source_bounds AS (
   FROM meta_creative_daily d
   WHERE d.business_ref_id = $1::uuid
     AND d.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
+    AND d.objective = ANY($3::text[])
 ),
 all_history_bounds AS (
   SELECT
@@ -312,6 +316,7 @@ all_history_bounds AS (
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
   WHERE d.business_ref_id = $1::uuid
     AND d.date <= $2::date
+    AND d.objective = ANY($3::text[])
   GROUP BY d.creative_id
 ),
 windows AS (
@@ -474,6 +479,7 @@ latest_meta AS (
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
   WHERE d.business_ref_id = $1::uuid
     AND d.date <= $2::date
+    AND d.objective = ANY($3::text[])
   ORDER BY d.creative_id, d.date DESC, d.updated_at DESC
 ),
 target_pack AS (
@@ -504,6 +510,7 @@ historical_source AS (
   ) AS windows(window_key, in_window)
   WHERE d.business_ref_id = $1::uuid
     AND d.date <= $2::date
+    AND d.objective = ANY($3::text[])
     AND windows.in_window
 ),
 historical_aggregates AS (
@@ -1216,7 +1223,7 @@ async function computeLifecycleRows(input: {
   });
   const rows = await getDb().query<LifecycleComputationRow>(
     COMPUTE_LIFECYCLE_ROWS_QUERY,
-    [input.businessId, input.asOf],
+    [input.businessId, input.asOf, Array.from(SUPPORTED_OBJECTIVES)],
   );
   const computedAt = new Date().toISOString();
   const firstRow = rows[0];

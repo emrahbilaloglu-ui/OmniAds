@@ -1,4 +1,5 @@
 import { getDb, runDbTransaction } from "@/lib/db";
+import { SUPPORTED_OBJECTIVES } from "../config";
 import { STALE_TIER_WARNING_MAX_HOURS } from "../data-health";
 import { ENGINE_VERSION, type AccountCalibration } from "../types";
 
@@ -194,6 +195,7 @@ per_creative_raw AS (
   FROM meta_creative_daily
   WHERE business_ref_id = $2::uuid
     AND date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
+    AND objective = ANY($5::text[])
   GROUP BY creative_id
 ),
 per_creative AS (
@@ -356,6 +358,7 @@ source_bounds AS (
   FROM meta_creative_daily
   WHERE business_ref_id = $2::uuid
     AND date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
+    AND objective = ANY($5::text[])
 )
 SELECT
   ($1::date - INTERVAL '89 days')::date AS sample_window_start,
@@ -791,6 +794,7 @@ async function computeCalibration(input: {
   creativeFormat: CalibrationCreativeFormat;
   computedAt: string;
 }): Promise<ComputedCalibration> {
+  const supportedObjectivesArray = Array.from(SUPPORTED_OBJECTIVES);
   const [row] = await getDb().query<CalibrationComputationRow>(
     COMPUTE_CALIBRATION_QUERY,
     [
@@ -798,6 +802,7 @@ async function computeCalibration(input: {
       input.businessId,
       SAMPLE_WINDOW_DAYS,
       input.creativeFormat,
+      supportedObjectivesArray,
     ],
   );
   const matureCreativeCount =

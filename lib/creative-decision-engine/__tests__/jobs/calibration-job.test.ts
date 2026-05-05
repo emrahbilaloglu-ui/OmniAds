@@ -6,12 +6,25 @@ import {
   JOB_NAME,
   runCalibrationJob,
 } from "../../jobs/calibration-job";
+import {
+  cleanupMixedObjectiveFixture,
+  MIXED_OBJECTIVE_ENGAGEMENT_CREATIVE_IDS,
+  MIXED_OBJECTIVE_SALES_CREATIVE_IDS,
+  setupMixedObjectiveFixture,
+  type MixedObjectiveFixture,
+} from "./mixed-objective-fixture";
 
 const AS_OF = "2026-05-04";
+const MIXED_OBJECTIVE_FIXTURE: MixedObjectiveFixture = {
+  businessId: "00000000-0000-4000-8000-000000000391",
+  userId: "00000000-0000-4000-8000-000000000392",
+  userEmail: "engine-v3-mixed-calibration@example.test",
+};
 const TEST_BUSINESS_IDS = [
   "00000000-0000-4000-8000-000000000321",
   "00000000-0000-4000-8000-000000000322",
   "00000000-0000-4000-8000-000000000323",
+  MIXED_OBJECTIVE_FIXTURE.businessId,
 ];
 
 type CountRow = Record<string, unknown> & {
@@ -25,8 +38,10 @@ type JobRunRow = Record<string, unknown> & {
 
 type CalibrationRow = Record<string, unknown> & {
   creative_format: unknown;
+  eligible_creative_count: unknown;
   mature_creative_count: unknown;
   quality_status: unknown;
+  ctr_p50: unknown;
   funnel_sample_count: unknown;
   funnel_quality_status: unknown;
 };
@@ -59,10 +74,12 @@ async function cleanupEngineRows() {
 describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
   beforeEach(async () => {
     await cleanupEngineRows();
+    await cleanupMixedObjectiveFixture(MIXED_OBJECTIVE_FIXTURE);
   });
 
   afterEach(async () => {
     await cleanupEngineRows();
+    await cleanupMixedObjectiveFixture(MIXED_OBJECTIVE_FIXTURE);
   });
 
   afterAll(() => {
@@ -148,6 +165,56 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
       [businessId, AS_OF, ENGINE_VERSION, JOB_NAME],
     );
     expect(toNumber(jobRunCount?.count)).toBe(2);
+  });
+
+  it("excludes unsupported objectives from calibration baselines", async () => {
+    const businessId = MIXED_OBJECTIVE_FIXTURE.businessId;
+    await setupMixedObjectiveFixture(MIXED_OBJECTIVE_FIXTURE, AS_OF);
+
+    const result = await runCalibrationJob({ businessId, asOf: AS_OF });
+
+    expect(result.status).toBe("success");
+    const [engagementSourceCount] = await getDb().query<CountRow>(
+      `
+      SELECT COUNT(DISTINCT creative_id) AS count
+      FROM meta_creative_daily
+      WHERE business_ref_id = $1::uuid
+        AND date = $2::date
+        AND objective = 'OUTCOME_ENGAGEMENT'
+      `,
+      [businessId, AS_OF],
+    );
+    const [overall] = await getDb().query<CalibrationRow>(
+      `
+      SELECT
+        eligible_creative_count,
+        mature_creative_count,
+        ctr_p50,
+        funnel_sample_count,
+        funnel_quality_status
+      FROM engine_v3_account_calibration_daily
+      WHERE business_ref_id = $1::uuid
+        AND as_of_date = $2::date
+        AND engine_version = $3
+        AND creative_format = 'overall'
+      `,
+      [businessId, AS_OF, ENGINE_VERSION],
+    );
+
+    expect(toNumber(engagementSourceCount?.count)).toBe(
+      MIXED_OBJECTIVE_ENGAGEMENT_CREATIVE_IDS.length,
+    );
+    expect(toNumber(overall?.eligible_creative_count)).toBe(
+      MIXED_OBJECTIVE_SALES_CREATIVE_IDS.length,
+    );
+    expect(toNumber(overall?.mature_creative_count)).toBe(
+      MIXED_OBJECTIVE_SALES_CREATIVE_IDS.length,
+    );
+    expect(toNumber(overall?.funnel_sample_count)).toBe(
+      MIXED_OBJECTIVE_SALES_CREATIVE_IDS.length,
+    );
+    expect(toNumber(overall?.ctr_p50)).toBeCloseTo(3, 6);
+    expect(overall?.funnel_quality_status).toBe("insufficient");
   });
 
   it("records skipped when the advisory lock is already held", async () => {

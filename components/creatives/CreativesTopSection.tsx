@@ -5,6 +5,7 @@ import { Trophy, ChevronDown, ChevronRight, X, Search, Plus, SlidersHorizontal, 
 import { createPortal } from "react-dom";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
+import { CreativeDecisionLabelBadge } from "@/components/creatives/CreativeDecisionLabelBadge";
 import {
   calculateCreativeAverageOrderValue,
   calculateCreativeClickToAddToCartRate,
@@ -49,6 +50,11 @@ import {
 import { DateRangePicker } from "@/components/date-range/DateRangePicker";
 import { cn } from "@/lib/utils";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
+import type {
+  DecisionLabel,
+  DecisionOutput,
+  EngineV3Flags,
+} from "@/lib/creative-decision-engine";
 import type { ReactNode } from "react";
 
 export type CreativeGroupBy = "adName" | "creative" | "copy" | "headline" | "landingPage" | "campaign" | "adSet";
@@ -162,6 +168,8 @@ interface CreativesTopSectionProps {
     missing: number;
     minimumReady: number;
   };
+  v3Decisions?: DecisionOutput[] | null;
+  v3Flags?: EngineV3Flags | null;
   actionsPrefix?: ReactNode;
   belowToolbar?: ReactNode;
 }
@@ -425,6 +433,8 @@ export function CreativesTopSection({
   csvError = null,
   previewStripState = "ready",
   previewStripSummary,
+  v3Decisions = null,
+  v3Flags = null,
   actionsPrefix,
   belowToolbar,
 }: CreativesTopSectionProps) {
@@ -535,9 +545,11 @@ export function CreativesTopSection({
           defaultCurrency={defaultCurrency}
           onOpenRow={onOpenRow}
 	          previewMode={previewMode}
-	          getPreviewCopyText={getPreviewCopyText}
-	          previewStripState={previewStripState}
-	          previewStripSummary={previewStripSummary}
+          getPreviewCopyText={getPreviewCopyText}
+          previewStripState={previewStripState}
+          previewStripSummary={previewStripSummary}
+          v3Decisions={v3Decisions}
+          v3Flags={v3Flags}
 	        />
       </div>
     </section>
@@ -1102,6 +1114,8 @@ function PreviewStrip({
   getPreviewCopyText,
   previewStripState = "ready",
   previewStripSummary,
+  v3Decisions = null,
+  v3Flags = null,
 }: {
   businessId?: string;
   rows: MetaCreativeRow[];
@@ -1120,6 +1134,8 @@ function PreviewStrip({
     missing: number;
     minimumReady: number;
   };
+  v3Decisions?: DecisionOutput[] | null;
+  v3Flags?: EngineV3Flags | null;
 }) {
   const context = useMemo<CreativeMetricContext>(
     () => ({
@@ -1147,6 +1163,13 @@ function PreviewStrip({
   const [unlockedPreviewCount, setUnlockedPreviewCount] = useState(
     previewMode === "media" && rows.length > 0 ? 1 : rows.length
   );
+  const v3SurfaceVisible = Boolean(v3Flags?.enabled && v3Flags.surfaceVisible);
+  const decisionLabelByCreativeId = useMemo(() => {
+    if (!v3Decisions) return new Map<string, DecisionLabel>();
+    return new Map(
+      v3Decisions.map((decision) => [decision.creativeId, decision.label]),
+    );
+  }, [v3Decisions]);
   const previewGridRef = useRef<HTMLDivElement | null>(null);
   const previewCardMinWidth = previewMode === "copy" ? 280 : 190;
   const previewGridGap = 12;
@@ -1264,6 +1287,10 @@ function PreviewStrip({
           const assetState = getCreativeStaticPreviewState(row, "grid");
           const resolvedRowCurrency = resolveCreativeCurrency(row.currency, defaultCurrency);
           const shouldUnlockPreview = previewMode !== "media" || index < unlockedPreviewCount;
+          // Row ids can be grouped UI ids; v3 decisions are keyed by Meta creative id.
+          const decisionLabel = v3SurfaceVisible
+            ? decisionLabelByCreativeId.get(row.creativeId) ?? null
+            : null;
           const creativeTypeLabel = getCreativeFormatSummaryLabel({
             creative_delivery_type: row.creativeDeliveryType,
             creative_visual_format: row.creativeVisualFormat,
@@ -1306,6 +1333,12 @@ function PreviewStrip({
                     <span className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-black/65 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
                       {creativeTypeLabel}
                     </span>
+                  ) : null}
+                  {decisionLabel ? (
+                    <CreativeDecisionLabelBadge
+                      label={decisionLabel}
+                      className="absolute right-1.5 top-1.5 z-10"
+                    />
                   ) : null}
 	                </div>
 	              )}

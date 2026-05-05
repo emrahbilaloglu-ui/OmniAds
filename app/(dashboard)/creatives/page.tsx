@@ -828,6 +828,8 @@ export default function CreativesPage() {
 	              csvError={csvError}
 	              previewStripState={previewStripState}
 	              previewStripSummary={previewStripSummary}
+	              v3Decisions={decisionEngineV3Query.data?.decisions ?? null}
+	              v3Flags={decisionEngineV3Query.data?.flags ?? null}
 	            />
 
             {(creativesMetadataQuery.isLoading || isWaitingForMetaReference) && <CreativesTableShell />}

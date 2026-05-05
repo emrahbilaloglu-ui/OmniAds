@@ -142,7 +142,7 @@ async function prepareAction(input: {
 
   const pending = await hasRecentPendingMetaAdsAction({
     businessId: access.membership.businessId,
-    adId: input.adId,
+    adId: targetResult.target.adId,
     sinceSeconds: 30,
   });
   if (pending) {
@@ -201,22 +201,26 @@ export async function handleMetaAdStatusAction(
   action: Extract<MetaAdsActionKind, "pause" | "resume">,
 ) {
   const { adId: rawAdId } = await context.params;
-  const adId = rawAdId?.trim() ?? "";
+  const inputAdId = rawAdId?.trim() ?? "";
   const body = await readActionBody(request);
-  const prepared = await prepareAction({ request, adId, body });
+  const prepared = await prepareAction({ request, adId: inputAdId, body });
   if (!prepared.ok) return prepared.response;
 
+  // Use resolved real Meta ad_id (warehouse may have synthesized an id like "creative_..."
+  // that does not match the actual Meta entity).
+  const resolvedAdId = prepared.target.adId;
   const status = action === "pause" ? "PAUSED" : "ACTIVE";
   const log = await createMetaAdsActionLog({
     businessId: prepared.businessId,
-    adId,
+    adId: resolvedAdId,
     creativeId: prepared.target.creativeId,
     action,
     requestedBy: prepared.userId,
     payloadRequest: {
       method: "POST",
-      endpoint: `/${adId}`,
+      endpoint: `/${resolvedAdId}`,
       body: { status },
+      input_ad_id: inputAdId,
     },
   });
 
@@ -224,8 +228,8 @@ export async function handleMetaAdStatusAction(
   try {
     const result =
       action === "pause"
-        ? await pauseAd(prepared.ctx, adId)
-        : await resumeAd(prepared.ctx, adId);
+        ? await pauseAd(prepared.ctx, resolvedAdId)
+        : await resumeAd(prepared.ctx, resolvedAdId);
 
     if (!result.ok) {
       await completeFailure({ logId: log.id, startedAt, result });
@@ -251,7 +255,7 @@ export async function handleMetaAdStatusAction(
     return NextResponse.json({
       ok: true,
       action,
-      adId,
+      adId: resolvedAdId,
       status: result.verifiedStatus,
     });
   } catch (error) {
@@ -272,7 +276,7 @@ export async function handleMetaAdDuplicateAction(
   context: RouteParams,
 ) {
   const { adId: rawAdId } = await context.params;
-  const adId = rawAdId?.trim() ?? "";
+  const inputAdId = rawAdId?.trim() ?? "";
   const body = await readActionBody(request);
   const targetAdsetId = body?.targetAdsetId?.trim() ?? "";
   if (!targetAdsetId) {
@@ -293,14 +297,15 @@ export async function handleMetaAdDuplicateAction(
     );
   }
 
-  const prepared = await prepareAction({ request, adId, body });
+  const prepared = await prepareAction({ request, adId: inputAdId, body });
   if (!prepared.ok) return prepared.response;
 
+  const resolvedAdId = prepared.target.adId;
   const activateAfterCreate = body?.activateAfterCreate === true;
   const statusOption = activateAfterCreate ? "ACTIVE" : "PAUSED";
   const existingDuplicate = await findRecentDuplicateActionResult({
     businessId: prepared.businessId,
-    adId,
+    adId: resolvedAdId,
     targetAdsetId,
     statusOption,
     sinceMinutes: 10,
@@ -320,7 +325,7 @@ export async function handleMetaAdDuplicateAction(
       : undefined;
   const payloadRequest = {
     method: "POST",
-    endpoint: `/${adId}/copies`,
+    endpoint: `/${resolvedAdId}/copies`,
     body: {
       adset_id: targetAdsetId,
       target_adset_id: targetAdsetId,
@@ -328,10 +333,11 @@ export async function handleMetaAdDuplicateAction(
       name: trimmedName ?? null,
       daily_budget_minor: body?.dailyBudgetMinor ?? null,
     },
+    input_ad_id: inputAdId,
   };
   const log = await createMetaAdsActionLog({
     businessId: prepared.businessId,
-    adId,
+    adId: resolvedAdId,
     creativeId: prepared.target.creativeId,
     action: "duplicate",
     requestedBy: prepared.userId,
@@ -341,7 +347,7 @@ export async function handleMetaAdDuplicateAction(
   const startedAt = Date.now();
   try {
     const result = await duplicateAd(prepared.ctx, {
-      adId,
+      adId: resolvedAdId,
       targetAdsetId,
       dailyBudgetMinor: body?.dailyBudgetMinor,
       name: trimmedName,
@@ -375,7 +381,7 @@ export async function handleMetaAdDuplicateAction(
     return NextResponse.json({
       ok: true,
       action: "duplicate",
-      adId,
+      adId: resolvedAdId,
       newAdId: result.newAdId,
       status: result.verifiedStatus,
       adsManagerUrl: `https://adsmanager.facebook.com/adsmanager/manage/ads?act=${encodeURIComponent(
@@ -400,9 +406,9 @@ export async function handleMetaAdActionsHistory(
   context: RouteParams,
 ) {
   const { adId: rawAdId } = await context.params;
-  const adId = rawAdId?.trim() ?? "";
+  const inputAdId = rawAdId?.trim() ?? "";
   const businessId = request.nextUrl.searchParams.get("businessId")?.trim() ?? "";
-  if (!adId) return jsonError(400, "missing_ad_id", "adId is required.");
+  if (!inputAdId) return jsonError(400, "missing_ad_id", "adId is required.");
   if (!businessId) {
     return jsonError(400, "missing_business_id", "businessId is required.");
   }
@@ -414,7 +420,7 @@ export async function handleMetaAdActionsHistory(
   if ("error" in access) return access.error;
   const targetResult = await resolveMetaAdActionTarget({
     businessId: access.membership.businessId,
-    adId,
+    adId: inputAdId,
   });
   if (!targetResult.ok) {
     return targetResult.reason === "business_not_found"
@@ -423,7 +429,7 @@ export async function handleMetaAdActionsHistory(
   }
   const rows = await listRecentMetaAdsActionLogs({
     businessId: access.membership.businessId,
-    adId,
+    adId: targetResult.target.adId,
     limit: 10,
   });
   return NextResponse.json({ ok: true, rows });

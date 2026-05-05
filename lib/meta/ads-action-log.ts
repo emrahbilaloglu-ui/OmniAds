@@ -98,51 +98,94 @@ export async function resolveMetaAdActionTarget(input: {
   `) as Array<{ id: string }>;
   if (!businessRows[0]) return { ok: false, reason: "business_not_found" };
 
+  // The client may send either a real Meta ad_id or a value that the warehouse uses as
+  // a synthesized identifier (e.g. meta_creative_daily.ad_id "creative_..." when the
+  // upstream sync only had creative-level facts). Resolve via several paths:
+  //   1) direct ad_id match in dimensions / daily (real Meta ad_id)
+  //   2) treat the input as a creative_id and resolve real ad_id from dimensions
+  //   3) fall back to meta_creative_daily lookup, then creative_id → dimensions
   const adRows = (await sql`
     SELECT
-      COALESCE(dim.provider_account_id, daily.provider_account_id) AS provider_account_id,
-      COALESCE(dim.creative_id, creative_daily.creative_id) AS creative_id
+      COALESCE(
+        dim_direct.provider_account_id,
+        daily_direct.provider_account_id,
+        dim_by_creative.provider_account_id,
+        dim_by_warehouse_creative.provider_account_id
+      ) AS provider_account_id,
+      COALESCE(
+        dim_direct.ad_id,
+        daily_direct.ad_id,
+        dim_by_creative.ad_id,
+        dim_by_warehouse_creative.ad_id
+      ) AS resolved_ad_id,
+      COALESCE(
+        dim_direct.creative_id,
+        daily_direct.creative_id,
+        dim_by_creative.creative_id,
+        dim_by_warehouse_creative.creative_id,
+        warehouse_creative.creative_id
+      ) AS creative_id
     FROM (
-      SELECT ${input.businessId}::text AS business_id, ${input.adId}::text AS ad_id
+      SELECT ${input.businessId}::text AS business_id, ${input.adId}::text AS input_id
     ) target
     LEFT JOIN LATERAL (
-      SELECT provider_account_id, creative_id
+      SELECT provider_account_id, ad_id, creative_id
       FROM meta_ad_dimensions
-      WHERE business_id = target.business_id
-        AND ad_id = target.ad_id
+      WHERE business_id = target.business_id AND ad_id = target.input_id
       ORDER BY updated_at DESC
       LIMIT 1
-    ) dim ON TRUE
+    ) dim_direct ON TRUE
     LEFT JOIN LATERAL (
-      SELECT provider_account_id
+      SELECT provider_account_id, ad_id, creative_id
       FROM meta_ad_daily
-      WHERE business_id = target.business_id
-        AND ad_id = target.ad_id
+      WHERE business_id = target.business_id AND ad_id = target.input_id
       ORDER BY date DESC, updated_at DESC
       LIMIT 1
-    ) daily ON TRUE
+    ) daily_direct ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT provider_account_id, ad_id, creative_id
+      FROM meta_ad_dimensions
+      WHERE business_id = target.business_id AND creative_id = target.input_id
+      ORDER BY updated_at DESC
+      LIMIT 1
+    ) dim_by_creative ON TRUE
     LEFT JOIN LATERAL (
       SELECT creative_id
       FROM meta_creative_daily
-      WHERE business_id = target.business_id
-        AND ad_id = target.ad_id
+      WHERE business_id = target.business_id AND ad_id = target.input_id
       ORDER BY date DESC, updated_at DESC
       LIMIT 1
-    ) creative_daily ON TRUE
-    WHERE COALESCE(dim.provider_account_id, daily.provider_account_id) IS NOT NULL
+    ) warehouse_creative ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT provider_account_id, ad_id, creative_id
+      FROM meta_ad_dimensions
+      WHERE business_id = target.business_id
+        AND creative_id = warehouse_creative.creative_id
+      ORDER BY updated_at DESC
+      LIMIT 1
+    ) dim_by_warehouse_creative ON TRUE
+    WHERE COALESCE(
+      dim_direct.provider_account_id,
+      daily_direct.provider_account_id,
+      dim_by_creative.provider_account_id,
+      dim_by_warehouse_creative.provider_account_id
+    ) IS NOT NULL
     LIMIT 1
   `) as Array<{
     provider_account_id: string | null;
+    resolved_ad_id: string | null;
     creative_id: string | null;
   }>;
   const adRow = adRows[0];
-  if (!adRow?.provider_account_id) return { ok: false, reason: "ad_not_found" };
+  if (!adRow?.provider_account_id || !adRow?.resolved_ad_id) {
+    return { ok: false, reason: "ad_not_found" };
+  }
 
   return {
     ok: true,
     target: {
       businessId: input.businessId,
-      adId: input.adId,
+      adId: adRow.resolved_ad_id,
       creativeId: adRow.creative_id ?? null,
       providerAccountId: adRow.provider_account_id,
     },

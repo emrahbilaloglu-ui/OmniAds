@@ -11,6 +11,7 @@ import {
   makeAccountFunnelCalibration,
   makeDataHealth,
 } from "./helpers";
+import type { EngineV3Flags } from "../feature-flags";
 
 class ProfileDataSource implements CreativeDecisionDataSource {
   constructor(
@@ -59,6 +60,26 @@ class ProfileDataSource implements CreativeDecisionDataSource {
   }
 }
 
+function makeFlags(overrides: Partial<EngineV3Flags> = {}): EngineV3Flags {
+  return {
+    businessId: "biz-1",
+    enabled: true,
+    surfaceVisible: false,
+    shadowOnly: false,
+    source: {
+      enabled: "env",
+      surfaceVisible: "env",
+      shadowOnly: "env",
+    },
+    envDefaults: {
+      enabled: true,
+      surfaceVisible: false,
+      shadowOnly: true,
+    },
+    ...overrides,
+  };
+}
+
 describe("resolveAccountDecisionProfile", () => {
   it("builds a production-like Meta-derived profile with populated thresholds", async () => {
     const profile = await resolveAccountDecisionProfile({
@@ -71,6 +92,9 @@ describe("resolveAccountDecisionProfile", () => {
         breakEvenRoas: 1.7,
         operatorAovAssumption: null,
         defaultRiskPosture: "balanced",
+      }),
+      flags: makeFlags({
+        businessId: "00000000-0000-4000-8000-000000000501",
       }),
     });
 
@@ -110,6 +134,9 @@ describe("resolveAccountDecisionProfile", () => {
       businessId: "00000000-0000-4000-8000-000000000502",
       asOf: "2026-05-04",
       dataSource: new ProfileDataSource(null, coldCalibration),
+      flags: makeFlags({
+        businessId: "00000000-0000-4000-8000-000000000502",
+      }),
     });
 
     expect(profile.spendUnitSource).toBe("insufficient");
@@ -135,9 +162,46 @@ describe("resolveAccountDecisionProfile", () => {
         operatorAovAssumption: null,
         defaultRiskPosture: "balanced",
       }),
+      flags: makeFlags({
+        businessId: "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      }),
     });
 
     expect(profile.spendUnitSource).toBe("meta_derived_aov");
     expect(profile.spendUnit).toBeCloseTo(22.73, 2);
+  });
+
+  it("forces hard actions off in shadow mode without changing the profile inputs", async () => {
+    const profile = await resolveAccountDecisionProfile({
+      businessId: "00000000-0000-4000-8000-000000000503",
+      asOf: "2026-05-04",
+      dataSource: new ProfileDataSource({
+        targetCpa: null,
+        targetRoas: 2.2,
+        breakEvenCpa: null,
+        breakEvenRoas: 1.7,
+        operatorAovAssumption: null,
+        defaultRiskPosture: "balanced",
+      }),
+      flags: makeFlags({
+        businessId: "00000000-0000-4000-8000-000000000503",
+        shadowOnly: true,
+      }),
+    });
+
+    expect(profile.hardActionEligibility).toEqual({
+      scale: false,
+      cut: false,
+      refresh: false,
+      reason: "shadow_only",
+    });
+    expect(profile.preset).toBe("balanced");
+    expect(profile.multipliers).toMatchObject({
+      zeroConvBurner: 3,
+      hardCut: 5,
+      scaleEvidence: 3,
+    });
+    expect(profile.spendUnitSource).toBe("meta_derived_aov");
+    expect(profile.spendUnit).toBeCloseTo(50 / 2.2, 5);
   });
 });

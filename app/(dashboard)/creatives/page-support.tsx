@@ -1,6 +1,6 @@
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
-import type { DecisionResponse } from "@/lib/creative-decision-engine";
+import type { DecisionEngineV3Response } from "@/lib/creative-decision-engine";
 import {
   calculateCreativeAverageOrderValue,
   calculateCreativeClickToAddToCartRate,
@@ -472,8 +472,6 @@ export function CreativesTableShell() {
   );
 }
 
-export type DecisionEngineV3Response = DecisionResponse;
-
 export async function fetchCreativeDecisionEngineV3(params: {
   businessId: string;
   asOf?: string;
@@ -494,3 +492,4 @@ export async function fetchCreativeDecisionEngineV3(params: {
 
   return (await response.json()) as DecisionEngineV3Response;
 }
+export type { DecisionEngineV3Response };

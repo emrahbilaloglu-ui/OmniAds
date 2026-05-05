@@ -5,6 +5,8 @@
  * built in parallel.
  */
 
+import type { EngineV3Flags } from "./feature-flags";
+
 export const ENGINE_VERSION = "v3-2026-05-04-phase-3.10";
 
 /** Final decision label. */
@@ -524,10 +526,28 @@ export interface DataHealth {
 
 /** Full API response from the engine endpoint. */
 export interface DecisionResponse {
+  status?: "ok";
   businessId: string;
   asOf: string;
   engineVersion: string;
   dataSource: "warehouse" | "mock";
   dataHealth: DataHealth;
   decisions: DecisionOutput[];
+  flags: EngineV3Flags;
 }
+
+export interface DecisionDisabledResponse {
+  status: "disabled";
+  reason: "engine_v3_disabled_for_business";
+  flags: EngineV3Flags;
+  decisions?: undefined;
+  dataHealth?: undefined;
+  dataSource?: undefined;
+  engineVersion?: undefined;
+  businessId?: undefined;
+  asOf?: undefined;
+}
+
+export type DecisionEngineV3Response =
+  | DecisionResponse
+  | DecisionDisabledResponse;

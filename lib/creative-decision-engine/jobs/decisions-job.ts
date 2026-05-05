@@ -2,6 +2,7 @@ import { getDb, runDbTransaction } from "@/lib/db";
 import { resolveAccountDecisionProfile } from "../account-decision-profile";
 import { WarehouseDataSource } from "../data-source";
 import { decideCreative } from "../engine";
+import { resolveEngineV3Flags } from "../feature-flags";
 import {
   ENGINE_VERSION,
   type CreativeInput,
@@ -26,6 +27,7 @@ export interface DecisionsJobResult {
   snapshotsWritten: number;
   changeEventsWritten: number;
   durationMs: number;
+  reason?: "engine_v3_disabled";
   errorMessage?: string;
 }
 
@@ -269,6 +271,18 @@ export async function runDecisionsJob(
   input: DecisionsJobInput,
 ): Promise<DecisionsJobResult> {
   const startedAt = Date.now();
+  const flags = await resolveEngineV3Flags(input.businessId);
+  if (!flags.enabled) {
+    return {
+      jobRunId: "",
+      status: "skipped",
+      snapshotsWritten: 0,
+      changeEventsWritten: 0,
+      durationMs: Date.now() - startedAt,
+      reason: "engine_v3_disabled",
+    };
+  }
+
   const lockKey = decisionsJobAdvisoryLockKey(input);
 
   return runDbTransaction(async () => {
@@ -314,6 +328,7 @@ export async function runDecisionsJob(
         businessId: input.businessId,
         asOf: input.asOf,
         dataSource,
+        flags,
       });
       const dataHealth = await dataSource.getDataHealth({
         businessId: input.businessId,

@@ -319,6 +319,22 @@ describe("fetchCreativeDecisionEngineV3", () => {
         worstTier: "none",
         degraded: false,
       },
+      flags: {
+        businessId: "biz-1",
+        enabled: true,
+        surfaceVisible: true,
+        shadowOnly: true,
+        source: {
+          enabled: "env",
+          surfaceVisible: "business_override",
+          shadowOnly: "env",
+        },
+        envDefaults: {
+          enabled: true,
+          surfaceVisible: false,
+          shadowOnly: true,
+        },
+      },
       decisions: [
         {
           creativeId: "creative-1",

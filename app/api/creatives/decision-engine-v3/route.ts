@@ -4,6 +4,7 @@ import {
   decideCreative,
   resolveAccountDecisionProfile,
 } from "@/lib/creative-decision-engine";
+import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
 import { resolveDataSource } from "./data-source";
 
 export const dynamic = "force-dynamic";
@@ -26,12 +27,24 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   });
   if ("error" in access) return access.error;
   const resolvedBusinessId = access.membership.businessId;
+  const flags = await resolveEngineV3Flags(resolvedBusinessId);
+  if (!flags.enabled) {
+    return NextResponse.json(
+      {
+        status: "disabled",
+        reason: "engine_v3_disabled_for_business",
+        flags: { ...flags },
+      },
+      { status: 200 },
+    );
+  }
 
   const { instance: dataSource, label: dataSourceLabel } = resolveDataSource();
   const profile = await resolveAccountDecisionProfile({
     businessId: resolvedBusinessId,
     asOf,
     dataSource,
+    flags,
   });
   const dataHealth = await dataSource.getDataHealth({
     businessId: resolvedBusinessId,
@@ -55,5 +68,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     dataSource: dataSourceLabel,
     dataHealth,
     decisions,
+    flags,
   });
 }

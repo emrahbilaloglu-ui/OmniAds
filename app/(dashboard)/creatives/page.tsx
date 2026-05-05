@@ -885,6 +885,7 @@ export default function CreativesPage() {
                     engineVersion={decisionEngineV3Query.data?.engineVersion ?? null}
                     dataSource={decisionEngineV3Query.data?.dataSource ?? null}
                     dataHealth={decisionEngineV3Query.data?.dataHealth ?? null}
+                    flags={decisionEngineV3Query.data?.flags ?? null}
                   />
 	                  <CreativesTableSection
 	                    rows={deferredFilteredRows}

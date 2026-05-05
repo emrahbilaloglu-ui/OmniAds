@@ -5,6 +5,7 @@ import {
   type OperatorResponseResult,
   type OperatorResponseType,
 } from "../operator-response-detection";
+import { resolveEngineV3Flags } from "../feature-flags";
 import { ENGINE_VERSION, type DecisionLabel } from "../types";
 import { hashAdvisoryLock } from "./calibration-job";
 import { JOB_NAME as DECISIONS_JOB_NAME } from "./decisions-job";
@@ -41,6 +42,7 @@ export interface OperatorResponseJobResult {
   operatorEventsWritten: number;
   lifecyclePromotions: number;
   durationMs: number;
+  reason?: "engine_v3_disabled";
   errorMessage?: string;
 }
 
@@ -327,6 +329,21 @@ export async function runOperatorResponseJob(
   input: OperatorResponseJobInput,
 ): Promise<OperatorResponseJobResult> {
   const startedAt = Date.now();
+  const flags = await resolveEngineV3Flags(input.businessId);
+  if (!flags.enabled) {
+    return {
+      jobRunId: "",
+      dependencyRunId: null,
+      status: "skipped",
+      creativesEvaluated: 0,
+      lifecycleRowsUpdated: 0,
+      operatorEventsWritten: 0,
+      lifecyclePromotions: 0,
+      durationMs: Date.now() - startedAt,
+      reason: "engine_v3_disabled",
+    };
+  }
+
   const lockKey = operatorResponseJobAdvisoryLockKey(input);
 
   return runDbTransaction(async () => {

@@ -8,6 +8,7 @@ import {
 import { computeFunnelDiagnosis } from "../funnel";
 import { resolveAccountDecisionProfile } from "../account-decision-profile";
 import { WarehouseDataSource } from "../data-source";
+import { resolveEngineV3Flags, type EngineV3Flags } from "../feature-flags";
 import {
   ENGINE_VERSION,
   type AccountDecisionProfile,
@@ -70,6 +71,7 @@ export interface LifecycleJobResult {
   status: JobStatus;
   rowsWritten: number;
   durationMs: number;
+  reason?: "engine_v3_disabled";
   errorMessage?: string;
 }
 
@@ -1034,6 +1036,18 @@ export async function runLifecycleJob(
   input: LifecycleJobInput,
 ): Promise<LifecycleJobResult> {
   const startedAt = Date.now();
+  const flags = await resolveEngineV3Flags(input.businessId);
+  if (!flags.enabled) {
+    return {
+      jobRunId: "",
+      dependencyRunId: null,
+      status: "skipped",
+      rowsWritten: 0,
+      durationMs: Date.now() - startedAt,
+      reason: "engine_v3_disabled",
+    };
+  }
+
   const lockKey = lifecycleJobAdvisoryLockKey(input);
 
   return runDbTransaction(async () => {
@@ -1078,6 +1092,7 @@ export async function runLifecycleJob(
         businessId: input.businessId,
         asOf: input.asOf,
         jobRunId,
+        flags,
       });
       const rowsWritten = await upsertLifecycleRows(batch.rows);
       const durationMs = Date.now() - startedAt;
@@ -1215,11 +1230,13 @@ async function computeLifecycleRows(input: {
   businessId: string;
   asOf: string;
   jobRunId: string;
+  flags: EngineV3Flags;
 }): Promise<ComputedLifecycleBatch> {
   const profile = await resolveAccountDecisionProfile({
     businessId: input.businessId,
     asOf: input.asOf,
     dataSource: new WarehouseDataSource(),
+    flags: input.flags,
   });
   const rows = await getDb().query<LifecycleComputationRow>(
     COMPUTE_LIFECYCLE_ROWS_QUERY,

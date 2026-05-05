@@ -19,6 +19,9 @@ describe("lifecycle job failure handling", () => {
   it("marks a running job as failed when lifecycle computation errors", async () => {
     const jobRunId = "22222222-2222-4222-8222-222222222222";
     dbMocks.query.mockImplementation(async (queryText: string) => {
+      if (queryText.includes("business_engine_v3_flags")) {
+        return [];
+      }
       if (queryText.includes("pg_try_advisory_xact_lock")) {
         return [{ acquired: true }];
       }

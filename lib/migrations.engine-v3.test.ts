@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const ENGINE_V3_TABLES = [
+  "business_engine_v3_flags",
   "engine_v3_account_calibration_daily",
   "engine_v3_creative_lifecycle_daily",
   "engine_v3_decision_events",
@@ -24,6 +25,7 @@ const ENGINE_V3_INDEXES = [
 ] as const;
 
 const ENGINE_V3_COLUMN_COUNTS = {
+  business_engine_v3_flags: 7,
   engine_v3_job_runs: 22,
   engine_v3_account_calibration_daily: 41,
   engine_v3_creative_lifecycle_daily: 62,
@@ -139,6 +141,12 @@ function engineStatements(queries: string[]) {
   return queries.filter((query) => query.includes("engine_v3_"));
 }
 
+function precomputedEngineStatements(queries: string[]) {
+  return engineStatements(queries).filter(
+    (query) => !query.includes("business_engine_v3_flags"),
+  );
+}
+
 describe("Engine v3 precomputed table migrations", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -146,7 +154,7 @@ describe("Engine v3 precomputed table migrations", () => {
     vi.unstubAllEnvs();
   });
 
-  it("creates the five engine_v3 tables with expected constraints and indexes", async () => {
+  it("creates the engine_v3 tables with expected constraints and indexes", async () => {
     const queries = await collectMigrationQueries();
     const joined = normalizeSql(engineStatements(queries).join("\n"));
 
@@ -198,9 +206,18 @@ describe("Engine v3 precomputed table migrations", () => {
         "decision_snapshot_id UUID REFERENCES engine_v3_decision_snapshots_daily(id) ON DELETE SET NULL",
       ),
     );
-    expect(joined).not.toContain("REFERENCES businesses");
-    expect(joined).not.toContain("REFERENCES provider_accounts");
-    expect(joined).not.toContain("REFERENCES meta_creative_daily");
+    expect(joined).toContain(
+      normalizeSql(
+        "business_id UUID PRIMARY KEY REFERENCES businesses(id) ON DELETE CASCADE",
+      ),
+    );
+
+    const precomputedJoined = normalizeSql(
+      precomputedEngineStatements(queries).join("\n"),
+    );
+    expect(precomputedJoined).not.toContain("REFERENCES businesses");
+    expect(precomputedJoined).not.toContain("REFERENCES provider_accounts");
+    expect(precomputedJoined).not.toContain("REFERENCES meta_creative_daily");
   });
 
   it("emits idempotent schema-only SQL for engine_v3 tables", async () => {

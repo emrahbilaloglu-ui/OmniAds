@@ -7,6 +7,7 @@ export * from "./spend-unit-resolver";
 export * from "./engine-presets";
 export * from "./funnel";
 export * from "./operator-response-detection";
+export * from "./feature-flags";
 export { decideCreative } from "./engine";
 export {
   decisionsJobAdvisoryLockKey,

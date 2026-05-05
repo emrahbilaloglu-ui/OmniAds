@@ -6,6 +6,7 @@ import type {
   DataHealth,
   DataLayerHealth,
   DecisionOutput,
+  EngineV3Flags,
 } from "@/lib/creative-decision-engine";
 
 const decision: DecisionOutput = {
@@ -61,6 +62,26 @@ function makeDataHealth(
   };
 }
 
+function makeFlags(overrides: Partial<EngineV3Flags> = {}): EngineV3Flags {
+  return {
+    businessId: "biz-1",
+    enabled: true,
+    surfaceVisible: true,
+    shadowOnly: false,
+    source: {
+      enabled: "env",
+      surfaceVisible: "business_override",
+      shadowOnly: "business_override",
+    },
+    envDefaults: {
+      enabled: true,
+      surfaceVisible: false,
+      shadowOnly: true,
+    },
+    ...overrides,
+  };
+}
+
 function renderSurface(
   overrides: Partial<React.ComponentProps<typeof CreativeDecisionEngineV3Surface>> = {},
 ) {
@@ -73,6 +94,7 @@ function renderSurface(
       error={null}
       engineVersion="v3-2026-05-04-phase-3.4"
       dataHealth={null}
+      flags={makeFlags()}
       {...overrides}
     />,
   );
@@ -97,6 +119,29 @@ describe("CreativeDecisionEngineV3Surface", () => {
     expect(html).toContain("Engine v3 stub - real gate logic not yet implemented.");
     expect(html).toContain("conf 50");
     expect(html).toContain("commercial_truth");
+  });
+
+  it("does not render when the surface flag is off", () => {
+    expect(
+      renderSurface({
+        flags: makeFlags({
+          surfaceVisible: false,
+          source: {
+            enabled: "env",
+            surfaceVisible: "env",
+            shadowOnly: "business_override",
+          },
+        }),
+      }),
+    ).toBe("");
+  });
+
+  it("renders a shadow mode badge when advisory-only mode is active", () => {
+    const html = renderSurface({
+      flags: makeFlags({ shadowOnly: true }),
+    });
+
+    expect(html).toContain("Shadow mode (advisory only)");
   });
 
   it("falls back to the creative ID when the creative name is missing", () => {

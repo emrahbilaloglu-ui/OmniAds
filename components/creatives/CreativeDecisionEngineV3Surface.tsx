@@ -5,6 +5,7 @@ import type {
   DataHealth,
   DecisionLabel,
   DecisionOutput,
+  EngineV3Flags,
 } from "@/lib/creative-decision-engine";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -22,6 +23,7 @@ interface CreativeDecisionEngineV3SurfaceProps {
   engineVersion: string | null;
   dataSource?: "warehouse" | "mock" | null;
   dataHealth: DataHealth | null;
+  flags: EngineV3Flags | null;
 }
 
 const DECISION_LABELS: DecisionLabel[] = [
@@ -81,7 +83,9 @@ export function CreativeDecisionEngineV3Surface(
     return props.asOf ?? null;
   }, [props.asOf, props.decisions]);
 
-  if (!props.businessId) return null;
+  if (!props.businessId || !props.flags?.enabled || !props.flags.surfaceVisible) {
+    return null;
+  }
 
   return (
     <section className="mb-6 rounded-lg border border-amber-500/40 bg-amber-50/50 p-4 dark:bg-amber-950/10">
@@ -93,6 +97,11 @@ export function CreativeDecisionEngineV3Surface(
           <span className="text-xs text-muted-foreground">
             {props.engineVersion ?? "..."}
           </span>
+          {props.flags.shadowOnly && (
+            <Badge className="rounded-md border-sky-500 bg-sky-500 px-2 py-0.5 text-xs font-semibold text-white hover:bg-sky-500">
+              Shadow mode (advisory only)
+            </Badge>
+          )}
           {props.dataHealth && props.dataHealth.worstTier !== "none" && (
             <span
               className={cn(

@@ -8,6 +8,10 @@ import {
   classifyMetaAovQuality,
   resolveSpendUnit,
 } from "./spend-unit-resolver";
+import {
+  resolveEngineV3Flags,
+  type EngineV3Flags,
+} from "./feature-flags";
 import type {
   AccountCalibration,
   AccountDecisionProfile,
@@ -132,6 +136,7 @@ export async function resolveAccountDecisionProfile(input: {
   businessId: string;
   asOf: string;
   dataSource: CreativeDecisionDataSource;
+  flags?: EngineV3Flags;
 }): Promise<AccountDecisionProfile> {
   const targetPack = await input.dataSource.getBusinessTargetPack({
     businessId: input.businessId,
@@ -266,6 +271,16 @@ export async function resolveAccountDecisionProfile(input: {
           metaAovQuality,
         }),
   };
+  const flags =
+    input.flags ?? (await resolveEngineV3Flags(input.businessId));
+  const finalHardActionEligibility = flags.shadowOnly
+    ? {
+        scale: false,
+        cut: false,
+        refresh: false,
+        reason: "shadow_only",
+      }
+    : hardActionEligibility;
 
   return {
     businessId: input.businessId,
@@ -282,7 +297,7 @@ export async function resolveAccountDecisionProfile(input: {
     thresholds,
     accountBaselines,
     funnelCalibration,
-    hardActionEligibility,
+    hardActionEligibility: finalHardActionEligibility,
     quality: {
       commercialTruthReady: positiveFinite(targetPack?.targetRoas ?? null),
       calibrationReady: accountBaselines.matureCreativeCount >= 30,

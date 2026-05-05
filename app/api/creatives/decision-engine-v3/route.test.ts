@@ -3,8 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   WarehouseDataSource,
   type DecisionResponse,
+  type EngineV3Flags,
 } from "@/lib/creative-decision-engine";
 import { requireBusinessAccess } from "@/lib/access";
+import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
 import { resolveDataSource } from "./data-source";
 import { GET } from "./route";
 
@@ -12,7 +14,31 @@ vi.mock("@/lib/access", () => ({
   requireBusinessAccess: vi.fn(),
 }));
 
+vi.mock("@/lib/creative-decision-engine/feature-flags", () => ({
+  resolveEngineV3Flags: vi.fn(),
+}));
+
 const previousDataSourceFlag = process.env.DECISION_ENGINE_V3_DATA_SOURCE;
+
+function makeFlags(overrides: Partial<EngineV3Flags> = {}): EngineV3Flags {
+  return {
+    businessId: "biz-1",
+    enabled: true,
+    surfaceVisible: false,
+    shadowOnly: true,
+    source: {
+      enabled: "env",
+      surfaceVisible: "env",
+      shadowOnly: "env",
+    },
+    envDefaults: {
+      enabled: true,
+      surfaceVisible: false,
+      shadowOnly: true,
+    },
+    ...overrides,
+  };
+}
 
 function mockBusinessAccess(businessId = "biz-1") {
   vi.mocked(requireBusinessAccess).mockResolvedValue({
@@ -51,6 +77,9 @@ function mockAccessError(status: 401 | 403) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockBusinessAccess();
+  vi.mocked(resolveEngineV3Flags).mockImplementation(async (businessId) =>
+    makeFlags({ businessId: String(businessId) }),
+  );
 });
 
 afterEach(() => {
@@ -75,6 +104,12 @@ describe("GET /api/creatives/decision-engine-v3", () => {
     expect(response.status).toBe(200);
     expect(payload.dataSource).toBe("mock");
     expect(payload.businessId).toBe("biz-1");
+    expect(payload.flags).toMatchObject({
+      businessId: "biz-1",
+      enabled: true,
+      surfaceVisible: false,
+      shadowOnly: true,
+    });
     expect(payload.dataHealth.worstTier).toBe("none");
     expect(payload.dataHealth.degraded).toBe(false);
     expect(payload.dataHealth.calibration).toBeDefined();
@@ -100,6 +135,41 @@ describe("GET /api/creatives/decision-engine-v3", () => {
 
     expect(response.status).toBe(403);
     expect(payload.error).toBe("auth_error");
+  });
+
+  it("returns a disabled response when engine v3 is disabled for the business", async () => {
+    vi.mocked(resolveEngineV3Flags).mockResolvedValue(
+      makeFlags({
+        businessId: "biz-1",
+        enabled: false,
+        source: {
+          enabled: "business_override",
+          surfaceVisible: "env",
+          shadowOnly: "env",
+        },
+      }),
+    );
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/decision-engine-v3?businessId=biz-1&asOf=2026-05-04",
+      ),
+    );
+    const payload = (await response.json()) as {
+      status?: string;
+      reason?: string;
+      flags?: EngineV3Flags;
+    };
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      status: "disabled",
+      reason: "engine_v3_disabled_for_business",
+      flags: {
+        businessId: "biz-1",
+        enabled: false,
+      },
+    });
   });
 
   it("returns 403 for an authenticated user with membership for a different business", async () => {

@@ -4637,6 +4637,26 @@ export async function runMigrations(options?: {
           (business_ref_id, creative_id, event_date DESC)`,
       ]);
 
+      // ── Engine v3 rollout feature flags (NULL = inherit env default) ─────
+      await runMigrationBatchSequentially([
+        sql`CREATE TABLE IF NOT EXISTS business_engine_v3_flags (
+          business_id     UUID PRIMARY KEY REFERENCES businesses(id) ON DELETE CASCADE,
+          enabled         BOOLEAN NULL,
+          surface_visible BOOLEAN NULL,
+          shadow_only     BOOLEAN NULL,
+          notes           TEXT NULL,
+          updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_by      TEXT NULL
+        )`,
+        sql`ALTER TABLE business_engine_v3_flags
+          ADD COLUMN IF NOT EXISTS enabled BOOLEAN NULL,
+          ADD COLUMN IF NOT EXISTS surface_visible BOOLEAN NULL,
+          ADD COLUMN IF NOT EXISTS shadow_only BOOLEAN NULL,
+          ADD COLUMN IF NOT EXISTS notes TEXT NULL,
+          ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          ADD COLUMN IF NOT EXISTS updated_by TEXT NULL`.catch(() => {}),
+      ]);
+
       await runMigrationBatchSequentially([
         ...CANONICAL_BUSINESS_REF_TABLES.map((tableName) =>
           sql.query(

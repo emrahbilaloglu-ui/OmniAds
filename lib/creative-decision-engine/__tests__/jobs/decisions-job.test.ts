@@ -117,6 +117,13 @@ async function cleanupEngineRows() {
   const db = getDb();
   await db.query(
     `
+    DELETE FROM business_engine_v3_flags
+    WHERE business_id = ANY($1::uuid[])
+    `,
+    [TEST_BUSINESS_IDS],
+  );
+  await db.query(
+    `
     DELETE FROM engine_v3_decision_events
     WHERE business_ref_id = ANY($1::uuid[])
       AND event_type = 'decision_changed'
@@ -437,6 +444,40 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
     const jobRun = await fetchJobRun(result!.jobRunId);
     expect(jobRun?.status).toBe("skipped");
     expect(toNumber(jobRun?.row_count)).toBe(0);
+  });
+
+  it("returns skipped and writes no snapshots when engine v3 is disabled for the business", async () => {
+    const businessId = THESWAF_BUSINESS_ID;
+    await getDb().query(
+      `
+      INSERT INTO business_engine_v3_flags (
+        business_id,
+        enabled,
+        surface_visible,
+        shadow_only,
+        notes,
+        updated_by
+      )
+      VALUES ($1::uuid, false, NULL, NULL, 'disabled in test', 'vitest')
+      ON CONFLICT (business_id) DO UPDATE SET
+        enabled = EXCLUDED.enabled,
+        surface_visible = EXCLUDED.surface_visible,
+        shadow_only = EXCLUDED.shadow_only,
+        updated_at = now(),
+        updated_by = EXCLUDED.updated_by
+      `,
+      [businessId],
+    );
+
+    const result = await runDecisionsJob({ businessId, asOf: AS_OF });
+
+    expect(result).toMatchObject({
+      status: "skipped",
+      reason: "engine_v3_disabled",
+      snapshotsWritten: 0,
+      changeEventsWritten: 0,
+    });
+    expect(await countDecisionSnapshots(businessId)).toBe(0);
   });
 
   it("writes a change event only when the prior snapshot label differs", async () => {

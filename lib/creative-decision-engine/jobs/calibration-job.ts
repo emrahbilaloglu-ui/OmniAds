@@ -1,6 +1,7 @@
 import { getDb, runDbTransaction } from "@/lib/db";
 import { SUPPORTED_OBJECTIVES } from "../config";
 import { STALE_TIER_WARNING_MAX_HOURS } from "../data-health";
+import { resolveEngineV3Flags } from "../feature-flags";
 import { ENGINE_VERSION, type AccountCalibration } from "../types";
 
 export const JOB_NAME = "engine_v3_calibration_job";
@@ -29,6 +30,7 @@ export interface CalibrationJobResult {
   rowsWritten: number;
   durationMs: number;
   calibration: AccountCalibration | null;
+  reason?: "engine_v3_disabled";
   errorMessage?: string;
 }
 
@@ -540,6 +542,18 @@ export async function runCalibrationJob(
   input: CalibrationJobInput,
 ): Promise<CalibrationJobResult> {
   const startedAt = Date.now();
+  const flags = await resolveEngineV3Flags(input.businessId);
+  if (!flags.enabled) {
+    return {
+      jobRunId: "",
+      status: "skipped",
+      rowsWritten: 0,
+      durationMs: Date.now() - startedAt,
+      calibration: null,
+      reason: "engine_v3_disabled",
+    };
+  }
+
   const scopeType = input.scopeType ?? ACCOUNT_SCOPE_TYPE;
   const scopeId = input.scopeId ?? ACCOUNT_SCOPE_ID;
   const lockKey = hashAdvisoryLock(

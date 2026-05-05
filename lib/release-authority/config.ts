@@ -1,49 +1,13 @@
-import {
-  getCommandCenterCanaryBusinesses,
-  isCommandCenterV1Enabled,
-} from "@/lib/command-center-config";
-import {
-  getMetaExecutionCanaryBusinesses,
-  isCommandCenterExecutionV1Enabled,
-  isMetaExecutionApplyEnabled,
-  isMetaExecutionKillSwitchActive,
-} from "@/lib/command-center-execution-config";
-import {
-  getCreativeDecisionOsCanaryBusinesses,
-  isCreativeDecisionOsV1Enabled,
-} from "@/lib/creative-decision-os-config";
-import {
-  getMetaDecisionOsCanaryBusinesses,
-  isMetaDecisionOsV1Enabled,
-} from "@/lib/meta/decision-os-config";
 import type { ReleaseAuthorityFlagPosture } from "@/lib/release-authority/types";
 
-function summarizeFlagPosture(input: {
-  enabled: boolean;
-  canaryCount: number;
-  flagKeys: string[];
-  enabledSummary: string;
-  allowlistSummary: string;
-  disabledSummary: string;
-}): ReleaseAuthorityFlagPosture {
-  if (!input.enabled) {
-    return {
-      mode: "disabled",
-      flagKeys: input.flagKeys,
-      summary: input.disabledSummary,
-    };
-  }
-  if (input.canaryCount > 0) {
-    return {
-      mode: "allowlist",
-      flagKeys: input.flagKeys,
-      summary: input.allowlistSummary,
-    };
-  }
+function retiredFlagPosture(
+  flagKeys: string[],
+  summary: string,
+): ReleaseAuthorityFlagPosture {
   return {
-    mode: "enabled",
-    flagKeys: input.flagKeys,
-    summary: input.enabledSummary,
+    mode: "disabled",
+    flagKeys,
+    summary,
   };
 }
 
@@ -59,100 +23,44 @@ export const RELEASE_AUTHORITY_CANONICAL_DOC =
   "docs/v3-01-release-authority.md";
 
 export function resolveMetaDecisionOsFlagPosture() {
-  return summarizeFlagPosture({
-    enabled: isMetaDecisionOsV1Enabled(),
-    canaryCount: getMetaDecisionOsCanaryBusinesses().length,
-    flagKeys: ["META_DECISION_OS_V1", "META_DECISION_OS_CANARY_BUSINESSES"],
-    enabledSummary: "Meta Decision OS is globally enabled.",
-    allowlistSummary:
-      "Meta Decision OS is enabled through a business allowlist.",
-    disabledSummary: "Meta Decision OS is disabled.",
-  });
+  return retiredFlagPosture(
+    ["META_DECISION_OS_V1", "META_DECISION_OS_CANARY_BUSINESSES"],
+    "Legacy Meta Decision OS is archived in Phase 4.1.",
+  );
 }
 
 export function resolveCreativeDecisionOsFlagPosture() {
-  return summarizeFlagPosture({
-    enabled: isCreativeDecisionOsV1Enabled(),
-    canaryCount: getCreativeDecisionOsCanaryBusinesses().length,
-    flagKeys: [
+  return retiredFlagPosture(
+    [
       "CREATIVE_DECISION_OS_V1",
       "CREATIVE_DECISION_OS_CANARY_BUSINESSES",
     ],
-    enabledSummary: "Creative Decision OS is globally enabled.",
-    allowlistSummary:
-      "Creative Decision OS is enabled through a business allowlist.",
-    disabledSummary: "Creative Decision OS is disabled.",
-  });
+    "Legacy Creative Decision OS is archived in Phase 4.1.",
+  );
 }
 
 export function resolveCommandCenterWorkflowFlagPosture() {
-  return summarizeFlagPosture({
-    enabled: isCommandCenterV1Enabled(),
-    canaryCount: getCommandCenterCanaryBusinesses().length,
-    flagKeys: ["COMMAND_CENTER_V1", "COMMAND_CENTER_CANARY_BUSINESSES"],
-    enabledSummary: "Command Center workflow is globally enabled.",
-    allowlistSummary:
-      "Command Center workflow is enabled through a business allowlist.",
-    disabledSummary: "Command Center workflow is disabled.",
-  });
+  return retiredFlagPosture(
+    ["COMMAND_CENTER_V1", "COMMAND_CENTER_CANARY_BUSINESSES"],
+    "Legacy Command Center workflow is archived in Phase 4.1.",
+  );
 }
 
 export function resolveCommandCenterExecutionPreviewFlagPosture() {
-  return summarizeFlagPosture({
-    enabled: isCommandCenterExecutionV1Enabled(),
-    canaryCount: 0,
-    flagKeys: ["COMMAND_CENTER_EXECUTION_V1"],
-    enabledSummary: "Execution preview is enabled.",
-    allowlistSummary: "Execution preview does not use an allowlist gate.",
-    disabledSummary: "Execution preview is disabled.",
-  });
+  return retiredFlagPosture(
+    ["COMMAND_CENTER_EXECUTION_V1"],
+    "Legacy Command Center execution preview is archived in Phase 4.1.",
+  );
 }
 
 export function resolveCommandCenterExecutionApplyFlagPosture() {
-  const executionEnabled = isCommandCenterExecutionV1Enabled();
-  const applyEnabled = isMetaExecutionApplyEnabled();
-  const killSwitchActive = isMetaExecutionKillSwitchActive();
-  const canaryCount = getMetaExecutionCanaryBusinesses().length;
-
-  if (!executionEnabled || !applyEnabled || killSwitchActive) {
-    return {
-      mode: "disabled",
-      flagKeys: [
-        "COMMAND_CENTER_EXECUTION_V1",
-        "META_EXECUTION_APPLY_ENABLED",
-        "META_EXECUTION_KILL_SWITCH",
-        "META_EXECUTION_CANARY_BUSINESSES",
-      ],
-      summary:
-        killSwitchActive
-          ? "Apply remains disabled while the explicit Meta execution kill switch is active."
-          : "Apply and rollback remain disabled until the explicit Meta apply gate is enabled.",
-    } satisfies ReleaseAuthorityFlagPosture;
-  }
-
-  if (canaryCount === 0) {
-    return {
-      mode: "disabled",
-      flagKeys: [
-        "COMMAND_CENTER_EXECUTION_V1",
-        "META_EXECUTION_APPLY_ENABLED",
-        "META_EXECUTION_KILL_SWITCH",
-        "META_EXECUTION_CANARY_BUSINESSES",
-      ],
-      summary:
-        "Apply and rollback remain disabled until a Meta execution canary allowlist is configured.",
-    } satisfies ReleaseAuthorityFlagPosture;
-  }
-
-  return {
-    mode: "allowlist",
-    flagKeys: [
+  return retiredFlagPosture(
+    [
       "COMMAND_CENTER_EXECUTION_V1",
       "META_EXECUTION_APPLY_ENABLED",
       "META_EXECUTION_KILL_SWITCH",
       "META_EXECUTION_CANARY_BUSINESSES",
     ],
-    summary:
-      "Apply and rollback are available only through the Meta execution canary allowlist.",
-  } satisfies ReleaseAuthorityFlagPosture;
+    "Legacy Command Center apply and rollback are archived in Phase 4.1.",
+  );
 }

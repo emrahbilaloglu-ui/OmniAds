@@ -19,7 +19,10 @@ import {
   getLegacyCreativeTypeLabel,
 } from "@/lib/meta/creative-taxonomy";
 import { getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
-import type { CreativeHistoricalWindow, CreativeHistoricalWindows } from "@/src/services";
+import type {
+  AiCreativeHistoricalWindow as CreativeHistoricalWindow,
+  AiCreativeHistoricalWindows as CreativeHistoricalWindows,
+} from "@/lib/meta/creative-scoring";
 
 export interface MetaCreativesResponse {
   status?: string;

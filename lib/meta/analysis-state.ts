@@ -1,4 +1,3 @@
-import type { MetaDecisionOsV1Response } from "@/lib/meta/decision-os";
 import type {
   MetaRecommendationAnalysisSourceSystem,
   MetaRecommendationsResponse,
@@ -7,16 +6,12 @@ import type {
 export type MetaAnalysisState =
   | "not_run"
   | "running"
-  | "decision_os_ready"
-  | "decision_os_degraded"
   | "recommendation_fallback"
   | "error";
 
 export type MetaDecisionOsDisplayStatus =
   | "not_run"
-  | "running"
-  | "ready"
-  | "degraded"
+  | "archived"
   | "error"
   | "mismatch";
 
@@ -26,8 +21,6 @@ export type MetaRecommendationSourceSystem =
   | "unknown";
 
 export type MetaPresentationMode =
-  | "decision_os_primary"
-  | "decision_os_recommendation_context"
   | "fallback_context"
   | "demo_context"
   | "no_guidance"
@@ -64,9 +57,6 @@ export interface DeriveMetaAnalysisStatusInput {
   recommendationsData?: MetaRecommendationsResponse | null;
   recommendationsError?: unknown;
   recommendationsIsFetching: boolean;
-  decisionOsData?: MetaDecisionOsV1Response | null;
-  decisionOsError?: unknown;
-  decisionOsIsFetching: boolean;
   lastAnalyzedAt?: Date | string | null;
   lastAnalyzedRange?: MetaAnalysisRunRange | null;
 }
@@ -151,11 +141,8 @@ export function getMetaRecommendationSource(
 ): MetaRecommendationSourceSystem {
   if (!recommendationsData) return "none";
   const system = recommendationsData?.analysisSource?.system;
-  if (system === "decision_os" || system === "snapshot_fallback" || system === "demo") {
+  if (system === "snapshot_fallback" || system === "demo") {
     return system;
-  }
-  if (recommendationsData?.sourceModel === "decision_os_unified") {
-    return "decision_os";
   }
   if (recommendationsData?.sourceModel === "snapshot_heuristics") {
     return "snapshot_fallback";
@@ -165,8 +152,6 @@ export function getMetaRecommendationSource(
 
 function sourceLabel(source: MetaRecommendationSourceSystem) {
   switch (source) {
-    case "decision_os":
-      return "Decision OS";
     case "snapshot_fallback":
       return "Snapshot fallback";
     case "demo":
@@ -178,51 +163,10 @@ function sourceLabel(source: MetaRecommendationSourceSystem) {
   }
 }
 
-export function getMetaDecisionOsDegradedReasons(
-  decisionOsData?: MetaDecisionOsV1Response | null,
-) {
-  if (!decisionOsData) return [];
-  const authority = decisionOsData.authority;
-  const commercialTruth = decisionOsData.commercialTruthCoverage;
-  const summary = decisionOsData.summary;
-  const degradedCount = summary.surfaceSummary?.degradedCount ?? 0;
-  const sourceHealthReasons =
-    summary.sourceHealth
-      ?.filter((entry) => entry.status !== "healthy")
-      .map((entry) => `${entry.source}: ${entry.detail}`) ?? [];
-  return unique([
-    authority?.truthState && authority.truthState !== "live_confident"
-      ? `Authority truth state is ${authority.truthState.replaceAll("_", " ")}.`
-      : null,
-    authority?.completeness && authority.completeness !== "complete"
-      ? `Authority evidence is ${authority.completeness}.`
-      : null,
-    authority?.freshness?.status &&
-    authority.freshness.status !== "fresh" &&
-    authority.freshness.status !== "partial"
-      ? `Authority freshness is ${authority.freshness.status}.`
-      : null,
-    ...(authority?.missingInputs ?? []).map((input) => `Missing input: ${input}.`),
-    ...(commercialTruth?.missingInputs ?? []).map((input) => `Missing truth: ${input}.`),
-    degradedCount > 0
-      ? `${degradedCount} decisions are trust-capped.`
-      : null,
-    summary.readReliability?.status && summary.readReliability.status !== "stable"
-      ? `Read reliability is ${summary.readReliability.status}.`
-      : null,
-    ...sourceHealthReasons,
-    ...(authority?.reasons ?? []),
-  ]);
-}
-
 function decisionOsLabel(status: MetaDecisionOsDisplayStatus) {
   switch (status) {
-    case "running":
-      return "Running";
-    case "ready":
-      return "Ready";
-    case "degraded":
-      return "Degraded";
+    case "archived":
+      return "Archived";
     case "error":
       return "Error";
     case "mismatch":
@@ -234,10 +178,6 @@ function decisionOsLabel(status: MetaDecisionOsDisplayStatus) {
 
 function presentationModeLabel(mode: MetaPresentationMode) {
   switch (mode) {
-    case "decision_os_primary":
-      return "Decision OS primary";
-    case "decision_os_recommendation_context":
-      return "Decision OS recommendation context";
     case "fallback_context":
       return "Fallback context";
     case "demo_context":
@@ -276,37 +216,22 @@ export function deriveMetaAnalysisStatus(
         }
       : null;
   const recommendationSource = getMetaRecommendationSource(input.recommendationsData);
-  const degradedReasons = getMetaDecisionOsDegradedReasons(input.decisionOsData);
   const recommendationRangeMismatch = responseRangeMismatch(input.recommendationsData, expectedRange);
-  const decisionOsRangeMismatch = responseRangeMismatch(input.decisionOsData, expectedRange);
-  const rangeMismatch = recommendationRangeMismatch || decisionOsRangeMismatch;
-  const isRunning = input.recommendationsIsFetching || input.decisionOsIsFetching;
-  const decisionOsStatus: MetaDecisionOsDisplayStatus = input.decisionOsIsFetching
-    ? "running"
-    : decisionOsRangeMismatch
+  const isRunning = input.recommendationsIsFetching;
+  const decisionOsStatus: MetaDecisionOsDisplayStatus = recommendationRangeMismatch
       ? "mismatch"
-      : input.decisionOsError
-        ? "error"
-        : input.decisionOsData
-          ? degradedReasons.length > 0
-            ? "degraded"
-            : "ready"
-          : "not_run";
+      : "archived";
   const presentationMode: MetaPresentationMode = isRunning
     ? "loading"
-    : rangeMismatch || decisionOsStatus === "mismatch"
+    : recommendationRangeMismatch
       ? "error"
       : recommendationSource === "snapshot_fallback"
         ? "fallback_context"
-        : recommendationSource === "decision_os" && decisionOsStatus !== "ready"
-          ? "decision_os_recommendation_context"
         : recommendationSource === "demo"
           ? "demo_context"
-        : decisionOsStatus === "error"
-          ? "error"
-        : decisionOsStatus === "ready"
-          ? "decision_os_primary"
-          : "no_guidance";
+          : input.recommendationsError
+            ? "error"
+            : "no_guidance";
   const base = {
     decisionOsStatus,
     decisionOsLabel: decisionOsLabel(decisionOsStatus),
@@ -330,14 +255,14 @@ export function deriveMetaAnalysisStatus(
     };
   }
 
-  if (rangeMismatch) {
+  if (recommendationRangeMismatch) {
     return {
       state: "error",
       ...base,
       message: "Analysis response does not match the selected business or date range.",
       detailReasons: ["Selected range changed before the analysis response could be used."],
       safeErrorMessage: "Analysis could not complete safely. Run analysis again for this range.",
-      rangeMismatch,
+      rangeMismatch: true,
     };
   }
 
@@ -345,67 +270,20 @@ export function deriveMetaAnalysisStatus(
     return {
       state: "recommendation_fallback",
       ...base,
-      message: "Showing snapshot fallback. Decision OS did not produce an authoritative response.",
+      message: "Showing snapshot-backed recommendation context.",
       detailReasons: unique([input.recommendationsData?.analysisSource?.fallbackReason]),
       safeErrorMessage: null,
       rangeMismatch: false,
     };
   }
 
-  if (input.decisionOsError) {
-    return {
-      state: "error",
-      ...base,
-      message:
-        recommendationSource === "decision_os"
-          ? "Recommendation source is Decision OS, but the Decision OS surface failed to load."
-          : "Decision OS surface could not complete safely.",
-      detailReasons: [],
-      safeErrorMessage: "Analysis could not complete safely. Run analysis again for this range.",
-      rangeMismatch: false,
-    };
-  }
-
-  if (input.recommendationsError && recommendationSource === "none" && decisionOsStatus === "not_run") {
+  if (input.recommendationsError && recommendationSource === "none") {
     return {
       state: "error",
       ...base,
       message: "Recommendations could not complete safely.",
       detailReasons: [],
       safeErrorMessage: "Analysis could not complete safely. Run analysis again for this range.",
-      rangeMismatch: false,
-    };
-  }
-
-  if (decisionOsStatus === "degraded") {
-    return {
-      state: "decision_os_degraded",
-      ...base,
-      message: "Decision OS returned degraded authority for this range.",
-      detailReasons: degradedReasons,
-      safeErrorMessage: null,
-      rangeMismatch: false,
-    };
-  }
-
-  if (decisionOsStatus === "ready") {
-    return {
-      state: "decision_os_ready",
-      ...base,
-      message: "Decision OS guidance is available for this range.",
-      detailReasons: [],
-      safeErrorMessage: null,
-      rangeMismatch: false,
-    };
-  }
-
-  if (recommendationSource === "decision_os") {
-    return {
-      state: "not_run",
-      ...base,
-      message: "Recommendation source is Decision OS, but the Decision OS surface is not loaded for this range.",
-      detailReasons: [],
-      safeErrorMessage: null,
       rangeMismatch: false,
     };
   }
@@ -424,7 +302,7 @@ export function deriveMetaAnalysisStatus(
   return {
     state: "not_run",
     ...base,
-    message: "Run analysis to generate Decision OS guidance.",
+    message: "Run analysis to generate snapshot-backed recommendation context.",
     detailReasons: [],
     safeErrorMessage: null,
     rangeMismatch: false,
@@ -453,19 +331,8 @@ export function isUsableMetaRecommendationsResponse(
   );
 }
 
-export function isUsableMetaDecisionOsResponse(
-  value: unknown,
-): value is MetaDecisionOsV1Response {
-  return (
-    Boolean(value) &&
-    typeof value === "object" &&
-    (value as { contractVersion?: unknown }).contractVersion === "meta-decision-os.v1"
-  );
-}
-
 export function didMetaAnalysisRefetchProduceUsableData(input: {
   recommendationsResult: MetaAnalysisQueryRefetchResult<MetaRecommendationsResponse>;
-  decisionOsResult: MetaAnalysisQueryRefetchResult<MetaDecisionOsV1Response | null>;
   expectedRange: {
     businessId: string | null | undefined;
     startDate: string;
@@ -485,22 +352,9 @@ export function didMetaAnalysisRefetchProduceUsableData(input: {
   const recommendationsUsable =
     refetchResultSucceeded(input.recommendationsResult) &&
     isUsableMetaRecommendationsResponse(input.recommendationsResult.data);
-  const decisionOsUsable =
-    refetchResultSucceeded(input.decisionOsResult) &&
-    isUsableMetaDecisionOsResponse(input.decisionOsResult.data);
   const recommendationsMatches =
     recommendationsUsable &&
     responseMatchesRunRange(input.recommendationsResult.data, expectedRange);
-  const decisionOsMatches =
-    decisionOsUsable &&
-    responseMatchesRunRange(input.decisionOsResult.data, expectedRange);
 
-  if (
-    (recommendationsUsable && !recommendationsMatches) ||
-    (decisionOsUsable && !decisionOsMatches)
-  ) {
-    return false;
-  }
-
-  return recommendationsMatches || decisionOsMatches;
+  return recommendationsMatches;
 }

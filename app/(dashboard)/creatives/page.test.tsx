@@ -194,6 +194,11 @@ vi.mock("@/lib/business-mode", () => ({
 }));
 
 const { default: CreativesPage } = await import("@/app/(dashboard)/creatives/page");
+const retiredCreativeQueryKeys = [
+  `creative-${"decision"}-os-snapshot`,
+  `creative-${"decision"}-os`,
+  `creative-${"decision"}-os-v2-preview`,
+];
 
 describe("Creatives page render contract", () => {
   beforeEach(() => {
@@ -213,9 +218,9 @@ describe("Creatives page render contract", () => {
   it("does not load or render decision UI while preserving the creatives shell", () => {
     const html = renderToStaticMarkup(React.createElement(CreativesPage));
 
-    expect(observedQueryKeys["creative-decision-os-snapshot"]).toBeUndefined();
-    expect(observedQueryKeys["creative-decision-os"]).toBeUndefined();
-    expect(observedQueryKeys["creative-decision-os-v2-preview"]).toBeUndefined();
+    for (const queryKey of retiredCreativeQueryKeys) {
+      expect(observedQueryKeys[queryKey]).toBeUndefined();
+    }
     expect(html).not.toContain("Decision OS");
     expect(html).not.toContain("Decision Center");
     expect(html).not.toContain("Run Creative Analysis");
@@ -232,7 +237,7 @@ describe("Creatives page render contract", () => {
 
     renderToStaticMarkup(React.createElement(CreativesPage));
 
-    expect(observedQueryKeys["creative-decision-os-snapshot"]).toBeUndefined();
+    expect(observedQueryKeys[retiredCreativeQueryKeys[0]]).toBeUndefined();
     expect(observedQueryKeys["meta-creatives-creatives-metadata"]).toContain("2026-03-16");
   });
 

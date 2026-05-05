@@ -15,9 +15,7 @@ import {
   creativeDateRangeToStandard,
   standardDateRangeToCreative,
 } from "@/components/creatives/creatives-top-section-support";
-import {
-  type CreativeHistoricalWindows,
-} from "@/src/services";
+import type { AiCreativeHistoricalWindows as CreativeHistoricalWindows } from "@/lib/meta/creative-scoring";
 import { getCreativeDisplayPills } from "@/lib/meta/creative-taxonomy";
 
 interface CreativeDetailExperienceProps {
@@ -470,7 +468,6 @@ export function CreativeDetailExperience({
 	                    ) : imageUrl ? (
 	                      <div className="space-y-3">
 	                        <div className="relative flex max-h-[78vh] w-full max-w-[860px] items-center justify-center overflow-hidden p-2">
-	                          {/* eslint-disable-next-line @next/next/no-img-element */}
 	                          <img src={imageUrl} alt={row.name} className="relative z-[1] block max-h-[74vh] w-auto max-w-full object-contain" />
 	                        </div>
 	                      </div>

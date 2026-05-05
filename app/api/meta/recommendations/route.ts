@@ -2,17 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getDemoMetaBreakdowns, getDemoMetaCampaigns } from "@/lib/demo-business";
-import type { CreativeDecisionBenchmarkScopeInput } from "@/lib/creative-decision-os";
-import { isCreativeDecisionOsV1EnabledForBusiness } from "@/lib/creative-decision-os-config";
-import { getCreativeDecisionOsForRange } from "@/lib/creative-decision-os-source";
 import { getMetaBreakdownsForRange } from "@/lib/meta/breakdowns-source";
 import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
-import { isMetaDecisionOsV1EnabledForBusiness } from "@/lib/meta/decision-os-config";
-import { attachCreativeLinkage } from "@/lib/meta/decision-os-linkage";
-import { getMetaDecisionOsForRange } from "@/lib/meta/decision-os-source";
 import {
   buildMetaRecommendations,
-  buildMetaRecommendationsFromDecisionOs,
   type MetaRecommendationAnalysisSource,
   type MetaRecommendationsResponse,
 } from "@/lib/meta/recommendations";
@@ -21,7 +14,6 @@ import { buildMetaCreativeIntelligence } from "@/lib/meta/creative-intelligence"
 import { getCreativeScoreSnapshot } from "@/lib/meta/creative-score-service";
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
-import type { MetaDecisionOsV1Response } from "@/lib/meta/decision-os";
 import { resolveRequestLanguage } from "@/lib/request-language";
 import { META_WAREHOUSE_HISTORY_DAYS } from "@/lib/meta/history";
 
@@ -65,32 +57,12 @@ function attachAnalysisSource(
   };
 }
 
-function parseCreativeBenchmarkScope(
-  request: NextRequest,
-): CreativeDecisionBenchmarkScopeInput | null {
-  const scope = request.nextUrl.searchParams.get("benchmarkScope");
-  if (scope !== "account" && scope !== "campaign") return null;
-
-  const scopeId = request.nextUrl.searchParams.get("benchmarkScopeId");
-  const scopeLabel = request.nextUrl.searchParams.get("benchmarkScopeLabel");
-
-  return {
-    scope,
-    ...(scopeId?.trim() ? { scopeId: scopeId.trim() } : {}),
-    ...(scopeLabel?.trim() ? { scopeLabel: scopeLabel.trim() } : {}),
-  };
-}
-
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const language = await resolveRequestLanguage(request);
   const businessId = searchParams.get("businessId");
   const startDate = searchParams.get("startDate");
   const endDate = searchParams.get("endDate");
-  const analyticsStartDate = searchParams.get("analyticsStartDate") ?? startDate;
-  const analyticsEndDate = searchParams.get("analyticsEndDate") ?? endDate;
-  const decisionAsOf = searchParams.get("decisionAsOf");
-  const benchmarkScope = parseCreativeBenchmarkScope(request);
 
   const access = await requireBusinessAccess({
     request,
@@ -137,64 +109,6 @@ export async function GET(request: NextRequest) {
         },
       ),
     );
-  }
-
-  let fallbackReason = "decision_os_feature_disabled";
-
-  try {
-    let unifiedDecisionOs = null as MetaDecisionOsV1Response | null;
-
-    if (isMetaDecisionOsV1EnabledForBusiness(businessId)) {
-      fallbackReason = "decision_os_unavailable";
-      unifiedDecisionOs = await getMetaDecisionOsForRange({
-        businessId,
-        startDate,
-        endDate,
-        analyticsStartDate: analyticsStartDate ?? undefined,
-        analyticsEndDate: analyticsEndDate ?? undefined,
-        decisionAsOf,
-      });
-
-      if (isCreativeDecisionOsV1EnabledForBusiness(businessId)) {
-        try {
-          const creativeDecisionOs = await getCreativeDecisionOsForRange({
-            request,
-            businessId,
-            startDate,
-            endDate,
-            analyticsStartDate: analyticsStartDate ?? undefined,
-            analyticsEndDate: analyticsEndDate ?? undefined,
-            decisionAsOf,
-            benchmarkScope,
-          });
-          unifiedDecisionOs = attachCreativeLinkage(unifiedDecisionOs, creativeDecisionOs);
-        } catch {
-          // Creative linkage is additive only for the compatibility surface.
-        }
-      }
-    }
-
-    if (!unifiedDecisionOs) {
-      throw new Error("meta_decision_os_unavailable");
-    }
-
-    return NextResponse.json(
-      attachAnalysisSource(
-        buildMetaRecommendationsFromDecisionOs(unifiedDecisionOs, language),
-        {
-          businessId,
-          startDate,
-          endDate,
-          sourceModel: "decision_os_unified",
-          analysisSource: {
-            system: "decision_os",
-            decisionOsAvailable: true,
-          },
-        },
-      ),
-    );
-  } catch {
-    // Fall back to the snapshot-backed builder when the Decision OS route is unavailable.
   }
 
   const selectedSpanDays = dayDiffInclusive(startDate, endDate);
@@ -318,7 +232,7 @@ export async function GET(request: NextRequest) {
       analysisSource: {
         system: "snapshot_fallback",
         decisionOsAvailable: false,
-        fallbackReason,
+        fallbackReason: "legacy_decision_os_archived_phase_4_1",
       },
     },
   );

@@ -47,7 +47,7 @@ import { getCreativeStaticPreviewSources, getCreativeStaticPreviewState } from "
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
 import { createPortal } from "react-dom";
 import { getCreativeVisualFormatLabel } from "@/lib/meta/creative-taxonomy";
-import type { CreativeHistoricalWindows } from "@/src/services";
+import type { AiCreativeHistoricalWindows as CreativeHistoricalWindows } from "@/lib/meta/creative-scoring";
 
 type GoodDirection = "high" | "low" | "neutral";
 type ColorFormattingMode = "heatmap" | "none";

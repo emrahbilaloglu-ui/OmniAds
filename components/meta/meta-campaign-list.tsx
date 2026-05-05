@@ -12,8 +12,6 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import type { MetaCampaignTableRow } from "@/components/meta/meta-campaign-table";
 import { useCurrencySymbol } from "@/hooks/use-currency";
-import type { MetaCampaignOperatorSummary } from "@/lib/meta/operator-surface";
-import { operatorStateLabel, type OperatorAuthorityState } from "@/lib/operator-surface";
 
 function fmtSpend(n: number, sym: string): string {
   if (n >= 1_000_000) return `${sym}${(n / 1_000_000).toFixed(1)}M`;
@@ -60,21 +58,12 @@ function laneDot(lane: MetaCampaignTableRow["laneLabel"]) {
   return null;
 }
 
-function operatorStateTone(state: OperatorAuthorityState) {
-  if (state === "act_now") return "bg-emerald-500/10 text-emerald-700";
-  if (state === "needs_truth") return "bg-amber-500/10 text-amber-700";
-  if (state === "blocked") return "bg-orange-500/10 text-orange-700";
-  if (state === "watch") return "bg-sky-500/10 text-sky-700";
-  return "bg-slate-100 text-slate-700";
-}
-
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface MetaCampaignListProps {
   campaigns: MetaCampaignTableRow[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
-  campaignOperatorSummaries?: Map<string, MetaCampaignOperatorSummary>;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -91,20 +80,12 @@ export function MetaCampaignList({
   campaigns,
   selectedId,
   onSelect,
-  campaignOperatorSummaries = new Map(),
 }: MetaCampaignListProps) {
   const language = "en" as "en" | "tr";
   const sym = useCurrencySymbol();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
-  const sortedCampaigns = [...campaigns].sort((a, b) => {
-    const leftSummary = campaignOperatorSummaries.get(a.id);
-    const rightSummary = campaignOperatorSummaries.get(b.id);
-    const leftOrder = leftSummary ? { act_now: 0, needs_truth: 1, blocked: 2, watch: 3, no_action: 4 }[leftSummary.item.authorityState] : 99;
-    const rightOrder = rightSummary ? { act_now: 0, needs_truth: 1, blocked: 2, watch: 3, no_action: 4 }[rightSummary.item.authorityState] : 99;
-    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
-    return b.spend - a.spend;
-  });
+  const sortedCampaigns = [...campaigns].sort((a, b) => b.spend - a.spend);
 
   const filteredCampaigns = sortedCampaigns.filter((c) => {
     if (statusFilter === "all") return true;
@@ -165,12 +146,6 @@ export function MetaCampaignList({
       ) : (
         filteredCampaigns.map((c) => {
           const isSelected = c.id === selectedId;
-          const operatorSummary = campaignOperatorSummaries.get(c.id);
-          const ownerLabel =
-            operatorSummary?.ownerType === "ad_set"
-              ? `Ad set owner: ${operatorSummary.ownerLabel}`
-              : operatorSummary?.ownerLabel ?? null;
-          const regimeLabel = operatorSummary?.item.secondaryLabels?.[0] ?? null;
 
           return (
             <button
@@ -211,31 +186,6 @@ export function MetaCampaignList({
                     {laneDot(c.laneLabel ?? null)}
                   </div>
                 )}
-                {operatorSummary ? (
-                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                    <span className="rounded-full bg-slate-900 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-white">
-                      {operatorSummary.item.primaryAction}
-                    </span>
-                    <span
-                      className={cn(
-                        "rounded-full px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide",
-                        operatorStateTone(operatorSummary.item.authorityState),
-                      )}
-                    >
-                      {operatorStateLabel(operatorSummary.item.authorityState)}
-                    </span>
-                  </div>
-                ) : null}
-                {ownerLabel || regimeLabel ? (
-                  <p className="mt-1 truncate text-[10px] text-slate-500">
-                    {[ownerLabel, regimeLabel].filter(Boolean).join(" · ")}
-                  </p>
-                ) : null}
-                {operatorSummary?.item.blocker ? (
-                  <p className="mt-1 truncate text-[10px] text-slate-400">
-                    {operatorSummary.item.blocker}
-                  </p>
-                ) : null}
               </div>
 
               {/* ROAS + Spend */}

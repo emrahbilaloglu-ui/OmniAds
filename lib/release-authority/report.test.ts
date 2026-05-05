@@ -60,7 +60,7 @@ describe("release authority report", () => {
     );
   });
 
-  it("marks allowlisted surfaces as flagged without exposing business IDs", () => {
+  it("keeps archived Meta Decision OS legacy even when old flags are set", () => {
     process.env.META_DECISION_OS_V1 = "true";
     process.env.META_DECISION_OS_CANARY_BUSINESSES = "biz_1,biz_2";
 
@@ -73,13 +73,12 @@ describe("release authority report", () => {
     });
 
     const surface = report.surfaces.find((entry) => entry.id === "meta_decision_os");
-    expect(surface?.runtimeState).toBe("flagged");
-    expect(surface?.flagPosture?.mode).toBe("allowlist");
-    expect(surface?.flagPosture?.summary).toContain("allowlist");
+    expect(surface?.runtimeState).toBe("legacy");
+    expect(surface?.flagPosture).toBeNull();
     expect(JSON.stringify(surface)).not.toContain("biz_1");
   });
 
-  it("keeps apply and rollback flagged while the apply gate is disabled", () => {
+  it("keeps archived apply and rollback legacy even when old gates are set", () => {
     process.env.COMMAND_CENTER_EXECUTION_V1 = "true";
     process.env.META_EXECUTION_APPLY_ENABLED = "false";
 
@@ -94,8 +93,8 @@ describe("release authority report", () => {
     const surface = report.surfaces.find(
       (entry) => entry.id === "command_center_execution_apply_rollback",
     );
-    expect(surface?.runtimeState).toBe("flagged");
-    expect(surface?.flagPosture?.mode).toBe("disabled");
+    expect(surface?.runtimeState).toBe("legacy");
+    expect(surface?.flagPosture).toBeNull();
     expect(surface?.driftState).toBe("aligned");
   });
 });

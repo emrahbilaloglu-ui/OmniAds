@@ -9,8 +9,11 @@ import {
   ensureProviderAccountReferenceIds,
   resolveBusinessReferenceIds,
 } from "@/lib/provider-account-reference-store";
-import { buildHeuristicCreativeDecisions } from "@/lib/ai/generate-creative-decisions";
-import type { AiCreativeHistoricalWindow, AiCreativeHistoricalWindows } from "@/src/services/data-service-ai";
+import {
+  scoreMetaCreativeRows,
+  type AiCreativeHistoricalWindow,
+  type AiCreativeHistoricalWindows,
+} from "@/lib/meta/creative-scoring";
 
 export const META_CREATIVE_SCORE_RULE_VERSION = "meta-creative-score-v1";
 const META_CREATIVE_SCORE_TABLES = ["meta_creative_score_snapshots"] as const;
@@ -157,34 +160,7 @@ async function fetchCreativeRows(input: {
 }
 
 function buildDecisionCacheRows(selectedRows: MetaCreativeRow[], historyById: Map<string, AiCreativeHistoricalWindows>) {
-  const decisions = buildHeuristicCreativeDecisions(
-    selectedRows.map((row) => ({
-      creativeId: row.id,
-      name: row.name,
-      creativeFormat: row.format === "catalog" ? "catalog" : row.format === "video" ? "video" : "image",
-      creativeAgeDays: 0,
-      spendVelocity: row.spend,
-      frequency: 0,
-      spend: row.spend,
-      purchaseValue: row.purchaseValue,
-      roas: row.roas,
-      cpa: row.cpa,
-      ctr: row.ctrAll,
-      cpm: row.cpm,
-      cpc: row.cpcLink,
-      purchases: row.purchases,
-      impressions: row.impressions,
-      linkClicks: row.linkClicks,
-      hookRate: row.thumbstop,
-      holdRate: row.video100,
-      video25Rate: row.video25,
-      watchRate: row.video50,
-      video75Rate: row.video75,
-      clickToPurchaseRate: row.clickToPurchase,
-      atcToPurchaseRate: row.atcToPurchaseRatio,
-      historicalWindows: historyById.get(row.id) ?? null,
-    }))
-  );
+  const decisions = scoreMetaCreativeRows(selectedRows, historyById);
   return new Map(decisions.map((decision) => [decision.creativeId, decision]));
 }
 

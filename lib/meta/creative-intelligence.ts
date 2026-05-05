@@ -1,10 +1,10 @@
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
-import type { AiCreativeHistoricalWindows } from "@/src/services";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import {
-  buildHeuristicCreativeDecisions,
+  scoreMetaCreativeRows,
+  type AiCreativeHistoricalWindows,
   type CreativeDecisionResult,
-} from "@/lib/ai/generate-creative-decisions";
+} from "@/lib/meta/creative-scoring";
 
 export interface MetaCreativeCampaignSignalSummary {
   campaignId: string;
@@ -194,34 +194,7 @@ export function buildMetaCreativeIntelligence(input: {
 
   const campaignById = new Map((input.campaigns ?? []).map((campaign) => [campaign.id, campaign]));
 
-  const decisions = buildHeuristicCreativeDecisions(
-    rows.map((row) => ({
-      creativeId: row.id,
-      name: row.name,
-      creativeFormat: row.format === "catalog" ? "catalog" : row.format === "video" ? "video" : "image",
-      creativeAgeDays: 0,
-      spendVelocity: row.spend,
-      frequency: 0,
-      spend: row.spend,
-      purchaseValue: row.purchaseValue,
-      roas: row.roas,
-      cpa: row.cpa,
-      ctr: row.ctrAll,
-      cpm: row.cpm,
-      cpc: row.cpcLink,
-      purchases: row.purchases,
-      impressions: row.impressions,
-      linkClicks: row.linkClicks,
-      hookRate: row.thumbstop,
-      holdRate: row.video100,
-      video25Rate: row.video25,
-      watchRate: row.video50,
-      video75Rate: row.video75,
-      clickToPurchaseRate: row.clickToPurchase,
-      atcToPurchaseRate: row.atcToPurchaseRatio,
-      historicalWindows: input.historyById.get(row.id) ?? null,
-    }))
-  );
+  const decisions = scoreMetaCreativeRows(rows, input.historyById);
 
   const decisionById = new Map(decisions.map((decision) => [decision.creativeId, decision]));
   const campaignMap = new Map<string, MetaCreativeCampaignSignalSummary>();

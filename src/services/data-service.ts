@@ -19,8 +19,7 @@ import {
 } from "@/src/services/data-service-demo";
 
 export * from "@/src/services/data-service-overview";
-export * from "@/src/services/data-service-ai";
-export * from "@/src/services/data-service-command-center";
+export * from "@/src/services/data-service-ai-insights";
 
 export async function getPlatformTable(
   platform: Platform,

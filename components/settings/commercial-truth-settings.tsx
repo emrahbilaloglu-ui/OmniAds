@@ -613,7 +613,6 @@ function RoasScenarioSection({
   const prevRoasRef = { current: targetRoas };
   useEffect(() => {
     setColumnRoas((rs) => rs.map((r) => (Math.abs(r - prevRoasRef.current) < 0.001 ? targetRoas : r)));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetRoas]);
 
   useEffect(() => {
@@ -623,7 +622,6 @@ function RoasScenarioSection({
       while (next.length < spendLevels.length) next.push(targetRoas);
       return next;
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spendLevels.length]);
 
   const resetRoas = () => setColumnRoas(spendLevels.map(() => targetRoas));

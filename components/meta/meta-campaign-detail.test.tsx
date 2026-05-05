@@ -33,17 +33,6 @@ vi.mock("@/components/meta/meta-operating-mode-card", () => ({
   MetaOperatingModeCard: () => React.createElement("div", null, "operating-mode-card"),
 }));
 
-vi.mock("@/components/meta/meta-decision-os", () => ({
-  MetaDecisionOsOverview: (props: { decisionOs: unknown; isLoading: boolean; compact?: boolean }) =>
-    React.createElement(
-      "div",
-      null,
-      `decision-os-overview:${props.isLoading ? "loading" : props.decisionOs ? "ready" : "empty"}:${props.compact ? "compact" : "default"}`,
-    ),
-  MetaCampaignDecisionPanel: (props: { campaignDecision: { role: string } | null }) =>
-    React.createElement("div", null, props.campaignDecision ? `campaign-decision:${props.campaignDecision.role}` : "campaign-decision:none"),
-}));
-
 const { MetaCampaignDetail } = await import("@/components/meta/meta-campaign-detail");
 
 function selectedCampaign(overrides: Record<string, unknown> = {}) {
@@ -91,111 +80,6 @@ function recommendationsData(withCampaignRec = true) {
   };
 }
 
-function decisionOsData(withCampaignDecision = true) {
-  return withCampaignDecision
-    ? ({
-        contractVersion: "meta-decision-os.v1",
-        generatedAt: "2026-04-10T00:00:00.000Z",
-        businessId: "biz",
-        startDate: "2026-04-01",
-        endDate: "2026-04-05",
-        summary: {
-          todayPlanHeadline: "Today plan",
-          todayPlan: ["Protect winners"],
-          budgetShiftSummary: "One shift",
-          noTouchSummary: "One no-touch",
-          operatingMode: null,
-          confidence: 0.8,
-        },
-        campaigns: [
-          {
-            campaignId: "cmp_1",
-            campaignName: "Campaign One",
-            status: "ACTIVE",
-            role: "Prospecting Scale",
-            primaryAction: "scale_budget",
-            confidence: 0.84,
-            why: "Winning lane",
-            evidence: [],
-            guardrails: [],
-            noTouch: false,
-            whatWouldChangeThisDecision: [],
-            adSetDecisionIds: ["decision_1"],
-            laneLabel: "Scaling",
-            policy: {
-              bidRegime: "open",
-              objectiveFamily: "sales",
-              primaryDriver: "roas_outperforming",
-            },
-            trust: {
-              surfaceLane: "action_core",
-              operatorDisposition: "standard",
-              reasons: ["Winning lane"],
-              evidence: { materiality: "material" },
-            },
-          },
-        ],
-        adSets: [
-          {
-            decisionId: "decision_1",
-            adSetId: "adset_1",
-            adSetName: "Adset One",
-            campaignId: "cmp_1",
-            campaignName: "Campaign One",
-            actionType: "scale_budget",
-            actionSize: "medium",
-            priority: "high",
-            confidence: 0.82,
-            reasons: ["Winning ad set"],
-            guardrails: [],
-            relatedCreativeNeeds: [],
-            relatedGeoContext: [],
-            supportingMetrics: {
-              spend: 50,
-              revenue: 130,
-              roas: 2.6,
-              cpa: 10,
-              ctr: 1.2,
-              purchases: 8,
-              impressions: 1000,
-              clicks: 12,
-              bidStrategyLabel: "Cost Cap",
-              optimizationGoal: "PURCHASE",
-              dailyBudget: 500,
-              lifetimeBudget: null,
-            },
-            whatWouldChangeThisDecision: [],
-            noTouch: false,
-            policy: {
-              bidRegime: "open",
-              objectiveFamily: "sales",
-              primaryDriver: "roas_outperforming",
-            },
-            trust: {
-              surfaceLane: "action_core",
-              operatorDisposition: "standard",
-              reasons: ["Winning ad set"],
-              evidence: { materiality: "material" },
-            },
-          },
-        ],
-        budgetShifts: [],
-        geoDecisions: [],
-        placementAnomalies: [],
-        noTouchList: [],
-        commercialTruthCoverage: {
-          mode: "configured_targets",
-          targetPackConfigured: true,
-          countryEconomicsConfigured: true,
-          promoCalendarConfigured: false,
-          operatingConstraintsConfigured: true,
-          missingInputs: [],
-          notes: [],
-        },
-      } as any)
-    : null;
-}
-
 describe("MetaCampaignDetail render contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -232,8 +116,6 @@ describe("MetaCampaignDetail render contract", () => {
       <MetaCampaignDetail
         campaign={null}
         recommendationsData={recommendationsData(false) as any}
-        decisionOsData={decisionOsData(false) as any}
-        isDecisionOsLoading={false}
         isRecsLoading={false}
         lastAnalyzedAt={null}
         checkedRecIds={new Set()}
@@ -247,7 +129,6 @@ describe("MetaCampaignDetail render contract", () => {
       />
     );
 
-    expect(html).toContain("decision-os-overview:empty:compact");
     expect(html).toContain("Account Drilldown");
     expect(html).toContain("Workflow and context");
     expect(html).not.toContain("operating-mode-card");
@@ -260,8 +141,6 @@ describe("MetaCampaignDetail render contract", () => {
       <MetaCampaignDetail
         campaign={selectedCampaign() as any}
         recommendationsData={recommendationsData(true) as any}
-        decisionOsData={decisionOsData(true) as any}
-        isDecisionOsLoading={false}
         isRecsLoading={false}
         lastAnalyzedAt={null}
         checkedRecIds={new Set()}
@@ -278,12 +157,9 @@ describe("MetaCampaignDetail render contract", () => {
     expect(html).toContain("Campaign One");
     expect(html).toContain("Sales");
     expect(html).toContain("ACTIVE");
-    expect(html).toContain("Winning lane");
-    expect(html).toContain("Decision OS takes precedence");
     expect(html).toContain("Winning campaign");
-    expect(html).toContain("campaign-decision:Prospecting Scale");
-    expect(html).toContain("Show campaign reasoning");
-    expect(html).toContain("Workflow context");
+    expect(html).not.toContain("Show campaign reasoning");
+    expect(html).not.toContain("Workflow context");
     expect(html).toContain("Budget");
     expect(html).toContain("Ad Sets");
     expect(html).toContain("Adset One");
@@ -300,8 +176,6 @@ describe("MetaCampaignDetail render contract", () => {
           previousBudgetCapturedAt: null,
         }) as any}
         recommendationsData={recommendationsData(false) as any}
-        decisionOsData={decisionOsData(true) as any}
-        isDecisionOsLoading={false}
         isRecsLoading={false}
         lastAnalyzedAt={null}
         checkedRecIds={new Set()}
@@ -324,8 +198,6 @@ describe("MetaCampaignDetail render contract", () => {
       <MetaCampaignDetail
         campaign={selectedCampaign() as any}
         recommendationsData={recommendationsData(false) as any}
-        decisionOsData={decisionOsData(false) as any}
-        isDecisionOsLoading={false}
         isRecsLoading={false}
         lastAnalyzedAt={null}
         checkedRecIds={new Set()}
@@ -358,7 +230,6 @@ describe("MetaCampaignDetail render contract", () => {
       <MetaCampaignDetail
         campaign={selectedCampaign() as any}
         recommendationsData={fallbackRecommendations as any}
-        decisionOsData={decisionOsData(false) as any}
         analysisStatus={
           {
             state: "recommendation_fallback",
@@ -366,7 +237,6 @@ describe("MetaCampaignDetail render contract", () => {
             presentationMode: "fallback_context",
           } as any
         }
-        isDecisionOsLoading={false}
         isRecsLoading={false}
         lastAnalyzedAt={null}
         checkedRecIds={new Set()}
@@ -380,8 +250,8 @@ describe("MetaCampaignDetail render contract", () => {
       />
     );
 
-    expect(html).toContain("Fallback recommendation context");
-    expect(html).toContain("Fallback context only");
+    expect(html).toContain("Snapshot recommendation context");
+    expect(html).toContain("Snapshot context only");
     expect(html).toContain("Winning campaign");
     expect(html).not.toContain("Increase budget");
   });
@@ -408,7 +278,6 @@ describe("MetaCampaignDetail render contract", () => {
       <MetaCampaignDetail
         campaign={selectedCampaign() as any}
         recommendationsData={fallbackRecommendations as any}
-        decisionOsData={decisionOsData(false) as any}
         analysisStatus={
           {
             state: "recommendation_fallback",
@@ -416,7 +285,6 @@ describe("MetaCampaignDetail render contract", () => {
             presentationMode: "fallback_context",
           } as any
         }
-        isDecisionOsLoading={false}
         isRecsLoading={false}
         lastAnalyzedAt={null}
         checkedRecIds={new Set()}
@@ -430,7 +298,7 @@ describe("MetaCampaignDetail render contract", () => {
       />
     );
 
-    expect(html).toContain("Fallback recommendation context");
+    expect(html).toContain("Snapshot recommendation context");
     expect(html).toContain("Structural test context");
     expect(html).not.toContain("Run a structural test");
   });
@@ -446,8 +314,6 @@ describe("MetaCampaignDetail render contract", () => {
       <MetaCampaignDetail
         campaign={selectedCampaign() as any}
         recommendationsData={recommendationsData(false) as any}
-        decisionOsData={decisionOsData(true) as any}
-        isDecisionOsLoading={false}
         isRecsLoading={false}
         lastAnalyzedAt={null}
         checkedRecIds={new Set()}
@@ -496,8 +362,6 @@ describe("MetaCampaignDetail render contract", () => {
       <MetaCampaignDetail
         campaign={selectedCampaign() as any}
         recommendationsData={recommendationsData(false) as any}
-        decisionOsData={decisionOsData(true) as any}
-        isDecisionOsLoading={false}
         isRecsLoading={false}
         lastAnalyzedAt={null}
         checkedRecIds={new Set()}

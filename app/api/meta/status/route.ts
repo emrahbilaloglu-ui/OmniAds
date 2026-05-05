@@ -83,7 +83,6 @@ import {
   summarizeMetaRetentionRunRows,
 } from "@/lib/meta/warehouse-retention";
 import { getMetaSelectedRangeTruthReadiness } from "@/lib/sync/meta-sync";
-import { isMetaDecisionOsV1EnabledForBusiness } from "@/lib/meta/decision-os-config";
 import {
   buildBlockingReason,
   deriveProviderActivityState,
@@ -1447,7 +1446,6 @@ export async function GET(request: NextRequest) {
       : Boolean(selectedRangeTotalDays) &&
         (selectedRangeAdsetCoverage?.completed_days ?? 0) >=
           (selectedRangeTotalDays ?? 0);
-  const decisionOsEnabled = isMetaDecisionOsV1EnabledForBusiness(businessId);
   const pageOptionalSurfaces = {
     adsets: {
       state: !connected
@@ -1509,25 +1507,13 @@ export async function GET(request: NextRequest) {
     decision_os: {
       state: !connected
         ? "not_connected"
-        : !decisionOsEnabled
-          ? "partial"
-          : pageRequiredSurfaces.summary.state === "ready" &&
-              pageRequiredSurfaces.campaigns.state === "ready"
-            ? "ready"
-            : overallSyncActive
-              ? "syncing"
-              : "partial",
+        : "partial",
       blocking: false,
       countsForPageCompleteness: false,
       truthClass: "deterministic_decision_engine",
       reason: !connected
         ? "Meta integration is not connected."
-        : !decisionOsEnabled
-          ? "Meta Decision OS is feature-gated for this workspace."
-          : pageRequiredSurfaces.summary.state === "ready" &&
-              pageRequiredSurfaces.campaigns.state === "ready"
-            ? "Meta Decision OS is available as the structured operator decision center."
-            : "Meta Decision OS remains optional while the selected-range core surfaces are still preparing.",
+        : "Legacy Meta Decision OS is archived in Phase 4.1; snapshot recommendations remain available.",
     },
   } as const;
   const pageReadiness = rollupMetaPageReadiness({

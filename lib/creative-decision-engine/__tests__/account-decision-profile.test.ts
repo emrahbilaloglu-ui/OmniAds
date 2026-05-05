@@ -5,7 +5,8 @@ import type {
   CreativeDecisionDataSource,
   DecisionCalibrationProfileConfig,
 } from "../data-source";
-import type { CreativeInput, DataHealth } from "../types";
+import type { CreativeInput, DataHealth, FunnelDiagnosis } from "../types";
+import type { OperatorResponseResult } from "../operator-response-detection";
 import {
   makeAccountCalibration,
   makeAccountFunnelCalibration,
@@ -39,6 +40,14 @@ class ProfileDataSource implements CreativeDecisionDataSource {
 
   async getDataHealth(): Promise<DataHealth> {
     return makeDataHealth();
+  }
+
+  async getLatestFunnelDiagnosis(): Promise<FunnelDiagnosis | null> {
+    return null;
+  }
+
+  async getLatestOperatorResponse(): Promise<OperatorResponseResult | null> {
+    return null;
   }
 
   async getBusinessTargetPack(): Promise<BusinessTargetPack | null> {

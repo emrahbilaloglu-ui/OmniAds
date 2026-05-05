@@ -2,15 +2,20 @@
 
 import { useMemo } from "react";
 import type {
+  AccountDecisionProfile,
   DataHealth,
   DecisionLabel,
   DecisionOutput,
   EngineV3Flags,
+  EngineMultiplierSet,
 } from "@/lib/creative-decision-engine";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-
-type LabelTone = "success" | "warning" | "danger" | "info" | "muted";
+import {
+  DECISION_LABELS,
+  LABEL_DISPLAY,
+  TONE_CLASS,
+} from "@/components/creatives/decision-label-display";
 
 interface CreativeDecisionEngineV3SurfaceProps {
   businessId: string | null;
@@ -23,39 +28,9 @@ interface CreativeDecisionEngineV3SurfaceProps {
   engineVersion: string | null;
   dataSource?: "warehouse" | "mock" | null;
   dataHealth: DataHealth | null;
+  accountProfile: AccountDecisionProfile | null;
   flags: EngineV3Flags | null;
 }
-
-const DECISION_LABELS: DecisionLabel[] = [
-  "scale",
-  "keep",
-  "refresh",
-  "cut",
-  "test_more",
-  "diagnose",
-  "out_of_scope",
-];
-
-const LABEL_DISPLAY: Record<
-  DecisionLabel,
-  { label: string; tone: LabelTone }
-> = {
-  scale: { label: "Scale", tone: "success" },
-  keep: { label: "Keep", tone: "info" },
-  refresh: { label: "Refresh", tone: "warning" },
-  cut: { label: "Cut", tone: "danger" },
-  test_more: { label: "Test more", tone: "muted" },
-  diagnose: { label: "Diagnose", tone: "warning" },
-  out_of_scope: { label: "Out of scope", tone: "muted" },
-};
-
-const TONE_CLASS: Record<LabelTone, string> = {
-  success: "border-emerald-200 bg-emerald-500/15 text-emerald-700 dark:border-emerald-500/30 dark:text-emerald-300",
-  warning: "border-amber-200 bg-amber-500/15 text-amber-800 dark:border-amber-500/30 dark:text-amber-300",
-  danger: "border-rose-200 bg-rose-500/15 text-rose-700 dark:border-rose-500/30 dark:text-rose-300",
-  info: "border-sky-200 bg-sky-500/15 text-sky-700 dark:border-sky-500/30 dark:text-sky-300",
-  muted: "border-border bg-muted text-muted-foreground",
-};
 
 export function CreativeDecisionEngineV3Surface(
   props: CreativeDecisionEngineV3SurfaceProps,
@@ -142,6 +117,9 @@ export function CreativeDecisionEngineV3Surface(
             })}
           </div>
         )}
+        {props.accountProfile && (
+          <AccountProfileDisclosure profile={props.accountProfile} />
+        )}
       </header>
 
       {props.isLoading && (
@@ -172,6 +150,110 @@ export function CreativeDecisionEngineV3Surface(
         </div>
       )}
     </section>
+  );
+}
+
+function AccountProfileDisclosure({
+  profile,
+}: {
+  profile: AccountDecisionProfile;
+}) {
+  const aovUsed =
+    profile.spendUnitSource === "meta_derived_aov"
+      ? profile.spendUnitEvidence.metaAttributedAovMean90d
+      : profile.spendUnitEvidence.operatorAovAssumption;
+
+  return (
+    <details className="basis-full rounded-md border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs text-slate-700">
+      <summary className="cursor-pointer select-none font-semibold text-slate-800">
+        Account profile
+      </summary>
+      <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        <ProfileRow
+          label="Preset"
+          value={profile.preset}
+          detail={profile.presetSource}
+        />
+        <ProfileRow
+          label="Spend unit"
+          value={formatNumber(profile.spendUnit)}
+          detail={`${profile.spendUnitSource} / ${profile.spendUnitConfidence}`}
+          mono
+        />
+        <ProfileRow
+          label="Target ROAS / break-even"
+          value={`${formatNumber(
+            profile.spendUnitEvidence.targetRoas,
+          )} / ${formatNumber(profile.spendUnitEvidence.breakEvenRoas)}`}
+          mono
+        />
+        <ProfileRow
+          label="AOV used"
+          value={formatNumber(aovUsed)}
+          detail={
+            profile.spendUnitSource === "meta_derived_aov"
+              ? "meta_attributed_aov_mean_90d"
+              : "operatorAovAssumption"
+          }
+          mono
+        />
+        <ProfileRow
+          label="Mature creatives"
+          value={formatInteger(profile.accountBaselines.matureCreativeCount)}
+          mono
+        />
+        <ProfileRow
+          label="Quality"
+          value={[
+            `commercialTruthReady=${formatBoolean(
+              profile.quality.commercialTruthReady,
+            )}`,
+            `calibrationReady=${formatBoolean(profile.quality.calibrationReady)}`,
+            `metaAovQuality=${profile.quality.metaAovQuality}`,
+            `thresholdQuality=${profile.quality.thresholdQuality}`,
+          ].join(" / ")}
+        />
+        <ProfileRow
+          label="Hard-action eligibility"
+          value={[
+            `scale=${formatBoolean(profile.hardActionEligibility.scale)}`,
+            `cut=${formatBoolean(profile.hardActionEligibility.cut)}`,
+            `refresh=${formatBoolean(profile.hardActionEligibility.refresh)}`,
+          ].join(" / ")}
+          detail={profile.hardActionEligibility.reason ?? undefined}
+        />
+        <div className="md:col-span-2 xl:col-span-3">
+          <div className="rounded border border-slate-200 bg-white px-2.5 py-2">
+            <span className="font-medium text-slate-500">Multipliers</span>
+            <span className="ml-2 font-mono text-[11px] text-slate-800">
+              {formatMultipliers(profile.multipliers)}
+            </span>
+          </div>
+        </div>
+      </div>
+    </details>
+  );
+}
+
+function ProfileRow({
+  label,
+  value,
+  detail,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="rounded border border-slate-200 bg-white px-2.5 py-2">
+      <div className="font-medium text-slate-500">{label}</div>
+      <div className={cn("mt-0.5 break-words text-slate-900", mono && "font-mono")}>
+        {value}
+      </div>
+      {detail && <div className="mt-0.5 text-[11px] text-slate-500">{detail}</div>}
+    </div>
   );
 }
 
@@ -233,4 +315,37 @@ function formatTimestamp(value: string): string {
     return `${value.slice(0, 10)} ${value.slice(11, 16)} UTC`;
   }
   return value;
+}
+
+function formatNumber(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return "n/a";
+  return value.toLocaleString(undefined, {
+    maximumFractionDigits: 2,
+  });
+}
+
+function formatInteger(value: number): string {
+  return Math.round(Number.isFinite(value) ? value : 0).toLocaleString();
+}
+
+function formatBoolean(value: boolean): string {
+  return value ? "yes" : "no";
+}
+
+function formatMultipliers(multipliers: EngineMultiplierSet): string {
+  return (
+    [
+      "zeroConvBurner",
+      "cutCandidate",
+      "sustainedLoser",
+      "hardCut",
+      "scaleEvidence",
+      "scalePurchase",
+      "winnerMemory",
+      "recentSample",
+      "weakFunnelRate",
+    ] satisfies Array<keyof EngineMultiplierSet>
+  )
+    .map((key) => `${key}=${formatNumber(multipliers[key])}`)
+    .join(" / ");
 }

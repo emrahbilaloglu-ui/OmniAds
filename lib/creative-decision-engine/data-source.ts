@@ -22,12 +22,18 @@ import type {
   EngineRiskPreset,
   FallbackMode,
   FormatFunnelBaseline,
+  FunnelDiagnosis,
+  FunnelStage,
   LifecyclePosition,
   MetaRanking,
   MetaAovQuality,
   SpendTrajectory,
   StaleTier,
 } from "./types";
+import type {
+  OperatorResponseResult,
+  OperatorResponseType,
+} from "./operator-response-detection";
 
 export interface BusinessTargetPack {
   targetCpa: number | null;
@@ -93,6 +99,20 @@ export interface CreativeDecisionDataSource {
     businessId: string;
     asOf: string;
   }): Promise<DataHealth>;
+
+  /** Latest persisted funnel diagnosis for drawer evidence. */
+  getLatestFunnelDiagnosis(input: {
+    businessId: string;
+    creativeId: string;
+    asOf: string;
+  }): Promise<FunnelDiagnosis | null>;
+
+  /** Latest persisted operator response detector output for drawer evidence. */
+  getLatestOperatorResponse(input: {
+    businessId: string;
+    creativeId: string;
+    asOf: string;
+  }): Promise<OperatorResponseResult | null>;
 
   /** Commercial truth used by the account-relative threshold resolver. */
   getBusinessTargetPack(input: {
@@ -270,6 +290,44 @@ export class MockDataSource implements CreativeDecisionDataSource {
     });
   }
 
+  async getLatestFunnelDiagnosis(): Promise<FunnelDiagnosis | null> {
+    return {
+      primaryWeakStage: "none",
+      creativeResponsible: false,
+      confidence: 1,
+      evidence: ["mock funnel rates are not below weak thresholds"],
+      rates: {
+        ctr: 1.2,
+        outboundClickRate: 1.04,
+        linkToLpvRate: 80,
+        linkToAtcRate: 13.33,
+        lpvToAtcRate: 16.67,
+        atcToIcRate: 50,
+        icToPurchaseRate: 20,
+        atcToPurchaseRate: 10,
+        clickToPurchaseRate: 1.33,
+      },
+    };
+  }
+
+  async getLatestOperatorResponse(): Promise<OperatorResponseResult | null> {
+    return {
+      responseType: "ignored",
+      decisionRecommendedAt: "2026-05-01",
+      operatorResponseDetectedAt: "2026-05-04T00:00:00.000Z",
+      confidence: 0.72,
+      evidence: ["mock operator response evidence"],
+      signals: {
+        spendSlope7d: 0,
+        budgetChangeAmount: null,
+        actionJournalReceiptCount: 0,
+        statusChanged: false,
+        roasDecayPct: null,
+        frequencyRosePct: null,
+      },
+    };
+  }
+
   async getBusinessTargetPack(): Promise<BusinessTargetPack | null> {
     return {
       targetCpa: null,
@@ -364,6 +422,26 @@ const CREATIVE_FORMATS = new Set<CreativeFormat>([
   "carousel",
   "catalog",
   "other",
+]);
+
+const FUNNEL_STAGES = new Set<FunnelStage>([
+  "upper_funnel",
+  "landing_page",
+  "checkout",
+  "tracking",
+  "none",
+  "insufficient_signal",
+]);
+
+const OPERATOR_RESPONSE_TYPES = new Set<OperatorResponseType>([
+  "scaled",
+  "scaled_natural_saturation",
+  "ignored",
+  "paused",
+  "creative_archived",
+  "budget_decreased",
+  "unknown",
+  "no_recommendation",
 ]);
 
 type CreativeHydrationRow = Record<string, unknown> & {
@@ -574,6 +652,26 @@ type LifecycleHealthRow = Record<string, unknown> & {
   as_of_date: unknown;
   engine_version: unknown;
   row_count: unknown;
+};
+
+type FunnelDiagnosisTableRow = Record<string, unknown> & {
+  ctr_28d: unknown;
+  outbound_click_rate_28d: unknown;
+  link_to_lpv_rate_28d: unknown;
+  link_to_atc_rate_28d: unknown;
+  lpv_to_atc_rate_28d: unknown;
+  atc_to_ic_rate_28d: unknown;
+  ic_to_purchase_rate_28d: unknown;
+  atc_to_purchase_rate_28d: unknown;
+  click_to_purchase_rate_28d: unknown;
+  funnel_primary_weak_stage: unknown;
+  funnel_confidence: unknown;
+  funnel_evidence: unknown;
+  creative_responsibility_score: unknown;
+};
+
+type OperatorResponseEventRow = Record<string, unknown> & {
+  operator_evidence: unknown;
 };
 
 interface CalibrationReadMetadata {
@@ -1231,6 +1329,41 @@ WHERE business_ref_id = $1::uuid
   AND as_of_date <= $2::date
 `;
 
+const READ_LATEST_FUNNEL_DIAGNOSIS_QUERY = `
+SELECT
+  ctr_28d,
+  outbound_click_rate_28d,
+  link_to_lpv_rate_28d,
+  link_to_atc_rate_28d,
+  lpv_to_atc_rate_28d,
+  atc_to_ic_rate_28d,
+  ic_to_purchase_rate_28d,
+  atc_to_purchase_rate_28d,
+  click_to_purchase_rate_28d,
+  funnel_primary_weak_stage,
+  funnel_confidence,
+  funnel_evidence,
+  creative_responsibility_score
+FROM engine_v3_creative_lifecycle_daily
+WHERE business_ref_id = $1::uuid
+  AND creative_id = $2
+  AND as_of_date <= $3::date
+ORDER BY as_of_date DESC, computed_at DESC
+LIMIT 1
+`;
+
+const READ_LATEST_OPERATOR_RESPONSE_QUERY = `
+SELECT operator_evidence
+FROM engine_v3_decision_events
+WHERE business_ref_id = $1::uuid
+  AND creative_id = $2
+  AND event_type = 'operator_action'
+  AND operator_evidence IS NOT NULL
+  AND event_date <= $3::date
+ORDER BY event_date DESC, created_at DESC
+LIMIT 1
+`;
+
 const READ_BUSINESS_TARGET_PACK_QUERY = `
 SELECT
   target_cpa,
@@ -1417,6 +1550,122 @@ function toCreativeFormat(value: unknown): CreativeFormat | null {
     return "image";
   }
   return "other";
+}
+
+function toFunnelStage(value: unknown): FunnelStage | null {
+  const text = toStringOrNull(value);
+  if (text === null) return null;
+  return FUNNEL_STAGES.has(text as FunnelStage) ? (text as FunnelStage) : null;
+}
+
+function toOperatorResponseType(value: unknown): OperatorResponseType | null {
+  const text = toStringOrNull(value);
+  if (text === null) return null;
+  return OPERATOR_RESPONSE_TYPES.has(text as OperatorResponseType)
+    ? (text as OperatorResponseType)
+    : null;
+}
+
+function toBoolean(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes";
+}
+
+function toRecord(value: unknown): Record<string, unknown> {
+  if (value === null || value === undefined) return {};
+  if (typeof value === "string") {
+    try {
+      return toRecord(JSON.parse(value) as unknown);
+    } catch {
+      return {};
+    }
+  }
+  if (typeof value !== "object" || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
+function toStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => {
+      const text = toStringOrNull(item);
+      return text === null ? [] : [text];
+    });
+  }
+  if (typeof value === "string") {
+    try {
+      return toStringArray(JSON.parse(value) as unknown);
+    } catch {
+      const text = value.trim();
+      return text ? [text] : [];
+    }
+  }
+  return [];
+}
+
+function mapFunnelDiagnosisRow(
+  row: FunnelDiagnosisTableRow | undefined,
+): FunnelDiagnosis | null {
+  if (!row) return null;
+  const primaryWeakStage = toFunnelStage(row.funnel_primary_weak_stage);
+  if (primaryWeakStage === null) return null;
+
+  return {
+    primaryWeakStage,
+    creativeResponsible:
+      (toNumberOrNull(row.creative_responsibility_score) ?? 0) > 0,
+    confidence: toNumberOrNull(row.funnel_confidence) ?? 0,
+    evidence: toStringArray(row.funnel_evidence),
+    rates: {
+      ctr: toNumberOrNull(row.ctr_28d),
+      outboundClickRate: toNumberOrNull(row.outbound_click_rate_28d),
+      linkToLpvRate: toNumberOrNull(row.link_to_lpv_rate_28d),
+      linkToAtcRate: toNumberOrNull(row.link_to_atc_rate_28d),
+      lpvToAtcRate: toNumberOrNull(row.lpv_to_atc_rate_28d),
+      atcToIcRate: toNumberOrNull(row.atc_to_ic_rate_28d),
+      icToPurchaseRate: toNumberOrNull(row.ic_to_purchase_rate_28d),
+      atcToPurchaseRate: toNumberOrNull(row.atc_to_purchase_rate_28d),
+      clickToPurchaseRate: toNumberOrNull(row.click_to_purchase_rate_28d),
+    },
+  };
+}
+
+function mapOperatorResponseRow(
+  row: OperatorResponseEventRow | undefined,
+): OperatorResponseResult | null {
+  if (!row) return null;
+  const evidenceRecord = toRecord(row.operator_evidence);
+  const responseType = toOperatorResponseType(evidenceRecord.response_type);
+  if (responseType === null) return null;
+  const signals = toRecord(evidenceRecord.signals);
+  const promoteLifecyclePosition =
+    toStringOrNull(evidenceRecord.lifecycle_promotion) === "past_peak_inaction"
+      ? "past_peak_inaction"
+      : undefined;
+
+  return {
+    responseType,
+    decisionRecommendedAt: toIsoDateOrNull(
+      evidenceRecord.decision_recommended_at,
+    ),
+    operatorResponseDetectedAt: toIsoTimestampOrNull(
+      evidenceRecord.operator_response_detected_at,
+    ),
+    confidence: toNumberOrNull(evidenceRecord.confidence) ?? 0,
+    evidence: toStringArray(evidenceRecord.evidence),
+    ...(promoteLifecyclePosition ? { promoteLifecyclePosition } : {}),
+    signals: {
+      spendSlope7d: toNumberOrNull(signals.spendSlope7d),
+      budgetChangeAmount: toNumberOrNull(signals.budgetChangeAmount),
+      actionJournalReceiptCount:
+        toIntegerOrNull(signals.actionJournalReceiptCount) ?? 0,
+      statusChanged: toBoolean(signals.statusChanged),
+      roasDecayPct: toNumberOrNull(signals.roasDecayPct),
+      frequencyRosePct: toNumberOrNull(signals.frequencyRosePct),
+    },
+  };
 }
 
 function toHistoricalWindow(
@@ -2107,6 +2356,30 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
       lifecycle,
       decisions,
     });
+  }
+
+  async getLatestFunnelDiagnosis(input: {
+    businessId: string;
+    creativeId: string;
+    asOf: string;
+  }): Promise<FunnelDiagnosis | null> {
+    const [row] = await getDb().query<FunnelDiagnosisTableRow>(
+      READ_LATEST_FUNNEL_DIAGNOSIS_QUERY,
+      [input.businessId, input.creativeId, input.asOf],
+    );
+    return mapFunnelDiagnosisRow(row);
+  }
+
+  async getLatestOperatorResponse(input: {
+    businessId: string;
+    creativeId: string;
+    asOf: string;
+  }): Promise<OperatorResponseResult | null> {
+    const [row] = await getDb().query<OperatorResponseEventRow>(
+      READ_LATEST_OPERATOR_RESPONSE_QUERY,
+      [input.businessId, input.creativeId, input.asOf],
+    );
+    return mapOperatorResponseRow(row);
   }
 
   private async buildCalibrationDataLayerHealth(

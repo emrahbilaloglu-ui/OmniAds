@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CreativeDecisionEngineV3Surface } from "@/components/creatives/CreativeDecisionEngineV3Surface";
 import type {
+  AccountDecisionProfile,
   DataHealth,
   DataLayerHealth,
   DecisionOutput,
@@ -82,6 +83,93 @@ function makeFlags(overrides: Partial<EngineV3Flags> = {}): EngineV3Flags {
   };
 }
 
+function makeAccountProfile(): AccountDecisionProfile {
+  return {
+    businessId: "biz-1",
+    asOfDate: "2026-05-04",
+    channel: "meta",
+    objectiveFamily: "sales",
+    preset: "balanced",
+    presetSource: "default",
+    spendUnit: 50,
+    spendUnitSource: "meta_derived_aov",
+    spendUnitConfidence: "high",
+    spendUnitEvidence: {
+      targetCpa: null,
+      operatorAovAssumption: 55,
+      metaAttributedAovMean90d: 50,
+      metaAttributedAovPurchaseCount90d: 42,
+      metaAttributedRevenue90d: 2100,
+      targetRoas: 2.2,
+      breakEvenRoas: 1.71,
+      accountCpaP50: 58,
+      accountCpaSampleCount: 24,
+      warnings: [],
+    },
+    multipliers: {
+      zeroConvBurner: 1.5,
+      cutCandidate: 2,
+      sustainedLoser: 3,
+      hardCut: 4,
+      scaleEvidence: 1.2,
+      scalePurchase: 1,
+      winnerMemory: 0.8,
+      recentSample: 0.5,
+      weakFunnelRate: 0.8,
+    },
+    thresholds: {
+      zeroConvBurnerSpend: 75,
+      cutCandidateSpend: 100,
+      sustainedLoserSpend: 150,
+      hardCutSpend: 200,
+      recentSampleMinSpend: 50,
+      scaleMinEvidenceSpend: 100,
+      winnerMemoryMinSpend: 80,
+      scaleMinPurchases: 3,
+      winnerMemoryMinPurchases: 2,
+      bottomQuartileRatio: 0.6,
+      severeLoserRatio: 0.4,
+    },
+    accountBaselines: {
+      businessId: "biz-1",
+      computedAt: "2026-05-04T12:00:00.000Z",
+      matureCreativeCount: 35,
+      roasP75: 2.4,
+      roasP60: 1.9,
+      refreshRatioP10: 0.82,
+      lowCtrP10: 0.7,
+      accountCpaP50: 58,
+      accountCpaSampleCount: 24,
+      metaAttributedAovMean90d: 50,
+      metaAttributedAovPurchaseCount90d: 42,
+      metaAttributedRevenue90d: 2100,
+      matureSpendP50: 300,
+      matureSpendP75: 450,
+      winnerSpendP25: 250,
+      winnerSpendP50: 500,
+      winnerPurchaseP50: 5,
+      roasRatioP10: 0.4,
+      roasRatioP25: 0.6,
+      roasRatioP50: 1,
+      roasRatioP75: 1.35,
+      metaAovQuality: "ready",
+    },
+    funnelCalibration: { byFormat: {} },
+    hardActionEligibility: {
+      scale: true,
+      cut: true,
+      refresh: true,
+      reason: null,
+    },
+    quality: {
+      commercialTruthReady: true,
+      calibrationReady: true,
+      metaAovQuality: "ready",
+      thresholdQuality: "ready",
+    },
+  };
+}
+
 function renderSurface(
   overrides: Partial<React.ComponentProps<typeof CreativeDecisionEngineV3Surface>> = {},
 ) {
@@ -94,6 +182,7 @@ function renderSurface(
       error={null}
       engineVersion="v3-2026-05-04-phase-3.4"
       dataHealth={null}
+      accountProfile={null}
       flags={makeFlags()}
       {...overrides}
     />,
@@ -264,5 +353,31 @@ describe("CreativeDecisionEngineV3Surface", () => {
 
   it("does not render when no business is selected", () => {
     expect(renderSurface({ businessId: null })).toBe("");
+  });
+
+  it("renders Account profile disclosure when accountProfile is provided", () => {
+    const html = renderSurface({ accountProfile: makeAccountProfile() });
+
+    expect(html).toContain("<details");
+    expect(html).toContain("Account profile");
+    expect(html).toContain("Preset");
+    expect(html).toContain("Spend unit");
+    expect(html).toContain("Target ROAS / break-even");
+  });
+
+  it("renders the disclosure collapsed and includes profile fields", () => {
+    const html = renderSurface({ accountProfile: makeAccountProfile() });
+
+    expect(html).not.toContain("<details open");
+    expect(html).toContain("balanced");
+    expect(html).toContain("meta_derived_aov / high");
+    expect(html).toContain("2.2 / 1.71");
+  });
+
+  it("renders no Account profile disclosure when accountProfile is null", () => {
+    const html = renderSurface({ accountProfile: null });
+
+    expect(html).not.toContain("Account profile");
+    expect(html).not.toContain("Mature creatives");
   });
 });

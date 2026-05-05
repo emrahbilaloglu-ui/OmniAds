@@ -115,6 +115,11 @@ describe("GET /api/creatives/decision-engine-v3", () => {
     expect(payload.dataHealth.calibration).toBeDefined();
     expect(payload.dataHealth.lifecycle).toBeDefined();
     expect(payload.dataHealth.decisions).toBeDefined();
+    expect(payload.accountProfile).toMatchObject({
+      businessId: "biz-1",
+      preset: "balanced",
+      spendUnitSource: "meta_derived_aov",
+    });
     expect(payload.decisions).toHaveLength(3);
     expect(requireBusinessAccess).toHaveBeenCalledWith({
       request: expect.any(NextRequest),

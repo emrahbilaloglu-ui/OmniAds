@@ -15,6 +15,7 @@ import {
   creativeDateRangeToStandard,
   standardDateRangeToCreative,
 } from "@/components/creatives/creatives-top-section-support";
+import { CreativeEngineV3EvidenceSection } from "@/components/creatives/CreativeEngineV3EvidenceSection";
 import type { AiCreativeHistoricalWindows as CreativeHistoricalWindows } from "@/lib/meta/creative-scoring";
 import { getCreativeDisplayPills } from "@/lib/meta/creative-taxonomy";
 
@@ -519,6 +520,14 @@ export function CreativeDetailExperience({
                   className="mt-2 min-h-[100px] w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm outline-none focus:border-slate-400"
                 />
               </section>
+
+              {row.creativeId && businessId ? (
+                <CreativeEngineV3EvidenceSection
+                  businessId={businessId}
+                  creativeId={row.creativeId}
+                  open={open}
+                />
+              ) : null}
 
             </div>
           </aside>

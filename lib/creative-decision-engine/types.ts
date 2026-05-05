@@ -6,6 +6,7 @@
  */
 
 import type { EngineV3Flags } from "./feature-flags";
+import type { OperatorResponseResult } from "./operator-response-detection";
 
 export const ENGINE_VERSION = "v3-2026-05-04-phase-3.10";
 
@@ -532,6 +533,7 @@ export interface DecisionResponse {
   engineVersion: string;
   dataSource: "warehouse" | "mock";
   dataHealth: DataHealth;
+  accountProfile: AccountDecisionProfile;
   decisions: DecisionOutput[];
   flags: EngineV3Flags;
 }
@@ -541,6 +543,7 @@ export interface DecisionDisabledResponse {
   reason: "engine_v3_disabled_for_business";
   flags: EngineV3Flags;
   decisions?: undefined;
+  accountProfile?: undefined;
   dataHealth?: undefined;
   dataSource?: undefined;
   engineVersion?: undefined;
@@ -551,3 +554,17 @@ export interface DecisionDisabledResponse {
 export type DecisionEngineV3Response =
   | DecisionResponse
   | DecisionDisabledResponse;
+
+export interface DecisionEvidenceResponse {
+  businessId: string;
+  creativeId: string;
+  asOf: string;
+  engineVersion: string;
+  flags: EngineV3Flags;
+  dataHealth: DataHealth;
+  accountProfile: AccountDecisionProfile;
+  decision: DecisionOutput;
+  input: CreativeInput;
+  funnelDiagnosis: FunnelDiagnosis | null;
+  operatorResponse: OperatorResponseResult | null;
+}

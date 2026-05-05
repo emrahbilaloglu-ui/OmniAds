@@ -7,6 +7,7 @@ import {
   type DecisionEngineV3Response,
 } from "@/app/(dashboard)/creatives/page-support";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
+import type { AccountDecisionProfile } from "@/lib/creative-decision-engine";
 
 function buildApiRow(overrides: Partial<MetaCreativeApiRow> = {}): MetaCreativeApiRow {
   return {
@@ -112,6 +113,93 @@ function buildApiRow(overrides: Partial<MetaCreativeApiRow> = {}): MetaCreativeA
 afterEach(() => {
   vi.unstubAllGlobals();
 });
+
+function makeAccountProfile(): AccountDecisionProfile {
+  return {
+    businessId: "biz-1",
+    asOfDate: "2026-05-04",
+    channel: "meta",
+    objectiveFamily: "sales",
+    preset: "balanced",
+    presetSource: "default",
+    spendUnit: 50,
+    spendUnitSource: "meta_derived_aov",
+    spendUnitConfidence: "high",
+    spendUnitEvidence: {
+      targetCpa: null,
+      operatorAovAssumption: 55,
+      metaAttributedAovMean90d: 50,
+      metaAttributedAovPurchaseCount90d: 42,
+      metaAttributedRevenue90d: 2100,
+      targetRoas: 2.2,
+      breakEvenRoas: 1.71,
+      accountCpaP50: 58,
+      accountCpaSampleCount: 24,
+      warnings: [],
+    },
+    multipliers: {
+      zeroConvBurner: 1.5,
+      cutCandidate: 2,
+      sustainedLoser: 3,
+      hardCut: 4,
+      scaleEvidence: 1.2,
+      scalePurchase: 1,
+      winnerMemory: 0.8,
+      recentSample: 0.5,
+      weakFunnelRate: 0.8,
+    },
+    thresholds: {
+      zeroConvBurnerSpend: 75,
+      cutCandidateSpend: 100,
+      sustainedLoserSpend: 150,
+      hardCutSpend: 200,
+      recentSampleMinSpend: 50,
+      scaleMinEvidenceSpend: 100,
+      winnerMemoryMinSpend: 80,
+      scaleMinPurchases: 3,
+      winnerMemoryMinPurchases: 2,
+      bottomQuartileRatio: 0.6,
+      severeLoserRatio: 0.4,
+    },
+    accountBaselines: {
+      businessId: "biz-1",
+      computedAt: "2026-05-04T12:00:00.000Z",
+      matureCreativeCount: 35,
+      roasP75: 2.4,
+      roasP60: 1.9,
+      refreshRatioP10: 0.82,
+      lowCtrP10: 0.7,
+      accountCpaP50: 58,
+      accountCpaSampleCount: 24,
+      metaAttributedAovMean90d: 50,
+      metaAttributedAovPurchaseCount90d: 42,
+      metaAttributedRevenue90d: 2100,
+      matureSpendP50: 300,
+      matureSpendP75: 450,
+      winnerSpendP25: 250,
+      winnerSpendP50: 500,
+      winnerPurchaseP50: 5,
+      roasRatioP10: 0.4,
+      roasRatioP25: 0.6,
+      roasRatioP50: 1,
+      roasRatioP75: 1.35,
+      metaAovQuality: "ready",
+    },
+    funnelCalibration: { byFormat: {} },
+    hardActionEligibility: {
+      scale: true,
+      cut: true,
+      refresh: true,
+      reason: null,
+    },
+    quality: {
+      commercialTruthReady: true,
+      calibrationReady: true,
+      metaAovQuality: "ready",
+      thresholdQuality: "ready",
+    },
+  };
+}
 
 describe("mapApiRowToUiRow", () => {
   it("maps new taxonomy labels to the UI row", () => {
@@ -291,6 +379,7 @@ describe("fetchCreativeDecisionEngineV3", () => {
       asOf: "2026-05-04",
       engineVersion: "v3-2026-05-04-stub",
       dataSource: "warehouse",
+      accountProfile: makeAccountProfile(),
       dataHealth: {
         calibration: {
           asOfDate: "2026-05-04",

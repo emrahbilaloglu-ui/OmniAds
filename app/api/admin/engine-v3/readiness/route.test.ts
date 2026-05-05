@@ -241,9 +241,9 @@ describe("GET /api/admin/engine-v3/readiness", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     restoreEnv();
-    process.env.ENGINE_V3_ENABLED = "true";
-    process.env.ENGINE_V3_SURFACE_VISIBLE = "true";
-    process.env.ENGINE_V3_SHADOW_ONLY = "false";
+    process.env.DECISION_ENGINE_V3_ENABLED = "true";
+    process.env.DECISION_ENGINE_V3_SURFACE_VISIBLE = "true";
+    process.env.DECISION_ENGINE_V3_SHADOW_ONLY = "false";
     fixture = makeFixture();
     mockAdmin();
     dbMocks.query.mockImplementation(handleQuery);

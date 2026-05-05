@@ -5,6 +5,10 @@ import {
   resolveAccountDecisionProfile,
 } from "@/lib/creative-decision-engine/account-decision-profile";
 import { WarehouseDataSource } from "@/lib/creative-decision-engine/data-source";
+import {
+  resolveEngineV3Flags,
+  type EngineV3Flags,
+} from "@/lib/creative-decision-engine/feature-flags";
 import { JOB_NAME as CALIBRATION_JOB_NAME } from "@/lib/creative-decision-engine/jobs/calibration-job";
 import { JOB_NAME as DECISIONS_JOB_NAME } from "@/lib/creative-decision-engine/jobs/decisions-job";
 import { JOB_NAME as LIFECYCLE_JOB_NAME } from "@/lib/creative-decision-engine/jobs/lifecycle-job";
@@ -47,15 +51,6 @@ interface ReadinessFlags {
   };
 }
 
-interface EngineV3Flags extends ReadinessFlags {
-  businessId: string;
-  envDefaults: {
-    enabled: boolean;
-    surfaceVisible: boolean;
-    shadowOnly: boolean;
-  };
-}
-
 interface DataHealth {
   tier: DataHealthTier;
   metaSyncAgeHours: number | null;
@@ -89,12 +84,6 @@ interface JobsSnapshot {
 interface BusinessRow {
   id: unknown;
   name: unknown;
-}
-
-interface FlagRow {
-  enabled: unknown;
-  surface_visible: unknown;
-  shadow_only: unknown;
 }
 
 interface FreshnessRow {
@@ -150,16 +139,6 @@ function toNumberOrNull(value: unknown): number | null {
   return null;
 }
 
-function toBooleanOrNull(value: unknown): boolean | null {
-  if (typeof value === "boolean") return value;
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase();
-    if (["1", "true", "yes", "on"].includes(normalized)) return true;
-    if (["0", "false", "no", "off"].includes(normalized)) return false;
-  }
-  return null;
-}
-
 function toIsoTimestampOrNull(value: unknown): string | null {
   if (value instanceof Date) return value.toISOString();
   if (typeof value !== "string" || value.trim() === "") return null;
@@ -179,85 +158,6 @@ function truncateText(value: unknown, maxLength: number) {
   const text = toStringOrNull(value);
   if (text === null) return null;
   return text.length > maxLength ? text.slice(0, maxLength) : text;
-}
-
-function readEnvBoolean(keys: string[], fallback: boolean) {
-  for (const key of keys) {
-    const parsed = toBooleanOrNull(process.env[key]);
-    if (parsed !== null) return parsed;
-  }
-  return fallback;
-}
-
-function resolveEnvFlags(businessId: string): EngineV3Flags {
-  const envDefaults = {
-    enabled: readEnvBoolean(
-      ["ENGINE_V3_ENABLED", "DECISION_ENGINE_V3_ENABLED"],
-      true,
-    ),
-    surfaceVisible: readEnvBoolean(
-      ["ENGINE_V3_SURFACE_VISIBLE", "DECISION_ENGINE_V3_SURFACE_VISIBLE"],
-      false,
-    ),
-    shadowOnly: readEnvBoolean(
-      ["ENGINE_V3_SHADOW_ONLY", "DECISION_ENGINE_V3_SHADOW_ONLY"],
-      true,
-    ),
-  };
-
-  return {
-    businessId,
-    ...envDefaults,
-    source: {
-      enabled: "env",
-      surfaceVisible: "env",
-      shadowOnly: "env",
-    },
-    envDefaults,
-  };
-}
-
-async function resolveEngineV3Flags(
-  db: DbClient,
-  businessId: string,
-): Promise<EngineV3Flags> {
-  const envFlags = resolveEnvFlags(businessId);
-
-  try {
-    const [row] = await db.query<FlagRow>(
-      `
-      SELECT enabled, surface_visible, shadow_only
-      FROM business_engine_v3_flags
-      WHERE business_id::text = $1
-      LIMIT 1
-      `,
-      [businessId],
-    );
-
-    if (!row) return envFlags;
-
-    const enabled = toBooleanOrNull(row.enabled);
-    const surfaceVisible = toBooleanOrNull(row.surface_visible);
-    const shadowOnly = toBooleanOrNull(row.shadow_only);
-
-    return {
-      businessId,
-      enabled: enabled ?? envFlags.enabled,
-      surfaceVisible: surfaceVisible ?? envFlags.surfaceVisible,
-      shadowOnly: shadowOnly ?? envFlags.shadowOnly,
-      source: {
-        enabled: enabled === null ? "env" : "business_override",
-        surfaceVisible:
-          surfaceVisible === null ? "env" : "business_override",
-        shadowOnly: shadowOnly === null ? "env" : "business_override",
-      },
-      envDefaults: envFlags.envDefaults,
-    };
-  } catch {
-    // TODO(Phase 4.2a): replace this env fallback with resolveEngineV3Flags
-    // from the feature-flags module once that PR/table is present here.
-    return envFlags;
-  }
 }
 
 function toReadinessFlags(flags: EngineV3Flags): ReadinessFlags {
@@ -575,7 +475,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const [business, resolverFlags] = await Promise.all([
       readBusiness(db, businessId),
-      resolveEngineV3Flags(db, businessId),
+      resolveEngineV3Flags(businessId),
     ]);
 
     if (business === null) {

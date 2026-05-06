@@ -9,8 +9,8 @@ Universe: **154 creatives** (TheSwaf 47 + IwaStore 107; active + closed_30d).
 | scale | 1 | 1 | 13 | 1 | 13 |
 | keep | 18 | 7 | 28 | 23 | 34 |
 | refresh | 0 | 4 | 18 | 0 | 17 |
-| cut | 5 | 24 | 22 | 2 | 57 |
-| test_more | 101 | 96 | 73 | 128 | 0 |
+| cut | 7 | 24 | 22 | 2 | 57 |
+| test_more | 99 | 96 | 73 | 128 | 0 |
 | diagnose | 15 | 22 | 0 | 0 | 33 |
 | out_of_scope | 5 | 0 | 0 | 0 | 0 |
 | missing | 9 | 0 | 0 | 0 | 0 |
@@ -19,16 +19,16 @@ Universe: **154 creatives** (TheSwaf 47 + IwaStore 107; active + closed_30d).
 
 | | v3 | me | marcus | lin | aria |
 |---|---:|---:|---:|---:|---:|
-| v3 | 100.0% | 75.0% | 42.1% | 75.7% | 12.1% |
-| me | 75.0% | 100.0% | 55.8% | 68.2% | 24.0% |
-| marcus | 42.1% | 55.8% | 100.0% | 50.0% | 24.7% |
-| lin | 75.7% | 68.2% | 50.0% | 100.0% | 3.2% |
-| aria | 12.1% | 24.0% | 24.7% | 3.2% | 100.0% |
+| v3 | 100.0% | 76.4% | 43.6% | 74.3% | 13.6% |
+| me | 76.4% | 100.0% | 55.8% | 68.2% | 24.0% |
+| marcus | 43.6% | 55.8% | 100.0% | 50.0% | 24.7% |
+| lin | 74.3% | 68.2% | 50.0% | 100.0% | 3.2% |
+| aria | 13.6% | 24.0% | 24.7% | 3.2% | 100.0% |
 
 ## Strong consensus (5/5 same label) — 0 creatives
 
 
-## 4/5 consensus (1 outlier) — 59 creatives
+## 4/5 consensus (1 outlier) — 61 creatives
 
 | business | name | bucket | spend_28d | roas_28d | v3 | me | Marcus | Lin | Aria | outlier |
 |---|---|---|---:|---:|---|---|---|---|---|---|
@@ -37,6 +37,8 @@ Universe: **154 creatives** (TheSwaf 47 + IwaStore 107; active + closed_30d).
 | TheSwaf | wearthefearrevise | active | $2241 | 0.8885 | cut | cut | cut | test_more | cut | **lin** |
 | TheSwaf | depth | closed_30d | $587 | 0.6284 | cut | cut | cut | test_more | cut | **lin** |
 | TheSwaf | restraintrevise | active | $504 | 4.1756 | scale | scale | scale | keep | scale | **lin** |
+| IwaStore | Since I hung | active | $323 | 0.8743 | cut | cut | cut | test_more | cut | **lin** |
+| TheSwaf | faith | closed_30d | $325 | 0.3848 | cut | cut | cut | test_more | cut | **lin** |
 | TheSwaf | watchthat | closed_30d | $226 | 0.0000 | cut | cut | cut | test_more | cut | **lin** |
 | IwaStore | PrayerEssentialsCatalog | active | $72 | 0.0000 | test_more | test_more | test_more | test_more | cut | **aria** |
 | IwaStore | The heart finds | active | $49 | 0.0000 | test_more | test_more | test_more | test_more | cut | **aria** |
@@ -55,10 +57,8 @@ Universe: **154 creatives** (TheSwaf 47 + IwaStore 107; active + closed_30d).
 | TheSwaf | EMB - Mix | active | $5 | 0.0000 | test_more | test_more | test_more | test_more | cut | **aria** |
 | IwaStore | Decorating the | closed_30d | $1 | 0.0000 | test_more | test_more | test_more | test_more | keep | **aria** |
 | IwaStore | Glowing lanterns | closed_30d | $7 | 0.0000 | test_more | test_more | test_more | test_more | cut | **aria** |
-| IwaStore | decorista_93 | active | $7 | 0.0000 | test_more | test_more | test_more | test_more | cut | **aria** |
-| IwaStore | It became the favorite | active | $6 | 0.0000 | test_more | test_more | test_more | test_more | cut | **aria** |
 
-_... and 34 more_
+_... and 36 more_
 
 ## High disagreement (≥4 unique labels) — 6 creatives
 
@@ -73,7 +73,7 @@ _... and 34 more_
 
 ## v3 vs human consensus
 
-- **v3 matches majority consensus**: 103/154 (66.9%)
-- **v3 differs from majority**: 32/154 (20.8%)
+- **v3 matches majority consensus**: 105/154 (68.2%)
+- **v3 differs from majority**: 30/154 (19.5%)
 - **No clear consensus among humans+engine**: 19/154 (12.3%)
 

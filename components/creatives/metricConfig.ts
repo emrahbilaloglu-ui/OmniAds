@@ -59,6 +59,7 @@ export interface MetaCreativePreview {
 export interface MetaCreativeRow {
   id: string;
   creativeId: string;
+  realAdId?: string | null;
   objectStoryId?: string | null;
   effectiveObjectStoryId?: string | null;
   postId?: string | null;

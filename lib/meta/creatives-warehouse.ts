@@ -119,6 +119,7 @@ function buildFallbackAdRawRow(input: {
   return {
     id: factRow.adId,
     creative_id: input.creativeId ?? factRow.adId,
+    real_ad_id: factRow.adId,
     object_story_id: null,
     effective_object_story_id: null,
     post_id: null,
@@ -333,6 +334,7 @@ export function coerceRawCreativeRow(value: unknown): RawCreativeRow | null {
   return {
     id: apiRow.id,
     creative_id: apiRow.creative_id,
+    real_ad_id: apiRow.real_ad_id ?? null,
     object_story_id: apiRow.object_story_id ?? null,
     effective_object_story_id: apiRow.effective_object_story_id ?? null,
     post_id: apiRow.post_id ?? null,
@@ -411,6 +413,10 @@ export function hydrateWarehouseCreativeMetrics<T extends RawCreativeRow>(input:
     campaign_id: input.factRow.campaignId ?? input.row.campaign_id,
     adset_id: input.factRow.adsetId ?? input.row.adset_id,
     id: "adId" in input.factRow ? (input.factRow.adId ?? input.row.id) : input.row.id,
+    real_ad_id:
+      "adId" in input.factRow
+        ? (input.factRow.adId ?? input.row.real_ad_id ?? null)
+        : (input.row.real_ad_id ?? null),
     creative_id:
       "creativeId" in input.factRow
         ? (input.factRow.creativeId ?? input.row.creative_id)

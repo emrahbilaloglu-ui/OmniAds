@@ -590,6 +590,7 @@ export function toRawRow(
   return {
     id: adId,
     creative_id: creativeId,
+    real_ad_id: adId,
     object_story_id: objectStoryId,
     effective_object_story_id: effectiveObjectStoryId,
     post_id: postId,
@@ -841,6 +842,13 @@ export function groupRows(
     const groupedCopyDebugSources = mergeDebugSources([], list.flatMap((item) => item.copy_debug_sources ?? []));
     const groupedUnresolvedReason =
       list.map((item) => item.unresolved_reason ?? null).find((value): value is string => Boolean(value)) ?? null;
+    const groupedRealAdIds = Array.from(
+      new Set(
+        list
+          .map((item) => item.real_ad_id ?? item.id)
+          .filter((value): value is string => typeof value === "string" && value.trim().length > 0),
+      ),
+    );
 
     const stableId =
       groupBy === "creative"
@@ -851,12 +859,13 @@ export function groupRows(
     grouped.push({
       id: stableId,
       creative_id: sample.creative_id,
+      real_ad_id: groupBy === "ad" ? (sample.real_ad_id ?? sample.id) : (groupedRealAdIds[0] ?? null),
       object_story_id: groupedObjectStoryId,
       effective_object_story_id: groupedEffectiveObjectStoryId,
       post_id: groupedPostId,
       associated_ads_count:
         groupBy === "creative"
-          ? list.length
+          ? groupedRealAdIds.length || list.length
           : groupBy === "ad"
             ? 1
             : (creativeUsageMap.get(sample.creative_id)?.size ?? 1),

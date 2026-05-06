@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, Copy, ExternalLink, MousePointer2 } from "lucide-react";
+import { Check, ChevronRight, Copy, ExternalLink, MousePointer2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatMoney, resolveCreativeCurrency } from "@/components/creatives/money";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
@@ -12,6 +12,7 @@ import {
   aggregateBreakdownRows,
   buildCreativeAssetFallbacks,
   DEFAULT_DRAWER_WIDTH,
+  getAssociatedAdsCount,
   getCreativeAssetState,
   MIN_DRAWER_WIDTH,
   sortBreakdownRows,
@@ -44,6 +45,35 @@ const SORT_OPTIONS: Array<{ value: PlacementSortKey; label: string }> = [
   { value: "age", label: "Age" },
 ];
 
+export const COPY_FEEDBACK_MS = 1_500;
+
+export function getPlacementCopyState(copyValue: string, copiedValue: string | null) {
+  const copied = copiedValue === copyValue;
+  return {
+    copied,
+    label: copied ? "Copied" : "Copy",
+  };
+}
+
+type CopiedSetter = (
+  value: string | null | ((current: string | null) => string | null),
+) => void;
+
+export function handlePlacementCopy(
+  value: string,
+  setCopiedValue: CopiedSetter,
+  writeText: ((value: string) => Promise<void>) | undefined =
+    typeof navigator === "undefined"
+      ? undefined
+      : navigator.clipboard?.writeText?.bind(navigator.clipboard),
+) {
+  void writeText?.(value);
+  setCopiedValue(value);
+  globalThis.setTimeout(() => {
+    setCopiedValue((current) => (current === value ? null : current));
+  }, COPY_FEEDBACK_MS);
+}
+
 export function CreativeAdBreakdownDrawer({
   open,
   creative,
@@ -57,6 +87,7 @@ export function CreativeAdBreakdownDrawer({
   const [width, setWidth] = useState(DEFAULT_DRAWER_WIDTH);
   const [chartMetric, setChartMetric] = useState<ChartMetric>("spend");
   const [sortKey, setSortKey] = useState<PlacementSortKey>("spend");
+  const [copiedValue, setCopiedValue] = useState<string | null>(null);
   const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const breakdownRows = rows as BreakdownRow[];
@@ -66,6 +97,10 @@ export function CreativeAdBreakdownDrawer({
   );
   const aggregated = useMemo(() => aggregateBreakdownRows(breakdownRows), [breakdownRows]);
   const weightedCtr = useMemo(() => calculateWeightedCtr(breakdownRows), [breakdownRows]);
+  const lifetimeAdsCount = useMemo(
+    () => getAssociatedAdsCount(creative, breakdownRows),
+    [breakdownRows, creative],
+  );
   const currency = resolveCreativeCurrency(creative?.currency, defaultCurrency);
   const assetFallbacks = buildCreativeAssetFallbacks(creative);
 
@@ -123,7 +158,8 @@ export function CreativeAdBreakdownDrawer({
         <div className="flex h-full flex-col">
           <CreativeDrawerHeader
             creative={creative}
-            associatedAdsCount={sortedRows.length}
+            windowAdsCount={sortedRows.length}
+            lifetimeAdsCount={lifetimeAdsCount}
             totalSpend={aggregated.totalSpend}
             weightedRoas={aggregated.avgRoas}
             currency={currency}
@@ -192,6 +228,8 @@ export function CreativeAdBreakdownDrawer({
                         decision={decisionsByCreativeId?.get(row.creativeId) ?? null}
                         currency={currency}
                         defaultCurrency={defaultCurrency}
+                        copiedValue={copiedValue}
+                        onCopy={(value) => handlePlacementCopy(value, setCopiedValue)}
                         onOpenPlacement={onOpenPlacement}
                       />
                     ))
@@ -212,17 +250,23 @@ function PlacementCard({
   currency,
   defaultCurrency,
   onOpenPlacement,
+  copiedValue,
+  onCopy,
 }: {
   row: MetaCreativeRow;
   decision: DecisionOutput | null;
   currency: string | null;
   defaultCurrency: string | null;
   onOpenPlacement?: (row: MetaCreativeRow) => void;
+  copiedValue: string | null;
+  onCopy: (value: string) => void;
 }) {
   const campaignName = row.campaignName?.trim() || "Unknown campaign";
   const adSetName = row.adSetName?.trim() || "Unknown ad set";
   const daysActive = getDaysActive(row.launchDate);
   const belowBreakeven = decision?.badges.find((badge) => badge.type === "below_breakeven") ?? null;
+  const copyValue = row.realAdId?.trim() || row.id;
+  const copyState = getPlacementCopyState(copyValue, copiedValue);
   const metaUrl = buildMetaAdsManagerUrl(row);
   const assetFallbacks = buildCreativeAssetFallbacks(row);
 
@@ -289,17 +333,17 @@ function PlacementCard({
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-            <span className="font-mono text-[11px] text-slate-600">{row.id}</span>
+            <span className="font-mono text-[11px] text-slate-600">{copyValue}</span>
             <button
               type="button"
-              className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-1.5 py-0.5 text-[11px] font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+              className="inline-flex min-w-[4.5rem] items-center justify-center gap-1 rounded-md border border-slate-200 px-1.5 py-0.5 text-[11px] font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
               onClick={(event) => {
                 event.stopPropagation();
-                void navigator.clipboard?.writeText(row.id);
+                onCopy(copyValue);
               }}
             >
-              <Copy className="h-3 w-3" />
-              Copy
+              {copyState.copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+              {copyState.label}
             </button>
             {metaUrl ? (
               <a
@@ -432,12 +476,13 @@ function getDaysActive(launchDate: string | null | undefined) {
   return Math.max(1, Math.floor(elapsed / 86_400_000) + 1);
 }
 
-function buildMetaAdsManagerUrl(row: MetaCreativeRow) {
-  const accountId = row.accountId?.replace(/^act_/, "") ?? null;
-  if (!accountId || !row.id) return null;
+export function buildMetaAdsManagerUrl(row: MetaCreativeRow) {
+  const accountId = row.accountId?.replace(/^act_/, "").trim() ?? null;
+  const adId = row.realAdId?.trim() || null;
+  if (!accountId || !adId) return null;
   const params = new URLSearchParams({
     act: accountId,
-    selected_ad_ids: row.id,
+    selected_ad_ids: adId,
   });
-  return `https://adsmanager.facebook.com/adsmanager/manage/ads?${params.toString()}`;
+  return `https://adsmanager.facebook.com/adsmanager/manage/ads/edit?${params.toString()}`;
 }

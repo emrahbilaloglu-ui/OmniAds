@@ -439,6 +439,7 @@ export type StoryCopyPayload = {
 export interface CreativeIdentityFields {
   id: string;
   creative_id: string;
+  real_ad_id?: string | null;
   object_story_id?: string | null;
   effective_object_story_id?: string | null;
   post_id?: string | null;

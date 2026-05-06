@@ -18,7 +18,8 @@ import {
 
 export function CreativeDrawerHeader({
   creative,
-  associatedAdsCount,
+  windowAdsCount,
+  lifetimeAdsCount,
   totalSpend,
   weightedRoas,
   currency,
@@ -27,7 +28,8 @@ export function CreativeDrawerHeader({
   onClose,
 }: {
   creative: MetaCreativeRow | null;
-  associatedAdsCount: number;
+  windowAdsCount: number;
+  lifetimeAdsCount: number;
   totalSpend: number;
   weightedRoas: number;
   currency: string | null;
@@ -46,6 +48,10 @@ export function CreativeDrawerHeader({
         taxonomy_source: creative.taxonomySource ?? null,
       })
     : null;
+  const adsLabel =
+    lifetimeAdsCount > 0 && windowAdsCount > 0 && windowAdsCount !== lifetimeAdsCount
+      ? `${windowAdsCount} of ${lifetimeAdsCount} ads (selected window)`
+      : `${windowAdsCount || lifetimeAdsCount} ${(windowAdsCount || lifetimeAdsCount) === 1 ? "ad" : "ads"}`;
 
   return (
     <header className="shrink-0 border-b border-slate-200 bg-white">
@@ -102,7 +108,7 @@ export function CreativeDrawerHeader({
               </span>
             ) : null}
             <span className="text-[11px] text-muted-foreground">
-              {associatedAdsCount} {associatedAdsCount === 1 ? "placement" : "placements"}
+              {adsLabel}
             </span>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -201,6 +207,14 @@ export function CreativePerformanceChart({
   currency: string | null;
   defaultCurrency: string | null;
 }) {
+  const shouldUseCampaignLabels = useMemo(() => {
+    const campaignNames = new Set(
+      rows
+        .map((row) => row.campaignName?.trim())
+        .filter((value): value is string => Boolean(value)),
+    );
+    return campaignNames.size > 1;
+  }, [rows]);
   const maxValue = useMemo(() => {
     const values = rows.map((row) => getChartMetricValue(row, metric));
     return Math.max(...values, 0.01);
@@ -241,10 +255,30 @@ export function CreativePerformanceChart({
               const value = getChartMetricValue(row, metric);
               const pct = maxValue > 0 ? (value / maxValue) * 100 : 0;
               const displayValue = fmtChartMetricValue(value, metric, currency, defaultCurrency);
+              const label = shouldUseCampaignLabels
+                ? row.campaignName?.trim() || row.name
+                : row.name;
+              const sublabel = shouldUseCampaignLabels ? row.adSetName?.trim() || null : null;
+              const title = [
+                row.campaignName ? `Campaign: ${row.campaignName}` : null,
+                row.adSetName ? `Ad set: ${row.adSetName}` : null,
+              ].filter(Boolean).join(" • ");
               return (
-                <div key={row.id} className="group">
-                  <div className="mb-0.5 flex items-center justify-between">
-                    <p className="max-w-[60%] truncate text-[11px] font-medium text-foreground">{row.name}</p>
+                <div key={row.id} className="group" title={title || row.name}>
+                  <div className="mb-0.5 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p
+                        className="max-w-[20rem] truncate text-[11px] font-medium text-foreground"
+                        data-chart-row-label={label}
+                      >
+                        {label}
+                      </p>
+                      {sublabel ? (
+                        <p className="max-w-[18rem] truncate text-[10px] text-muted-foreground">
+                          {sublabel}
+                        </p>
+                      ) : null}
+                    </div>
                     <span className="text-[11px] font-semibold tabular-nums text-foreground">{displayValue}</span>
                   </div>
                   <div className="h-2 w-full overflow-hidden rounded-full bg-muted/60">

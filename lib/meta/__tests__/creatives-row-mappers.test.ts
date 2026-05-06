@@ -193,6 +193,19 @@ describe("groupRows", () => {
     expect(groupA?.associated_ads_count).toBe(2);
   });
 
+  it("counts distinct real ad ids for grouped creative placement totals", () => {
+    const rows = [
+      makeRow({ id: "creative_1", real_ad_id: "ad_1", creative_id: "cre_1", name: "Creative A", spend: 100 }),
+      makeRow({ id: "creative_1", real_ad_id: "ad_1", creative_id: "cre_1", name: "Creative A", spend: 50 }),
+      makeRow({ id: "creative_1", real_ad_id: "ad_2", creative_id: "cre_2", name: "Creative A", spend: 25 }),
+    ];
+
+    const result = groupRows(rows, "creative", new Map());
+
+    expect(result).toHaveLength(1);
+    expect(result[0].associated_ads_count).toBe(2);
+  });
+
   it("sums impressions and purchases across grouped rows", () => {
     const rows = [
       makeRow({ id: "a1", name: "Ad X", format: "image", impressions: 5000, purchases: 3, spend: 100 }),

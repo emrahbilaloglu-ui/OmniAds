@@ -410,6 +410,7 @@ export function buildMetaCreativeApiRow(params: {
   const baseRow: MetaCreativeApiRow = {
     id: row.id,
     creative_id: row.creative_id,
+    real_ad_id: row.real_ad_id ?? null,
     object_story_id: row.object_story_id ?? null,
     effective_object_story_id: row.effective_object_story_id ?? null,
     post_id: row.post_id ?? null,
@@ -568,6 +569,7 @@ export function buildMetaCreativeApiRowLightweight(params: {
   const baseRow: MetaCreativeApiRow = {
     id: row.id,
     creative_id: row.creative_id,
+    real_ad_id: row.real_ad_id ?? null,
     object_story_id: row.object_story_id ?? null,
     effective_object_story_id: row.effective_object_story_id ?? null,
     post_id: row.post_id ?? null,

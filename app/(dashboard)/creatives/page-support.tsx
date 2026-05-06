@@ -373,6 +373,7 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
   return {
     id: row.id,
     creativeId: row.creative_id,
+    realAdId: row.real_ad_id ?? null,
     objectStoryId: row.object_story_id ?? null,
     effectiveObjectStoryId: row.effective_object_story_id ?? null,
     postId: row.post_id ?? null,

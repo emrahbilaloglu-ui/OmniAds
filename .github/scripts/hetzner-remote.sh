@@ -290,7 +290,11 @@ maybe_prune_stale_deploy_artifacts() {
 }
 
 run_migrations_service() {
-  migration_timeout_seconds="${DEPLOY_MIGRATION_TIMEOUT_SECONDS:-600}"
+  migration_timeout_ms="${DEPLOY_MIGRATION_TIMEOUT_MS:-1800000}"
+  migration_timeout_seconds="${DEPLOY_MIGRATION_TIMEOUT_SECONDS:-$((migration_timeout_ms / 1000 + 60))}"
+  export DEPLOY_MIGRATION_TIMEOUT_MS="${migration_timeout_ms}"
+
+  log "Starting migrate service timeout_seconds=${migration_timeout_seconds} node_timeout_ms=${DEPLOY_MIGRATION_TIMEOUT_MS}"
   docker compose rm -f migrate >/dev/null 2>&1 || true
 
   if command -v timeout >/dev/null 2>&1; then

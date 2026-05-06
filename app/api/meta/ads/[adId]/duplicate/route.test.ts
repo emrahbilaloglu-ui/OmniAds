@@ -159,6 +159,28 @@ describe("POST /api/meta/ads/[adId]/duplicate", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("returns 409 when a recent duplicate already produced an ad for the same target", async () => {
+    vi.mocked(actionLog.findRecentDuplicateActionResult).mockResolvedValue({
+      resultingAdId: "ad_copy_1",
+    } as never);
+
+    const response = await POST(request(duplicateBody()), params());
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error.code).toBe("duplicate_already_attempted");
+    expect(payload.error.existingAdId).toBe("ad_copy_1");
+    expect(actionLog.findRecentDuplicateActionResult).toHaveBeenCalledWith({
+      businessId: BUSINESS_ID,
+      adId: "ad_1",
+      targetAdsetId: "adset_2",
+      statusOption: "PAUSED",
+      sinceMinutes: 10,
+    });
+    expect(actionLog.createMetaAdsActionLog).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("writes audit success when Meta duplicate and verification succeed", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(jsonResponse({ copied_ad_id: "ad_copy_1" }))

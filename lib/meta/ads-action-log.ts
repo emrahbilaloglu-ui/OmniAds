@@ -226,8 +226,14 @@ export async function findRecentDuplicateActionResult(input: {
       AND action = 'duplicate'
       AND status IN ('success', 'silent_failure')
       AND resulting_ad_id IS NOT NULL
-      AND payload_request->>'target_adset_id' = ${input.targetAdsetId}
-      AND payload_request->>'status_option' = ${input.statusOption}
+      AND COALESCE(
+        payload_request->'body'->>'target_adset_id',
+        payload_request->>'target_adset_id'
+      ) = ${input.targetAdsetId}
+      AND COALESCE(
+        payload_request->'body'->>'status_option',
+        payload_request->>'status_option'
+      ) = ${input.statusOption}
       AND requested_at > NOW() - (${input.sinceMinutes ?? 10}::int * interval '1 minute')
     ORDER BY requested_at DESC
     LIMIT 1

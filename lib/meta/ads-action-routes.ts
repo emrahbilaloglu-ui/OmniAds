@@ -24,7 +24,6 @@ type RouteParams = { params: Promise<{ adId: string }> };
 interface ActionBody {
   businessId?: string;
   targetAdsetId?: string;
-  dailyBudgetMinor?: number;
   name?: string;
   activateAfterCreate?: boolean;
 }
@@ -286,16 +285,6 @@ export async function handleMetaAdDuplicateAction(
       "targetAdsetId is required.",
     );
   }
-  if (
-    body?.dailyBudgetMinor != null &&
-    (!Number.isFinite(body.dailyBudgetMinor) || body.dailyBudgetMinor <= 0)
-  ) {
-    return jsonError(
-      400,
-      "invalid_daily_budget",
-      "dailyBudgetMinor must be a positive number when provided.",
-    );
-  }
 
   const prepared = await prepareAction({ request, adId: inputAdId, body });
   if (!prepared.ok) return prepared.response;
@@ -323,15 +312,15 @@ export async function handleMetaAdDuplicateAction(
     typeof body?.name === "string" && body.name.trim().length > 0
       ? body.name.trim()
       : undefined;
+  const accountNumericId = prepared.ctx.providerAccountId.replace(/^act_/, "");
   const payloadRequest = {
     method: "POST",
-    endpoint: `/${resolvedAdId}/copies`,
+    endpoint: `/act_${accountNumericId}/ads`,
     body: {
       adset_id: targetAdsetId,
       target_adset_id: targetAdsetId,
       status_option: statusOption,
       name: trimmedName ?? null,
-      daily_budget_minor: body?.dailyBudgetMinor ?? null,
     },
     input_ad_id: inputAdId,
   };
@@ -349,7 +338,6 @@ export async function handleMetaAdDuplicateAction(
     const result = await duplicateAd(prepared.ctx, {
       adId: resolvedAdId,
       targetAdsetId,
-      dailyBudgetMinor: body?.dailyBudgetMinor,
       name: trimmedName,
       activateAfterCreate,
     });
@@ -377,7 +365,6 @@ export async function handleMetaAdDuplicateAction(
       verificationPayload: ensureRecord(result.verificationPayload),
     });
 
-    const accountNumericId = prepared.ctx.providerAccountId.replace(/^act_/, "");
     return NextResponse.json({
       ok: true,
       action: "duplicate",

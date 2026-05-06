@@ -538,7 +538,6 @@ export function CreativeDetailExperience({
                   businessId={businessId}
                   row={row}
                   open={open}
-                  defaultCurrency={defaultCurrency}
                 />
               ) : null}
 

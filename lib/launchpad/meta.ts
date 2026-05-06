@@ -26,6 +26,7 @@ export type MetaCustomEventType =
 
 export interface MetaLaunchCreativeRef {
   creativeId: string;
+  sourceAdId?: string | null;
   name?: string | null;
 }
 
@@ -80,12 +81,20 @@ export interface MetaAddToExistingCreativeRef extends MetaLaunchCreativeRef {
   nameOverride?: string | null;
 }
 
+export interface MetaAddToExistingTargetRef {
+  targetCampaignId: string;
+  targetAdsetId: string;
+  targetCampaignName?: string | null;
+  targetAdsetName?: string | null;
+}
+
 export interface MetaAddToExistingPayload {
   mode: "add_to_existing";
   targetCampaignId: string;
   targetAdsetId: string;
   targetCampaignName?: string | null;
   targetAdsetName?: string | null;
+  targets: MetaAddToExistingTargetRef[];
   creativeIds: string[];
   creatives: MetaAddToExistingCreativeRef[];
   names?: Record<string, string>;
@@ -178,16 +187,36 @@ function normalizeTargeting(value: unknown): MetaLaunchTargetingPayload {
   };
 }
 
-function normalizeCreatives(value: unknown, creativeIdsValue: unknown) {
+function normalizeCreatives(
+  value: unknown,
+  creativeIdsValue: unknown,
+  sourceAdIdsValue?: unknown,
+) {
+  const sourceAdIdsRecord = isRecord(sourceAdIdsValue) ? sourceAdIdsValue : {};
   const fromRefs = Array.isArray(value)
     ? value
         .map((item) => {
           if (typeof item === "string") {
-            return { creativeId: item.trim(), name: null };
+            const creativeId = item.trim();
+            return {
+              creativeId,
+              sourceAdId: asString(sourceAdIdsRecord[creativeId]) || null,
+              name: null,
+            };
           }
           const record = isRecord(item) ? item : {};
+          const creativeId = asString(record.creativeId || record.id);
           return {
-            creativeId: asString(record.creativeId || record.id),
+            creativeId,
+            sourceAdId:
+              asString(
+                record.sourceAdId ||
+                  record.source_ad_id ||
+                  record.adId ||
+                  record.realAdId,
+              ) ||
+              asString(sourceAdIdsRecord[creativeId]) ||
+              null,
             name: asString(record.name) || null,
           };
         })
@@ -195,18 +224,64 @@ function normalizeCreatives(value: unknown, creativeIdsValue: unknown) {
     : [];
   const fromIds = asStringArray(creativeIdsValue).map((creativeId) => ({
     creativeId,
+    sourceAdId: asString(sourceAdIdsRecord[creativeId]) || null,
     name: null,
   }));
   const byId = new Map<string, MetaLaunchCreativeRef>();
-  for (const item of [...fromRefs, ...fromIds]) byId.set(item.creativeId, item);
+  for (const item of [...fromIds, ...fromRefs]) {
+    const existing = byId.get(item.creativeId);
+    byId.set(item.creativeId, {
+      creativeId: item.creativeId,
+      sourceAdId: item.sourceAdId ?? existing?.sourceAdId ?? null,
+      name: item.name ?? existing?.name ?? null,
+    });
+  }
   return Array.from(byId.values());
+}
+
+function normalizeAddToExistingTargets(record: Record<string, unknown>) {
+  const fromTargets = Array.isArray(record.targets)
+    ? record.targets
+        .map((item) => {
+          const target = isRecord(item) ? item : {};
+          return {
+            targetCampaignId: asString(
+              target.targetCampaignId || target.campaignId,
+            ),
+            targetAdsetId: asString(target.targetAdsetId || target.adsetId),
+            targetCampaignName:
+              asString(target.targetCampaignName || target.campaignName) ||
+              null,
+            targetAdsetName:
+              asString(target.targetAdsetName || target.adsetName) || null,
+          };
+        })
+        .filter((target) => target.targetCampaignId || target.targetAdsetId)
+    : [];
+  const fallbackTarget = {
+    targetCampaignId: asString(record.targetCampaignId),
+    targetAdsetId: asString(record.targetAdsetId),
+    targetCampaignName: asString(record.targetCampaignName) || null,
+    targetAdsetName: asString(record.targetAdsetName) || null,
+  };
+  const targets = fromTargets.length > 0 ? fromTargets : [fallbackTarget];
+  const byPair = new Map<string, MetaAddToExistingTargetRef>();
+  targets.forEach((target) => {
+    if (!target.targetCampaignId && !target.targetAdsetId) return;
+    byPair.set(`${target.targetCampaignId}:${target.targetAdsetId}`, target);
+  });
+  return Array.from(byPair.values());
 }
 
 export function normalizeMetaLaunchPayload(value: unknown): MetaLaunchPayload {
   const record = isRecord(value) ? value : {};
   const campaign = isRecord(record.campaign) ? record.campaign : {};
   const budget = normalizeBudget(record.budget, "CBO");
-  const creatives = normalizeCreatives(record.creatives, record.creativeIds);
+  const creatives = normalizeCreatives(
+    record.creatives,
+    record.creativeIds,
+    record.sourceAdIds,
+  );
   const adSets = Array.isArray(record.adSets) ? record.adSets : [];
 
   return {
@@ -254,7 +329,18 @@ export function normalizeMetaLaunchPayload(value: unknown): MetaLaunchPayload {
 export function normalizeMetaAddToExistingPayload(value: unknown): MetaAddToExistingPayload {
   const record = isRecord(value) ? value : {};
   const namesRecord = isRecord(record.names) ? record.names : {};
-  const creatives = normalizeCreatives(record.creatives, record.creativeIds).map((creative) => {
+  const targets = normalizeAddToExistingTargets(record);
+  const firstTarget = targets[0] ?? {
+    targetCampaignId: "",
+    targetAdsetId: "",
+    targetCampaignName: null,
+    targetAdsetName: null,
+  };
+  const creatives = normalizeCreatives(
+    record.creatives,
+    record.creativeIds,
+    record.sourceAdIds,
+  ).map((creative) => {
     const override = asString(namesRecord[creative.creativeId]);
     return {
       ...creative,
@@ -268,10 +354,11 @@ export function normalizeMetaAddToExistingPayload(value: unknown): MetaAddToExis
   }, {});
   return {
     mode: "add_to_existing",
-    targetCampaignId: asString(record.targetCampaignId),
-    targetAdsetId: asString(record.targetAdsetId),
-    targetCampaignName: asString(record.targetCampaignName) || null,
-    targetAdsetName: asString(record.targetAdsetName) || null,
+    targetCampaignId: firstTarget.targetCampaignId,
+    targetAdsetId: firstTarget.targetAdsetId,
+    targetCampaignName: firstTarget.targetCampaignName ?? null,
+    targetAdsetName: firstTarget.targetAdsetName ?? null,
+    targets,
     creativeIds: creatives.map((creative) => creative.creativeId),
     creatives,
     names,
@@ -403,18 +490,26 @@ export function validateMetaAddToExistingPayloadShape(
   payload: MetaAddToExistingPayload,
 ): { blockers: LaunchpadIssue[]; warnings: LaunchpadIssue[] } {
   const blockers: LaunchpadIssue[] = [];
-  if (!payload.targetCampaignId) {
+  if (payload.targets.length === 0) {
     blockers.push({
       code: "target_campaign_required",
-      message: "Choose an existing campaign.",
+      message: "Choose at least one existing campaign.",
     });
   }
-  if (!payload.targetAdsetId) {
-    blockers.push({
-      code: "target_adset_required",
-      message: "Choose an existing ad set.",
-    });
-  }
+  payload.targets.forEach((target, index) => {
+    if (!target.targetCampaignId) {
+      blockers.push({
+        code: "target_campaign_required",
+        message: `Target ${index + 1} needs an existing campaign.`,
+      });
+    }
+    if (!target.targetAdsetId) {
+      blockers.push({
+        code: "target_adset_required",
+        message: `Target ${index + 1} needs an existing ad set.`,
+      });
+    }
+  });
   if (payload.creativeIds.length === 0) {
     blockers.push({
       code: "creative_required",
@@ -522,7 +617,13 @@ export function adsManagerUrl(accountId: string, entity: "campaign" | "adset" | 
       : entity === "adset"
         ? "selected_adset_ids"
         : "selected_ad_ids";
-  return `https://adsmanager.facebook.com/adsmanager/manage/${entity === "adset" ? "adsets" : `${entity}s`}?act=${encodeURIComponent(
+  const path =
+    entity === "ad"
+      ? "ads/edit"
+      : entity === "adset"
+        ? "adsets"
+        : "campaigns";
+  return `https://adsmanager.facebook.com/adsmanager/manage/${path}?act=${encodeURIComponent(
     numeric,
   )}&${selected}=${encodeURIComponent(id)}`;
 }

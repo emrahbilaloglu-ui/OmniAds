@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { AlertTriangle, Search } from "lucide-react";
+import { AlertTriangle, Check, CheckSquare, LayoutGrid, List, Search, XSquare } from "lucide-react";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import { CreativeDecisionLabelBadge } from "@/components/creatives/CreativeDecisionLabelBadge";
 import { buildPlacementTooltip } from "@/components/creatives/CreativesTopGrid";
@@ -12,10 +12,11 @@ import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import type { DecisionLabel, DecisionOutput } from "@/lib/creative-decision-engine";
 import { cn } from "@/lib/utils";
 
-type StatusFilter = "all" | "active" | "closed_30d";
+type StatusFilter = "all" | "active" | "closed_30d" | "recently_duplicated";
 type FormatFilter = "all" | "image" | "video" | "catalog" | "carousel";
 type SortKey = "spend_desc" | "roas_desc" | "recency_desc" | "name_asc";
 type BadgeFilter = "below_breakeven" | "fatigue";
+type CampaignFilter = "all" | string;
 
 const LABEL_OPTIONS: DecisionLabel[] = [
   "scale",
@@ -44,6 +45,7 @@ const STATUS_OPTIONS: Array<{ id: StatusFilter; label: string }> = [
   { id: "all", label: "All" },
   { id: "active", label: "Active" },
   { id: "closed_30d", label: "Closed last 30d" },
+  { id: "recently_duplicated", label: "Recently duplicated" },
 ];
 
 function isClosedLast30d(row: MetaCreativeRow) {
@@ -72,12 +74,24 @@ function hasFatigueBadge(decision: DecisionOutput | null | undefined) {
   );
 }
 
+function campaignFilterValue(row: MetaCreativeRow) {
+  const campaignId = row.campaignId?.trim();
+  if (campaignId) return campaignId;
+  const campaignName = row.campaignName?.trim();
+  return campaignName ? `name:${campaignName}` : "__unknown";
+}
+
+function hasRecentlyDuplicatedMarker(row: MetaCreativeRow) {
+  return Boolean(row.launchpadRecentAction) || /\badded\b/i.test(row.name);
+}
+
 export function filterLaunchpadCreativeRows(input: {
   rows: MetaCreativeRow[];
   decisionByCreativeId: Map<string, DecisionOutput>;
   search?: string;
   statusFilter?: StatusFilter;
   formatFilter?: FormatFilter;
+  campaignFilter?: CampaignFilter;
   labels?: DecisionLabel[];
   badges?: BadgeFilter[];
   sort?: SortKey;
@@ -85,6 +99,7 @@ export function filterLaunchpadCreativeRows(input: {
   const query = input.search?.trim().toLowerCase() ?? "";
   const statusFilter = input.statusFilter ?? "active";
   const formatFilter = input.formatFilter ?? "all";
+  const campaignFilter = input.campaignFilter ?? "all";
   const labels = new Set(input.labels ?? []);
   const badges = new Set(input.badges ?? []);
   const sort = input.sort ?? "spend_desc";
@@ -95,7 +110,13 @@ export function filterLaunchpadCreativeRows(input: {
       if (status && status !== "ACTIVE") return false;
     }
     if (statusFilter === "closed_30d" && !isClosedLast30d(row)) return false;
+    if (statusFilter === "recently_duplicated" && !hasRecentlyDuplicatedMarker(row)) {
+      return false;
+    }
     if (!creativeMatchesFormat(row, formatFilter)) return false;
+    if (campaignFilter !== "all" && campaignFilterValue(row) !== campaignFilter) {
+      return false;
+    }
     if (labels.size > 0 && (!decision || !labels.has(decision.label))) return false;
     if (badges.has("below_breakeven") && !hasBelowBreakeven(decision)) return false;
     if (badges.has("fatigue") && !hasFatigueBadge(decision)) return false;
@@ -185,6 +206,8 @@ export function LaunchpadCreativeSelection({
   selectedCreativeIds,
   decisionByCreativeId,
   loading = false,
+  initialStatusFilter = "active",
+  getSelectionId = (row) => row.creativeId,
   onToggleCreative,
   onSetSelectedCreativeIds,
 }: {
@@ -192,16 +215,25 @@ export function LaunchpadCreativeSelection({
   selectedCreativeIds: string[];
   decisionByCreativeId: Map<string, DecisionOutput>;
   loading?: boolean;
+  initialStatusFilter?: StatusFilter;
+  getSelectionId?: (row: MetaCreativeRow) => string;
   onToggleCreative: (row: MetaCreativeRow) => void;
   onSetSelectedCreativeIds?: (ids: string[]) => void;
 }) {
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(initialStatusFilter);
   const [formatFilter, setFormatFilter] = useState<FormatFilter>("all");
+  const [campaignFilter, setCampaignFilter] = useState<CampaignFilter>("all");
   const [labels, setLabels] = useState<DecisionLabel[]>([]);
   const [badges, setBadges] = useState<BadgeFilter[]>([]);
   const [sort, setSort] = useState<SortKey>("spend_desc");
+  const [view, setView] = useState<"list" | "grid">("list");
   const [visibleCount, setVisibleCount] = useState(25);
+
+  useEffect(() => {
+    setStatusFilter(initialStatusFilter);
+  }, [initialStatusFilter]);
+
   const selectedSet = useMemo(
     () => new Set(selectedCreativeIds),
     [selectedCreativeIds],
@@ -214,16 +246,59 @@ export function LaunchpadCreativeSelection({
         search,
         statusFilter,
         formatFilter,
+        campaignFilter,
+        labels,
+        badges,
+        sort,
+      }),
+    [badges, campaignFilter, decisionByCreativeId, formatFilter, labels, rows, search, sort, statusFilter],
+  );
+  const campaignOptionRows = useMemo(
+    () =>
+      filterLaunchpadCreativeRows({
+        rows,
+        decisionByCreativeId,
+        search,
+        statusFilter,
+        formatFilter,
+        campaignFilter: "all",
         labels,
         badges,
         sort,
       }),
     [badges, decisionByCreativeId, formatFilter, labels, rows, search, sort, statusFilter],
   );
-  const visibleRows = rows.length > 50 ? filteredRows.slice(0, visibleCount) : filteredRows;
+  const campaignOptions = useMemo(() => {
+    const byValue = new Map<string, { value: string; label: string; count: number }>();
+    campaignOptionRows.forEach((row) => {
+      const value = campaignFilterValue(row);
+      const existing = byValue.get(value);
+      if (existing) {
+        existing.count += 1;
+        return;
+      }
+      byValue.set(value, {
+        value,
+        label: row.campaignName?.trim() || row.campaignId?.trim() || "Unknown campaign",
+        count: 1,
+      });
+    });
+    if (campaignFilter !== "all" && !byValue.has(campaignFilter)) {
+      const selectedRow = rows.find((row) => campaignFilterValue(row) === campaignFilter);
+      if (selectedRow) {
+        byValue.set(campaignFilter, {
+          value: campaignFilter,
+          label: selectedRow.campaignName?.trim() || selectedRow.campaignId?.trim() || "Unknown campaign",
+          count: 0,
+        });
+      }
+    }
+    return Array.from(byValue.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [campaignFilter, campaignOptionRows, rows]);
+  const visibleRows = filteredRows.length > 50 ? filteredRows.slice(0, visibleCount) : filteredRows;
   const selectedCreatives = useMemo(
-    () => rows.filter((row) => selectedSet.has(row.creativeId)),
-    [rows, selectedSet],
+    () => rows.filter((row) => selectedSet.has(getSelectionId(row))),
+    [getSelectionId, rows, selectedSet],
   );
   const summary = useMemo(
     () => buildLaunchpadSelectionSummary({ selectedCreatives, decisionByCreativeId }),
@@ -243,13 +318,13 @@ export function LaunchpadCreativeSelection({
   }
 
   function selectAllMatching() {
-    const ids = Array.from(new Set([...selectedCreativeIds, ...filteredRows.map((row) => row.creativeId)]));
+    const ids = Array.from(new Set([...selectedCreativeIds, ...filteredRows.map((row) => getSelectionId(row))]));
     if (onSetSelectedCreativeIds) {
       onSetSelectedCreativeIds(ids);
       return;
     }
     filteredRows.forEach((row) => {
-      if (!selectedSet.has(row.creativeId)) onToggleCreative(row);
+      if (!selectedSet.has(getSelectionId(row))) onToggleCreative(row);
     });
   }
 
@@ -259,46 +334,88 @@ export function LaunchpadCreativeSelection({
       return;
     }
     rows.forEach((row) => {
-      if (selectedSet.has(row.creativeId)) onToggleCreative(row);
+      if (selectedSet.has(getSelectionId(row))) onToggleCreative(row);
     });
   }
 
   return (
-    <section className="space-y-4" data-testid="launchpad-creative-selection">
+    <section className="space-y-4 text-slate-950" data-testid="launchpad-creative-selection">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="text-lg font-semibold">Creative selection</h2>
-          <p className="text-sm text-muted-foreground">
-            {selectedCreativeIds.length} selected / {filteredRows.length} matching
+          <h2 className="text-base font-semibold">Select creatives</h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            From active or recently closed ads. Engine v3 advisory is shown per row.
           </p>
         </div>
+        <div className="inline-flex w-fit rounded-md border border-slate-200 bg-slate-100 p-1">
+          <button
+            type="button"
+            onClick={() => setView("list")}
+            className={cn(
+              "inline-flex h-8 items-center gap-1.5 rounded px-3 text-sm transition",
+              view === "list" ? "bg-white font-medium text-slate-950 shadow-sm" : "text-slate-500 hover:text-slate-950",
+            )}
+          >
+            <List className="h-3.5 w-3.5" />
+            List
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("grid")}
+            className={cn(
+              "inline-flex h-8 items-center gap-1.5 rounded px-3 text-sm transition",
+              view === "grid" ? "bg-white font-medium text-slate-950 shadow-sm" : "text-slate-500 hover:text-slate-950",
+            )}
+          >
+            <LayoutGrid className="h-3.5 w-3.5" />
+            Grid
+          </button>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+        <div className="relative w-full lg:max-w-md xl:max-w-lg">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search creative name or ID..."
+            className="h-10 w-full rounded-md border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          />
+        </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <label className="block">
+            <span className="sr-only">Filter by campaign</span>
+            <select
+              value={campaignFilter}
+              onChange={(event) => setCampaignFilter(event.target.value)}
+              className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 sm:w-[230px]"
+            >
+              <option value="all">All campaigns</option>
+              {campaignOptions.map((campaign) => (
+                <option key={campaign.value} value={campaign.value}>
+                  {campaign.label} ({campaign.count})
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="block">
             <span className="sr-only">Sort creatives</span>
             <select
               value={sort}
               onChange={(event) => setSort(event.target.value as SortKey)}
-              className="h-9 rounded-md border bg-background px-3 text-sm outline-none focus:border-primary"
+              className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 sm:w-[210px]"
             >
-              <option value="spend_desc">Spend desc</option>
-              <option value="roas_desc">ROAS desc</option>
-              <option value="recency_desc">Recency desc</option>
-              <option value="name_asc">Name asc</option>
+              <option value="spend_desc">Spend, high to low</option>
+              <option value="roas_desc">ROAS, high to low</option>
+              <option value="recency_desc">Recently created</option>
+              <option value="name_asc">Name A to Z</option>
             </select>
           </label>
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search creatives"
-              className="h-9 w-full rounded-md border bg-background pl-8 pr-3 text-sm outline-none focus:border-primary sm:w-64"
-            />
-          </div>
         </div>
       </div>
 
-      <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+      <div className="space-y-2 py-1">
         <FilterGroup label="Status">
           {STATUS_OPTIONS.map((option) => (
             <FilterChip
@@ -321,7 +438,7 @@ export function LaunchpadCreativeSelection({
             </FilterChip>
           ))}
         </FilterGroup>
-        <FilterGroup label="Engine v3 label">
+        <FilterGroup label="Engine">
           <FilterChip active={labels.length === 0} onClick={() => setLabels([])}>
             All
           </FilterChip>
@@ -331,7 +448,7 @@ export function LaunchpadCreativeSelection({
             </FilterChip>
           ))}
         </FilterGroup>
-        <FilterGroup label="Engine v3 badge">
+        <FilterGroup label="Badges">
           <FilterChip active={badges.length === 0} onClick={() => setBadges([])}>
             All
           </FilterChip>
@@ -344,121 +461,217 @@ export function LaunchpadCreativeSelection({
       </div>
 
       {loading ? (
-        <div className="rounded-md border p-4 text-sm text-muted-foreground">
+        <div className="rounded-md border border-slate-200 bg-white p-4 text-sm text-slate-500">
           Loading creatives...
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-3">
+        <div className="text-xs text-slate-500">
+          <span className="font-mono font-medium tabular-nums text-slate-950">{filteredRows.length}</span> match
+          <span className="mx-2 text-slate-300">·</span>
+          <span className="font-mono font-medium tabular-nums text-slate-950">{selectedCreativeIds.length}</span> selected
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" variant="outline" size="sm" onClick={selectAllMatching}>
-            Select all matching filter
+            <CheckSquare className="h-3.5 w-3.5" />
+            Select all matching ({filteredRows.length})
           </Button>
           <Button type="button" variant="link" size="sm" onClick={clearSelection}>
-            Clear selection
+            <XSquare className="h-3.5 w-3.5" />
+            Clear ({selectedCreativeIds.length})
           </Button>
         </div>
-        {rows.length > 50 ? (
-          <Badge variant="outline">Load more pagination active</Badge>
-        ) : null}
       </div>
 
-      <div className="overflow-hidden rounded-md border">
-        <div className="grid grid-cols-[44px_56px_1fr_220px] border-b bg-muted/50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          <span />
-          <span>Asset</span>
-          <span>Creative</span>
-          <span>28d metrics</span>
-        </div>
-        <div className="max-h-[520px] overflow-y-auto">
-          {visibleRows.map((row) => {
-            const decision = decisionByCreativeId.get(row.creativeId) ?? null;
-            const selected = selectedSet.has(row.creativeId);
-            const notes = selected ? getCreativeAdvisoryNotes(decision) : [];
-            const placementTooltip = buildPlacementTooltip(row);
-            return (
-              <div
-                key={row.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => onToggleCreative(row)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") onToggleCreative(row);
-                }}
-                className={cn(
-                  "grid cursor-pointer grid-cols-[44px_56px_1fr_220px] gap-2 border-b px-3 py-3 transition-colors last:border-b-0 hover:bg-accent/40",
-                  selected ? "bg-primary/5" : "bg-background",
-                )}
-              >
-                <div className="pt-1">
-                  <input
-                    type="checkbox"
-                    checked={selected}
-                    aria-label={`Select ${row.name}`}
-                    onChange={() => onToggleCreative(row)}
-                    onClick={(event) => event.stopPropagation()}
+      {view === "list" ? (
+        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+          <div className="grid grid-cols-[44px_56px_1fr_220px] border-b border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            <span />
+            <span>Asset</span>
+            <span>Creative</span>
+            <span className="text-right">28d metrics</span>
+          </div>
+          <div className="max-h-[520px] overflow-y-auto">
+            {visibleRows.map((row) => {
+              const decision = decisionByCreativeId.get(row.creativeId) ?? null;
+              const selected = selectedSet.has(getSelectionId(row));
+              const notes = selected ? getCreativeAdvisoryNotes(decision) : [];
+              const placementTooltip = buildPlacementTooltip(row);
+              const recentlyDuplicated = hasRecentlyDuplicatedMarker(row);
+              return (
+                <div
+                  key={row.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onToggleCreative(row)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") onToggleCreative(row);
+                  }}
+                  className={cn(
+                    "grid cursor-pointer grid-cols-[44px_56px_1fr_220px] gap-2 border-b border-slate-100 px-3 py-3 transition-colors last:border-b-0 hover:bg-slate-50",
+                    selected ? "bg-blue-50/50" : "bg-white",
+                  )}
+                >
+                  <div className="pt-2">
+                    <span
+                      className={cn(
+                        "inline-flex h-4 w-4 items-center justify-center rounded border",
+                        selected ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 bg-white",
+                      )}
+                    >
+                      {selected ? <Check className="h-3 w-3" /> : null}
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      aria-label={`Select ${row.name}`}
+                      onChange={() => onToggleCreative(row)}
+                      onClick={(event) => event.stopPropagation()}
+                      className="sr-only"
+                    />
+                  </div>
+                  <CreativeRenderSurface
+                    id={row.id}
+                    name={row.name}
+                    preview={row.preview}
+                    size="thumb"
+                    mode="asset"
+                    assetFallbacks={[
+                      row.tableThumbnailUrl,
+                      row.thumbnailUrl,
+                      row.imageUrl,
+                      row.preview.image_url,
+                      row.preview.poster_url,
+                    ]}
                   />
-                </div>
-                <CreativeRenderSurface
-                  id={row.id}
-                  name={row.name}
-                  preview={row.preview}
-                  size="thumb"
-                  mode="asset"
-                  assetFallbacks={[
-                    row.tableThumbnailUrl,
-                    row.thumbnailUrl,
-                    row.imageUrl,
-                    row.preview.image_url,
-                    row.preview.poster_url,
-                  ]}
-                />
-                <div className="min-w-0 space-y-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="truncate text-sm font-medium">{row.name}</p>
-                    {decision ? <CreativeDecisionLabelBadge label={decision.label} /> : null}
-                    {hasBelowBreakeven(decision) ? (
-                      <Badge className="border-amber-200 bg-amber-50 text-amber-900" variant="outline">
-                        Below breakeven
-                      </Badge>
+                  <div className="min-w-0 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="truncate text-sm font-medium text-slate-950">{row.name}</p>
+                      {decision ? <CreativeDecisionLabelBadge label={decision.label} /> : null}
+                      {hasBelowBreakeven(decision) ? (
+                        <Badge className="border-amber-200 bg-amber-50 text-amber-900" variant="outline">
+                          Below breakeven
+                        </Badge>
+                      ) : null}
+                      {recentlyDuplicated ? (
+                        <Badge className="border-indigo-200 bg-indigo-50 text-indigo-700" variant="outline">
+                          Recently duplicated
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <p className="truncate text-xs text-slate-500" title={placementTooltip}>
+                      {row.campaignName ?? row.campaignId ?? "No campaign"} / {row.adSetName ?? row.adSetId ?? "No ad set"}
+                    </p>
+                    {notes.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {notes.map((note) => (
+                          <span
+                            key={note.text}
+                            className={cn(
+                              "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs",
+                              noteClass(note.tone),
+                            )}
+                          >
+                            {note.tone === "danger" ? <AlertTriangle className="h-3 w-3" /> : null}
+                            {note.text}
+                          </span>
+                        ))}
+                      </div>
                     ) : null}
                   </div>
-                  <p className="text-xs text-muted-foreground" title={placementTooltip}>
-                    {row.campaignName ?? row.campaignId ?? "No campaign"} / {row.adSetName ?? row.adSetId ?? "No ad set"}
-                  </p>
-                  {notes.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {notes.map((note) => (
-                        <span
-                          key={note.text}
-                          className={cn(
-                            "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs",
-                            noteClass(note.tone),
-                          )}
-                        >
-                          {note.tone === "danger" ? <AlertTriangle className="h-3 w-3" /> : null}
-                          {note.text}
-                        </span>
-                      ))}
+                  <div className="pt-1 text-right text-sm tabular-nums">
+                    <span className="font-semibold text-slate-950">${row.spend.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                    <span className="text-slate-400"> · ROAS </span>
+                    <span className={cn("font-semibold", row.roas >= 2 ? "text-emerald-700" : row.roas < 1 ? "text-rose-700" : "text-slate-950")}>{row.roas.toFixed(2)}x</span>
+                    <span className="text-slate-400"> · </span>
+                    <span className="font-semibold text-slate-700">{row.purchases.toLocaleString()}</span>
+                    <span className="text-slate-400"> purchases</span>
+                  </div>
+                </div>
+              );
+            })}
+            {filteredRows.length === 0 ? (
+              <div className="p-4 text-sm text-slate-500">No creatives found.</div>
+            ) : null}
+          </div>
+        </div>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {visibleRows.map((row) => {
+            const decision = decisionByCreativeId.get(row.creativeId) ?? null;
+            const selected = selectedSet.has(getSelectionId(row));
+            const recentlyDuplicated = hasRecentlyDuplicatedMarker(row);
+            return (
+              <button
+                key={row.id}
+                type="button"
+                onClick={() => onToggleCreative(row)}
+                className={cn(
+                  "relative rounded-lg border bg-white p-3 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:border-slate-300 hover:bg-slate-50",
+                  selected ? "border-blue-500 ring-2 ring-blue-100" : "border-slate-200",
+                )}
+              >
+                <div className="flex items-start gap-3">
+                  <CreativeRenderSurface
+                    id={row.id}
+                    name={row.name}
+                    preview={row.preview}
+                    size="thumb"
+                    mode="asset"
+                    assetFallbacks={[
+                      row.tableThumbnailUrl,
+                      row.thumbnailUrl,
+                      row.imageUrl,
+                      row.preview.image_url,
+                      row.preview.poster_url,
+                    ]}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="line-clamp-2 pr-8 text-sm font-medium text-slate-950">{row.name}</p>
+                      <span
+                        className={cn(
+                          "absolute right-3 top-3 inline-flex h-5 w-5 items-center justify-center rounded border",
+                          selected ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 bg-white",
+                        )}
+                      >
+                        {selected ? <Check className="h-3.5 w-3.5" /> : null}
+                      </span>
                     </div>
-                  ) : null}
+                    <p className="mt-1 truncate text-[11px] text-slate-500">
+                      {row.campaignName ?? row.campaignId ?? "No campaign"}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {decision ? <CreativeDecisionLabelBadge label={decision.label} /> : null}
+                      {hasBelowBreakeven(decision) ? (
+                        <Badge className="border-amber-200 bg-amber-50 text-amber-900" variant="outline">
+                          Below breakeven
+                        </Badge>
+                      ) : null}
+                      {recentlyDuplicated ? (
+                        <Badge className="border-indigo-200 bg-indigo-50 text-indigo-700" variant="outline">
+                          Recently duplicated
+                        </Badge>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
-                <div className="pt-1 text-sm tabular-nums">
-                  <span className="font-medium">${row.spend.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                  <span className="text-muted-foreground"> · ROAS </span>
-                  <span className="font-medium">{row.roas.toFixed(2)}x</span>
-                  <span className="text-muted-foreground"> · </span>
-                  <span className="font-medium">{row.purchases.toLocaleString()}</span>
-                  <span className="text-muted-foreground"> purchases</span>
+                <div className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-100 pt-3 text-xs">
+                  <Metric label="Spend" value={`$${row.spend.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} />
+                  <Metric label="ROAS" value={`${row.roas.toFixed(2)}x`} tone={row.roas >= 2 ? "good" : row.roas < 1 ? "bad" : "neutral"} />
+                  <Metric label="Purch." value={row.purchases.toLocaleString()} />
                 </div>
-              </div>
+              </button>
             );
           })}
           {filteredRows.length === 0 ? (
-            <div className="p-4 text-sm text-muted-foreground">No creatives found.</div>
+            <div className="rounded-lg border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500 sm:col-span-2 xl:col-span-3">
+              No creatives found.
+            </div>
           ) : null}
         </div>
-      </div>
+      )}
 
       {rows.length > 50 && visibleRows.length < filteredRows.length ? (
         <div className="flex justify-center">
@@ -468,13 +681,24 @@ export function LaunchpadCreativeSelection({
         </div>
       ) : null}
 
-      <div className="sticky bottom-0 rounded-md border bg-background/95 p-3 shadow-sm" data-testid="launchpad-selection-summary">
-        <p className="text-sm font-medium">
-          {summary.count} creatives selected · Avg ROAS{" "}
-          {summary.averageRoas == null ? "n/a" : `${summary.averageRoas.toFixed(1)}x`} · Total 28d spend{" "}
-          ${summary.totalSpend.toLocaleString(undefined, { maximumFractionDigits: 0 })} ·{" "}
-          {summary.belowBreakeven} below_breakeven · {summary.scale} scale · {summary.cut} cut
-        </p>
+      <div className="rounded-lg border border-slate-200 bg-white/95 p-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]" data-testid="launchpad-selection-summary">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+          <span className="font-mono tabular-nums">
+            <strong className="text-base text-slate-950">{summary.count}</strong>{" "}
+            <span className="text-slate-500">selected</span>
+          </span>
+          <span className="font-mono tabular-nums text-slate-600">
+            Spend <strong className="text-slate-950">${summary.totalSpend.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
+          </span>
+          <span className="font-mono tabular-nums text-slate-600">
+            Avg ROAS <strong className={summary.averageRoas != null && summary.averageRoas >= 2 ? "text-emerald-700" : "text-slate-950"}>
+              {summary.averageRoas == null ? "n/a" : `${summary.averageRoas.toFixed(1)}x`}
+            </strong>
+          </span>
+          <span className="text-xs text-slate-500">
+            {summary.scale} scale · {summary.cut} cut · {summary.belowBreakeven} below breakeven
+          </span>
+        </div>
       </div>
     </section>
   );
@@ -483,7 +707,7 @@ export function LaunchpadCreativeSelection({
 function FilterGroup({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="w-28 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      <span className="w-14 shrink-0 text-[10px] font-semibold uppercase tracking-[0.075em] text-slate-400">
         {label}
       </span>
       {children}
@@ -506,10 +730,34 @@ function FilterChip({
       onClick={onClick}
       className={cn(
         "rounded-md border px-2.5 py-1 text-xs capitalize transition-colors",
-        active ? "border-primary bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-accent",
+        active ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
       )}
     >
       {children}
     </button>
+  );
+}
+
+function Metric({
+  label,
+  value,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string;
+  tone?: "neutral" | "good" | "bad";
+}) {
+  return (
+    <div>
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+      <div
+        className={cn(
+          "font-mono font-semibold tabular-nums",
+          tone === "good" ? "text-emerald-700" : tone === "bad" ? "text-rose-700" : "text-slate-950",
+        )}
+      >
+        {value}
+      </div>
+    </div>
   );
 }

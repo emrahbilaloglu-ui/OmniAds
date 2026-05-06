@@ -76,6 +76,8 @@ export function LaunchpadReview({
   targetSummary?: {
     campaignName: string | null;
     adsetName: string | null;
+    campaignCount?: number | null;
+    targetCount?: number | null;
     currentAdCount?: number | null;
   } | null;
   onValidation?: (state: LaunchpadValidationState) => void;
@@ -136,6 +138,12 @@ export function LaunchpadReview({
   }, [businessId, onValidation, payload]);
 
   const launchBlocked = validating || !validation?.ok;
+  const targetCount = Math.max(1, targetSummary?.targetCount ?? 1);
+  const campaignCount = Math.max(1, targetSummary?.campaignCount ?? 1);
+  const afterLaunchCount =
+    targetSummary?.currentAdCount == null
+      ? null
+      : targetSummary.currentAdCount + selectedCreatives.length * targetCount;
 
   return (
     <section className="space-y-5" data-testid="launchpad-review">
@@ -151,14 +159,16 @@ export function LaunchpadReview({
       {mode === "add_to_existing" ? (
         <div className="rounded-md border p-4" data-testid="launchpad-mode-b-review-copy">
           <p className="text-sm font-semibold">
-            {selectedCreatives.length} creatives -&gt; existing ad set{" "}
-            {targetSummary?.adsetName ?? "selected ad set"} under campaign{" "}
-            {targetSummary?.campaignName ?? "selected campaign"}
+            {targetCount > 1
+              ? `${selectedCreatives.length} creatives -> ${targetCount} existing ad sets across ${campaignCount} campaigns`
+              : `${selectedCreatives.length} creatives -> existing ad set ${
+                  targetSummary?.adsetName ?? "selected ad set"
+                } under campaign ${targetSummary?.campaignName ?? "selected campaign"}`}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            The ad set will inherit pixel, attribution, targeting, and budget settings.
-            {targetSummary?.currentAdCount != null
-              ? ` Current ads: ${targetSummary.currentAdCount}; after launch: ${targetSummary.currentAdCount + selectedCreatives.length}.`
+            {targetCount > 1 ? "Selected ad sets" : "The ad set"} will inherit pixel, attribution, targeting, and budget settings.
+            {targetSummary?.currentAdCount != null && afterLaunchCount != null
+              ? ` Current ads: ${targetSummary.currentAdCount}; after launch: ${afterLaunchCount}.`
               : ""}
           </p>
         </div>

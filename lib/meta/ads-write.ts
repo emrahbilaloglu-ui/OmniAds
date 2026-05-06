@@ -117,38 +117,6 @@ function readStringField(
   return typeof value === "string" ? value.trim() : "";
 }
 
-function readJsonField(
-  payload: Record<string, unknown> | null | undefined,
-  key: string,
-) {
-  const value = payload?.[key];
-  if (!value || typeof value !== "object") return null;
-  if (Array.isArray(value)) return value.length > 0 ? value : null;
-  return Object.keys(value).length > 0 ? value : null;
-}
-
-function stableJsonStringify(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => stableJsonStringify(item)).join(",")}]`;
-  }
-  if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    return `{${Object.keys(record)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableJsonStringify(record[key])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
-}
-
-function jsonFieldsMatch(expected: unknown | null, actual: unknown | null) {
-  if (!expected) return true;
-  return (
-    Boolean(actual) &&
-    stableJsonStringify(expected) === stableJsonStringify(actual)
-  );
-}
-
 function getAccountNumericId(providerAccountId: string) {
   return providerAccountId.trim().replace(/^act_/, "");
 }
@@ -366,7 +334,7 @@ export async function duplicateAd(
     ctx,
     path: input.adId,
     method: "GET",
-    fields: "name,creative{id},adset_id,tracking_specs,conversion_specs",
+    fields: "name,creative{id},adset_id",
   });
   if (sourceAd.error) {
     return {
@@ -419,20 +387,12 @@ export async function duplicateAd(
       ? input.name.trim()
       : `${sourceName || input.adId} (copy)`;
   const accountNumericId = getAccountNumericId(ctx.providerAccountId);
-  const trackingSpecs = readJsonField(sourceAd.payload, "tracking_specs");
-  const conversionSpecs = readJsonField(sourceAd.payload, "conversion_specs");
   const body = new URLSearchParams({
     name,
     adset_id: input.targetAdsetId,
     creative: JSON.stringify({ creative_id: sourceCreativeId }),
     status: statusOption,
   });
-  if (trackingSpecs) {
-    body.set("tracking_specs", JSON.stringify(trackingSpecs));
-  }
-  if (conversionSpecs) {
-    body.set("conversion_specs", JSON.stringify(conversionSpecs));
-  }
 
   const write = await metaFetchWithRateLimitRetry({
     ctx,
@@ -475,7 +435,7 @@ export async function duplicateAd(
     ctx,
     path: newAdId,
     method: "GET",
-    fields: "id,status,effective_status,adset_id,creative{id},tracking_specs,conversion_specs",
+    fields: "id,status,effective_status,adset_id,creative{id}",
   });
   if (
     verification.error ||
@@ -501,27 +461,17 @@ export async function duplicateAd(
     getNestedRecord(verification.payload, "creative"),
     "id",
   );
-  const verifiedTrackingSpecs = readJsonField(
-    verification.payload,
-    "tracking_specs",
-  );
-  const verifiedConversionSpecs = readJsonField(
-    verification.payload,
-    "conversion_specs",
-  );
   if (
     verifiedStatus !== statusOption ||
     verifiedAdsetId !== input.targetAdsetId ||
-    verifiedCreativeId !== sourceCreativeId ||
-    !jsonFieldsMatch(trackingSpecs, verifiedTrackingSpecs) ||
-    !jsonFieldsMatch(conversionSpecs, verifiedConversionSpecs)
+    verifiedCreativeId !== sourceCreativeId
   ) {
     return {
       ok: false,
       httpStatus: 502,
       error: {
         code: "silent_failure",
-        message: "Meta created the duplicate ad but verification did not match the requested status, ad set, creative, or tracking specs.",
+        message: "Meta created the duplicate ad but verification did not match the requested status, ad set, or creative.",
       },
       responsePayload: write.payload,
       verificationPayload: verification.payload,

@@ -379,7 +379,7 @@ export function CreativeAdActionsSection({
             <div className="mt-5 space-y-4">
               <label className="block">
                 <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                  Campaign
+                  Target campaign
                 </span>
                 <select
                   value={selectedCampaignId}
@@ -400,7 +400,7 @@ export function CreativeAdActionsSection({
 
               <label className="block">
                 <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                  Ad set
+                  Target ad set
                 </span>
                 <select
                   value={selectedAdsetId}

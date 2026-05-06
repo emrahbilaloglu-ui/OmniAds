@@ -213,8 +213,8 @@ describe("CreativeAdActionsSection", () => {
     const html = renderSection(makeRow(), { initialDuplicateOpen: true });
 
     expect(html).toContain("Duplicate to campaign");
-    expect(html).toContain("Campaign");
-    expect(html).toContain("Ad set");
+    expect(html).toContain("Target campaign");
+    expect(html).toContain("Target ad set");
     expect(html).toContain("Name override");
     expect(html).toContain("Activate immediately");
     expect(html).not.toContain("Daily budget");

@@ -11,24 +11,25 @@ import {
   type MetaAttributedAovResult,
 } from "./meta-aov-calculator";
 import { classifyMetaAovQuality } from "./spend-unit-resolver";
-import type {
-  AccountCalibration,
-  AccountFunnelCalibration,
-  CampaignObjective,
-  CreativeFormat,
-  CreativeInput,
-  DataHealth,
-  DataLayerHealth,
-  EngineRiskPreset,
-  FallbackMode,
-  FormatFunnelBaseline,
-  FunnelDiagnosis,
-  FunnelStage,
-  LifecyclePosition,
-  MetaRanking,
-  MetaAovQuality,
-  SpendTrajectory,
-  StaleTier,
+import {
+  ENGINE_VERSION,
+  type AccountCalibration,
+  type AccountFunnelCalibration,
+  type CampaignObjective,
+  type CreativeFormat,
+  type CreativeInput,
+  type DataHealth,
+  type DataLayerHealth,
+  type EngineRiskPreset,
+  type FallbackMode,
+  type FormatFunnelBaseline,
+  type FunnelDiagnosis,
+  type FunnelStage,
+  type LifecyclePosition,
+  type MetaRanking,
+  type MetaAovQuality,
+  type SpendTrajectory,
+  type StaleTier,
 } from "./types";
 import type {
   OperatorResponseResult,
@@ -1195,8 +1196,8 @@ WHERE business_ref_id = $1::uuid
   AND date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
 `;
 
-// Reads are engine_version-agnostic to avoid table invalidation on ENGINE_VERSION bumps.
-// Writes preserve engine_version for provenance.
+// Calibration reads are engine_version-agnostic to avoid table invalidation on
+// ENGINE_VERSION bumps. Writes preserve engine_version for provenance.
 const READ_ACCOUNT_CALIBRATION_QUERY = `
 SELECT
   business_ref_id,
@@ -1303,6 +1304,7 @@ WITH lifecycle_rows AS (
   WHERE l.business_ref_id = $1::uuid
     AND l.as_of_date <= $2::date
     AND (NOT $4::boolean OR l.creative_id = ANY($3::text[]))
+    AND l.engine_version = $5
   ORDER BY l.creative_id, l.as_of_date DESC, l.computed_at DESC
 ),
 latest_meta AS (
@@ -1392,6 +1394,7 @@ SELECT
 FROM engine_v3_creative_lifecycle_daily
 WHERE business_ref_id = $1::uuid
   AND as_of_date <= $2::date
+  AND engine_version = $3
 `;
 
 const READ_LATEST_FUNNEL_DIAGNOSIS_QUERY = `
@@ -1413,6 +1416,7 @@ FROM engine_v3_creative_lifecycle_daily
 WHERE business_ref_id = $1::uuid
   AND creative_id = $2
   AND as_of_date <= $3::date
+  AND engine_version = $4
 ORDER BY as_of_date DESC, computed_at DESC
 LIMIT 1
 `;
@@ -2083,7 +2087,13 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
     try {
       rows = await getDb().query<LifecycleTableHydrationRow>(
         READ_LIFECYCLE_CREATIVE_INPUTS_QUERY,
-        [input.businessId, input.asOf, creativeIds, input.creativeIds != null],
+        [
+          input.businessId,
+          input.asOf,
+          creativeIds,
+          input.creativeIds != null,
+          ENGINE_VERSION,
+        ],
       );
     } catch {
       return [];
@@ -2434,7 +2444,31 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
     creativeIds?: string[];
   }): Promise<CreativeInput[]> {
     const fromTable = await this.readCreativeInputsFromLifecycleTable(input);
-    if (fromTable.length > 0) return fromTable;
+    if (fromTable.length > 0 && input.creativeIds == null) return fromTable;
+    if (fromTable.length > 0 && input.creativeIds != null) {
+      const hydratedIds = new Set(
+        fromTable.map((creative) => creative.creativeId),
+      );
+      const missingCreativeIds = input.creativeIds.filter(
+        (creativeId) => !hydratedIds.has(creativeId),
+      );
+      if (missingCreativeIds.length === 0) return fromTable;
+
+      const fallback = await this.computeCreativeInputsViaRuntimeSql({
+        ...input,
+        creativeIds: missingCreativeIds,
+      });
+      const byCreativeId = new Map(
+        [...fromTable, ...fallback].map((creative) => [
+          creative.creativeId,
+          creative,
+        ]),
+      );
+      return input.creativeIds.flatMap((creativeId) => {
+        const creative = byCreativeId.get(creativeId);
+        return creative ? [creative] : [];
+      });
+    }
 
     return this.computeCreativeInputsViaRuntimeSql(input);
   }
@@ -2477,7 +2511,7 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
   }): Promise<FunnelDiagnosis | null> {
     const [row] = await getDb().query<FunnelDiagnosisTableRow>(
       READ_LATEST_FUNNEL_DIAGNOSIS_QUERY,
-      [input.businessId, input.creativeId, input.asOf],
+      [input.businessId, input.creativeId, input.asOf, ENGINE_VERSION],
     );
     return mapFunnelDiagnosisRow(row);
   }
@@ -2552,7 +2586,7 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
     try {
       [row] = await getDb().query<LifecycleHealthRow>(
         READ_LIFECYCLE_HEALTH_QUERY,
-        [businessId, asOf],
+        [businessId, asOf, ENGINE_VERSION],
       );
     } catch (error) {
       return buildWarehouseDataLayerHealth({

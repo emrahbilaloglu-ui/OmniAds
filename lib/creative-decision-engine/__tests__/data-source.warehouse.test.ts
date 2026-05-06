@@ -541,7 +541,6 @@ describe.skipIf(!process.env.DATABASE_URL)(
     it("reads lifecycle rows from the latest available as-of date", async () => {
       await insertPrecomputedLifecycle({
         asOf: "2026-05-03",
-        engineVersion: "v3-2026-05-04-phase-3.5",
       });
       const precomputedWarehouse = new WarehouseDataSource();
 
@@ -553,6 +552,21 @@ describe.skipIf(!process.env.DATABASE_URL)(
 
       expect(input?.creativeId).toBe(PRECOMPUTED_LIFECYCLE_CREATIVE_ID);
       expect(input?.spend).toBe(321.5);
+    });
+
+    it("ignores lifecycle rows from older engine versions", async () => {
+      await insertPrecomputedLifecycle({
+        engineVersion: "v3-2026-05-04-phase-3.5",
+      });
+      const precomputedWarehouse = new WarehouseDataSource();
+
+      const input = await precomputedWarehouse.getCreativeInput({
+        creativeId: PRECOMPUTED_LIFECYCLE_CREATIVE_ID,
+        businessId: PRECOMPUTED_TEST_BUSINESS_ID,
+        asOf: AS_OF,
+      });
+
+      expect(input).toBeNull();
     });
 
     it("uses the latest lifecycle row on or before asOf for bulk hydration", async () => {

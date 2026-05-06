@@ -23,6 +23,7 @@ vi.mock("@tanstack/react-query", () => ({
 const {
   CreativeAdActionsSection,
   isDuplicateConfirmDisabled,
+  resolveManualAdActionId,
 } = await import("@/components/creatives/CreativeAdActionsSection");
 
 function makeRow(overrides: Partial<MetaCreativeRow> = {}): MetaCreativeRow {
@@ -205,5 +206,17 @@ describe("CreativeAdActionsSection", () => {
         progress: "verifying",
       }),
     ).toBe(true);
+  });
+
+  it("uses the real Meta ad id for manual actions when grouped rows have a synthetic id", () => {
+    const row = makeRow({ id: "creative_synthetic", realAdId: " 120000000001 " });
+
+    expect(resolveManualAdActionId(row)).toBe("120000000001");
+  });
+
+  it("falls back to row id when no real Meta ad id is present", () => {
+    const row = makeRow({ id: "ad_1", realAdId: null });
+
+    expect(resolveManualAdActionId(row)).toBe("ad_1");
   });
 });

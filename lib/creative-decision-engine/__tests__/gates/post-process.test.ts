@@ -110,6 +110,21 @@ describe("applyPostProcess - data health", () => {
     expect(result.confidenceDeltas).toEqual([]);
   });
 
+  it("adds stale_decision_context and confidence penalty when decision freshness is disabled", () => {
+    const result = runPostProcess("scale", {
+      dataHealth: makeDataHealth({
+        decisions: makeDataLayerHealth({ staleTier: "disabled" }),
+      }),
+    });
+
+    expect(result.badges).toContainEqual({
+      type: "stale_decision_context",
+      label: "Decision context too stale",
+      severity: "warning",
+    });
+    expect(result.confidenceDeltas).toContain(-25);
+  });
+
   it("emits separate stale badges and stacks disabled-layer penalties", () => {
     const result = runPostProcess("keep", {
       dataHealth: makeDataHealth({

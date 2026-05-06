@@ -92,6 +92,13 @@ export function applyPostProcess(
         label: "Decision context stale",
         severity: "info",
       });
+    } else if (ctx.dataHealth.decisions.staleTier === "disabled") {
+      badges.push({
+        type: "stale_decision_context",
+        label: "Decision context too stale",
+        severity: "warning",
+      });
+      confidenceDeltas.push(-25);
     }
   }
 

@@ -89,7 +89,7 @@ export function CreativeAdActionsSection({
     message: string;
   } | null>(null);
 
-  const adId = row.id;
+  const adId = resolveManualAdActionId(row);
   const actionsQueryKey = ["meta-ad-actions", businessId, adId] as const;
 
   useEffect(() => {
@@ -105,7 +105,7 @@ export function CreativeAdActionsSection({
     setDailyBudget("");
     setNameOverride(`${row.name} (copy)`);
     setActivateAfterCreate(false);
-  }, [row.effectiveStatus, row.id, row.name]);
+  }, [row.effectiveStatus, adId, row.name]);
 
   useEffect(() => {
     if (!toast) return;
@@ -561,6 +561,10 @@ export function isDuplicateConfirmDisabled(input: {
     input.progress === "submitting" ||
     input.progress === "verifying"
   );
+}
+
+export function resolveManualAdActionId(row: MetaCreativeRow) {
+  return row.realAdId?.trim() || row.id;
 }
 
 function statusClassName(status: string) {

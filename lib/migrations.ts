@@ -1422,6 +1422,80 @@ export async function runMigrations(options?: {
           ON meta_ads_action_log (business_id, requested_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_ads_action_log_ad
           ON meta_ads_action_log (ad_id, requested_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_launch_drafts (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          payload_json JSONB NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('draft', 'queued', 'launched', 'failed')) DEFAULT 'draft',
+          created_by UUID,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          launched_at TIMESTAMPTZ,
+          last_error_json JSONB
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_launch_drafts_business_recent
+          ON meta_launch_drafts (business_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_launch_templates (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          description TEXT,
+          payload_json JSONB NOT NULL,
+          source TEXT NOT NULL CHECK (source IN ('manual', 'auto_recent')) DEFAULT 'manual',
+          created_by UUID,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_launch_templates_business
+          ON meta_launch_templates (business_id, source, updated_at DESC)`.catch(() => {}),
+        sql`DO $$
+          DECLARE
+            action_constraint_name TEXT;
+          BEGIN
+            SELECT c.conname
+            INTO action_constraint_name
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'meta_ads_action_log'
+              AND c.contype = 'c'
+              AND pg_get_constraintdef(c.oid) LIKE '%action%'
+            LIMIT 1;
+
+            IF action_constraint_name IS NOT NULL THEN
+              EXECUTE format(
+                'ALTER TABLE meta_ads_action_log DROP CONSTRAINT %I',
+                action_constraint_name
+              );
+            END IF;
+
+            IF NOT EXISTS (
+              SELECT 1
+              FROM pg_constraint c
+              JOIN pg_class t ON t.oid = c.conrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+              WHERE n.nspname = current_schema()
+                AND t.relname = 'meta_ads_action_log'
+                AND c.contype = 'c'
+                AND pg_get_constraintdef(c.oid) LIKE '%launch_campaign%'
+                AND pg_get_constraintdef(c.oid) LIKE '%launch_adset%'
+                AND pg_get_constraintdef(c.oid) LIKE '%launch_ad%'
+            ) THEN
+              ALTER TABLE meta_ads_action_log
+                ADD CONSTRAINT meta_ads_action_log_action_check
+                CHECK (action IN (
+                  'pause',
+                  'resume',
+                  'duplicate',
+                  'launch_campaign',
+                  'launch_adset',
+                  'launch_ad'
+                ));
+            END IF;
+          END
+          $$`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS discount_codes (
           id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           code        TEXT NOT NULL UNIQUE,

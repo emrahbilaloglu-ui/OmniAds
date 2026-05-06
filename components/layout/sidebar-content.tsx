@@ -15,10 +15,11 @@ import { getTranslations } from "@/lib/i18n";
 import { usePreferencesStore } from "@/store/preferences-store";
 import { getNavItems } from "./nav-items";
 
-const groups = ["Main", "Platforms", "Assets", "Manage"] as const;
+const groups = ["Main", "Platforms", "Launchpad", "Assets", "Manage"] as const;
 
 const PLATFORM_LOGOS_BY_HREF: Record<string, string> = {
   "/platforms/meta": "/platform-logos/Meta.png",
+  "/launchpad/meta": "/platform-logos/Meta.png",
   "/google-ads": "/platform-logos/googleAds.svg",
   "/platforms/tiktok": "/platform-logos/tiktok.svg",
   "/platforms/pinterest": "/platform-logos/Pinterest.svg",
@@ -46,6 +47,7 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const groupLabels = {
     Main: t.navigation.main,
     Platforms: t.navigation.platforms,
+    Launchpad: t.navigation.launchpad,
     Assets: t.navigation.assets,
     Manage: t.navigation.manage,
   } as const;
@@ -79,6 +81,39 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
                     !isDemo &&
                     item.requiredPlan !== undefined &&
                     planRank(currentPlan) < planRank(item.requiredPlan);
+                  const disabled = item.disabled === true;
+
+                  if (disabled) {
+                    return (
+                      <li key={item.href}>
+                        <button
+                          type="button"
+                          disabled
+                          title={item.disabledLabel ?? "Coming soon"}
+                          className="w-full flex items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground/40 cursor-not-allowed"
+                        >
+                          {logoSrc ? (
+                            <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded-sm opacity-40">
+                              <img
+                                src={logoSrc}
+                                alt={`${item.label} logo`}
+                                className="h-4 w-4 object-contain"
+                                loading="lazy"
+                              />
+                            </span>
+                          ) : (
+                            <Icon className="w-4 h-4 shrink-0 opacity-40" />
+                          )}
+                          <span className="flex-1 text-left">{item.label}</span>
+                          {item.disabledLabel ? (
+                            <span className="text-[10px] uppercase tracking-wide">
+                              {item.disabledLabel}
+                            </span>
+                          ) : null}
+                        </button>
+                      </li>
+                    );
+                  }
 
                   if (locked) {
                     const requiredName = PLAN_LABELS[item.requiredPlan!];

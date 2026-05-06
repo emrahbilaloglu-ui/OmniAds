@@ -1,6 +1,12 @@
 import { getDb } from "@/lib/db";
 
-export type MetaAdsActionKind = "pause" | "resume" | "duplicate";
+export type MetaAdsActionKind =
+  | "pause"
+  | "resume"
+  | "duplicate"
+  | "launch_campaign"
+  | "launch_adset"
+  | "launch_ad";
 export type MetaAdsActionStatus =
   | "pending"
   | "success"
@@ -204,6 +210,25 @@ export async function hasRecentPendingMetaAdsAction(input: {
     WHERE business_id = ${input.businessId}
       AND ad_id = ${input.adId}
       AND status = 'pending'
+      AND requested_at > NOW() - (${input.sinceSeconds ?? 30}::int * interval '1 second')
+    LIMIT 1
+  `) as Array<{ id: string }>;
+  return Boolean(rows[0]);
+}
+
+export async function hasRecentPendingMetaLaunchAction(input: {
+  businessId: string;
+  idempotencyKey: string;
+  sinceSeconds?: number;
+}): Promise<boolean> {
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT id
+    FROM meta_ads_action_log
+    WHERE business_id = ${input.businessId}
+      AND action IN ('launch_campaign', 'launch_adset', 'launch_ad')
+      AND status = 'pending'
+      AND COALESCE(payload_request->>'idempotency_key', payload_request->>'idempotencyKey') = ${input.idempotencyKey}
       AND requested_at > NOW() - (${input.sinceSeconds ?? 30}::int * interval '1 second')
     LIMIT 1
   `) as Array<{ id: string }>;

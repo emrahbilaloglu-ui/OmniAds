@@ -14,6 +14,7 @@ import {
   LineChart,
   BrainCircuit,
   SearchCheck,
+  Rocket,
   Plug,
   Users,
   Settings,
@@ -29,6 +30,8 @@ export interface NavItem {
   icon: LucideIcon;
   group?: string;
   requiredPlan?: PlanId;
+  disabled?: boolean;
+  disabledLabel?: string;
 }
 
 export function getNavItems(language: AppLanguage): NavItem[] {
@@ -45,6 +48,9 @@ export function getNavItems(language: AppLanguage): NavItem[] {
     { label: t.analytics, href: "/analytics", icon: LineChart, group: "Platforms", requiredPlan: "growth" },
     { label: t.geoIntelligence, href: "/geo-intelligence", icon: BrainCircuit, group: "Platforms", requiredPlan: "pro" },
     { label: t.seoIntelligence, href: "/seo-intelligence", icon: SearchCheck, group: "Platforms", requiredPlan: "pro" },
+    { label: t.meta, href: "/launchpad/meta", icon: Rocket, group: "Launchpad", requiredPlan: "growth" },
+    { label: t.google, href: "/launchpad/google", icon: Rocket, group: "Launchpad", requiredPlan: "growth", disabled: true, disabledLabel: "Soon" },
+    { label: t.tikTok, href: "/launchpad/tiktok", icon: Rocket, group: "Launchpad", requiredPlan: "growth", disabled: true, disabledLabel: "Soon" },
     { label: t.creatives, href: "/creatives", icon: Palette, group: "Assets", requiredPlan: "growth" },
     { label: t.landingPages, href: "/landing-pages", icon: Globe, group: "Assets", requiredPlan: "growth" },
     { label: t.copies, href: "/copies", icon: FileText, group: "Assets", requiredPlan: "growth" },

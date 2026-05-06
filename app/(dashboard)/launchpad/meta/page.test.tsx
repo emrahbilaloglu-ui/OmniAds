@@ -23,6 +23,8 @@ describe("MetaLaunchpadPage", () => {
     const html = renderToStaticMarkup(<MetaLaunchpadPage />);
 
     expect(html).toContain("Meta Launchpad");
+    expect(html).toContain("Launch new campaign");
+    expect(html).toContain("Add to existing campaign");
     expect(html).toContain("Creative selection");
     expect(html).toContain("Templates");
     expect(html).toContain("Ad sets");

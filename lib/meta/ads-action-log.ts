@@ -235,6 +235,31 @@ export async function hasRecentPendingMetaLaunchAction(input: {
   return Boolean(rows[0]);
 }
 
+export async function hasRecentPendingMetaAddToExistingAction(input: {
+  businessId: string;
+  idempotencyKey: string;
+  targetAdsetId: string;
+  sinceSeconds?: number;
+}): Promise<boolean> {
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT id
+    FROM meta_ads_action_log
+    WHERE business_id = ${input.businessId}
+      AND action = 'launch_ad'
+      AND status = 'pending'
+      AND COALESCE(payload_request->>'idempotency_key', payload_request->>'idempotencyKey') = ${input.idempotencyKey}
+      AND COALESCE(
+        payload_request->>'target_adset_id',
+        payload_request->'body'->>'target_adset_id',
+        payload_request->'body'->>'adset_id'
+      ) = ${input.targetAdsetId}
+      AND requested_at > NOW() - (${input.sinceSeconds ?? 30}::int * interval '1 second')
+    LIMIT 1
+  `) as Array<{ id: string }>;
+  return Boolean(rows[0]);
+}
+
 export async function findRecentDuplicateActionResult(input: {
   businessId: string;
   adId: string;

@@ -1,10 +1,21 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { Copy, Plus, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { LaunchpadBudgetState } from "@/components/launchpad/LaunchpadBudget";
 import type { MetaBidStrategy } from "@/lib/meta/launch-write";
+import {
+  ATTRIBUTION_DIMENSIONS,
+  ATTRIBUTION_PRESETS,
+  DEFAULT_ATTRIBUTION_PRESET_ID,
+  attributionSpecHasClick,
+  getAttributionPresetById,
+  summarizeAttributionSpec,
+  type AttributionPreset,
+  type MetaAttributionSpecItem,
+} from "@/lib/launchpad/attribution-presets";
 
 export interface LaunchpadAdSetState {
   clientId: string;
@@ -20,10 +31,19 @@ export interface LaunchpadAdSetState {
   publisherPlatforms: string[];
   facebookPositions: string[];
   instagramPositions: string[];
-  attributionWindow: "1d_click" | "7d_click" | "1d_view";
-  budgetAmount: string;
-  bidStrategy: MetaBidStrategy;
-  bidAmount: string;
+  attributionPresetId: AttributionPreset["id"];
+  attributionSpec: MetaAttributionSpecItem[];
+  budgetAmount?: string;
+  bidStrategy?: MetaBidStrategy;
+  bidAmount?: string;
+}
+
+export interface LaunchpadPixelOption {
+  id: string;
+  name: string | null;
+  lastSpend28d: number;
+  lastUpdatedAt: string | null;
+  isMostUsed: boolean;
 }
 
 export function makeDefaultLaunchpadAdSet(index: number, campaignName: string): LaunchpadAdSetState {
@@ -44,7 +64,11 @@ export function makeDefaultLaunchpadAdSet(index: number, campaignName: string): 
     publisherPlatforms: ["facebook", "instagram"],
     facebookPositions: ["feed", "story", "reels"],
     instagramPositions: ["stream", "story", "reels"],
-    attributionWindow: "7d_click",
+    attributionPresetId: DEFAULT_ATTRIBUTION_PRESET_ID,
+    attributionSpec:
+      getAttributionPresetById(DEFAULT_ATTRIBUTION_PRESET_ID)?.attributionSpec ?? [
+        { event_type: "CLICK_THROUGH", window_days: 7 },
+      ],
     budgetAmount: "25",
     bidStrategy: "LOWEST_COST_WITHOUT_CAP",
     bidAmount: "",
@@ -62,17 +86,108 @@ const PUBLISHERS = ["facebook", "instagram", "audience_network", "messenger"];
 const FACEBOOK_POSITIONS = ["feed", "story", "reels", "marketplace", "video_feeds"];
 const INSTAGRAM_POSITIONS = ["stream", "story", "reels", "explore"];
 
+export function resetHiddenAdSetBudgetFieldsForMode(
+  value: LaunchpadAdSetState[],
+  mode: LaunchpadBudgetState["mode"],
+) {
+  return value.map((adSet) =>
+    mode === "CBO"
+      ? {
+          ...adSet,
+          budgetAmount: undefined,
+          bidStrategy: undefined,
+          bidAmount: undefined,
+        }
+      : {
+          ...adSet,
+          budgetAmount: adSet.budgetAmount ?? "25",
+          bidStrategy: adSet.bidStrategy ?? "LOWEST_COST_WITHOUT_CAP",
+          bidAmount: adSet.bidAmount ?? "",
+        },
+  );
+}
+
 export function LaunchpadAdSets({
   value,
+  businessId,
   campaignName,
   budget,
   onChange,
+  pixelOptions,
 }: {
   value: LaunchpadAdSetState[];
+  businessId?: string;
   campaignName: string;
   budget: LaunchpadBudgetState;
   onChange: (value: LaunchpadAdSetState[]) => void;
+  pixelOptions?: LaunchpadPixelOption[];
 }) {
+  const [pixels, setPixels] = useState<LaunchpadPixelOption[]>(pixelOptions ?? []);
+  const [pixelsLoading, setPixelsLoading] = useState(false);
+
+  useEffect(() => {
+    if (pixelOptions) setPixels(pixelOptions);
+  }, [pixelOptions]);
+
+  useEffect(() => {
+    if (!businessId || pixelOptions) return;
+    let cancelled = false;
+    setPixelsLoading(true);
+    fetch(`/api/launchpad/meta/pixels?businessId=${encodeURIComponent(businessId)}`)
+      .then((response) => response.json())
+      .then((payload) => {
+        if (!cancelled) setPixels(Array.isArray(payload?.pixels) ? payload.pixels : []);
+      })
+      .catch(() => {
+        if (!cancelled) setPixels([]);
+      })
+      .finally(() => {
+        if (!cancelled) setPixelsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [businessId, pixelOptions]);
+
+  const sortedPixels = useMemo(
+    () =>
+      [...pixels].sort(
+        (a, b) =>
+          (b.lastSpend28d ?? 0) - (a.lastSpend28d ?? 0) ||
+          Date.parse(b.lastUpdatedAt ?? "") - Date.parse(a.lastUpdatedAt ?? ""),
+      ),
+    [pixels],
+  );
+
+  useEffect(() => {
+    let changed = false;
+    const mostUsed = sortedPixels.find((pixel) => pixel.isMostUsed) ?? sortedPixels[0] ?? null;
+    const modeNormalized = resetHiddenAdSetBudgetFieldsForMode(value, budget.mode);
+    if (modeNormalized.some((adSet, index) => {
+      const original = value[index];
+      return (
+        original &&
+        (adSet.budgetAmount !== original.budgetAmount ||
+          adSet.bidStrategy !== original.bidStrategy ||
+          adSet.bidAmount !== original.bidAmount)
+      );
+    })) {
+      changed = true;
+    }
+    const next = modeNormalized.map((adSet) => {
+      if (!pixelsLoading && sortedPixels.length === 0 && adSet.pixelId) {
+        changed = true;
+        return { ...adSet, pixelId: "" };
+      }
+      if (!adSet.pixelId && mostUsed) {
+        changed = true;
+        return { ...adSet, pixelId: mostUsed.id };
+      }
+      return adSet;
+    });
+    if (changed) onChange(next);
+  }, [budget.mode, onChange, pixelsLoading, sortedPixels, value]);
+
   function updateAdSet(index: number, next: LaunchpadAdSetState) {
     onChange(value.map((item, itemIndex) => (itemIndex === index ? next : item)));
   }
@@ -158,10 +273,10 @@ export function LaunchpadAdSets({
                   })
                 }
               />
-              <TextField
-                label="Pixel"
+              <PixelField
                 value={adSet.pixelId}
-                placeholder="pixel id"
+                pixels={sortedPixels}
+                loading={pixelsLoading}
                 onChange={(pixelId) => updateAdSet(index, { ...adSet, pixelId })}
               />
               <SelectField
@@ -243,31 +358,24 @@ export function LaunchpadAdSets({
               </div>
             ) : null}
 
-            <div className="mt-4 grid gap-3 md:grid-cols-3">
-              <SelectField
-                label="Attribution"
-                value={adSet.attributionWindow}
-                options={["7d_click", "1d_click", "1d_view"]}
-                onChange={(attributionWindow) =>
-                  updateAdSet(index, {
-                    ...adSet,
-                    attributionWindow: attributionWindow as LaunchpadAdSetState["attributionWindow"],
-                  })
-                }
+            <div className="mt-4 space-y-3">
+              <AttributionField
+                adSet={adSet}
+                onChange={(next) => updateAdSet(index, next)}
               />
               {budget.mode === "ABO" ? (
-                <>
+                <div className="grid gap-3 md:grid-cols-3">
                   <TextField
-                    label="Budget"
+                    label="Ad set budget"
                     type="number"
-                    value={adSet.budgetAmount}
+                    value={adSet.budgetAmount ?? ""}
                     onChange={(budgetAmount) =>
                       updateAdSet(index, { ...adSet, budgetAmount })
                     }
                   />
                   <SelectField
-                    label="Bid strategy"
-                    value={adSet.bidStrategy}
+                    label="Ad set bid strategy"
+                    value={adSet.bidStrategy ?? "LOWEST_COST_WITHOUT_CAP"}
                     options={[
                       "LOWEST_COST_WITHOUT_CAP",
                       "LOWEST_COST_WITH_BID_CAP",
@@ -280,24 +388,180 @@ export function LaunchpadAdSets({
                       })
                     }
                   />
-                </>
+                  {adSet.bidStrategy !== "LOWEST_COST_WITHOUT_CAP" ? (
+                    <TextField
+                      label="Ad set bid amount"
+                      type="number"
+                      value={adSet.bidAmount ?? ""}
+                      onChange={(bidAmount) => updateAdSet(index, { ...adSet, bidAmount })}
+                    />
+                  ) : null}
+                </div>
               ) : null}
             </div>
-
-            {budget.mode === "ABO" && adSet.bidStrategy !== "LOWEST_COST_WITHOUT_CAP" ? (
-              <div className="mt-3 max-w-xs">
-                <TextField
-                  label="Bid amount"
-                  type="number"
-                  value={adSet.bidAmount}
-                  onChange={(bidAmount) => updateAdSet(index, { ...adSet, bidAmount })}
-                />
-              </div>
-            ) : null}
           </div>
         ))}
       </div>
     </section>
+  );
+}
+
+function AttributionField({
+  adSet,
+  onChange,
+}: {
+  adSet: LaunchpadAdSetState;
+  onChange: (value: LaunchpadAdSetState) => void;
+}) {
+  const hasClick = attributionSpecHasClick(adSet.attributionSpec);
+  const activeSpec = new Set(
+    adSet.attributionSpec.map((item) => `${item.event_type}:${item.window_days}`),
+  );
+  return (
+    <div className="rounded-md border p-3" data-testid="launchpad-attribution-field">
+      <label className="block space-y-1.5">
+        <span className="text-sm font-medium">Attribution preset</span>
+        <select
+          value={adSet.attributionPresetId}
+          onChange={(event) => {
+            const preset = getAttributionPresetById(event.target.value);
+            if (!preset) return;
+            onChange({
+              ...adSet,
+              attributionPresetId: preset.id,
+              attributionSpec: preset.attributionSpec,
+            });
+          }}
+          className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:border-primary"
+        >
+          {ATTRIBUTION_PRESETS.map((preset) => (
+            <option key={preset.id} value={preset.id}>
+              {preset.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {adSet.attributionPresetId === "custom" ? (
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {ATTRIBUTION_DIMENSIONS.map((dimension) => {
+            const key = `${dimension.event_type}:${dimension.window_days}`;
+            const checked = activeSpec.has(key);
+            return (
+              <label key={key} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(event) => {
+                    const next = event.target.checked
+                      ? [...adSet.attributionSpec, dimension]
+                      : adSet.attributionSpec.filter(
+                          (item) =>
+                            item.event_type !== dimension.event_type ||
+                            item.window_days !== dimension.window_days,
+                        );
+                    const ordered = ATTRIBUTION_DIMENSIONS.filter((item) =>
+                      next.some(
+                        (selected) =>
+                          selected.event_type === item.event_type &&
+                          selected.window_days === item.window_days,
+                      ),
+                    );
+                    onChange({ ...adSet, attributionSpec: ordered });
+                  }}
+                />
+                {dimension.event_type === "CLICK_THROUGH"
+                  ? `Click ${dimension.window_days}-day`
+                  : dimension.event_type === "VIEW_THROUGH"
+                    ? `View ${dimension.window_days}-day`
+                    : `Engaged video view ${dimension.window_days}-day`}
+              </label>
+            );
+          })}
+        </div>
+      ) : null}
+      <div className="mt-3 rounded-md bg-muted/30 p-2 text-xs">
+        <span className="font-medium">attribution_spec preview: </span>
+        <code>{JSON.stringify(adSet.attributionSpec)}</code>
+      </div>
+      {!hasClick ? (
+        <Badge className="mt-2 border-rose-200 bg-rose-50 text-rose-800" variant="outline">
+          At least one click window is required
+        </Badge>
+      ) : (
+        <p className="mt-2 text-xs text-muted-foreground">
+          {summarizeAttributionSpec(adSet.attributionSpec)}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function formatPixelLabel(pixel: LaunchpadPixelOption) {
+  const name = pixel.name ? `${pixel.name} / ` : "";
+  return `${name}${pixel.id} / 28d spend $${pixel.lastSpend28d.toLocaleString(undefined, {
+    maximumFractionDigits: 0,
+  })}`;
+}
+
+function PixelField({
+  value,
+  pixels,
+  loading,
+  onChange,
+}: {
+  value: string;
+  pixels: LaunchpadPixelOption[];
+  loading: boolean;
+  onChange: (value: string) => void;
+}) {
+  if (loading) {
+    return (
+      <div className="space-y-1.5">
+        <span className="text-sm font-medium">Pixel</span>
+        <div className="flex h-10 items-center rounded-md border px-3 text-sm text-muted-foreground">
+          Loading pixels...
+        </div>
+      </div>
+    );
+  }
+  if (pixels.length === 0) {
+    return (
+      <div className="space-y-1.5">
+        <span className="text-sm font-medium">Pixel</span>
+        <Badge className="border-rose-200 bg-rose-50 text-rose-800" variant="outline">
+          No active pixel found for this business
+        </Badge>
+      </div>
+    );
+  }
+  if (pixels.length === 1) {
+    const pixel = pixels[0];
+    return (
+      <div className="space-y-1.5">
+        <span className="text-sm font-medium">Pixel</span>
+        <div className="flex h-10 items-center rounded-md border bg-muted/20 px-3 text-sm">
+          {pixel ? formatPixelLabel(pixel) : value}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <label className="block space-y-1.5">
+      <span className="text-sm font-medium">Pixel</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:border-primary"
+      >
+        <option value="">Choose pixel</option>
+        {pixels.map((pixel) => (
+          <option key={pixel.id} value={pixel.id}>
+            {formatPixelLabel(pixel)}
+            {pixel.isMostUsed ? " / most used" : ""}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

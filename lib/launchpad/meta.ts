@@ -4,6 +4,14 @@ import type {
   MetaLaunchAdSetInput,
   MetaLaunchCampaignInput,
 } from "@/lib/meta/launch-write";
+import {
+  ATTRIBUTION_PRESETS,
+  DEFAULT_ATTRIBUTION_PRESET_ID,
+  attributionSpecHasClick,
+  getAttributionPresetById,
+  normalizeAttributionSpecItems,
+  type MetaAttributionEventType,
+} from "@/lib/launchpad/attribution-presets";
 
 export type MetaBudgetMode = "CBO" | "ABO";
 export type MetaBudgetSchedule = "daily" | "lifetime";
@@ -23,9 +31,9 @@ export interface MetaLaunchCreativeRef {
 
 export interface MetaLaunchBudgetPayload {
   mode: MetaBudgetMode;
-  schedule: MetaBudgetSchedule;
-  amountMinor: number;
-  bidStrategy: MetaBidStrategy;
+  schedule?: MetaBudgetSchedule;
+  amountMinor?: number | null;
+  bidStrategy?: MetaBidStrategy | null;
   bidAmountMinor?: number | null;
 }
 
@@ -48,13 +56,14 @@ export interface MetaLaunchAdSetPayload {
   customEventType: MetaCustomEventType;
   targeting: MetaLaunchTargetingPayload;
   attributionSpec: Array<{
-    eventType: "CLICK_THROUGH" | "VIEW_THROUGH";
+    eventType: MetaAttributionEventType;
     windowDays: 1 | 7;
   }>;
   budget?: MetaLaunchBudgetPayload | null;
 }
 
 export interface MetaLaunchPayload {
+  mode?: "new_campaign";
   campaign: {
     name: string;
     objective: "OUTCOME_SALES";
@@ -65,6 +74,21 @@ export interface MetaLaunchPayload {
   creativeIds: string[];
   creatives: MetaLaunchCreativeRef[];
   adSets: MetaLaunchAdSetPayload[];
+}
+
+export interface MetaAddToExistingCreativeRef extends MetaLaunchCreativeRef {
+  nameOverride?: string | null;
+}
+
+export interface MetaAddToExistingPayload {
+  mode: "add_to_existing";
+  targetCampaignId: string;
+  targetAdsetId: string;
+  targetCampaignName?: string | null;
+  targetAdsetName?: string | null;
+  creativeIds: string[];
+  creatives: MetaAddToExistingCreativeRef[];
+  names?: Record<string, string>;
 }
 
 export interface LaunchpadIssue {
@@ -98,7 +122,13 @@ function uniqueStrings(values: string[]) {
 function normalizeBudget(value: unknown, fallbackMode: MetaBudgetMode): MetaLaunchBudgetPayload {
   const record = isRecord(value) ? value : {};
   const mode = record.mode === "ABO" ? "ABO" : fallbackMode;
-  const schedule = record.schedule === "lifetime" ? "lifetime" : "daily";
+  const topLevelAboOnly =
+    mode === "ABO" && fallbackMode === "CBO" && record.amountMinor == null;
+  const schedule = topLevelAboOnly
+    ? undefined
+    : record.schedule === "lifetime"
+      ? "lifetime"
+      : "daily";
   const bidStrategy =
     record.bidStrategy === "LOWEST_COST_WITH_BID_CAP" ||
     record.bidStrategy === "COST_CAP"
@@ -107,8 +137,11 @@ function normalizeBudget(value: unknown, fallbackMode: MetaBudgetMode): MetaLaun
   return {
     mode,
     schedule,
-    amountMinor: Math.trunc(asNumber(record.amountMinor, 0)),
-    bidStrategy,
+    amountMinor:
+      record.amountMinor == null
+        ? null
+        : Math.trunc(asNumber(record.amountMinor, 0)),
+    bidStrategy: topLevelAboOnly ? null : bidStrategy,
     bidAmountMinor:
       record.bidAmountMinor == null
         ? null
@@ -117,17 +150,16 @@ function normalizeBudget(value: unknown, fallbackMode: MetaBudgetMode): MetaLaun
 }
 
 function normalizeAttributionSpec(value: unknown): MetaLaunchAdSetPayload["attributionSpec"] {
-  if (!Array.isArray(value) || value.length === 0) {
-    return [{ eventType: "CLICK_THROUGH", windowDays: 7 }];
-  }
-  return value.map((item) => {
-    const record = isRecord(item) ? item : {};
-    return {
-      eventType:
-        record.eventType === "VIEW_THROUGH" ? "VIEW_THROUGH" : "CLICK_THROUGH",
-      windowDays: record.windowDays === 1 ? 1 : 7,
-    };
-  });
+  const normalized = normalizeAttributionSpecItems(value);
+  const spec = normalized.length
+    ? normalized
+    : getAttributionPresetById(DEFAULT_ATTRIBUTION_PRESET_ID)?.attributionSpec ??
+      ATTRIBUTION_PRESETS[0]?.attributionSpec ??
+      [{ event_type: "CLICK_THROUGH" as const, window_days: 7 as const }];
+  return spec.map((item) => ({
+    eventType: item.event_type,
+    windowDays: item.window_days,
+  }));
 }
 
 function normalizeTargeting(value: unknown): MetaLaunchTargetingPayload {
@@ -178,6 +210,7 @@ export function normalizeMetaLaunchPayload(value: unknown): MetaLaunchPayload {
   const adSets = Array.isArray(record.adSets) ? record.adSets : [];
 
   return {
+    mode: "new_campaign",
     campaign: {
       name: asString(campaign.name),
       objective: "OUTCOME_SALES",
@@ -218,6 +251,33 @@ export function normalizeMetaLaunchPayload(value: unknown): MetaLaunchPayload {
   };
 }
 
+export function normalizeMetaAddToExistingPayload(value: unknown): MetaAddToExistingPayload {
+  const record = isRecord(value) ? value : {};
+  const namesRecord = isRecord(record.names) ? record.names : {};
+  const creatives = normalizeCreatives(record.creatives, record.creativeIds).map((creative) => {
+    const override = asString(namesRecord[creative.creativeId]);
+    return {
+      ...creative,
+      nameOverride: override || null,
+    };
+  });
+  const names = creatives.reduce<Record<string, string>>((acc, creative) => {
+    const name = asString(creative.nameOverride);
+    if (name) acc[creative.creativeId] = name;
+    return acc;
+  }, {});
+  return {
+    mode: "add_to_existing",
+    targetCampaignId: asString(record.targetCampaignId),
+    targetAdsetId: asString(record.targetAdsetId),
+    targetCampaignName: asString(record.targetCampaignName) || null,
+    targetAdsetName: asString(record.targetAdsetName) || null,
+    creativeIds: creatives.map((creative) => creative.creativeId),
+    creatives,
+    names,
+  };
+}
+
 export function validateMetaLaunchPayloadShape(
   payload: MetaLaunchPayload,
 ): { blockers: LaunchpadIssue[]; warnings: LaunchpadIssue[] } {
@@ -248,13 +308,14 @@ export function validateMetaLaunchPayloadShape(
       message: "Add at least one ad set.",
     });
   }
-  if (payload.budget.amountMinor <= 0) {
+  if (payload.budget.mode === "CBO" && (payload.budget.amountMinor ?? 0) <= 0) {
     blockers.push({
       code: "budget_required",
       message: "Budget amount must be greater than zero.",
     });
   }
   if (
+    payload.budget.mode === "CBO" &&
     payload.budget.bidStrategy !== "LOWEST_COST_WITHOUT_CAP" &&
     (!payload.budget.bidAmountMinor || payload.budget.bidAmountMinor <= 0)
   ) {
@@ -276,7 +337,7 @@ export function validateMetaLaunchPayloadShape(
   }
   if (payload.budget.mode === "ABO") {
     payload.adSets.forEach((adSet, index) => {
-      if (!adSet.budget || adSet.budget.amountMinor <= 0) {
+      if (!adSet.budget || (adSet.budget.amountMinor ?? 0) <= 0) {
         blockers.push({
           code: "adset_budget_required",
           message: `Ad set ${index + 1} needs a budget in ABO mode.`,
@@ -310,6 +371,17 @@ export function validateMetaLaunchPayloadShape(
         message: `Ad set ${index + 1} has an invalid age range.`,
       });
     }
+    if (!attributionSpecHasClick(
+      adSet.attributionSpec.map((item) => ({
+        event_type: item.eventType,
+        window_days: item.windowDays,
+      })),
+    )) {
+      blockers.push({
+        code: "attribution_click_required",
+        message: `Ad set ${index + 1} attribution needs at least one click window.`,
+      });
+    }
     if (!adSet.targeting.advantagePlacements) {
       const placementCount =
         (adSet.targeting.publisherPlatforms?.length ?? 0) +
@@ -327,6 +399,31 @@ export function validateMetaLaunchPayloadShape(
   return { blockers, warnings };
 }
 
+export function validateMetaAddToExistingPayloadShape(
+  payload: MetaAddToExistingPayload,
+): { blockers: LaunchpadIssue[]; warnings: LaunchpadIssue[] } {
+  const blockers: LaunchpadIssue[] = [];
+  if (!payload.targetCampaignId) {
+    blockers.push({
+      code: "target_campaign_required",
+      message: "Choose an existing campaign.",
+    });
+  }
+  if (!payload.targetAdsetId) {
+    blockers.push({
+      code: "target_adset_required",
+      message: "Choose an existing ad set.",
+    });
+  }
+  if (payload.creativeIds.length === 0) {
+    blockers.push({
+      code: "creative_required",
+      message: "Select at least one creative.",
+    });
+  }
+  return { blockers, warnings: [] };
+}
+
 export function toCampaignInput(payload: MetaLaunchPayload): MetaLaunchCampaignInput {
   const shared = {
     name: payload.campaign.name,
@@ -335,15 +432,16 @@ export function toCampaignInput(payload: MetaLaunchPayload): MetaLaunchCampaignI
     smartPromotionType: payload.campaign.smartPromotionType ?? null,
     buyingType: "AUCTION" as const,
     specialAdCategories: payload.campaign.specialAdCategories,
-    bidStrategy: payload.budget.mode === "CBO" ? payload.budget.bidStrategy : undefined,
+    bidStrategy: payload.budget.mode === "CBO" ? payload.budget.bidStrategy ?? undefined : undefined,
     bidAmountMinor:
       payload.budget.mode === "CBO" ? payload.budget.bidAmountMinor ?? undefined : undefined,
     isAdsetBudgetSharingEnabled: payload.budget.mode === "CBO",
   };
-  return payload.budget.mode === "CBO" && payload.budget.schedule === "lifetime"
-    ? { ...shared, lifetimeBudgetMinor: payload.budget.amountMinor }
+  const schedule = payload.budget.schedule ?? "daily";
+  return payload.budget.mode === "CBO" && schedule === "lifetime"
+    ? { ...shared, lifetimeBudgetMinor: payload.budget.amountMinor ?? undefined }
     : payload.budget.mode === "CBO"
-      ? { ...shared, dailyBudgetMinor: payload.budget.amountMinor }
+      ? { ...shared, dailyBudgetMinor: payload.budget.amountMinor ?? undefined }
       : shared;
 }
 
@@ -384,10 +482,10 @@ export function toAdSetInput(
   return {
     ...shared,
     dailyBudgetMinor:
-      budget.schedule === "daily" ? budget.amountMinor : undefined,
+      (budget.schedule ?? "daily") === "daily" ? budget.amountMinor ?? undefined : undefined,
     lifetimeBudgetMinor:
-      budget.schedule === "lifetime" ? budget.amountMinor : undefined,
-    bidStrategy: budget.bidStrategy,
+      budget.schedule === "lifetime" ? budget.amountMinor ?? undefined : undefined,
+    bidStrategy: budget.bidStrategy ?? undefined,
     bidAmountMinor: budget.bidAmountMinor ?? undefined,
   };
 }

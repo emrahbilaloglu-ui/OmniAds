@@ -6,7 +6,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import type { DecisionOutput } from "@/lib/creative-decision-engine";
-import type { LaunchpadIssue, MetaLaunchPayload } from "@/lib/launchpad/meta";
+import type {
+  LaunchpadIssue,
+  MetaAddToExistingPayload,
+  MetaLaunchPayload,
+} from "@/lib/launchpad/meta";
 import { hasBelowBreakeven } from "@/components/launchpad/LaunchpadCreativeSelection";
 
 export interface LaunchpadValidationState {
@@ -53,22 +57,30 @@ export function buildEngineAggregate(input: {
 }
 
 export function LaunchpadReview({
+  mode = "new_campaign",
   businessId,
   payload,
   selectedCreatives,
   decisionByCreativeId,
+  targetSummary,
   onValidation,
   onSaveTemplate,
   onSaveDraft,
   onLaunch,
 }: {
+  mode?: "new_campaign" | "add_to_existing";
   businessId: string;
-  payload: MetaLaunchPayload;
+  payload: MetaLaunchPayload | MetaAddToExistingPayload;
   selectedCreatives: MetaCreativeRow[];
   decisionByCreativeId: Map<string, DecisionOutput>;
+  targetSummary?: {
+    campaignName: string | null;
+    adsetName: string | null;
+    currentAdCount?: number | null;
+  } | null;
   onValidation?: (state: LaunchpadValidationState) => void;
-  onSaveTemplate: () => void;
-  onSaveDraft: () => void;
+  onSaveTemplate?: () => void;
+  onSaveDraft?: () => void;
   onLaunch: () => void;
 }) {
   const [validation, setValidation] = useState<LaunchpadValidationState | null>(null);
@@ -129,8 +141,28 @@ export function LaunchpadReview({
     <section className="space-y-5" data-testid="launchpad-review">
       <div>
         <h2 className="text-lg font-semibold">Review</h2>
-        <p className="text-sm text-muted-foreground">Campaign and ads will start paused</p>
+        <p className="text-sm text-muted-foreground">
+          {mode === "add_to_existing"
+            ? "Ads will be added to the existing ad set and start paused"
+            : "Campaign and ads will start paused"}
+        </p>
       </div>
+
+      {mode === "add_to_existing" ? (
+        <div className="rounded-md border p-4" data-testid="launchpad-mode-b-review-copy">
+          <p className="text-sm font-semibold">
+            {selectedCreatives.length} creatives -&gt; existing ad set{" "}
+            {targetSummary?.adsetName ?? "selected ad set"} under campaign{" "}
+            {targetSummary?.campaignName ?? "selected campaign"}
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            The ad set will inherit pixel, attribution, targeting, and budget settings.
+            {targetSummary?.currentAdCount != null
+              ? ` Current ads: ${targetSummary.currentAdCount}; after launch: ${targetSummary.currentAdCount + selectedCreatives.length}.`
+              : ""}
+          </p>
+        </div>
+      ) : null}
 
       <div
         className={`rounded-md border p-4 ${
@@ -190,14 +222,18 @@ export function LaunchpadReview({
       </div>
 
       <div className="flex flex-wrap justify-end gap-2">
-        <Button type="button" variant="outline" onClick={onSaveTemplate}>
-          <Save className="h-4 w-4" />
-          Save as template
-        </Button>
-        <Button type="button" variant="outline" onClick={onSaveDraft}>
-          <Save className="h-4 w-4" />
-          Save draft
-        </Button>
+        {mode === "new_campaign" && onSaveTemplate ? (
+          <Button type="button" variant="outline" onClick={onSaveTemplate}>
+            <Save className="h-4 w-4" />
+            Save as template
+          </Button>
+        ) : null}
+        {onSaveDraft ? (
+          <Button type="button" variant="outline" onClick={onSaveDraft}>
+            <Save className="h-4 w-4" />
+            Save draft
+          </Button>
+        ) : null}
         <Button type="button" disabled={launchBlocked} onClick={onLaunch}>
           <Send className="h-4 w-4" />
           Launch (paused)

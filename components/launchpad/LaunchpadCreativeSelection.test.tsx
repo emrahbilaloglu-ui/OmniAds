@@ -5,6 +5,8 @@ import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import type { DecisionOutput } from "@/lib/creative-decision-engine";
 import {
   LaunchpadCreativeSelection,
+  buildLaunchpadSelectionSummary,
+  filterLaunchpadCreativeRows,
   getCreativeAdvisoryNotes,
 } from "@/components/launchpad/LaunchpadCreativeSelection";
 
@@ -127,5 +129,89 @@ describe("LaunchpadCreativeSelection", () => {
     expect(getCreativeAdvisoryNotes(makeDecision({ label: "diagnose" })).map((note) => note.text)).toContain(
       "Engine: data anomaly - verify before launch",
     );
+  });
+
+  it("filters by status, format, label, badge, and search", () => {
+    const rows = [
+      makeRow({ creativeId: "creative_1", name: "Hero Scale", format: "image" }),
+      makeRow({
+        id: "row_2",
+        creativeId: "creative_2",
+        name: "Video Cut",
+        format: "video",
+        creativeVisualFormat: "video",
+      }),
+      makeRow({
+        id: "row_3",
+        creativeId: "creative_3",
+        name: "Closed Refresh",
+        effectiveStatus: "PAUSED",
+        launchDate: "2026-05-01",
+      }),
+    ];
+    const decisions = new Map<string, DecisionOutput>([
+      ["creative_1", makeDecision({ creativeId: "creative_1", label: "scale" })],
+      [
+        "creative_2",
+        makeDecision({
+          creativeId: "creative_2",
+          label: "cut",
+          badges: [{ type: "below_breakeven", label: "Below breakeven", severity: "warning" }],
+        }),
+      ],
+      ["creative_3", makeDecision({ creativeId: "creative_3", label: "refresh" })],
+    ]);
+
+    expect(
+      filterLaunchpadCreativeRows({
+        rows,
+        decisionByCreativeId: decisions,
+        formatFilter: "video",
+      }).map((row) => row.creativeId),
+    ).toEqual(["creative_2"]);
+    expect(
+      filterLaunchpadCreativeRows({
+        rows,
+        decisionByCreativeId: decisions,
+        labels: ["cut"],
+        badges: ["below_breakeven"],
+        search: "video",
+      }).map((row) => row.creativeId),
+    ).toEqual(["creative_2"]);
+    expect(
+      filterLaunchpadCreativeRows({
+        rows,
+        decisionByCreativeId: decisions,
+        statusFilter: "closed_30d",
+      }).map((row) => row.creativeId),
+    ).toEqual(["creative_3"]);
+  });
+
+  it("sorts and builds the persistent selection summary", () => {
+    const rows = [
+      makeRow({ creativeId: "creative_1", name: "B", spend: 50, roas: 3, purchases: 2 }),
+      makeRow({ id: "row_2", creativeId: "creative_2", name: "A", spend: 150, roas: 1, purchases: 1 }),
+    ];
+    const decisions = new Map<string, DecisionOutput>([
+      ["creative_1", makeDecision({ creativeId: "creative_1", label: "scale", metrics: { spend: 50, purchases: 2, roas: 3, recent7dRoas: 3 } })],
+      ["creative_2", makeDecision({ creativeId: "creative_2", label: "cut", metrics: { spend: 150, purchases: 1, roas: 1, recent7dRoas: 1 } })],
+    ]);
+
+    expect(
+      filterLaunchpadCreativeRows({
+        rows,
+        decisionByCreativeId: decisions,
+        sort: "name_asc",
+      }).map((row) => row.name),
+    ).toEqual(["A", "B"]);
+    expect(
+      buildLaunchpadSelectionSummary({ selectedCreatives: rows, decisionByCreativeId: decisions }),
+    ).toMatchObject({
+      count: 2,
+      totalSpend: 200,
+      averageRoas: 1.5,
+      scale: 1,
+      cut: 1,
+    });
   });
 });

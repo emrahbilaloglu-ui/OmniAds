@@ -34,13 +34,26 @@ import {
   makeDefaultLaunchpadAdSet,
   type LaunchpadAdSetState,
 } from "@/components/launchpad/LaunchpadAdSets";
+import {
+  LaunchpadAddToExistingTarget,
+  makeDefaultAddToExistingTargetState,
+  defaultCreativeAddName,
+  type LaunchpadAddToExistingState,
+} from "@/components/launchpad/LaunchpadAddToExistingTarget";
 import { LaunchpadReview } from "@/components/launchpad/LaunchpadReview";
 import {
   LaunchpadProgress,
   type LaunchpadProgressResult,
 } from "@/components/launchpad/LaunchpadProgress";
+import {
+  DEFAULT_ATTRIBUTION_PRESET_ID,
+  findMatchingAttributionPreset,
+  getAttributionPresetById,
+  type MetaAttributionSpecItem,
+} from "@/lib/launchpad/attribution-presets";
 
-type WizardStep = "creatives" | "basics" | "budget" | "adsets" | "review" | "progress";
+type LaunchpadMode = "new_campaign" | "add_to_existing";
+type WizardStep = "creatives" | "basics" | "budget" | "adsets" | "target" | "review" | "progress";
 
 interface LaunchTemplate {
   id: string;
@@ -50,11 +63,18 @@ interface LaunchTemplate {
   payload: MetaLaunchPayload;
 }
 
-const STEPS: Array<{ id: WizardStep; label: string }> = [
+const MODE_A_STEPS: Array<{ id: WizardStep; label: string }> = [
   { id: "creatives", label: "Creatives" },
   { id: "basics", label: "Basics" },
   { id: "budget", label: "Budget" },
   { id: "adsets", label: "Ad sets" },
+  { id: "review", label: "Review" },
+  { id: "progress", label: "Progress" },
+];
+
+const MODE_B_STEPS: Array<{ id: WizardStep; label: string }> = [
+  { id: "creatives", label: "Creatives" },
+  { id: "target", label: "Target" },
   { id: "review", label: "Review" },
   { id: "progress", label: "Progress" },
 ];
@@ -81,25 +101,18 @@ function countriesFromInput(value: string) {
 }
 
 function attributionSpecFromState(adSet: LaunchpadAdSetState) {
-  if (adSet.attributionWindow === "1d_view") {
-    return [{ eventType: "VIEW_THROUGH" as const, windowDays: 1 as const }];
-  }
-  return [
-    {
-      eventType: "CLICK_THROUGH" as const,
-      windowDays: adSet.attributionWindow === "1d_click" ? 1 as const : 7 as const,
-    },
-  ];
+  return adSet.attributionSpec.map((item) => ({
+    eventType: item.event_type,
+    windowDays: item.window_days,
+  }));
 }
 
 function stateFromPayloadAdSet(adSet: MetaLaunchPayload["adSets"][number], index: number): LaunchpadAdSetState {
-  const attribution = adSet.attributionSpec[0];
-  const attributionWindow =
-    attribution?.eventType === "VIEW_THROUGH"
-      ? "1d_view"
-      : attribution?.windowDays === 1
-        ? "1d_click"
-        : "7d_click";
+  const attributionSpec: MetaAttributionSpecItem[] = adSet.attributionSpec.map((item) => ({
+    event_type: item.eventType,
+    window_days: item.windowDays,
+  }));
+  const preset = findMatchingAttributionPreset(attributionSpec);
   return {
     clientId: adSet.clientId || `template-adset-${index + 1}`,
     name: adSet.name,
@@ -114,7 +127,13 @@ function stateFromPayloadAdSet(adSet: MetaLaunchPayload["adSets"][number], index
     publisherPlatforms: adSet.targeting.publisherPlatforms ?? [],
     facebookPositions: adSet.targeting.facebookPositions ?? [],
     instagramPositions: adSet.targeting.instagramPositions ?? [],
-    attributionWindow,
+    attributionPresetId: preset?.id ?? "custom",
+    attributionSpec:
+      attributionSpec.length > 0
+        ? attributionSpec
+        : getAttributionPresetById(DEFAULT_ATTRIBUTION_PRESET_ID)?.attributionSpec ?? [
+            { event_type: "CLICK_THROUGH", window_days: 7 },
+          ],
     budgetAmount: adSet.budget?.amountMinor
       ? amountFromMinorUnits(adSet.budget.amountMinor)
       : "",
@@ -133,6 +152,7 @@ export default function MetaLaunchpadPage() {
   const currency = activeBusiness?.currency ?? "USD";
 
   const [step, setStep] = useState<WizardStep>("creatives");
+  const [mode, setMode] = useState<LaunchpadMode>("new_campaign");
   const [creatives, setCreatives] = useState<MetaCreativeRow[]>([]);
   const [creativeLoading, setCreativeLoading] = useState(false);
   const [creativeError, setCreativeError] = useState<string | null>(null);
@@ -153,6 +173,9 @@ export default function MetaLaunchpadPage() {
   const [adSets, setAdSets] = useState<LaunchpadAdSetState[]>([
     makeDefaultLaunchpadAdSet(1, defaultCampaignName()),
   ]);
+  const [addToExistingTarget, setAddToExistingTarget] = useState<LaunchpadAddToExistingState>(
+    makeDefaultAddToExistingTargetState(),
+  );
   const [templates, setTemplates] = useState<LaunchTemplate[]>([]);
   const [templateMessage, setTemplateMessage] = useState<string | null>(null);
   const [launchLoading, setLaunchLoading] = useState(false);
@@ -235,19 +258,25 @@ export default function MetaLaunchpadPage() {
   const payload = useMemo(
     () =>
       normalizeMetaLaunchPayload({
+        mode: "new_campaign",
         campaign: {
           name: campaign.name,
           objective: "OUTCOME_SALES",
           smartPromotionType: campaign.smartPromotion ? "GUIDED_CREATION" : null,
           specialAdCategories: campaign.specialAdCategories,
         },
-        budget: {
-          mode: budget.mode,
-          schedule: budget.schedule,
-          amountMinor: amountToMinorUnits(budget.amount),
-          bidStrategy: budget.bidStrategy,
-          bidAmountMinor: amountToMinorUnits(budget.bidAmount),
-        },
+        budget:
+          budget.mode === "CBO"
+            ? {
+                mode: "CBO",
+                schedule: budget.schedule ?? "daily",
+                amountMinor: amountToMinorUnits(budget.amount ?? ""),
+                bidStrategy: budget.bidStrategy ?? "LOWEST_COST_WITHOUT_CAP",
+                bidAmountMinor: amountToMinorUnits(budget.bidAmount ?? ""),
+              }
+            : {
+                mode: "ABO",
+              },
         creatives: selectedCreatives.map((creative) => ({
           creativeId: creative.creativeId,
           name: creative.name,
@@ -273,21 +302,48 @@ export default function MetaLaunchpadPage() {
             budget.mode === "ABO"
               ? {
                   mode: "ABO",
-                  schedule: budget.schedule,
-                  amountMinor: amountToMinorUnits(adSet.budgetAmount || budget.amount),
-                  bidStrategy: adSet.bidStrategy,
-                  bidAmountMinor: amountToMinorUnits(adSet.bidAmount),
+                  schedule: "daily",
+                  amountMinor: amountToMinorUnits(adSet.budgetAmount ?? ""),
+                  bidStrategy: adSet.bidStrategy ?? "LOWEST_COST_WITHOUT_CAP",
+                  bidAmountMinor: amountToMinorUnits(adSet.bidAmount ?? ""),
                 }
               : null,
         })),
       }),
     [adSets, budget, campaign, selectedCreatives],
   );
+  const addToExistingPayload = useMemo(
+    () => ({
+      mode: "add_to_existing" as const,
+      targetCampaignId: addToExistingTarget.targetCampaign?.id ?? "",
+      targetAdsetId: addToExistingTarget.targetAdset?.id ?? "",
+      targetCampaignName: addToExistingTarget.targetCampaign?.name ?? null,
+      targetAdsetName: addToExistingTarget.targetAdset?.name ?? null,
+      creativeIds: selectedCreatives.map((creative) => creative.creativeId),
+      creatives: selectedCreatives.map((creative) => ({
+        creativeId: creative.creativeId,
+        name: creative.name,
+        nameOverride:
+          addToExistingTarget.nameOverrides[creative.creativeId] ??
+          defaultCreativeAddName(creative),
+      })),
+      names: selectedCreatives.reduce<Record<string, string>>((acc, creative) => {
+        acc[creative.creativeId] =
+          addToExistingTarget.nameOverrides[creative.creativeId] ??
+          defaultCreativeAddName(creative);
+        return acc;
+      }, {}),
+    }),
+    [addToExistingTarget, selectedCreatives],
+  );
 
-  const currentStepIndex = STEPS.findIndex((item) => item.id === step);
+  const activeSteps = mode === "add_to_existing" ? MODE_B_STEPS : MODE_A_STEPS;
+  const currentStepIndex = activeSteps.findIndex((item) => item.id === step);
   const canGoNext =
     step === "creatives"
       ? selectedCreativeIds.length > 0
+      : step === "target"
+        ? Boolean(addToExistingTarget.targetCampaign && addToExistingTarget.targetAdset)
       : step === "basics"
         ? campaign.name.trim().length > 0
         : step !== "progress";
@@ -302,13 +358,61 @@ export default function MetaLaunchpadPage() {
   }, []);
 
   function goNext() {
-    const next = STEPS[Math.min(currentStepIndex + 1, STEPS.length - 1)];
+    const next = activeSteps[Math.min(currentStepIndex + 1, activeSteps.length - 1)];
     if (next) setStep(next.id);
   }
 
   function goBack() {
-    const prev = STEPS[Math.max(currentStepIndex - 1, 0)];
+    const prev = activeSteps[Math.max(currentStepIndex - 1, 0)];
     if (prev) setStep(prev.id);
+  }
+
+  function modeHasState(activeMode: LaunchpadMode) {
+    if (selectedCreativeIds.length > 0 || launchResult) return true;
+    if (activeMode === "add_to_existing") {
+      return Boolean(
+        addToExistingTarget.targetCampaign ||
+          addToExistingTarget.targetAdset ||
+          Object.keys(addToExistingTarget.nameOverrides).length > 0,
+      );
+    }
+    return (
+      campaign.name !== defaultCampaignName() ||
+      budget.mode !== "CBO" ||
+      adSets.length !== 1 ||
+      adSets[0]?.pixelId !== ""
+    );
+  }
+
+  function switchMode(nextMode: LaunchpadMode) {
+    if (nextMode === mode) return;
+    const dirty = modeHasState(mode);
+    if (
+      dirty &&
+      typeof window !== "undefined" &&
+      !window.confirm("Switch launch modes and reset the current wizard state?")
+    ) {
+      return;
+    }
+    setMode(nextMode);
+    setSelectedCreativeIds([]);
+    setAddToExistingTarget(makeDefaultAddToExistingTargetState());
+    setCampaign({
+      name: defaultCampaignName(),
+      smartPromotion: false,
+      specialAdCategories: [],
+    });
+    setBudget({
+      mode: "CBO",
+      schedule: "daily",
+      amount: "50",
+      bidStrategy: "LOWEST_COST_WITHOUT_CAP",
+      bidAmount: "",
+    });
+    setAdSets([makeDefaultLaunchpadAdSet(1, defaultCampaignName())]);
+    setAddToExistingTarget(makeDefaultAddToExistingTargetState());
+    setLaunchResult(null);
+    setStep("creatives");
   }
 
   function applyTemplate(template: LaunchTemplate) {
@@ -322,7 +426,7 @@ export default function MetaLaunchpadPage() {
       mode: next.budget.mode,
       schedule: next.budget.schedule,
       amount: next.budget.amountMinor ? amountFromMinorUnits(next.budget.amountMinor) : budget.amount,
-      bidStrategy: next.budget.bidStrategy,
+      bidStrategy: next.budget.bidStrategy ?? "LOWEST_COST_WITHOUT_CAP",
       bidAmount: next.budget.bidAmountMinor ? amountFromMinorUnits(next.budget.bidAmountMinor) : "",
     });
     if (next.adSets.length > 0) {
@@ -360,8 +464,11 @@ export default function MetaLaunchpadPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         businessId,
-        name: campaign.name || defaultCampaignName(),
-        payload,
+        name:
+          mode === "add_to_existing"
+            ? `Add to ${addToExistingTarget.targetAdset?.name ?? "existing ad set"}`
+            : campaign.name || defaultCampaignName(),
+        payload: mode === "add_to_existing" ? addToExistingPayload : payload,
       }),
     });
     setTemplateMessage(response.ok ? "Draft saved" : "Draft save failed");
@@ -376,10 +483,25 @@ export default function MetaLaunchpadPage() {
         ? crypto.randomUUID()
         : `${Date.now()}`;
     try {
-      const response = await fetch("/api/launchpad/meta/launch", {
+      const endpoint =
+        mode === "add_to_existing"
+          ? "/api/launchpad/meta/add-to-existing"
+          : "/api/launchpad/meta/launch";
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ businessId, payload, idempotencyKey }),
+        body: JSON.stringify(
+          mode === "add_to_existing"
+            ? {
+                businessId,
+                targetCampaignId: addToExistingPayload.targetCampaignId,
+                targetAdsetId: addToExistingPayload.targetAdsetId,
+                creativeIds: addToExistingPayload.creativeIds,
+                names: addToExistingPayload.names,
+                idempotencyKey,
+              }
+            : { businessId, payload, idempotencyKey },
+        ),
       });
       const body = (await response.json().catch(() => null)) as LaunchpadProgressResult | null;
       setLaunchResult(body ?? { ok: false, error: { code: "empty_response", message: "Empty response." } });
@@ -411,6 +533,7 @@ export default function MetaLaunchpadPage() {
       bidAmount: "",
     });
     setAdSets([makeDefaultLaunchpadAdSet(1, defaultCampaignName())]);
+    setAddToExistingTarget(makeDefaultAddToExistingTargetState());
     setLaunchResult(null);
     setStep("creatives");
   }
@@ -425,14 +548,38 @@ export default function MetaLaunchpadPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Meta Launchpad</h1>
           <p className="text-sm text-muted-foreground">
-            {payload.adSets.length} ad sets x {payload.creatives.length} creatives ={" "}
-            {payload.adSets.length * payload.creatives.length} ads
+            {mode === "add_to_existing"
+              ? `${addToExistingPayload.creatives.length} creatives -> existing ad set`
+              : `${payload.adSets.length} ad sets x ${payload.creatives.length} creatives = ${
+                  payload.adSets.length * payload.creatives.length
+                } ads`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline">OUTCOME_SALES</Badge>
           <Badge variant="outline">PAUSED</Badge>
         </div>
+      </div>
+
+      <div className="inline-flex w-fit rounded-md border bg-muted p-1" data-testid="launchpad-mode-selector">
+        <button
+          type="button"
+          onClick={() => switchMode("new_campaign")}
+          className={`rounded px-3 py-1.5 text-sm ${
+            mode === "new_campaign" ? "bg-background font-medium shadow-sm" : "text-muted-foreground"
+          }`}
+        >
+          Launch new campaign
+        </button>
+        <button
+          type="button"
+          onClick={() => switchMode("add_to_existing")}
+          className={`rounded px-3 py-1.5 text-sm ${
+            mode === "add_to_existing" ? "bg-background font-medium shadow-sm" : "text-muted-foreground"
+          }`}
+        >
+          Add to existing campaign
+        </button>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[260px_1fr]">
@@ -442,7 +589,7 @@ export default function MetaLaunchpadPage() {
               Steps
             </p>
             <div className="space-y-1">
-              {STEPS.map((item, index) => (
+              {activeSteps.map((item, index) => (
                 <button
                   key={item.id}
                   type="button"
@@ -461,6 +608,7 @@ export default function MetaLaunchpadPage() {
             </div>
           </div>
 
+          {mode === "new_campaign" ? (
           <div className="rounded-md border p-3">
             <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
               <LayoutTemplate className="h-4 w-4" />
@@ -489,6 +637,7 @@ export default function MetaLaunchpadPage() {
               <p className="mt-3 text-xs text-muted-foreground">{templateMessage}</p>
             ) : null}
           </div>
+          ) : null}
         </aside>
 
         <main className="rounded-md border bg-background p-5">
@@ -505,6 +654,7 @@ export default function MetaLaunchpadPage() {
               decisionByCreativeId={decisionByCreativeId}
               loading={creativeLoading}
               onToggleCreative={toggleCreative}
+              onSetSelectedCreativeIds={setSelectedCreativeIds}
             />
           ) : null}
           {step === "basics" ? (
@@ -521,24 +671,44 @@ export default function MetaLaunchpadPage() {
           {step === "adsets" ? (
             <LaunchpadAdSets
               value={adSets}
+              businessId={businessId}
               campaignName={campaign.name}
               budget={budget}
               onChange={setAdSets}
             />
           ) : null}
+          {step === "target" ? (
+            <LaunchpadAddToExistingTarget
+              businessId={businessId}
+              value={addToExistingTarget}
+              selectedCreatives={selectedCreatives}
+              onChange={setAddToExistingTarget}
+            />
+          ) : null}
           {step === "review" ? (
             <LaunchpadReview
+              mode={mode}
               businessId={businessId}
-              payload={payload}
+              payload={mode === "add_to_existing" ? addToExistingPayload : payload}
               selectedCreatives={selectedCreatives}
               decisionByCreativeId={decisionByCreativeId}
-              onSaveTemplate={saveTemplate}
+              targetSummary={
+                mode === "add_to_existing"
+                  ? {
+                      campaignName: addToExistingTarget.targetCampaign?.name ?? null,
+                      adsetName: addToExistingTarget.targetAdset?.name ?? null,
+                      currentAdCount: addToExistingTarget.targetAdset?.currentAdCount ?? null,
+                    }
+                  : null
+              }
+              onSaveTemplate={mode === "new_campaign" ? saveTemplate : undefined}
               onSaveDraft={saveDraft}
               onLaunch={launchPaused}
             />
           ) : null}
           {step === "progress" ? (
             <LaunchpadProgress
+              mode={mode}
               loading={launchLoading}
               result={launchResult}
               onDone={resetWizard}

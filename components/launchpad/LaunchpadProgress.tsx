@@ -6,8 +6,12 @@ import { Button } from "@/components/ui/button";
 export interface LaunchpadProgressResult {
   ok: boolean;
   campaignId?: string | null;
+  targetCampaignId?: string | null;
+  targetAdsetId?: string | null;
   adsetIds?: string[];
   adIds?: string[];
+  successCount?: number;
+  failedCount?: number;
   failedAt?: string;
   error?: { code: string; message: string };
   steps?: Array<{
@@ -23,10 +27,12 @@ export interface LaunchpadProgressResult {
 }
 
 export function LaunchpadProgress({
+  mode = "new_campaign",
   loading,
   result,
   onDone,
 }: {
+  mode?: "new_campaign" | "add_to_existing";
   loading: boolean;
   result: LaunchpadProgressResult | null;
   onDone: () => void;
@@ -43,7 +49,9 @@ export function LaunchpadProgress({
       {loading ? (
         <div className="flex items-center gap-3 rounded-md border p-4 text-sm">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Creating campaign, ad sets, and ads...
+          {mode === "add_to_existing"
+            ? "Creating ads in the existing ad set..."
+            : "Creating campaign, ad sets, and ads..."}
         </div>
       ) : null}
 
@@ -54,11 +62,15 @@ export function LaunchpadProgress({
               <p className="font-semibold text-emerald-700">Launch created</p>
             ) : (
               <p className="font-semibold text-rose-700">
-                Partial launch stopped at {result.failedAt ?? "unknown step"}
+                {mode === "add_to_existing"
+                  ? "Partial add-to-existing launch completed with failures"
+                  : `Partial launch stopped at ${result.failedAt ?? "unknown step"}`}
               </p>
             )}
             <p className="text-sm text-muted-foreground">
-              {result.adsetIds?.length ?? 0} ad sets / {result.adIds?.length ?? 0} ads
+              {mode === "add_to_existing"
+                ? `${result.successCount ?? result.adIds?.length ?? 0} ads created / ${result.failedCount ?? 0} failed`
+                : `${result.adsetIds?.length ?? 0} ad sets / ${result.adIds?.length ?? 0} ads`}
             </p>
           </div>
           <div className="divide-y">

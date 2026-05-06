@@ -87,7 +87,7 @@ export function CreativesTopGrid({
   );
 }
 
-function buildPlacementTooltip(row: {
+export function buildPlacementTooltip(row: {
   campaignName?: string | null;
   campaignId?: string | null;
   adSetName?: string | null;

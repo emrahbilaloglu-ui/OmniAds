@@ -5,10 +5,10 @@ import type { MetaBidStrategy } from "@/lib/meta/launch-write";
 
 export interface LaunchpadBudgetState {
   mode: "CBO" | "ABO";
-  schedule: "daily" | "lifetime";
-  amount: string;
-  bidStrategy: MetaBidStrategy;
-  bidAmount: string;
+  schedule?: "daily" | "lifetime";
+  amount?: string;
+  bidStrategy?: MetaBidStrategy;
+  bidAmount?: string;
 }
 
 const BID_STRATEGIES: Array<{ value: MetaBidStrategy; label: string }> = [
@@ -16,6 +16,27 @@ const BID_STRATEGIES: Array<{ value: MetaBidStrategy; label: string }> = [
   { value: "LOWEST_COST_WITH_BID_CAP", label: "Bid cap" },
   { value: "COST_CAP", label: "Cost cap" },
 ];
+
+export function nextLaunchpadBudgetForMode(
+  value: LaunchpadBudgetState,
+  mode: "CBO" | "ABO",
+): LaunchpadBudgetState {
+  return mode === "ABO"
+    ? {
+        mode: "ABO",
+        schedule: undefined,
+        amount: undefined,
+        bidStrategy: undefined,
+        bidAmount: undefined,
+      }
+    : {
+        mode: "CBO",
+        schedule: value.schedule ?? "daily",
+        amount: value.amount ?? "50",
+        bidStrategy: value.bidStrategy ?? "LOWEST_COST_WITHOUT_CAP",
+        bidAmount: value.bidAmount ?? "",
+      };
+}
 
 export function LaunchpadBudget({
   value,
@@ -28,9 +49,9 @@ export function LaunchpadBudget({
   expectedCpa?: number | null;
   onChange: (value: LaunchpadBudgetState) => void;
 }) {
-  const amount = Number(value.amount);
+  const amount = Number(value.amount ?? "");
   const dailyLow =
-    value.schedule === "daily" &&
+    (value.schedule ?? "daily") === "daily" &&
     Number.isFinite(amount) &&
     expectedCpa != null &&
     expectedCpa > 0 &&
@@ -51,62 +72,73 @@ export function LaunchpadBudget({
             ["CBO", "CBO"],
             ["ABO", "ABO"],
           ]}
-          onChange={(mode) => onChange({ ...value, mode: mode as "CBO" | "ABO" })}
+          onChange={(mode) => {
+            const nextMode = mode as "CBO" | "ABO";
+            onChange(nextLaunchpadBudgetForMode(value, nextMode));
+          }}
         />
-        <Segmented
-          label="Budget schedule"
-          value={value.schedule}
-          options={[
-            ["daily", "Daily"],
-            ["lifetime", "Lifetime"],
-          ]}
-          onChange={(schedule) =>
-            onChange({ ...value, schedule: schedule as "daily" | "lifetime" })
-          }
-        />
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-[1fr_220px]">
-        <label className="block space-y-1.5">
-          <span className="text-sm font-medium">Amount</span>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            value={value.amount}
-            onChange={(event) => onChange({ ...value, amount: event.target.value })}
-            className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:border-primary"
-          />
-        </label>
-        <label className="block space-y-1.5">
-          <span className="text-sm font-medium">Bid strategy</span>
-          <select
-            value={value.bidStrategy}
-            onChange={(event) =>
-              onChange({
-                ...value,
-                bidStrategy: event.target.value as MetaBidStrategy,
-              })
+        {value.mode === "CBO" ? (
+          <Segmented
+            label="Budget schedule"
+            value={value.schedule ?? "daily"}
+            options={[
+              ["daily", "Daily"],
+              ["lifetime", "Lifetime"],
+            ]}
+            onChange={(schedule) =>
+              onChange({ ...value, schedule: schedule as "daily" | "lifetime" })
             }
-            className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:border-primary"
-          >
-            {BID_STRATEGIES.map((strategy) => (
-              <option key={strategy.value} value={strategy.value}>
-                {strategy.label}
-              </option>
-            ))}
-          </select>
-        </label>
+          />
+        ) : null}
       </div>
 
-      {value.bidStrategy !== "LOWEST_COST_WITHOUT_CAP" ? (
+      {value.mode === "CBO" ? (
+        <div className="grid gap-3 md:grid-cols-[1fr_220px]">
+          <label className="block space-y-1.5">
+            <span className="text-sm font-medium">Campaign amount</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={value.amount ?? ""}
+              onChange={(event) => onChange({ ...value, amount: event.target.value })}
+              className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:border-primary"
+            />
+          </label>
+          <label className="block space-y-1.5">
+            <span className="text-sm font-medium">Campaign bid strategy</span>
+            <select
+              value={value.bidStrategy ?? "LOWEST_COST_WITHOUT_CAP"}
+              onChange={(event) =>
+                onChange({
+                  ...value,
+                  bidStrategy: event.target.value as MetaBidStrategy,
+                })
+              }
+              className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:border-primary"
+            >
+              {BID_STRATEGIES.map((strategy) => (
+                <option key={strategy.value} value={strategy.value}>
+                  {strategy.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      ) : (
+        <p className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
+          ABO uses budgets on each ad set. Campaign-level amount and bid fields are omitted.
+        </p>
+      )}
+
+      {value.mode === "CBO" && value.bidStrategy !== "LOWEST_COST_WITHOUT_CAP" ? (
         <label className="block max-w-sm space-y-1.5">
-          <span className="text-sm font-medium">Bid amount</span>
+          <span className="text-sm font-medium">Campaign bid amount</span>
           <input
             type="number"
             min="0"
             step="0.01"
-            value={value.bidAmount}
+            value={value.bidAmount ?? ""}
             onChange={(event) => onChange({ ...value, bidAmount: event.target.value })}
             className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:border-primary"
           />

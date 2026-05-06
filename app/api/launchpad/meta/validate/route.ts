@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { validateMetaLaunchRequest } from "@/lib/launchpad/meta-validation";
+import {
+  validateMetaAddToExistingRequest,
+  validateMetaLaunchRequest,
+} from "@/lib/launchpad/meta-validation";
 import {
   jsonError,
   readJsonBody,
@@ -21,15 +24,29 @@ export async function POST(request: NextRequest) {
   if (!access.ok) return access.response;
 
   try {
-    const result = await validateMetaLaunchRequest({
-      businessId: access.businessId,
-      payload: body?.payload,
-    });
+    const payloadMode =
+      body?.payload &&
+      typeof body.payload === "object" &&
+      !Array.isArray(body.payload) &&
+      "mode" in body.payload
+        ? String((body.payload as Record<string, unknown>).mode)
+        : "new_campaign";
+    const result =
+      payloadMode === "add_to_existing"
+        ? await validateMetaAddToExistingRequest({
+            businessId: access.businessId,
+            payload: body?.payload,
+          })
+        : await validateMetaLaunchRequest({
+            businessId: access.businessId,
+            payload: body?.payload,
+          });
     return NextResponse.json({
       ok: result.ok,
       blockers: result.blockers,
       warnings: result.warnings,
-      pixels: result.pixels,
+      pixels: "pixels" in result ? result.pixels : [],
+      target: "target" in result ? result.target : null,
     });
   } catch (error) {
     return jsonError(500, "validation_failed", sanitizeErrorMessage(error));

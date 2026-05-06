@@ -172,4 +172,34 @@ describe("LaunchpadReview", () => {
     expect(html).toContain("Launch (paused)");
     expect(html).toContain("disabled");
   });
+
+  it("renders Mode B review copy and hides template saving", () => {
+    const modeBPayload = {
+      mode: "add_to_existing" as const,
+      targetCampaignId: "cmp_1",
+      targetAdsetId: "adset_1",
+      targetCampaignName: "Campaign",
+      targetAdsetName: "Ad set",
+      creativeIds: ["creative_1"],
+      creatives: [{ creativeId: "creative_1", name: "Creative 1", nameOverride: "Creative 1 added" }],
+      names: { creative_1: "Creative 1 added" },
+    };
+    const html = renderToStaticMarkup(
+      <LaunchpadReview
+        mode="add_to_existing"
+        businessId="biz"
+        payload={modeBPayload}
+        selectedCreatives={[makeCreative("creative_1", 100, 3)]}
+        decisionByCreativeId={new Map([["creative_1", makeDecision({})]])}
+        targetSummary={{ campaignName: "Campaign", adsetName: "Ad set", currentAdCount: 4 }}
+        onSaveDraft={vi.fn()}
+        onLaunch={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("1 creatives -&gt; existing ad set Ad set under campaign Campaign");
+    expect(html).toContain("after launch: 5");
+    expect(html).not.toContain("Save as template");
+    expect(html).toContain("Save draft");
+  });
 });

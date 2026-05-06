@@ -1,8 +1,12 @@
 import { getDb } from "@/lib/db";
 import {
+  normalizeMetaAddToExistingPayload,
   normalizeMetaLaunchPayload,
+  type MetaAddToExistingPayload,
   type MetaLaunchPayload,
 } from "@/lib/launchpad/meta";
+
+export type MetaLaunchDraftPayload = MetaLaunchPayload | MetaAddToExistingPayload;
 
 export interface MetaLaunchTemplateRow {
   id: string;
@@ -19,7 +23,7 @@ export interface MetaLaunchDraftRow {
   id: string;
   businessId: string;
   name: string;
-  payload: MetaLaunchPayload;
+  payload: MetaLaunchDraftPayload;
   status: "draft" | "queued" | "launched" | "failed";
   createdAt: string;
   updatedAt: string;
@@ -63,12 +67,25 @@ function mapTemplate(row: TemplateDbRow): MetaLaunchTemplateRow {
   };
 }
 
+function normalizeDraftPayload(value: unknown): MetaLaunchDraftPayload {
+  if (
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    "mode" in value &&
+    (value as Record<string, unknown>).mode === "add_to_existing"
+  ) {
+    return normalizeMetaAddToExistingPayload(value);
+  }
+  return normalizeMetaLaunchPayload(value);
+}
+
 function mapDraft(row: DraftDbRow): MetaLaunchDraftRow {
   return {
     id: row.id,
     businessId: row.business_id,
     name: row.name,
-    payload: normalizeMetaLaunchPayload(row.payload_json),
+    payload: normalizeDraftPayload(row.payload_json),
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -100,7 +117,7 @@ export async function createManualMetaLaunchTemplate(input: {
   createdBy?: string | null;
 }): Promise<MetaLaunchTemplateRow> {
   const sql = getDb();
-  const payload = normalizeMetaLaunchPayload(input.payload);
+  const payload = normalizeDraftPayload(input.payload);
   const rows = (await sql`
     INSERT INTO meta_launch_templates (
       business_id,

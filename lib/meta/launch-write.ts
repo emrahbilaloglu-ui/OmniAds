@@ -51,7 +51,7 @@ export interface MetaLaunchAdSetInput {
     instagramPositions?: string[];
   };
   attributionSpec: Array<{
-    eventType: "CLICK_THROUGH" | "VIEW_THROUGH";
+    eventType: "CLICK_THROUGH" | "VIEW_THROUGH" | "ENGAGED_VIDEO_VIEW";
     windowDays: 1 | 7;
   }>;
   dailyBudgetMinor?: number;

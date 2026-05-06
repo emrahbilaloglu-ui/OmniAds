@@ -95,6 +95,12 @@ describe("Meta ads write client", () => {
   });
 
   it("duplicateAd manually rebuilds the ad and verifies status, ad set, and creative", async () => {
+    const trackingSpecs = [
+      { "action.type": ["offsite_conversion"], fb_pixel: ["pixel_1"] },
+    ];
+    const conversionSpecs = [
+      { "action.type": ["offsite_conversion"], fb_pixel: ["pixel_1"] },
+    ];
     vi.mocked(fetch)
       .mockResolvedValueOnce(
         jsonResponse({
@@ -102,6 +108,8 @@ describe("Meta ads write client", () => {
           name: "Source Ad",
           adset_id: "adset_1",
           creative: { id: "creative_1" },
+          tracking_specs: trackingSpecs,
+          conversion_specs: conversionSpecs,
         }),
       )
       .mockResolvedValueOnce(jsonResponse({ id: "ad_copy_1" }))
@@ -112,6 +120,8 @@ describe("Meta ads write client", () => {
           effective_status: "PAUSED",
           adset_id: "adset_2",
           creative: { id: "creative_1" },
+          tracking_specs: trackingSpecs,
+          conversion_specs: conversionSpecs,
         }),
       );
 
@@ -129,6 +139,9 @@ describe("Meta ads write client", () => {
     expect(String(vi.mocked(fetch).mock.calls[0]?.[0])).toContain(
       "/v22.0/ad_1?",
     );
+    const sourceUrl = new URL(String(vi.mocked(fetch).mock.calls[0]?.[0]));
+    expect(sourceUrl.searchParams.get("fields")).toContain("tracking_specs");
+    expect(sourceUrl.searchParams.get("fields")).toContain("conversion_specs");
     expect(String(vi.mocked(fetch).mock.calls[1]?.[0])).toContain(
       "/v22.0/act_123/ads?",
     );
@@ -137,6 +150,8 @@ describe("Meta ads write client", () => {
     expect(body.get("adset_id")).toBe("adset_2");
     expect(body.get("status")).toBe("PAUSED");
     expect(body.get("creative")).toBe(JSON.stringify({ creative_id: "creative_1" }));
+    expect(body.get("tracking_specs")).toBe(JSON.stringify(trackingSpecs));
+    expect(body.get("conversion_specs")).toBe(JSON.stringify(conversionSpecs));
   });
 
   it("duplicateAd reports source_ad_fetch_failed when the source ad read fails", async () => {
@@ -179,6 +194,48 @@ describe("Meta ads write client", () => {
           effective_status: "PAUSED",
           adset_id: "adset_other",
           creative: { id: "creative_1" },
+        }),
+      );
+
+    const result = await duplicateAd(ctx, {
+      adId: "ad_1",
+      targetAdsetId: "adset_2",
+      activateAfterCreate: false,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      httpStatus: 502,
+      error: { code: "silent_failure" },
+      resultingAdId: "ad_copy_1",
+    });
+  });
+
+  it("duplicateAd reports silent_failure when ad-level tracking is not preserved", async () => {
+    const trackingSpecs = [
+      { "action.type": ["offsite_conversion"], fb_pixel: ["pixel_1"] },
+    ];
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "ad_1",
+          name: "Source Ad",
+          adset_id: "adset_1",
+          creative: { id: "creative_1" },
+          tracking_specs: trackingSpecs,
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: "ad_copy_1" }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "ad_copy_1",
+          status: "PAUSED",
+          effective_status: "PAUSED",
+          adset_id: "adset_2",
+          creative: { id: "creative_1" },
+          tracking_specs: [
+            { "action.type": ["offsite_conversion"], fb_pixel: ["pixel_2"] },
+          ],
         }),
       );
 

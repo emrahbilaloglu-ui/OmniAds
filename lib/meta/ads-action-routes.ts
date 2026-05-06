@@ -371,7 +371,7 @@ export async function handleMetaAdDuplicateAction(
       adId: resolvedAdId,
       newAdId: result.newAdId,
       status: result.verifiedStatus,
-      adsManagerUrl: `https://adsmanager.facebook.com/adsmanager/manage/ads?act=${encodeURIComponent(
+      adsManagerUrl: `https://adsmanager.facebook.com/adsmanager/manage/ads/edit?act=${encodeURIComponent(
         accountNumericId,
       )}&selected_ad_ids=${encodeURIComponent(result.newAdId)}`,
     });

@@ -60,6 +60,16 @@ export interface MetaCreativeRow {
   id: string;
   creativeId: string;
   realAdId?: string | null;
+  launchpadRecentAction?: {
+    action: "launch_ad" | "duplicate";
+    requestedAt: string;
+    resultingAdId: string;
+    sourceAdId: string | null;
+    targetCampaignId: string | null;
+    targetCampaignName: string | null;
+    targetAdsetId: string | null;
+    targetAdsetName: string | null;
+  } | null;
   objectStoryId?: string | null;
   effectiveObjectStoryId?: string | null;
   postId?: string | null;

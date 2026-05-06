@@ -140,8 +140,8 @@ describe("Meta ads write client", () => {
       "/v22.0/ad_1?",
     );
     const sourceUrl = new URL(String(vi.mocked(fetch).mock.calls[0]?.[0]));
-    expect(sourceUrl.searchParams.get("fields")).toContain("tracking_specs");
-    expect(sourceUrl.searchParams.get("fields")).toContain("conversion_specs");
+    expect(sourceUrl.searchParams.get("fields")).not.toContain("tracking_specs");
+    expect(sourceUrl.searchParams.get("fields")).not.toContain("conversion_specs");
     expect(String(vi.mocked(fetch).mock.calls[1]?.[0])).toContain(
       "/v22.0/act_123/ads?",
     );
@@ -150,8 +150,8 @@ describe("Meta ads write client", () => {
     expect(body.get("adset_id")).toBe("adset_2");
     expect(body.get("status")).toBe("PAUSED");
     expect(body.get("creative")).toBe(JSON.stringify({ creative_id: "creative_1" }));
-    expect(body.get("tracking_specs")).toBe(JSON.stringify(trackingSpecs));
-    expect(body.get("conversion_specs")).toBe(JSON.stringify(conversionSpecs));
+    expect(body.get("tracking_specs")).toBeNull();
+    expect(body.get("conversion_specs")).toBeNull();
   });
 
   it("duplicateAd reports source_ad_fetch_failed when the source ad read fails", async () => {
@@ -211,7 +211,7 @@ describe("Meta ads write client", () => {
     });
   });
 
-  it("duplicateAd reports silent_failure when ad-level tracking is not preserved", async () => {
+  it("duplicateAd allows Meta to inherit or normalize tracking from the target ad set", async () => {
     const trackingSpecs = [
       { "action.type": ["offsite_conversion"], fb_pixel: ["pixel_1"] },
     ];
@@ -246,10 +246,9 @@ describe("Meta ads write client", () => {
     });
 
     expect(result).toMatchObject({
-      ok: false,
-      httpStatus: 502,
-      error: { code: "silent_failure" },
-      resultingAdId: "ad_copy_1",
+      ok: true,
+      newAdId: "ad_copy_1",
+      verifiedStatus: "PAUSED",
     });
   });
 

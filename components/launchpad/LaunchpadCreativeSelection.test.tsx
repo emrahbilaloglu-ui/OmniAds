@@ -122,6 +122,66 @@ describe("LaunchpadCreativeSelection", () => {
     expect(html).toContain("Engine: scale candidate");
   });
 
+  it("keeps paused recently duplicated ads visible in manage mode filters", () => {
+    const recentRow = makeRow({
+      id: "recent:ad_2",
+      realAdId: "ad_2",
+      creativeId: "creative_2",
+      name: "Hero added",
+      campaignId: "cmp_target",
+      campaignName: "Main Campaign",
+      effectiveStatus: "PAUSED",
+      launchpadRecentAction: {
+        action: "launch_ad",
+        requestedAt: "2026-05-06T12:00:00.000Z",
+        resultingAdId: "ad_2",
+        sourceAdId: "ad_1",
+        targetCampaignId: "cmp_target",
+        targetCampaignName: "Main Campaign",
+        targetAdsetId: "adset_target",
+        targetAdsetName: "Main Ad Set",
+      },
+    });
+
+    expect(
+      filterLaunchpadCreativeRows({
+        rows: [recentRow],
+        decisionByCreativeId: new Map(),
+        statusFilter: "active",
+        campaignFilter: "cmp_target",
+      }),
+    ).toEqual([]);
+    expect(
+      filterLaunchpadCreativeRows({
+        rows: [recentRow],
+        decisionByCreativeId: new Map(),
+        statusFilter: "all",
+        campaignFilter: "cmp_target",
+      }).map((row) => row.id),
+    ).toEqual(["recent:ad_2"]);
+    expect(
+      filterLaunchpadCreativeRows({
+        rows: [recentRow, makeRow({ id: "row_3", creativeId: "creative_3" })],
+        decisionByCreativeId: new Map(),
+        statusFilter: "recently_duplicated",
+      }).map((row) => row.id),
+    ).toEqual(["recent:ad_2"]);
+
+    const html = renderToStaticMarkup(
+      <LaunchpadCreativeSelection
+        rows={[recentRow]}
+        selectedCreativeIds={["ad_2"]}
+        decisionByCreativeId={new Map()}
+        initialStatusFilter="all"
+        getSelectionId={(row) => row.realAdId ?? row.id}
+        onToggleCreative={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("Recently duplicated");
+    expect(html).toContain("1</span> selected");
+  });
+
   it("maps cut and diagnose decisions to advisory notes", () => {
     expect(getCreativeAdvisoryNotes(makeDecision({ label: "cut" })).map((note) => note.text)).toContain(
       "Engine: cut candidate - confirm intent",
@@ -185,6 +245,13 @@ describe("LaunchpadCreativeSelection", () => {
         statusFilter: "closed_30d",
       }).map((row) => row.creativeId),
     ).toEqual(["creative_3"]);
+    expect(
+      filterLaunchpadCreativeRows({
+        rows,
+        decisionByCreativeId: decisions,
+        campaignFilter: "cmp_1",
+      }).map((row) => row.creativeId),
+    ).toEqual(["creative_1", "creative_2"]);
   });
 
   it("sorts and builds the persistent selection summary", () => {

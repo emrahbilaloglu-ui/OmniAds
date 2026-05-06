@@ -19,17 +19,17 @@ vi.mock("@/app/(dashboard)/creatives/page-support", () => ({
 const { default: MetaLaunchpadPage } = await import("./page");
 
 describe("MetaLaunchpadPage", () => {
-  it("renders the wizard shell with Launchpad steps and initial navigation gate", () => {
+  it("renders the Launchpad index with mode cards and endpoint-backed library sections", () => {
     const html = renderToStaticMarkup(<MetaLaunchpadPage />);
 
-    expect(html).toContain("Meta Launchpad");
+    expect(html).toContain("Launchpad · Meta");
     expect(html).toContain("Launch new campaign");
-    expect(html).toContain("Add to existing campaign");
-    expect(html).toContain("Creative selection");
+    expect(html).toContain("Add ads to existing");
+    expect(html).toContain("Manage existing ads");
+    expect(html).toContain("Will launch as PAUSED");
+    expect(html).toContain("Drafts");
     expect(html).toContain("Templates");
-    expect(html).toContain("Ad sets");
-    expect(html).toContain("Review");
-    expect(html).toContain("Next");
-    expect(html).toContain("disabled");
+    expect(html).toContain("No drafts yet.");
+    expect(html).toContain("No templates yet.");
   });
 });

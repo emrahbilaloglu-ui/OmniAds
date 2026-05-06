@@ -47,6 +47,7 @@ export async function POST(request: NextRequest) {
       warnings: result.warnings,
       pixels: "pixels" in result ? result.pixels : [],
       target: "target" in result ? result.target : null,
+      targets: "targets" in result ? result.targets : [],
     });
   } catch (error) {
     return jsonError(500, "validation_failed", sanitizeErrorMessage(error));

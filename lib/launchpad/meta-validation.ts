@@ -41,6 +41,7 @@ export interface MetaAddToExistingCreativeStatus {
   creativeId: string;
   creativeName: string | null;
   effectiveStatus: string | null;
+  sourceAdId: string | null;
 }
 
 export interface MetaAddToExistingValidationResult {
@@ -49,6 +50,7 @@ export interface MetaAddToExistingValidationResult {
   blockers: LaunchpadIssue[];
   warnings: LaunchpadIssue[];
   target: MetaAddToExistingTargetValidation | null;
+  targets: MetaAddToExistingTargetValidation[];
   creatives: MetaAddToExistingCreativeStatus[];
 }
 
@@ -192,10 +194,11 @@ async function readLatestCreativeStatusesWithNames(input: {
     SELECT
       target.creative_id,
       COALESCE(latest.creative_name, dim.creative_name) AS creative_name,
-      latest.effective_status
+      latest.effective_status,
+      COALESCE(latest.ad_id, dim.ad_id) AS source_ad_id
     FROM unnest(${input.creativeIds}::text[]) AS target(creative_id)
     LEFT JOIN LATERAL (
-      SELECT creative_name, effective_status
+      SELECT creative_name, effective_status, ad_id
       FROM meta_creative_daily
       WHERE business_id = ${input.businessId}
         AND creative_id = target.creative_id
@@ -203,7 +206,7 @@ async function readLatestCreativeStatusesWithNames(input: {
       LIMIT 1
     ) latest ON TRUE
     LEFT JOIN LATERAL (
-      SELECT creative_name
+      SELECT creative_name, ad_id
       FROM meta_creative_dimensions
       WHERE business_id = ${input.businessId}
         AND creative_id = target.creative_id
@@ -214,11 +217,13 @@ async function readLatestCreativeStatusesWithNames(input: {
     creative_id: string;
     creative_name: string | null;
     effective_status: string | null;
+    source_ad_id: string | null;
   }>;
   return rows.map((row) => ({
     creativeId: row.creative_id,
     creativeName: row.creative_name ?? null,
     effectiveStatus: row.effective_status ?? null,
+    sourceAdId: row.source_ad_id ?? null,
   }));
 }
 
@@ -362,38 +367,70 @@ export async function validateMetaAddToExistingRequest(input: {
   const blockers = [...shape.blockers];
   const warnings = [...shape.warnings];
 
-  const target = await readAddToExistingTarget({
-    businessId: input.businessId,
-    targetCampaignId: payload.targetCampaignId,
-    targetAdsetId: payload.targetAdsetId,
-  });
-  if (payload.targetAdsetId && !target) {
-    blockers.push({
-      code: "target_adset_not_found",
-      message: "Target ad set was not found for this business and campaign.",
-    });
-  } else if (target) {
-    const status = target.adsetStatus?.trim().toUpperCase() ?? "";
-    if (status !== "ACTIVE") {
+  const targetResults = await Promise.all(
+    payload.targets.map((target) =>
+      readAddToExistingTarget({
+        businessId: input.businessId,
+        targetCampaignId: target.targetCampaignId,
+        targetAdsetId: target.targetAdsetId,
+      }),
+    ),
+  );
+  const targets = targetResults.filter(
+    (target): target is MetaAddToExistingTargetValidation => Boolean(target),
+  );
+  payload.targets.forEach((requestedTarget, index) => {
+    const target = targetResults[index] ?? null;
+    if (requestedTarget.targetAdsetId && !target) {
       blockers.push({
-        code: "target_adset_not_active",
-        message: "Target ad set must be ACTIVE.",
+        code: "target_adset_not_found",
+        message: `Target ${index + 1} ad set was not found for this business and campaign.`,
       });
+      return;
     }
-  }
+    if (target) {
+      const status = target.adsetStatus?.trim().toUpperCase() ?? "";
+      if (status !== "ACTIVE") {
+        blockers.push({
+          code: "target_adset_not_active",
+          message: `Target ${index + 1} ad set must be ACTIVE.`,
+        });
+      }
+      if (!target.providerAccountId) {
+        blockers.push({
+          code: "target_account_unresolved",
+          message: `Target ${index + 1} ad set account could not be resolved.`,
+        });
+      }
+    }
+  });
 
   const creatives = await readLatestCreativeStatusesWithNames({
     businessId: input.businessId,
     creativeIds: payload.creativeIds,
   });
   const byCreativeId = new Map(creatives.map((creative) => [creative.creativeId, creative]));
+  const submittedCreativeById = new Map(
+    payload.creatives.map((creative) => [creative.creativeId, creative]),
+  );
   payload.creativeIds.forEach((creativeId) => {
-    const status = byCreativeId.get(creativeId)?.effectiveStatus;
+    const creative = byCreativeId.get(creativeId);
+    const status = creative?.effectiveStatus;
     const normalized = status?.trim().toUpperCase() ?? "";
     if (normalized === "REJECTED" || normalized === "DISAPPROVED") {
       blockers.push({
         code: "creative_rejected",
         message: `Creative ${creativeId} is rejected and cannot be launched.`,
+      });
+    }
+    const sourceAdId =
+      submittedCreativeById.get(creativeId)?.sourceAdId?.trim() ||
+      creative?.sourceAdId?.trim() ||
+      "";
+    if (!sourceAdId) {
+      blockers.push({
+        code: "source_ad_required",
+        message: `Creative ${creativeId} needs a source Meta ad before it can be added to an existing ad set.`,
       });
     }
   });
@@ -403,7 +440,8 @@ export async function validateMetaAddToExistingRequest(input: {
     payload,
     blockers,
     warnings,
-    target,
+    target: targets[0] ?? null,
+    targets,
     creatives,
   };
 }

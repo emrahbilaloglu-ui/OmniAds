@@ -211,6 +211,8 @@ describe("POST /api/meta/ads/[adId]/duplicate", () => {
       action: "duplicate",
       newAdId: "ad_copy_1",
       status: "PAUSED",
+      adsManagerUrl:
+        "https://adsmanager.facebook.com/adsmanager/manage/ads/edit?act=123&selected_ad_ids=ad_copy_1",
     });
     expect(actionLog.createMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({

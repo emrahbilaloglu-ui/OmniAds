@@ -180,6 +180,14 @@ describe("LaunchpadReview", () => {
       targetAdsetId: "adset_1",
       targetCampaignName: "Campaign",
       targetAdsetName: "Ad set",
+      targets: [
+        {
+          targetCampaignId: "cmp_1",
+          targetAdsetId: "adset_1",
+          targetCampaignName: "Campaign",
+          targetAdsetName: "Ad set",
+        },
+      ],
       creativeIds: ["creative_1"],
       creatives: [{ creativeId: "creative_1", name: "Creative 1", nameOverride: "Creative 1 added" }],
       names: { creative_1: "Creative 1 added" },

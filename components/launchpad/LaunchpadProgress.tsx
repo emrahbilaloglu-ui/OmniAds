@@ -5,9 +5,16 @@ import { Button } from "@/components/ui/button";
 
 export interface LaunchpadProgressResult {
   ok: boolean;
+  action?: "pause" | "resume";
   campaignId?: string | null;
   targetCampaignId?: string | null;
   targetAdsetId?: string | null;
+  targets?: Array<{
+    targetCampaignId: string;
+    targetAdsetId: string;
+    targetCampaignName?: string | null;
+    targetAdsetName?: string | null;
+  }>;
   adsetIds?: string[];
   adIds?: string[];
   successCount?: number;
@@ -32,7 +39,7 @@ export function LaunchpadProgress({
   result,
   onDone,
 }: {
-  mode?: "new_campaign" | "add_to_existing";
+  mode?: "new_campaign" | "add_to_existing" | "manage_existing";
   loading: boolean;
   result: LaunchpadProgressResult | null;
   onDone: () => void;
@@ -49,9 +56,11 @@ export function LaunchpadProgress({
       {loading ? (
         <div className="flex items-center gap-3 rounded-md border p-4 text-sm">
           <Loader2 className="h-4 w-4 animate-spin" />
-          {mode === "add_to_existing"
-            ? "Creating ads in the existing ad set..."
-            : "Creating campaign, ad sets, and ads..."}
+          {mode === "manage_existing"
+            ? "Updating selected Meta ads..."
+            : mode === "add_to_existing"
+              ? "Creating ads in the selected existing ad sets..."
+              : "Creating campaign, ad sets, and ads..."}
         </div>
       ) : null}
 
@@ -59,16 +68,22 @@ export function LaunchpadProgress({
         <div className="rounded-md border">
           <div className="border-b px-4 py-3">
             {result.ok ? (
-              <p className="font-semibold text-emerald-700">Launch created</p>
+              <p className="font-semibold text-emerald-700">
+                {mode === "manage_existing" ? "Ads updated" : "Launch created"}
+              </p>
             ) : (
               <p className="font-semibold text-rose-700">
-                {mode === "add_to_existing"
+                {mode === "manage_existing"
+                  ? "Bulk ad update completed with failures"
+                  : mode === "add_to_existing"
                   ? "Partial add-to-existing launch completed with failures"
                   : `Partial launch stopped at ${result.failedAt ?? "unknown step"}`}
               </p>
             )}
             <p className="text-sm text-muted-foreground">
-              {mode === "add_to_existing"
+              {mode === "manage_existing"
+                ? `${result.successCount ?? 0} ads updated / ${result.failedCount ?? 0} failed`
+                : mode === "add_to_existing"
                 ? `${result.successCount ?? result.adIds?.length ?? 0} ads created / ${result.failedCount ?? 0} failed`
                 : `${result.adsetIds?.length ?? 0} ad sets / ${result.adIds?.length ?? 0} ads`}
             </p>
@@ -110,7 +125,7 @@ export function LaunchpadProgress({
         </div>
       ) : null}
 
-      {!loading && result && !result.ok ? (
+      {!loading && result && !result.ok && mode !== "manage_existing" ? (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           Delete partial is deferred. Review or remove the created items in Meta Ads Manager.
         </div>

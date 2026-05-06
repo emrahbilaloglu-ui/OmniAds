@@ -179,7 +179,7 @@ export async function upsertMetaLaunchDraft(input: {
   createdBy?: string | null;
 }): Promise<MetaLaunchDraftRow> {
   const sql = getDb();
-  const payload = normalizeMetaLaunchPayload(input.payload);
+  const payload = normalizeDraftPayload(input.payload);
   const rows = input.id
     ? ((await sql`
         UPDATE meta_launch_drafts

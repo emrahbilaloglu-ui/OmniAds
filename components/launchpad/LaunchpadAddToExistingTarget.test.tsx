@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import {
+  fetchLaunchpadCampaignAdsets,
   LaunchpadAddToExistingTarget,
   makeDefaultAddToExistingTargetState,
   type LaunchpadExistingAdSet,
@@ -112,8 +113,15 @@ const adset: LaunchpadExistingAdSet = {
   last7dRoas: 2.1,
 };
 
+function jsonResponse(payload: unknown, init?: ResponseInit) {
+  return new Response(JSON.stringify(payload), {
+    status: init?.status ?? 200,
+    headers: { "Content-Type": "application/json", ...init?.headers },
+  });
+}
+
 describe("LaunchpadAddToExistingTarget", () => {
-  it("disables the ad set picker until a campaign is chosen", () => {
+  it("waits for campaign selection before rendering ad set pickers", () => {
     const html = renderToStaticMarkup(
       <LaunchpadAddToExistingTarget
         businessId="biz"
@@ -125,8 +133,8 @@ describe("LaunchpadAddToExistingTarget", () => {
       />,
     );
 
-    expect(html).toContain("Choose a campaign first");
-    expect(html).toContain("disabled");
+    expect(html).toContain("Select campaigns first.");
+    expect(html).toContain("0 selected");
   });
 
   it("renders the selected ad set preview and after-launch count", () => {
@@ -142,8 +150,83 @@ describe("LaunchpadAddToExistingTarget", () => {
     );
 
     expect(html).toContain("Prospecting");
-    expect(html).toContain("pixel_1 / PURCHASE");
+    expect(html).toContain("pixel_1");
     expect(html).toContain("1 creatives -&gt; 10 ads");
     expect(html).toContain("Creative One (added)");
+  });
+
+  it("renders multiple selected campaign targets", () => {
+    const secondCampaign: LaunchpadExistingCampaign = {
+      ...campaign,
+      id: "cmp_2",
+      name: "Retargeting Campaign",
+    };
+    const secondAdset: LaunchpadExistingAdSet = {
+      ...adset,
+      id: "adset_2",
+      name: "Retargeting",
+      currentAdCount: 3,
+      pixelId: "pixel_2",
+    };
+    const html = renderToStaticMarkup(
+      <LaunchpadAddToExistingTarget
+        businessId="biz"
+        value={{
+          targetCampaign: campaign,
+          targetAdset: adset,
+          targetCampaigns: [campaign, secondCampaign],
+          targetAdsetsByCampaignId: {
+            cmp_1: adset,
+            cmp_2: secondAdset,
+          },
+          nameOverrides: {},
+        }}
+        selectedCreatives={[creative()]}
+        campaignOptions={[campaign, secondCampaign]}
+        adsetOptions={[adset, secondAdset]}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("2 selected");
+    expect(html).toContain("2 target ad sets");
+    expect(html).toContain("2 campaigns");
+    expect(html).toContain("1 creatives -&gt; 14 ads");
+    expect(html).toContain("Retargeting Campaign");
+  });
+
+  it("retries an empty ad set response when the campaign reports active ad sets", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ adsets: [] }))
+      .mockResolvedValueOnce(jsonResponse({ adsets: [adset] }));
+
+    const result = await fetchLaunchpadCampaignAdsets({
+      businessId: "biz",
+      campaign: { id: "cmp_1", adsetCount: 1 },
+      retryDelaysMs: [0],
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.adsets).toEqual([adset]);
+    expect(result.attempts).toBe(2);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not cache an empty result as loaded when active ad sets were expected", async () => {
+    const fetchImpl = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ adsets: [] })));
+
+    const result = await fetchLaunchpadCampaignAdsets({
+      businessId: "biz",
+      campaign: { id: "cmp_1", adsetCount: 1 },
+      retryDelaysMs: [0],
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.adsets).toEqual([]);
+    expect(result.error).toContain("Campaign reported active ad sets");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 });

@@ -151,6 +151,7 @@ jobs:
             runtime_regex_parts=(
               '^(\.github/workflows/|app/|components/|hooks/|lib/'
               '|providers/|public/|scripts/|src/|store/'
+              '|docs/v3-01-release-authority\.md$'
               '|Dockerfile$|docker-compose\.yml$|package\.json$|package-lock\.json$'
               '|next\.config\.ts$|next-env\.d\.ts$|postcss\.config\.mjs$'
               '|tsconfig\.json$|proxy\.ts$|proxy\.test\.ts$'

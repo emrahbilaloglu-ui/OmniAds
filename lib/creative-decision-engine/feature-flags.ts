@@ -103,11 +103,11 @@ export function readEnvDefaults(): {
     enabled: parseEnvBoolean(process.env.DECISION_ENGINE_V3_ENABLED, true),
     surfaceVisible: parseEnvBoolean(
       process.env.DECISION_ENGINE_V3_SURFACE_VISIBLE,
-      false,
+      true,
     ),
     shadowOnly: parseEnvBoolean(
       process.env.DECISION_ENGINE_V3_SHADOW_ONLY,
-      true,
+      false,
     ),
   };
 }

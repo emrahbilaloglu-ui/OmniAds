@@ -162,8 +162,8 @@ describe("readEnvDefaults", () => {
     setFlagEnv({});
     expect(readEnvDefaults()).toEqual({
       enabled: true,
-      surfaceVisible: false,
-      shadowOnly: true,
+      surfaceVisible: true,
+      shadowOnly: false,
     });
 
     setFlagEnv({

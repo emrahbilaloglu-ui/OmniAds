@@ -113,6 +113,13 @@ export function CreativeDrawerHeader({
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             <span className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+              Placements{" "}
+              <strong className="font-mono text-slate-950">{windowAdsCount || lifetimeAdsCount}</strong>
+              {lifetimeAdsCount > 0 && windowAdsCount > 0 && windowAdsCount !== lifetimeAdsCount ? (
+                <span className="ml-1 text-slate-500">/ {lifetimeAdsCount} lifetime</span>
+              ) : null}
+            </span>
+            <span className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
               Spend{" "}
               <strong className="font-mono text-slate-950">
                 {formatMoney(totalSpend, currency, defaultCurrency)}
@@ -225,7 +232,14 @@ export function CreativePerformanceChart({
       <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
         <div className="flex items-center gap-2">
           <BarChart3 className="h-4 w-4 text-muted-foreground" />
-          <h4 className="text-[13px] font-semibold">Performance by Ad</h4>
+          <h4 className="text-[13px] font-semibold">
+            Performance by Ad
+            {rows.length > 0 ? (
+              <span className="ml-2 font-mono text-[11px] font-normal text-muted-foreground">
+                ({rows.length})
+              </span>
+            ) : null}
+          </h4>
         </div>
         <div className="flex gap-1">
           {CHART_METRICS.map((metricOption) => (

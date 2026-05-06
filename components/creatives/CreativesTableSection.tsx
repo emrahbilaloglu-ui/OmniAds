@@ -1887,10 +1887,12 @@ const CreativeTableRow = memo(function CreativeTableRow({
 
           <div className="min-w-0 flex-1" title={buildPlacementTooltip(row)}>
             <p className="truncate text-[10px] font-medium leading-tight">{row.name}</p>
+            {row.campaignName ? (
+              <p className="mt-0.5 truncate text-[9px] text-muted-foreground/80">
+                {row.campaignName}
+              </p>
+            ) : null}
             <p className="mt-1 truncate text-[9px] text-muted-foreground">
-              {row.campaignName ? (
-                <span className="mr-2 opacity-70">{row.campaignName}</span>
-              ) : null}
               {row.associatedAdsCount > 1 ? <span className="opacity-60">{row.associatedAdsCount} ads</span> : null}
               <button
                 type="button"

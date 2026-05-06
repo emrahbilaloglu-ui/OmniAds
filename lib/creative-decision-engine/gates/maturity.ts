@@ -44,6 +44,36 @@ export function maturityGate(ctx: GateContext): GateResult {
     ctx.input.spend < spendThreshold ||
     purchases < purchasesThreshold
   ) {
+    const ratio = ctx.ratioToTarget;
+    const hardCutSpend = ctx.profile.thresholds.hardCutSpend;
+    const severeLoserRatio = ctx.profile.thresholds.severeLoserRatio;
+
+    if (
+      ratio !== null &&
+      ctx.input.roas !== null &&
+      hardCutSpend !== null &&
+      severeLoserRatio !== null &&
+      ctx.input.spend >= hardCutSpend &&
+      ratio < severeLoserRatio
+    ) {
+      return {
+        kind: "terminal",
+        output: finalizeDecision(
+          ctx,
+          "cut",
+          `Severe loser at scale: ROAS ${ctx.input.roas.toFixed(2)} = ${(
+            ratio * 100
+          ).toFixed(0)}% of target on $${formatSpend(
+            ctx.input.spend,
+          )} (28d) — spend exceeded hard-cut threshold $${formatSpend(
+            hardCutSpend,
+          )} and ratio is below severe-loser zone (${(
+            severeLoserRatio * 100
+          ).toFixed(0)}%); decisive cut despite young age / thin sample.`,
+        ),
+      };
+    }
+
     return {
       kind: "terminal",
       output: finalizeDecision(

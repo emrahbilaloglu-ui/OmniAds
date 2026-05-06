@@ -8,7 +8,7 @@
 import type { EngineV3Flags } from "./feature-flags";
 import type { OperatorResponseResult } from "./operator-response-detection";
 
-export const ENGINE_VERSION = "v3-2026-05-06-phase-6";
+export const ENGINE_VERSION = "v3-2026-05-06-phase-7";
 
 /** Final decision label. */
 export type DecisionLabel =

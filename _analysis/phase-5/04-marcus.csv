@@ -1,0 +1,155 @@
+creative_id,business,creative_name,bucket,my_label,my_reason
+1370381998117941,TheSwaf,Advantage+ catalog ad,closed_30d,refresh,"ROAS 1.92 is 0.87x of the 2.20 target on $31,943 lifetime spend with 410 purchases; fatigue is watch and 28d ROAS is 1.22, so refresh before it decays further."
+1347969233807910,TheSwaf,EMB - CatalogAd,active,cut,"ROAS 1.37 is 0.62x of the 2.20 target on $9,963 28d spend with 73 purchases; 7d ROAS is 1.40; clear loser, cut."
+1521071976374724,TheSwaf,EmB - Catalog Ad,active,cut,"ROAS 1.31 is 0.60x of the 2.20 target on $8,824 28d spend with 61 purchases; 7d ROAS is 0.92; clear loser, cut."
+736272486128828,TheSwaf,AllRings,closed_30d,cut,"Closed correctly: ROAS 1.62 is 0.74x of the 2.20 target on $2,589 lifetime spend with 28 purchases; clear loser, cut."
+1851364679152359,TheSwaf,AllRings,closed_30d,keep,"ROAS 2.10 is 0.95x of the 2.20 target on $2,319 lifetime spend with 31 purchases; no clean move yet, keep."
+2804457086560981,TheSwaf,wearthefearrevise,active,cut,"ROAS 0.89 is 0.40x of the 2.20 target on $2,241 28d spend with 10 purchases; 7d ROAS is 0.61; clear loser, cut."
+1960236391551172,TheSwaf,aura,active,refresh,"ROAS is 1.92 now versus peak 6.90 23 days ago and 7d ROAS 1.40, with fatigue none; refresh before the winner decays."
+967749279083373,TheSwaf,protection,active,refresh,"ROAS is 2.02 now versus peak 7.24 16 days ago and 7d ROAS 1.77, with fatigue none; refresh before the winner decays."
+951995590658338,TheSwaf,aphrodite,active,refresh,"ROAS is 1.79 now versus peak 42.95 25 days ago and 7d ROAS 2.32, with fatigue none; refresh before the winner decays."
+1561834608247242,TheSwaf,fatal,active,cut,"ROAS 1.34 is 0.61x of the 2.20 target on $1,180 28d spend with 7 purchases; 7d ROAS is 0.56; clear loser, cut."
+3357963294352238,TheSwaf,ReligiousNecklaceFlex,closed_30d,cut,"Closed correctly: ROAS 0.48 is 0.22x of the 2.20 target on $767 lifetime spend with 2 purchases; clear loser, cut."
+841424642307232,TheSwaf,EMB - CatalogAd,active,cut,"ROAS 0.58 is 0.26x of the 2.20 target on $620 28d spend with 2 purchases; 7d ROAS is 0.58; clear loser, cut."
+941030035300398,TheSwaf,biterevise,active,scale,"ROAS 3.55 is 1.62x of the 2.20 target on $593 28d spend with 8 purchases; 7d ROAS is 0.00 on $85.91; clear upside, scale."
+2731945777166108,TheSwaf,depth,closed_30d,cut,"Closed correctly: ROAS 0.63 is 0.29x of the 2.20 target on $587 lifetime spend with 2 purchases; clear loser, cut."
+1250889117025589,TheSwaf,restraintrevise,active,scale,"ROAS 4.18 is 1.90x of the 2.20 target on $504 28d spend with 7 purchases; 7d ROAS is 3.90 on $58.92; clear upside, scale."
+1344068397554957,TheSwaf,EMB - AllRings,active,refresh,"ROAS is 1.45 now versus peak 4.26 13 days ago and 7d ROAS 1.83, with fatigue none; refresh before the winner decays."
+930269923096296,TheSwaf,begintodeath,active,refresh,"ROAS is 2.01 now versus peak 15.54 16 days ago and 7d ROAS 0.00, with fatigue none; refresh before the winner decays."
+1383902269751310,TheSwaf,TargeryenFlex,closed_30d,cut,"Closed correctly: ROAS 0.46 is 0.21x of the 2.20 target on $397 lifetime spend with 1 purchases; clear loser, cut."
+1425547512680542,TheSwaf,ancientegypt,closed_30d,cut,"Closed correctly: ROAS 0.64 is 0.29x of the 2.20 target on $378 lifetime spend with 2 purchases; clear loser, cut."
+974060018521285,TheSwaf,death,active,keep,"ROAS 1.40 is 0.64x of the 2.20 target on $371 28d spend with 3 purchases; 7d ROAS is 1.88; no clean move yet, keep."
+1142325247324026,TheSwaf,TargeryenFlex,closed_30d,scale,"Closed too cautiously: ROAS 2.22 is 1.01x of the 2.20 target on $350 lifetime spend with 4 purchases; clear upside, scale."
+2195229177681668,TheSwaf,angelNdevill,active,cut,"ROAS 1.10 is 0.50x of the 2.20 target on $341 28d spend with 2 purchases; 7d ROAS is 0.00; clear loser, cut."
+935580372698767,TheSwaf,faith,closed_30d,cut,"Closed correctly: ROAS 0.38 is 0.17x of the 2.20 target on $325 lifetime spend with 1 purchases; clear loser, cut."
+1133995451493304,TheSwaf,MedusaFlex,closed_30d,keep,"ROAS 1.69 is 0.77x of the 2.20 target on $305 lifetime spend with 3 purchases; no clean move yet, keep."
+1474105167195606,TheSwaf,Mix,closed_30d,scale,"Closed too cautiously: ROAS 2.49 is 1.13x of the 2.20 target on $237 lifetime spend with 5 purchases; clear upside, scale."
+2413832812481192,TheSwaf,watchthat,closed_30d,cut,"Closed correctly: ROAS 0.00 is 0.00x of the 2.20 target on $226 lifetime spend with 0 purchases; clear loser, cut."
+2908323869499405,TheSwaf,risklooksbetter,closed_30d,test_more,$187 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1484306833294778,TheSwaf,EMB - TargeryenFlex,active,keep,"ROAS 1.51 is 0.69x of the 2.20 target on $148 28d spend with 1 purchases; 7d ROAS is 2.74; no clean move yet, keep."
+1476506453853715,TheSwaf,legacyrevise,closed_30d,keep,"ROAS 1.23 is 0.56x of the 2.20 target on $154 lifetime spend with 1 purchases; no clean move yet, keep."
+1879695362688413,TheSwaf,bestseller,active,scale,"ROAS 2.60 is 1.18x of the 2.20 target on $122 28d spend with 2 purchases; 7d ROAS is 0.00 on $9.43; clear upside, scale."
+1761002005018656,TheSwaf,ring,active,refresh,"ROAS is 2.33 now versus peak 56.30 12 days ago and 7d ROAS 0.00, with fatigue none; refresh before the winner decays."
+1283690053078235,TheSwaf,Mix,closed_30d,keep,"ROAS 1.51 is 0.69x of the 2.20 target on $114 lifetime spend with 1 purchases; no clean move yet, keep."
+1655126075507081,TheSwaf,evolution,active,test_more,$104 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+967102445774372,TheSwaf,EMB - Mix,active,refresh,"ROAS is 2.27 now versus peak 6.95 1 days ago and 7d ROAS 5.25, with fatigue watch; refresh before the winner decays."
+882777081456596,TheSwaf,bestsellerringsgothic,active,refresh,"ROAS is 2.66 now versus peak 22.84 26 days ago and 7d ROAS 0.00, with fatigue none; refresh before the winner decays."
+1417424656739964,TheSwaf,Tastemythrevise,active,test_more,$47.96 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1945472502724074,TheSwaf,EMB - ReligiousNecklace,active,test_more,$32.51 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1229430125634078,TheSwaf,bestsellersnecklace,active,test_more,$32.47 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+4547154848899014,TheSwaf,softness,active,test_more,$30.25 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+2467451360428576,TheSwaf,EMB - AllRings,active,test_more,$16.99 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1444968763982893,TheSwaf,EMB - TargeryenFlex,closed_30d,test_more,$13.42 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1624871925951037,TheSwaf,whispersfromthedevil,active,test_more,$11.38 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1310237954326358,TheSwaf,alphawolfnecklace,closed_30d,test_more,$10.07 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1508640670664791,TheSwaf,EMB - Mix,active,test_more,$9.90 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+3208178412688054,TheSwaf,EMB - Mix,active,test_more,$4.27 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+840261811685973,TheSwaf,EMB - ReligiousNecklace,active,test_more,$1.58 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+2239437839796106,TheSwaf,EMB - TargeryenFlex,active,test_more,$0.53 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+2240450456794543,IwaStore,Catalog New Collection,active,refresh,"ROAS is 3.43 now versus peak 5.82 1 days ago and 7d ROAS 5.27, with fatigue watch; refresh before the winner decays."
+2729900394016654,IwaStore,WallArtCatalog,closed_30d,refresh,"ROAS is 4.55 now versus peak 5.28 23 days ago, with fatigue watch; refresh before the winner decays."
+1976762379605003,IwaStore,WallArtCatalog,active,cut,"ROAS 2.60 is 0.74x of the 3.50 target on $1,028 28d spend with 15 purchases; 7d ROAS is 2.00; clear loser, cut."
+917280764555370,IwaStore,WoodenWallArtCatalog,closed_30d,scale,"Closed too cautiously: ROAS 6.48 is 1.85x of the 3.50 target on $994 lifetime spend with 39 purchases; clear upside, scale."
+1610875453601663,IwaStore,A misbaha,closed_30d,refresh,"ROAS is 4.05 now versus peak 7.95 18 days ago and 7d ROAS 0.00, with fatigue watch; refresh before the winner decays."
+712308491893470,IwaStore,julia_julia386,closed_30d,cut,"Closed correctly: ROAS 0.09 is 0.03x of the 3.50 target on $837 lifetime spend with 1 purchases; clear loser, cut."
+2766311733731448,IwaStore,Transforming a house,closed_30d,scale,"Closed too cautiously: ROAS 10.09 is 2.88x of the 3.50 target on $804 lifetime spend with 26 purchases; clear upside, scale."
+1588942188879607,IwaStore,WoodenWallArtCatalog,active,keep,"ROAS 2.18 is 0.62x of the 3.50 target on $671 lifetime spend with 9 purchases; 7d ROAS is 31.28; no clean move yet, keep."
+1597946391493220,IwaStore,WoodenWallArtCatalog,active,scale,"ROAS 4.47 is 1.28x of the 3.50 target on $651 28d spend with 20 purchases; 7d ROAS is 2.04 on $197; clear upside, scale."
+1420674099804622,IwaStore,Every beautiful,closed_30d,keep,"ROAS 2.19 is 0.63x of the 3.50 target on $554 lifetime spend with 9 purchases; 7d ROAS is 2.81; no clean move yet, keep."
+811959778633363,IwaStore,New 2026 Collection,closed_30d,refresh,"ROAS is 2.96 now versus peak 12.38 25 days ago and 7d ROAS 0.00, with fatigue watch; refresh before the winner decays."
+966762982363817,IwaStore,decorista_93,closed_30d,scale,"Closed too cautiously: ROAS 7.92 is 2.26x of the 3.50 target on $465 lifetime spend with 21 purchases; 7d ROAS is 3.16 on $31.65; clear upside, scale."
+744459891804259,IwaStore,mum2boys_style,closed_30d,cut,"Closed correctly: ROAS 0.24 is 0.07x of the 3.50 target on $441 lifetime spend with 1 purchases; clear loser, cut."
+970526038984760,IwaStore,Our hearts are,closed_30d,cut,"Closed correctly: ROAS 0.00 is 0.00x of the 3.50 target on $364 lifetime spend with 0 purchases; clear loser, cut."
+930886633134159,IwaStore,A prayer niche,closed_30d,refresh,"ROAS is 3.67 now versus peak 3.83 22 days ago, with fatigue watch; refresh before the winner decays."
+1655577498670460,IwaStore,Since I hung,active,cut,"ROAS 0.87 is 0.25x of the 3.50 target on $323 28d spend with 3 purchases; 7d ROAS is 0.87; clear loser, cut."
+768721082956229,IwaStore,Joyful prep,closed_30d,cut,"Closed correctly: ROAS 0.47 is 0.13x of the 3.50 target on $341 lifetime spend with 1 purchases; clear loser, cut."
+2195290934643087,IwaStore,Transforming a house,active,scale,"ROAS 5.41 is 1.55x of the 3.50 target on $333 28d spend with 11 purchases; 7d ROAS is 1.77 on $99.48; clear upside, scale."
+1585735605840392,IwaStore,Since I hung,closed_30d,refresh,"ROAS is 3.46 now versus peak 5.34 19 days ago, with fatigue watch; refresh before the winner decays."
+1284552599771657,IwaStore,WoodenWallArtCatalog,closed_30d,scale,"Closed too cautiously: ROAS 6.31 is 1.80x of the 3.50 target on $251 lifetime spend with 9 purchases; clear upside, scale."
+3953033168334495,IwaStore,لا للمحراب في البيوت!!,active,cut,"ROAS 0.00 is 0.00x of the 3.50 target on $223 28d spend with 0 purchases; 7d ROAS is 0.00; clear loser, cut."
+968020058968795,IwaStore,mum2boys_style,active,keep,"ROAS 2.22 is 0.63x of the 3.50 target on $215 28d spend with 2 purchases; 7d ROAS is 2.22; no clean move yet, keep."
+1493794995651100,IwaStore,The heart finds,closed_30d,cut,"Closed correctly: ROAS 1.70 is 0.49x of the 3.50 target on $180 lifetime spend with 2 purchases; 7d ROAS is 0.00; clear loser, cut."
+2155452695257229,IwaStore,Cherish every,closed_30d,refresh,"ROAS is 3.58 now versus peak 26.05 15 days ago and 7d ROAS 0.00, with fatigue watch; refresh before the winner decays."
+1677986356526477,IwaStore,nina_deko_germany,closed_30d,refresh,"ROAS is 2.79 now versus peak 22.30 18 days ago and 7d ROAS 0.00, with fatigue none; refresh before the winner decays."
+1298590478858258,IwaStore,A stunning Islamic,closed_30d,cut,"Closed correctly: ROAS 1.38 is 0.39x of the 3.50 target on $138 lifetime spend with 2 purchases; 7d ROAS is 0.00; clear loser, cut."
+1491430605985827,IwaStore,PrayerEssentialsCatalog,active,test_more,$72.26 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1696539768203616,IwaStore,modern.cave,active,keep,"ROAS 1.80 is 0.52x of the 3.50 target on $123 28d spend with 1 purchases; 7d ROAS is 1.80; no clean move yet, keep."
+1604466493963499,IwaStore,Set up my,closed_30d,test_more,$111 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+2793542300980492,IwaStore,A journey toward,active,keep,"ROAS 2.96 is 0.84x of the 3.50 target on $101 28d spend with 2 purchases; 7d ROAS is 2.96; no clean move yet, keep."
+975269794952302,IwaStore,A soulful gift,active,keep,"ROAS 2.08 is 0.59x of the 3.50 target on $91.31 28d spend with 2 purchases; 7d ROAS is 2.08; no clean move yet, keep."
+990746656943922,IwaStore,Since I hung,active,keep,"ROAS 1.60 is 0.46x of the 3.50 target on $85.68 28d spend with 2 purchases; 7d ROAS is 0.00; no clean move yet, keep."
+1459053848960720,IwaStore,It added meaning,closed_30d,keep,"ROAS 1.14 is 0.32x of the 3.50 target on $78.33 lifetime spend with 1 purchases; no clean move yet, keep."
+1662781231395655,IwaStore,WoodenWallArtCatalog,closed_30d,test_more,$76.30 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1244730050650427,IwaStore,More than,closed_30d,refresh,"ROAS is 3.32 now versus peak 0.00 29 days ago and 7d ROAS 0.00, with fatigue watch; refresh before the winner decays."
+882122398191881,IwaStore,Catalog New Collection,closed_30d,scale,"Closed too cautiously: ROAS 22.37 is 6.39x of the 3.50 target on $68.74 lifetime spend with 2 purchases; clear upside, scale."
+1510126544090812,IwaStore,Decorating the,active,scale,"ROAS 5.93 is 1.69x of the 3.50 target on $67.20 28d spend with 2 purchases; 7d ROAS is 5.93 on $68.55; clear upside, scale."
+1732872731454703,IwaStore,Glowing lanterns,closed_30d,keep,"ROAS 4.01 is 1.15x of the 3.50 target on $66.34 lifetime spend with 2 purchases; no clean move yet, keep."
+1127695869538738,IwaStore,The heart finds,active,test_more,$49.32 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+4344364212475167,IwaStore,Glowing lanterns,active,keep,"ROAS 10.88 is 3.11x of the 3.50 target on $47.02 28d spend with 1 purchases; 7d ROAS is 0.00; no clean move yet, keep."
+800452073102997,IwaStore,Catalog New Collection,closed_30d,keep,"ROAS 6.22 is 1.78x of the 3.50 target on $44.99 lifetime spend with 1 purchases; no clean move yet, keep."
+2260100064398971,IwaStore,A prayer niche,closed_30d,keep,"ROAS 2.24 is 0.64x of the 3.50 target on $42.05 lifetime spend with 1 purchases; no clean move yet, keep."
+1230828315767797,IwaStore,WallArtCatalog,active,test_more,$40.17 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+931776873000095,IwaStore,Catalog New Collection,active,keep,"ROAS 11.79 is 3.37x of the 3.50 target on $40.15 lifetime spend with 3 purchases; 7d ROAS is 17.37; no clean move yet, keep."
+1157254709850013,IwaStore,Hilye-i Sherif,active,test_more,$39.44 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1331879072101118,IwaStore,Iconic beauty,closed_30d,keep,"ROAS 5.83 is 1.67x of the 3.50 target on $38.41 lifetime spend with 2 purchases; no clean move yet, keep."
+960144903102269,IwaStore,A solid foundation,closed_30d,keep,"ROAS 2.75 is 0.78x of the 3.50 target on $37.71 lifetime spend with 1 purchases; 7d ROAS is 0.00; no clean move yet, keep."
+1658131231999984,IwaStore,The peace of,active,keep,"ROAS 6.92 is 1.98x of the 3.50 target on $32.03 lifetime spend with 1 purchases; no clean move yet, keep."
+1433325747959693,IwaStore,Iconic beauty,closed_30d,test_more,$26.27 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+2073086786589405,IwaStore,Loved styling,closed_30d,keep,"ROAS 26.46 is 7.56x of the 3.50 target on $24.91 lifetime spend with 2 purchases; 7d ROAS is 0.00; no clean move yet, keep."
+26505469559090682,IwaStore,Beautiful gatherings,closed_30d,keep,"ROAS 78.27 is 22.36x of the 3.50 target on $22.49 lifetime spend with 3 purchases; no clean move yet, keep."
+1294593585891681,IwaStore,Timeless Crescent,closed_30d,test_more,$21.21 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1751293382982422,IwaStore,Transforming a house,active,test_more,$16.48 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1447894557080027,IwaStore,Gift a sanctuary,closed_30d,test_more,$0.55 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1524376165982018,IwaStore,A prayer niche,active,test_more,$14.35 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+977493541930191,IwaStore,Beautiful gatherings,closed_30d,keep,"ROAS 5.12 is 1.46x of the 3.50 target on $13.65 lifetime spend with 1 purchases; no clean move yet, keep."
+1718734305961779,IwaStore,WoodenWallArtCatalog,active,keep,"ROAS 14.30 is 4.09x of the 3.50 target on $11.18 lifetime spend with 1 purchases; 7d ROAS is 0.00; no clean move yet, keep."
+1715560629433995,IwaStore,A soulful gift,closed_30d,test_more,$1.35 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+2429399654167706,IwaStore,Decorating the,closed_30d,test_more,$10.55 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+932482069494079,IwaStore,Gift a sanctuary,closed_30d,test_more,$9.14 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+946471284944193,IwaStore,So happy with,active,keep,"ROAS 14.25 is 4.07x of the 3.50 target on $8.77 lifetime spend with 1 purchases; no clean move yet, keep."
+1478679750647804,IwaStore,Iconic beauty,closed_30d,test_more,$8.69 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1225318442702777,IwaStore,Decorating the,closed_30d,test_more,$1.15 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+2023813815225087,IwaStore,Glowing lanterns,closed_30d,test_more,$7.34 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1341073624739368,IwaStore,Timeless Crescent,closed_30d,test_more,$6.87 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1986352635337304,IwaStore,decorista_93,active,test_more,$6.73 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1503961571525364,IwaStore,It became the favorite,active,test_more,$6.04 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1280975290844183,IwaStore,New 2026 Collection,active,test_more,$5.62 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+802825205720972,IwaStore,A journey toward,closed_30d,test_more,$0.72 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1964610134172260,IwaStore,Gift a sanctuary,closed_30d,test_more,$0.16 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1893545414686924,IwaStore,Iconic beauty,closed_30d,test_more,$3.87 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1271058314571959,IwaStore,Beautiful gatherings,active,test_more,$3.67 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+2363238150864793,IwaStore,Start with,closed_30d,test_more,$0.84 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1345880953965537,IwaStore,It became the favorite,closed_30d,test_more,$0.35 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+4367811283503430,IwaStore,Start with,active,test_more,$2.92 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+2113260336123444,IwaStore,The golden details,active,test_more,$2.89 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+937889615877203,IwaStore,Glowing lanterns,active,test_more,$2.86 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+936568185925788,IwaStore,Timeless Crescent,closed_30d,test_more,$2.68 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1300480628535229,IwaStore,There’s a specia,active,test_more,$2.57 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+984789670652584,IwaStore,Let the most,active,test_more,$2.57 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+2026401714945589,IwaStore,A prayer niche,active,test_more,$2.54 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1875473163115275,IwaStore,Beautiful gatherings,closed_30d,test_more,$2.46 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1379001707593645,IwaStore,Gift a sanctuary,closed_30d,test_more,$2.24 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+942632511988052,IwaStore,Gift a sanctuary,closed_30d,test_more,$2.22 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+2461627344307336,IwaStore,Beautiful gatherings,closed_30d,test_more,$2.17 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+26217458397936563,IwaStore,decorista_93,active,test_more,$1.71 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+911903564961526,IwaStore,Decorating the,closed_30d,test_more,$0.99 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+4020864904715329,IwaStore,Timeless Crescent,closed_30d,test_more,$0.55 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+941843838638338,IwaStore,Decorating the,closed_30d,test_more,$1.36 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+26370728439273093,IwaStore,Elevate your,active,test_more,$1.27 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1651845599492662,IwaStore,Glowing lanterns,closed_30d,test_more,$0.42 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+964936183160568,IwaStore,Decorating the,active,test_more,$1.07 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1503170044485677,IwaStore,Glowing lanterns,active,test_more,$1.03 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1681449599961309,IwaStore,Gift a sanctuary,closed_30d,test_more,$0.46 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+2736771126679641,IwaStore,Since I hung,closed_30d,test_more,$0.82 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1692424485272995,IwaStore,If you’re looking,active,test_more,$0.63 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+905617072477248,IwaStore,Glowing lanterns,active,test_more,$0.63 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+881092554943010,IwaStore,Since I hung,closed_30d,test_more,$0.52 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1516635529950522,IwaStore,Iconic beauty,closed_30d,test_more,$0.30 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+2317482965443311,IwaStore,decorista_93,active,test_more,$0.13 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+4337403796547773,IwaStore,Iconic beauty,closed_30d,test_more,$0.12 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+955048726939519,IwaStore,Gift a sanctuary,closed_30d,test_more,$0.09 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1281637630090710,IwaStore,A prayer niche,active,test_more,$0.07 lifetime spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+3174616586071964,IwaStore,Beautiful gatherings,closed_30d,keep,"ROAS 1910.33 is 545.81x of the 3.50 target on $0.03 lifetime spend with 1 purchases; no clean move yet, keep."
+1232574995617489,IwaStore,Beautiful gatherings,closed_30d,test_more,$0.01 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1521625876245401,IwaStore,Timeless Crescent,closed_30d,test_more,$0.01 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.
+1589360725474198,IwaStore,A prayer niche,closed_30d,test_more,$0.00 28d spend with 0 purchases is still thin signal for my action bar; test more before scale/cut.

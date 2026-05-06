@@ -193,6 +193,19 @@ describe("groupRows", () => {
     expect(groupA?.associated_ads_count).toBe(2);
   });
 
+  it("counts distinct real ad ids for grouped creative placement totals", () => {
+    const rows = [
+      makeRow({ id: "creative_1", real_ad_id: "ad_1", creative_id: "cre_1", name: "Creative A", spend: 100 }),
+      makeRow({ id: "creative_1", real_ad_id: "ad_1", creative_id: "cre_1", name: "Creative A", spend: 50 }),
+      makeRow({ id: "creative_1", real_ad_id: "ad_2", creative_id: "cre_2", name: "Creative A", spend: 25 }),
+    ];
+
+    const result = groupRows(rows, "creative", new Map());
+
+    expect(result).toHaveLength(1);
+    expect(result[0].associated_ads_count).toBe(2);
+  });
+
   it("sums impressions and purchases across grouped rows", () => {
     const rows = [
       makeRow({ id: "a1", name: "Ad X", format: "image", impressions: 5000, purchases: 3, spend: 100 }),
@@ -239,6 +252,24 @@ describe("groupRows", () => {
 
     const adsetA = result.find((r) => r.adset_id === "adset_A");
     expect(adsetA?.spend).toBeCloseTo(250);
+  });
+
+  it("groups daily rows by real ad id for groupBy=ad", () => {
+    const rows = [
+      makeRow({ id: "ad_1", creative_id: "cre_1", name: "Placement A", spend: 100, impressions: 1000, purchases: 1 }),
+      makeRow({ id: "ad_1", creative_id: "cre_1", name: "Placement A", spend: 50, impressions: 500, purchases: 2 }),
+      makeRow({ id: "ad_2", creative_id: "cre_2", name: "Placement A", spend: 25, impressions: 250, purchases: 0 }),
+    ];
+
+    const result = groupRows(rows, "ad", new Map());
+
+    expect(result).toHaveLength(2);
+    const ad1 = result.find((row) => row.id === "ad_1");
+    expect(ad1?.name).toBe("Placement A");
+    expect(ad1?.spend).toBeCloseTo(150);
+    expect(ad1?.impressions).toBe(1500);
+    expect(ad1?.purchases).toBe(3);
+    expect(ad1?.associated_ads_count).toBe(1);
   });
 
   it("marks grouped rows as Mixed when underlying primary types conflict", () => {

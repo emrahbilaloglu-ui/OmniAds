@@ -7,14 +7,14 @@ import type { MetaAnalysisStatus } from "@/lib/meta/analysis-state";
 function status(overrides: Partial<MetaAnalysisStatus> = {}): MetaAnalysisStatus {
   return {
     state: "not_run",
-    decisionOsStatus: "not_run",
-    decisionOsLabel: "Not run",
+    decisionOsStatus: "archived",
+    decisionOsLabel: "Archived",
     recommendationSource: "none",
     recommendationSourceLabel: "None",
     presentationMode: "no_guidance",
     presentationModeLabel: "No guidance",
     isAnalysisRunning: false,
-    message: "Run analysis to generate Decision OS guidance.",
+    message: "Run analysis to generate snapshot-backed recommendation context.",
     detailReasons: [],
     safeErrorMessage: null,
     rangeMismatch: false,
@@ -29,10 +29,10 @@ describe("MetaAnalysisStatusCard", () => {
     const html = renderToStaticMarkup(<MetaAnalysisStatusCard status={status()} />);
 
     expect(html).toContain("Analysis status");
-    expect(html).toContain("Decision OS: Not run");
+    expect(html).toContain("Decision OS: Archived");
     expect(html).toContain("Recommendation source: None");
     expect(html).toContain("Presentation: No guidance");
-    expect(html).toContain("Run analysis to generate Decision OS guidance.");
+    expect(html).toContain("Run analysis to generate snapshot-backed recommendation context.");
   });
 
   it("renders fallback source and analyzed range", () => {
@@ -40,41 +40,41 @@ describe("MetaAnalysisStatusCard", () => {
       <MetaAnalysisStatusCard
         status={status({
           state: "recommendation_fallback",
-          decisionOsStatus: "degraded",
-          decisionOsLabel: "Degraded",
+          decisionOsStatus: "archived",
+          decisionOsLabel: "Archived",
           recommendationSource: "snapshot_fallback",
           recommendationSourceLabel: "Snapshot fallback",
           presentationMode: "fallback_context",
           presentationModeLabel: "Fallback context",
-          message: "Showing snapshot fallback. Decision OS did not produce an authoritative response.",
-          detailReasons: ["decision_os_unavailable"],
+          message: "Showing snapshot-backed recommendation context.",
+          detailReasons: ["legacy_decision_os_archived_phase_4_1"],
           analyzedRangeLabel: "2026-04-01 to 2026-04-21",
           lastAnalyzedAtIso: "2026-04-21T10:00:00.000Z",
         })}
       />,
     );
 
-    expect(html).toContain("Decision OS: Degraded");
+    expect(html).toContain("Decision OS: Archived");
     expect(html).toContain("Recommendation source: Snapshot fallback");
     expect(html).toContain("Presentation: Fallback context");
     expect(html).toContain("Last successful analysis at 2026-04-21 10:00 UTC.");
     expect(html).toContain("Analyzed for 2026-04-01 to 2026-04-21.");
     expect(html).not.toContain("Decision OS last analyzed");
-    expect(html).toContain("decision_os_unavailable");
+    expect(html).toContain("legacy_decision_os_archived_phase_4_1");
   });
 
-  it("renders Decision OS recommendation context without claiming the full surface is ready", () => {
+  it("renders safe recommendation errors without exposing raw errors", () => {
     const html = renderToStaticMarkup(
       <MetaAnalysisStatusCard
         status={status({
           state: "error",
           decisionOsStatus: "error",
           decisionOsLabel: "Error",
-          recommendationSource: "decision_os",
-          recommendationSourceLabel: "Decision OS",
-          presentationMode: "decision_os_recommendation_context",
-          presentationModeLabel: "Decision OS recommendation context",
-          message: "Recommendation source is Decision OS, but the Decision OS surface failed to load.",
+          recommendationSource: "none",
+          recommendationSourceLabel: "None",
+          presentationMode: "error",
+          presentationModeLabel: "Error",
+          message: "Recommendations could not complete safely.",
           safeErrorMessage: "Analysis could not complete safely. Run analysis again for this range.",
           analyzedRangeLabel: "2026-04-01 to 2026-04-21",
           lastAnalyzedAtIso: "2026-04-21T10:00:00.000Z",
@@ -83,11 +83,10 @@ describe("MetaAnalysisStatusCard", () => {
     );
 
     expect(html).toContain("Decision OS: Error");
-    expect(html).toContain("Recommendation source: Decision OS");
-    expect(html).toContain("Presentation: Decision OS recommendation context");
-    expect(html).toContain("Decision OS surface failed to load");
+    expect(html).toContain("Recommendation source: None");
+    expect(html).toContain("Presentation: Error");
+    expect(html).toContain("Recommendations could not complete safely");
     expect(html).toContain("Last successful analysis at 2026-04-21 10:00 UTC.");
-    expect(html).not.toContain("Decision OS: Ready");
     expect(html).not.toContain("Decision OS last analyzed");
   });
 
@@ -114,8 +113,6 @@ describe("MetaAnalysisStatusCard", () => {
       <MetaAnalysisStatusCard
         status={status({
           state: "running",
-          decisionOsStatus: "not_run",
-          decisionOsLabel: "Not run",
           presentationMode: "loading",
           presentationModeLabel: "Loading",
           isAnalysisRunning: true,
@@ -125,6 +122,6 @@ describe("MetaAnalysisStatusCard", () => {
     );
 
     expect(html).toContain("Analysis: Running");
-    expect(html).toContain("Decision OS: Not run");
+    expect(html).toContain("Decision OS: Archived");
   });
 });

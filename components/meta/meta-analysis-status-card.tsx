@@ -9,15 +9,11 @@ function formatAnalyzedAt(value: string | null) {
 
 function statusTone(status: MetaAnalysisStatus["decisionOsStatus"]) {
   switch (status) {
-    case "ready":
-      return "border-emerald-200 bg-emerald-50 text-emerald-800";
-    case "degraded":
-      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "archived":
+      return "border-slate-200 bg-slate-50 text-slate-700";
     case "error":
     case "mismatch":
       return "border-rose-200 bg-rose-50 text-rose-800";
-    case "running":
-      return "border-sky-200 bg-sky-50 text-sky-800";
     default:
       return "border-slate-200 bg-slate-50 text-slate-700";
   }
@@ -25,8 +21,6 @@ function statusTone(status: MetaAnalysisStatus["decisionOsStatus"]) {
 
 function sourceTone(source: MetaAnalysisStatus["recommendationSource"]) {
   switch (source) {
-    case "decision_os":
-      return "border-emerald-200 bg-emerald-50 text-emerald-800";
     case "snapshot_fallback":
       return "border-amber-200 bg-amber-50 text-amber-800";
     case "demo":

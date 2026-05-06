@@ -1,5 +1,6 @@
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
+import type { DecisionEngineV3Response } from "@/lib/creative-decision-engine";
 import {
   calculateCreativeAverageOrderValue,
   calculateCreativeClickToAddToCartRate,
@@ -14,22 +15,14 @@ import type {
   SharedCreative,
   SharedCreativeAnalysis,
 } from "@/components/creatives/shareCreativeTypes";
-import type {
-  CreativeDecisionAction,
-  CreativeDecisionOsCreative,
-  CreativeDecisionOsV1Response,
-  CreativeDecisionPrimaryAction,
-} from "@/lib/creative-decision-os";
-import {
-  buildCreativeOperatorItem,
-  creativeBenchmarkReliabilityLabel,
-  creativeBusinessValidationNote,
-} from "@/lib/creative-operator-surface";
 import {
   getLegacyCreativeTypeLabel,
 } from "@/lib/meta/creative-taxonomy";
 import { getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
-import type { CreativeHistoricalWindow, CreativeHistoricalWindows } from "@/src/services";
+import type {
+  AiCreativeHistoricalWindow as CreativeHistoricalWindow,
+  AiCreativeHistoricalWindows as CreativeHistoricalWindows,
+} from "@/lib/meta/creative-scoring";
 
 export interface MetaCreativesResponse {
   status?: string;
@@ -175,199 +168,6 @@ export function toCsv(rows: MetaCreativeRow[]): string {
   return [headers.map(escape).join(","), ...body].join("\n");
 }
 
-function safeText(value: string | null | undefined, fallback = "") {
-  const normalized = value?.trim();
-  return normalized && normalized.length > 0 ? normalized : fallback;
-}
-
-function uniqueLimited(values: Array<string | null | undefined>, limit: number) {
-  return Array.from(
-    new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value))),
-  ).slice(0, limit);
-}
-
-function primaryActionLabel(
-  primaryAction: CreativeDecisionPrimaryAction | null | undefined,
-  legacyAction: CreativeDecisionAction | null | undefined,
-) {
-  if (primaryAction === "promote_to_scaling") return "Scale";
-  if (primaryAction === "keep_in_test") return "Test More";
-  if (primaryAction === "hold_no_touch") return "Protect";
-  if (primaryAction === "refresh_replace" || primaryAction === "retest_comeback") return "Refresh";
-  if (primaryAction === "block_deploy") return "Diagnose";
-  if (legacyAction === "scale" || legacyAction === "scale_hard") return "Scale";
-  if (legacyAction === "test_more") return "Test More";
-  if (legacyAction === "pause" || legacyAction === "kill") return "Cut";
-  return "Diagnose";
-}
-
-function confidenceLabel(value: number | null | undefined): SharedCreativeAnalysis["confidenceLabel"] {
-  if ((value ?? 0) >= 0.82) return "High";
-  if ((value ?? 0) >= 0.66) return "Medium";
-  return "Limited";
-}
-
-export function buildSharedCreativeAnalysis(
-  creative: CreativeDecisionOsCreative | null | undefined,
-): SharedCreativeAnalysis | null {
-  if (!creative) return null;
-
-  const report = creative.report;
-  const operatorItem = (() => {
-    try {
-      return buildCreativeOperatorItem(creative);
-    } catch {
-      return null;
-    }
-  })();
-  const instruction = operatorItem?.instruction ?? null;
-  const businessValidationNote = (() => {
-    try {
-      return creativeBusinessValidationNote(creative);
-    } catch {
-      return null;
-    }
-  })();
-  const actionLabel =
-    operatorItem?.primaryAction ??
-    primaryActionLabel(creative.primaryAction, creative.legacyAction);
-  const summary = safeText(creative.summary, report?.summary ?? `${actionLabel} review is available.`);
-  const why = safeText(
-    operatorItem?.reason,
-    report?.coreVerdict ?? report?.summary ?? summary,
-  );
-  const whatToDo = safeText(
-    instruction?.primaryMove,
-    report?.summary ?? summary,
-  );
-  const benchmarkLabel =
-    safeText(creative.benchmarkScopeLabel, creative.relativeBaseline?.scopeLabel ?? "") ||
-    null;
-
-  return {
-    creativeId: creative.creativeId,
-    actionLabel,
-    authorityLabel: operatorItem?.authorityLabel ?? actionLabel,
-    confidenceLabel: operatorItem?.confidence ?? confidenceLabel(creative.confidence),
-    headline: safeText(instruction?.headline, `${actionLabel}: ${creative.name}`),
-    summary,
-    whatToDo,
-    why,
-    evidenceStrength: instruction?.evidenceStrength ?? null,
-    urgency: instruction?.urgency ?? null,
-    amountGuidance: instruction?.amountGuidance?.label ?? null,
-    benchmarkLabel,
-    benchmarkReliability: creativeBenchmarkReliabilityLabel(creative.benchmarkReliability),
-    previewState: creative.previewStatus?.liveDecisionWindow ?? null,
-    businessValidationNote,
-    nextObservation: uniqueLimited(
-      [
-        ...(instruction?.nextObservation ?? []),
-        ...(creative.deployment?.whatWouldChangeThisDecision ?? []),
-        ...(creative.deployment?.constraints ?? []),
-      ],
-      4,
-    ),
-    invalidActions: uniqueLimited(instruction?.invalidActions ?? [], 3),
-    factors: (report?.factors ?? []).slice(0, 4).map((factor) => ({
-      label: factor.label,
-      value: factor.value,
-      reason: factor.reason,
-      impact: factor.impact,
-    })),
-  };
-}
-
-export function buildSharedCreativeAnalysisLookup(
-  decisionOs: Pick<CreativeDecisionOsV1Response, "creatives"> | null | undefined,
-) {
-  const lookup = new Map<string, SharedCreativeAnalysis>();
-  for (const creative of decisionOs?.creatives ?? []) {
-    const analysis = buildSharedCreativeAnalysis(creative);
-    if (!analysis) continue;
-    lookup.set(creative.creativeId, analysis);
-  }
-  return lookup;
-}
-
-function formatShareMetricNumber(value: number, suffix = "") {
-  if (!Number.isFinite(value)) return `0${suffix}`;
-  return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}${suffix}`;
-}
-
-export function buildSharedCreativeMetricFallbackAnalysis(
-  row: Pick<
-    MetaCreativeRow,
-    "id" | "name" | "spend" | "purchaseValue" | "roas" | "cpa" | "purchases" | "ctrAll"
-  >,
-): SharedCreativeAnalysis {
-  const spend = formatShareMetricNumber(row.spend);
-  const revenue = formatShareMetricNumber(row.purchaseValue);
-  const roas = formatShareMetricNumber(row.roas, "x");
-  const cpa = formatShareMetricNumber(row.cpa);
-  const purchases = formatShareMetricNumber(row.purchases);
-  const ctr = formatShareMetricNumber(row.ctrAll, "%");
-
-  return {
-    creativeId: row.id,
-    actionLabel: "Review",
-    authorityLabel: "Metrics only",
-    confidenceLabel: "Limited",
-    headline: `Review: ${row.name}`,
-    summary:
-      "This selected creative is included for buyer review, but no matching Decision OS row was available for this export.",
-    whatToDo:
-      "Use this as a discussion item. Verify the current account context before scaling, cutting, or refreshing it.",
-    why: `${roas} ROAS on ${spend} spend, ${revenue} purchase value, ${purchases} purchases, ${cpa} CPA, and ${ctr} CTR in the selected report view.`,
-    evidenceStrength: "selected-period metrics",
-    urgency: "low",
-    amountGuidance: null,
-    benchmarkLabel: null,
-    benchmarkReliability: null,
-    previewState: null,
-    businessValidationNote:
-      "Do not treat this metrics-only card as authorization to change budget or delivery.",
-    nextObservation: [
-      "Compare against live Decision OS before taking action.",
-      "Confirm whether the creative is still active in the current buying window.",
-    ],
-    invalidActions: [
-      "Do not scale or cut from selected-period metrics alone.",
-    ],
-    factors: [
-      {
-        label: "ROAS",
-        value: roas,
-        reason: "Selected report view metric.",
-        impact: row.roas >= 1 ? "positive" : "negative",
-      },
-      {
-        label: "Purchases",
-        value: purchases,
-        reason: "Selected report view volume.",
-        impact: row.purchases > 0 ? "positive" : "neutral",
-      },
-    ],
-  };
-}
-
-export function getSharedCreativeAnalysisForRow(
-  row: Pick<
-    MetaCreativeRow,
-    "id" | "creativeId" | "name" | "spend" | "purchaseValue" | "roas" | "cpa" | "purchases" | "ctrAll"
-  >,
-  lookup: ReadonlyMap<string, SharedCreativeAnalysis>,
-  options?: { includeMetricsOnlyFallback?: boolean },
-) {
-  return (
-    lookup.get(row.id) ??
-    lookup.get(row.creativeId) ??
-    (options?.includeMetricsOnlyFallback
-      ? buildSharedCreativeMetricFallbackAnalysis(row)
-      : null)
-  );
-}
-
 export function toSharedCreative(
   row: MetaCreativeRow,
   analysis?: SharedCreativeAnalysis | null,
@@ -421,7 +221,7 @@ async function fetchCreativesLikeResponse(
     businessId: string;
     start: string;
     end: string;
-    groupBy: "adName" | "creative" | "adSet";
+    groupBy: "adName" | "ad" | "creative" | "adSet";
     format: "all" | "image" | "video";
     sort: "roas" | "spend" | "ctrAll" | "purchaseValue";
     mediaMode?: "metadata" | "full";
@@ -464,7 +264,7 @@ export async function fetchMetaCreatives(params: {
   businessId: string;
   start: string;
   end: string;
-  groupBy: "adName" | "creative" | "adSet";
+  groupBy: "adName" | "ad" | "creative" | "adSet";
   format: "all" | "image" | "video";
   sort: "roas" | "spend" | "ctrAll" | "purchaseValue";
   mediaMode?: "metadata" | "full";
@@ -479,7 +279,7 @@ export async function fetchMetaCreativesHistory(params: {
   businessId: string;
   start: string;
   end: string;
-  groupBy: "adName" | "creative" | "adSet";
+  groupBy: "adName" | "ad" | "creative" | "adSet";
   format: "all" | "image" | "video";
   sort: "roas" | "spend" | "ctrAll" | "purchaseValue";
   mediaMode?: "metadata" | "full";
@@ -573,6 +373,7 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
   return {
     id: row.id,
     creativeId: row.creative_id,
+    realAdId: row.real_ad_id ?? null,
     objectStoryId: row.object_story_id ?? null,
     effectiveObjectStoryId: row.effective_object_story_id ?? null,
     postId: row.post_id ?? null,
@@ -588,6 +389,7 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     campaignName: row.campaign_name ?? null,
     adSetId: row.adset_id ?? null,
     adSetName: row.adset_name ?? null,
+    effectiveStatus: row.effective_status ?? null,
     currency: row.currency ?? null,
     format: row.format ?? "image",
     creativeType: legacyCreativeType,
@@ -624,6 +426,7 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     purchases,
     impressions,
     clicks,
+    frequency: row.frequency ?? null,
     linkClicks,
     landingPageViews: safeNumber(row.landing_page_views),
     addToCart,
@@ -671,3 +474,27 @@ export function CreativesTableShell() {
     </div>
   );
 }
+
+export async function fetchCreativeDecisionEngineV3(params: {
+  businessId: string;
+  asOf?: string;
+  creativeIds?: string[];
+  campaignId?: string | null;
+}): Promise<DecisionEngineV3Response> {
+  const url = new URL("/api/creatives/decision-engine-v3", window.location.origin);
+  url.searchParams.set("businessId", params.businessId);
+  if (params.asOf) url.searchParams.set("asOf", params.asOf);
+  if (params.campaignId) url.searchParams.set("campaignId", params.campaignId);
+  if (params.creativeIds && params.creativeIds.length > 0) {
+    url.searchParams.set("creativeIds", params.creativeIds.join(","));
+  }
+
+  const response = await fetch(url.toString());
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`decision engine v3 fetch failed: ${response.status} ${text}`);
+  }
+
+  return (await response.json()) as DecisionEngineV3Response;
+}
+export type { DecisionEngineV3Response };

@@ -59,6 +59,7 @@ export interface MetaCreativePreview {
 export interface MetaCreativeRow {
   id: string;
   creativeId: string;
+  realAdId?: string | null;
   objectStoryId?: string | null;
   effectiveObjectStoryId?: string | null;
   postId?: string | null;
@@ -74,6 +75,7 @@ export interface MetaCreativeRow {
   campaignName?: string | null;
   adSetId?: string | null;
   adSetName?: string | null;
+  effectiveStatus?: string | null;
   currency: string | null;
   format: CreativeFormat;
   creativeType: CreativeType;
@@ -113,6 +115,7 @@ export interface MetaCreativeRow {
   purchases: number;
   impressions: number;
   clicks: number;
+  frequency?: number | null;
   linkClicks: number;
   landingPageViews: number;
   addToCart: number;

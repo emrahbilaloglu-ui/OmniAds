@@ -1,0 +1,818 @@
+{
+  "capturedAt": "2026-05-03T21:24:23.948Z",
+  "businessId": null,
+  "dbRuntime": {
+    "sampledAt": "2026-05-03T21:24:23.948Z",
+    "runtime": "web",
+    "applicationName": "omniads-web",
+    "settings": {
+      "runtime": "web",
+      "applicationName": "omniads-web",
+      "poolMax": 10,
+      "queryTimeoutMs": 8000,
+      "connectionTimeoutMs": 10000,
+      "idleTimeoutMs": 30000,
+      "maxLifetimeSeconds": null,
+      "statementTimeoutMs": null,
+      "idleInTransactionSessionTimeoutMs": null,
+      "retryAttempts": 4,
+      "retryBackoffMs": 400,
+      "retryMaxBackoffMs": 4000,
+      "allowExitOnIdle": true
+    },
+    "pool": {
+      "max": 10,
+      "totalCount": 10,
+      "idleCount": 10,
+      "waitingCount": 0,
+      "utilizationPercent": 100,
+      "saturationState": "busy",
+      "maxObservedWaitingCount": 9,
+      "maxObservedUtilizationPercent": 100,
+      "poolWaitEventCount": 9,
+      "lastPoolWaitAt": "2026-05-03T21:24:22.794Z"
+    },
+    "counters": {
+      "queryCount": 11,
+      "successCount": 11,
+      "failureCount": 0,
+      "retriedQueryCount": 0,
+      "retryAttemptCount": 0,
+      "retryableErrorCount": 0,
+      "timeoutCount": 0,
+      "connectionErrorCount": 0,
+      "lastSuccessfulQueryAt": "2026-05-03T21:24:23.947Z",
+      "lastRetryableErrorAt": null,
+      "lastTimeoutAt": null,
+      "lastConnectionErrorAt": null
+    },
+    "lastError": null
+  },
+  "metaQueue": {
+    "queueDepth": 49,
+    "leasedPartitions": 2,
+    "retryableFailedPartitions": 0,
+    "deadLetterPartitions": 32,
+    "staleLeases": 1,
+    "oldestQueuedPartition": "2025-03-12",
+    "latestActivityAt": "2026-05-03T21:21:02.203Z"
+  },
+  "backlogByBusiness": [
+    {
+      "businessId": "67a9b51a-663d-425e-b6fe-1d24aaa70dab",
+      "businessName": "Silveristic",
+      "queueDepth": 29,
+      "leasedPartitions": 0,
+      "retryableFailedPartitions": 0,
+      "deadLetterPartitions": 1,
+      "oldestQueuedPartition": "2025-03-12",
+      "latestActivityAt": "2026-05-03T21:20:12.803Z"
+    },
+    {
+      "businessId": "979a04f6-1ca9-41d8-be0a-5d58dd7c4bc7",
+      "businessName": "Tiles Workshop",
+      "queueDepth": 10,
+      "leasedPartitions": 0,
+      "retryableFailedPartitions": 0,
+      "deadLetterPartitions": 2,
+      "oldestQueuedPartition": "2026-04-21",
+      "latestActivityAt": "2026-05-03T21:20:52.174Z"
+    },
+    {
+      "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+      "businessName": "IwaStore",
+      "queueDepth": 2,
+      "leasedPartitions": 0,
+      "retryableFailedPartitions": 0,
+      "deadLetterPartitions": 2,
+      "oldestQueuedPartition": "2026-05-01",
+      "latestActivityAt": "2026-05-03T21:20:11.443Z"
+    },
+    {
+      "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+      "businessName": "Grandmix",
+      "queueDepth": 1,
+      "leasedPartitions": 1,
+      "retryableFailedPartitions": 0,
+      "deadLetterPartitions": 4,
+      "oldestQueuedPartition": "2026-05-01",
+      "latestActivityAt": "2026-05-03T21:20:12.576Z"
+    },
+    {
+      "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+      "businessName": "Bilsem Zeka",
+      "queueDepth": 1,
+      "leasedPartitions": 1,
+      "retryableFailedPartitions": 0,
+      "deadLetterPartitions": 3,
+      "oldestQueuedPartition": "2026-05-03",
+      "latestActivityAt": "2026-05-03T21:21:02.203Z"
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "queueDepth": 1,
+      "leasedPartitions": 0,
+      "retryableFailedPartitions": 0,
+      "deadLetterPartitions": 1,
+      "oldestQueuedPartition": "2026-05-02",
+      "latestActivityAt": "2026-05-03T21:17:23.709Z"
+    },
+    {
+      "businessId": "59dac76f-eb5e-409b-958c-bba440d1036b",
+      "businessName": "Vornom",
+      "queueDepth": 1,
+      "leasedPartitions": 0,
+      "retryableFailedPartitions": 0,
+      "deadLetterPartitions": 4,
+      "oldestQueuedPartition": "2026-05-03",
+      "latestActivityAt": "2026-05-03T21:14:23.555Z"
+    },
+    {
+      "businessId": "75f65b18-97e5-426c-a791-a8f693d34c84",
+      "businessName": "Halıcızade",
+      "queueDepth": 1,
+      "leasedPartitions": 0,
+      "retryableFailedPartitions": 0,
+      "deadLetterPartitions": 7,
+      "oldestQueuedPartition": "2026-05-03",
+      "latestActivityAt": "2026-05-03T21:15:43.973Z"
+    },
+    {
+      "businessId": "ae9114a3-2492-4be7-91e7-53fff0c2b1e8",
+      "businessName": "BskTR",
+      "queueDepth": 1,
+      "leasedPartitions": 0,
+      "retryableFailedPartitions": 0,
+      "deadLetterPartitions": 2,
+      "oldestQueuedPartition": "2026-05-03",
+      "latestActivityAt": "2026-05-03T21:15:01.055Z"
+    },
+    {
+      "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+      "businessName": "IwaTR",
+      "queueDepth": 1,
+      "leasedPartitions": 0,
+      "retryableFailedPartitions": 0,
+      "deadLetterPartitions": 3,
+      "oldestQueuedPartition": "2026-05-03",
+      "latestActivityAt": "2026-05-03T21:13:13.777Z"
+    },
+    {
+      "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+      "businessName": "ColorFullWorldsTR",
+      "queueDepth": 1,
+      "leasedPartitions": 0,
+      "retryableFailedPartitions": 0,
+      "deadLetterPartitions": 3,
+      "oldestQueuedPartition": "2026-05-03",
+      "latestActivityAt": "2026-05-03T21:13:48.148Z"
+    }
+  ],
+  "leaseAndReclaim": {
+    "activeRunnerLeases": [],
+    "recentReclaimEvents24h": [
+      {
+        "businessId": "979a04f6-1ca9-41d8-be0a-5d58dd7c4bc7",
+        "eventType": "reclaimed",
+        "count": 3715,
+        "latestAt": "2026-05-03T21:20:42.301Z"
+      },
+      {
+        "businessId": "67a9b51a-663d-425e-b6fe-1d24aaa70dab",
+        "eventType": "reclaimed",
+        "count": 1869,
+        "latestAt": "2026-05-03T21:20:03.758Z"
+      },
+      {
+        "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+        "eventType": "reclaimed",
+        "count": 15,
+        "latestAt": "2026-05-03T13:23:18.067Z"
+      },
+      {
+        "businessId": "59dac76f-eb5e-409b-958c-bba440d1036b",
+        "eventType": "reclaimed",
+        "count": 14,
+        "latestAt": "2026-05-03T08:10:29.159Z"
+      },
+      {
+        "businessId": "ae9114a3-2492-4be7-91e7-53fff0c2b1e8",
+        "eventType": "reclaimed",
+        "count": 13,
+        "latestAt": "2026-05-03T08:11:05.130Z"
+      },
+      {
+        "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+        "eventType": "reclaimed",
+        "count": 12,
+        "latestAt": "2026-05-03T08:09:56.470Z"
+      },
+      {
+        "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+        "eventType": "reclaimed",
+        "count": 10,
+        "latestAt": "2026-05-03T21:01:00.343Z"
+      },
+      {
+        "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+        "eventType": "reclaimed",
+        "count": 9,
+        "latestAt": "2026-05-03T19:56:47.622Z"
+      },
+      {
+        "businessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51",
+        "eventType": "reclaimed",
+        "count": 6,
+        "latestAt": "2026-05-03T08:09:21.478Z"
+      },
+      {
+        "businessId": "75f65b18-97e5-426c-a791-a8f693d34c84",
+        "eventType": "reclaimed",
+        "count": 2,
+        "latestAt": "2026-05-03T15:37:33.984Z"
+      },
+      {
+        "businessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3",
+        "eventType": "reclaimed",
+        "count": 1,
+        "latestAt": "2026-05-03T17:23:27.793Z"
+      }
+    ],
+    "workerHeartbeats": [
+      {
+        "workerId": "sync-worker:18:jusn6fsq:meta",
+        "providerScope": "meta",
+        "status": "running",
+        "lastHeartbeatAt": "2026-05-03T21:21:02.170Z",
+        "lastBusinessId": "6c690fa4-6395-40b5-9755-e99b34d69bc3"
+      },
+      {
+        "workerId": "sync-worker:18:jusn6fsq",
+        "providerScope": "all",
+        "status": "idle",
+        "lastHeartbeatAt": "2026-05-03T21:16:56.237Z",
+        "lastBusinessId": null
+      },
+      {
+        "workerId": "sync-worker:18:x6j6tct4",
+        "providerScope": "all",
+        "status": "stopping",
+        "lastHeartbeatAt": "2026-05-03T20:49:27.503Z",
+        "lastBusinessId": null
+      },
+      {
+        "workerId": "sync-worker:18:x6j6tct4:meta",
+        "providerScope": "meta",
+        "status": "running",
+        "lastHeartbeatAt": "2026-05-03T20:48:30.452Z",
+        "lastBusinessId": "5dbc7147-f051-4681-a4d6-20617170074f"
+      },
+      {
+        "workerId": "sync-worker:18:f5l4ef0f:meta",
+        "providerScope": "meta",
+        "status": "running",
+        "lastHeartbeatAt": "2026-05-03T20:16:32.316Z",
+        "lastBusinessId": "b79683b4-6f87-48c0-a3ca-44d4356fef51"
+      },
+      {
+        "workerId": "sync-worker:18:f5l4ef0f",
+        "providerScope": "all",
+        "status": "stopping",
+        "lastHeartbeatAt": "2026-05-03T20:16:22.787Z",
+        "lastBusinessId": null
+      },
+      {
+        "workerId": "sync-worker:18:qw5vd20x",
+        "providerScope": "all",
+        "status": "stopping",
+        "lastHeartbeatAt": "2026-05-03T19:47:38.544Z",
+        "lastBusinessId": null
+      },
+      {
+        "workerId": "sync-worker:18:qw5vd20x:meta",
+        "providerScope": "meta",
+        "status": "running",
+        "lastHeartbeatAt": "2026-05-03T19:47:17.309Z",
+        "lastBusinessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2"
+      },
+      {
+        "workerId": "sync-worker:18:ey1902lo",
+        "providerScope": "all",
+        "status": "stopping",
+        "lastHeartbeatAt": "2026-05-03T19:23:16.320Z",
+        "lastBusinessId": null
+      },
+      {
+        "workerId": "sync-worker:18:ey1902lo:meta",
+        "providerScope": "meta",
+        "status": "running",
+        "lastHeartbeatAt": "2026-05-03T19:23:05.039Z",
+        "lastBusinessId": "5dbc7147-f051-4681-a4d6-20617170074f"
+      },
+      {
+        "workerId": "sync-worker:18:h5z001j0",
+        "providerScope": "all",
+        "status": "stopped",
+        "lastHeartbeatAt": "2026-05-03T18:05:53.369Z",
+        "lastBusinessId": null
+      },
+      {
+        "workerId": "sync-worker:18:h5z001j0:meta",
+        "providerScope": "meta",
+        "status": "idle",
+        "lastHeartbeatAt": "2026-05-03T18:05:22.711Z",
+        "lastBusinessId": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f"
+      }
+    ]
+  },
+  "pgStatActivity": {
+    "summary": [
+      {
+        "applicationName": "omniads-web",
+        "state": "idle",
+        "waitEventType": "Client",
+        "waitEvent": "ClientRead",
+        "connectionCount": 20
+      },
+      {
+        "applicationName": "omniads-web",
+        "state": "active",
+        "waitEventType": "IPC",
+        "waitEvent": "MessageQueueSend",
+        "connectionCount": 7
+      },
+      {
+        "applicationName": "omniads-worker",
+        "state": "active",
+        "waitEventType": "Lock",
+        "waitEvent": "transactionid",
+        "connectionCount": 5
+      },
+      {
+        "applicationName": "omniads-web",
+        "state": "active",
+        "waitEventType": "",
+        "waitEvent": "",
+        "connectionCount": 4
+      },
+      {
+        "applicationName": "omniads-worker",
+        "state": "active",
+        "waitEventType": "IPC",
+        "waitEvent": "BufferIO",
+        "connectionCount": 4
+      },
+      {
+        "applicationName": "omniads-web",
+        "state": "active",
+        "waitEventType": "Client",
+        "waitEvent": "ClientWrite",
+        "connectionCount": 2
+      },
+      {
+        "applicationName": "omniads-web",
+        "state": "active",
+        "waitEventType": "IO",
+        "waitEvent": "DataFileRead",
+        "connectionCount": 2
+      },
+      {
+        "applicationName": "omniads-web",
+        "state": "active",
+        "waitEventType": "IPC",
+        "waitEvent": "BufferIO",
+        "connectionCount": 2
+      },
+      {
+        "applicationName": "omniads-worker",
+        "state": "active",
+        "waitEventType": "IO",
+        "waitEvent": "DataFileRead",
+        "connectionCount": 1
+      },
+      {
+        "applicationName": "omniads-worker",
+        "state": "active",
+        "waitEventType": "Lock",
+        "waitEvent": "tuple",
+        "connectionCount": 1
+      },
+      {
+        "applicationName": "omniads-worker",
+        "state": "active",
+        "waitEventType": "",
+        "waitEvent": "",
+        "connectionCount": 1
+      }
+    ],
+    "longTransactions": [
+      {
+        "pid": 1685672,
+        "applicationName": "omniads-worker",
+        "state": "active",
+        "xactAge": "[object Object]",
+        "queryAge": "[object Object]",
+        "waitEventType": "IPC",
+        "waitEvent": "BufferIO",
+        "query": "DELETE FROM meta_raw_snapshots WHERE partition_id = $1::uuid"
+      },
+      {
+        "pid": 1685734,
+        "applicationName": "omniads-worker",
+        "state": "active",
+        "xactAge": "[object Object]",
+        "queryAge": "[object Object]",
+        "waitEventType": "IPC",
+        "waitEvent": "BufferIO",
+        "query": "DELETE FROM meta_raw_snapshots WHERE partition_id = $1::uuid"
+      },
+      {
+        "pid": 1685767,
+        "applicationName": "omniads-worker",
+        "state": "active",
+        "xactAge": "[object Object]",
+        "queryAge": "[object Object]",
+        "waitEventType": "IPC",
+        "waitEvent": "BufferIO",
+        "query": "DELETE FROM meta_raw_snapshots WHERE partition_id = $1::uuid"
+      },
+      {
+        "pid": 1685786,
+        "applicationName": "omniads-worker",
+        "state": "active",
+        "xactAge": "[object Object]",
+        "queryAge": "[object Object]",
+        "waitEventType": "",
+        "waitEvent": "",
+        "query": "DELETE FROM meta_raw_snapshots WHERE partition_id = $1::uuid"
+      },
+      {
+        "pid": 1685831,
+        "applicationName": "omniads-worker",
+        "state": "active",
+        "xactAge": "[object Object]",
+        "queryAge": "[object Object]",
+        "waitEventType": "IPC",
+        "waitEvent": "BufferIO",
+        "query": "DELETE FROM meta_raw_snapshots WHERE partition_id = $1::uuid"
+      },
+      {
+        "pid": 1686015,
+        "applicationName": "omniads-worker",
+        "state": "active",
+        "xactAge": "[object Object]",
+        "queryAge": "[object Object]",
+        "waitEventType": "Lock",
+        "waitEvent": "transactionid",
+        "query": "DELETE FROM meta_raw_snapshots WHERE partition_id = $1::uuid"
+      },
+      {
+        "pid": 1686071,
+        "applicationName": "omniads-worker",
+        "state": "active",
+        "xactAge": "[object Object]",
+        "queryAge": "[object Object]",
+        "waitEventType": "Lock",
+        "waitEvent": "transactionid",
+        "query": "DELETE FROM meta_raw_snapshots WHERE partition_id = $1::uuid"
+      },
+      {
+        "pid": 1686104,
+        "applicationName": "omniads-worker",
+        "state": "active",
+        "xactAge": "[object Object]",
+        "queryAge": "[object Object]",
+        "waitEventType": "Lock",
+        "waitEvent": "transactionid",
+        "query": "DELETE FROM meta_raw_snapshots WHERE partition_id = $1::uuid"
+      },
+      {
+        "pid": 1686132,
+        "applicationName": "omniads-worker",
+        "state": "active",
+        "xactAge": "[object Object]",
+        "queryAge": "[object Object]",
+        "waitEventType": "Lock",
+        "waitEvent": "transactionid",
+        "query": "DELETE FROM meta_raw_snapshots WHERE partition_id = $1::uuid"
+      },
+      {
+        "pid": 1686152,
+        "applicationName": "omniads-worker",
+        "state": "active",
+        "xactAge": "[object Object]",
+        "queryAge": "[object Object]",
+        "waitEventType": "Lock",
+        "waitEvent": "transactionid",
+        "query": "DELETE FROM meta_raw_snapshots WHERE partition_id = $1::uuid"
+      }
+    ],
+    "blockedLocks": [
+      {
+        "blockedPid": 1686015,
+        "blockedApplicationName": "omniads-worker",
+        "blockerPid": 1685672,
+        "blockerApplicationName": "omniads-worker",
+        "blockedQueryAge": "[object Object]",
+        "blockedQuery": "DELETE FROM meta_raw_snapshots WHERE partition_id = $1::uuid",
+        "blockerQuery": "DELETE FROM meta_raw_snapshots WHERE partition_id = $1::uuid"
+      },
+      {
+        "blockedPid": 1686071,
+        "blockedApplicationName": "omniads-worker",
+        "blockerPid": 1685734,
+        "blockerApplicationName": "omniads-worker",
+        "blockedQueryAge": "[object Object]",
+        "blockedQuery": "DELETE FROM meta_raw_snapshots WHERE partition_id = $1::uuid",
+        "blockerQuery": "DELETE FROM meta_raw_snapshots WHERE partition_id = $1::uuid"
+      },
+      {
+        "blockedPid": 1686104,
+        "blockedApplicationName": "omniads-worker",
+        "blockerPid": 1685767,
+        "blockerApplicationName": "omniads-worker",
+        "blockedQueryAge": "[object Object]",
+        "blockedQuery": "DELETE FROM meta_raw_snapshots WHERE partition_id = $1::uuid",
+        "blockerQuery": "DELETE FROM meta_raw_snapshots WHERE partition_id = $1::uuid"
+      },
+      {
+        "blockedPid": 1686132,
+        "blockedApplicationName": "omniads-worker",
+        "blockerPid": 1685786,
+        "blockerApplicationName": "omniads-worker",
+        "blockedQueryAge": "[object Object]",
+        "blockedQuery": "DELETE FROM meta_raw_snapshots WHERE partition_id = $1::uuid",
+        "blockerQuery": "DELETE FROM meta_raw_snapshots WHERE partition_id = $1::uuid"
+      },
+      {
+        "blockedPid": 1686152,
+        "blockedApplicationName": "omniads-worker",
+        "blockerPid": 1685831,
+        "blockerApplicationName": "omniads-worker",
+        "blockedQueryAge": "[object Object]",
+        "blockedQuery": "DELETE FROM meta_raw_snapshots WHERE partition_id = $1::uuid",
+        "blockerQuery": "DELETE FROM meta_raw_snapshots WHERE partition_id = $1::uuid"
+      },
+      {
+        "blockedPid": 1686194,
+        "blockedApplicationName": "omniads-worker",
+        "blockerPid": 1686015,
+        "blockerApplicationName": "omniads-worker",
+        "blockedQueryAge": "[object Object]",
+        "blockedQuery": "DELETE FROM meta_raw_snapshots WHERE partition_id = $1::uuid",
+        "blockerQuery": "DELETE FROM meta_raw_snapshots WHERE partition_id = $1::uuid"
+      }
+    ]
+  },
+  "pgStatStatements": {
+    "enabled": false,
+    "topStatements": [],
+    "error": null
+  },
+  "storage": {
+    "relations": [
+      {
+        "relationName": "meta_adset_daily",
+        "liveRows": 1965718,
+        "totalSize": "2602 MB",
+        "tableSize": "1382 MB",
+        "indexSize": "1220 MB"
+      },
+      {
+        "relationName": "meta_campaign_daily",
+        "liveRows": 1444001,
+        "totalSize": "1692 MB",
+        "tableSize": "911 MB",
+        "indexSize": "782 MB"
+      },
+      {
+        "relationName": "meta_raw_snapshots",
+        "liveRows": 141865,
+        "totalSize": "1620 MB",
+        "tableSize": "115 MB",
+        "indexSize": "1505 MB"
+      },
+      {
+        "relationName": "meta_ad_daily",
+        "liveRows": 242549,
+        "totalSize": "584 MB",
+        "tableSize": "442 MB",
+        "indexSize": "143 MB"
+      },
+      {
+        "relationName": "meta_sync_checkpoints",
+        "liveRows": 27215,
+        "totalSize": "80 MB",
+        "tableSize": "23 MB",
+        "indexSize": "57 MB"
+      },
+      {
+        "relationName": "meta_sync_runs",
+        "liveRows": 92133,
+        "totalSize": "59 MB",
+        "tableSize": "34 MB",
+        "indexSize": "25 MB"
+      },
+      {
+        "relationName": "meta_authoritative_slice_versions",
+        "liveRows": 40169,
+        "totalSize": "43 MB",
+        "tableSize": "22 MB",
+        "indexSize": "21 MB"
+      },
+      {
+        "relationName": "meta_authoritative_source_manifests",
+        "liveRows": 41890,
+        "totalSize": "38 MB",
+        "tableSize": "24 MB",
+        "indexSize": "15 MB"
+      },
+      {
+        "relationName": "meta_authoritative_publication_pointers",
+        "liveRows": 40144,
+        "totalSize": "24 MB",
+        "tableSize": "11 MB",
+        "indexSize": "13 MB"
+      },
+      {
+        "relationName": "meta_sync_jobs",
+        "liveRows": 29608,
+        "totalSize": "20 MB",
+        "tableSize": "9232 kB",
+        "indexSize": "11 MB"
+      },
+      {
+        "relationName": "sync_reclaim_events",
+        "liveRows": 37309,
+        "totalSize": "18 MB",
+        "tableSize": "12 MB",
+        "indexSize": "6496 kB"
+      },
+      {
+        "relationName": "sync_worker_heartbeats",
+        "liveRows": 340,
+        "totalSize": "18 MB",
+        "tableSize": "9440 kB",
+        "indexSize": "8808 kB"
+      },
+      {
+        "relationName": "meta_sync_partitions",
+        "liveRows": 17925,
+        "totalSize": "17 MB",
+        "tableSize": "6520 kB",
+        "indexSize": "11 MB"
+      },
+      {
+        "relationName": "meta_account_daily",
+        "liveRows": 8910,
+        "totalSize": "9288 kB",
+        "tableSize": "4264 kB",
+        "indexSize": "5024 kB"
+      },
+      {
+        "relationName": "meta_creative_daily",
+        "liveRows": 491,
+        "totalSize": "3384 kB",
+        "tableSize": "968 kB",
+        "indexSize": "2416 kB"
+      },
+      {
+        "relationName": "meta_sync_state",
+        "liveRows": 109,
+        "totalSize": "2128 kB",
+        "tableSize": "888 kB",
+        "indexSize": "1240 kB"
+      },
+      {
+        "relationName": "sync_runner_leases",
+        "liveRows": 2,
+        "totalSize": "312 kB",
+        "tableSize": "8192 bytes",
+        "indexSize": "304 kB"
+      }
+    ],
+    "indexes": [
+      {
+        "relationName": "meta_adset_daily",
+        "indexName": "meta_adset_daily_business_id_provider_account_id_date_adset_key",
+        "indexSize": "412 MB",
+        "idxScan": 6574432
+      },
+      {
+        "relationName": "meta_adset_daily",
+        "indexName": "idx_meta_adset_daily_business_date_adset",
+        "indexSize": "312 MB",
+        "idxScan": 2366
+      },
+      {
+        "relationName": "meta_campaign_daily",
+        "indexName": "meta_campaign_daily_business_id_provider_account_id_date_ca_key",
+        "indexSize": "269 MB",
+        "idxScan": 4384258
+      },
+      {
+        "relationName": "meta_campaign_daily",
+        "indexName": "idx_meta_campaign_daily_business_date_campaign",
+        "indexSize": "206 MB",
+        "idxScan": 3013
+      },
+      {
+        "relationName": "meta_adset_daily",
+        "indexName": "idx_meta_adset_daily_adset",
+        "indexSize": "149 MB",
+        "idxScan": 217105
+      },
+      {
+        "relationName": "meta_campaign_daily",
+        "indexName": "idx_meta_campaign_daily_campaign",
+        "indexSize": "101 MB",
+        "idxScan": 47466
+      },
+      {
+        "relationName": "meta_adset_daily",
+        "indexName": "meta_adset_daily_pkey",
+        "indexSize": "96 MB",
+        "idxScan": 7
+      },
+      {
+        "relationName": "meta_campaign_daily",
+        "indexName": "meta_campaign_daily_pkey",
+        "indexSize": "67 MB",
+        "idxScan": 2
+      },
+      {
+        "relationName": "meta_adset_daily",
+        "indexName": "idx_meta_adset_daily_business_account_date",
+        "indexSize": "57 MB",
+        "idxScan": 229832
+      },
+      {
+        "relationName": "meta_adset_daily",
+        "indexName": "idx_meta_adset_daily_business_date",
+        "indexSize": "56 MB",
+        "idxScan": 317705
+      },
+      {
+        "relationName": "meta_adset_daily",
+        "indexName": "idx_meta_adset_daily_account_date",
+        "indexSize": "55 MB",
+        "idxScan": 476
+      },
+      {
+        "relationName": "meta_ad_daily",
+        "indexName": "meta_ad_daily_business_id_provider_account_id_date_ad_id_key",
+        "indexSize": "45 MB",
+        "idxScan": 711702
+      },
+      {
+        "relationName": "meta_adset_daily",
+        "indexName": "idx_meta_adset_daily_provider_account_ref",
+        "indexSize": "41 MB",
+        "idxScan": 294
+      },
+      {
+        "relationName": "meta_adset_daily",
+        "indexName": "idx_meta_adset_daily_business_ref",
+        "indexSize": "41 MB",
+        "idxScan": 282
+      },
+      {
+        "relationName": "meta_ad_daily",
+        "indexName": "idx_meta_ad_daily_business_date_ad",
+        "indexSize": "36 MB",
+        "idxScan": 97230
+      },
+      {
+        "relationName": "meta_raw_snapshots",
+        "indexName": "idx_meta_raw_snapshots_business",
+        "indexSize": "30 MB",
+        "idxScan": 0
+      },
+      {
+        "relationName": "meta_campaign_daily",
+        "indexName": "idx_meta_campaign_daily_business_account_date",
+        "indexSize": "29 MB",
+        "idxScan": 288428
+      },
+      {
+        "relationName": "meta_campaign_daily",
+        "indexName": "idx_meta_campaign_daily_business_date",
+        "indexSize": "29 MB",
+        "idxScan": 246838
+      },
+      {
+        "relationName": "meta_campaign_daily",
+        "indexName": "idx_meta_campaign_daily_account_date",
+        "indexSize": "28 MB",
+        "idxScan": 873
+      },
+      {
+        "relationName": "meta_campaign_daily",
+        "indexName": "idx_meta_campaign_daily_provider_account_ref",
+        "indexSize": "26 MB",
+        "idxScan": 318
+      }
+    ]
+  }
+}

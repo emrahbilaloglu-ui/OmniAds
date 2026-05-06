@@ -9,11 +9,13 @@ let mockDateRange = {
   lastDays: 14,
   sinceDate: "",
 };
-let mockSearchParams = new URLSearchParams();
 let mockMetaReferenceState: Record<string, unknown> = {};
 let observedQueryKeys: Record<string, unknown[]> = {};
 let observedQueryOptions: Record<string, { enabled?: boolean }> = {};
-const mutateRunAnalysis = vi.fn();
+let mockCreativeRows: Array<Record<string, unknown>> = [];
+let mockDecisionEngineV3Data: Record<string, unknown> | undefined;
+let mockSelectedV3Labels: Set<string> | null = null;
+const mockInvalidateQueries = vi.fn();
 
 function baseQueryState(overrides: Record<string, unknown> = {}) {
   return {
@@ -27,20 +29,40 @@ function baseQueryState(overrides: Record<string, unknown> = {}) {
   };
 }
 
+vi.mock("react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react")>();
+  return {
+    ...actual,
+    useState: <T,>(initialState: T | (() => T)) => {
+      if (initialState instanceof Set && mockSelectedV3Labels !== null) {
+        return [mockSelectedV3Labels, vi.fn()] as unknown as [
+          T,
+          React.Dispatch<React.SetStateAction<T>>,
+        ];
+      }
+      return actual.useState(initialState);
+    },
+  };
+});
+
 vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => ({ setQueryData: vi.fn() }),
-  useMutation: vi.fn(() => ({
-    mutate: mutateRunAnalysis,
-    isPending: false,
-    error: null,
-  })),
   useQueries: vi.fn(() => []),
+  useMutation: vi.fn(() => ({
+    mutate: vi.fn(),
+    isPending: false,
+  })),
+  useQueryClient: vi.fn(() => ({
+    invalidateQueries: mockInvalidateQueries,
+  })),
   useQuery: vi.fn((input: { queryKey: unknown[]; enabled?: boolean }) => {
     const key = Array.isArray(input.queryKey) ? String(input.queryKey[0]) : String(input.queryKey);
     observedQueryKeys[key] = input.queryKey;
     observedQueryOptions[key] = { enabled: input.enabled };
     if (key === "meta-creatives-creatives-metadata") {
-      return baseQueryState({ data: { status: "ok", rows: [] } });
+      return baseQueryState({ data: { status: "ok", rows: mockCreativeRows } });
+    }
+    if (key === "creative-decision-engine-v3") {
+      return baseQueryState({ data: mockDecisionEngineV3Data });
     }
     if (key === "meta-creatives-reference") {
       return baseQueryState({
@@ -50,25 +72,6 @@ vi.mock("@tanstack/react-query", () => ({
         },
         isSuccess: true,
         ...mockMetaReferenceState,
-      });
-    }
-    if (key === "creative-decision-os-snapshot") {
-      return baseQueryState({
-        data: {
-          contractVersion: "creative-decision-os-snapshot.v1",
-          status: "not_run",
-          scope: {
-            analysisScope: "account",
-            analysisScopeId: null,
-            analysisScopeLabel: "Account-wide",
-            benchmarkScope: "account",
-            benchmarkScopeId: null,
-            benchmarkScopeLabel: "Account-wide",
-          },
-          snapshot: null,
-          decisionOs: null,
-          error: null,
-        },
       });
     }
     return baseQueryState();
@@ -81,7 +84,6 @@ vi.mock("next/dynamic", () => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
-  useSearchParams: () => mockSearchParams,
 }));
 
 vi.mock("@/components/business/BusinessEmptyState", () => ({
@@ -122,19 +124,39 @@ vi.mock("@/components/ui/button", () => ({
     ),
 }));
 
-vi.mock("@/components/creatives/CreativesTableSection", () => ({
-  CreativesTableSection: () => React.createElement("div", null, "creative-table"),
+vi.mock("@/components/creatives/CreativeDecisionEngineV3Surface", () => ({
+  CreativeDecisionEngineV3Surface: () =>
+    React.createElement("div", null, "v3-surface"),
 }));
 
-vi.mock("@/components/creatives/CreativeBenchmarkScopeControl", () => ({
-  CreativeBenchmarkScopeControl: () => React.createElement("div", null, "benchmark-scope-control"),
+vi.mock("@/components/creatives/CreativesTableSection", () => ({
+  CreativesTableSection: (props: { rows: Array<{ name: string }> }) =>
+    React.createElement(
+      "div",
+      null,
+      `table:${props.rows.map((row) => row.name).join("|")}`,
+    ),
 }));
 
 vi.mock("@/components/creatives/CreativesTopSection", () => ({
   CreativesTopSection: (props: {
     actionsPrefix?: React.ReactNode;
     belowToolbar?: React.ReactNode;
-  }) => React.createElement("section", null, props.actionsPrefix, props.belowToolbar),
+    filterBarSlot?: React.ReactNode;
+    selectedRows?: Array<{ name: string }>;
+  }) =>
+    React.createElement(
+      "section",
+      null,
+      props.filterBarSlot,
+      React.createElement(
+        "div",
+        null,
+        `grid:${props.selectedRows?.map((row) => row.name).join("|") ?? ""}`,
+      ),
+      props.actionsPrefix,
+      props.belowToolbar,
+    ),
   applyCreativeFilters: (rows: unknown[]) => rows,
   formatCreativeDateLabel: () => "Last 14 days",
   mapCreativeGroupByToApi: () => "creative",
@@ -144,29 +166,14 @@ vi.mock("@/components/creatives/CreativesTopSection", () => ({
   }),
 }));
 
-vi.mock("@/components/creatives/creatives-top-section-support", () => ({
-  filterRowsForCreativeBenchmarkScope: (rows: unknown[]) => rows,
-  resolveCreativeBenchmarkCampaignContext: () => null,
-  resolveCreativeBenchmarkScopeSelection: () => ({
-    scope: "account",
-    scopeId: null,
-    scopeLabel: "Account-wide",
-  }),
-}));
-
 vi.mock("@/hooks/use-persistent-date-range", () => ({
   usePersistentCreativeDateRange: () => [mockDateRange, vi.fn()],
-}));
-
-vi.mock("@/src/services", () => ({
-  getCreativeDecisionOsSnapshot: vi.fn(),
-  getCreativeDecisionOsV2Preview: vi.fn(),
-  runCreativeDecisionOsAnalysis: vi.fn(),
 }));
 
 vi.mock("@/app/(dashboard)/creatives/page-support", () => ({
   CreativesTableShell: () => React.createElement("div", null, "table-shell"),
   buildCreativeHistoryById: () => ({}),
+  fetchCreativeDecisionEngineV3: vi.fn(),
   fetchMetaCreatives: vi.fn(),
   fetchMetaCreativesHistory: vi.fn(),
   getPreviewPollingInterval: () => false,
@@ -210,11 +217,6 @@ vi.mock("@/lib/meta/creatives-preview", () => ({
   getCreativeStaticPreviewState: () => "missing",
 }));
 
-vi.mock("@/lib/creative-operator-surface", () => ({
-  buildCreativeQuickFilters: () => [],
-  creativeQuickFilterShortLabel: (key: string) => key,
-}));
-
 vi.mock("@/store/app-store", () => ({
   useAppStore: (selector: (state: Record<string, unknown>) => unknown) =>
     selector({
@@ -246,11 +248,74 @@ vi.mock("@/lib/business-mode", () => ({
 }));
 
 const { default: CreativesPage } = await import("@/app/(dashboard)/creatives/page");
+const retiredCreativeQueryKeys = [
+  `creative-${"decision"}-os-snapshot`,
+  `creative-${"decision"}-os`,
+  `creative-${"decision"}-os-v2-preview`,
+];
 
-describe("Creatives page Decision OS snapshot contract", () => {
+function makeCreativeRow(id: string, name: string): Record<string, unknown> {
+  return {
+    id,
+    creativeId: id,
+    name,
+    previewUrl: null,
+    thumbnailUrl: null,
+    imageUrl: null,
+    previewState: "unavailable",
+    isCatalog: false,
+    spend: 100,
+    purchaseValue: 200,
+  };
+}
+
+function makeDecision(
+  creativeId: string,
+  label: string,
+): Record<string, unknown> {
+  return {
+    creativeId,
+    creativeName: creativeId,
+    label,
+  };
+}
+
+function makeDecisionEngineData(
+  decisions: Array<Record<string, unknown>>,
+): Record<string, unknown> {
+  return {
+    decisions,
+    flags: {
+      enabled: true,
+      surfaceVisible: true,
+    },
+    engineVersion: "v3-test",
+    dataSource: "warehouse",
+    dataHealth: null,
+    accountProfile: null,
+  };
+}
+
+function arrangeV3FilterFixture(selectedLabels: string[]) {
+  mockSelectedV3Labels = new Set(selectedLabels);
+  mockCreativeRows = [
+    makeCreativeRow("creative_scale_1", "Scale One"),
+    makeCreativeRow("creative_scale_2", "Scale Two"),
+    makeCreativeRow("creative_cut_1", "Cut One"),
+    makeCreativeRow("creative_refresh_1", "Refresh One"),
+  ];
+  mockDecisionEngineV3Data = makeDecisionEngineData([
+    makeDecision("creative_scale_1", "scale"),
+    makeDecision("creative_scale_2", "scale"),
+    makeDecision("creative_cut_1", "cut"),
+    makeDecision("creative_refresh_1", "refresh"),
+  ]);
+}
+
+describe("Creatives page render contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mutateRunAnalysis.mockReset();
+    mockInvalidateQueries.mockClear();
     observedQueryKeys = {};
     observedQueryOptions = {};
     mockDateRange = {
@@ -260,22 +325,22 @@ describe("Creatives page Decision OS snapshot contract", () => {
       lastDays: 14,
       sinceDate: "",
     };
-    mockSearchParams = new URLSearchParams();
     mockMetaReferenceState = {};
+    mockCreativeRows = [];
+    mockDecisionEngineV3Data = undefined;
+    mockSelectedV3Labels = null;
   });
 
-  it("loads snapshots without date range in the Decision OS query identity", () => {
+  it("does not load or render decision UI while preserving the creatives shell", () => {
     const html = renderToStaticMarkup(React.createElement(CreativesPage));
-    const firstSnapshotKey = observedQueryKeys["creative-decision-os-snapshot"];
 
-    expect(observedQueryOptions["creative-decision-os-snapshot"]?.enabled).toBe(true);
-    expect(firstSnapshotKey).toEqual(["creative-decision-os-snapshot", "biz", "account", null]);
-    expect(observedQueryKeys["creative-decision-os"]).toBeUndefined();
-    expect(observedQueryOptions["creative-decision-os-v2-preview"]?.enabled).toBe(true);
-    expect(html).toContain("Decision OS v2 preview is enabled");
-    expect(html).toContain("Run Creative Analysis");
-    expect(html).toContain("Decision OS");
-    expect(mutateRunAnalysis).not.toHaveBeenCalled();
+    for (const queryKey of retiredCreativeQueryKeys) {
+      expect(observedQueryKeys[queryKey]).toBeUndefined();
+    }
+    expect(html).not.toContain("Decision OS");
+    expect(html).not.toContain("Decision Center");
+    expect(html).not.toContain("Run Creative Analysis");
+    expect(html).not.toContain("benchmark-scope-control");
 
     mockDateRange = {
       preset: "last30Days",
@@ -288,7 +353,7 @@ describe("Creatives page Decision OS snapshot contract", () => {
 
     renderToStaticMarkup(React.createElement(CreativesPage));
 
-    expect(observedQueryKeys["creative-decision-os-snapshot"]).toEqual(firstSnapshotKey);
+    expect(observedQueryKeys[retiredCreativeQueryKeys[0]]).toBeUndefined();
     expect(observedQueryKeys["meta-creatives-creatives-metadata"]).toContain("2026-03-16");
   });
 
@@ -307,68 +372,35 @@ describe("Creatives page Decision OS snapshot contract", () => {
     expect(html).not.toContain("No creative performance data found for the selected range");
   });
 
-  it("shows the v2 buyer preview by default and only hides it with explicit off query values", () => {
-    let html = renderToStaticMarkup(React.createElement(CreativesPage));
+  it("narrows the grid and table to scale-labeled creatives when the scale chip is selected", () => {
+    arrangeV3FilterFixture(["scale"]);
 
-    expect(observedQueryOptions["creative-decision-os-v2-preview"]?.enabled).toBe(true);
-    expect(html).toContain("Decision OS v2 preview is enabled");
+    const html = renderToStaticMarkup(React.createElement(CreativesPage));
 
-    mockSearchParams = new URLSearchParams("creativeDecisionOsV2Preview=0");
-    observedQueryOptions = {};
-    html = renderToStaticMarkup(React.createElement(CreativesPage));
-
-    expect(observedQueryOptions["creative-decision-os-v2-preview"]?.enabled).toBe(false);
-    expect(html).not.toContain("Decision OS v2 operator surface");
-    expect(html).not.toContain("Decision OS v2 preview is enabled");
-
-    mockSearchParams = new URLSearchParams("creativeDecisionOsV2Preview=false");
-    observedQueryOptions = {};
-    html = renderToStaticMarkup(React.createElement(CreativesPage));
-
-    expect(observedQueryOptions["creative-decision-os-v2-preview"]?.enabled).toBe(false);
-    expect(html).not.toContain("Decision OS v2 preview is enabled");
-
-    mockSearchParams = new URLSearchParams("v2Preview=0");
-    observedQueryOptions = {};
-    html = renderToStaticMarkup(React.createElement(CreativesPage));
-
-    expect(observedQueryOptions["creative-decision-os-v2-preview"]?.enabled).toBe(false);
-    expect(html).not.toContain("Decision OS v2 preview is enabled");
-
-    mockSearchParams = new URLSearchParams("v2Preview=false");
-    observedQueryOptions = {};
-    html = renderToStaticMarkup(React.createElement(CreativesPage));
-
-    expect(observedQueryOptions["creative-decision-os-v2-preview"]?.enabled).toBe(false);
-    expect(html).not.toContain("Decision OS v2 preview is enabled");
-
-    mockSearchParams = new URLSearchParams("creativeDecisionOsV2Preview=1");
-    observedQueryOptions = {};
-    html = renderToStaticMarkup(React.createElement(CreativesPage));
-
-    expect(observedQueryOptions["creative-decision-os-v2-preview"]?.enabled).toBe(true);
-    expect(html).toContain("Decision OS v2 preview is enabled");
-    expect(html).toContain("Decision OS");
-
-    mockSearchParams = new URLSearchParams("creativeDecisionOsV2Preview=true");
-    observedQueryOptions = {};
-    html = renderToStaticMarkup(React.createElement(CreativesPage));
-
-    expect(observedQueryOptions["creative-decision-os-v2-preview"]?.enabled).toBe(true);
-    expect(html).toContain("Decision OS v2 preview is enabled");
-
-    mockSearchParams = new URLSearchParams("v2Preview=1");
-    observedQueryOptions = {};
-    html = renderToStaticMarkup(React.createElement(CreativesPage));
-
-    expect(observedQueryOptions["creative-decision-os-v2-preview"]?.enabled).toBe(true);
-    expect(html).toContain("Decision OS v2 preview is enabled");
-
-    mockSearchParams = new URLSearchParams("v2Preview=true");
-    observedQueryOptions = {};
-    html = renderToStaticMarkup(React.createElement(CreativesPage));
-
-    expect(observedQueryOptions["creative-decision-os-v2-preview"]?.enabled).toBe(true);
-    expect(html).toContain("Decision OS v2 preview is enabled");
+    expect(html).toContain("Scale (2)");
+    expect(html).toContain("grid:Scale One|Scale Two");
+    expect(html).toContain("table:Scale One|Scale Two");
+    expect(html).not.toContain("Cut One");
+    expect(html).not.toContain("Refresh One");
   });
+
+  it("shows the union of scale and cut rows when both chips are selected", () => {
+    arrangeV3FilterFixture(["scale", "cut"]);
+
+    const html = renderToStaticMarkup(React.createElement(CreativesPage));
+
+    expect(html).toContain("grid:Scale One|Scale Two|Cut One");
+    expect(html).toContain("table:Scale One|Scale Two|Cut One");
+    expect(html).not.toContain("Refresh One");
+  });
+
+  it("returns all rows after the v3 chip selection is cleared", () => {
+    arrangeV3FilterFixture([]);
+
+    const html = renderToStaticMarkup(React.createElement(CreativesPage));
+
+    expect(html).toContain("grid:Scale One|Scale Two|Cut One|Refresh One");
+    expect(html).toContain("table:Scale One|Scale Two|Cut One|Refresh One");
+  });
+
 });

@@ -27,12 +27,6 @@ import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import { MetaBreakdownGrid, type BreakdownRow } from "@/components/meta/meta-breakdown-grid";
 import type { PlacementChartRow } from "@/components/meta/placement-breakdown-chart";
 import { MetaOperatingModeCard } from "@/components/meta/meta-operating-mode-card";
-import type { CommandCenterAction, CommandCenterResponse } from "@/lib/command-center";
-import type { MetaDecisionOsV1Response } from "@/lib/meta/decision-os";
-import { MetaCampaignDecisionPanel, MetaDecisionOsOverview } from "@/components/meta/meta-decision-os";
-import { buildMetaOperatorItemFromCampaign } from "@/lib/meta/operator-surface";
-import { operatorStateLabel } from "@/lib/operator-surface";
-import { getCommandCenter } from "@/src/services";
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
@@ -112,103 +106,23 @@ function MetricTile({
   );
 }
 
-function MetaCommandCenterCard({
-  actions,
-  href,
-  isLoading = false,
-}: {
-  actions: CommandCenterAction[];
-  href: string;
-  isLoading?: boolean;
-}) {
-  const pendingCount = actions.filter((action) => action.status === "pending").length;
-  const approvedCount = actions.filter((action) => action.status === "approved").length;
-  const snoozedCount = actions.filter((action) => action.status === "snoozed").length;
-
-  return (
-    <div
-      className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-      data-testid="meta-command-center-card"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-            Command Center
-          </p>
-          <p className="mt-1 text-sm font-semibold text-slate-950">
-            {isLoading
-              ? "Loading workflow items for this surface"
-              : actions.length > 0
-              ? `${actions.length} workflow items linked to this surface`
-              : "Open the shared team workflow panel"}
-          </p>
-        </div>
-        <a
-          href={href}
-          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-        >
-          Open in Command Center
-        </a>
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
-          Pending {pendingCount}
-        </span>
-        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700">
-          Approved {approvedCount}
-        </span>
-        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700">
-          Snoozed {snoozedCount}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function actionTone(action: string) {
-  if (action === "pause" || action === "cut" || action === "reduce_budget") {
-    return "bg-red-500/10 text-red-700";
-  }
-  if (action === "scale_budget" || action === "recover") {
-    return "bg-emerald-500/10 text-emerald-700";
-  }
-  if (action === "rebuild" || action === "review_hold") {
-    return "bg-amber-500/10 text-amber-700";
-  }
-  return "bg-slate-100 text-slate-700";
-}
-
-function trustTone(disposition: string) {
-  if (disposition === "profitable_truth_capped") return "bg-fuchsia-500/10 text-fuchsia-700";
-  if (disposition === "protected_watchlist") return "bg-blue-500/10 text-blue-700";
-  if (disposition === "review_hold" || disposition === "review_reduce") return "bg-amber-500/10 text-amber-700";
-  if (disposition === "monitor_low_truth") return "bg-sky-500/10 text-sky-700";
-  if (disposition === "archive_only") return "bg-slate-100 text-slate-700";
-  return "bg-slate-100 text-slate-700";
-}
-
 function CampaignOperatorHeadline({
   recommendation,
-  campaignDecision,
   analysisStatus,
   recommendationSource,
 }: {
   recommendation: MetaRecommendation | null;
-  campaignDecision: MetaDecisionOsV1Response["campaigns"][number] | null;
   analysisStatus?: MetaAnalysisStatus;
   recommendationSource: MetaRecommendationSourceSystem;
 }) {
-  const operatorItem = campaignDecision ? buildMetaOperatorItemFromCampaign(campaignDecision) : null;
   const fallbackRecommendation = recommendationSource === "snapshot_fallback";
-  const decisionOsRecommendation = recommendationSource === "decision_os";
   const shouldDemoteAggressiveRecommendation =
-    !campaignDecision &&
     recommendation?.decisionState === "act" &&
-    analysisStatus?.presentationMode !== "decision_os_primary";
+    analysisStatus?.presentationMode !== "fallback_context";
   const shouldShowRecommendationAsContext =
-    !campaignDecision && (fallbackRecommendation || shouldDemoteAggressiveRecommendation);
+    fallbackRecommendation || shouldDemoteAggressiveRecommendation;
 
-  if (!recommendation && !campaignDecision) return null;
+  if (!recommendation) return null;
 
   return (
     <div
@@ -216,95 +130,36 @@ function CampaignOperatorHeadline({
       data-testid="meta-campaign-operator-headline"
     >
       <div className="flex flex-wrap items-center gap-2.5">
-        {campaignDecision ? (
-          <span
-            className={cn(
-              "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
-              actionTone(campaignDecision.primaryAction),
-            )}
-          >
-            {operatorItem?.primaryAction ?? campaignDecision.primaryAction.replaceAll("_", " ")}
-          </span>
-        ) : recommendation && !shouldShowRecommendationAsContext ? (
+        {!shouldShowRecommendationAsContext ? (
           <DecisionBadge state={recommendation.decisionState} />
-        ) : recommendation ? (
+        ) : (
           <span className="rounded-full bg-amber-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
             Context
           </span>
-        ) : null}
-        {operatorItem ? (
-          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
-            {operatorStateLabel(operatorItem.authorityState)}
-          </span>
-        ) : null}
-        {campaignDecision?.trust?.operatorDisposition &&
-        campaignDecision.trust.operatorDisposition !== "standard" ? (
-          <span
-            className={cn(
-              "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
-              trustTone(campaignDecision.trust.operatorDisposition),
-            )}
-          >
-            {campaignDecision.trust.operatorDisposition.replaceAll("_", " ")}
-          </span>
-        ) : null}
+        )}
         <p className="text-[11px] text-slate-500">
-          {campaignDecision
-            ? recommendation
-              ? "Decision OS takes precedence"
-              : "Primary action owner"
-            : fallbackRecommendation
-              ? "Fallback recommendation context"
-              : decisionOsRecommendation
-                ? "Decision OS recommendation context"
-                : recommendation?.title ?? "Derived operator guidance"}
+          {fallbackRecommendation
+            ? "Snapshot recommendation context"
+            : recommendation.title}
         </p>
       </div>
       <p className="mt-2.5 text-base font-semibold leading-snug text-slate-950">
-        {campaignDecision
-          ? operatorItem?.reason ?? campaignDecision.why
-          : shouldShowRecommendationAsContext
-            ? recommendation?.summary ?? recommendation?.why ?? recommendation?.title ?? "Fallback context is available."
-          : recommendation?.recommendedAction ?? "No operator headline available."}
+        {shouldShowRecommendationAsContext
+          ? recommendation.summary ?? recommendation.why ?? recommendation.title
+          : recommendation.recommendedAction}
       </p>
-      {campaignDecision && recommendation ? (
-        <p className="mt-2 text-xs leading-relaxed text-slate-500">
-          Decision OS takes precedence over recommendation context for primary action display.
-        </p>
-      ) : null}
-      {!campaignDecision && fallbackRecommendation ? (
+      {fallbackRecommendation ? (
         <p className="mt-2 text-xs leading-relaxed text-amber-700">
-          Fallback context only. Decision OS did not produce authoritative campaign guidance.
+          Snapshot context only. Legacy Meta Decision OS authority is archived in Phase 4.1.
         </p>
       ) : null}
-      {!campaignDecision && shouldDemoteAggressiveRecommendation && !fallbackRecommendation ? (
+      {shouldDemoteAggressiveRecommendation && !fallbackRecommendation ? (
         <p className="mt-2 text-xs leading-relaxed text-amber-700">
-          Recommendation is shown as context until Decision OS authority is ready for this range.
+          Recommendation is shown as context until a current authority surface is ready for this range.
         </p>
       ) : null}
-      {operatorItem?.secondaryLabels?.length ? (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {operatorItem.secondaryLabels.slice(0, 2).map((label) => (
-            <span
-              key={label}
-              className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-medium uppercase tracking-wide text-slate-700"
-            >
-              {label}
-            </span>
-          ))}
-        </div>
-      ) : null}
-      {campaignDecision?.creativeCandidates?.count ? (
-        <p className="mt-3 text-xs leading-relaxed text-slate-500">
-          {campaignDecision.creativeCandidates.summary}
-        </p>
-      ) : recommendation?.why ? (
+      {recommendation.why ? (
         <p className="mt-3 text-xs leading-relaxed text-slate-500">{recommendation.why}</p>
-      ) : null}
-      {operatorItem?.blocker ? (
-        <p className="mt-3 text-xs leading-relaxed text-slate-500">
-          Blocker: {operatorItem.blocker}
-        </p>
       ) : null}
       {(recommendation?.evidence.length ?? 0) > 0 ? (
         <div className="mt-3 flex flex-wrap gap-2">
@@ -330,9 +185,7 @@ function CampaignOperatorHeadline({
 interface MetaCampaignDetailProps {
   campaign: MetaCampaignTableRow | null;
   recommendationsData: MetaRecommendationsResponse | undefined;
-  decisionOsData: MetaDecisionOsV1Response | null | undefined;
   analysisStatus?: MetaAnalysisStatus;
-  isDecisionOsLoading: boolean;
   isRecsLoading: boolean;
   lastAnalyzedAt: Date | null;
   recommendationsError?: string | null;
@@ -490,8 +343,6 @@ function AdSetList({
 
 interface AccountOverviewProps {
   recommendationsData: MetaRecommendationsResponse | undefined;
-  decisionOsData: MetaDecisionOsV1Response | null | undefined;
-  isDecisionOsLoading: boolean;
   isRecsLoading: boolean;
   lastAnalyzedAt: Date | null;
   recommendationsError?: string | null;
@@ -505,8 +356,6 @@ interface AccountOverviewProps {
   since: string;
   until: string;
   language: "en" | "tr";
-  commandCenterActions: CommandCenterAction[];
-  isCommandCenterLoading: boolean;
   supportingContextOpen: boolean;
   onSupportingContextToggle: (open: boolean) => void;
 }
@@ -514,21 +363,16 @@ interface AccountOverviewProps {
 function AccountOverview(props: AccountOverviewProps) {
   return (
     <div className="space-y-4 p-6" data-testid="meta-account-overview">
-      <MetaDecisionOsOverview
-        decisionOs={props.decisionOsData}
-        isLoading={props.isDecisionOsLoading}
-        compact
-      />
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
           Account Drilldown
         </p>
         <p className="mt-1 text-sm font-semibold text-slate-950">
-          Use the operator surface here to pick the campaign that needs review next.
+          Use the campaign list to inspect the rows that need review next.
         </p>
         <p className="mt-2 text-xs leading-relaxed text-slate-500">
-          Campaign Drilldown stays on the left, while account-level authority and supporting
-          context now stay together in this detail pane.
+          Campaign Drilldown stays on the left, while snapshot-backed recommendations and
+          supporting context stay together in this detail pane.
         </p>
       </div>
       <details
@@ -548,11 +392,6 @@ function AccountOverview(props: AccountOverviewProps) {
               startDate={props.since}
               endDate={props.until}
               enabled={props.supportingContextOpen}
-            />
-            <MetaCommandCenterCard
-              actions={props.commandCenterActions}
-              href={`/command-center?startDate=${encodeURIComponent(props.since)}&endDate=${encodeURIComponent(props.until)}`}
-              isLoading={props.isCommandCenterLoading}
             />
             <MetaAccountRecs
               recommendationsData={props.recommendationsData}
@@ -582,9 +421,7 @@ function AccountOverview(props: AccountOverviewProps) {
 export function MetaCampaignDetail({
   campaign,
   recommendationsData,
-  decisionOsData,
   analysisStatus,
-  isDecisionOsLoading,
   isRecsLoading,
   lastAnalyzedAt,
   recommendationsError,
@@ -599,22 +436,9 @@ export function MetaCampaignDetail({
 }: MetaCampaignDetailProps) {
   const sym = useCurrencySymbol();
   const [supportingContextOpen, setSupportingContextOpen] = useState(false);
-  const [workflowContextOpen, setWorkflowContextOpen] = useState(false);
   const shouldLoadBreakdowns = Boolean(
     !campaign && supportingContextOpen && businessId && since && until
   );
-  const commandCenterQuery = useQuery<CommandCenterResponse>({
-    queryKey: ["command-center-meta-overlay", businessId, since, until],
-    enabled: Boolean(
-      businessId &&
-        since &&
-        until &&
-        (supportingContextOpen || workflowContextOpen)
-    ),
-    staleTime: 60 * 1000,
-    refetchOnWindowFocus: false,
-    queryFn: () => getCommandCenter(businessId, since, until),
-  });
   const breakdownsQuery = useQuery<MetaBreakdownsResponse>({
     queryKey: ["meta-breakdowns", businessId, since, until],
     enabled: shouldLoadBreakdowns,
@@ -636,9 +460,6 @@ export function MetaCampaignDetail({
       return payload as MetaBreakdownsResponse;
     },
   });
-  const metaCommandCenterActions = (commandCenterQuery.data?.actions ?? []).filter(
-    (action) => action.sourceSystem === "meta",
-  );
   const placementRows = useMemo(
     () =>
       (breakdownsQuery.data?.placement ?? []).map((row) => ({
@@ -656,16 +477,10 @@ export function MetaCampaignDetail({
     if (campaign) setSupportingContextOpen(false);
   }, [campaign]);
 
-  useEffect(() => {
-    if (!campaign) setWorkflowContextOpen(false);
-  }, [campaign]);
-
   if (!campaign) {
     return (
       <AccountOverview
         recommendationsData={recommendationsData}
-        decisionOsData={decisionOsData}
-        isDecisionOsLoading={isDecisionOsLoading}
         isRecsLoading={isRecsLoading}
         lastAnalyzedAt={lastAnalyzedAt}
         recommendationsError={recommendationsError}
@@ -679,8 +494,6 @@ export function MetaCampaignDetail({
         since={since}
         until={until}
         language={language}
-        commandCenterActions={metaCommandCenterActions}
-        isCommandCenterLoading={commandCenterQuery.isLoading}
         supportingContextOpen={supportingContextOpen}
         onSupportingContextToggle={setSupportingContextOpen}
       />
@@ -693,16 +506,6 @@ export function MetaCampaignDetail({
   const rec = (recommendationsData?.recommendations ?? [])
     .filter((r) => r.campaignId === campaign.id)
     .sort((a, b) => ORDER[a.decisionState] - ORDER[b.decisionState])[0] ?? null;
-  const campaignDecision =
-    decisionOsData?.campaigns.find((decision) => decision.campaignId === campaign.id) ?? null;
-  const campaignAdSetDecisions =
-    decisionOsData?.adSets.filter((decision) => decision.campaignId === campaign.id) ?? [];
-  const campaignCommandCenterActions = metaCommandCenterActions.filter(
-    (action) =>
-      action.relatedEntities.some(
-        (entity) => entity.type === "campaign" && entity.id === campaign.id,
-      ),
-  );
 
   const roas = campaign.roas;
 
@@ -743,24 +546,9 @@ export function MetaCampaignDetail({
 
       <CampaignOperatorHeadline
         recommendation={rec}
-        campaignDecision={campaignDecision}
         analysisStatus={analysisStatus}
         recommendationSource={recommendationSource}
       />
-
-      {campaignDecision || campaignAdSetDecisions.length > 0 ? (
-        <details className="rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="meta-campaign-reasoning">
-          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-900">
-            Show campaign reasoning
-          </summary>
-          <div className="border-t border-slate-200 px-4 py-4">
-            <MetaCampaignDecisionPanel
-              campaignDecision={campaignDecision}
-              adSetDecisions={campaignAdSetDecisions}
-            />
-          </div>
-        </details>
-      ) : null}
 
       {/* Metric grid — Spend / Revenue / ROAS / CPA / Budget */}
       <div className="grid grid-cols-5 gap-1.5">
@@ -782,25 +570,6 @@ export function MetaCampaignDetail({
           />
         )}
       </div>
-
-      <details
-        className="rounded-2xl border border-slate-200 bg-white shadow-sm"
-        data-testid="meta-campaign-secondary-context"
-        onToggle={(event) => setWorkflowContextOpen(event.currentTarget.open)}
-      >
-        <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-900">
-          Workflow context
-        </summary>
-        {workflowContextOpen ? (
-          <div className="border-t border-slate-200 px-4 py-4">
-            <MetaCommandCenterCard
-              actions={campaignCommandCenterActions}
-              href={`/command-center?startDate=${encodeURIComponent(since)}&endDate=${encodeURIComponent(until)}${campaignCommandCenterActions[0] ? `&action=${encodeURIComponent(campaignCommandCenterActions[0].actionFingerprint)}` : ""}`}
-              isLoading={commandCenterQuery.isLoading}
-            />
-          </div>
-        ) : null}
-      </details>
 
       {/* Ad sets */}
       <div className="space-y-2" data-testid="meta-adsets-section">

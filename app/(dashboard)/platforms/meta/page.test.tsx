@@ -562,18 +562,18 @@ describe("Meta page render contract", () => {
     expect(html).not.toContain("Selected range is preparing");
   });
 
-  it("keeps Decision OS manual and exposes a run-analysis action in the header", () => {
+  it("keeps snapshot analysis manual and exposes a run-analysis action in the header", () => {
     const status = baseStatus();
     mockQueries["meta-page-status"] = baseQueryState({ data: status, state: { data: status } });
     mockQueries["meta-campaigns"] = baseQueryState({ data: { status: "ok", rows: [campaignRow()] } });
 
     const html = renderToStaticMarkup(React.createElement(MetaPage));
 
-    expect(observedQueryOptions["meta-decision-os"]?.enabled).toBe(false);
+    expect(observedQueryOptions["meta-decision-os"]).toBeUndefined();
     expect(observedQueryOptions["meta-recommendations-v8"]?.enabled).toBe(false);
     expect(html).toContain("Run analysis");
     expect(html).toContain("Analysis status");
-    expect(html).toContain("Decision OS: Not run");
+    expect(html).toContain("Decision OS: Archived");
   });
 
   it("shows running analysis status while manual analysis queries are fetching", () => {
@@ -584,15 +584,11 @@ describe("Meta page render contract", () => {
       data: undefined,
       isFetching: true,
     });
-    mockQueries["meta-decision-os"] = baseQueryState({
-      data: null,
-      isFetching: true,
-    });
-
     const html = renderToStaticMarkup(React.createElement(MetaPage));
 
     expect(html).toContain("Analysis: Running");
-    expect(html).toContain("Decision OS: Running");
+    expect(html).toContain("Decision OS: Archived");
+    expect(html).not.toContain("Decision OS: Running");
     expect(html).toContain("Analysis is running for the selected range.");
   });
 
@@ -604,19 +600,15 @@ describe("Meta page render contract", () => {
       data: undefined,
       isFetching: true,
     });
-    mockQueries["meta-decision-os"] = baseQueryState({
-      data: null,
-      isFetching: false,
-    });
 
     const html = renderToStaticMarkup(React.createElement(MetaPage));
 
     expect(html).toContain("Analysis: Running");
-    expect(html).toContain("Decision OS: Not run");
+    expect(html).toContain("Decision OS: Archived");
     expect(html).not.toContain("Decision OS: Running");
   });
 
-  it("shows Decision OS recommendation context without marking the full surface ready", () => {
+  it("shows snapshot fallback recommendation context without restoring the archived surface", () => {
     const status = baseStatus();
     mockQueries["meta-page-status"] = baseQueryState({ data: status, state: { data: status } });
     mockQueries["meta-campaigns"] = baseQueryState({ data: { status: "ok", rows: [campaignRow()] } });
@@ -628,21 +620,22 @@ describe("Meta page render contract", () => {
         endDate: "2026-04-05",
         summary: {},
         recommendations: [{ id: "rec_1" }],
+        sourceModel: "snapshot_heuristics",
         analysisSource: {
-          system: "decision_os",
-          decisionOsAvailable: true,
+          system: "snapshot_fallback",
+          decisionOsAvailable: false,
+          fallbackReason: "legacy_decision_os_archived_phase_4_1",
         },
       },
       isFetching: false,
     });
-    mockQueries["meta-decision-os"] = baseQueryState({ data: null, isFetching: false });
 
     const html = renderToStaticMarkup(React.createElement(MetaPage));
 
-    expect(html).toContain("Decision OS: Not run");
-    expect(html).toContain("Recommendation source: Decision OS");
-    expect(html).toContain("Presentation: Decision OS recommendation context");
-    expect(html).toContain("Decision OS surface is not loaded");
+    expect(html).toContain("Decision OS: Archived");
+    expect(html).toContain("Recommendation source: Snapshot fallback");
+    expect(html).toContain("Presentation: Fallback context");
+    expect(html).toContain("legacy_decision_os_archived_phase_4_1");
     expect(html).not.toContain("Decision OS: Ready");
     expect(html).not.toContain("Presentation: No guidance");
   });

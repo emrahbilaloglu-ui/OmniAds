@@ -90,6 +90,107 @@ function buildUnavailablePreview(isCatalog: boolean): NormalizedRenderPreviewPay
   };
 }
 
+function round2(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+function readProjectionString(value: unknown, key: string) {
+  if (!value || typeof value !== "object") return null;
+  const raw = (value as Record<string, unknown>)[key];
+  return typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : null;
+}
+
+function buildFallbackAdRawRow(input: {
+  factRow: MetaAdDailyRow;
+  projectionJson: unknown;
+  creativeId: string | null | undefined;
+}): RawCreativeRow {
+  const { factRow, projectionJson } = input;
+  const preview = buildUnavailablePreview(false);
+  const linkClicks = factRow.linkClicks ?? factRow.clicks;
+  const purchaseValue = factRow.revenue;
+  const spend = factRow.spend;
+  const impressions = factRow.impressions;
+  const cpa = factRow.cpa ?? (factRow.conversions > 0 ? spend / factRow.conversions : 0);
+  const cpcLink = factRow.cpc ?? (linkClicks > 0 ? spend / linkClicks : 0);
+  const cpm = impressions > 0 ? (spend / impressions) * 1000 : 0;
+  const ctr = factRow.ctr ?? (impressions > 0 ? (linkClicks / impressions) * 100 : 0);
+
+  return {
+    id: factRow.adId,
+    creative_id: input.creativeId ?? factRow.adId,
+    real_ad_id: factRow.adId,
+    object_story_id: null,
+    effective_object_story_id: null,
+    post_id: null,
+    associated_ads_count: 1,
+    account_id: factRow.providerAccountId,
+    account_name: null,
+    campaign_id: factRow.campaignId,
+    campaign_name: readProjectionString(projectionJson, "campaign_name"),
+    adset_id: factRow.adsetId,
+    adset_name: readProjectionString(projectionJson, "adset_name"),
+    currency: factRow.accountCurrency,
+    name: factRow.adNameCurrent ?? factRow.adNameHistorical ?? "Unnamed ad",
+    launch_date: factRow.date,
+    copy_text: null,
+    copy_variants: [],
+    headline_variants: [],
+    description_variants: [],
+    copy_source: null,
+    copy_debug_sources: [],
+    unresolved_reason: "warehouse_projection_minimal",
+    preview_url: null,
+    preview_source: null,
+    thumbnail_url: null,
+    image_url: null,
+    table_thumbnail_url: null,
+    card_preview_url: null,
+    is_catalog: false,
+    preview_state: "unavailable",
+    preview,
+    tags: [],
+    ai_tags: {},
+    format: "image",
+    creative_type: "feed",
+    creative_type_label: "Feed",
+    creative_delivery_type: "standard",
+    creative_visual_format: "image",
+    creative_primary_type: "standard",
+    creative_primary_label: "Standard",
+    creative_secondary_type: null,
+    creative_secondary_label: null,
+    classification_signals: null,
+    spend: round2(spend),
+    purchase_value: round2(purchaseValue),
+    roas: round2(spend > 0 ? purchaseValue / spend : 0),
+    cpa: round2(cpa),
+    clicks: Math.round(factRow.clicks),
+    cpc_link: round2(cpcLink),
+    cpm: round2(cpm),
+    ctr_all: round2(ctr),
+    purchases: Math.round(factRow.conversions),
+    impressions: Math.round(impressions),
+    reach: Math.round(factRow.reach),
+    frequency: factRow.frequency ?? null,
+    link_clicks: Math.round(linkClicks),
+    outbound_clicks: 0,
+    effective_status: factRow.adStatus,
+    landing_page_views: 0,
+    add_to_cart: 0,
+    initiate_checkout: 0,
+    leads: 0,
+    messages: 0,
+    thumbstop: 0,
+    click_to_atc: 0,
+    atc_to_purchase: 0,
+    video25: 0,
+    video50: 0,
+    video75: 0,
+    video100: 0,
+  };
+}
+
 function firstNonEmptyString(...values: Array<string | null | undefined>) {
   return values.find((value): value is string => typeof value === "string" && value.trim().length > 0) ?? null;
 }
@@ -233,6 +334,7 @@ export function coerceRawCreativeRow(value: unknown): RawCreativeRow | null {
   return {
     id: apiRow.id,
     creative_id: apiRow.creative_id,
+    real_ad_id: apiRow.real_ad_id ?? null,
     object_story_id: apiRow.object_story_id ?? null,
     effective_object_story_id: apiRow.effective_object_story_id ?? null,
     post_id: apiRow.post_id ?? null,
@@ -311,6 +413,10 @@ export function hydrateWarehouseCreativeMetrics<T extends RawCreativeRow>(input:
     campaign_id: input.factRow.campaignId ?? input.row.campaign_id,
     adset_id: input.factRow.adsetId ?? input.row.adset_id,
     id: "adId" in input.factRow ? (input.factRow.adId ?? input.row.id) : input.row.id,
+    real_ad_id:
+      "adId" in input.factRow
+        ? (input.factRow.adId ?? input.row.real_ad_id ?? null)
+        : (input.row.real_ad_id ?? null),
     creative_id:
       "creativeId" in input.factRow
         ? (input.factRow.creativeId ?? input.row.creative_id)
@@ -330,6 +436,8 @@ export function hydrateWarehouseCreativeMetrics<T extends RawCreativeRow>(input:
     ctr_all: input.factRow.ctr ?? input.row.ctr_all,
     purchases: input.factRow.conversions,
     impressions: input.factRow.impressions,
+    reach: input.factRow.reach,
+    frequency: input.factRow.frequency ?? input.row.frequency ?? null,
     link_clicks: input.factRow.linkClicks ?? input.row.link_clicks,
   } satisfies RawCreativeRow;
 }
@@ -817,13 +925,18 @@ export async function getMetaCreativesWarehousePayload(input: {
     }
   }
   const rawRows: RawCreativeRow[] = sourceRows.reduce<RawCreativeRow[]>((acc, row) => {
-      const projectionRow = useCreativeWarehouse
-        ? coerceRawCreativeRow(
-            dimensionRows.get((row as MetaCreativeDailyRow).creativeId)?.projectionJson,
-          )
-        : coerceRawCreativeRow(
-            dimensionRows.get((row as MetaAdDailyRow).adId)?.projectionJson,
-          );
+      const dimensionRow = useCreativeWarehouse
+        ? dimensionRows.get((row as MetaCreativeDailyRow).creativeId)
+        : dimensionRows.get((row as MetaAdDailyRow).adId);
+      const projectionRow =
+        coerceRawCreativeRow(dimensionRow?.projectionJson) ??
+        (!useCreativeWarehouse
+          ? buildFallbackAdRawRow({
+              factRow: row as MetaAdDailyRow,
+              projectionJson: dimensionRow?.projectionJson,
+              creativeId: dimensionRow?.creativeId ?? null,
+            })
+          : null);
       if (!projectionRow) return acc;
       const mediaRow = useCreativeWarehouse
         ? mediaByCreativeKey.get(
@@ -832,11 +945,20 @@ export async function getMetaCreativesWarehousePayload(input: {
         : mediaByAdKey.get(
             `${(row as MetaAdDailyRow).providerAccountId}|${(row as MetaAdDailyRow).date}|${(row as MetaAdDailyRow).adId}`,
           ) ?? null;
-      acc.push(
-        hydrateWarehouseCreativeMetrics({
+      const hydratedRow = hydrateWarehouseCreativeMetrics({
           row: overlayCreativeMedia(projectionRow, mediaRow),
           factRow: row,
-        }),
+        });
+      acc.push(
+        input.groupBy === "ad" && !useCreativeWarehouse
+          ? {
+              ...hydratedRow,
+              name:
+                (row as MetaAdDailyRow).adNameCurrent ??
+                (row as MetaAdDailyRow).adNameHistorical ??
+                hydratedRow.name,
+            }
+          : hydratedRow,
       );
       return acc;
     }, []);

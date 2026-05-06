@@ -1368,6 +1368,18 @@ export async function runMigrations(options?: {
           confidence_cap             DOUBLE PRECISION,
           action_ceiling             TEXT
                                        CHECK (action_ceiling IN ('review_hold', 'review_reduce', 'monitor_low_truth', 'degraded_no_scale')),
+          engine_preset_label        TEXT NOT NULL DEFAULT 'balanced'
+                                       CHECK (engine_preset_label IN ('aggressive', 'balanced', 'conservative')),
+          zero_conv_burner_multiplier DOUBLE PRECISION,
+          cut_candidate_multiplier   DOUBLE PRECISION,
+          sustained_loser_multiplier DOUBLE PRECISION,
+          hard_cut_multiplier        DOUBLE PRECISION,
+          scale_evidence_multiplier  DOUBLE PRECISION,
+          scale_purchase_multiplier  DOUBLE PRECISION,
+          winner_memory_multiplier   DOUBLE PRECISION,
+          recent_sample_multiplier   DOUBLE PRECISION,
+          weak_funnel_rate_multiplier DOUBLE PRECISION,
+          attribution_aov_adjustment_multiplier DOUBLE PRECISION,
           notes                      TEXT,
           source_label               TEXT,
           updated_by_user_id         UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -1384,6 +1396,32 @@ export async function runMigrations(options?: {
           meta        JSONB NOT NULL DEFAULT '{}'::jsonb,
           created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
         )`,
+        sql`CREATE TABLE IF NOT EXISTS meta_ads_action_log (
+          id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id     UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          ad_id           TEXT NOT NULL,
+          creative_id     TEXT,
+          action          TEXT NOT NULL CHECK (action IN ('pause', 'resume', 'duplicate')),
+          source          TEXT NOT NULL DEFAULT 'ui_manual',
+          requested_by    UUID,
+          requested_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          payload_request JSONB,
+          payload_response JSONB,
+          status          TEXT NOT NULL DEFAULT 'pending'
+            CHECK (status IN ('pending', 'success', 'failure', 'silent_failure')),
+          error_code      TEXT,
+          error_message   TEXT,
+          resulting_ad_id TEXT,
+          duration_ms     INTEGER,
+          verified_at     TIMESTAMPTZ,
+          verification_payload JSONB,
+          created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_ads_action_log_business_recent
+          ON meta_ads_action_log (business_id, requested_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_ads_action_log_ad
+          ON meta_ads_action_log (ad_id, requested_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS discount_codes (
           id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           code        TEXT NOT NULL UNIQUE,
@@ -1703,6 +1741,19 @@ export async function runMigrations(options?: {
         sql`ALTER TABLE business_target_packs ADD COLUMN IF NOT EXISTS cost_shipping_percent DOUBLE PRECISION`,
         sql`ALTER TABLE business_target_packs ADD COLUMN IF NOT EXISTS cost_fulfillment_percent DOUBLE PRECISION`,
         sql`ALTER TABLE business_target_packs ADD COLUMN IF NOT EXISTS cost_payment_processing_percent DOUBLE PRECISION`,
+        sql`ALTER TABLE business_decision_calibration_profiles
+          ADD COLUMN IF NOT EXISTS engine_preset_label TEXT NOT NULL DEFAULT 'balanced'
+            CHECK (engine_preset_label IN ('aggressive', 'balanced', 'conservative')),
+          ADD COLUMN IF NOT EXISTS zero_conv_burner_multiplier DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS cut_candidate_multiplier DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS sustained_loser_multiplier DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS hard_cut_multiplier DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS scale_evidence_multiplier DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS scale_purchase_multiplier DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS winner_memory_multiplier DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS recent_sample_multiplier DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS weak_funnel_rate_multiplier DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS attribution_aov_adjustment_multiplier DOUBLE PRECISION`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions (user_id)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_invites_business_id ON invites (business_id)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_invites_email ON invites (email)`.catch(() => {}),
@@ -4206,6 +4257,496 @@ export async function runMigrations(options?: {
           ON platform_overview_summary_range_accounts (summary_range_id, position ASC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_platform_overview_summary_range_accounts_provider_account_ref
           ON platform_overview_summary_range_accounts (provider_account_ref_id)`.catch(() => {}),
+      ]);
+
+      // ── Engine v3 pre-computed analytics tables (schema only) ─────────────
+      await runMigrationBatchSequentially([
+        sql`CREATE TABLE IF NOT EXISTS engine_v3_job_runs (
+          id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          job_name                   TEXT NOT NULL,
+          business_ref_id            UUID NOT NULL,
+          business_id                TEXT,
+          as_of_date                 DATE NOT NULL,
+          engine_version             TEXT NOT NULL,
+          status                     TEXT NOT NULL CHECK (status IN ('running', 'success', 'failed', 'skipped')),
+          dependency_run_id          UUID REFERENCES engine_v3_job_runs(id) ON DELETE SET NULL,
+          started_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          finished_at                TIMESTAMPTZ,
+          duration_ms                INTEGER,
+          row_count                  INTEGER,
+          source_min_date            DATE,
+          source_max_date            DATE,
+          source_max_updated_at      TIMESTAMPTZ,
+          input_hash                 TEXT,
+          retry_count                INTEGER NOT NULL DEFAULT 0,
+          error_code                 TEXT,
+          error_message              TEXT,
+          error_json                 JSONB,
+          created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_job_runs_lookup
+          ON engine_v3_job_runs (job_name, business_ref_id, as_of_date DESC)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_job_runs_status
+          ON engine_v3_job_runs (status, started_at DESC)
+          WHERE status IN ('running', 'failed')`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_job_runs_business_recent
+          ON engine_v3_job_runs (business_ref_id, started_at DESC)`,
+        sql`CREATE TABLE IF NOT EXISTS engine_v3_account_calibration_daily (
+          id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_ref_id            UUID NOT NULL,
+          business_id                TEXT,
+          scope_type                 TEXT NOT NULL DEFAULT 'account',
+          scope_id                   TEXT NOT NULL DEFAULT '*',
+          as_of_date                 DATE NOT NULL,
+          engine_version             TEXT NOT NULL,
+          sample_window_start        DATE NOT NULL,
+          sample_window_end          DATE NOT NULL,
+          sample_window_days         INTEGER NOT NULL,
+          eligible_creative_count    INTEGER NOT NULL DEFAULT 0,
+          mature_creative_count      INTEGER NOT NULL DEFAULT 0,
+          zero_conversion_count      INTEGER NOT NULL DEFAULT 0,
+          roas_p75                   DOUBLE PRECISION,
+          roas_p60                   DOUBLE PRECISION,
+          refresh_ratio_p10          DOUBLE PRECISION,
+          low_ctr_p10                DOUBLE PRECISION,
+          account_cpa_p50            DOUBLE PRECISION,
+          account_cpa_sample_count   INTEGER NOT NULL DEFAULT 0,
+          meta_attributed_aov_mean_90d DOUBLE PRECISION,
+          meta_attributed_aov_purchase_count_90d INTEGER NOT NULL DEFAULT 0,
+          meta_attributed_revenue_90d DOUBLE PRECISION,
+          meta_aov_quality           TEXT
+                                      CHECK (meta_aov_quality IN ('unavailable', 'unstable', 'low_sample', 'ready')),
+          mature_spend_p50           DOUBLE PRECISION,
+          mature_spend_p75           DOUBLE PRECISION,
+          winner_spend_p25           DOUBLE PRECISION,
+          winner_spend_p50           DOUBLE PRECISION,
+          winner_purchase_p50        DOUBLE PRECISION,
+          roas_ratio_p10             DOUBLE PRECISION,
+          roas_ratio_p25             DOUBLE PRECISION,
+          roas_ratio_p50             DOUBLE PRECISION,
+          roas_ratio_p75             DOUBLE PRECISION,
+          source_min_date            DATE,
+          source_max_date            DATE,
+          source_max_updated_at      TIMESTAMPTZ,
+          quality_status             TEXT NOT NULL DEFAULT 'ready' CHECK (quality_status IN ('ready', 'low_sample', 'stale', 'fallback')),
+          job_run_id                 UUID REFERENCES engine_v3_job_runs(id) ON DELETE SET NULL,
+          input_hash                 TEXT,
+          computed_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+          created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_ref_id, scope_type, scope_id, as_of_date, engine_version)
+        )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_calibration_latest
+          ON engine_v3_account_calibration_daily
+          (business_ref_id, scope_type, scope_id, as_of_date DESC)
+          INCLUDE (roas_p75, roas_p60, refresh_ratio_p10, low_ctr_p10, quality_status, source_max_date)`,
+        sql`ALTER TABLE engine_v3_account_calibration_daily
+          ADD COLUMN IF NOT EXISTS account_cpa_p50 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS account_cpa_sample_count INTEGER NOT NULL DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS meta_attributed_aov_mean_90d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS meta_attributed_aov_purchase_count_90d INTEGER NOT NULL DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS meta_attributed_revenue_90d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS meta_aov_quality TEXT
+            CHECK (meta_aov_quality IN ('unavailable', 'unstable', 'low_sample', 'ready')),
+          ADD COLUMN IF NOT EXISTS mature_spend_p50 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS mature_spend_p75 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS winner_spend_p25 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS winner_spend_p50 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS winner_purchase_p50 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS roas_ratio_p10 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS roas_ratio_p25 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS roas_ratio_p50 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS roas_ratio_p75 DOUBLE PRECISION`.catch(() => {}),
+        sql`ALTER TABLE engine_v3_account_calibration_daily
+          ADD COLUMN IF NOT EXISTS creative_format TEXT NOT NULL DEFAULT 'overall',
+          ADD COLUMN IF NOT EXISTS ctr_p25 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS ctr_p50 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS cpm_p50 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS cpm_p75 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS thumbstop_p25 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS thumbstop_p50 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS link_to_lpv_p25 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS link_to_lpv_p50 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS link_to_atc_p25 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS link_to_atc_p50 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS lpv_to_atc_p25 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS lpv_to_atc_p50 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS atc_to_ic_p25 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS atc_to_ic_p50 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS ic_to_purchase_p25 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS ic_to_purchase_p50 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS click_to_purchase_p25 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS click_to_purchase_p50 DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS funnel_sample_count INTEGER NOT NULL DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS funnel_quality_status TEXT
+            CHECK (funnel_quality_status IN ('ready', 'low_sample', 'insufficient'))`.catch(() => {}),
+        sql`DO $$
+          DECLARE
+            old_constraint_name TEXT;
+          BEGIN
+            SELECT c.conname
+            INTO old_constraint_name
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'engine_v3_account_calibration_daily'
+              AND c.contype = 'u'
+              AND (
+                SELECT array_agg(a.attname::text ORDER BY u.ord)
+                FROM unnest(c.conkey) WITH ORDINALITY AS u(attnum, ord)
+                JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = u.attnum
+              ) = ARRAY['business_ref_id', 'scope_type', 'scope_id', 'as_of_date', 'engine_version']
+            LIMIT 1;
+
+            IF old_constraint_name IS NOT NULL THEN
+              EXECUTE format(
+                'ALTER TABLE engine_v3_account_calibration_daily DROP CONSTRAINT %I',
+                old_constraint_name
+              );
+            END IF;
+
+            IF NOT EXISTS (
+              SELECT 1
+              FROM pg_constraint c
+              JOIN pg_class t ON t.oid = c.conrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+              WHERE n.nspname = current_schema()
+                AND t.relname = 'engine_v3_account_calibration_daily'
+                AND c.contype = 'u'
+                AND (
+                  SELECT array_agg(a.attname::text ORDER BY u.ord)
+                  FROM unnest(c.conkey) WITH ORDINALITY AS u(attnum, ord)
+                  JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = u.attnum
+                ) = ARRAY[
+                  'business_ref_id',
+                  'scope_type',
+                  'scope_id',
+                  'creative_format',
+                  'as_of_date',
+                  'engine_version'
+                ]
+            ) THEN
+              ALTER TABLE engine_v3_account_calibration_daily
+                ADD CONSTRAINT engine_v3_account_calibration_daily_format_unique
+                UNIQUE (business_ref_id, scope_type, scope_id, creative_format, as_of_date, engine_version);
+            END IF;
+          END
+          $$`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS engine_v3_creative_lifecycle_daily (
+          id                            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_ref_id               UUID NOT NULL,
+          business_id                   TEXT,
+          provider_account_ref_id       UUID,
+          provider_account_id           TEXT,
+          campaign_id                   TEXT,
+          adset_id                      TEXT,
+          ad_id                         TEXT,
+          creative_id                   TEXT NOT NULL,
+          effective_object_story_id     TEXT,
+          post_id                       TEXT,
+          creative_identity_hash        TEXT,
+          as_of_date                    DATE NOT NULL,
+          engine_version                TEXT NOT NULL,
+          spend_28d                     DOUBLE PRECISION,
+          purchases_28d                 DOUBLE PRECISION,
+          purchase_value_28d            DOUBLE PRECISION,
+          impressions_28d               BIGINT,
+          link_clicks_28d               BIGINT,
+          roas_28d                      DOUBLE PRECISION,
+          cpa_28d                       DOUBLE PRECISION,
+          ctr_28d                       DOUBLE PRECISION,
+          frequency_28d                 DOUBLE PRECISION,
+          spend_7d                      DOUBLE PRECISION,
+          purchases_7d                  DOUBLE PRECISION,
+          roas_7d                       DOUBLE PRECISION,
+          impressions_7d                BIGINT,
+          first_seen_date               DATE,
+          last_active_date              DATE,
+          active_days_30d               INTEGER,
+          age_days                      INTEGER,
+          peak_roas_30d                 DOUBLE PRECISION,
+          peak_roas_date                DATE,
+          days_since_peak               INTEGER,
+          peak_confidence               DOUBLE PRECISION,
+          peak_spend_30d                DOUBLE PRECISION,
+          peak_purchases_30d            DOUBLE PRECISION,
+          spend_slope_7d                DOUBLE PRECISION,
+          spend_slope_30d               DOUBLE PRECISION,
+          roas_slope_7d                 DOUBLE PRECISION,
+          roas_slope_30d                DOUBLE PRECISION,
+          spend_trajectory_30d          TEXT CHECK (spend_trajectory_30d IN ('rising', 'flat', 'falling', 'volatile', 'unknown')),
+          lifecycle_position            TEXT CHECK (lifecycle_position IN (
+            'rising', 'plateau', 'closing',
+            'past_peak_inaction', 'past_peak_natural', 'past_peak_unclear',
+            'volatile', 'insufficient_history'
+          )),
+          fatigue_status                TEXT CHECK (fatigue_status IN ('none', 'watch', 'fatigued', 'unknown')),
+          fatigue_confidence            DOUBLE PRECISION,
+          fatigue_evidence              JSONB,
+          decision_recommended_at       TIMESTAMPTZ,
+          operator_response_detected_at TIMESTAMPTZ,
+          operator_response_type        TEXT CHECK (operator_response_type IN (
+            'scaled', 'ignored', 'paused', 'creative_archived', 'budget_cut', 'unknown'
+          )),
+          effective_status              TEXT,
+          objective                      TEXT,
+          target_roas                   DOUBLE PRECISION,
+          breakeven_roas                DOUBLE PRECISION,
+          data_freshness_hours          INTEGER,
+          source_max_date               DATE,
+          source_max_updated_at         TIMESTAMPTZ,
+          eligible_for_lifecycle        BOOLEAN NOT NULL DEFAULT true,
+          job_run_id                    UUID REFERENCES engine_v3_job_runs(id) ON DELETE SET NULL,
+          input_hash                    TEXT,
+          computed_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),
+          created_at                    TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                    TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_ref_id, creative_id, as_of_date, engine_version)
+        )`,
+        sql`ALTER TABLE engine_v3_creative_lifecycle_daily
+          ADD COLUMN IF NOT EXISTS cpm_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS outbound_clicks_28d INTEGER,
+          ADD COLUMN IF NOT EXISTS landing_page_views_28d INTEGER,
+          ADD COLUMN IF NOT EXISTS add_to_cart_28d INTEGER,
+          ADD COLUMN IF NOT EXISTS initiate_checkout_28d INTEGER,
+          ADD COLUMN IF NOT EXISTS thumbstop_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS video25_rate_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS video50_rate_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS video75_rate_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS video100_rate_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS quality_ranking TEXT,
+          ADD COLUMN IF NOT EXISTS engagement_rate_ranking TEXT,
+          ADD COLUMN IF NOT EXISTS conversion_rate_ranking TEXT,
+          ADD COLUMN IF NOT EXISTS creative_format TEXT,
+          ADD COLUMN IF NOT EXISTS outbound_click_rate_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS link_to_lpv_rate_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS link_to_atc_rate_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS lpv_to_atc_rate_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS atc_to_ic_rate_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS ic_to_purchase_rate_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS atc_to_purchase_rate_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS click_to_purchase_rate_28d DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS funnel_primary_weak_stage TEXT
+            CHECK (funnel_primary_weak_stage IN ('upper_funnel', 'landing_page', 'checkout', 'tracking', 'none', 'insufficient_signal')),
+          ADD COLUMN IF NOT EXISTS funnel_confidence DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS funnel_evidence JSONB,
+          ADD COLUMN IF NOT EXISTS creative_responsibility_score DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS site_responsibility_score DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS checkout_responsibility_score DOUBLE PRECISION,
+          ADD COLUMN IF NOT EXISTS tracking_anomaly_score DOUBLE PRECISION`.catch(() => {}),
+        sql`DO $$
+          DECLARE
+            old_constraint_name TEXT;
+          BEGIN
+            SELECT c.conname
+            INTO old_constraint_name
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'engine_v3_creative_lifecycle_daily'
+              AND c.contype = 'c'
+              AND pg_get_constraintdef(c.oid) LIKE '%operator_response_type%'
+              AND pg_get_constraintdef(c.oid) NOT LIKE '%creative_archived%'
+            LIMIT 1;
+
+            IF old_constraint_name IS NOT NULL THEN
+              EXECUTE format(
+                'ALTER TABLE engine_v3_creative_lifecycle_daily DROP CONSTRAINT %I',
+                old_constraint_name
+              );
+            END IF;
+
+            IF NOT EXISTS (
+              SELECT 1
+              FROM pg_constraint c
+              JOIN pg_class t ON t.oid = c.conrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+              WHERE n.nspname = current_schema()
+                AND t.relname = 'engine_v3_creative_lifecycle_daily'
+                AND c.contype = 'c'
+                AND pg_get_constraintdef(c.oid) LIKE '%operator_response_type%'
+                AND pg_get_constraintdef(c.oid) LIKE '%creative_archived%'
+            ) THEN
+              ALTER TABLE engine_v3_creative_lifecycle_daily
+                ADD CONSTRAINT engine_v3_creative_lifecycle_daily_operator_response_type_check
+                CHECK (operator_response_type IN (
+                  'scaled', 'ignored', 'paused', 'creative_archived', 'budget_cut', 'unknown'
+                ));
+            END IF;
+          END
+          $$`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_lifecycle_business_day
+          ON engine_v3_creative_lifecycle_daily
+          (business_ref_id, as_of_date DESC, creative_id)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_lifecycle_creative_timeline
+          ON engine_v3_creative_lifecycle_daily
+          (business_ref_id, creative_id, as_of_date DESC)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_lifecycle_attention
+          ON engine_v3_creative_lifecycle_daily
+          (business_ref_id, as_of_date DESC, lifecycle_position)
+          WHERE lifecycle_position IN ('rising', 'plateau', 'past_peak_inaction', 'past_peak_unclear')`,
+        sql`CREATE TABLE IF NOT EXISTS engine_v3_decision_snapshots_daily (
+          id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_ref_id            UUID NOT NULL,
+          business_id                TEXT,
+          creative_id                TEXT NOT NULL,
+          as_of_date                 DATE NOT NULL,
+          engine_version             TEXT NOT NULL,
+          scope_type                 TEXT NOT NULL DEFAULT 'account',
+          scope_id                   TEXT NOT NULL DEFAULT '*',
+          label                      TEXT NOT NULL CHECK (label IN (
+            'scale', 'keep', 'refresh', 'cut', 'test_more', 'diagnose', 'out_of_scope'
+          )),
+          confidence                 INTEGER NOT NULL CHECK (confidence >= 0 AND confidence <= 100),
+          truth_source               TEXT NOT NULL CHECK (truth_source IN (
+            'commercial_truth', 'account_baseline', 'account_baseline_thin', 'global_default'
+          )),
+          effective_target_roas      DOUBLE PRECISION NOT NULL,
+          ratio_to_target            DOUBLE PRECISION,
+          badges                     JSONB NOT NULL DEFAULT '[]'::jsonb,
+          reason                     TEXT NOT NULL,
+          spend                      DOUBLE PRECISION,
+          purchases                  DOUBLE PRECISION,
+          roas                       DOUBLE PRECISION,
+          recent7d_roas              DOUBLE PRECISION,
+          job_run_id                 UUID REFERENCES engine_v3_job_runs(id) ON DELETE SET NULL,
+          lifecycle_row_id           UUID REFERENCES engine_v3_creative_lifecycle_daily(id) ON DELETE SET NULL,
+          calibration_row_id         UUID REFERENCES engine_v3_account_calibration_daily(id) ON DELETE SET NULL,
+          input_hash                 TEXT,
+          computed_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+          created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_ref_id, creative_id, as_of_date, engine_version, scope_type, scope_id)
+        )`,
+        sql`ALTER TABLE engine_v3_decision_snapshots_daily
+          ADD COLUMN IF NOT EXISTS scope_type TEXT NOT NULL DEFAULT 'account',
+          ADD COLUMN IF NOT EXISTS scope_id TEXT NOT NULL DEFAULT '*'`.catch(() => {}),
+        sql`DO $$
+          DECLARE
+            old_constraint_name TEXT;
+          BEGIN
+            SELECT c.conname
+            INTO old_constraint_name
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'engine_v3_decision_snapshots_daily'
+              AND c.contype = 'u'
+              AND (
+                SELECT array_agg(a.attname::text ORDER BY u.ord)
+                FROM unnest(c.conkey) WITH ORDINALITY AS u(attnum, ord)
+                JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = u.attnum
+              ) = ARRAY['business_ref_id', 'creative_id', 'as_of_date', 'engine_version']
+            LIMIT 1;
+
+            IF old_constraint_name IS NOT NULL THEN
+              EXECUTE format(
+                'ALTER TABLE engine_v3_decision_snapshots_daily DROP CONSTRAINT %I',
+                old_constraint_name
+              );
+            END IF;
+
+            IF NOT EXISTS (
+              SELECT 1
+              FROM pg_constraint c
+              JOIN pg_class t ON t.oid = c.conrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+              WHERE n.nspname = current_schema()
+                AND t.relname = 'engine_v3_decision_snapshots_daily'
+                AND c.contype = 'u'
+                AND (
+                  SELECT array_agg(a.attname::text ORDER BY u.ord)
+                  FROM unnest(c.conkey) WITH ORDINALITY AS u(attnum, ord)
+                  JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = u.attnum
+                ) = ARRAY[
+                  'business_ref_id',
+                  'creative_id',
+                  'as_of_date',
+                  'engine_version',
+                  'scope_type',
+                  'scope_id'
+                ]
+            ) THEN
+              ALTER TABLE engine_v3_decision_snapshots_daily
+                ADD CONSTRAINT engine_v3_decision_snapshots_daily_scope_unique
+                UNIQUE (business_ref_id, creative_id, as_of_date, engine_version, scope_type, scope_id);
+            END IF;
+          END
+          $$`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_decisions_business_day_label
+          ON engine_v3_decision_snapshots_daily
+          (business_ref_id, as_of_date DESC, label)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_decisions_creative_timeline
+          ON engine_v3_decision_snapshots_daily
+          (business_ref_id, creative_id, as_of_date DESC)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_decisions_first_scale
+          ON engine_v3_decision_snapshots_daily
+          (business_ref_id, creative_id, as_of_date)
+          WHERE label = 'scale'`,
+        sql`CREATE TABLE IF NOT EXISTS engine_v3_decision_events (
+          id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_ref_id            UUID NOT NULL,
+          business_id                TEXT,
+          creative_id                TEXT NOT NULL,
+          event_date                 DATE NOT NULL,
+          event_type                 TEXT NOT NULL CHECK (event_type IN (
+            'decision_changed',
+            'operator_action',
+            'data_disabled',
+            'manual_override'
+          )),
+          previous_label             TEXT,
+          current_label              TEXT,
+          previous_confidence        INTEGER,
+          current_confidence         INTEGER,
+          operator_action_type       TEXT CHECK (operator_action_type IN (
+            'scaled', 'paused', 'budget_increased', 'budget_decreased', 'creative_archived', 'unknown'
+          )),
+          operator_evidence          JSONB,
+          decision_snapshot_id       UUID REFERENCES engine_v3_decision_snapshots_daily(id) ON DELETE SET NULL,
+          job_run_id                 UUID REFERENCES engine_v3_job_runs(id) ON DELETE SET NULL,
+          notes                      TEXT,
+          created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_events_business_date
+          ON engine_v3_decision_events
+          (business_ref_id, event_date DESC, event_type)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_events_creative_timeline
+          ON engine_v3_decision_events
+          (business_ref_id, creative_id, event_date DESC)`,
+      ]);
+
+      // ── Engine v3 rollout feature flags (NULL = inherit env default) ─────
+      await runMigrationBatchSequentially([
+        sql`CREATE TABLE IF NOT EXISTS business_engine_v3_flags (
+          business_id     UUID PRIMARY KEY REFERENCES businesses(id) ON DELETE CASCADE,
+          enabled         BOOLEAN NULL,
+          surface_visible BOOLEAN NULL,
+          shadow_only     BOOLEAN NULL,
+          notes           TEXT NULL,
+          updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_by      TEXT NULL
+        )`,
+        sql`ALTER TABLE business_engine_v3_flags
+          ADD COLUMN IF NOT EXISTS enabled BOOLEAN NULL,
+          ADD COLUMN IF NOT EXISTS surface_visible BOOLEAN NULL,
+          ADD COLUMN IF NOT EXISTS shadow_only BOOLEAN NULL,
+          ADD COLUMN IF NOT EXISTS notes TEXT NULL,
+          ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          ADD COLUMN IF NOT EXISTS updated_by TEXT NULL`.catch(() => {}),
+      ]);
+
+      // ── Engine v3 per-business preset override (NULL = inherit chain) ───
+      await runMigrationBatchSequentially([
+        sql`ALTER TABLE business_engine_v3_flags
+          ADD COLUMN IF NOT EXISTS preset_override TEXT NULL
+            CHECK (preset_override IS NULL
+              OR preset_override IN ('aggressive', 'balanced', 'conservative'))`.catch(() => {}),
       ]);
 
       await runMigrationBatchSequentially([

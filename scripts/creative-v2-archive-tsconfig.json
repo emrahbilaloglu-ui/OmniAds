@@ -1,0 +1,41 @@
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "baseUrl": "..",
+    "paths": {
+      "@/lib/creative-decision-center/*": [
+        "lib/archive/v1-v2-v21/lib/creative-decision-center/*"
+      ],
+      "@/lib/creative-decision-os-v2-evaluation": [
+        "lib/archive/v1-v2-v21/lib/creative-decision-os-v2-evaluation.ts"
+      ],
+      "@/lib/creative-decision-os-v2": [
+        "lib/archive/v1-v2-v21/lib/creative-decision-os-v2.ts"
+      ],
+      "@/lib/creative-decision-os-v2-preview": [
+        "lib/archive/v1-v2-v21/lib/creative-decision-os-v2-preview.ts"
+      ],
+      "@/lib/creative-decision-os": [
+        "lib/archive/v1-v2-v21/lib/creative-decision-os.ts"
+      ],
+      "@/lib/creative-decision-os-*": [
+        "lib/archive/v1-v2-v21/lib/creative-decision-os-*"
+      ],
+      "@/lib/creative-operator-*": [
+        "lib/archive/v1-v2-v21/lib/creative-operator-*"
+      ],
+      "@/lib/creative-media-buyer-scoring": [
+        "lib/archive/v1-v2-v21/lib/creative-media-buyer-scoring.ts"
+      ],
+      "@/lib/creative-old-rule-challenger": [
+        "lib/archive/v1-v2-v21/lib/creative-old-rule-challenger.ts"
+      ],
+      "@/*": ["*"]
+    }
+  }
+}

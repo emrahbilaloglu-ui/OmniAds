@@ -16,7 +16,7 @@ export interface ReleaseAuthorityIntegrityReport {
 const PHASE_REFERENCE_DOCS = [
   "docs/phase-02-operating-modes.md",
   "docs/phase-03-meta-decision-os.md",
-  "docs/phase-04-creative-decision-os.md",
+  "docs/phase-04-creative-action-contract.md",
   "docs/phase-05-command-center.md",
   "docs/phase-06-safe-execution-layer.md",
 ] as const;

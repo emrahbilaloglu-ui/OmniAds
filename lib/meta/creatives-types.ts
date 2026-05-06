@@ -1,6 +1,6 @@
 // ── Primitive enums / unions ───────────────────────────────────────────────────
 
-export type GroupBy = "adName" | "creative" | "adSet";
+export type GroupBy = "adName" | "ad" | "creative" | "adSet";
 export type FormatFilter = "all" | "image" | "video";
 export type SortKey = "roas" | "spend" | "ctrAll" | "purchaseValue";
 export type CreativeFormat = "image" | "video" | "catalog";
@@ -439,6 +439,7 @@ export type StoryCopyPayload = {
 export interface CreativeIdentityFields {
   id: string;
   creative_id: string;
+  real_ad_id?: string | null;
   object_story_id?: string | null;
   effective_object_story_id?: string | null;
   post_id?: string | null;

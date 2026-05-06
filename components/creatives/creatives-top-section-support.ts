@@ -2,7 +2,6 @@ import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { formatMoney } from "@/components/creatives/money";
 import type { DateRangeValue } from "@/components/date-range/DateRangePicker";
 import { formatPercentSmart } from "@/lib/metric-format";
-import type { CreativeDecisionOsV1Response } from "@/lib/creative-decision-os";
 import type {
   CreativeDatePreset,
   CreativeDateRangeValue,
@@ -281,7 +280,6 @@ export function standardDateRangeToCreative(value: DateRangeValue): CreativeDate
 export function applyCreativeFilters(
   rows: MetaCreativeRow[],
   rules: CreativeFilterRule[],
-  decisionOs?: CreativeDecisionOsV1Response | null,
 ): MetaCreativeRow[] {
   if (rules.length === 0) return rows;
 
@@ -298,10 +296,6 @@ export function applyCreativeFilters(
     candidates.some((candidate) => normalize(candidate ?? "") === query);
   const startsWithAny = (candidates: Array<string | null | undefined>, query: string) =>
     candidates.some((candidate) => normalize(candidate ?? "").startsWith(query));
-  const decisionById = new Map(
-    (decisionOs?.creatives ?? []).map((creative) => [creative.creativeId, creative]),
-  );
-
   return rows.filter((row) =>
     rules.every((rule) => {
       const query = normalize(rule.query);
@@ -329,7 +323,6 @@ export function applyCreativeFilters(
         return includesAny(candidates, query);
       };
 
-      const decision = decisionById.get(row.id) ?? null;
       const aiTagCandidates = (tagKey: keyof MetaCreativeRow["aiTags"]) => row.aiTags?.[tagKey] ?? [];
 
       if (rule.field === "campaignName") {
@@ -366,33 +359,6 @@ export function applyCreativeFilters(
       }
       if (rule.field === "isCatalog") {
         return evaluate([String(row.isCatalog), row.isCatalog ? "yes" : "no"]);
-      }
-      if (rule.field === "lifecycleState") {
-        return evaluate([decision?.lifecycleState ?? null]);
-      }
-      if (rule.field === "primaryAction") {
-        return evaluate([decision?.primaryAction ?? null]);
-      }
-      if (rule.field === "operatorSegment") {
-        return evaluate([decision?.operatorPolicy?.segment ?? null]);
-      }
-      if (rule.field === "operatorState") {
-        return evaluate([decision?.operatorPolicy?.state ?? null]);
-      }
-      if (rule.field === "pushReadiness") {
-        return evaluate([decision?.operatorPolicy?.pushReadiness ?? null]);
-      }
-      if (rule.field === "surfaceLane") {
-        return evaluate([decision?.trust.surfaceLane ?? null]);
-      }
-      if (rule.field === "familySource") {
-        return evaluate([decision?.familySource ?? null]);
-      }
-      if (rule.field === "deploymentTargetLane") {
-        return evaluate([decision?.deployment.targetLane ?? null]);
-      }
-      if (rule.field === "deploymentCompatibilityStatus") {
-        return evaluate([decision?.deployment.compatibility.status ?? null]);
       }
       if (
         rule.field === "assetType" ||
@@ -595,15 +561,6 @@ export function prettyFieldLabel(field: CreativeFilterField): string {
     creativeDeliveryType: "Delivery type",
     taxonomySource: "Taxonomy source",
     isCatalog: "Is catalog",
-    lifecycleState: "Lifecycle",
-    primaryAction: "Primary action",
-    operatorSegment: "Operator segment",
-    operatorState: "Operator state",
-    pushReadiness: "Push readiness",
-    surfaceLane: "Surface lane",
-    familySource: "Family source",
-    deploymentTargetLane: "Deployment lane",
-    deploymentCompatibilityStatus: "Compatibility",
     namingConvention: "Naming",
     customTags: "Custom tags",
     assetType: "Asset type",

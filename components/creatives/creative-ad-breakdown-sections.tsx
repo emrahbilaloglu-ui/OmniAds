@@ -18,12 +18,22 @@ import {
 
 export function CreativeDrawerHeader({
   creative,
-  associatedAdsCount,
+  windowAdsCount,
+  lifetimeAdsCount,
+  totalSpend,
+  weightedRoas,
+  currency,
+  defaultCurrency,
   assetFallbacks,
   onClose,
 }: {
   creative: MetaCreativeRow | null;
-  associatedAdsCount: number;
+  windowAdsCount: number;
+  lifetimeAdsCount: number;
+  totalSpend: number;
+  weightedRoas: number;
+  currency: string | null;
+  defaultCurrency: string | null;
   assetFallbacks: (string | null)[];
   onClose: () => void;
 }) {
@@ -38,9 +48,13 @@ export function CreativeDrawerHeader({
         taxonomy_source: creative.taxonomySource ?? null,
       })
     : null;
+  const adsLabel =
+    lifetimeAdsCount > 0 && windowAdsCount > 0 && windowAdsCount !== lifetimeAdsCount
+      ? `${windowAdsCount} of ${lifetimeAdsCount} ads (selected window)`
+      : `${windowAdsCount || lifetimeAdsCount} ${(windowAdsCount || lifetimeAdsCount) === 1 ? "ad" : "ads"}`;
 
   return (
-    <header className="shrink-0 border-b bg-muted/30">
+    <header className="shrink-0 border-b border-slate-200 bg-white">
       <div className="flex items-center justify-between px-5 pb-2 pt-4">
         <div className="flex items-center gap-2">
           <div className="flex h-6 items-center rounded-md bg-primary/10 px-2">
@@ -81,7 +95,7 @@ export function CreativeDrawerHeader({
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col justify-center">
-          <h3 className="truncate text-base font-semibold leading-tight tracking-tight">
+          <h3 className="truncate text-base font-semibold leading-tight tracking-tight text-slate-950">
             {creative?.name ?? "Creative"}
           </h3>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -94,7 +108,26 @@ export function CreativeDrawerHeader({
               </span>
             ) : null}
             <span className="text-[11px] text-muted-foreground">
-              {associatedAdsCount} {associatedAdsCount === 1 ? "ad" : "ads"} using this creative
+              {adsLabel}
+            </span>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <span className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+              Placements{" "}
+              <strong className="font-mono text-slate-950">{windowAdsCount || lifetimeAdsCount}</strong>
+              {lifetimeAdsCount > 0 && windowAdsCount > 0 && windowAdsCount !== lifetimeAdsCount ? (
+                <span className="ml-1 text-slate-500">/ {lifetimeAdsCount} lifetime</span>
+              ) : null}
+            </span>
+            <span className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+              Spend{" "}
+              <strong className="font-mono text-slate-950">
+                {formatMoney(totalSpend, currency, defaultCurrency)}
+              </strong>
+            </span>
+            <span className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+              Weighted ROAS{" "}
+              <strong className="font-mono text-slate-950">{weightedRoas.toFixed(2)}x</strong>
             </span>
           </div>
           {creative?.launchDate && (
@@ -110,32 +143,37 @@ export function CreativeDrawerHeader({
 
 export function CreativeSummaryCards({
   totalSpend,
-  avgRoas,
+  weightedRoas,
   totalPurchases,
-  avgCpa,
+  weightedCtr,
   adsCount,
   currency,
   defaultCurrency,
 }: {
   totalSpend: number;
-  avgRoas: number;
+  weightedRoas: number;
   totalPurchases: number;
-  avgCpa: number;
+  weightedCtr: number;
   adsCount: number;
   currency: string | null;
   defaultCurrency: string | null;
 }) {
   return (
-    <div className="grid grid-cols-5 gap-3">
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+      <SummaryCard
+        label="Placements"
+        value={adsCount.toString()}
+        icon={<Layers className="h-3.5 w-3.5 text-blue-500" />}
+      />
       <SummaryCard
         label="Total Spend"
         value={formatMoney(totalSpend, currency, defaultCurrency)}
         icon={<span className="text-amber-500">$</span>}
       />
       <SummaryCard
-        label="Avg ROAS"
-        value={`${avgRoas.toFixed(2)}x`}
-        icon={avgRoas >= 1 ? <TrendingUp className="h-3.5 w-3.5 text-emerald-500" /> : <TrendingDown className="h-3.5 w-3.5 text-red-400" />}
+        label="Weighted ROAS"
+        value={`${weightedRoas.toFixed(2)}x`}
+        icon={weightedRoas >= 1 ? <TrendingUp className="h-3.5 w-3.5 text-emerald-500" /> : <TrendingDown className="h-3.5 w-3.5 text-red-400" />}
       />
       <SummaryCard
         label="Total Purchases"
@@ -143,14 +181,9 @@ export function CreativeSummaryCards({
         icon={<span className="text-xs font-bold text-violet-500">#</span>}
       />
       <SummaryCard
-        label="Avg CPA"
-        value={formatMoney(avgCpa, currency, defaultCurrency)}
+        label="Weighted CTR"
+        value={`${weightedCtr.toFixed(2)}%`}
         icon={<Minus className="h-3.5 w-3.5 text-orange-400" />}
-      />
-      <SummaryCard
-        label="Active Ads"
-        value={adsCount.toString()}
-        icon={<Layers className="h-3.5 w-3.5 text-blue-400" />}
       />
     </div>
   );
@@ -158,12 +191,12 @@ export function CreativeSummaryCards({
 
 function SummaryCard({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
   return (
-    <div className="rounded-xl border bg-card p-3 shadow-sm transition-shadow hover:shadow-md">
+    <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
       <div className="flex items-center gap-1.5">
         <div className="flex h-5 w-5 items-center justify-center rounded-md bg-muted/60">{icon}</div>
         <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
       </div>
-      <p className="mt-1.5 text-lg font-bold tabular-nums tracking-tight">{value}</p>
+      <p className="mt-1.5 font-mono text-lg font-bold tabular-nums tracking-tight">{value}</p>
     </div>
   );
 }
@@ -181,17 +214,32 @@ export function CreativePerformanceChart({
   currency: string | null;
   defaultCurrency: string | null;
 }) {
+  const shouldUseCampaignLabels = useMemo(() => {
+    const campaignNames = new Set(
+      rows
+        .map((row) => row.campaignName?.trim())
+        .filter((value): value is string => Boolean(value)),
+    );
+    return campaignNames.size > 1;
+  }, [rows]);
   const maxValue = useMemo(() => {
     const values = rows.map((row) => getChartMetricValue(row, metric));
     return Math.max(...values, 0.01);
   }, [rows, metric]);
 
   return (
-    <div className="rounded-xl border bg-card shadow-sm">
-      <div className="flex items-center justify-between border-b px-4 py-3">
+    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
         <div className="flex items-center gap-2">
           <BarChart3 className="h-4 w-4 text-muted-foreground" />
-          <h4 className="text-[13px] font-semibold">Performance by Ad</h4>
+          <h4 className="text-[13px] font-semibold">
+            Performance by Ad
+            {rows.length > 0 ? (
+              <span className="ml-2 font-mono text-[11px] font-normal text-muted-foreground">
+                ({rows.length})
+              </span>
+            ) : null}
+          </h4>
         </div>
         <div className="flex gap-1">
           {CHART_METRICS.map((metricOption) => (
@@ -221,10 +269,30 @@ export function CreativePerformanceChart({
               const value = getChartMetricValue(row, metric);
               const pct = maxValue > 0 ? (value / maxValue) * 100 : 0;
               const displayValue = fmtChartMetricValue(value, metric, currency, defaultCurrency);
+              const label = shouldUseCampaignLabels
+                ? row.campaignName?.trim() || row.name
+                : row.name;
+              const sublabel = shouldUseCampaignLabels ? row.adSetName?.trim() || null : null;
+              const title = [
+                row.campaignName ? `Campaign: ${row.campaignName}` : null,
+                row.adSetName ? `Ad set: ${row.adSetName}` : null,
+              ].filter(Boolean).join(" • ");
               return (
-                <div key={row.id} className="group">
-                  <div className="mb-0.5 flex items-center justify-between">
-                    <p className="max-w-[60%] truncate text-[11px] font-medium text-foreground">{row.name}</p>
+                <div key={row.id} className="group" title={title || row.name}>
+                  <div className="mb-0.5 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p
+                        className="max-w-[20rem] truncate text-[11px] font-medium text-foreground"
+                        data-chart-row-label={label}
+                      >
+                        {label}
+                      </p>
+                      {sublabel ? (
+                        <p className="max-w-[18rem] truncate text-[10px] text-muted-foreground">
+                          {sublabel}
+                        </p>
+                      ) : null}
+                    </div>
                     <span className="text-[11px] font-semibold tabular-nums text-foreground">{displayValue}</span>
                   </div>
                   <div className="h-2 w-full overflow-hidden rounded-full bg-muted/60">

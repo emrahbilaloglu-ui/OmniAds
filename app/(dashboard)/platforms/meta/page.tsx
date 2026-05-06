@@ -63,7 +63,6 @@ import {
   type MetaAnalysisRunRange,
 } from "@/lib/meta/analysis-state";
 import { buildMetaCampaignLaneSignals } from "@/lib/meta/campaign-lanes";
-import { buildMetaCampaignOperatorLookup } from "@/lib/meta/operator-surface";
 import { ProviderReadinessIndicator } from "@/components/sync/provider-readiness-indicator";
 import {
   SyncStatusPill,
@@ -84,7 +83,6 @@ import {
   formatMetaDate,
 } from "@/lib/meta/ui";
 import { getMetaPresetDates } from "@/lib/meta/date";
-import type { MetaDecisionOsV1Response } from "@/lib/meta/decision-os";
 
 // ── Data fetchers ─────────────────────────────────────────────────────────────
 
@@ -124,24 +122,6 @@ async function fetchMetaRecommendations(
     throw new Error(payload?.message ?? `Request failed (${res.status})`);
   }
   return payload as MetaRecommendationsResponse;
-}
-
-async function fetchMetaDecisionOs(
-  businessId: string,
-  startDate: string,
-  endDate: string
-): Promise<MetaDecisionOsV1Response | null> {
-  const params = new URLSearchParams({ businessId, startDate, endDate });
-  const res = await fetch(`/api/meta/decision-os?${params.toString()}`, {
-    headers: { Accept: "application/json" },
-    cache: "no-store",
-  });
-  if (res.status === 404) return null;
-  const payload = await res.json().catch(() => null);
-  if (!res.ok) {
-    throw new Error(payload?.message ?? `Request failed (${res.status})`);
-  }
-  return payload as MetaDecisionOsV1Response;
 }
 
 async function fetchMetaSummary(
@@ -734,15 +714,7 @@ export default function MetaPage() {
     queryFn: () => fetchMetaRecommendations(businessId, startDate!, endDate!),
   });
 
-  const decisionOsQuery = useQuery({
-    queryKey: ["meta-decision-os", businessId, startDate, endDate],
-    enabled: false,
-    staleTime: 60 * 1000,
-    refetchOnWindowFocus: false,
-    queryFn: () => fetchMetaDecisionOs(businessId, startDate!, endDate!),
-  });
-  const isAnalysisRunning =
-    recommendationsQuery.isFetching || decisionOsQuery.isFetching;
+  const isAnalysisRunning = recommendationsQuery.isFetching;
   const analysisStatus = useMemo(
     () =>
       deriveMetaAnalysisStatus({
@@ -752,17 +724,11 @@ export default function MetaPage() {
         recommendationsData: recommendationsQuery.data,
         recommendationsError: recommendationsError ?? recommendationsQuery.error,
         recommendationsIsFetching: recommendationsQuery.isFetching,
-        decisionOsData: decisionOsQuery.data,
-        decisionOsError: decisionOsQuery.error,
-        decisionOsIsFetching: decisionOsQuery.isFetching,
         lastAnalyzedAt,
         lastAnalyzedRange,
       }),
     [
       businessId,
-      decisionOsQuery.data,
-      decisionOsQuery.error,
-      decisionOsQuery.isFetching,
       endDate,
       lastAnalyzedAt,
       lastAnalyzedRange,
@@ -807,19 +773,14 @@ export default function MetaPage() {
     const runRange = { businessId, startDate, endDate };
     setRecommendationsError(null);
     let recommendationsResult: Awaited<ReturnType<typeof recommendationsQuery.refetch>>;
-    let decisionOsResult: Awaited<ReturnType<typeof decisionOsQuery.refetch>>;
     try {
-      [recommendationsResult, decisionOsResult] = await Promise.all([
-        recommendationsQuery.refetch(),
-        decisionOsQuery.refetch(),
-      ]);
+      recommendationsResult = await recommendationsQuery.refetch();
     } catch {
       setRecommendationsError(META_ANALYSIS_SAFE_ERROR_MESSAGE);
       return;
     }
     const hasUsableAnalysis = didMetaAnalysisRefetchProduceUsableData({
       recommendationsResult,
-      decisionOsResult,
       expectedRange: runRange,
     });
     if (!hasUsableAnalysis) {
@@ -1165,11 +1126,6 @@ export default function MetaPage() {
     selectedCampaignId,
     recommendationsQuery.data?.recommendations,
   ]);
-  const campaignOperatorSummaries = useMemo(
-    () => buildMetaCampaignOperatorLookup(decisionOsQuery.data),
-    [decisionOsQuery.data],
-  );
-
   return (
     <PlanGate requiredPlan="growth">
     <div className="space-y-5">
@@ -1422,7 +1378,6 @@ export default function MetaPage() {
                         campaigns={campaignRowsForTable}
                         selectedId={selectedCampaignId}
                         onSelect={setSelectedCampaignId}
-                        campaignOperatorSummaries={campaignOperatorSummaries}
                       />
                     </div>
                   </div>
@@ -1435,9 +1390,7 @@ export default function MetaPage() {
                   <MetaCampaignDetail
                     campaign={selectedCampaign}
                     recommendationsData={recommendationsQuery.data}
-                    decisionOsData={decisionOsQuery.data}
                     analysisStatus={analysisStatus}
-                    isDecisionOsLoading={decisionOsQuery.isFetching}
                     isRecsLoading={recommendationsQuery.isFetching}
                     lastAnalyzedAt={lastAnalyzedAt}
                     recommendationsError={recommendationsError}

@@ -622,7 +622,6 @@ function AssetFrame({
 
   return (
     <div ref={frameRef} className={frameClass}>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         key={imageKey ?? src}
         src={src}

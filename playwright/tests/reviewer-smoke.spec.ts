@@ -68,7 +68,7 @@ async function runMetaAnalysis(page: import("@playwright/test").Page) {
   });
 }
 
-test("reviewer smoke covers Meta recommendations and creative decision surfaces", async ({ page }, testInfo) => {
+test("reviewer smoke covers Meta recommendations and creative dashboard", async ({ page }, testInfo) => {
   await page.goto("/platforms/meta");
   await page.getByText("Loading campaign performance").waitFor({ state: "hidden", timeout: 45_000 }).catch(() => {});
 
@@ -127,78 +127,39 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   await page.screenshot({ path: testInfo.outputPath("command-center-reviewer.png"), fullPage: true });
 
   await page.goto("/creatives");
+  await expect(page.getByRole("heading", { name: "Creatives", exact: true })).toBeVisible();
+  await expect(page.getByText("Top Creatives").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add filter" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Export", exact: true })).toBeVisible();
+  await expect(page.getByText("Spend").first()).toBeVisible();
+  await expect(page.getByText("Purchase value").first()).toBeVisible();
+  await expect(page.getByText("ROAS (return on ad spend)").first()).toBeVisible();
+  await expect(page.getByText("Cost per purchase").first()).toBeVisible();
+  await expect(page.getByText("Link CTR").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Table settings" })).toBeVisible();
+  await expect(page.getByText("AI tags").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: /Decision/ })).toHaveCount(0);
+  await expect(page.getByText("Decision OS")).toHaveCount(0);
+  await expect(page.getByText("Decision Center")).toHaveCount(0);
+  await expect(page.getByText("Today Brief")).toHaveCount(0);
+  await expect(page.getByText("Action Board")).toHaveCount(0);
+  await expect(page.getByTestId("creative-decision-os-drawer")).toHaveCount(0);
+  await expect(page.getByTestId("creative-decision-os-overview")).toHaveCount(0);
   await expect(page.getByTestId("creative-preview-truth-contract")).toHaveCount(0);
   await expect(page.getByTestId("creative-quick-filters-panel")).toHaveCount(0);
   await expect(page.getByTestId("creative-quick-filters")).toHaveCount(0);
-
-  await page.getByRole("button", { name: "Decision support" }).click();
-  await expect(page.getByTestId("creative-decision-os-drawer")).toBeVisible();
-  await expect(page.getByTestId("creative-decision-os-drawer")).toContainText("Creative Decision Support");
-  await expect(page.getByTestId("creative-decision-os-drawer")).toContainText(
-    "The page worklist stays primary. This drawer is support for live-window decision context only.",
-  );
-  await expect(page.getByTestId("creative-preview-truth-contract")).toBeVisible();
-  await expect(page.getByTestId("creative-preview-truth-contract")).toContainText("Preview Truth Contract");
-  await expect(page.getByTestId("creative-preview-truth-contract")).toContainText(
-    "Ready preview media supports decisive action language. Degraded preview keeps review metrics-only. Missing preview blocks authoritative action.",
-  );
-  await expect(page.getByTestId("creative-decision-os-overview")).toBeVisible();
-  await expect(page.getByTestId("creative-preview-truth-summary")).toBeVisible();
-  await expect(page.getByTestId("creative-lifecycle-board")).toBeVisible();
-  await expect(page.getByTestId("creative-quick-filters-panel")).toBeVisible();
-  await expect(page.getByTestId("creative-family-board")).toBeVisible();
-  await expect(page.getByTestId("creative-pattern-board")).toBeVisible();
-  await expect(page.getByTestId("creative-protected-winners")).toBeVisible();
-  await expect(page.getByTestId("creative-supply-plan")).toBeVisible();
-  await expect(page.getByTestId("creative-historical-analysis")).toBeVisible();
-  await expect(page.getByTestId("creative-quick-filters")).toBeVisible();
-
-  const totalBeforeFilter = await page.locator('[data-testid^="creative-row-"]').count();
-  const firstQuickFilterWithRows = page.locator('[data-testid^="creative-quick-filter-"]:not([data-count="0"])').first();
-  if ((await firstQuickFilterWithRows.count()) > 0) {
-    await firstQuickFilterWithRows.scrollIntoViewIfNeeded();
-    await firstQuickFilterWithRows.focus();
-    await firstQuickFilterWithRows.press("Enter");
-    const totalAfterQuickFilter = await page.locator('[data-testid^="creative-row-"]').count();
-    expect(totalAfterQuickFilter).toBeGreaterThan(0);
-    expect(totalAfterQuickFilter).toBeLessThanOrEqual(totalBeforeFilter);
-    await page.getByLabel("Close Creative Decision OS").click();
-    await expect(page.getByText(/Quick filter:/)).toBeVisible();
-    await page.getByRole("button", { name: "Clear" }).click();
-  } else {
-    await page.getByLabel("Close Creative Decision OS").click();
-  }
 
   const creativeRows = page.locator('[data-testid^="creative-row-"]');
   await expect(creativeRows.first()).toBeVisible();
   await creativeRows.first().click();
   await expect(page).toHaveURL(/creative=/);
-
-  await expect(page.getByTestId("creative-detail-deterministic-decision")).toBeVisible();
-  await expect(page.getByTestId("creative-detail-deterministic-decision")).toContainText("Primary decision");
-  await expect(page.getByTestId("creative-detail-deterministic-decision")).toContainText("Queue status");
-  await expect(page.getByTestId("creative-detail-preview-truth")).toBeVisible();
-  await expect(page.getByTestId("creative-detail-preview-truth")).toContainText("Preview Truth Gate");
-  await expect(page.getByTestId("creative-detail-command-center")).toBeVisible();
-  await expect(page.getByTestId("creative-detail-deployment-matrix")).toBeVisible();
-  await expect(page.getByTestId("creative-detail-benchmark-evidence")).toBeVisible();
-  await expect(page.getByTestId("creative-detail-fatigue-evidence")).toBeVisible();
-  const commentarySection = page.getByTestId("creative-detail-ai-commentary");
-  await expect(commentarySection).toBeVisible();
-  await expect(commentarySection).toContainText("Support only");
-  const commentaryButton = commentarySection.getByRole("button", {
-    name: /Generate AI interpretation|Refresh interpretation/,
-  });
-  if (await commentaryButton.count()) {
-    await expect(commentarySection).toContainText(
-      "Support only. AI commentary does not change the deterministic decision.",
-    );
-    await commentaryButton.click();
-    await expect(commentarySection).toContainText(/Opportunities|Next actions|Risks|AI interpretation is temporarily unavailable/, {
-      timeout: 45_000,
-    });
-  } else {
-    await expect(commentarySection).toContainText(/AI interpretation stays disabled|AI interpretation is temporarily unavailable/);
-  }
+  await expect(page.getByTestId("creative-detail-performance")).toBeVisible();
+  await expect(page.getByTestId("creative-detail-deterministic-decision")).toHaveCount(0);
+  await expect(page.getByTestId("creative-detail-preview-truth")).toHaveCount(0);
+  await expect(page.getByTestId("creative-detail-command-center")).toHaveCount(0);
+  await expect(page.getByTestId("creative-detail-deployment-matrix")).toHaveCount(0);
+  await expect(page.getByTestId("creative-detail-benchmark-evidence")).toHaveCount(0);
+  await expect(page.getByTestId("creative-detail-fatigue-evidence")).toHaveCount(0);
+  await expect(page.getByTestId("creative-detail-ai-commentary")).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("creatives-smoke.png"), fullPage: true });
 });

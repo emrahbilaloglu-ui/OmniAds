@@ -9,10 +9,30 @@ import {
   type AppLanguage,
 } from "@/lib/i18n";
 import { resolveRequestLanguage } from "@/lib/request-language";
-import type { AiCreativeDecision, AiCreativeRuleReportPayload as CreativeRuleReportPayload } from "@/src/services";
 
 const MODEL = "gpt-5-nano";
 const AI_COMMENTARY_TIMEOUT_MS = 12_000;
+
+type CreativeAction = "scale_hard" | "scale" | "watch" | "test_more" | "pause" | "kill";
+
+interface CreativeRuleReportFactor {
+  label: string;
+  impact: "positive" | "negative" | "neutral";
+  value?: unknown;
+  reason: string;
+}
+
+interface CreativeRuleReportPayload {
+  creativeId: string;
+  creativeName: string;
+  action: CreativeAction;
+  score: number;
+  confidence: number;
+  summary: string;
+  accountContext: Record<string, unknown>;
+  factors: CreativeRuleReportFactor[];
+  [key: string]: unknown;
+}
 
 interface RequestPayload {
   businessId?: string;
@@ -176,7 +196,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   });
 }
 
-function isValidAction(action: unknown): action is AiCreativeDecision["action"] {
+function isValidAction(action: unknown): action is CreativeAction {
   return (
     action === "scale_hard" ||
     action === "scale" ||

@@ -226,70 +226,32 @@ async function captureCommandCenterHistoricalSignature(page: Page) {
   );
 }
 
-async function captureCreativeDecisionSignature(
-  page: Page,
-) {
-  const drawer = page.getByTestId("creative-decision-os-drawer");
-  const alreadyOpen = await drawer.isVisible().catch(() => false);
-  if (!alreadyOpen) {
-    await page.getByRole("button", { name: /Decision (support|OS)/i }).click();
-  }
-  await ensureCreativeDecisionOverview(page);
-  const drawerText = normalizeText(await drawer.textContent());
-  if ((await page.getByTestId("creative-decision-os-overview").count()) === 0) {
-    return {
-      overview: drawerText,
-      lifecycle: drawerText,
-      opportunityBoard: drawerText,
-    };
-  }
-  return {
-    overview: normalizeText(
-      await page.getByTestId("creative-decision-os-overview").textContent(),
-    ),
-    lifecycle: normalizeText(
-      await page.getByTestId("creative-lifecycle-board").textContent(),
-    ),
-    opportunityBoard: normalizeText(
-      await page.getByTestId("creative-opportunity-board").textContent(),
-    ),
-  };
-}
+async function expectCreativeDashboardWithoutDecisionUi(page: Page) {
+  await expect(page.getByRole("heading", { name: "Creatives", exact: true })).toBeVisible();
+  await expect(page.getByText("Top Creatives").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add filter" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Export", exact: true })).toBeVisible();
+  await expect(page.getByText("Spend").first()).toBeVisible();
+  await expect(page.getByText("Purchase value").first()).toBeVisible();
+  await expect(page.getByText("ROAS (return on ad spend)").first()).toBeVisible();
+  await expect(page.getByText("Cost per purchase").first()).toBeVisible();
+  await expect(page.getByText("Link CTR").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Table settings" })).toBeVisible();
+  await expect(page.getByText("AI tags").first()).toBeVisible();
 
-async function ensureCreativeDecisionOverview(page: Page) {
-  const drawer = page.getByTestId("creative-decision-os-drawer");
-  await expect(drawer).toBeVisible();
-  if ((await page.getByTestId("creative-decision-os-overview").count()) === 0) {
-    const runButton = drawer.getByRole("button", {
-      name: /Run (Creative Analysis|analysis)/i,
-    });
-    if ((await runButton.count()) > 0) {
-      const decisionOsResponse = page.waitForResponse((response) =>
-        new URL(response.url()).pathname === "/api/creatives/decision-os" &&
-        response.request().method() === "GET",
-      );
-      await runButton.first().click();
-      const response = await decisionOsResponse;
-      expect(response.ok()).toBeTruthy();
-    }
-  }
-  const overview = page.getByTestId("creative-decision-os-overview");
-  if ((await overview.count()) > 0) {
-    await expect(overview).toBeVisible({ timeout: 60_000 });
-  } else {
-    await expect(drawer).toContainText("Portfolio Health", { timeout: 60_000 });
-  }
-}
+  await expect(page.getByRole("button", { name: /Decision/ })).toHaveCount(0);
+  await expect(page.getByText("Decision OS")).toHaveCount(0);
+  await expect(page.getByText("Decision Center")).toHaveCount(0);
+  await expect(page.getByText("Today Brief")).toHaveCount(0);
+  await expect(page.getByText("Action Board")).toHaveCount(0);
+  await expect(page.getByTestId("creative-decision-os-drawer")).toHaveCount(0);
+  await expect(page.getByTestId("creative-decision-os-overview")).toHaveCount(0);
+  await expect(page.getByTestId("creative-preview-truth-contract")).toHaveCount(0);
+  await expect(page.getByTestId("creative-quick-filters-panel")).toHaveCount(0);
+  await expect(page.getByTestId("creative-quick-filters")).toHaveCount(0);
 
-async function captureCreativeHistoricalSignature(page: Page) {
-  if ((await page.getByTestId("creative-historical-analysis").count()) === 0) {
-    return normalizeText(
-      await page.getByTestId("creative-decision-os-drawer").textContent(),
-    );
-  }
-  return normalizeText(
-    await page.getByTestId("creative-historical-analysis").textContent(),
-  );
+  const creativeRows = page.locator('[data-testid^="creative-row-"]');
+  await expect(creativeRows.first()).toBeVisible();
 }
 
 async function commandCenterViewCandidates(page: Page) {
@@ -402,7 +364,7 @@ test("commercial truth navigation relocation keeps Commercial Truth under Main a
   await expect(page.getByTestId("commercial-truth-settings")).toHaveCount(0);
 });
 
-test("commercial truth smoke covers the dedicated page, Meta operating mode, and Creative context", async ({ page }, testInfo) => {
+test("commercial truth smoke covers the dedicated page, Meta operating mode, and Creative dashboard", async ({ page }, testInfo) => {
   test.slow();
 
   await page.goto("/commercial-truth");
@@ -624,51 +586,26 @@ test("commercial truth smoke covers the dedicated page, Meta operating mode, and
   });
 
   await page.goto("/creatives");
-  await page.getByRole("button", { name: /Decision (support|OS)/i }).click();
-  await ensureCreativeDecisionOverview(page);
-  await expect(page.getByTestId("creative-decision-os-drawer")).toContainText("Creative System Intelligence");
-  await expect(page.getByTestId("creative-decision-os-drawer")).toContainText("Portfolio Health");
-  await expect(page.getByTestId("creative-decision-os-drawer")).toContainText("What's Working");
-  await page.getByLabel("Close Creative Decision OS").click();
-  let creativeBaseline: Awaited<ReturnType<typeof captureCreativeDecisionSignature>> | null = null;
-  let creativeHistoricalBaseline: string | null = null;
+  await expectCreativeDashboardWithoutDecisionUi(page);
   for (const range of BROWSER_DECISION_RANGES) {
     await setStoredDateRange(page, "creativeDateRange", range.creative);
     await page.reload({ waitUntil: "domcontentloaded" });
-    await page.getByRole("button", { name: /Decision (support|OS)/i }).click();
-    await ensureCreativeDecisionOverview(page);
-    const signature = await captureCreativeDecisionSignature(page);
-    const historicalSignature = await captureCreativeHistoricalSignature(page);
-    if (!creativeBaseline) {
-      creativeBaseline = signature;
-      creativeHistoricalBaseline = historicalSignature;
-    } else {
-      expect(signature).toEqual(creativeBaseline);
-      expect(typeof historicalSignature).toBe(typeof creativeHistoricalBaseline);
-    }
-    await page.getByLabel("Close Creative Decision OS").click();
+    await expectCreativeDashboardWithoutDecisionUi(page);
   }
-  expect(creativeBaseline).not.toBeNull();
-
-  await page.getByRole("button", { name: /Decision (support|OS)/i }).click();
-  await ensureCreativeDecisionOverview(page);
-  await page.getByLabel("Close Creative Decision OS").click();
 
   const creativeRows = page.locator('[data-testid^="creative-row-"]');
   await expect(creativeRows.first()).toBeVisible();
   await creativeRows.first().click();
 
-  await expect(page.getByTestId("creative-detail-deterministic-decision")).toBeVisible();
-  await expect(page.getByTestId("creative-detail-deterministic-decision")).toContainText("Primary decision");
-  await expect(page.getByTestId("creative-detail-preview-truth")).toBeVisible();
-  await expect(page.getByTestId("creative-detail-preview-truth")).toContainText("Preview Truth Gate");
-  await expect(page.getByTestId("creative-detail-command-center")).toBeVisible();
-  await expect(page.getByTestId("creative-detail-deployment-matrix")).toBeVisible();
-  await expect(page.getByTestId("creative-detail-benchmark-evidence")).toBeVisible();
-  await expect(page.getByTestId("creative-detail-fatigue-evidence")).toBeVisible();
-  await expect(page.getByTestId("creative-detail-commercial-context")).toBeVisible();
-  await expect(page.getByTestId("creative-detail-ai-commentary")).toBeVisible();
-  await expect(page.getByTestId("creative-detail-ai-commentary")).toContainText("Support only");
+  await expect(page.getByTestId("creative-detail-performance")).toBeVisible();
+  await expect(page.getByTestId("creative-detail-deterministic-decision")).toHaveCount(0);
+  await expect(page.getByTestId("creative-detail-preview-truth")).toHaveCount(0);
+  await expect(page.getByTestId("creative-detail-command-center")).toHaveCount(0);
+  await expect(page.getByTestId("creative-detail-deployment-matrix")).toHaveCount(0);
+  await expect(page.getByTestId("creative-detail-benchmark-evidence")).toHaveCount(0);
+  await expect(page.getByTestId("creative-detail-fatigue-evidence")).toHaveCount(0);
+  await expect(page.getByTestId("creative-detail-commercial-context")).toHaveCount(0);
+  await expect(page.getByTestId("creative-detail-ai-commentary")).toHaveCount(0);
   await page.screenshot({
     path: testInfo.outputPath("commercial-creative-context.png"),
     fullPage: true,

@@ -5,19 +5,7 @@ import { Trophy, ChevronDown, ChevronRight, X, Search, Plus, SlidersHorizontal, 
 import { createPortal } from "react-dom";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
-import { CreativeDecisionSupportSurface } from "@/components/creatives/CreativeDecisionSupportSurface";
-import {
-  buildCreativePreviewTruthSummary,
-  creativeOperatorReasonTagLabel,
-  creativeOperatorSegmentLabel,
-  creativeOperatorSubToneLabel,
-  creativeQuickFilterShortLabel,
-  resolveCreativeOperatorDecision,
-  type CreativePreviewTruthSummary,
-  type CreativeQuickFilter,
-  type CreativeQuickFilterKey,
-} from "@/lib/creative-operator-surface";
-import type { CreativeDecisionOsV1Response } from "@/lib/creative-decision-os";
+import { CreativeDecisionLabelBadge } from "@/components/creatives/CreativeDecisionLabelBadge";
 import {
   calculateCreativeAverageOrderValue,
   calculateCreativeClickToAddToCartRate,
@@ -62,6 +50,11 @@ import {
 import { DateRangePicker } from "@/components/date-range/DateRangePicker";
 import { cn } from "@/lib/utils";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
+import type {
+  DecisionLabel,
+  DecisionOutput,
+  EngineV3Flags,
+} from "@/lib/creative-decision-engine";
 import type { ReactNode } from "react";
 
 export type CreativeGroupBy = "adName" | "creative" | "copy" | "headline" | "landingPage" | "campaign" | "adSet";
@@ -112,15 +105,6 @@ export type CreativeFilterField =
   | "creativeDeliveryType"
   | "taxonomySource"
   | "isCatalog"
-  | "lifecycleState"
-  | "primaryAction"
-  | "operatorSegment"
-  | "operatorState"
-  | "pushReadiness"
-  | "surfaceLane"
-  | "familySource"
-  | "deploymentTargetLane"
-  | "deploymentCompatibilityStatus"
   | "namingConvention"
   | "customTags"
   | "assetType"
@@ -168,7 +152,6 @@ interface CreativesTopSectionProps {
   onCsvExport: () => void;
   title?: string;
   description?: string;
-  aiActions?: string[];
   groupByOptions?: Array<{ value: CreativeGroupBy; label: string }>;
   previewMode?: "media" | "copy";
   getPreviewCopyText?: (row: MetaCreativeRow) => string;
@@ -178,7 +161,6 @@ interface CreativesTopSectionProps {
   shareError?: string | null;
   csvError?: string | null;
   previewStripState?: "data_loading" | "ready" | "missing";
-  showAiActionsRow?: boolean;
   previewStripSummary?: {
     total: number;
     ready: number;
@@ -186,13 +168,11 @@ interface CreativesTopSectionProps {
     missing: number;
     minimumReady: number;
   };
+  v3Decisions?: DecisionOutput[] | null;
+  v3Flags?: EngineV3Flags | null;
+  filterBarSlot?: ReactNode;
   actionsPrefix?: ReactNode;
   belowToolbar?: ReactNode;
-  decisionOs?: CreativeDecisionOsV1Response | null;
-  quickFilters?: CreativeQuickFilter[];
-  activeQuickFilterKey?: CreativeQuickFilterKey | null;
-  onToggleQuickFilter?: (key: CreativeQuickFilterKey) => void;
-  showDecisionSupportSurface?: boolean;
 }
 
 const GROUP_BY_OPTIONS: Array<{ value: CreativeGroupBy; label: string }> = [
@@ -268,20 +248,6 @@ const FILTER_TREE: Array<{ label: string; children: Array<{ label: string; value
     ],
   },
   {
-    label: "Decision OS",
-    children: [
-      { label: "Lifecycle state", value: "lifecycleState" },
-      { label: "Primary action", value: "primaryAction" },
-      { label: "Operator segment", value: "operatorSegment" },
-      { label: "Operator state", value: "operatorState" },
-      { label: "Push readiness", value: "pushReadiness" },
-      { label: "Surface lane", value: "surfaceLane" },
-      { label: "Family source", value: "familySource" },
-      { label: "Deployment lane", value: "deploymentTargetLane" },
-      { label: "Compatibility status", value: "deploymentCompatibilityStatus" },
-    ],
-  },
-  {
     label: "AI tags",
     children: [
       { label: "Asset type", value: "assetType" },
@@ -307,14 +273,6 @@ const FILTER_TREE: Array<{ label: string; children: Array<{ label: string; value
   },
 ];
 
-const AI_ACTIONS = [
-  "Ask me anything",
-  "Find scaling opportunities",
-  "What's working and what's not",
-  "Prep me for my team review",
-  "Analyze this report",
-];
-
 const PRESET_OPTIONS: Array<{ value: CreativeDatePreset; label: string }> = [
   { value: "today", label: "Today" },
   { value: "yesterday", label: "Yesterday" },
@@ -332,62 +290,6 @@ const PRESET_OPTIONS: Array<{ value: CreativeDatePreset; label: string }> = [
 ];
 
 const METRIC_COLOR_TOKENS = ["bg-blue-100 text-blue-700", "bg-emerald-100 text-emerald-700", "bg-amber-100 text-amber-700", "bg-rose-100 text-rose-700", "bg-cyan-100 text-cyan-700", "bg-indigo-100 text-indigo-700"];
-
-function performanceFilterToneClasses(filter: CreativeQuickFilter, active: boolean) {
-  if (filter.tone === "act_now") {
-    return active
-      ? {
-          button: "border-emerald-700 bg-emerald-600 text-white shadow-sm",
-          count: "bg-white/20 text-white",
-        }
-      : {
-          button: "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
-          count: "bg-emerald-100 text-emerald-800",
-        };
-  }
-  if (filter.tone === "needs_truth") {
-    return active
-      ? {
-          button: "border-amber-700 bg-amber-600 text-white shadow-sm",
-          count: "bg-white/20 text-white",
-        }
-      : {
-          button: "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100",
-          count: "bg-amber-100 text-amber-800",
-        };
-  }
-  if (filter.tone === "watch") {
-    return active
-      ? {
-          button: "border-sky-700 bg-sky-600 text-white shadow-sm",
-          count: "bg-white/20 text-white",
-        }
-      : {
-          button: "border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100",
-          count: "bg-sky-100 text-sky-800",
-        };
-  }
-  if (filter.tone === "blocked") {
-    return active
-      ? {
-          button: "border-orange-700 bg-orange-600 text-white shadow-sm",
-          count: "bg-white/20 text-white",
-        }
-      : {
-          button: "border-orange-200 bg-orange-50 text-orange-800 hover:bg-orange-100",
-          count: "bg-orange-100 text-orange-800",
-        };
-  }
-  return active
-    ? {
-        button: "border-slate-700 bg-slate-700 text-white shadow-sm",
-        count: "bg-white/20 text-white",
-      }
-    : {
-        button: "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100",
-        count: "bg-slate-200 text-slate-700",
-      };
-}
 
 const METRIC_DEFS: CreativeMetricDefinition[] = [
   { id: "spend", label: "Spend", direction: "neutral", format: fmtCurrency, getValue: (r) => r.spend },
@@ -522,7 +424,6 @@ export function CreativesTopSection({
   onCsvExport,
   title = "Top creatives",
   description = "This report shows your top performing creatives. Use this to quickly identify where you are spending money vs making money.",
-  aiActions = AI_ACTIONS,
   groupByOptions = GROUP_BY_OPTIONS,
   previewMode = "media",
   getPreviewCopyText,
@@ -532,30 +433,18 @@ export function CreativesTopSection({
   shareError = null,
   csvError = null,
   previewStripState = "ready",
-  showAiActionsRow = true,
   previewStripSummary,
+  v3Decisions = null,
+  v3Flags = null,
+  filterBarSlot,
   actionsPrefix,
   belowToolbar,
-  decisionOs,
-  quickFilters = [],
-  activeQuickFilterKey = null,
-  onToggleQuickFilter,
-  showDecisionSupportSurface = true,
 }: CreativesTopSectionProps) {
   const metricDefs = useMemo(
     () => selectedMetricIds.map((id) => CREATIVE_METRIC_MAP[id]).filter(Boolean) as CreativeMetricDefinition[],
     [selectedMetricIds]
   );
   const topRows = useMemo(() => selectedRows, [selectedRows]);
-  const selectedPreviewTruthSummary = useMemo(
-    () =>
-      topRows.length > 0
-        ? buildCreativePreviewTruthSummary(decisionOs ?? null, {
-            creativeIds: topRows.map((row) => row.id),
-          })
-        : null,
-    [decisionOs, topRows]
-  );
 
   return (
     <section>
@@ -594,77 +483,15 @@ export function CreativesTopSection({
             </div>
           ) : null}
 
-          <AddFilterDropdown
-            filters={filters}
-            rows={allRowsForHeatmap}
-            decisionOs={decisionOs ?? null}
-            onChange={onFiltersChange}
-          />
+	          <AddFilterDropdown
+	            filters={filters}
+	            rows={allRowsForHeatmap}
+	            onChange={onFiltersChange}
+	          />
 
-          {quickFilters.length > 0 && onToggleQuickFilter ? (
-            <div
-              className="flex flex-wrap items-center gap-2"
-              data-testid="creative-performance-filters"
-            >
-              <p
-                className="basis-full text-[11px] text-muted-foreground sm:basis-auto"
-                data-testid="creative-performance-filter-scope"
-              >
-                Counts follow the visible reporting set; row segments use the Decision OS window.
-              </p>
-              {quickFilters.map((filter) => {
-                const active = activeQuickFilterKey === filter.key;
-                const toneClasses = performanceFilterToneClasses(filter, active);
-                const scaleReviewRequired =
-                  filter.key === "scale"
-                    ? (filter.reviewOnlyCount ?? 0) + (filter.mutedCount ?? 0)
-                    : 0;
-                return (
-                  <button
-                    key={filter.key}
-                    type="button"
-                    onClick={() => onToggleQuickFilter(filter.key)}
-                    aria-label={`${creativeQuickFilterShortLabel(filter.key)}: ${filter.count.toLocaleString()} visible rows in the current reporting set${
-                      scaleReviewRequired > 0
-                        ? `, ${scaleReviewRequired.toLocaleString()} require review before scale action`
-                        : ""
-                    }`}
-                    data-count={filter.count}
-                    data-testid={`creative-performance-filter-${filter.key}`}
-                    className={cn(
-                      "inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-medium transition-colors",
-                      toneClasses.button,
-                    )}
-                  >
-                    <span>{creativeQuickFilterShortLabel(filter.key)}</span>
-                    {scaleReviewRequired > 0 ? (
-                      <span
-                        className={cn(
-                          "hidden rounded-full border px-1.5 py-0.5 text-[10px] font-semibold sm:inline-flex",
-                          active
-                            ? "border-white/30 bg-white/15 text-white"
-                            : "border-sky-200 bg-sky-50 text-sky-800",
-                        )}
-                        data-testid="creative-performance-filter-scale-review-required"
-                      >
-                        {scaleReviewRequired.toLocaleString()} review first
-                      </span>
-                    ) : null}
-                    <span
-                      className={cn(
-                        "inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
-                        toneClasses.count,
-                      )}
-                    >
-                      {filter.count.toLocaleString()}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
+          {filterBarSlot}
 
-          <div className="ml-auto flex items-center gap-2">
+	          <div className="ml-auto flex items-center gap-2">
             {actionsPrefix}
             <TopExportDropdown
               onShareExport={onShareExport}
@@ -679,37 +506,9 @@ export function CreativesTopSection({
         </div>
       </div>
 
-      {belowToolbar ? <div className="mt-4">{belowToolbar}</div> : null}
+	      {belowToolbar ? <div className="mt-4">{belowToolbar}</div> : null}
 
-      {showDecisionSupportSurface ? (
-        <CreativeDecisionSupportSurface
-          decisionOs={decisionOs}
-          allRows={allRowsForHeatmap}
-          selectedRows={topRows}
-          quickFilters={quickFilters}
-          activeQuickFilterKey={activeQuickFilterKey}
-          onToggleQuickFilter={onToggleQuickFilter}
-          className="mt-4"
-        />
-      ) : null}
-
-      {showAiActionsRow && (
-        <div className="mt-3 rounded-xl border bg-muted/20 px-3 py-2">
-          <div className="flex flex-wrap items-center gap-2">
-            {aiActions.map((action) => (
-              <button
-                key={action}
-                type="button"
-                className="rounded-full border border-border/60 bg-background/80 px-3 py-1.5 text-xs text-foreground/85 hover:bg-background"
-              >
-                {action}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* D — Selected creatives workspace */}
+	      {/* D — Selected creatives workspace */}
       <div className="mt-4 rounded-2xl border bg-card p-3">
         <div className="relative z-20 mb-3 flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
@@ -749,13 +548,13 @@ export function CreativesTopSection({
           benchmarkRows={benchmarkRows}
           defaultCurrency={defaultCurrency}
           onOpenRow={onOpenRow}
-          previewMode={previewMode}
+	          previewMode={previewMode}
           getPreviewCopyText={getPreviewCopyText}
           previewStripState={previewStripState}
           previewStripSummary={previewStripSummary}
-          previewTruthSummary={selectedPreviewTruthSummary}
-          decisionOs={decisionOs}
-        />
+          v3Decisions={v3Decisions}
+          v3Flags={v3Flags}
+	        />
       </div>
     </section>
   );
@@ -775,12 +574,10 @@ function CreativeDateRangePicker({ value, onChange }: { value: CreativeDateRange
 function AddFilterDropdown({
   filters,
   rows,
-  decisionOs,
   onChange,
 }: {
   filters: CreativeFilterRule[];
   rows: MetaCreativeRow[];
-  decisionOs: CreativeDecisionOsV1Response | null;
   onChange: (next: CreativeFilterRule[]) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -860,26 +657,6 @@ function AddFilterDropdown({
         return collect(rows.map((row) => row.taxonomySource ?? null));
       case "isCatalog":
         return ["true", "false"];
-      case "lifecycleState":
-        return collect(decisionOs?.creatives.map((creative) => creative.lifecycleState) ?? []);
-      case "primaryAction":
-        return collect(decisionOs?.creatives.map((creative) => creative.primaryAction) ?? []);
-      case "operatorSegment":
-        return collect(decisionOs?.creatives.map((creative) => creative.operatorPolicy?.segment ?? null) ?? []);
-      case "operatorState":
-        return collect(decisionOs?.creatives.map((creative) => creative.operatorPolicy?.state ?? null) ?? []);
-      case "pushReadiness":
-        return collect(decisionOs?.creatives.map((creative) => creative.operatorPolicy?.pushReadiness ?? null) ?? []);
-      case "surfaceLane":
-        return collect(decisionOs?.creatives.map((creative) => creative.trust.surfaceLane) ?? []);
-      case "familySource":
-        return collect(decisionOs?.creatives.map((creative) => creative.familySource) ?? []);
-      case "deploymentTargetLane":
-        return collect(decisionOs?.creatives.map((creative) => creative.deployment.targetLane) ?? []);
-      case "deploymentCompatibilityStatus":
-        return collect(
-          decisionOs?.creatives.map((creative) => creative.deployment.compatibility.status) ?? [],
-        );
       case "assetType":
       case "visualFormat":
       case "intendedAudience":
@@ -892,7 +669,7 @@ function AddFilterDropdown({
       default:
         return collect(rows.flatMap((row) => row.tags ?? []));
     }
-  }, [decisionOs, field, rows]);
+  }, [field, rows]);
 
   const filteredSuggestions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -1044,9 +821,9 @@ function AddFilterDropdown({
               </div>
             ) : null}
 
-            <div className="mt-2 rounded-2xl border bg-slate-50/80 px-3 py-2 text-[11px] text-slate-600">
-              Decision OS filters are deterministic. AI tag filters use tag values only and do not rewrite taxonomy.
-            </div>
+	            <div className="mt-2 rounded-2xl border bg-slate-50/80 px-3 py-2 text-[11px] text-slate-600">
+	              AI tag filters use tag values only and do not rewrite taxonomy.
+	            </div>
           </div>
         )}
       </div>
@@ -1341,8 +1118,8 @@ function PreviewStrip({
   getPreviewCopyText,
   previewStripState = "ready",
   previewStripSummary,
-  previewTruthSummary,
-  decisionOs,
+  v3Decisions = null,
+  v3Flags = null,
 }: {
   businessId?: string;
   rows: MetaCreativeRow[];
@@ -1361,8 +1138,8 @@ function PreviewStrip({
     missing: number;
     minimumReady: number;
   };
-  previewTruthSummary?: CreativePreviewTruthSummary | null;
-  decisionOs?: CreativeDecisionOsV1Response | null;
+  v3Decisions?: DecisionOutput[] | null;
+  v3Flags?: EngineV3Flags | null;
 }) {
   const context = useMemo<CreativeMetricContext>(
     () => ({
@@ -1390,6 +1167,13 @@ function PreviewStrip({
   const [unlockedPreviewCount, setUnlockedPreviewCount] = useState(
     previewMode === "media" && rows.length > 0 ? 1 : rows.length
   );
+  const v3SurfaceVisible = Boolean(v3Flags?.enabled && v3Flags.surfaceVisible);
+  const decisionLabelByCreativeId = useMemo(() => {
+    if (!v3Decisions) return new Map<string, DecisionLabel>();
+    return new Map(
+      v3Decisions.map((decision) => [decision.creativeId, decision.label]),
+    );
+  }, [v3Decisions]);
   const previewGridRef = useRef<HTMLDivElement | null>(null);
   const previewCardMinWidth = previewMode === "copy" ? 280 : 190;
   const previewGridGap = 12;
@@ -1446,22 +1230,6 @@ function PreviewStrip({
   const visiblePreviewCardCount = previewColumnCount * visiblePreviewRowCount;
   const visibleRows = rows.slice(0, visiblePreviewCardCount);
   const hasMoreRows = rows.length > visiblePreviewCardCount;
-  const operatorSegmentByCreativeId = useMemo(() => {
-    const map = new Map<
-      string,
-      { primary: string; subTone: string | null; reasons: string[] }
-    >();
-    for (const creative of decisionOs?.creatives ?? []) {
-      const decision = resolveCreativeOperatorDecision(creative);
-      map.set(creative.creativeId, {
-        primary: creativeOperatorSegmentLabel(creative),
-        subTone: creativeOperatorSubToneLabel(decision.subTone),
-        reasons: decision.reasons.map(creativeOperatorReasonTagLabel),
-      });
-    }
-    return map;
-  }, [decisionOs]);
-
   if (previewStripState === "data_loading") {
     return (
       <div
@@ -1490,11 +1258,9 @@ function PreviewStrip({
   if (previewStripState === "missing") {
     return (
       <div className="rounded-xl border border-dashed bg-muted/10 px-4 py-5">
-        <p className="text-sm font-medium text-foreground">Preview truth blocks clean review for this selection</p>
+        <p className="text-sm font-medium text-foreground">Previews unavailable for this selection</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          {previewTruthSummary
-            ? `${previewTruthSummary.readyCount} ready · ${previewTruthSummary.degradedCount} degraded · ${previewTruthSummary.missingCount} missing. Missing preview truth blocks authoritative review until Meta returns usable media.`
-            : previewStripSummary?.total === 0
+          {previewStripSummary?.total === 0
               ? "No creatives are available for the selected range yet, so preview cards cannot be prepared."
               : previewStripSummary?.missing
                 ? `${previewStripSummary.missing} selected creatives do not have a usable preview from Meta right now.`
@@ -1525,6 +1291,10 @@ function PreviewStrip({
           const assetState = getCreativeStaticPreviewState(row, "grid");
           const resolvedRowCurrency = resolveCreativeCurrency(row.currency, defaultCurrency);
           const shouldUnlockPreview = previewMode !== "media" || index < unlockedPreviewCount;
+          // Row ids can be grouped UI ids; v3 decisions are keyed by Meta creative id.
+          const decisionLabel = v3SurfaceVisible
+            ? decisionLabelByCreativeId.get(row.creativeId) ?? null
+            : null;
           const creativeTypeLabel = getCreativeFormatSummaryLabel({
             creative_delivery_type: row.creativeDeliveryType,
             creative_visual_format: row.creativeVisualFormat,
@@ -1534,7 +1304,6 @@ function PreviewStrip({
             creative_secondary_label: row.creativeSecondaryLabel,
             taxonomy_source: row.taxonomySource ?? null,
           });
-          const operatorDecision = operatorSegmentByCreativeId.get(row.id) ?? null;
           return (
             <button
               key={row.id}
@@ -1569,40 +1338,18 @@ function PreviewStrip({
                       {creativeTypeLabel}
                     </span>
                   ) : null}
-                  {operatorDecision ? (
-                    <span
-                      className="pointer-events-none absolute right-2 top-2 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-slate-900 shadow-sm backdrop-blur-sm"
-                      data-testid="creative-preview-card-operator-segment"
-                    >
-                      {operatorDecision.primary}
-                    </span>
+                  {decisionLabel ? (
+                    <CreativeDecisionLabelBadge
+                      label={decisionLabel}
+                      className="absolute right-1.5 top-1.5 z-10"
+                    />
                   ) : null}
-                </div>
-              )}
+	                </div>
+	              )}
 
-              <div className="px-3 pb-3 pt-2.5">
-                <p className="line-clamp-2 text-[12px] font-semibold leading-4">{row.name}</p>
-                {operatorDecision ? (
-                  <div className="mt-1 flex flex-wrap gap-1.5">
-                    <span className="text-[11px] font-semibold text-slate-800">
-                      {operatorDecision.primary}
-                    </span>
-                    {operatorDecision.subTone ? (
-                      <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
-                        {operatorDecision.subTone}
-                      </span>
-                    ) : null}
-                    {operatorDecision.reasons.slice(0, 2).map((reason) => (
-                      <span
-                        key={`${row.id}:${reason}`}
-                        className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600"
-                      >
-                        {reason}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-                <div className="mt-2 space-y-0.5">
+	              <div className="px-3 pb-3 pt-2.5">
+	                <p className="line-clamp-2 text-[12px] font-semibold leading-4">{row.name}</p>
+	                <div className="mt-2 space-y-0.5">
                   {metrics.map((metric) => {
                     const value = metric.getValue(row, context);
                     const evaluation = evaluateCreativeMetricPreviewHeat({

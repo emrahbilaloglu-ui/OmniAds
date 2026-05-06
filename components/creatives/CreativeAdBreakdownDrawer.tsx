@@ -1,33 +1,23 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { X, Plus, Search, Settings2 } from "lucide-react";
+import { Check, ChevronRight, Copy, ExternalLink, MousePointer2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { resolveCreativeCurrency } from "@/components/creatives/money";
-import { MetaCreativeRow } from "@/components/creatives/metricConfig";
+import { formatMoney, resolveCreativeCurrency } from "@/components/creatives/money";
+import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
+import type { DecisionOutput } from "@/lib/creative-decision-engine";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
+import { CreativeDecisionLabelBadge } from "@/components/creatives/CreativeDecisionLabelBadge";
 import {
   aggregateBreakdownRows,
   buildCreativeAssetFallbacks,
-  BREAKDOWN_METRICS,
   DEFAULT_DRAWER_WIDTH,
-  DEFAULT_METRIC_KEYS,
-  fmtMetricValue,
-  getActiveBreakdownMetrics,
-  getCreativeAssetState,
   getAssociatedAdsCount,
-  METRIC_CATEGORIES,
-  METRIC_MAP,
-  metricHeatBg,
+  getCreativeAssetState,
   MIN_DRAWER_WIDTH,
-  resolveMetricExtremes,
   sortBreakdownRows,
-  type BreakdownMetricDef,
   type BreakdownRow,
   type ChartMetric,
-  type MetricCategory,
-  type MetricDirection,
-  type MetricFormat,
 } from "@/components/creatives/creative-ad-breakdown-support";
 import {
   CreativeDrawerHeader,
@@ -35,9 +25,7 @@ import {
   CreativeSummaryCards,
 } from "@/components/creatives/creative-ad-breakdown-sections";
 
-/* ═══════════════════════════════════════════════════════════════
-   Types
-   ═══════════════════════════════════════════════════════════════ */
+type PlacementSortKey = "spend" | "roas" | "purchases" | "age";
 
 type CreativeAdBreakdownDrawerProps = {
   open: boolean;
@@ -45,12 +33,46 @@ type CreativeAdBreakdownDrawerProps = {
   rows: MetaCreativeRow[];
   loading?: boolean;
   defaultCurrency: string | null;
+  decisionsByCreativeId?: Map<string, DecisionOutput>;
+  onOpenPlacement?: (row: MetaCreativeRow) => void;
   onOpenChange: (open: boolean) => void;
 };
 
-/* ═══════════════════════════════════════════════════════════════
-   Main Drawer
-   ═══════════════════════════════════════════════════════════════ */
+const SORT_OPTIONS: Array<{ value: PlacementSortKey; label: string }> = [
+  { value: "spend", label: "Spend" },
+  { value: "roas", label: "ROAS" },
+  { value: "purchases", label: "Purchases" },
+  { value: "age", label: "Age" },
+];
+
+export const COPY_FEEDBACK_MS = 1_500;
+
+export function getPlacementCopyState(copyValue: string, copiedValue: string | null) {
+  const copied = copiedValue === copyValue;
+  return {
+    copied,
+    label: copied ? "Copied" : "Copy",
+  };
+}
+
+type CopiedSetter = (
+  value: string | null | ((current: string | null) => string | null),
+) => void;
+
+export function handlePlacementCopy(
+  value: string,
+  setCopiedValue: CopiedSetter,
+  writeText: ((value: string) => Promise<void>) | undefined =
+    typeof navigator === "undefined"
+      ? undefined
+      : navigator.clipboard?.writeText?.bind(navigator.clipboard),
+) {
+  void writeText?.(value);
+  setCopiedValue(value);
+  globalThis.setTimeout(() => {
+    setCopiedValue((current) => (current === value ? null : current));
+  }, COPY_FEEDBACK_MS);
+}
 
 export function CreativeAdBreakdownDrawer({
   open,
@@ -58,23 +80,30 @@ export function CreativeAdBreakdownDrawer({
   rows,
   loading = false,
   defaultCurrency,
+  decisionsByCreativeId,
+  onOpenPlacement,
   onOpenChange,
 }: CreativeAdBreakdownDrawerProps) {
   const [width, setWidth] = useState(DEFAULT_DRAWER_WIDTH);
-  const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [chartMetric, setChartMetric] = useState<ChartMetric>("spend");
-  const [activeMetricKeys, setActiveMetricKeys] = useState<string[]>(DEFAULT_METRIC_KEYS);
+  const [sortKey, setSortKey] = useState<PlacementSortKey>("spend");
+  const [copiedValue, setCopiedValue] = useState<string | null>(null);
+  const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const breakdownRows = rows as BreakdownRow[];
-  const sortedRows = useMemo(() => [...breakdownRows].sort((a, b) => b.spend - a.spend), [breakdownRows]);
-  const orderedRows = useMemo(() => sortBreakdownRows(breakdownRows, "spend", "desc"), [breakdownRows]);
-  const associatedAdsCount = useMemo(() => getAssociatedAdsCount(creative, breakdownRows), [creative, breakdownRows]);
-
+  const sortedRows = useMemo(
+    () => sortPlacementRows(breakdownRows, sortKey),
+    [breakdownRows, sortKey],
+  );
+  const aggregated = useMemo(() => aggregateBreakdownRows(breakdownRows), [breakdownRows]);
+  const weightedCtr = useMemo(() => calculateWeightedCtr(breakdownRows), [breakdownRows]);
+  const lifetimeAdsCount = useMemo(
+    () => getAssociatedAdsCount(creative, breakdownRows),
+    [breakdownRows, creative],
+  );
   const currency = resolveCreativeCurrency(creative?.currency, defaultCurrency);
+  const assetFallbacks = buildCreativeAssetFallbacks(creative);
 
-  const aggregated = useMemo(() => aggregateBreakdownRows(orderedRows), [orderedRows]);
-
-  // Resize handling
   useEffect(() => {
     if (!open) return;
     const onMouseMove = (event: MouseEvent) => {
@@ -84,7 +113,9 @@ export function CreativeAdBreakdownDrawer({
       const viewportMax = typeof window !== "undefined" ? Math.max(640, window.innerWidth - 180) : 1280;
       setWidth(Math.max(MIN_DRAWER_WIDTH, Math.min(viewportMax, active.startWidth + delta)));
     };
-    const onMouseUp = () => { resizeStateRef.current = null; };
+    const onMouseUp = () => {
+      resizeStateRef.current = null;
+    };
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
     return () => {
@@ -93,7 +124,6 @@ export function CreativeAdBreakdownDrawer({
     };
   }, [open]);
 
-  // Escape key
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -105,20 +135,20 @@ export function CreativeAdBreakdownDrawer({
 
   if (!open) return null;
 
-  const assetFallbacks = buildCreativeAssetFallbacks(creative);
+  const singlePlacement = !loading && sortedRows.length <= 1;
 
   return (
     <div className="fixed inset-0 z-[70]">
       <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={() => onOpenChange(false)} />
 
       <aside
-        className="absolute right-0 top-0 h-full border-l bg-background shadow-2xl"
+        className="absolute right-0 top-0 h-full border-l border-slate-200 bg-slate-50 shadow-2xl"
         style={{ width }}
       >
         <button
           type="button"
           aria-label="Resize drawer"
-          className="absolute left-0 top-0 h-full w-1.5 cursor-col-resize bg-transparent hover:bg-primary/20 transition-colors"
+          className="absolute left-0 top-0 h-full w-1.5 cursor-col-resize bg-transparent transition-colors hover:bg-primary/20"
           onMouseDown={(event) => {
             event.preventDefault();
             resizeStateRef.current = { startX: event.clientX, startWidth: width };
@@ -128,7 +158,12 @@ export function CreativeAdBreakdownDrawer({
         <div className="flex h-full flex-col">
           <CreativeDrawerHeader
             creative={creative}
-            associatedAdsCount={associatedAdsCount}
+            windowAdsCount={sortedRows.length}
+            lifetimeAdsCount={lifetimeAdsCount}
+            totalSpend={aggregated.totalSpend}
+            weightedRoas={aggregated.avgRoas}
+            currency={currency}
+            defaultCurrency={defaultCurrency}
             assetFallbacks={assetFallbacks}
             onClose={() => onOpenChange(false)}
           />
@@ -137,10 +172,10 @@ export function CreativeAdBreakdownDrawer({
             <div className="space-y-4 p-5">
               <CreativeSummaryCards
                 totalSpend={aggregated.totalSpend}
-                avgRoas={aggregated.avgRoas}
+                weightedRoas={aggregated.avgRoas}
                 totalPurchases={aggregated.totalPurchases}
-                avgCpa={aggregated.avgCpa}
-                adsCount={associatedAdsCount}
+                weightedCtr={weightedCtr}
+                adsCount={sortedRows.length}
                 currency={currency}
                 defaultCurrency={defaultCurrency}
               />
@@ -153,14 +188,54 @@ export function CreativeAdBreakdownDrawer({
                 defaultCurrency={defaultCurrency}
               />
 
-              <CreativeBreakdownTable
-                rows={orderedRows}
-                loading={loading}
-                currency={currency}
-                defaultCurrency={defaultCurrency}
-                activeMetricKeys={activeMetricKeys}
-                onActiveMetricKeysChange={setActiveMetricKeys}
-              />
+              <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-950">Placements</h4>
+                    <p className="text-xs text-slate-500">
+                      {loading ? "Loading placements" : `${sortedRows.length} ad placements in this range`}
+                    </p>
+                  </div>
+                  <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
+                    Sort by
+                    <select
+                      value={sortKey}
+                      onChange={(event) => setSortKey(event.target.value as PlacementSortKey)}
+                      className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-900 shadow-sm outline-none focus:border-slate-400"
+                    >
+                      {SORT_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <div className="space-y-3 p-3">
+                  {loading ? (
+                    <LoadingPlacements />
+                  ) : singlePlacement ? (
+                    <SinglePlacementState
+                      row={sortedRows[0] ?? creative}
+                      onOpenPlacement={onOpenPlacement}
+                    />
+                  ) : (
+                    sortedRows.map((row) => (
+                      <PlacementCard
+                        key={row.id}
+                        row={row}
+                        decision={decisionsByCreativeId?.get(row.creativeId) ?? null}
+                        currency={currency}
+                        defaultCurrency={defaultCurrency}
+                        copiedValue={copiedValue}
+                        onCopy={(value) => handlePlacementCopy(value, setCopiedValue)}
+                        onOpenPlacement={onOpenPlacement}
+                      />
+                    ))
+                  )}
+                </div>
+              </section>
             </div>
           </div>
         </div>
@@ -169,397 +244,245 @@ export function CreativeAdBreakdownDrawer({
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   METRIC SELECTOR PANEL
-   ═══════════════════════════════════════════════════════════════ */
-
-function MetricSelectorPanel({
-  activeKeys,
-  onToggle,
-  onClose,
+function PlacementCard({
+  row,
+  decision,
+  currency,
+  defaultCurrency,
+  onOpenPlacement,
+  copiedValue,
+  onCopy,
 }: {
-  activeKeys: Set<string>;
-  onToggle: (key: string) => void;
-  onClose: () => void;
+  row: MetaCreativeRow;
+  decision: DecisionOutput | null;
+  currency: string | null;
+  defaultCurrency: string | null;
+  onOpenPlacement?: (row: MetaCreativeRow) => void;
+  copiedValue: string | null;
+  onCopy: (value: string) => void;
 }) {
-  const [search, setSearch] = useState("");
-  const panelRef = useRef<HTMLDivElement>(null);
+  const campaignName = row.campaignName?.trim() || "Unknown campaign";
+  const adSetName = row.adSetName?.trim() || "Unknown ad set";
+  const daysActive = getDaysActive(row.launchDate);
+  const belowBreakeven = decision?.badges.find((badge) => badge.type === "below_breakeven") ?? null;
+  const copyValue = row.realAdId?.trim() || row.id;
+  const copyState = getPlacementCopyState(copyValue, copiedValue);
+  const metaUrl = buildMetaAdsManagerUrl(row);
+  const assetFallbacks = buildCreativeAssetFallbacks(row);
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [onClose]);
-
-  const query = search.trim().toLowerCase();
+  const openPlacement = () => {
+    onOpenPlacement?.(row);
+  };
 
   return (
     <div
-      ref={panelRef}
-      className="absolute right-0 top-full z-50 mt-1 w-72 rounded-xl border bg-card shadow-xl"
+      role="button"
+      tabIndex={0}
+      onClick={openPlacement}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openPlacement();
+        }
+      }}
+      className="group rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-sm outline-none transition hover:border-slate-300 hover:shadow-md focus:border-slate-400"
+      data-placement-row-id={row.id}
     >
-      {/* Search */}
-      <div className="border-b px-3 py-2">
-        <div className="flex items-center gap-2 rounded-lg border bg-background px-2.5 py-1.5">
-          <Search className="h-3.5 w-3.5 text-muted-foreground" />
-          <input
-            type="text"
-            className="flex-1 bg-transparent text-[12px] outline-none placeholder:text-muted-foreground/60"
-            placeholder="Search metrics..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            autoFocus
+      <div className="flex gap-3">
+        <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
+          <CreativeRenderSurface
+            id={row.id}
+            name={row.name}
+            preview={row.preview}
+            size="thumb"
+            mode="asset"
+            assetState={getCreativeAssetState(row)}
+            assetFallbacks={assetFallbacks}
+            className="h-full w-full object-cover"
           />
         </div>
-      </div>
 
-      {/* Categories */}
-      <div className="max-h-72 overflow-y-auto p-2">
-        {METRIC_CATEGORIES.map((cat) => {
-          const metrics = BREAKDOWN_METRICS.filter(
-            (m) => m.category === cat.key && (!query || m.label.toLowerCase().includes(query) || m.shortLabel.toLowerCase().includes(query))
-          );
-          if (metrics.length === 0) return null;
-          return (
-            <div key={cat.key} className="mb-2 last:mb-0">
-              <p className="mb-1 px-1.5 text-[9px] font-semibold uppercase tracking-widest text-muted-foreground/70">
-                {cat.label}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="break-words text-sm font-semibold leading-snug text-slate-950">
+                {campaignName}
               </p>
-              {metrics.map((m) => {
-                const active = activeKeys.has(m.key);
-                return (
-                  <button
-                    key={m.key}
-                    type="button"
-                    onClick={() => onToggle(m.key)}
-                    className={cn(
-                      "flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-[12px] transition-colors",
-                      active ? "bg-primary/10 text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                    )}
-                  >
-                    <span className="truncate">{m.label}</span>
-                    {active && (
-                      <span className="ml-2 flex h-4 w-4 shrink-0 items-center justify-center rounded bg-primary text-[9px] font-bold text-primary-foreground">
-                        ✓
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
+                <span className="break-words">{adSetName}</span>
+                {row.effectiveStatus ? <StatusBadge status={row.effectiveStatus} /> : null}
+              </div>
             </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
-/* ═══════════════════════════════════════════════════════════════
-   TABLE CONTROLS BAR
-   ═══════════════════════════════════════════════════════════════ */
-
-function TableControlsBar({
-  activeMetricKeys,
-  onActiveMetricKeysChange,
-  density,
-  onDensityChange,
-}: {
-  activeMetricKeys: string[];
-  onActiveMetricKeysChange: (keys: string[]) => void;
-  density: "compact" | "normal";
-  onDensityChange: (d: "compact" | "normal") => void;
-}) {
-  const [showSelector, setShowSelector] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const settingsRef = useRef<HTMLDivElement>(null);
-  const activeKeySet = useMemo(() => new Set(activeMetricKeys), [activeMetricKeys]);
-
-  useEffect(() => {
-    if (!showSettings) return;
-    const handler = (e: MouseEvent) => {
-      if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) setShowSettings(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [showSettings]);
-
-  const toggleMetric = (key: string) => {
-    if (activeKeySet.has(key)) {
-      onActiveMetricKeysChange(activeMetricKeys.filter((k) => k !== key));
-    } else {
-      onActiveMetricKeysChange([...activeMetricKeys, key]);
-    }
-  };
-
-  const removeMetric = (key: string) => {
-    onActiveMetricKeysChange(activeMetricKeys.filter((k) => k !== key));
-  };
-
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {/* Active metric chips */}
-      {activeMetricKeys.map((key) => {
-        const def = METRIC_MAP.get(key);
-        if (!def) return null;
-        return (
-          <span
-            key={key}
-            className="group inline-flex items-center gap-1 rounded-lg border bg-muted/50 px-2 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-muted"
-          >
-            {def.shortLabel}
-            <button
-              type="button"
-              onClick={() => removeMetric(key)}
-              className="ml-0.5 rounded-sm opacity-50 transition-opacity hover:opacity-100"
-              aria-label={`Remove ${def.shortLabel}`}
-            >
-              <X className="h-2.5 w-2.5" />
-            </button>
-          </span>
-        );
-      })}
-
-      {/* Add metric button */}
-      <div className="relative">
-        <button
-          type="button"
-          onClick={() => { setShowSelector(!showSelector); setShowSettings(false); }}
-          className="inline-flex items-center gap-1 rounded-lg border border-dashed px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
-        >
-          <Plus className="h-3 w-3" />
-          Add metric
-        </button>
-        {showSelector && (
-          <MetricSelectorPanel
-            activeKeys={activeKeySet}
-            onToggle={toggleMetric}
-            onClose={() => setShowSelector(false)}
-          />
-        )}
-      </div>
-
-      {/* Settings */}
-      <div className="relative ml-auto" ref={settingsRef}>
-        <button
-          type="button"
-          onClick={() => { setShowSettings(!showSettings); setShowSelector(false); }}
-          className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          aria-label="Table settings"
-        >
-          <Settings2 className="h-3.5 w-3.5" />
-        </button>
-        {showSettings && (
-          <div className="absolute right-0 top-full z-50 mt-1 w-44 rounded-xl border bg-card p-2 shadow-xl">
-            <p className="mb-1 px-1.5 text-[9px] font-semibold uppercase tracking-widest text-muted-foreground/70">
-              Density
-            </p>
-            {(["compact", "normal"] as const).map((d) => (
-              <button
-                key={d}
-                type="button"
-                onClick={() => { onDensityChange(d); setShowSettings(false); }}
-                className={cn(
-                  "flex w-full rounded-lg px-2 py-1.5 text-[12px] capitalize transition-colors",
-                  density === d ? "bg-primary/10 font-medium text-foreground" : "text-muted-foreground hover:bg-muted"
-                )}
-              >
-                {d}
-              </button>
-            ))}
-            <div className="my-1.5 border-t" />
-            <button
-              type="button"
-              onClick={() => { onActiveMetricKeysChange(DEFAULT_METRIC_KEYS); setShowSettings(false); }}
-              className="flex w-full rounded-lg px-2 py-1.5 text-[12px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            >
-              Reset to defaults
-            </button>
+            <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+              {decision ? <CreativeDecisionLabelBadge label={decision.label} className="shadow-none" /> : null}
+              {belowBreakeven ? <BelowBreakevenBadge label={belowBreakeven.label} /> : null}
+              <ChevronRight className="mt-0.5 h-4 w-4 text-slate-400 transition group-hover:text-slate-700" />
+            </div>
           </div>
-        )}
+
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+            <MetricPill label="Spend" value={formatMoney(row.spend, currency, defaultCurrency)} />
+            <MetricPill label="Purchases" value={Math.round(row.purchases).toLocaleString()} />
+            <MetricPill label="ROAS" value={`${row.roas.toFixed(2)}x`} />
+            <MetricPill label="CTR" value={`${row.ctrAll.toFixed(2)}%`} />
+            <MetricPill
+              label="Freq"
+              value={typeof row.frequency === "number" ? row.frequency.toFixed(2) : "n/a"}
+            />
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <span className="font-mono text-[11px] text-slate-600">{copyValue}</span>
+            <button
+              type="button"
+              className="inline-flex min-w-[4.5rem] items-center justify-center gap-1 rounded-md border border-slate-200 px-1.5 py-0.5 text-[11px] font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+              onClick={(event) => {
+                event.stopPropagation();
+                onCopy(copyValue);
+              }}
+            >
+              {copyState.copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+              {copyState.label}
+            </button>
+            {metaUrl ? (
+              <a
+                href={metaUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-1.5 py-0.5 text-[11px] font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <ExternalLink className="h-3 w-3" />
+                Open in Meta Ads Manager
+              </a>
+            ) : null}
+            {daysActive !== null ? (
+              <span className="ml-auto font-mono text-[11px] text-slate-500">
+                {daysActive}d active
+              </span>
+            ) : null}
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   BREAKDOWN TABLE
-   ═══════════════════════════════════════════════════════════════ */
-
-function CreativeBreakdownTable({
-  rows,
-  loading,
-  currency,
-  defaultCurrency,
-  activeMetricKeys,
-  onActiveMetricKeysChange,
-}: {
-  rows: BreakdownRow[];
-  loading: boolean;
-  currency: string | null;
-  defaultCurrency: string | null;
-  activeMetricKeys: string[];
-  onActiveMetricKeysChange: (keys: string[]) => void;
-}) {
-  const [density, setDensity] = useState<"compact" | "normal">("compact");
-  const [sortKey, setSortKey] = useState<string | null>("spend");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-
-  const activeMetrics = useMemo(
-    () => getActiveBreakdownMetrics(activeMetricKeys),
-    [activeMetricKeys]
-  );
-
-  const metricExtremes = useMemo(() => resolveMetricExtremes(rows, activeMetrics), [activeMetrics, rows]);
-
-  const displayRows = useMemo(() => sortBreakdownRows(rows, sortKey, sortDir), [rows, sortKey, sortDir]);
-
-  const handleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
-    } else {
-      setSortKey(key);
-      setSortDir("desc");
-    }
-  };
-
-  const py = density === "compact" ? "py-1.5" : "py-2.5";
-  const totalCols = 1 + activeMetrics.length; // ad identity + metrics
-
+function MetricPill({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border bg-card shadow-sm">
-      {/* Table header bar */}
-      <div className="border-b px-4 py-3">
-        <div className="flex items-center justify-between mb-2.5">
-          <h4 className="text-[13px] font-semibold">Ad-level Breakdown</h4>
-          <span className="text-[11px] text-muted-foreground">{rows.length} ads</span>
-        </div>
-        <TableControlsBar
-          activeMetricKeys={activeMetricKeys}
-          onActiveMetricKeysChange={onActiveMetricKeysChange}
-          density={density}
-          onDensityChange={setDensity}
-        />
-      </div>
-
-      <div className="overflow-x-auto">
-        <table className="min-w-full border-separate border-spacing-0 text-[12px]">
-          <thead>
-            <tr className="bg-muted/20">
-              {/* Ad identity column */}
-              <th className="sticky left-0 z-10 min-w-[260px] max-w-[360px] border-b bg-muted/20 px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Ad
-              </th>
-              {/* Metric columns */}
-              {activeMetrics.map((m) => {
-                const isSorted = sortKey === m.key;
-                return (
-                  <th
-                    key={m.key}
-                    onClick={() => handleSort(m.key)}
-                    className={cn(
-                      "cursor-pointer select-none whitespace-nowrap border-b px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider transition-colors",
-                      isSorted ? "text-foreground" : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    <span className="inline-flex items-center gap-0.5">
-                      {m.shortLabel}
-                      {isSorted && (
-                        <span className="text-[8px]">{sortDir === "desc" ? "▼" : "▲"}</span>
-                      )}
-                    </span>
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
-
-          <tbody>
-            {loading && (
-              <tr>
-                <td colSpan={totalCols} className="py-12 text-center">
-                  <div className="flex flex-col items-center gap-2">
-                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                    <span className="text-[12px] text-muted-foreground">Loading breakdown...</span>
-                  </div>
-                </td>
-              </tr>
-            )}
-
-            {!loading && rows.length === 0 && (
-              <tr>
-                <td colSpan={totalCols} className="py-12 text-center text-muted-foreground">
-                  No ad-level rows found for this creative.
-                </td>
-              </tr>
-            )}
-
-            {!loading &&
-              displayRows.map((row, idx) => {
-                const campaignName = row.campaignName ?? row.campaign_name ?? null;
-                const adSetName = row.adSetName ?? row.ad_set_name ?? null;
-                const isLast = idx === displayRows.length - 1;
-                const borderClass = !isLast ? "border-b border-border/40" : "";
-
-                const assetFallbacks = buildCreativeAssetFallbacks(row);
-
-                return (
-                  <tr key={row.id} className="group transition-colors hover:bg-muted/15">
-                    {/* Ad identity — sticky */}
-                    <td className={cn("sticky left-0 z-10 min-w-[260px] max-w-[360px] bg-background px-3 py-2.5 transition-colors group-hover:bg-muted/15", borderClass)}>
-                      <div className="flex items-start gap-3">
-                        {/* Thumbnail */}
-                        <div className="mt-0.5 h-9 w-9 shrink-0 overflow-hidden rounded-lg border bg-muted/40">
-                          <CreativeRenderSurface
-                            id={row.id}
-                            name={row.name}
-                            preview={row.preview}
-                            size="thumb"
-                            mode="asset"
-                            assetState={getCreativeAssetState(row)}
-                            assetFallbacks={assetFallbacks}
-                            className="h-full w-full object-cover"
-                          />
-                        </div>
-                        <div className="min-w-0 flex-1 space-y-[2px]">
-                          <p className="text-sm font-medium text-foreground leading-tight break-words">{row.name}</p>
-                          {campaignName && (
-                            <p className="text-xs leading-tight text-muted-foreground break-words">{campaignName}</p>
-                          )}
-                          {adSetName && (
-                            <p className="text-xs leading-tight text-muted-foreground/80 break-words">{adSetName}</p>
-                          )}
-                          {!campaignName && !adSetName && row.launchDate && (
-                            <p className="text-xs text-muted-foreground">{row.launchDate}</p>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Metric cells */}
-                    {activeMetrics.map((m) => {
-                      const value = m.getValue(row);
-                      const extremes = metricExtremes.get(m.key) ?? { min: 0, max: 0 };
-                      const bg = metricHeatBg(value, extremes.min, extremes.max, m.direction);
-                      const formatted = fmtMetricValue(value, m.format, currency, defaultCurrency);
-
-                      return (
-                        <td
-                          key={m.key}
-                          className={cn("whitespace-nowrap px-3 text-right font-medium tabular-nums", py, borderClass)}
-                          style={{ backgroundColor: bg }}
-                        >
-                          {formatted}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
-          </tbody>
-        </table>
-      </div>
+    <div className="rounded-lg border border-slate-100 bg-slate-50 px-2 py-1.5">
+      <p className="text-[10px] font-semibold uppercase text-slate-500">{label}</p>
+      <p className="mt-0.5 font-mono text-xs font-semibold tabular-nums text-slate-950">{value}</p>
     </div>
   );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const normalized = status.toUpperCase();
+  const active = normalized === "ACTIVE";
+  return (
+    <span
+      className={cn(
+        "inline-flex rounded-full border px-1.5 py-0.5 font-mono text-[10px] font-semibold",
+        active
+          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+          : "border-slate-200 bg-slate-100 text-slate-600",
+      )}
+    >
+      {normalized}
+    </span>
+  );
+}
+
+function BelowBreakevenBadge({ label }: { label: string }) {
+  return (
+    <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+      {label || "Below breakeven"}
+    </span>
+  );
+}
+
+function SinglePlacementState({
+  row,
+  onOpenPlacement,
+}: {
+  row: MetaCreativeRow | null;
+  onOpenPlacement?: (row: MetaCreativeRow) => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center">
+      <MousePointer2 className="mx-auto h-5 w-5 text-slate-400" />
+      <p className="mt-3 text-sm font-semibold text-slate-900">
+        This creative runs in a single ad placement.
+      </p>
+      <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
+        Open the creative detail drawer for full evidence.
+      </p>
+      {row ? (
+        <button
+          type="button"
+          className="mt-4 rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800"
+          onClick={() => onOpenPlacement?.(row)}
+        >
+          Open creative detail
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function LoadingPlacements() {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: 3 }).map((_, index) => (
+        <div key={index} className="rounded-2xl border border-slate-200 bg-white p-3">
+          <div className="flex gap-3">
+            <div className="h-16 w-16 animate-pulse rounded-xl bg-slate-100" />
+            <div className="flex-1 space-y-2">
+              <div className="h-4 w-2/3 animate-pulse rounded bg-slate-100" />
+              <div className="h-3 w-1/2 animate-pulse rounded bg-slate-100" />
+              <div className="grid grid-cols-5 gap-2 pt-2">
+                {Array.from({ length: 5 }).map((__, metricIndex) => (
+                  <div key={metricIndex} className="h-10 animate-pulse rounded-lg bg-slate-100" />
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function sortPlacementRows(rows: BreakdownRow[], sortKey: PlacementSortKey) {
+  if (sortKey === "age") {
+    return [...rows].sort((a, b) => (getDaysActive(b.launchDate) ?? 0) - (getDaysActive(a.launchDate) ?? 0));
+  }
+  return sortBreakdownRows(rows, sortKey, "desc");
+}
+
+function calculateWeightedCtr(rows: BreakdownRow[]) {
+  const impressions = rows.reduce((total, row) => total + Math.max(0, row.impressions), 0);
+  if (impressions <= 0) return 0;
+  return rows.reduce((total, row) => total + row.ctrAll * Math.max(0, row.impressions), 0) / impressions;
+}
+
+function getDaysActive(launchDate: string | null | undefined) {
+  if (!launchDate) return null;
+  const parsed = new Date(`${launchDate.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const elapsed = Date.now() - parsed.getTime();
+  return Math.max(1, Math.floor(elapsed / 86_400_000) + 1);
+}
+
+export function buildMetaAdsManagerUrl(row: MetaCreativeRow) {
+  const accountId = row.accountId?.replace(/^act_/, "").trim() ?? null;
+  const adId = row.realAdId?.trim() || null;
+  if (!accountId || !adId) return null;
+  const params = new URLSearchParams({
+    act: accountId,
+    selected_ad_ids: adId,
+  });
+  return `https://adsmanager.facebook.com/adsmanager/manage/ads/edit?${params.toString()}`;
 }

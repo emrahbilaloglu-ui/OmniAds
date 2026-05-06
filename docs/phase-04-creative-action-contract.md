@@ -1,5 +1,7 @@
 # Phase 04 - Creative Action Contract
 
+Live release posture for this surface now lives in `docs/v3-01-release-authority.md` and `/api/release-authority`.
+
 ## Routes
 
 - `GET /api/creatives/decision-os?businessId&startDate&endDate`

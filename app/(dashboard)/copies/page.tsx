@@ -348,7 +348,6 @@ export default function CopiesPage() {
 
       <CreativesTopSection
         showHeader={false}
-        showAiActionsRow={false}
         title="Top copy"
         description="Compare high-performing ad texts, isolate winning angles, and scale copy that drives efficient purchases."
         dateRange={dateRangeValue}

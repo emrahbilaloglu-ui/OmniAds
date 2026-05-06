@@ -61,5 +61,6 @@ services:
     environment:
       APP_BUILD_ID: ${APP_BUILD_ID:-dev-build}
       NODE_ENV: production
+      DEPLOY_MIGRATION_TIMEOUT_MS: "${DEPLOY_MIGRATION_TIMEOUT_MS}"
     command: ["node", "--import", "tsx", "scripts/run-migrations.ts"]
     restart: "no"

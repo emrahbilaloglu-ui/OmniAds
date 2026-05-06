@@ -27,6 +27,16 @@ on:
         required: false
         default: ""
         type: string
+      deploy_migration_timeout_ms:
+        description: Optional Node migration timeout override in milliseconds
+        required: false
+        default: ""
+        type: string
+      deploy_migration_timeout_seconds:
+        description: Optional host migration wrapper timeout override in seconds
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: deploy-production-main
@@ -209,6 +219,8 @@ jobs:
           DEPLOY_SHA: ${{ steps.deploy_sha.outputs.sha }}
           BREAK_GLASS: ${{ inputs.break_glass }}
           OVERRIDE_REASON: ${{ inputs.override_reason }}
+          DEPLOY_MIGRATION_TIMEOUT_MS: ${{ inputs.deploy_migration_timeout_ms || vars.DEPLOY_MIGRATION_TIMEOUT_MS }}
+          DEPLOY_MIGRATION_TIMEOUT_SECONDS: ${{ inputs.deploy_migration_timeout_seconds || vars.DEPLOY_MIGRATION_TIMEOUT_SECONDS }}
           HETZNER_USER: ${{ secrets.HETZNER_USER }}
           HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
         run: |

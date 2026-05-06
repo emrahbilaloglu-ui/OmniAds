@@ -4,7 +4,7 @@ import { runMigrations } from "@/lib/migrations";
 
 loadEnvConfig(process.cwd());
 
-const DEFAULT_DEPLOY_MIGRATION_TIMEOUT_MS = 10 * 60_000;
+const DEFAULT_DEPLOY_MIGRATION_TIMEOUT_MS = 30 * 60_000;
 
 function getDeployMigrationTimeoutMs() {
   const raw =

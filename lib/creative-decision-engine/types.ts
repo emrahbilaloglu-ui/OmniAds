@@ -8,7 +8,7 @@
 import type { EngineV3Flags } from "./feature-flags";
 import type { OperatorResponseResult } from "./operator-response-detection";
 
-export const ENGINE_VERSION = "v3-2026-05-06-phase-7";
+export const ENGINE_VERSION = "v3-2026-05-06-phase-8";
 
 /** Final decision label. */
 export type DecisionLabel =
@@ -62,6 +62,18 @@ export type MetaAovQuality =
   | "ready";
 
 export type ThresholdQuality = "ready" | "degraded" | "insufficient";
+
+export type DecisionProfileScopeType = "account" | "campaign";
+
+export type DecisionProfileScopeFallbackReason =
+  | "campaign_calibration_missing"
+  | "campaign_sample_below_threshold";
+
+export interface DecisionProfileScope {
+  type: DecisionProfileScopeType;
+  id: string;
+  fallbackReason?: DecisionProfileScopeFallbackReason;
+}
 
 export interface SpendUnitEvidence {
   targetCpa: number | null;
@@ -347,6 +359,7 @@ export interface AccountDecisionProfile {
   thresholds: EngineThresholdSet;
   accountBaselines: AccountCalibration;
   funnelCalibration: AccountFunnelCalibration;
+  scope: DecisionProfileScope;
 
   hardActionEligibility: {
     scale: boolean;
@@ -536,6 +549,7 @@ export interface DecisionResponse {
   engineVersion: string;
   dataSource: "warehouse" | "mock";
   dataHealth: DataHealth;
+  scope: DecisionProfileScope;
   accountProfile: AccountDecisionProfile;
   decisions: DecisionOutput[];
   flags: EngineV3Flags;
@@ -565,6 +579,7 @@ export interface DecisionEvidenceResponse {
   engineVersion: string;
   flags: EngineV3Flags;
   dataHealth: DataHealth;
+  scope: DecisionProfileScope;
   accountProfile: AccountDecisionProfile;
   decision: DecisionOutput;
   input: CreativeInput;

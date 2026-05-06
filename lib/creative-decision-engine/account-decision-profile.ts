@@ -1,8 +1,10 @@
 import type {
   BusinessTargetPack,
+  CampaignCalibrationLookup,
   CreativeDecisionDataSource,
   DecisionCalibrationProfileConfig,
 } from "./data-source";
+import { MIN_CAMPAIGN_CALIBRATION_SAMPLE } from "./config";
 import { ENGINE_PRESET_MULTIPLIERS } from "./engine-presets";
 import {
   classifyMetaAovQuality,
@@ -15,6 +17,7 @@ import {
 import type {
   AccountCalibration,
   AccountDecisionProfile,
+  DecisionProfileScope,
   EngineMultiplierSet,
   EngineRiskPreset,
   EngineThresholdSet,
@@ -144,6 +147,7 @@ export async function resolveAccountDecisionProfile(input: {
   asOf: string;
   dataSource: CreativeDecisionDataSource;
   flags?: EngineV3Flags;
+  campaignId?: string;
 }): Promise<AccountDecisionProfile> {
   const targetPack = await input.dataSource.getBusinessTargetPack({
     businessId: input.businessId,
@@ -190,13 +194,21 @@ export async function resolveAccountDecisionProfile(input: {
       ? accountCalibration.metaAovQuality
       : classifyMetaAovQuality(metaAttributedAovPurchaseCount90d);
 
-  const accountBaselines: AccountCalibration = {
+  const accountBaselinesWithAov: AccountCalibration = {
     ...accountCalibration,
     metaAttributedAovMean90d,
     metaAttributedAovPurchaseCount90d,
     metaAttributedRevenue90d,
     metaAovQuality,
   };
+  const scopedCalibration = await resolveScopedCalibration({
+    businessId: input.businessId,
+    asOf: input.asOf,
+    campaignId: input.campaignId,
+    dataSource: input.dataSource,
+    accountBaselines: accountBaselinesWithAov,
+  });
+  const accountBaselines = scopedCalibration.accountBaselines;
 
   const attributionAovAdjustmentMultiplier = overrideMultiplier(
     1.0,
@@ -305,6 +317,7 @@ export async function resolveAccountDecisionProfile(input: {
     thresholds,
     accountBaselines,
     funnelCalibration,
+    scope: scopedCalibration.scope,
     hardActionEligibility: finalHardActionEligibility,
     quality: {
       commercialTruthReady: positiveFinite(targetPack?.targetRoas ?? null),
@@ -315,5 +328,70 @@ export async function resolveAccountDecisionProfile(input: {
         confidence: spendUnitResolution.confidence,
       }),
     },
+  };
+}
+
+async function resolveScopedCalibration(input: {
+  businessId: string;
+  asOf: string;
+  campaignId?: string;
+  dataSource: CreativeDecisionDataSource;
+  accountBaselines: AccountCalibration;
+}): Promise<{
+  accountBaselines: AccountCalibration;
+  scope: DecisionProfileScope;
+}> {
+  const campaignId = input.campaignId?.trim();
+  if (!campaignId) {
+    return {
+      accountBaselines: input.accountBaselines,
+      scope: { type: "account", id: "*" },
+    };
+  }
+
+  const campaignLookup: CampaignCalibrationLookup =
+    await input.dataSource.getCampaignCalibration({
+      businessId: input.businessId,
+      asOf: input.asOf,
+      campaignId,
+    });
+  const campaignMatureCount =
+    campaignLookup.calibration?.matureCreativeCount ??
+    campaignLookup.matureCreativeCount;
+
+  if (
+    campaignMatureCount !== null &&
+    campaignMatureCount < MIN_CAMPAIGN_CALIBRATION_SAMPLE
+  ) {
+    return {
+      accountBaselines: input.accountBaselines,
+      scope: {
+        type: "account",
+        id: "*",
+        fallbackReason: "campaign_sample_below_threshold",
+      },
+    };
+  }
+
+  if (campaignLookup.calibration === null) {
+    return {
+      accountBaselines: input.accountBaselines,
+      scope: {
+        type: "account",
+        id: "*",
+        fallbackReason: "campaign_calibration_missing",
+      },
+    };
+  }
+
+  return {
+    accountBaselines: {
+      ...input.accountBaselines,
+      roasRatioP10: campaignLookup.calibration.roasRatioP10,
+      roasRatioP25: campaignLookup.calibration.roasRatioP25,
+      roasRatioP50: campaignLookup.calibration.roasRatioP50,
+      roasRatioP75: campaignLookup.calibration.roasRatioP75,
+    },
+    scope: { type: "campaign", id: campaignId },
   };
 }

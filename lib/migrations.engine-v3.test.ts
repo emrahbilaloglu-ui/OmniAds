@@ -29,7 +29,7 @@ const ENGINE_V3_COLUMN_COUNTS = {
   engine_v3_job_runs: 22,
   engine_v3_account_calibration_daily: 41,
   engine_v3_creative_lifecycle_daily: 62,
-  engine_v3_decision_snapshots_daily: 24,
+  engine_v3_decision_snapshots_daily: 26,
   engine_v3_decision_events: 17,
 } satisfies Record<(typeof ENGINE_V3_TABLES)[number], number>;
 
@@ -176,7 +176,7 @@ describe("Engine v3 precomputed table migrations", () => {
       normalizeSql("UNIQUE (business_ref_id, creative_id, as_of_date, engine_version)"),
     );
     expect(normalizeSql(findCreateTableStatement(queries, "engine_v3_decision_snapshots_daily"))).toContain(
-      normalizeSql("UNIQUE (business_ref_id, creative_id, as_of_date, engine_version)"),
+      normalizeSql("UNIQUE (business_ref_id, creative_id, as_of_date, engine_version, scope_type, scope_id)"),
     );
 
     for (const indexName of ENGINE_V3_INDEXES) {

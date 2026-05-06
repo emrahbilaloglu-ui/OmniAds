@@ -19,6 +19,7 @@ import {
 interface CreativeEngineV3EvidenceSectionProps {
   businessId: string;
   creativeId: string;
+  campaignId?: string | null;
   open: boolean;
 }
 
@@ -33,17 +34,18 @@ type EvidenceResponse = DecisionEvidenceResponse | EvidenceDisabledResponse;
 export function CreativeEngineV3EvidenceSection({
   businessId,
   creativeId,
+  campaignId,
   open,
 }: CreativeEngineV3EvidenceSectionProps) {
   const enabled = open && Boolean(businessId) && Boolean(creativeId);
   const evidenceQuery = useQuery({
-    queryKey: ["engine-v3-evidence", businessId, creativeId],
+    queryKey: ["engine-v3-evidence", businessId, creativeId, campaignId ?? null],
     enabled,
     staleTime: 60_000,
     gcTime: 30 * 60 * 1000,
     refetchOnWindowFocus: false,
     retry: 1,
-    queryFn: () => fetchEngineV3Evidence({ businessId, creativeId }),
+    queryFn: () => fetchEngineV3Evidence({ businessId, creativeId, campaignId }),
   });
 
   if (!open) return null;
@@ -110,6 +112,7 @@ function isDisabledEvidence(payload: EvidenceResponse): payload is EvidenceDisab
 async function fetchEngineV3Evidence(input: {
   businessId: string;
   creativeId: string;
+  campaignId?: string | null;
 }): Promise<EvidenceResponse> {
   const url = new URL(
     "/api/creatives/decision-engine-v3/evidence",
@@ -117,6 +120,7 @@ async function fetchEngineV3Evidence(input: {
   );
   url.searchParams.set("businessId", input.businessId);
   url.searchParams.set("creativeId", input.creativeId);
+  if (input.campaignId) url.searchParams.set("campaignId", input.campaignId);
 
   const response = await fetch(url.toString());
   if (!response.ok) {
@@ -347,6 +351,8 @@ function EngineTrailEvidence({
       )}
       <KeyValueGrid
         rows={[
+          ["scope", `${accountProfile.scope.type}:${accountProfile.scope.id}`],
+          ["scopeFallbackReason", accountProfile.scope.fallbackReason],
           ["commercialTruthReady", accountProfile.quality.commercialTruthReady],
           ["calibrationReady", accountProfile.quality.calibrationReady],
           ["metaAovQuality", accountProfile.quality.metaAovQuality],
@@ -418,6 +424,8 @@ function ProvenanceEvidence({ payload }: { payload: DecisionEvidenceResponse }) 
       <KeyValueGrid
         rows={[
           ["engineVersion", payload.engineVersion],
+          ["scope", `${payload.scope.type}:${payload.scope.id}`],
+          ["scopeFallbackReason", payload.scope.fallbackReason],
           ["decision.generatedAt", payload.decision.generatedAt],
           ["asOf", payload.asOf],
           ["worstTier", health.worstTier],

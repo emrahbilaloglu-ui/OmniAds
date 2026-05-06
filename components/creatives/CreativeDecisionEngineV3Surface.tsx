@@ -148,7 +148,7 @@ export function CreativeDecisionEngineV3Surface(
               profile={props.accountProfile}
               onPresetChange={props.onPresetChange}
             />
-            <AccountProfileDisclosure profile={props.accountProfile} />
+            <ScopeProfileDisclosure profile={props.accountProfile} />
           </div>
         )}
       </header>
@@ -263,7 +263,7 @@ function PresetOverrideControl({
   );
 }
 
-function AccountProfileDisclosure({
+function ScopeProfileDisclosure({
   profile,
 }: {
   profile: AccountDecisionProfile;
@@ -276,9 +276,20 @@ function AccountProfileDisclosure({
   return (
     <details className="rounded-md border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs text-slate-700">
       <summary className="cursor-pointer select-none font-semibold text-slate-800">
-        Account profile
+        Scope profile ({profile.scope.type})
       </summary>
+      {profile.scope.fallbackReason && (
+        <p className="mt-2 text-[11px] font-medium text-amber-700">
+          Falling back to account scope: {formatScopeFallbackReason(profile.scope.fallbackReason)}
+        </p>
+      )}
       <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        <ProfileRow
+          label="Resolved scope"
+          value={`${profile.scope.type}:${profile.scope.id}`}
+          detail={profile.scope.fallbackReason}
+          mono
+        />
         <ProfileRow
           label="Preset"
           value={profile.preset}
@@ -440,6 +451,16 @@ function formatInteger(value: number): string {
 
 function formatBoolean(value: boolean): string {
   return value ? "yes" : "no";
+}
+
+function formatScopeFallbackReason(reason: string): string {
+  if (reason === "campaign_sample_below_threshold") {
+    return "campaign sample size below 8 mature creatives";
+  }
+  if (reason === "campaign_calibration_missing") {
+    return "campaign calibration is not available";
+  }
+  return reason;
 }
 
 function formatMultipliers(multipliers: EngineMultiplierSet): string {

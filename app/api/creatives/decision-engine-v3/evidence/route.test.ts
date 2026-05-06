@@ -264,6 +264,7 @@ function makeAccountProfile(): AccountDecisionProfile {
       metaAovQuality: "ready",
     },
     funnelCalibration: { byFormat: {} },
+    scope: { type: "account", id: "*" },
     hardActionEligibility: {
       scale: true,
       cut: true,
@@ -404,6 +405,7 @@ describe("GET /api/creatives/decision-engine-v3/evidence", () => {
       asOf: "2026-05-04",
       engineVersion: "v3-test",
       dataHealth,
+      scope: { type: "account", id: "*" },
       accountProfile: { businessId: "biz-1", preset: "balanced" },
       decision: { creativeId: "creative-1", label: "scale" },
       input: { creativeId: "creative-1" },
@@ -415,6 +417,28 @@ describe("GET /api/creatives/decision-engine-v3/evidence", () => {
       asOf: "2026-05-04",
       creativeIds: ["creative-1"],
     });
+    expect(resolveAccountDecisionProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz-1",
+        asOf: "2026-05-04",
+        campaignId: undefined,
+      }),
+    );
+  });
+
+  it("passes campaignId to the evidence profile resolver", async () => {
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/decision-engine-v3/evidence?businessId=biz-1&creativeId=creative-1&campaignId=campaign-1",
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(resolveAccountDecisionProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        campaignId: "campaign-1",
+      }),
+    );
   });
 
   it("handles missing funnel and operator response evidence", async () => {

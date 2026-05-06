@@ -13,6 +13,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const url = new URL(request.url);
   const businessId = url.searchParams.get("businessId");
   const creativeId = url.searchParams.get("creativeId");
+  const campaignId = url.searchParams.get("campaignId")?.trim() || undefined;
   const asOf =
     url.searchParams.get("asOf") ?? new Date().toISOString().slice(0, 10);
 
@@ -49,6 +50,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     asOf,
     dataSource,
     flags,
+    campaignId,
   });
   const dataHealth = await dataSource.getDataHealth({
     businessId: resolvedBusinessId,
@@ -88,6 +90,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     engineVersion: decision.engineVersion,
     flags,
     dataHealth,
+    scope: profile.scope,
     accountProfile: profile,
     decision,
     input,

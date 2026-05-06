@@ -24,6 +24,7 @@ interface CreativeDetailExperienceProps {
   businessId: string;
   row: MetaCreativeRow | null;
   allRows: MetaCreativeRow[];
+  campaignScopeId?: string | null;
   creativeHistoryById?: Map<string, CreativeHistoricalWindows>;
   open: boolean;
   notes: string;
@@ -195,6 +196,7 @@ function buildLivePreviewSrcDoc(html: string | null): string | null {
 export function CreativeDetailExperience({
   businessId,
   row,
+  campaignScopeId,
   open,
   notes,
   dateRange,
@@ -526,6 +528,7 @@ export function CreativeDetailExperience({
                 <CreativeEngineV3EvidenceSection
                   businessId={businessId}
                   creativeId={row.creativeId}
+                  campaignId={campaignScopeId ?? null}
                   open={open}
                 />
               ) : null}

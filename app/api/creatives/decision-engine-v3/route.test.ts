@@ -121,13 +121,34 @@ describe("GET /api/creatives/decision-engine-v3", () => {
       businessId: "biz-1",
       preset: "balanced",
       spendUnitSource: "meta_derived_aov",
+      scope: { type: "account", id: "*" },
     });
+    expect(payload.scope).toEqual({ type: "account", id: "*" });
     expect(payload.decisions).toHaveLength(3);
     expect(requireBusinessAccess).toHaveBeenCalledWith({
       request: expect.any(NextRequest),
       businessId: "biz-1",
       minRole: "guest",
     });
+  });
+
+  it("passes campaignId through to campaign-scoped profile resolution", async () => {
+    process.env.DECISION_ENGINE_V3_DATA_SOURCE = "mock";
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/decision-engine-v3?businessId=biz-1&campaignId=mock-campaign-001&asOf=2026-05-04",
+      ),
+    );
+    const payload = (await response.json()) as DecisionResponse;
+
+    expect(response.status).toBe(200);
+    expect(payload.scope).toEqual({
+      type: "campaign",
+      id: "mock-campaign-001",
+    });
+    expect(payload.accountProfile.scope).toEqual(payload.scope);
+    expect(payload.decisions).toHaveLength(3);
   });
 
   it("returns 403 for an authenticated user with no membership", async () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { resolveAccountDecisionProfile } from "../account-decision-profile";
 import type {
   BusinessTargetPack,
+  CampaignCalibrationLookup,
   CreativeDecisionDataSource,
   DecisionCalibrationProfileConfig,
 } from "../data-source";
@@ -20,6 +21,10 @@ class ProfileDataSource implements CreativeDecisionDataSource {
     private readonly calibration = makeAccountCalibration(),
     private readonly profileConfig: DecisionCalibrationProfileConfig | null =
       null,
+    private readonly campaignLookup: CampaignCalibrationLookup = {
+      calibration: null,
+      matureCreativeCount: null,
+    },
   ) {}
 
   async getCreativeInput(): Promise<CreativeInput | null> {
@@ -28,6 +33,10 @@ class ProfileDataSource implements CreativeDecisionDataSource {
 
   async getAccountCalibration() {
     return this.calibration;
+  }
+
+  async getCampaignCalibration() {
+    return this.campaignLookup;
   }
 
   async getAccountFunnelCalibration() {
@@ -110,6 +119,7 @@ describe("resolveAccountDecisionProfile", () => {
     });
 
     expect(profile.spendUnitSource).toBe("meta_derived_aov");
+    expect(profile.scope).toEqual({ type: "account", id: "*" });
     expect(profile.spendUnit).toBeCloseTo(50 / 2.2, 5);
     expect(profile.preset).toBe("balanced");
     expect(profile.thresholds.zeroConvBurnerSpend).toBeCloseTo(
@@ -117,6 +127,122 @@ describe("resolveAccountDecisionProfile", () => {
       5,
     );
     expect(profile.hardActionEligibility.scale).toBe(true);
+  });
+
+  it("uses campaign ratio percentiles when a campaign-scoped row has enough mature creatives", async () => {
+    const accountCalibration = makeAccountCalibration({
+      matureSpendP50: 300,
+      winnerPurchaseP50: 10,
+      roasRatioP10: 0.4,
+      roasRatioP25: 0.7,
+      roasRatioP50: 1,
+      roasRatioP75: 1.35,
+    });
+    const campaignCalibration = makeAccountCalibration({
+      matureCreativeCount: 8,
+      matureSpendP50: 100,
+      winnerPurchaseP50: 2,
+      roasRatioP10: 0.2,
+      roasRatioP25: 0.45,
+      roasRatioP50: 0.75,
+      roasRatioP75: 1.1,
+    });
+
+    const profile = await resolveAccountDecisionProfile({
+      businessId: "00000000-0000-4000-8000-000000000505",
+      asOf: "2026-05-04",
+      campaignId: "campaign-test",
+      dataSource: new ProfileDataSource(
+        {
+          targetCpa: null,
+          targetRoas: 2.2,
+          breakEvenCpa: null,
+          breakEvenRoas: 1.7,
+          operatorAovAssumption: null,
+          defaultRiskPosture: "balanced",
+        },
+        accountCalibration,
+        null,
+        { calibration: campaignCalibration, matureCreativeCount: 8 },
+      ),
+      flags: makeFlags({
+        businessId: "00000000-0000-4000-8000-000000000505",
+      }),
+    });
+
+    expect(profile.scope).toEqual({ type: "campaign", id: "campaign-test" });
+    expect(profile.accountBaselines.roasRatioP10).toBe(0.2);
+    expect(profile.accountBaselines.roasRatioP25).toBe(0.45);
+    expect(profile.accountBaselines.roasRatioP50).toBe(0.75);
+    expect(profile.accountBaselines.roasRatioP75).toBe(1.1);
+    expect(profile.accountBaselines.matureSpendP50).toBe(300);
+    expect(profile.thresholds.scaleMinPurchases).toBe(10);
+    expect(profile.thresholds.bottomQuartileRatio).toBe(0.45);
+  });
+
+  it("falls back to account scope when a campaign row is missing", async () => {
+    const profile = await resolveAccountDecisionProfile({
+      businessId: "00000000-0000-4000-8000-000000000506",
+      asOf: "2026-05-04",
+      campaignId: "campaign-missing",
+      dataSource: new ProfileDataSource(
+        {
+          targetCpa: null,
+          targetRoas: 2.2,
+          breakEvenCpa: null,
+          breakEvenRoas: 1.7,
+          operatorAovAssumption: null,
+          defaultRiskPosture: "balanced",
+        },
+        makeAccountCalibration(),
+        null,
+        { calibration: null, matureCreativeCount: null },
+      ),
+      flags: makeFlags({
+        businessId: "00000000-0000-4000-8000-000000000506",
+      }),
+    });
+
+    expect(profile.scope).toEqual({
+      type: "account",
+      id: "*",
+      fallbackReason: "campaign_calibration_missing",
+    });
+    expect(profile.thresholds.bottomQuartileRatio).toBe(0.7);
+  });
+
+  it("falls back to account scope when campaign sample is below threshold", async () => {
+    const profile = await resolveAccountDecisionProfile({
+      businessId: "00000000-0000-4000-8000-000000000507",
+      asOf: "2026-05-04",
+      campaignId: "campaign-small",
+      dataSource: new ProfileDataSource(
+        {
+          targetCpa: null,
+          targetRoas: 2.2,
+          breakEvenCpa: null,
+          breakEvenRoas: 1.7,
+          operatorAovAssumption: null,
+          defaultRiskPosture: "balanced",
+        },
+        makeAccountCalibration(),
+        null,
+        {
+          calibration: makeAccountCalibration({ matureCreativeCount: 7 }),
+          matureCreativeCount: 7,
+        },
+      ),
+      flags: makeFlags({
+        businessId: "00000000-0000-4000-8000-000000000507",
+      }),
+    });
+
+    expect(profile.scope).toEqual({
+      type: "account",
+      id: "*",
+      fallbackReason: "campaign_sample_below_threshold",
+    });
+    expect(profile.thresholds.bottomQuartileRatio).toBe(0.7);
   });
 
   it("uses business_engine_v3_flags preset override before calibration profile and target pack posture", async () => {

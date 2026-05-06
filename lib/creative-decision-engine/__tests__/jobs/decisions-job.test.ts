@@ -56,6 +56,8 @@ type DecisionSnapshotFixtureRow = Record<string, unknown> & {
   id: unknown;
   business_id: unknown;
   creative_id: unknown;
+  scope_type: unknown;
+  scope_id: unknown;
   label: unknown;
   confidence: unknown;
   truth_source: unknown;
@@ -265,6 +267,8 @@ async function fetchDecisionSnapshots(input: {
       id,
       business_id,
       creative_id,
+      scope_type,
+      scope_id,
       label,
       confidence,
       truth_source,
@@ -390,6 +394,10 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
     const linkage = await snapshotLinkageCounts(businessId);
     expect(linkage.missingLifecycleCount).toBe(0);
     expect(linkage.missingCalibrationCount).toBe(0);
+
+    const [snapshot] = await fetchDecisionSnapshots({ businessId, limit: 1 });
+    expect(snapshot?.scope_type).toBe("account");
+    expect(snapshot?.scope_id).toBe("*");
   });
 
   it("is idempotent for snapshots while recording each invocation", async () => {

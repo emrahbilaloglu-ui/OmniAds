@@ -1,5 +1,8 @@
 import { getDb, runDbTransaction } from "@/lib/db";
-import { SUPPORTED_OBJECTIVES } from "../config";
+import {
+  MIN_CAMPAIGN_CALIBRATION_SAMPLE,
+  SUPPORTED_OBJECTIVES,
+} from "../config";
 import { STALE_TIER_WARNING_MAX_HOURS } from "../data-health";
 import { resolveEngineV3Flags } from "../feature-flags";
 import { ENGINE_VERSION, type AccountCalibration } from "../types";
@@ -7,6 +10,7 @@ import { ENGINE_VERSION, type AccountCalibration } from "../types";
 export const JOB_NAME = "engine_v3_calibration_job";
 const SAMPLE_WINDOW_DAYS = 90;
 const ACCOUNT_SCOPE_TYPE = "account";
+const CAMPAIGN_SCOPE_TYPE = "campaign";
 const ACCOUNT_SCOPE_ID = "*";
 const CALIBRATION_FORMATS = [
   "overall",
@@ -16,11 +20,12 @@ const CALIBRATION_FORMATS = [
   "catalog",
 ] as const;
 type CalibrationCreativeFormat = (typeof CALIBRATION_FORMATS)[number];
+type CalibrationScopeType = typeof ACCOUNT_SCOPE_TYPE | typeof CAMPAIGN_SCOPE_TYPE;
 
 export interface CalibrationJobInput {
   businessId: string;
   asOf: string;
-  scopeType?: typeof ACCOUNT_SCOPE_TYPE;
+  scopeType?: CalibrationScopeType;
   scopeId?: string;
 }
 
@@ -38,7 +43,7 @@ type QualityStatus = "ready" | "low_sample" | "stale" | "fallback";
 
 interface ComputedCalibration {
   businessId: string;
-  scopeType: typeof ACCOUNT_SCOPE_TYPE;
+  scopeType: CalibrationScopeType;
   scopeId: string;
   creativeFormat: CalibrationCreativeFormat;
   asOfDate: string;
@@ -153,6 +158,11 @@ type AdvisoryLockRow = Record<string, unknown> & {
   acquired: unknown;
 };
 
+type CampaignScopeRow = Record<string, unknown> & {
+  campaign_id: unknown;
+  mature_creative_count: unknown;
+};
+
 const COMPUTE_CALIBRATION_QUERY = `
 WITH target_pack AS (
   SELECT target_roas
@@ -198,6 +208,7 @@ per_creative_raw AS (
   WHERE business_ref_id = $2::uuid
     AND date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
     AND objective = ANY($5::text[])
+    AND ($6::text IS NULL OR campaign_id = $6::text)
   GROUP BY creative_id
 ),
 per_creative AS (
@@ -361,6 +372,7 @@ source_bounds AS (
   WHERE business_ref_id = $2::uuid
     AND date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
     AND objective = ANY($5::text[])
+    AND ($6::text IS NULL OR campaign_id = $6::text)
 )
 SELECT
   ($1::date - INTERVAL '89 days')::date AS sample_window_start,
@@ -434,6 +446,39 @@ CROSS JOIN funnel_percentiles
 CROSS JOIN winner_percentiles
 CROSS JOIN meta_aov
 CROSS JOIN source_bounds
+`;
+
+const LIST_ELIGIBLE_CAMPAIGN_SCOPES_QUERY = `
+WITH per_creative AS (
+  SELECT
+    campaign_id,
+    creative_id,
+    SUM(spend) AS total_spend,
+    SUM(conversions) AS total_purchases,
+    SUM(revenue) AS total_revenue
+  FROM meta_creative_daily
+  WHERE business_ref_id = $1::uuid
+    AND date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
+    AND objective = ANY($4::text[])
+    AND campaign_id IS NOT NULL
+    AND campaign_id <> ''
+  GROUP BY campaign_id, creative_id
+),
+campaign_counts AS (
+  SELECT
+    campaign_id,
+    COUNT(*) FILTER (
+      WHERE total_purchases >= 1
+        AND total_revenue > 0
+        AND total_spend > 0
+    ) AS mature_creative_count
+  FROM per_creative
+  GROUP BY campaign_id
+)
+SELECT campaign_id, mature_creative_count
+FROM campaign_counts
+WHERE mature_creative_count >= $3::integer
+ORDER BY campaign_id ASC
 `;
 
 const UPSERT_CALIBRATION_QUERY = `
@@ -665,7 +710,10 @@ export async function runCalibrationJob(
       }
 
       const overallCalibration = calibrations.find(
-        (calibration) => calibration.creativeFormat === "overall",
+        (calibration) =>
+          calibration.scopeType === ACCOUNT_SCOPE_TYPE &&
+          calibration.scopeId === ACCOUNT_SCOPE_ID &&
+          calibration.creativeFormat === "overall",
       );
 
       const durationMs = Date.now() - startedAt;
@@ -781,29 +829,64 @@ async function insertJobRun(input: {
 async function computeCalibrations(input: {
   businessId: string;
   asOf: string;
-  scopeType: typeof ACCOUNT_SCOPE_TYPE;
+  scopeType: CalibrationScopeType;
   scopeId: string;
 }): Promise<ComputedCalibration[]> {
   const computedAt = new Date().toISOString();
   const calibrations: ComputedCalibration[] = [];
+  const scopes: Array<{ scopeType: CalibrationScopeType; scopeId: string }> = [
+    { scopeType: ACCOUNT_SCOPE_TYPE, scopeId: ACCOUNT_SCOPE_ID },
+    ...(await listEligibleCampaignScopes({
+      businessId: input.businessId,
+      asOf: input.asOf,
+    })),
+  ];
 
-  for (const creativeFormat of CALIBRATION_FORMATS) {
-    calibrations.push(
-      await computeCalibration({
-        ...input,
-        creativeFormat,
-        computedAt,
-      }),
-    );
+  for (const scope of scopes) {
+    for (const creativeFormat of CALIBRATION_FORMATS) {
+      calibrations.push(
+        await computeCalibration({
+          businessId: input.businessId,
+          asOf: input.asOf,
+          scopeType: scope.scopeType,
+          scopeId: scope.scopeId,
+          creativeFormat,
+          computedAt,
+        }),
+      );
+    }
   }
 
   return calibrations;
 }
 
+async function listEligibleCampaignScopes(input: {
+  businessId: string;
+  asOf: string;
+}): Promise<Array<{ scopeType: typeof CAMPAIGN_SCOPE_TYPE; scopeId: string }>> {
+  const supportedObjectivesArray = Array.from(SUPPORTED_OBJECTIVES);
+  const rows = await getDb().query<CampaignScopeRow>(
+    LIST_ELIGIBLE_CAMPAIGN_SCOPES_QUERY,
+    [
+      input.businessId,
+      input.asOf,
+      MIN_CAMPAIGN_CALIBRATION_SAMPLE,
+      supportedObjectivesArray,
+    ],
+  );
+
+  return rows.flatMap((row) => {
+    const campaignId = toStringOrNull(row.campaign_id);
+    return campaignId === null
+      ? []
+      : [{ scopeType: CAMPAIGN_SCOPE_TYPE, scopeId: campaignId }];
+  });
+}
+
 async function computeCalibration(input: {
   businessId: string;
   asOf: string;
-  scopeType: typeof ACCOUNT_SCOPE_TYPE;
+  scopeType: CalibrationScopeType;
   scopeId: string;
   creativeFormat: CalibrationCreativeFormat;
   computedAt: string;
@@ -817,6 +900,7 @@ async function computeCalibration(input: {
       SAMPLE_WINDOW_DAYS,
       input.creativeFormat,
       supportedObjectivesArray,
+      input.scopeType === CAMPAIGN_SCOPE_TYPE ? input.scopeId : null,
     ],
   );
   const matureCreativeCount =

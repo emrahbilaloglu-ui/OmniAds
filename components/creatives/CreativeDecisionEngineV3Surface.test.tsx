@@ -161,6 +161,7 @@ function makeAccountProfile(): AccountDecisionProfile {
       metaAovQuality: "ready",
     },
     funnelCalibration: { byFormat: {} },
+    scope: { type: "account", id: "*" },
     hardActionEligibility: {
       scale: true,
       cut: true,
@@ -374,11 +375,13 @@ describe("CreativeDecisionEngineV3Surface", () => {
     expect(renderSurface({ businessId: null })).toBe("");
   });
 
-  it("renders Account profile disclosure when accountProfile is provided", () => {
+  it("renders Scope profile disclosure when accountProfile is provided", () => {
     const html = renderSurface({ accountProfile: makeAccountProfile() });
 
     expect(html).toContain("<details");
-    expect(html).toContain("Account profile");
+    expect(html).toContain("Scope profile (account)");
+    expect(html).toContain("Resolved scope");
+    expect(html).toContain("account:*");
     expect(html).toContain('aria-label="Engine v3 preset"');
     expect(html).toContain("Preset");
     expect(html).toContain("Spend unit");
@@ -458,10 +461,29 @@ describe("CreativeDecisionEngineV3Surface", () => {
     expect(html).toContain("2.2 / 1.71");
   });
 
-  it("renders no Account profile disclosure when accountProfile is null", () => {
+  it("renders campaign scope and fallback reason in the profile disclosure", () => {
+    const html = renderSurface({
+      accountProfile: {
+        ...makeAccountProfile(),
+        scope: {
+          type: "account",
+          id: "*",
+          fallbackReason: "campaign_sample_below_threshold",
+        },
+      },
+    });
+
+    expect(html).toContain("Scope profile (account)");
+    expect(html).toContain(
+      "Falling back to account scope: campaign sample size below 8 mature creatives",
+    );
+    expect(html).toContain("campaign_sample_below_threshold");
+  });
+
+  it("renders no Scope profile disclosure when accountProfile is null", () => {
     const html = renderSurface({ accountProfile: null });
 
-    expect(html).not.toContain("Account profile");
+    expect(html).not.toContain("Scope profile");
     expect(html).not.toContain("Mature creatives");
   });
 });

@@ -4595,6 +4595,8 @@ export async function runMigrations(options?: {
           creative_id                TEXT NOT NULL,
           as_of_date                 DATE NOT NULL,
           engine_version             TEXT NOT NULL,
+          scope_type                 TEXT NOT NULL DEFAULT 'account',
+          scope_id                   TEXT NOT NULL DEFAULT '*',
           label                      TEXT NOT NULL CHECK (label IN (
             'scale', 'keep', 'refresh', 'cut', 'test_more', 'diagnose', 'out_of_scope'
           )),
@@ -4617,8 +4619,64 @@ export async function runMigrations(options?: {
           computed_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
           created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
-          UNIQUE (business_ref_id, creative_id, as_of_date, engine_version)
+          UNIQUE (business_ref_id, creative_id, as_of_date, engine_version, scope_type, scope_id)
         )`,
+        sql`ALTER TABLE engine_v3_decision_snapshots_daily
+          ADD COLUMN IF NOT EXISTS scope_type TEXT NOT NULL DEFAULT 'account',
+          ADD COLUMN IF NOT EXISTS scope_id TEXT NOT NULL DEFAULT '*'`.catch(() => {}),
+        sql`DO $$
+          DECLARE
+            old_constraint_name TEXT;
+          BEGIN
+            SELECT c.conname
+            INTO old_constraint_name
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'engine_v3_decision_snapshots_daily'
+              AND c.contype = 'u'
+              AND (
+                SELECT array_agg(a.attname::text ORDER BY u.ord)
+                FROM unnest(c.conkey) WITH ORDINALITY AS u(attnum, ord)
+                JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = u.attnum
+              ) = ARRAY['business_ref_id', 'creative_id', 'as_of_date', 'engine_version']
+            LIMIT 1;
+
+            IF old_constraint_name IS NOT NULL THEN
+              EXECUTE format(
+                'ALTER TABLE engine_v3_decision_snapshots_daily DROP CONSTRAINT %I',
+                old_constraint_name
+              );
+            END IF;
+
+            IF NOT EXISTS (
+              SELECT 1
+              FROM pg_constraint c
+              JOIN pg_class t ON t.oid = c.conrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+              WHERE n.nspname = current_schema()
+                AND t.relname = 'engine_v3_decision_snapshots_daily'
+                AND c.contype = 'u'
+                AND (
+                  SELECT array_agg(a.attname::text ORDER BY u.ord)
+                  FROM unnest(c.conkey) WITH ORDINALITY AS u(attnum, ord)
+                  JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = u.attnum
+                ) = ARRAY[
+                  'business_ref_id',
+                  'creative_id',
+                  'as_of_date',
+                  'engine_version',
+                  'scope_type',
+                  'scope_id'
+                ]
+            ) THEN
+              ALTER TABLE engine_v3_decision_snapshots_daily
+                ADD CONSTRAINT engine_v3_decision_snapshots_daily_scope_unique
+                UNIQUE (business_ref_id, creative_id, as_of_date, engine_version, scope_type, scope_id);
+            END IF;
+          END
+          $$`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_decisions_business_day_label
           ON engine_v3_decision_snapshots_daily
           (business_ref_id, as_of_date DESC, label)`,

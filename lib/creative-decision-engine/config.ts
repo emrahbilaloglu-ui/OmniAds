@@ -8,6 +8,10 @@ export const SUPPORTED_OBJECTIVES: ReadonlySet<CampaignObjective> = new Set([
   "OUTCOME_SALES",
 ]);
 
+// Below 8 mature creatives, campaign percentile estimates are too noisy to use.
+// Campaign scope falls back to account scope; per-business overrides are future work.
+export const MIN_CAMPAIGN_CALIBRATION_SAMPLE = 8;
+
 export const SCALE_RATIO_BY_PRESET: Record<AggressionPreset, number> = {
   aggressive: 1.2,
   balanced: 1.3,

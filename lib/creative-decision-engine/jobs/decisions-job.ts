@@ -5,6 +5,7 @@ import { decideCreative } from "../engine";
 import { resolveEngineV3Flags } from "../feature-flags";
 import {
   ENGINE_VERSION,
+  type DecisionProfileScope,
   type CreativeInput,
   type DecisionLabel,
   type DecisionOutput,
@@ -66,6 +67,8 @@ interface DecisionSnapshotPayloadRow {
   creative_id: string;
   as_of_date: string;
   engine_version: string;
+  scope_type: DecisionProfileScope["type"];
+  scope_id: string;
   label: DecisionLabel;
   confidence: number;
   truth_source: DecisionOutput["truthSource"];
@@ -118,6 +121,8 @@ WITH payload AS (
     creative_id text,
     as_of_date date,
     engine_version text,
+    scope_type text,
+    scope_id text,
     label text,
     confidence integer,
     truth_source text,
@@ -141,6 +146,8 @@ INSERT INTO engine_v3_decision_snapshots_daily (
   creative_id,
   as_of_date,
   engine_version,
+  scope_type,
+  scope_id,
   label,
   confidence,
   truth_source,
@@ -163,6 +170,8 @@ SELECT
   creative_id,
   as_of_date,
   engine_version,
+  scope_type,
+  scope_id,
   label,
   confidence,
   truth_source,
@@ -179,9 +188,11 @@ SELECT
   calibration_row_id,
   computed_at
 FROM payload
-ON CONFLICT (business_ref_id, creative_id, as_of_date, engine_version)
+ON CONFLICT (business_ref_id, creative_id, as_of_date, engine_version, scope_type, scope_id)
 DO UPDATE SET
   business_id = EXCLUDED.business_id,
+  scope_type = EXCLUDED.scope_type,
+  scope_id = EXCLUDED.scope_id,
   label = EXCLUDED.label,
   confidence = EXCLUDED.confidence,
   truth_source = EXCLUDED.truth_source,
@@ -360,6 +371,7 @@ export async function runDecisionsJob(
           businessId: input.businessId,
           asOf: input.asOf,
           jobRunId,
+          scope: profile.scope,
           creativeInput,
           decision,
           lifecycleRowId:
@@ -570,6 +582,7 @@ function toSnapshotPayloadRow(input: {
   businessId: string;
   asOf: string;
   jobRunId: string;
+  scope: DecisionProfileScope;
   creativeInput: CreativeInput;
   decision: DecisionOutput;
   lifecycleRowId: string | null;
@@ -582,6 +595,8 @@ function toSnapshotPayloadRow(input: {
     creative_id: input.creativeInput.creativeId,
     as_of_date: input.asOf,
     engine_version: ENGINE_VERSION,
+    scope_type: input.scope.type,
+    scope_id: input.scope.id,
     label: input.decision.label,
     confidence: toConfidenceInteger(input.decision.confidence),
     truth_source: input.decision.truthSource,
@@ -640,6 +655,8 @@ async function findPreviousSnapshotsByCreative(input: {
       AND engine_version = $2
       AND creative_id = ANY($3::text[])
       AND as_of_date < $4::date
+      AND scope_type = 'account'
+      AND scope_id = '*'
     ORDER BY creative_id, as_of_date DESC, computed_at DESC
     `,
     [input.businessId, ENGINE_VERSION, input.creativeIds, input.asOf],

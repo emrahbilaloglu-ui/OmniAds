@@ -58,6 +58,11 @@ export interface DecisionCalibrationProfileConfig {
   attributionAovAdjustmentMultiplier: number | null;
 }
 
+export interface CampaignCalibrationLookup {
+  calibration: AccountCalibration | null;
+  matureCreativeCount: number | null;
+}
+
 /**
  * Adapter interface for the engine's data dependencies.
  * MockDataSource is used in development/tests until the warehouse sync
@@ -77,6 +82,13 @@ export interface CreativeDecisionDataSource {
     businessId: string;
     asOf: string;
   }): Promise<AccountCalibration>;
+
+  /** Return campaign-scoped calibration, plus sample size when the row is unavailable. */
+  getCampaignCalibration(input: {
+    businessId: string;
+    asOf: string;
+    campaignId: string;
+  }): Promise<CampaignCalibrationLookup>;
 
   /** Return per-format account funnel baselines (Phase 3.9). */
   getAccountFunnelCalibration(input: {
@@ -224,6 +236,38 @@ export class MockDataSource implements CreativeDecisionDataSource {
       roasRatioP50: 1.0,
       roasRatioP75: 1.35,
       metaAovQuality: "ready",
+    };
+  }
+
+  async getCampaignCalibration(input: {
+    businessId: string;
+  }): Promise<CampaignCalibrationLookup> {
+    return {
+      calibration: {
+        businessId: input.businessId,
+        computedAt: new Date().toISOString(),
+        matureCreativeCount: 12,
+        roasP75: 1.8,
+        roasP60: 1.5,
+        refreshRatioP10: 0.8,
+        lowCtrP10: 0.6,
+        accountCpaP50: 64,
+        accountCpaSampleCount: 12,
+        metaAttributedAovMean90d: 50,
+        metaAttributedAovPurchaseCount90d: 20,
+        metaAttributedRevenue90d: 1000,
+        matureSpendP50: 180,
+        matureSpendP75: 280,
+        winnerSpendP25: 120,
+        winnerSpendP50: 220,
+        winnerPurchaseP50: 3,
+        roasRatioP10: 0.35,
+        roasRatioP25: 0.55,
+        roasRatioP50: 0.9,
+        roasRatioP75: 1.18,
+        metaAovQuality: "ready",
+      },
+      matureCreativeCount: 12,
     };
   }
 
@@ -1184,12 +1228,33 @@ SELECT
   quality_status
 FROM engine_v3_account_calibration_daily
 WHERE business_ref_id = $1::uuid
-  AND scope_type = 'account'
-  AND scope_id = '*'
+  AND scope_type = $3::text
+  AND scope_id = $4::text
   AND creative_format = 'overall'
   AND as_of_date <= $2::date
 ORDER BY as_of_date DESC, computed_at DESC
 LIMIT 1
+`;
+
+const READ_CAMPAIGN_MATURE_CREATIVE_COUNT_QUERY = `
+WITH per_creative AS (
+  SELECT
+    creative_id,
+    SUM(spend) AS total_spend,
+    SUM(conversions) AS total_purchases,
+    SUM(revenue) AS total_revenue
+  FROM meta_creative_daily
+  WHERE business_ref_id = $1::uuid
+    AND campaign_id = $3::text
+    AND date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
+    AND objective = 'OUTCOME_SALES'
+  GROUP BY creative_id
+)
+SELECT COUNT(*) AS mature_creative_count
+FROM per_creative
+WHERE total_purchases >= 1
+  AND total_revenue > 0
+  AND total_spend > 0
 `;
 
 const READ_ACCOUNT_FUNNEL_CALIBRATION_QUERY = `
@@ -2061,6 +2126,8 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
     const precomputed = await this.readCalibrationFromTable(
       input.businessId,
       input.asOf,
+      "account",
+      "*",
     );
     if (precomputed.calibration !== null) {
       this.lastCalibrationMetadata = precomputed.metadata;
@@ -2072,6 +2139,30 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
       precomputed.note,
       precomputed.staleTierOverride,
     );
+  }
+
+  async getCampaignCalibration(input: {
+    businessId: string;
+    asOf: string;
+    campaignId: string;
+  }): Promise<CampaignCalibrationLookup> {
+    const precomputed = await this.readCalibrationFromTable(
+      input.businessId,
+      input.asOf,
+      "campaign",
+      input.campaignId,
+    );
+    if (precomputed.calibration !== null) {
+      return {
+        calibration: precomputed.calibration,
+        matureCreativeCount: precomputed.calibration.matureCreativeCount,
+      };
+    }
+
+    return {
+      calibration: null,
+      matureCreativeCount: await this.readCampaignMatureCreativeCount(input),
+    };
   }
 
   async getAccountFunnelCalibration(input: {
@@ -2205,6 +2296,8 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
   private async readCalibrationFromTable(
     businessId: string,
     asOf: string,
+    scopeType: "account" | "campaign",
+    scopeId: string,
   ): Promise<{
     calibration: AccountCalibration | null;
     metadata: CalibrationReadMetadata | null;
@@ -2215,7 +2308,7 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
     try {
       [row] = await getDb().query<CalibrationTableRow>(
         READ_ACCOUNT_CALIBRATION_QUERY,
-        [businessId, asOf],
+        [businessId, asOf, scopeType, scopeId],
       );
     } catch (error) {
       return {
@@ -2316,6 +2409,25 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
     };
   }
 
+  private async readCampaignMatureCreativeCount(input: {
+    businessId: string;
+    asOf: string;
+    campaignId: string;
+  }): Promise<number | null> {
+    try {
+      const [row] = await getDb().query<
+        Record<string, unknown> & { mature_creative_count: unknown }
+      >(READ_CAMPAIGN_MATURE_CREATIVE_COUNT_QUERY, [
+        input.businessId,
+        input.asOf,
+        input.campaignId,
+      ]);
+      return toIntegerOrNull(row?.mature_creative_count);
+    } catch {
+      return null;
+    }
+  }
+
   async listCreativeInputs(input: {
     businessId: string;
     asOf: string;
@@ -2398,7 +2510,12 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
       });
     }
 
-    const precomputed = await this.readCalibrationFromTable(businessId, asOf);
+    const precomputed = await this.readCalibrationFromTable(
+      businessId,
+      asOf,
+      "account",
+      "*",
+    );
     if (precomputed.metadata !== null) {
       return buildWarehouseDataLayerHealth({
         asOfDate: precomputed.metadata.asOfDate,

@@ -32,6 +32,7 @@ import {
   CreativesTopSection,
   resolveCreativeDateRange,
 } from "@/components/creatives/CreativesTopSection";
+import { resolveCreativeBenchmarkCampaignContext } from "@/components/creatives/creatives-top-section-support";
 import { usePersistentCreativeDateRange } from "@/hooks/use-persistent-date-range";
 import type { ShareMetricKey, SharePayload } from "@/components/creatives/shareCreativeTypes";
 import {
@@ -302,15 +303,6 @@ export default function CreativesPage() {
     refetchInterval: (query) => getPreviewPollingInterval(query.state.data),
     placeholderData: (previousData) => previousData,
   });
-  const decisionEngineV3Query = useQuery({
-    queryKey: ["creative-decision-engine-v3", selectedBusinessId],
-    queryFn: () => {
-      if (!selectedBusinessId) throw new Error("no business selected");
-      return fetchCreativeDecisionEngineV3({ businessId: selectedBusinessId });
-    },
-    enabled: Boolean(selectedBusinessId) && canLoadCreatives,
-    staleTime: 60_000,
-  });
   const handleEngineV3PresetChange = useCallback(() => {
     if (!selectedBusinessId) return;
     void queryClient.invalidateQueries({
@@ -452,6 +444,26 @@ export default function CreativesPage() {
     return applyCreativeFilters(allRows, topFilters);
   }, [allRows, platform, topFilters]);
   const filteredRows = baseFilteredRows;
+  const campaignScopeContext = useMemo(() => {
+    const campaignFilterActive = topFilters.some(
+      (rule) => rule.field === "campaignName" && rule.query.trim().length > 0,
+    );
+    if (!campaignFilterActive) return null;
+    return resolveCreativeBenchmarkCampaignContext(filteredRows);
+  }, [filteredRows, topFilters]);
+  const campaignScopeId = campaignScopeContext?.campaignId ?? null;
+  const decisionEngineV3Query = useQuery({
+    queryKey: ["creative-decision-engine-v3", selectedBusinessId, campaignScopeId],
+    queryFn: () => {
+      if (!selectedBusinessId) throw new Error("no business selected");
+      return fetchCreativeDecisionEngineV3({
+        businessId: selectedBusinessId,
+        campaignId: campaignScopeId,
+      });
+    },
+    enabled: Boolean(selectedBusinessId) && canLoadCreatives,
+    staleTime: 60_000,
+  });
   const v3ChipsVisible = Boolean(
     decisionEngineV3Query.data?.flags?.enabled &&
       decisionEngineV3Query.data?.flags?.surfaceVisible,
@@ -979,6 +991,7 @@ export default function CreativesPage() {
         businessId={businessId}
 	        row={activeCreativeRow}
 	        allRows={filteredRows}
+        campaignScopeId={campaignScopeId}
 	        creativeHistoryById={creativeHistoryById}
 	        open={creativeDrawerState.open}
         notes={activeCreativeRow ? notesByRowId[activeCreativeRow.id] ?? "" : ""}

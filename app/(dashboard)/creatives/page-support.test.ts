@@ -186,6 +186,7 @@ function makeAccountProfile(): AccountDecisionProfile {
       metaAovQuality: "ready",
     },
     funnelCalibration: { byFormat: {} },
+    scope: { type: "account", id: "*" },
     hardActionEligibility: {
       scale: true,
       cut: true,
@@ -379,6 +380,7 @@ describe("fetchCreativeDecisionEngineV3", () => {
       asOf: "2026-05-04",
       engineVersion: "v3-2026-05-04-stub",
       dataSource: "warehouse",
+      scope: { type: "account", id: "*" },
       accountProfile: makeAccountProfile(),
       dataHealth: {
         calibration: {
@@ -463,6 +465,7 @@ describe("fetchCreativeDecisionEngineV3", () => {
       businessId: "biz-1",
       asOf: "2026-05-04",
       creativeIds: ["creative-1", "creative-2"],
+      campaignId: "campaign-1",
     });
 
     expect(result).toEqual(payload);
@@ -473,5 +476,6 @@ describe("fetchCreativeDecisionEngineV3", () => {
     expect(requestUrl.searchParams.get("businessId")).toBe("biz-1");
     expect(requestUrl.searchParams.get("asOf")).toBe("2026-05-04");
     expect(requestUrl.searchParams.get("creativeIds")).toBe("creative-1,creative-2");
+    expect(requestUrl.searchParams.get("campaignId")).toBe("campaign-1");
   });
 });

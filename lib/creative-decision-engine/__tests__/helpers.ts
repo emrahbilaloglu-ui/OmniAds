@@ -209,6 +209,7 @@ export function makeAccountDecisionProfile(
       metaAovQuality: accountBaselines.metaAovQuality,
       thresholdQuality: "ready",
     },
+    scope: { type: "account", id: "*" },
     ...profileOverrides,
     multipliers,
     thresholds,

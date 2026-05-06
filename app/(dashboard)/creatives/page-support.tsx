@@ -477,10 +477,12 @@ export async function fetchCreativeDecisionEngineV3(params: {
   businessId: string;
   asOf?: string;
   creativeIds?: string[];
+  campaignId?: string | null;
 }): Promise<DecisionEngineV3Response> {
   const url = new URL("/api/creatives/decision-engine-v3", window.location.origin);
   url.searchParams.set("businessId", params.businessId);
   if (params.asOf) url.searchParams.set("asOf", params.asOf);
+  if (params.campaignId) url.searchParams.set("campaignId", params.campaignId);
   if (params.creativeIds && params.creativeIds.length > 0) {
     url.searchParams.set("creativeIds", params.creativeIds.join(","));
   }

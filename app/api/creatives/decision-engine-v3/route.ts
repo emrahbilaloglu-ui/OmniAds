@@ -13,6 +13,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const url = new URL(request.url);
   const businessId = url.searchParams.get("businessId");
   const creativeIdsParam = url.searchParams.get("creativeIds");
+  const campaignId = url.searchParams.get("campaignId")?.trim() || undefined;
   const asOf =
     url.searchParams.get("asOf") ?? new Date().toISOString().slice(0, 10);
 
@@ -45,6 +46,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     asOf,
     dataSource,
     flags,
+    campaignId,
   });
   const dataHealth = await dataSource.getDataHealth({
     businessId: resolvedBusinessId,
@@ -57,7 +59,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       ? creativeIdsParam.split(",").filter(Boolean)
       : undefined,
   });
-  const decisions = inputs.map((input) =>
+  const scopedInputs = campaignId
+    ? inputs.filter((input) => input.campaignId === campaignId)
+    : inputs;
+  const decisions = scopedInputs.map((input) =>
     decideCreative(input, profile, dataHealth),
   );
 
@@ -67,6 +72,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     engineVersion: decisions[0]?.engineVersion ?? "unknown",
     dataSource: dataSourceLabel,
     dataHealth,
+    scope: profile.scope,
     accountProfile: profile,
     decisions,
     flags,

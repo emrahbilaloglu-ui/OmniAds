@@ -152,6 +152,7 @@ function makeAccountProfile(): AccountDecisionProfile {
       metaAovQuality: "ready",
     },
     funnelCalibration: { byFormat: {} },
+    scope: { type: "account", id: "*" },
     hardActionEligibility: {
       scale: true,
       cut: true,
@@ -297,6 +298,7 @@ function makePayload(
     engineVersion: "v3-test",
     flags: makeFlags(),
     dataHealth: makeDataHealth(),
+    scope: { type: "account", id: "*" },
     accountProfile: makeAccountProfile(),
     decision: makeDecision(),
     input: makeInput(),
@@ -359,13 +361,45 @@ describe("CreativeEngineV3EvidenceSection", () => {
 
     expect(observedQuery).toMatchObject({
       enabled: true,
-      queryKey: ["engine-v3-evidence", "biz-1", "creative-1"],
+      queryKey: ["engine-v3-evidence", "biz-1", "creative-1", null],
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
     expect(url.pathname).toBe("/api/creatives/decision-engine-v3/evidence");
     expect(url.searchParams.get("businessId")).toBe("biz-1");
     expect(url.searchParams.get("creativeId")).toBe("creative-1");
+  });
+
+  it("passes campaignId through to the evidence request", () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(makePayload()), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("window", {
+      location: { origin: "https://app.example" },
+    });
+    invokeQueryFn = true;
+
+    renderToStaticMarkup(
+      <CreativeEngineV3EvidenceSection
+        businessId="biz-1"
+        creativeId="creative-1"
+        campaignId="campaign-1"
+        open
+      />,
+    );
+
+    expect(observedQuery.queryKey).toEqual([
+      "engine-v3-evidence",
+      "biz-1",
+      "creative-1",
+      "campaign-1",
+    ]);
+    const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(url.searchParams.get("campaignId")).toBe("campaign-1");
   });
 
   it("shows disabled copy when status is disabled", () => {
@@ -400,6 +434,7 @@ describe("CreativeEngineV3EvidenceSection", () => {
     expect(html).toContain("primaryWeakStage");
     expect(html).toContain("opportunity_window_open");
     expect(html).toContain("ignored");
+    expect(html).toContain("account:*");
     expect(html).toContain("decision.generatedAt");
   });
 

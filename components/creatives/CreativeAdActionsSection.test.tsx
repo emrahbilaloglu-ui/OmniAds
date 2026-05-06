@@ -22,6 +22,7 @@ vi.mock("@tanstack/react-query", () => ({
 
 const {
   CreativeAdActionsSection,
+  buildDuplicateActionBody,
   isDuplicateConfirmDisabled,
   resolveManualAdActionId,
 } = await import("@/components/creatives/CreativeAdActionsSection");
@@ -104,13 +105,13 @@ function makeRow(overrides: Partial<MetaCreativeRow> = {}): MetaCreativeRow {
   };
 }
 
-function renderSection(row: MetaCreativeRow) {
+function renderSection(row: MetaCreativeRow, options?: { initialDuplicateOpen?: boolean }) {
   return renderToStaticMarkup(
     <CreativeAdActionsSection
       businessId="172d0ab8-495b-4679-a4c6-ffa404c389d3"
       row={row}
       open
-      defaultCurrency="USD"
+      initialDuplicateOpen={options?.initialDuplicateOpen}
     />,
   );
 }
@@ -206,6 +207,35 @@ describe("CreativeAdActionsSection", () => {
         progress: "verifying",
       }),
     ).toBe(true);
+  });
+
+  it("renders the simplified duplicate modal without ad-level budget input", () => {
+    const html = renderSection(makeRow(), { initialDuplicateOpen: true });
+
+    expect(html).toContain("Duplicate to campaign");
+    expect(html).toContain("Campaign");
+    expect(html).toContain("Ad set");
+    expect(html).toContain("Name override");
+    expect(html).toContain("Activate immediately");
+    expect(html).not.toContain("Daily budget");
+    expect(html).not.toContain("dailyBudgetMinor");
+  });
+
+  it("builds duplicate mutation payload without dailyBudgetMinor", () => {
+    const payload = buildDuplicateActionBody({
+      businessId: "biz_1",
+      targetAdsetId: "adset_2",
+      nameOverride: "  Source copy  ",
+      activateAfterCreate: false,
+    });
+
+    expect(payload).toEqual({
+      businessId: "biz_1",
+      targetAdsetId: "adset_2",
+      name: "Source copy",
+      activateAfterCreate: false,
+    });
+    expect(payload).not.toHaveProperty("dailyBudgetMinor");
   });
 
   it("uses the real Meta ad id for manual actions when grouped rows have a synthetic id", () => {

@@ -109,6 +109,18 @@ function isFailureBody(payload: Record<string, unknown> | null | undefined) {
   return Boolean(payload?.error) || payload?.success === false;
 }
 
+function readStringField(
+  payload: Record<string, unknown> | null | undefined,
+  key: string,
+) {
+  const value = payload?.[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function getAccountNumericId(providerAccountId: string) {
+  return providerAccountId.trim().replace(/^act_/, "");
+}
+
 async function metaFetch(input: {
   ctx: MetaAdsWriteContext;
   path: string;
@@ -295,103 +307,6 @@ async function updateAdStatus(
   };
 }
 
-async function updateAdName(input: {
-  ctx: MetaAdsWriteContext;
-  adId: string;
-  name: string;
-}): Promise<MetaAdsWriteFailure | null> {
-  const body = new URLSearchParams({ name: input.name });
-  const write = await metaFetchWithRateLimitRetry({
-    ctx: input.ctx,
-    path: input.adId,
-    method: "POST",
-    body,
-  });
-  if (write.error) {
-    return {
-      ok: false,
-      httpStatus: 502,
-      error: write.error,
-      responsePayload: write.payload,
-      resultingAdId: input.adId,
-    };
-  }
-  const httpStatus = write.response?.status ?? 502;
-  if (!write.response?.ok || isFailureBody(write.payload)) {
-    return buildWriteFailure({
-      payload: write.payload,
-      httpStatus,
-      fallbackCode: "meta_name_update_failed",
-      fallbackMessage: "Meta failed to set the copied ad name.",
-      resultingAdId: input.adId,
-    });
-  }
-  return null;
-}
-
-async function updateAdSetDailyBudget(input: {
-  ctx: MetaAdsWriteContext;
-  adsetId: string;
-  dailyBudgetMinor: number;
-  resultingAdId: string;
-}): Promise<MetaAdsWriteFailure | null> {
-  const body = new URLSearchParams({
-    daily_budget: String(Math.round(input.dailyBudgetMinor)),
-  });
-  const write = await metaFetchWithRateLimitRetry({
-    ctx: input.ctx,
-    path: input.adsetId,
-    method: "POST",
-    body,
-  });
-  if (write.error) {
-    return {
-      ok: false,
-      httpStatus: 502,
-      error: write.error,
-      responsePayload: write.payload,
-      resultingAdId: input.resultingAdId,
-    };
-  }
-  const httpStatus = write.response?.status ?? 502;
-  if (!write.response?.ok || isFailureBody(write.payload)) {
-    return buildWriteFailure({
-      payload: write.payload,
-      httpStatus,
-      fallbackCode: "meta_budget_update_failed",
-      fallbackMessage: "Meta failed to set the target ad set daily budget.",
-      resultingAdId: input.resultingAdId,
-    });
-  }
-
-  const verification = await metaFetch({
-    ctx: input.ctx,
-    path: input.adsetId,
-    method: "GET",
-    fields: "id,daily_budget",
-  });
-  const verifiedBudget = Number(verification.payload?.daily_budget);
-  if (
-    verification.error ||
-    !verification.response?.ok ||
-    verifiedBudget !== Math.round(input.dailyBudgetMinor)
-  ) {
-    return {
-      ok: false,
-      httpStatus: verification.response?.status ?? 502,
-      error: {
-        code: "silent_failure",
-        message: "Meta returned success but the target ad set daily budget did not verify.",
-      },
-      responsePayload: write.payload,
-      verificationPayload: verification.payload,
-      resultingAdId: input.resultingAdId,
-    };
-  }
-
-  return null;
-}
-
 export async function pauseAd(
   ctx: MetaAdsWriteContext,
   adId: string,
@@ -411,24 +326,77 @@ export async function duplicateAd(
   input: {
     adId: string;
     targetAdsetId: string;
-    dailyBudgetMinor?: number;
     name?: string;
     activateAfterCreate: boolean;
   },
 ): Promise<MetaAdDuplicateWriteSuccess | MetaAdsWriteFailure> {
-  const statusOption = input.activateAfterCreate ? "ACTIVE" : "PAUSED";
-  const body = new URLSearchParams({
-    adset_id: input.targetAdsetId,
-    status_option: statusOption,
+  const sourceAd = await metaFetch({
+    ctx,
+    path: input.adId,
+    method: "GET",
+    fields: "name,creative{id},adset_id",
   });
-  body.set(
-    "rename_options",
-    JSON.stringify({ rename_strategy: "ONLY_TOP_LEVEL_RENAME" }),
+  if (sourceAd.error) {
+    return {
+      ok: false,
+      httpStatus: 502,
+      error: {
+        code: "source_ad_fetch_failed",
+        message: `Meta source ad fetch failed: ${sourceAd.error.code}: ${sourceAd.error.message}`,
+      },
+      responsePayload: sourceAd.payload,
+    };
+  }
+  const sourceHttpStatus = sourceAd.response?.status ?? 502;
+  if (!sourceAd.response?.ok || isFailureBody(sourceAd.payload)) {
+    const metaError = getMetaError(sourceAd.payload, {
+      code: "source_ad_fetch_failed",
+      message: "Meta source ad fetch failed.",
+    });
+    return {
+      ok: false,
+      httpStatus: sourceHttpStatus,
+      error: {
+        code: "source_ad_fetch_failed",
+        message: `Meta source ad fetch failed: ${metaError.code}: ${metaError.message}`,
+      },
+      responsePayload: sourceAd.payload,
+    };
+  }
+
+  const sourceCreativeId = readStringField(
+    getNestedRecord(sourceAd.payload, "creative"),
+    "id",
   );
+  if (!sourceCreativeId) {
+    return {
+      ok: false,
+      httpStatus: 502,
+      error: {
+        code: "source_ad_fetch_failed",
+        message: "Meta source ad fetch did not include creative.id.",
+      },
+      responsePayload: sourceAd.payload,
+    };
+  }
+
+  const statusOption = input.activateAfterCreate ? "ACTIVE" : "PAUSED";
+  const sourceName = readStringField(sourceAd.payload, "name");
+  const name =
+    typeof input.name === "string" && input.name.trim().length > 0
+      ? input.name.trim()
+      : `${sourceName || input.adId} (copy)`;
+  const accountNumericId = getAccountNumericId(ctx.providerAccountId);
+  const body = new URLSearchParams({
+    name,
+    adset_id: input.targetAdsetId,
+    creative: JSON.stringify({ creative_id: sourceCreativeId }),
+    status: statusOption,
+  });
 
   const write = await metaFetchWithRateLimitRetry({
     ctx,
-    path: `${input.adId}/copies`,
+    path: `act_${accountNumericId}/ads`,
     method: "POST",
     body,
   });
@@ -446,93 +414,74 @@ export async function duplicateAd(
       payload: write.payload,
       httpStatus,
       fallbackCode: "meta_duplicate_failed",
-      fallbackMessage: "Meta failed to duplicate the ad.",
+      fallbackMessage: "Meta failed to create the duplicate ad.",
     });
   }
 
-  const copiedAdId =
-    typeof write.payload?.copied_ad_id === "string"
-      ? write.payload.copied_ad_id.trim()
-      : "";
-  if (!copiedAdId) {
+  const newAdId = readStringField(write.payload, "id");
+  if (!newAdId) {
     return {
       ok: false,
       httpStatus: 502,
       error: {
         code: "silent_failure",
-        message: "Meta returned success but did not return copied_ad_id.",
+        message: "Meta returned success but did not return a new ad id.",
       },
       responsePayload: write.payload,
     };
   }
 
-  const trimmedName =
-    typeof input.name === "string" && input.name.trim().length > 0
-      ? input.name.trim()
-      : null;
-  if (trimmedName) {
-    const nameFailure = await updateAdName({
-      ctx,
-      adId: copiedAdId,
-      name: trimmedName,
-    });
-    if (nameFailure) return nameFailure;
-  }
-
+  const verification = await metaFetch({
+    ctx,
+    path: newAdId,
+    method: "GET",
+    fields: "id,status,effective_status,adset_id,creative{id}",
+  });
   if (
-    typeof input.dailyBudgetMinor === "number" &&
-    Number.isFinite(input.dailyBudgetMinor) &&
-    input.dailyBudgetMinor > 0
+    verification.error ||
+    !verification.response?.ok ||
+    isFailureBody(verification.payload)
   ) {
-    const budgetFailure = await updateAdSetDailyBudget({
-      ctx,
-      adsetId: input.targetAdsetId,
-      dailyBudgetMinor: input.dailyBudgetMinor,
-      resultingAdId: copiedAdId,
-    });
-    if (budgetFailure) return budgetFailure;
-  }
-
-  const verification = await verifyAd({ ctx, adId: copiedAdId });
-  if (!verification.ok) {
     return {
       ok: false,
-      httpStatus: verification.httpStatus,
+      httpStatus: verification.response?.status ?? 502,
       error: {
         code: "silent_failure",
-        message: "Meta returned copied_ad_id but the copied ad could not be verified.",
+        message: "Meta created the duplicate ad but the new ad could not be verified.",
       },
       responsePayload: write.payload,
       verificationPayload: verification.payload,
-      resultingAdId: copiedAdId,
+      resultingAdId: newAdId,
     };
   }
 
-  const verifiedStatus = String(verification.payload?.status ?? "");
-  const verifiedAdsetId = String(verification.payload?.adset_id ?? "");
-  const verifiedName = String(verification.payload?.name ?? "");
-  const nameMatches = !trimmedName || verifiedName === trimmedName;
+  const verifiedStatus = readStringField(verification.payload, "status");
+  const verifiedAdsetId = readStringField(verification.payload, "adset_id");
+  const verifiedCreativeId = readStringField(
+    getNestedRecord(verification.payload, "creative"),
+    "id",
+  );
   if (
     verifiedStatus !== statusOption ||
     verifiedAdsetId !== input.targetAdsetId ||
-    !nameMatches
+    verifiedCreativeId !== sourceCreativeId
   ) {
     return {
       ok: false,
       httpStatus: 502,
       error: {
         code: "silent_failure",
-        message: "Meta returned copied_ad_id but copied ad verification did not match the requested status, ad set, or name.",
+        message: "Meta created the duplicate ad but verification did not match the requested status, ad set, or creative.",
       },
       responsePayload: write.payload,
       verificationPayload: verification.payload,
-      resultingAdId: copiedAdId,
+      resultingAdId: newAdId,
     };
   }
 
   return {
     ok: true,
-    newAdId: copiedAdId,
+    newAdId,
     verifiedStatus,
     responsePayload: write.payload,
     verificationPayload: verification.payload,

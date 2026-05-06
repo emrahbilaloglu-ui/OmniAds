@@ -94,17 +94,24 @@ describe("Meta ads write client", () => {
     expect(fetch).toHaveBeenCalledTimes(3);
   });
 
-  it("duplicateAd returns the copied ad id after status and placement verification", async () => {
+  it("duplicateAd manually rebuilds the ad and verifies status, ad set, and creative", async () => {
     vi.mocked(fetch)
-      .mockResolvedValueOnce(jsonResponse({ copied_ad_id: "ad_copy_1" }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "ad_1",
+          name: "Source Ad",
+          adset_id: "adset_1",
+          creative: { id: "creative_1" },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: "ad_copy_1" }))
       .mockResolvedValueOnce(
         jsonResponse({
           id: "ad_copy_1",
-          name: "Copy",
           status: "PAUSED",
           effective_status: "PAUSED",
           adset_id: "adset_2",
-          campaign_id: "cmp_2",
+          creative: { id: "creative_1" },
         }),
       );
 
@@ -119,20 +126,26 @@ describe("Meta ads write client", () => {
       newAdId: "ad_copy_1",
       verifiedStatus: "PAUSED",
     });
-    const body = vi.mocked(fetch).mock.calls[0]?.[1]?.body as URLSearchParams;
+    expect(String(vi.mocked(fetch).mock.calls[0]?.[0])).toContain(
+      "/v22.0/ad_1?",
+    );
+    expect(String(vi.mocked(fetch).mock.calls[1]?.[0])).toContain(
+      "/v22.0/act_123/ads?",
+    );
+    const body = vi.mocked(fetch).mock.calls[1]?.[1]?.body as URLSearchParams;
+    expect(body.get("name")).toBe("Source Ad (copy)");
     expect(body.get("adset_id")).toBe("adset_2");
-    expect(body.get("status_option")).toBe("PAUSED");
+    expect(body.get("status")).toBe("PAUSED");
+    expect(body.get("creative")).toBe(JSON.stringify({ creative_id: "creative_1" }));
   });
 
-  it("duplicateAd reports silent_failure when the copied ad cannot be verified", async () => {
-    vi.mocked(fetch)
-      .mockResolvedValueOnce(jsonResponse({ copied_ad_id: "ad_copy_1" }))
-      .mockResolvedValueOnce(
-        jsonResponse(
-          { error: { code: 100, message: "Unsupported get request." } },
-          { status: 404 },
-        ),
-      );
+  it("duplicateAd reports source_ad_fetch_failed when the source ad read fails", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(
+        { error: { code: 100, message: "Unsupported get request." } },
+        { status: 404 },
+      ),
+    );
 
     const result = await duplicateAd(ctx, {
       adId: "ad_1",
@@ -143,8 +156,124 @@ describe("Meta ads write client", () => {
     expect(result).toMatchObject({
       ok: false,
       httpStatus: 404,
+      error: { code: "source_ad_fetch_failed" },
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("duplicateAd reports silent_failure when verification shows a different ad set", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "ad_1",
+          name: "Source Ad",
+          adset_id: "adset_1",
+          creative: { id: "creative_1" },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: "ad_copy_1" }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "ad_copy_1",
+          status: "PAUSED",
+          effective_status: "PAUSED",
+          adset_id: "adset_other",
+          creative: { id: "creative_1" },
+        }),
+      );
+
+    const result = await duplicateAd(ctx, {
+      adId: "ad_1",
+      targetAdsetId: "adset_2",
+      activateAfterCreate: false,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      httpStatus: 502,
       error: { code: "silent_failure" },
       resultingAdId: "ad_copy_1",
     });
+  });
+
+  it("duplicateAd retries once after Meta rate limiting and succeeds on the second create", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "ad_1",
+          name: "Source Ad",
+          adset_id: "adset_1",
+          creative: { id: "creative_1" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            error: {
+              code: 17,
+              error_subcode: 2446079,
+              message: "(#17) User request limit reached",
+            },
+          },
+          { status: 429 },
+        ),
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: "ad_copy_1" }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "ad_copy_1",
+          status: "PAUSED",
+          effective_status: "PAUSED",
+          adset_id: "adset_2",
+          creative: { id: "creative_1" },
+        }),
+      );
+
+    const result = await duplicateAd(ctx, {
+      adId: "ad_1",
+      targetAdsetId: "adset_2",
+      activateAfterCreate: false,
+    });
+
+    expect(result).toMatchObject({ ok: true, newAdId: "ad_copy_1" });
+    expect(fetch).toHaveBeenCalledTimes(4);
+  });
+
+  it("duplicateAd sends ACTIVE when activateAfterCreate is true", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "ad_1",
+          name: "Source Ad",
+          adset_id: "adset_1",
+          creative: { id: "creative_1" },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: "ad_copy_1" }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "ad_copy_1",
+          status: "ACTIVE",
+          effective_status: "ACTIVE",
+          adset_id: "adset_2",
+          creative: { id: "creative_1" },
+        }),
+      );
+
+    const result = await duplicateAd(ctx, {
+      adId: "ad_1",
+      targetAdsetId: "adset_2",
+      name: "Custom copy",
+      activateAfterCreate: true,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      newAdId: "ad_copy_1",
+      verifiedStatus: "ACTIVE",
+    });
+    const body = vi.mocked(fetch).mock.calls[1]?.[1]?.body as URLSearchParams;
+    expect(body.get("name")).toBe("Custom copy");
+    expect(body.get("status")).toBe("ACTIVE");
   });
 });

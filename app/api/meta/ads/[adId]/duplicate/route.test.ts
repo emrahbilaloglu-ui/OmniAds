@@ -181,17 +181,24 @@ describe("POST /api/meta/ads/[adId]/duplicate", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("writes audit success when Meta duplicate and verification succeed", async () => {
+  it("writes audit success when Meta manual rebuild and verification succeed", async () => {
     vi.mocked(fetch)
-      .mockResolvedValueOnce(jsonResponse({ copied_ad_id: "ad_copy_1" }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "ad_1",
+          name: "Source Ad",
+          adset_id: "adset_1",
+          creative: { id: "creative_1" },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: "ad_copy_1" }))
       .mockResolvedValueOnce(
         jsonResponse({
           id: "ad_copy_1",
-          name: "Copy",
           status: "PAUSED",
           effective_status: "PAUSED",
           adset_id: "adset_2",
-          campaign_id: "cmp_2",
+          creative: { id: "creative_1" },
         }),
       );
 
@@ -212,13 +219,21 @@ describe("POST /api/meta/ads/[adId]/duplicate", () => {
         creativeId: "creative_1",
         action: "duplicate",
         payloadRequest: expect.objectContaining({
-          endpoint: "/ad_1/copies",
+          endpoint: "/act_123/ads",
           body: expect.objectContaining({
+            adset_id: "adset_2",
             target_adset_id: "adset_2",
             status_option: "PAUSED",
           }),
         }),
       }),
+    );
+    const createLogInput = vi.mocked(actionLog.createMetaAdsActionLog).mock
+      .calls[0]?.[0] as
+      | { payloadRequest?: { body?: Record<string, unknown> } }
+      | undefined;
+    expect(createLogInput?.payloadRequest?.body).not.toHaveProperty(
+      "daily_budget_minor",
     );
     expect(actionLog.completeMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -229,9 +244,17 @@ describe("POST /api/meta/ads/[adId]/duplicate", () => {
     );
   });
 
-  it("logs silent_failure when Meta returns copied_ad_id but verification fails", async () => {
+  it("logs silent_failure when Meta creates the ad but verification fails", async () => {
     vi.mocked(fetch)
-      .mockResolvedValueOnce(jsonResponse({ copied_ad_id: "ad_copy_1" }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "ad_1",
+          name: "Source Ad",
+          adset_id: "adset_1",
+          creative: { id: "creative_1" },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: "ad_copy_1" }))
       .mockResolvedValueOnce(
         jsonResponse(
           { error: { code: 100, message: "Unsupported get request." } },
@@ -254,12 +277,21 @@ describe("POST /api/meta/ads/[adId]/duplicate", () => {
   });
 
   it("logs failure when Meta returns an HTTP error", async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(
-      jsonResponse(
-        { error: { code: 190, message: "Invalid OAuth access token." } },
-        { status: 400 },
-      ),
-    );
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "ad_1",
+          name: "Source Ad",
+          adset_id: "adset_1",
+          creative: { id: "creative_1" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(
+          { error: { code: 190, message: "Invalid OAuth access token." } },
+          { status: 400 },
+        ),
+      );
 
     const response = await POST(request(duplicateBody()), params());
     const payload = await response.json();
@@ -274,20 +306,27 @@ describe("POST /api/meta/ads/[adId]/duplicate", () => {
   it("retries once after Meta rate limiting and succeeds on the second duplicate write", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(
+        jsonResponse({
+          id: "ad_1",
+          name: "Source Ad",
+          adset_id: "adset_1",
+          creative: { id: "creative_1" },
+        }),
+      )
+      .mockResolvedValueOnce(
         jsonResponse(
           { error: { code: 17, message: "(#17) User request limit reached" } },
           { status: 429 },
         ),
       )
-      .mockResolvedValueOnce(jsonResponse({ copied_ad_id: "ad_copy_1" }))
+      .mockResolvedValueOnce(jsonResponse({ id: "ad_copy_1" }))
       .mockResolvedValueOnce(
         jsonResponse({
           id: "ad_copy_1",
-          name: "Copy",
           status: "PAUSED",
           effective_status: "PAUSED",
           adset_id: "adset_2",
-          campaign_id: "cmp_2",
+          creative: { id: "creative_1" },
         }),
       );
 
@@ -296,7 +335,7 @@ describe("POST /api/meta/ads/[adId]/duplicate", () => {
 
     expect(response.status).toBe(200);
     expect(payload.ok).toBe(true);
-    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch).toHaveBeenCalledTimes(4);
     expect(actionLog.completeMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({ status: "success" }),
     );

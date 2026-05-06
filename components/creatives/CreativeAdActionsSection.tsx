@@ -13,7 +13,6 @@ import {
   PlayCircle,
 } from "lucide-react";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
-import { resolveCreativeCurrency } from "@/components/creatives/money";
 
 type ManualAction = "pause" | "resume";
 export type DuplicateProgress = "idle" | "submitting" | "verifying" | "success" | "error";
@@ -22,7 +21,7 @@ interface CreativeAdActionsSectionProps {
   businessId: string;
   row: MetaCreativeRow;
   open: boolean;
-  defaultCurrency: string | null;
+  initialDuplicateOpen?: boolean;
 }
 
 interface CampaignPickerRow {
@@ -64,7 +63,7 @@ export function CreativeAdActionsSection({
   businessId,
   row,
   open,
-  defaultCurrency,
+  initialDuplicateOpen = false,
 }: CreativeAdActionsSectionProps) {
   const queryClient = useQueryClient();
   const [localStatus, setLocalStatus] = useState(
@@ -72,10 +71,9 @@ export function CreativeAdActionsSection({
   );
   const [confirmAction, setConfirmAction] = useState<ManualAction | null>(null);
   const [pendingAction, setPendingAction] = useState<ManualAction | null>(null);
-  const [duplicateOpen, setDuplicateOpen] = useState(false);
+  const [duplicateOpen, setDuplicateOpen] = useState(initialDuplicateOpen);
   const [selectedCampaignId, setSelectedCampaignId] = useState("");
   const [selectedAdsetId, setSelectedAdsetId] = useState("");
-  const [dailyBudget, setDailyBudget] = useState("");
   const [nameOverride, setNameOverride] = useState(`${row.name} (copy)`);
   const [activateAfterCreate, setActivateAfterCreate] = useState(false);
   const [duplicateProgress, setDuplicateProgress] = useState<DuplicateProgress>("idle");
@@ -102,7 +100,6 @@ export function CreativeAdActionsSection({
     setDuplicateResult(null);
     setSelectedCampaignId("");
     setSelectedAdsetId("");
-    setDailyBudget("");
     setNameOverride(`${row.name} (copy)`);
     setActivateAfterCreate(false);
   }, [row.effectiveStatus, adId, row.name]);
@@ -164,7 +161,6 @@ export function CreativeAdActionsSection({
     selectedAdsetId,
     progress: duplicateProgress,
   });
-  const currency = resolveCreativeCurrency(row.currency ?? null, defaultCurrency);
 
   async function runStatusAction(action: ManualAction) {
     const previousStatus = localStatus;
@@ -208,20 +204,15 @@ export function CreativeAdActionsSection({
       setDuplicateMessage("Verifying ad creation...");
     }, 600);
 
-    const budgetMinor =
-      dailyBudget.trim().length > 0
-        ? Math.round(Number(dailyBudget) * 100)
-        : undefined;
     const result = await postAction({
       adId,
       action: "duplicate",
-      body: {
+      body: buildDuplicateActionBody({
         businessId,
         targetAdsetId: selectedAdsetId,
-        dailyBudgetMinor: budgetMinor,
-        name: nameOverride.trim() || undefined,
+        nameOverride,
         activateAfterCreate,
-      },
+      }),
     });
     window.clearTimeout(verifyingTimer);
     void queryClient.invalidateQueries({ queryKey: actionsQueryKey });
@@ -428,38 +419,6 @@ export function CreativeAdActionsSection({
                 </select>
               </label>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="block">
-                  <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                    Daily budget
-                  </span>
-                  <div className="mt-1 flex h-10 items-center rounded-lg border border-slate-200 bg-white px-3">
-                    <span className="mr-2 text-sm text-slate-500">{currency}</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={dailyBudget}
-                      onChange={(event) => setDailyBudget(event.target.value)}
-                      className="min-w-0 flex-1 bg-transparent text-sm outline-none"
-                      placeholder="Optional"
-                    />
-                  </div>
-                </label>
-
-                <label className="flex items-end gap-2 pb-2">
-                  <input
-                    type="checkbox"
-                    checked={activateAfterCreate}
-                    onChange={(event) => setActivateAfterCreate(event.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300"
-                  />
-                  <span className="text-sm font-medium text-slate-700">
-                    Activate immediately
-                  </span>
-                </label>
-              </div>
-
               <label className="block">
                 <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
                   Name override
@@ -470,6 +429,18 @@ export function CreativeAdActionsSection({
                   onChange={(event) => setNameOverride(event.target.value)}
                   className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
                 />
+              </label>
+
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={activateAfterCreate}
+                  onChange={(event) => setActivateAfterCreate(event.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300"
+                />
+                <span className="text-sm font-medium text-slate-700">
+                  Activate immediately
+                </span>
               </label>
 
               {duplicateMessage ? (
@@ -561,6 +532,21 @@ export function isDuplicateConfirmDisabled(input: {
     input.progress === "submitting" ||
     input.progress === "verifying"
   );
+}
+
+export function buildDuplicateActionBody(input: {
+  businessId: string;
+  targetAdsetId: string;
+  nameOverride: string;
+  activateAfterCreate: boolean;
+}) {
+  const name = input.nameOverride.trim();
+  return {
+    businessId: input.businessId,
+    targetAdsetId: input.targetAdsetId,
+    name: name || undefined,
+    activateAfterCreate: input.activateAfterCreate,
+  };
 }
 
 export function resolveManualAdActionId(row: MetaCreativeRow) {

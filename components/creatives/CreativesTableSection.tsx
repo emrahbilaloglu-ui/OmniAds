@@ -254,6 +254,16 @@ const AI_TAG_HEADER_ICONS: Record<TagKey, ComponentType<{ className?: string }>>
   headlineTactic: MessageSquareQuote,
 };
 
+function buildPlacementTooltip(row: MetaCreativeRow): string | undefined {
+  const parts: string[] = [];
+  if (row.campaignName) parts.push(`Campaign: ${row.campaignName}`);
+  else if (row.campaignId) parts.push(`Campaign id: ${row.campaignId}`);
+  if (row.adSetName) parts.push(`Ad set: ${row.adSetName}`);
+  else if (row.adSetId) parts.push(`Ad set id: ${row.adSetId}`);
+  if (parts.length === 0) return undefined;
+  return parts.join("\n");
+}
+
 function logPerf(label: string, startMs: number, rowCount: number) {
   if (process.env.NODE_ENV === "production") return;
   const duration = Date.now() - startMs;
@@ -1875,9 +1885,12 @@ const CreativeTableRow = memo(function CreativeTableRow({
             className="h-9 w-9 shrink-0 rounded-md"
           />
 
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1" title={buildPlacementTooltip(row)}>
             <p className="truncate text-[10px] font-medium leading-tight">{row.name}</p>
             <p className="mt-1 truncate text-[9px] text-muted-foreground">
+              {row.campaignName ? (
+                <span className="mr-2 opacity-70">{row.campaignName}</span>
+              ) : null}
               {row.associatedAdsCount > 1 ? <span className="opacity-60">{row.associatedAdsCount} ads</span> : null}
               <button
                 type="button"

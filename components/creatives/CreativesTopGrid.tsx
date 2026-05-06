@@ -87,6 +87,21 @@ export function CreativesTopGrid({
   );
 }
 
+function buildPlacementTooltip(row: {
+  campaignName?: string | null;
+  campaignId?: string | null;
+  adSetName?: string | null;
+  adSetId?: string | null;
+}): string | undefined {
+  const parts: string[] = [];
+  if (row.campaignName) parts.push(`Campaign: ${row.campaignName}`);
+  else if (row.campaignId) parts.push(`Campaign id: ${row.campaignId}`);
+  if (row.adSetName) parts.push(`Ad set: ${row.adSetName}`);
+  else if (row.adSetId) parts.push(`Ad set id: ${row.adSetId}`);
+  if (parts.length === 0) return undefined;
+  return parts.join("\n");
+}
+
 function CreativeCard({
   row,
   selected,
@@ -103,6 +118,7 @@ function CreativeCard({
   onOpenRow: (rowId: string) => void;
 }) {
   const isCatalog = Boolean(row.isCatalog || row.is_catalog || row.preview?.is_catalog);
+  const placementTooltip = buildPlacementTooltip(row);
 
   const sourcePriority = useMemo(
     () => getCreativeStaticPreviewSources(row, "grid"),
@@ -153,8 +169,13 @@ function CreativeCard({
           ) : null}
         </div>
 
-        <div className="px-3 pb-3 pt-2">
+        <div className="px-3 pb-3 pt-2" title={placementTooltip}>
           <p className="line-clamp-2 text-[12px] font-semibold leading-tight">{row.name}</p>
+          {row.campaignName ? (
+            <p className="mt-0.5 line-clamp-1 text-[10px] text-muted-foreground">
+              {row.campaignName}
+            </p>
+          ) : null}
           <div className="mt-2 flex items-center gap-4 text-[11px]">
             <MetricMini label="Spend" value={METRIC_CONFIG.spend.format(row.spend)} />
             <MetricMini label="ROAS" value={METRIC_CONFIG.roas.format(row.roas)} />

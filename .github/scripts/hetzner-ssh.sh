@@ -131,18 +131,22 @@ run_remote_phase_on_host() {
   local deploy_sha_q
   local break_glass_q
   local override_reason_q
+  local deploy_migration_timeout_ms_q
+  local deploy_migration_timeout_seconds_q
   local remote_app_dir_q
   local phase_q
 
   deploy_sha_q="$(printf '%q' "${DEPLOY_SHA}")"
   break_glass_q="$(printf '%q' "${BREAK_GLASS}")"
   override_reason_q="$(printf '%q' "${OVERRIDE_REASON}")"
+  deploy_migration_timeout_ms_q="$(printf '%q' "${DEPLOY_MIGRATION_TIMEOUT_MS:-}")"
+  deploy_migration_timeout_seconds_q="$(printf '%q' "${DEPLOY_MIGRATION_TIMEOUT_SECONDS:-}")"
   remote_app_dir_q="$(printf '%q' "${REMOTE_APP_DIR}")"
   phase_q="$(printf '%q' "${phase}")"
 
   echo "Running remote deploy phase=${phase} on ${target_label} (${target_host})"
 
   ssh_with_stdin_retry "${target_host}" \
-    "mkdir -p ${remote_app_dir_q} && cd ${remote_app_dir_q} && DEPLOY_SHA=${deploy_sha_q} BREAK_GLASS=${break_glass_q} OVERRIDE_REASON=${override_reason_q} APP_IMAGE_TAG=${deploy_sha_q} APP_BUILD_ID=${deploy_sha_q} REMOTE_APP_DIR=${remote_app_dir_q} bash -seuo pipefail -- ${phase_q}" \
+    "mkdir -p ${remote_app_dir_q} && cd ${remote_app_dir_q} && DEPLOY_SHA=${deploy_sha_q} BREAK_GLASS=${break_glass_q} OVERRIDE_REASON=${override_reason_q} DEPLOY_MIGRATION_TIMEOUT_MS=${deploy_migration_timeout_ms_q} DEPLOY_MIGRATION_TIMEOUT_SECONDS=${deploy_migration_timeout_seconds_q} APP_IMAGE_TAG=${deploy_sha_q} APP_BUILD_ID=${deploy_sha_q} REMOTE_APP_DIR=${remote_app_dir_q} bash -seuo pipefail -- ${phase_q}" \
     < .github/scripts/hetzner-remote.sh
 }

@@ -221,7 +221,7 @@ async function fetchCreativesLikeResponse(
     businessId: string;
     start: string;
     end: string;
-    groupBy: "adName" | "creative" | "adSet";
+    groupBy: "adName" | "ad" | "creative" | "adSet";
     format: "all" | "image" | "video";
     sort: "roas" | "spend" | "ctrAll" | "purchaseValue";
     mediaMode?: "metadata" | "full";
@@ -264,7 +264,7 @@ export async function fetchMetaCreatives(params: {
   businessId: string;
   start: string;
   end: string;
-  groupBy: "adName" | "creative" | "adSet";
+  groupBy: "adName" | "ad" | "creative" | "adSet";
   format: "all" | "image" | "video";
   sort: "roas" | "spend" | "ctrAll" | "purchaseValue";
   mediaMode?: "metadata" | "full";
@@ -279,7 +279,7 @@ export async function fetchMetaCreativesHistory(params: {
   businessId: string;
   start: string;
   end: string;
-  groupBy: "adName" | "creative" | "adSet";
+  groupBy: "adName" | "ad" | "creative" | "adSet";
   format: "all" | "image" | "video";
   sort: "roas" | "spend" | "ctrAll" | "purchaseValue";
   mediaMode?: "metadata" | "full";
@@ -425,6 +425,7 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     purchases,
     impressions,
     clicks,
+    frequency: row.frequency ?? null,
     linkClicks,
     landingPageViews: safeNumber(row.landing_page_views),
     addToCart,

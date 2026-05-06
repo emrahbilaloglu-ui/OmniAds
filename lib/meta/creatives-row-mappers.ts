@@ -722,7 +722,9 @@ export function groupRows(
     const key =
       groupBy === "creative"
         ? `${row.name}\0${row.format}`
-        : row.adset_id ?? `adset:${row.id}`;
+        : groupBy === "ad"
+          ? row.id
+          : row.adset_id ?? `adset:${row.id}`;
     const list = map.get(key) ?? [];
     list.push(row);
     map.set(key, list);
@@ -843,14 +845,21 @@ export function groupRows(
     const stableId =
       groupBy === "creative"
         ? `creative_${simpleHash(key)}`
-        : `adset_${key}`;
+        : groupBy === "ad"
+          ? sample.id
+          : `adset_${key}`;
     grouped.push({
       id: stableId,
       creative_id: sample.creative_id,
       object_story_id: groupedObjectStoryId,
       effective_object_story_id: groupedEffectiveObjectStoryId,
       post_id: groupedPostId,
-      associated_ads_count: groupBy === "creative" ? list.length : (creativeUsageMap.get(sample.creative_id)?.size ?? 1),
+      associated_ads_count:
+        groupBy === "creative"
+          ? list.length
+          : groupBy === "ad"
+            ? 1
+            : (creativeUsageMap.get(sample.creative_id)?.size ?? 1),
       account_id: sample.account_id,
       account_name: sample.account_name,
       campaign_id: sample.campaign_id,
@@ -858,7 +867,10 @@ export function groupRows(
       currency: sample.currency,
       adset_id: sample.adset_id,
       adset_name: sample.adset_name,
-      name: groupBy === "creative" ? sample.name : sample.adset_name ?? sample.name,
+      name:
+        groupBy === "creative" || groupBy === "ad"
+          ? sample.name
+          : sample.adset_name ?? sample.name,
       copy_text: groupedCopyText,
       copy_variants: groupedCopyVariants,
       headline_variants: groupedHeadlineVariants,

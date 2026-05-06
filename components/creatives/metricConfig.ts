@@ -114,6 +114,7 @@ export interface MetaCreativeRow {
   purchases: number;
   impressions: number;
   clicks: number;
+  frequency?: number | null;
   linkClicks: number;
   landingPageViews: number;
   addToCart: number;

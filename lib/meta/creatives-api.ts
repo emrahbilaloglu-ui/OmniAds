@@ -113,7 +113,9 @@ async function hasCreativeWarehouseCoverage(input: {
   const totalDays = dayCountInclusive(input.start, input.end);
   if (!Number.isFinite(totalDays) || totalDays <= 0) return false;
   const coverageReader =
-    input.groupBy === "adName" ? getMetaAdDailyCoverage : getMetaCreativeDailyCoverage;
+    input.groupBy === "adName" || input.groupBy === "ad"
+      ? getMetaAdDailyCoverage
+      : getMetaCreativeDailyCoverage;
   const coverages = await Promise.all(
     input.assignedAccountIds.map((providerAccountId) =>
       coverageReader({

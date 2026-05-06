@@ -1,6 +1,6 @@
 // ── Primitive enums / unions ───────────────────────────────────────────────────
 
-export type GroupBy = "adName" | "creative" | "adSet";
+export type GroupBy = "adName" | "ad" | "creative" | "adSet";
 export type FormatFilter = "all" | "image" | "video";
 export type SortKey = "roas" | "spend" | "ctrAll" | "purchaseValue";
 export type CreativeFormat = "image" | "video" | "catalog";

@@ -241,6 +241,24 @@ describe("groupRows", () => {
     expect(adsetA?.spend).toBeCloseTo(250);
   });
 
+  it("groups daily rows by real ad id for groupBy=ad", () => {
+    const rows = [
+      makeRow({ id: "ad_1", creative_id: "cre_1", name: "Placement A", spend: 100, impressions: 1000, purchases: 1 }),
+      makeRow({ id: "ad_1", creative_id: "cre_1", name: "Placement A", spend: 50, impressions: 500, purchases: 2 }),
+      makeRow({ id: "ad_2", creative_id: "cre_2", name: "Placement A", spend: 25, impressions: 250, purchases: 0 }),
+    ];
+
+    const result = groupRows(rows, "ad", new Map());
+
+    expect(result).toHaveLength(2);
+    const ad1 = result.find((row) => row.id === "ad_1");
+    expect(ad1?.name).toBe("Placement A");
+    expect(ad1?.spend).toBeCloseTo(150);
+    expect(ad1?.impressions).toBe(1500);
+    expect(ad1?.purchases).toBe(3);
+    expect(ad1?.associated_ads_count).toBe(1);
+  });
+
   it("marks grouped rows as Mixed when underlying primary types conflict", () => {
     const rows = [
       makeRow({

@@ -62,7 +62,7 @@ import {
   dayCountInclusive,
 } from "@/lib/meta/history";
 import { getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
-import type { DecisionLabel } from "@/lib/creative-decision-engine/types";
+import type { DecisionLabel, DecisionOutput } from "@/lib/creative-decision-engine/types";
 
 function clampCreativeDateRangeToHistoryLimit(
   value: CreativeDateRangeValue,
@@ -184,6 +184,7 @@ export default function CreativesPage() {
     open: false,
     activeRowId: null,
   });
+  const [placementDetailRow, setPlacementDetailRow] = useState<MetaCreativeRow | null>(null);
   const [highlightedRowId, setHighlightedRowId] = useState<string | null>(null);
   const [notesByRowId, setNotesByRowId] = useState<Record<string, string>>({});
   const [shareExportLoading, setShareExportLoading] = useState(false);
@@ -361,7 +362,7 @@ export default function CreativesPage() {
     })),
   });
   const adBreakdownQuery = useQuery({
-    queryKey: ["meta-creatives-ad-breakdown", businessId, drStart, drEnd],
+    queryKey: ["meta-creatives-ad-breakdown", businessId, drStart, drEnd, "ad"],
     enabled:
       canLoadCreatives &&
       breakdownDrawerState.open &&
@@ -371,9 +372,10 @@ export default function CreativesPage() {
         businessId,
         start: drStart,
         end: drEnd,
-        groupBy: "adName",
+        groupBy: "ad",
         format: "all",
         sort: "spend",
+        mediaMode: "full",
       }),
   });
   const activeCreativesPayload = creativesMetadataQuery.data;
@@ -474,6 +476,16 @@ export default function CreativesPage() {
         (decisionEngineV3Query.data?.decisions ?? []).map((decision) => [
           decision.creativeId,
           decision.label,
+        ]),
+      ),
+    [decisionEngineV3Query.data],
+  );
+  const v3DecisionByCreativeId = useMemo(
+    () =>
+      new Map<string, DecisionOutput>(
+        (decisionEngineV3Query.data?.decisions ?? []).map((decision) => [
+          decision.creativeId,
+          decision,
         ]),
       ),
     [decisionEngineV3Query.data],
@@ -620,21 +632,30 @@ export default function CreativesPage() {
   }, [v3FilteredRows, topPanelRows]);
 
   const activeCreativeRow = useMemo(
-    () => allRows.find((row) => row.id === creativeDrawerState.activeRowId) ?? null,
-    [allRows, creativeDrawerState.activeRowId]
+    () =>
+      allRows.find((row) => row.id === creativeDrawerState.activeRowId) ??
+      (placementDetailRow?.id === creativeDrawerState.activeRowId ? placementDetailRow : null),
+    [allRows, creativeDrawerState.activeRowId, placementDetailRow]
   );
   const activeBreakdownCreativeRow = useMemo(
     () => allRows.find((row) => row.id === breakdownDrawerState.activeRowId) ?? null,
     [allRows, breakdownDrawerState.activeRowId]
   );
+  const creativeDetailRows = useMemo(() => {
+    if (!activeCreativeRow) return filteredRows;
+    return filteredRows.some((row) => row.id === activeCreativeRow.id)
+      ? filteredRows
+      : [activeCreativeRow, ...filteredRows];
+  }, [activeCreativeRow, filteredRows]);
   const adBreakdownRows = useMemo(() => {
     const creativeName = activeBreakdownCreativeRow?.name ?? null;
     if (!creativeName) return [];
-      const rows = (adBreakdownQuery.data?.rows ?? []).map(mapApiRowToUiRow);
+    const rows = (adBreakdownQuery.data?.rows ?? []).map(mapApiRowToUiRow);
     return rows.filter((row) => row.name === creativeName);
   }, [activeBreakdownCreativeRow?.name, adBreakdownQuery.data?.rows]);
 
   const openCreativeDrawer = useCallback((rowId: string, scrollToRow = false) => {
+    setPlacementDetailRow(null);
     setCreativeDrawerState({ open: true, activeRowId: rowId });
     if (scrollToRow) {
       const target = document.getElementById(`creative-row-${rowId}`);
@@ -645,6 +666,11 @@ export default function CreativesPage() {
     setBreakdownDrawerState({ open: true, activeRowId: rowId });
     setHighlightedRowId(rowId);
     setTimeout(() => setHighlightedRowId((prev) => (prev === rowId ? null : prev)), 1400);
+  }, []);
+  const openBreakdownPlacementDrawer = useCallback((row: MetaCreativeRow) => {
+    setPlacementDetailRow(row);
+    setBreakdownDrawerState({ open: false, activeRowId: null });
+    setCreativeDrawerState({ open: true, activeRowId: row.id });
   }, []);
 
   const toggleV3Label = useCallback((label: DecisionLabel) => {
@@ -990,7 +1016,7 @@ export default function CreativesPage() {
       <CreativeDetailExperience
         businessId={businessId}
 	        row={activeCreativeRow}
-	        allRows={filteredRows}
+	        allRows={creativeDetailRows}
         campaignScopeId={campaignScopeId}
 	        creativeHistoryById={creativeHistoryById}
 	        open={creativeDrawerState.open}
@@ -1006,16 +1032,18 @@ export default function CreativesPage() {
           setNotesByRowId((prev) => ({ ...prev, [activeCreativeRow.id]: value }));
         }}
       />
-	      <CreativeAdBreakdownDrawer
-	        open={breakdownDrawerState.open}
-	        creative={activeBreakdownCreativeRow}
+      <CreativeAdBreakdownDrawer
+        open={breakdownDrawerState.open}
+        creative={activeBreakdownCreativeRow}
         rows={adBreakdownRows}
         loading={adBreakdownQuery.isLoading}
         defaultCurrency={selectedBusinessCurrency}
+        decisionsByCreativeId={v3ChipsVisible ? v3DecisionByCreativeId : undefined}
+        onOpenPlacement={openBreakdownPlacementDrawer}
         onOpenChange={(open) =>
           setBreakdownDrawerState((prev) => ({ ...prev, open, activeRowId: open ? prev.activeRowId : null }))
-	        }
-	      />
+        }
+      />
 	    </div>
     </PlanGate>
   );

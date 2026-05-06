@@ -289,9 +289,51 @@ maybe_prune_stale_deploy_artifacts() {
   prune_stale_deploy_artifacts
 }
 
+read_env_file_migration_timeout_ms() {
+  if [ ! -f .env.production ]; then
+    return 0
+  fi
+
+  (
+    set -a
+    # shellcheck disable=SC1091
+    . ./.env.production >/dev/null 2>&1 || exit 0
+    if [ -n "${DEPLOY_MIGRATION_TIMEOUT_MS:-}" ]; then
+      printf '%s' "${DEPLOY_MIGRATION_TIMEOUT_MS}"
+    elif [ -n "${MIGRATION_TIMEOUT_MS:-}" ]; then
+      printf '%s' "${MIGRATION_TIMEOUT_MS}"
+    fi
+  )
+}
+
+is_positive_integer() {
+  case "${1:-}" in
+    ''|*[!0-9]*)
+      return 1
+      ;;
+  esac
+
+  [ "$1" -gt 0 ]
+}
+
 run_migrations_service() {
-  migration_timeout_ms="${DEPLOY_MIGRATION_TIMEOUT_MS:-1800000}"
+  env_file_migration_timeout_ms=""
+  if [ -z "${DEPLOY_MIGRATION_TIMEOUT_MS:-}" ]; then
+    env_file_migration_timeout_ms="$(read_env_file_migration_timeout_ms)"
+  fi
+
+  migration_timeout_ms="${DEPLOY_MIGRATION_TIMEOUT_MS:-${env_file_migration_timeout_ms:-1800000}}"
+  if ! is_positive_integer "${migration_timeout_ms}"; then
+    log "Ignoring invalid DEPLOY_MIGRATION_TIMEOUT_MS=${migration_timeout_ms}; using 1800000"
+    migration_timeout_ms="1800000"
+  fi
+
   migration_timeout_seconds="${DEPLOY_MIGRATION_TIMEOUT_SECONDS:-$((migration_timeout_ms / 1000 + 60))}"
+  if ! is_positive_integer "${migration_timeout_seconds}"; then
+    log "Ignoring invalid DEPLOY_MIGRATION_TIMEOUT_SECONDS=${migration_timeout_seconds}; deriving from node timeout"
+    migration_timeout_seconds="$((migration_timeout_ms / 1000 + 60))"
+  fi
+
   export DEPLOY_MIGRATION_TIMEOUT_MS="${migration_timeout_ms}"
 
   log "Starting migrate service timeout_seconds=${migration_timeout_seconds} node_timeout_ms=${DEPLOY_MIGRATION_TIMEOUT_MS}"

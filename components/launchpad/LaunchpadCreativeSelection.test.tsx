@@ -136,6 +136,7 @@ describe("LaunchpadCreativeSelection", () => {
         requestedAt: "2026-05-06T12:00:00.000Z",
         resultingAdId: "ad_2",
         sourceAdId: "ad_1",
+        sourceName: "Hero",
         targetCampaignId: "cmp_target",
         targetCampaignName: "Main Campaign",
         targetAdsetId: "adset_target",

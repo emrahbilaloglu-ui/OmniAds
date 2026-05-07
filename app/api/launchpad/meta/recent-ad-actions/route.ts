@@ -15,6 +15,9 @@ type RecentAdActionDbRow = {
   ad_name_historical: string | null;
   ad_status: string | null;
   dim_creative_id: string | null;
+  source_ad_name_current: string | null;
+  source_ad_name_historical: string | null;
+  source_dim_creative_id: string | null;
   provider_account_id: string | null;
   campaign_id: string | null;
   campaign_name_current: string | null;
@@ -60,6 +63,9 @@ export async function GET(request: NextRequest) {
       ad.ad_name_historical,
       ad.ad_status,
       ad.creative_id AS dim_creative_id,
+      source_ad.ad_name_current AS source_ad_name_current,
+      source_ad.ad_name_historical AS source_ad_name_historical,
+      source_ad.creative_id AS source_dim_creative_id,
       ad.provider_account_id,
       campaign.campaign_id,
       campaign.campaign_name_current,
@@ -76,6 +82,14 @@ export async function GET(request: NextRequest) {
       ORDER BY updated_at DESC
       LIMIT 1
     ) ad ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT *
+      FROM meta_ad_dimensions
+      WHERE business_id = ${access.businessId}
+        AND ad_id = log.ad_id
+      ORDER BY updated_at DESC
+      LIMIT 1
+    ) source_ad ON TRUE
     LEFT JOIN LATERAL (
       SELECT *
       FROM meta_campaign_dimensions
@@ -115,8 +129,15 @@ export async function GET(request: NextRequest) {
           resultingAdId: row.resulting_ad_id,
           creativeId:
             row.dim_creative_id ??
+            row.source_dim_creative_id ??
             row.creative_id ??
             readString(requestBody, "source_creative_id") ??
+            null,
+          sourceName:
+            row.source_ad_name_current ??
+            row.source_ad_name_historical ??
+            readString(requestPayload, "source_name") ??
+            readString(requestBody, "source_name") ??
             null,
           adName:
             row.ad_name_current ??

@@ -246,7 +246,10 @@ export async function POST(request: NextRequest) {
         const override = body?.names?.[creativeId]?.trim();
         const creative = creativeMeta.get(creativeId);
         const submittedCreative = submittedCreativeMeta.get(creativeId);
-        const creativeName = creative?.creativeName ?? null;
+        const creativeName =
+          creative?.creativeName ??
+          submittedCreative?.name?.trim() ??
+          null;
         const adName = override || creativeName || `Creative ${creativeId}`;
         const sourceAdId =
           submittedCreative?.sourceAdId?.trim() ||
@@ -286,6 +289,7 @@ export async function POST(request: NextRequest) {
             target_adset_id: target.targetAdsetId,
             target_campaign_name: target.targetCampaignName ?? resolvedTarget?.campaignName ?? null,
             target_adset_name: targetAdsetName,
+            source_name: creativeName,
             method: "POST",
             endpoint: `/act_${accountNumericId}/ads`,
             body: {
@@ -293,6 +297,7 @@ export async function POST(request: NextRequest) {
               target_adset_id: target.targetAdsetId,
               source_ad_id: sourceAdId,
               source_creative_id: creativeId,
+              source_name: creativeName,
               status_option: "PAUSED",
               name: adName,
             },

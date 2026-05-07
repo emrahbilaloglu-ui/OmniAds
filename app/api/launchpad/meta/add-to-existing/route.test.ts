@@ -173,6 +173,11 @@ describe("POST /api/launchpad/meta/add-to-existing", () => {
         payloadRequest: expect.objectContaining({
           target_campaign_name: "Campaign",
           target_adset_name: "Ad set",
+          source_name: "Creative 1",
+          body: expect.objectContaining({
+            source_name: "Creative 1",
+            name: "Creative 1 added",
+          }),
         }),
       }),
     );

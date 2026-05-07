@@ -65,6 +65,7 @@ export interface MetaCreativeRow {
     requestedAt: string;
     resultingAdId: string;
     sourceAdId: string | null;
+    sourceName: string | null;
     targetCampaignId: string | null;
     targetCampaignName: string | null;
     targetAdsetId: string | null;

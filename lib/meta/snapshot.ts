@@ -35,6 +35,7 @@ import {
   type MetaRecommendationPriority,
   type MetaRecommendationsResponse,
 } from "@/lib/meta/recommendations";
+import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
 
 export interface RunMetaSnapshotResult {
   businessId: string;
@@ -75,6 +76,8 @@ type SnapshotDbRow = {
   created_at: string;
   kind?: "recommendation" | "anomaly";
   evidence_trail?: unknown;
+  campaign_role?: MetaCampaignRole | null;
+  bid_regime?: MetaBidRegime | null;
 };
 
 interface SnapshotPayloadRow {
@@ -100,6 +103,8 @@ interface SnapshotPayloadRow {
   detected_at?: string | null;
   resolved_at?: string | null;
   evidence_trail?: MetaEvidenceTrail | Record<string, never>;
+  campaign_role?: MetaCampaignRole | null;
+  bid_regime?: MetaBidRegime | null;
 }
 
 function parseISODate(value: string): Date {
@@ -183,6 +188,8 @@ function recommendationToSnapshotRow(
       recommendation.engineVersion ?? META_RECOMMENDATION_ENGINE_VERSION,
     kind: "recommendation",
     evidence_trail: evidenceTrail ?? {},
+    campaign_role: recommendation.campaignRole ?? null,
+    bid_regime: recommendation.bidRegime ?? null,
   };
 }
 
@@ -226,6 +233,8 @@ function anomalyToSnapshotRow(
     detected_at: anomaly.detectedAt,
     resolved_at: anomaly.resolvedAt ?? null,
     evidence_trail: {},
+    campaign_role: null,
+    bid_regime: null,
   };
 }
 
@@ -267,7 +276,9 @@ async function upsertSnapshotRows(input: {
             predictive_overlay text,
             engine_version text,
             kind text,
-            evidence_trail jsonb
+            evidence_trail jsonb,
+            campaign_role text,
+            bid_regime text
           )
         )
         INSERT INTO meta_decision_snapshots_daily (
@@ -288,7 +299,9 @@ async function upsertSnapshotRows(input: {
           predictive_overlay,
           engine_version,
           kind,
-          evidence_trail
+          evidence_trail,
+          campaign_role,
+          bid_regime
         )
         SELECT
           scope_type,
@@ -308,7 +321,9 @@ async function upsertSnapshotRows(input: {
           predictive_overlay,
           engine_version,
           kind,
-          evidence_trail
+          evidence_trail,
+          campaign_role,
+          bid_regime
         FROM payload
         ON CONFLICT (scope_type, scope_id, snapshot_date, rec_type)
         DO UPDATE SET
@@ -326,6 +341,8 @@ async function upsertSnapshotRows(input: {
           engine_version = EXCLUDED.engine_version,
           kind = EXCLUDED.kind,
           evidence_trail = EXCLUDED.evidence_trail,
+          campaign_role = EXCLUDED.campaign_role,
+          bid_regime = EXCLUDED.bid_regime,
           severity = NULL,
           diagnostics = '[]'::jsonb,
           detected_at = NULL,
@@ -761,6 +778,8 @@ function hydrateRecommendation(row: SnapshotDbRow): MetaRecommendation {
         row.evidence_trail && typeof row.evidence_trail === "object"
           ? (row.evidence_trail as MetaEvidenceTrail)
           : stored.evidenceTrail,
+      campaignRole: row.campaign_role ?? stored.campaignRole,
+      bidRegime: row.bid_regime ?? stored.bidRegime,
     };
   }
 
@@ -791,6 +810,8 @@ function hydrateRecommendation(row: SnapshotDbRow): MetaRecommendation {
       row.evidence_trail && typeof row.evidence_trail === "object"
         ? (row.evidence_trail as MetaEvidenceTrail)
         : undefined,
+    campaignRole: row.campaign_role ?? undefined,
+    bidRegime: row.bid_regime ?? undefined,
   };
 }
 
@@ -866,6 +887,8 @@ export async function readMetaDecisionSnapshotForRange(input: {
       predictive_overlay,
       engine_version,
       evidence_trail,
+      campaign_role,
+      bid_regime,
       created_at::text AS created_at
     FROM meta_decision_snapshots_daily
     WHERE business_id = ${input.businessId}

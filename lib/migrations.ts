@@ -2619,6 +2619,10 @@ export async function runMigrations(options?: {
           ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ`.catch(() => {}),
         sql`ALTER TABLE meta_decision_snapshots_daily
           ADD COLUMN IF NOT EXISTS evidence_trail JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_snapshots_daily
+          ADD COLUMN IF NOT EXISTS campaign_role TEXT`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_snapshots_daily
+          ADD COLUMN IF NOT EXISTS bid_regime TEXT`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_decision_calibration_daily (
           business_id   TEXT NOT NULL,
           scope_type    TEXT NOT NULL CHECK (scope_type IN ('account', 'campaign')),

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import { LEGACY_META_CALIBRATION_THRESHOLDS } from "@/lib/meta/calibration";
 import {
+  readMetaDecisionSnapshotForRange,
   runMetaSnapshotForAllBusinesses,
   runMetaSnapshotForBusiness,
 } from "@/lib/meta/snapshot";
@@ -57,12 +58,12 @@ const configSnapshots = await import("@/lib/meta/config-snapshots");
 const anomalies = await import("@/lib/meta/anomalies");
 const evidenceTrail = await import("@/lib/meta/evidence-trail");
 
-function makeSqlMock() {
+function makeSqlMock(tagRows: unknown[] = []) {
   const calls: string[] = [];
   const queryPayloads: unknown[] = [];
   const tag = vi.fn((strings: TemplateStringsArray) => {
     calls.push(strings.join("?"));
-    return Promise.resolve([]);
+    return Promise.resolve(tagRows);
   }) as unknown as ReturnType<typeof db.getDb>;
   tag.query = vi.fn((text: string, params?: unknown[]) => {
     calls.push(text);
@@ -290,6 +291,47 @@ describe("meta snapshot job", () => {
       regime_stability: 1,
       age_days: 28,
       recent_changes: [],
+    });
+    expect(recommendationPayload?.campaign_role).toBe("prospecting_validation");
+    expect(recommendationPayload?.bid_regime).toBe("lowest_cost");
+  });
+
+  it("hydrates taxonomy fields from persisted snapshot rows", async () => {
+    const sql = makeSqlMock([
+      {
+        scope_type: "campaign",
+        scope_id: "cmp_1",
+        business_id: "biz_1",
+        snapshot_date: "2026-05-06",
+        rec_id: "bid-cmp_1",
+        rec_type: "bid_strategy_fit",
+        level: "campaign",
+        decision_state: "act",
+        confidence_score: "0.82",
+        evidence: { items: [] },
+        recommended_action: "Test Cost Cap",
+        target_value: null,
+        expected_impact: "Better profit control.",
+        reasoning: "Lowest Cost is not protecting profitability.",
+        predictive_overlay: "Persisted snapshot.",
+        engine_version: "v3.6.0-meta-taxonomy",
+        evidence_trail: {},
+        campaign_role: "retargeting",
+        bid_regime: "lowest_cost",
+        created_at: "2026-05-06T03:00:00.000Z",
+      },
+    ]);
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+
+    const result = await readMetaDecisionSnapshotForRange({
+      businessId: "biz_1",
+      startDate: "2026-05-01",
+      endDate: "2026-05-06",
+    });
+
+    expect(result?.recommendations[0]).toMatchObject({
+      campaignRole: "retargeting",
+      bidRegime: "lowest_cost",
     });
   });
 

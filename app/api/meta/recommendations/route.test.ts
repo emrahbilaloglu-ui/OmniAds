@@ -90,6 +90,8 @@ vi.mock("@/lib/meta/recommendations", async (importOriginal) => {
             age_days: 28,
             recent_changes: [],
           },
+          campaignRole: "prospecting_scale",
+          bidRegime: "lowest_cost",
         },
       ],
     })),
@@ -174,6 +176,8 @@ describe("GET /api/meta/recommendations", () => {
             age_days: 28,
             recent_changes: [],
           },
+          campaignRole: "prospecting_scale",
+          bidRegime: "lowest_cost",
         },
       ],
       sourceModel: "snapshot_persistent",
@@ -212,6 +216,8 @@ describe("GET /api/meta/recommendations", () => {
       age_days: 28,
       recent_changes: [],
     });
+    expect(payload.recommendations[0].campaignRole).toBe("prospecting_scale");
+    expect(payload.recommendations[0].bidRegime).toBe("lowest_cost");
     expect(snapshot.readMetaDecisionSnapshotForRange).toHaveBeenCalledWith({
       businessId: "biz",
       startDate: "2026-03-01",

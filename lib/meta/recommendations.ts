@@ -11,6 +11,10 @@ import type { MetaBidRegimeHistorySummary } from "@/lib/meta/config-snapshots";
 import type { MetaCreativeIntelligenceSummary } from "@/lib/meta/creative-intelligence";
 import type { MetaEvidenceTrail } from "@/lib/meta/evidence-trail";
 import {
+  inferBidRegime,
+  inferCampaignRole,
+} from "@/lib/meta/campaign-roles";
+import {
   buildMetaCampaignLaneSignals,
   buildMetaCampaignLaneSummary,
   comparableMetaIntentKey,
@@ -21,7 +25,9 @@ import {
   type MetaCampaignFamily,
   type MetaCampaignLaneFamilySummary,
   type MetaCampaignLaneLabel,
+  type MetaCampaignLaneSignal,
 } from "@/lib/meta/campaign-lanes";
+import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
 
 export type MetaDecisionState = "act" | "test" | "watch";
 export type MetaRecommendationLens = "volume" | "profitability" | "structure";
@@ -105,6 +111,8 @@ export interface MetaRecommendation {
   predictiveOverlay?: string | null;
   engineVersion?: string;
   evidenceTrail?: MetaEvidenceTrail;
+  campaignRole?: MetaCampaignRole;
+  bidRegime?: MetaBidRegime;
 }
 
 export interface MetaDecisionSummary {
@@ -141,7 +149,7 @@ export interface MetaRecommendationsResponse {
   analysisSource?: MetaRecommendationAnalysisSource;
 }
 
-export const META_RECOMMENDATION_ENGINE_VERSION = "v3.5.0-meta-calibrated";
+export const META_RECOMMENDATION_ENGINE_VERSION = "v3.6.0-meta-taxonomy";
 
 export interface MetaCalibrationContext {
   thresholds: MetaCalibrationThresholds;
@@ -760,6 +768,48 @@ function stampRecommendation(recommendation: MetaRecommendation): MetaRecommenda
         : defaultConfidenceScore(recommendation.confidence),
     confidenceReason: recommendation.confidenceReason ?? null,
     engineVersion: recommendation.engineVersion ?? META_RECOMMENDATION_ENGINE_VERSION,
+  };
+}
+
+interface MetaRecommendationTaxonomyContext {
+  campaigns: MetaCampaignRow[];
+  campaignsById: Map<string, MetaCampaignRow>;
+  laneSignals: Map<string, MetaCampaignLaneSignal>;
+}
+
+function buildRecommendationTaxonomyContext(
+  campaigns: MetaCampaignRow[],
+): MetaRecommendationTaxonomyContext {
+  return {
+    campaigns,
+    campaignsById: new Map(campaigns.map((campaign) => [campaign.id, campaign])),
+    laneSignals: buildMetaCampaignLaneSignals(campaigns),
+  };
+}
+
+function enrichRecommendationTaxonomy(
+  recommendation: MetaRecommendation,
+  context: MetaRecommendationTaxonomyContext,
+): MetaRecommendation {
+  if (recommendation.level !== "campaign" && recommendation.level !== "adset") {
+    return recommendation;
+  }
+  const campaignId = recommendation.campaignId;
+  if (!campaignId) return recommendation;
+  const campaign = context.campaignsById.get(campaignId);
+  if (!campaign) return recommendation;
+
+  return {
+    ...recommendation,
+    campaignRole:
+      recommendation.campaignRole ??
+      inferCampaignRole(campaign, {
+        campaigns: context.campaigns,
+        laneSignals: context.laneSignals,
+      }),
+    bidRegime:
+      recommendation.bidRegime ??
+      inferBidRegime(null, campaign),
   };
 }
 
@@ -2637,6 +2687,7 @@ export function buildMetaRecommendations(input: {
     };
   }
   const selectedAccount = accountMetrics(selectedRows);
+  const taxonomyContext = buildRecommendationTaxonomyContext(selectedRows);
   const suggestedBidRange = historicalBidRange(purchaseWindows);
   const suggestedRoasRange = historicalRoasRange(purchaseWindows);
   const seasonalContext = buildSeasonalContext(purchaseWindows);
@@ -2739,7 +2790,11 @@ export function buildMetaRecommendations(input: {
   const accountBudgetShift = maybeAccountBudgetShift(windows, recommendations);
   if (accountBudgetShift) recommendations.push(accountBudgetShift);
 
-  const stampedRecommendations = recommendations.map(stampRecommendation);
+  const stampedRecommendations = recommendations
+    .map((recommendation) =>
+      enrichRecommendationTaxonomy(recommendation, taxonomyContext),
+    )
+    .map(stampRecommendation);
   const dedupedBase = stampedRecommendations
     .sort((a, b) => sortWeight(b) - sortWeight(a))
     .filter((recommendation, index, list) =>

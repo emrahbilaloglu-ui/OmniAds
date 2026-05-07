@@ -903,4 +903,39 @@ describe("buildMetaRecommendations", () => {
     expect(result.recommendations.every((item) => item.comparisonCohort !== "Reach")).toBe(true);
     expect(result.summary.title).not.toContain("No purchase-focused");
   });
+
+  it("populates campaign role and bid regime taxonomy fields on campaign recommendations", () => {
+    const row = campaign({
+      id: "promo-target-roas",
+      name: "Promo Clearance Sale",
+      bidStrategyType: "target_roas",
+      bidStrategyLabel: "Target ROAS",
+      bidValue: null,
+      bidValueFormat: null,
+      roas: 2.6,
+      revenue: 5200,
+      purchases: 32,
+      spend: 2000,
+    });
+
+    const result = buildMetaRecommendations({
+      windows: {
+        selected: [row],
+        previousSelected: [],
+        last3: [row],
+        last7: [row],
+        last14: [campaign({ id: "promo-14", name: row.name, roas: 2.5, revenue: 5000, purchases: 31, spend: 2000 })],
+        last30: [campaign({ id: "promo-30", name: row.name, roas: 2.4, revenue: 4800, purchases: 30, spend: 2000 })],
+        last90: [campaign({ id: "promo-90", name: row.name, roas: 2.7, revenue: 5400, purchases: 33, spend: 2000 })],
+        allHistory: [campaign({ id: "promo-history", name: row.name, roas: 2.55, revenue: 5100, purchases: 32, spend: 2000 })],
+      },
+      breakdowns,
+    });
+
+    const rec = result.recommendations.find(
+      (item) => item.type === "bid_value_guidance",
+    );
+    expect(rec?.campaignRole).toBe("promo_clearance");
+    expect(rec?.bidRegime).toBe("minimum_roas");
+  });
 });

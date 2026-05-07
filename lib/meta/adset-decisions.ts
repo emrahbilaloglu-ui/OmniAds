@@ -9,6 +9,12 @@ import {
   META_RECOMMENDATION_ENGINE_VERSION,
 } from "@/lib/meta/recommendations";
 import { LEGACY_META_CALIBRATION_THRESHOLDS } from "@/lib/meta/calibration";
+import {
+  inferBidRegime,
+  inferCampaignRole,
+} from "@/lib/meta/campaign-roles";
+import { buildMetaCampaignLaneSignals } from "@/lib/meta/campaign-lanes";
+import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
 
 export interface BuildMetaAdsetRecommendationsInput {
   adsets: MetaAdSetData[];
@@ -100,11 +106,15 @@ function baseAdsetRecommendation(input: {
   recommendedAction: string;
   expectedImpact: string;
   evidence: MetaRecommendation["evidence"];
+  campaignName?: string;
+  campaignRole?: MetaCampaignRole;
+  bidRegime?: MetaBidRegime;
 }): MetaRecommendation {
   return {
     id: `${input.type}-${input.adset.id}`,
     level: "adset",
     campaignId: input.adset.campaignId,
+    campaignName: input.campaignName,
     adsetId: input.adset.id,
     adsetName: input.adset.name,
     type: input.type,
@@ -129,6 +139,8 @@ function baseAdsetRecommendation(input: {
       note: null,
     },
     engineVersion: META_RECOMMENDATION_ENGINE_VERSION,
+    campaignRole: input.campaignRole,
+    bidRegime: input.bidRegime,
   };
 }
 
@@ -136,10 +148,21 @@ export function buildMetaAdsetRecommendations(
   input: BuildMetaAdsetRecommendationsInput,
 ): MetaRecommendation[] {
   const activeAdsets = input.adsets.filter((adset) => adset.status === "ACTIVE");
+  const campaigns = input.campaigns ?? [];
+  const campaignsById = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
+  const laneSignals = buildMetaCampaignLaneSignals(campaigns);
   const recommendations: MetaRecommendation[] = [];
 
   for (const adset of activeAdsets) {
     const context = contextForAdset(input, adset);
+    const campaign = campaignsById.get(adset.campaignId) ?? null;
+    const taxonomyFields = {
+      campaignName: campaign?.name,
+      campaignRole: campaign
+        ? inferCampaignRole(campaign, { campaigns, laneSignals })
+        : undefined,
+      bidRegime: inferBidRegime(adset, campaign),
+    };
     const roas = metricThresholds(context, "roas_28d");
     const cpa = metricThresholds(context, "cpa_28d");
     const ctr = metricThresholds(context, "ctr_28d");
@@ -163,6 +186,7 @@ export function buildMetaAdsetRecommendations(
       });
       recommendations.push(baseAdsetRecommendation({
         adset,
+        ...taxonomyFields,
         type: "adset_scale_budget",
         lens: "volume",
         priority: "high",
@@ -192,6 +216,7 @@ export function buildMetaAdsetRecommendations(
       });
       recommendations.push(baseAdsetRecommendation({
         adset,
+        ...taxonomyFields,
         type: "adset_cut_spend",
         lens: "profitability",
         priority: severeLoser ? "high" : "medium",
@@ -228,6 +253,7 @@ export function buildMetaAdsetRecommendations(
       });
       recommendations.push(baseAdsetRecommendation({
         adset,
+        ...taxonomyFields,
         type: "adset_watch_learning",
         lens: "structure",
         priority: "low",

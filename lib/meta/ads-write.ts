@@ -202,6 +202,7 @@ async function replaceImageUrlWithTargetHash(
   record: Record<string, unknown>,
   hashKey: "image_hash" | "hash",
 ) {
+  // Source account image hashes are not portable; rebuilt creatives need target-account hashes.
   const imageUrl = readFirstStringField(record, [
     "picture",
     "image_url",

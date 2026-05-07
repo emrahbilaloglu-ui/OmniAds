@@ -43,6 +43,10 @@ vi.mock("@/lib/meta/anomalies", () => ({
   detectAnomaliesForBusiness: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/evidence-trail", () => ({
+  buildEvidenceTrailsForRecommendations: vi.fn(),
+}));
+
 const db = await import("@/lib/db");
 const activeBusinesses = await import("@/lib/sync/active-businesses");
 const calibration = await import("@/lib/meta/calibration");
@@ -51,6 +55,7 @@ const adsetsSource = await import("@/lib/meta/adsets-source");
 const breakdownsSource = await import("@/lib/meta/breakdowns-source");
 const configSnapshots = await import("@/lib/meta/config-snapshots");
 const anomalies = await import("@/lib/meta/anomalies");
+const evidenceTrail = await import("@/lib/meta/evidence-trail");
 
 function makeSqlMock() {
   const calls: string[] = [];
@@ -154,6 +159,21 @@ describe("meta snapshot job", () => {
     } as never);
     vi.mocked(configSnapshots.readMetaBidRegimeHistorySummaries).mockResolvedValue(new Map());
     vi.mocked(anomalies.detectAnomaliesForBusiness).mockResolvedValue([]);
+    vi.mocked(evidenceTrail.buildEvidenceTrailsForRecommendations).mockImplementation(
+      async ({ recommendations }) =>
+        Object.fromEntries(
+          recommendations.map((recommendation) => [
+            recommendation.id,
+            {
+              roas_history: [2.8, 3.2],
+              peer_comparison: { p10: 1, p50: 2, p90: 4, this_value: 3.2 },
+              regime_stability: 1,
+              age_days: 28,
+              recent_changes: [],
+            },
+          ]),
+        ),
+    );
   });
 
   it("deletes and rewrites same-day rows on re-run", async () => {
@@ -249,6 +269,27 @@ describe("meta snapshot job", () => {
       severity: "high",
       diagnostics: ["Tracking interruption candidate"],
       detected_at: "2026-05-06T03:00:00.000Z",
+    });
+  });
+
+  it("persists evidence_trail for recommendation rows", async () => {
+    const sql = makeSqlMock();
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+
+    await runMetaSnapshotForBusiness("biz_1", "2026-05-06");
+
+    const recommendationPayload = sql.queryPayloads
+      .filter(Boolean)
+      .map((payload) => JSON.parse(String(payload)) as Array<Record<string, unknown>>)
+      .flat()
+      .find((row) => row.kind === "recommendation");
+
+    expect(recommendationPayload?.evidence_trail).toEqual({
+      roas_history: [2.8, 3.2],
+      peer_comparison: { p10: 1, p50: 2, p90: 4, this_value: 3.2 },
+      regime_stability: 1,
+      age_days: 28,
+      recent_changes: [],
     });
   });
 

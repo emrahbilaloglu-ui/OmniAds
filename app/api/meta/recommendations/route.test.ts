@@ -83,6 +83,13 @@ vi.mock("@/lib/meta/recommendations", async (importOriginal) => {
             seasonalityFlag: "none",
             note: null,
           },
+          evidenceTrail: {
+            roas_history: [2.8, 3.2],
+            peer_comparison: { p10: 1, p50: 2, p90: 4, this_value: 3.2 },
+            regime_stability: 1,
+            age_days: 28,
+            recent_changes: [],
+          },
         },
       ],
     })),
@@ -160,6 +167,13 @@ describe("GET /api/meta/recommendations", () => {
             seasonalityFlag: "none",
             note: null,
           },
+          evidenceTrail: {
+            roas_history: [2.8, 3.2],
+            peer_comparison: { p10: 1, p50: 2, p90: 4, this_value: 3.2 },
+            regime_stability: 1,
+            age_days: 28,
+            recent_changes: [],
+          },
         },
       ],
       sourceModel: "snapshot_persistent",
@@ -191,6 +205,13 @@ describe("GET /api/meta/recommendations", () => {
     expect(payload.businessId).toBe("biz");
     expect(payload.startDate).toBe("2026-03-01");
     expect(payload.endDate).toBe("2026-03-31");
+    expect(payload.recommendations[0].evidenceTrail).toEqual({
+      roas_history: [2.8, 3.2],
+      peer_comparison: { p10: 1, p50: 2, p90: 4, this_value: 3.2 },
+      regime_stability: 1,
+      age_days: 28,
+      recent_changes: [],
+    });
     expect(snapshot.readMetaDecisionSnapshotForRange).toHaveBeenCalledWith({
       businessId: "biz",
       startDate: "2026-03-01",

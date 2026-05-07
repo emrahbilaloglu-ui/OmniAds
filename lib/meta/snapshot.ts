@@ -18,6 +18,10 @@ import {
   type MetaAnomaly,
   type MetaAnomalySeverity,
 } from "@/lib/meta/anomalies";
+import {
+  buildEvidenceTrailsForRecommendations,
+  type MetaEvidenceTrail,
+} from "@/lib/meta/evidence-trail";
 import { buildMetaAdsetRecommendations } from "@/lib/meta/adset-decisions";
 import {
   buildMetaRecommendations,
@@ -70,6 +74,7 @@ type SnapshotDbRow = {
   engine_version: string;
   created_at: string;
   kind?: "recommendation" | "anomaly";
+  evidence_trail?: unknown;
 };
 
 interface SnapshotPayloadRow {
@@ -94,6 +99,7 @@ interface SnapshotPayloadRow {
   diagnostics?: string[];
   detected_at?: string | null;
   resolved_at?: string | null;
+  evidence_trail?: MetaEvidenceTrail | Record<string, never>;
 }
 
 function parseISODate(value: string): Date {
@@ -148,8 +154,12 @@ function recommendationToSnapshotRow(
   recommendation: MetaRecommendation,
   businessId: string,
   snapshotDate: string,
+  evidenceTrail: MetaEvidenceTrail | null,
 ): SnapshotPayloadRow {
   const scope = scopeForRecommendation(recommendation, businessId);
+  const recommendationWithTrail = evidenceTrail
+    ? { ...recommendation, evidenceTrail }
+    : recommendation;
   return {
     scope_type: scope.scopeType,
     scope_id: scope.scopeId,
@@ -160,7 +170,7 @@ function recommendationToSnapshotRow(
     level: recommendation.level,
     decision_state: recommendation.decisionState,
     confidence_score: recommendation.confidenceScore ?? 0.4,
-    evidence: snapshotEvidencePayload(recommendation),
+    evidence: snapshotEvidencePayload(recommendationWithTrail),
     recommended_action: recommendation.recommendedAction,
     target_value: recommendation.targetValue ?? null,
     expected_impact: recommendation.expectedImpact ?? null,
@@ -172,6 +182,7 @@ function recommendationToSnapshotRow(
     engine_version:
       recommendation.engineVersion ?? META_RECOMMENDATION_ENGINE_VERSION,
     kind: "recommendation",
+    evidence_trail: evidenceTrail ?? {},
   };
 }
 
@@ -214,6 +225,7 @@ function anomalyToSnapshotRow(
     diagnostics: anomaly.diagnostics,
     detected_at: anomaly.detectedAt,
     resolved_at: anomaly.resolvedAt ?? null,
+    evidence_trail: {},
   };
 }
 
@@ -254,7 +266,8 @@ async function upsertSnapshotRows(input: {
             reasoning text,
             predictive_overlay text,
             engine_version text,
-            kind text
+            kind text,
+            evidence_trail jsonb
           )
         )
         INSERT INTO meta_decision_snapshots_daily (
@@ -274,7 +287,8 @@ async function upsertSnapshotRows(input: {
           reasoning,
           predictive_overlay,
           engine_version,
-          kind
+          kind,
+          evidence_trail
         )
         SELECT
           scope_type,
@@ -293,7 +307,8 @@ async function upsertSnapshotRows(input: {
           reasoning,
           predictive_overlay,
           engine_version,
-          kind
+          kind,
+          evidence_trail
         FROM payload
         ON CONFLICT (scope_type, scope_id, snapshot_date, rec_type)
         DO UPDATE SET
@@ -310,6 +325,7 @@ async function upsertSnapshotRows(input: {
           predictive_overlay = EXCLUDED.predictive_overlay,
           engine_version = EXCLUDED.engine_version,
           kind = EXCLUDED.kind,
+          evidence_trail = EXCLUDED.evidence_trail,
           severity = NULL,
           diagnostics = '[]'::jsonb,
           detected_at = NULL,
@@ -611,9 +627,19 @@ export async function runMetaSnapshotForBusiness(
     snapshotDate: normalizedSnapshotDate,
     calibrationContext: null,
   });
+  const evidenceTrails = await buildEvidenceTrailsForRecommendations({
+    businessId,
+    snapshotDate: normalizedSnapshotDate,
+    recommendations,
+  });
   const rows = [
     ...recommendations.map((recommendation) =>
-      recommendationToSnapshotRow(recommendation, businessId, normalizedSnapshotDate),
+      recommendationToSnapshotRow(
+        recommendation,
+        businessId,
+        normalizedSnapshotDate,
+        evidenceTrails[recommendation.id] ?? null,
+      ),
     ),
     ...anomalies.map((anomaly) =>
       anomalyToSnapshotRow(anomaly, businessId, normalizedSnapshotDate),
@@ -731,6 +757,10 @@ function hydrateRecommendation(row: SnapshotDbRow): MetaRecommendation {
       why: row.reasoning,
       predictiveOverlay: row.predictive_overlay ?? stored.predictiveOverlay ?? null,
       engineVersion: row.engine_version,
+      evidenceTrail:
+        row.evidence_trail && typeof row.evidence_trail === "object"
+          ? (row.evidence_trail as MetaEvidenceTrail)
+          : stored.evidenceTrail,
     };
   }
 
@@ -757,6 +787,10 @@ function hydrateRecommendation(row: SnapshotDbRow): MetaRecommendation {
     targetValue: row.target_value,
     predictiveOverlay: row.predictive_overlay,
     engineVersion: row.engine_version,
+    evidenceTrail:
+      row.evidence_trail && typeof row.evidence_trail === "object"
+        ? (row.evidence_trail as MetaEvidenceTrail)
+        : undefined,
   };
 }
 
@@ -831,6 +865,7 @@ export async function readMetaDecisionSnapshotForRange(input: {
       reasoning,
       predictive_overlay,
       engine_version,
+      evidence_trail,
       created_at::text AS created_at
     FROM meta_decision_snapshots_daily
     WHERE business_id = ${input.businessId}

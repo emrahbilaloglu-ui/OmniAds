@@ -17,6 +17,14 @@ vi.mock("@/lib/meta/scheduled", () => ({
   runMetaSnapshotJobIfDue: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/decision-responses", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/meta/decision-responses")>();
+  return {
+    ...actual,
+    runMetaDecisionIgnoredMarkerIfDue: vi.fn(),
+  };
+});
+
 vi.mock("@/lib/sync/ga4-sync", () => ({
   syncGA4Reports: vi.fn(),
 }));
@@ -56,6 +64,7 @@ const activeBusinesses = await import("@/lib/sync/active-businesses");
 const metaSync = await import("@/lib/sync/meta-sync");
 const googleSync = await import("@/lib/sync/google-ads-sync");
 const metaScheduled = await import("@/lib/meta/scheduled");
+const decisionResponses = await import("@/lib/meta/decision-responses");
 const ga4Sync = await import("@/lib/sync/ga4-sync");
 const searchConsoleSync = await import("@/lib/sync/search-console-sync");
 const shopifySync = await import("@/lib/sync/shopify-sync");
@@ -80,6 +89,11 @@ describe("POST /api/sync/cron", () => {
     vi.mocked(metaScheduled.runMetaSnapshotJobIfDue).mockResolvedValue({
       skipped: true,
       reason: "outside_slot",
+      snapshotDate: "2026-04-15",
+    });
+    vi.mocked(decisionResponses.runMetaDecisionIgnoredMarkerIfDue).mockResolvedValue({
+      skipped: true,
+      reason: "not_due",
       snapshotDate: "2026-04-15",
     });
     vi.mocked(ga4Sync.syncGA4Reports).mockResolvedValue({ synced: true } as never);
@@ -248,6 +262,11 @@ describe("POST /api/sync/cron", () => {
       reason: "outside_slot",
       snapshotDate: "2026-04-15",
     });
+    expect(payload.metaIgnoredMarkerJob).toEqual({
+      skipped: true,
+      reason: "not_due",
+      snapshotDate: "2026-04-15",
+    });
   });
 
   it("does not fail cron when the Meta snapshot job fails", async () => {
@@ -265,6 +284,30 @@ describe("POST /api/sync/cron", () => {
     expect(payload.metaSnapshotJob.skipped).toBe(true);
     expect(payload.metaSnapshotJob.reason).toBe("failed");
     expect(spy).toHaveBeenCalledWith("[sync-cron] meta_snapshot_job_failed", expect.any(Error));
+
+    spy.mockRestore();
+  });
+
+  it("does not fail cron when the Meta ignored marker job fails", async () => {
+    vi.mocked(decisionResponses.runMetaDecisionIgnoredMarkerIfDue).mockRejectedValue(
+      new Error("ignored marker failed"),
+    );
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const request = new NextRequest("http://localhost/api/sync/cron", {
+      method: "POST",
+      headers: { authorization: "Bearer secret" },
+    });
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.metaIgnoredMarkerJob.skipped).toBe(true);
+    expect(payload.metaIgnoredMarkerJob.reason).toBe("failed");
+    expect(spy).toHaveBeenCalledWith(
+      "[sync-cron] meta_decision_ignored_marker_failed",
+      expect.any(Error),
+    );
 
     spy.mockRestore();
   });

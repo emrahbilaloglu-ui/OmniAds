@@ -9,6 +9,7 @@ import type {
 import { LEGACY_META_CALIBRATION_THRESHOLDS } from "@/lib/meta/calibration";
 import type { MetaBidRegimeHistorySummary } from "@/lib/meta/config-snapshots";
 import type { MetaCreativeIntelligenceSummary } from "@/lib/meta/creative-intelligence";
+import type { MetaEvidenceTrail } from "@/lib/meta/evidence-trail";
 import {
   buildMetaCampaignLaneSignals,
   buildMetaCampaignLaneSummary,
@@ -103,6 +104,7 @@ export interface MetaRecommendation {
   targetValue?: unknown;
   predictiveOverlay?: string | null;
   engineVersion?: string;
+  evidenceTrail?: MetaEvidenceTrail;
 }
 
 export interface MetaDecisionSummary {

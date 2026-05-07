@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "test": "vitest run",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "creative:v2:safety": "tsx --tsconfig scripts/creative-v2-archive-tsconfig.json scripts/creative-v2-archive-safety-gate.ts",
     "creative:v2:self-hosted-smoke": "tsx --tsconfig scripts/creative-v2-archive-tsconfig.json lib/archive/v1-v2-v21/scripts/creative-v2-self-hosted-smoke.ts",

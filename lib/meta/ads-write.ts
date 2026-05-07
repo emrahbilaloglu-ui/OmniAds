@@ -25,6 +25,13 @@ export type MetaAdStatusWriteSuccess = {
   verificationPayload?: Record<string, unknown> | null;
 };
 
+export type MetaAdsetBidWriteSuccess = {
+  ok: true;
+  verifiedBidAmount: number;
+  responsePayload?: Record<string, unknown> | null;
+  verificationPayload?: Record<string, unknown> | null;
+};
+
 export type MetaAdDuplicateWriteSuccess = {
   ok: true;
   newAdId: string;
@@ -455,6 +462,122 @@ async function verifyAd(input: {
   };
 }
 
+async function verifyEntity(input: {
+  ctx: MetaAdsWriteContext;
+  entityId: string;
+  fields: string;
+}): Promise<{
+  ok: boolean;
+  httpStatus: number;
+  payload: Record<string, unknown> | null;
+  error: MetaAdsWriteError | null;
+}> {
+  const result = await metaFetch({
+    ctx: input.ctx,
+    path: input.entityId,
+    method: "GET",
+    fields: input.fields,
+  });
+  if (result.error) {
+    return {
+      ok: false,
+      httpStatus: 502,
+      payload: result.payload,
+      error: result.error,
+    };
+  }
+  const status = result.response?.status ?? 502;
+  if (!result.response?.ok || isFailureBody(result.payload)) {
+    return {
+      ok: false,
+      httpStatus: status,
+      payload: result.payload,
+      error: getMetaError(result.payload, {
+        code: "verification_failed",
+        message: "Meta verification GET failed.",
+      }),
+    };
+  }
+  return {
+    ok: true,
+    httpStatus: status,
+    payload: result.payload,
+    error: null,
+  };
+}
+
+async function updateEntityStatus(
+  ctx: MetaAdsWriteContext,
+  entityId: string,
+  status: "ACTIVE" | "PAUSED",
+  entityLabel: "campaign" | "ad set",
+): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
+  const body = new URLSearchParams({ status });
+  const write = await metaFetchWithRateLimitRetry({
+    ctx,
+    path: entityId,
+    method: "POST",
+    body,
+  });
+  if (write.error) {
+    return {
+      ok: false,
+      httpStatus: 502,
+      error: write.error,
+      responsePayload: write.payload,
+    };
+  }
+  const httpStatus = write.response?.status ?? 502;
+  if (!write.response?.ok || isFailureBody(write.payload)) {
+    return buildWriteFailure({
+      payload: write.payload,
+      httpStatus,
+      fallbackCode: "meta_write_failed",
+      fallbackMessage: `Meta failed to set ${entityLabel} status to ${status}.`,
+    });
+  }
+
+  const verification = await verifyEntity({
+    ctx,
+    entityId,
+    fields: "id,name,status,effective_status",
+  });
+  if (!verification.ok) {
+    return {
+      ok: false,
+      httpStatus: verification.httpStatus,
+      error:
+        verification.error ?? {
+          code: "verification_failed",
+          message: "Meta verification GET failed.",
+        },
+      responsePayload: write.payload,
+      verificationPayload: verification.payload,
+    };
+  }
+
+  const verifiedStatus = String(verification.payload?.status ?? "");
+  if (verifiedStatus !== status) {
+    return {
+      ok: false,
+      httpStatus: 502,
+      error: {
+        code: "silent_failure",
+        message: `Meta returned success but ${entityLabel} status verified as ${verifiedStatus || "unknown"} instead of ${status}.`,
+      },
+      responsePayload: write.payload,
+      verificationPayload: verification.payload,
+    };
+  }
+
+  return {
+    ok: true,
+    verifiedStatus,
+    responsePayload: write.payload,
+    verificationPayload: verification.payload,
+  };
+}
+
 async function updateAdStatus(
   ctx: MetaAdsWriteContext,
   adId: string,
@@ -534,6 +657,90 @@ export async function resumeAd(
   adId: string,
 ): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
   return updateAdStatus(ctx, adId, "ACTIVE");
+}
+
+export async function pauseCampaign(
+  ctx: MetaAdsWriteContext,
+  campaignId: string,
+): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
+  return updateEntityStatus(ctx, campaignId, "PAUSED", "campaign");
+}
+
+export async function pauseAdset(
+  ctx: MetaAdsWriteContext,
+  adsetId: string,
+): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
+  return updateEntityStatus(ctx, adsetId, "PAUSED", "ad set");
+}
+
+export async function updateAdsetBidAmount(
+  ctx: MetaAdsWriteContext,
+  input: { adsetId: string; bidAmountMinor: number },
+): Promise<MetaAdsetBidWriteSuccess | MetaAdsWriteFailure> {
+  const bidAmount = Math.round(input.bidAmountMinor);
+  const body = new URLSearchParams({ bid_amount: String(bidAmount) });
+  const write = await metaFetchWithRateLimitRetry({
+    ctx,
+    path: input.adsetId,
+    method: "POST",
+    body,
+  });
+  if (write.error) {
+    return {
+      ok: false,
+      httpStatus: 502,
+      error: write.error,
+      responsePayload: write.payload,
+    };
+  }
+  const httpStatus = write.response?.status ?? 502;
+  if (!write.response?.ok || isFailureBody(write.payload)) {
+    return buildWriteFailure({
+      payload: write.payload,
+      httpStatus,
+      fallbackCode: "meta_bid_write_failed",
+      fallbackMessage: "Meta failed to update the ad set bid amount.",
+    });
+  }
+
+  const verification = await verifyEntity({
+    ctx,
+    entityId: input.adsetId,
+    fields: "id,name,bid_amount,bid_strategy,status,effective_status",
+  });
+  if (!verification.ok) {
+    return {
+      ok: false,
+      httpStatus: verification.httpStatus,
+      error:
+        verification.error ?? {
+          code: "verification_failed",
+          message: "Meta verification GET failed.",
+        },
+      responsePayload: write.payload,
+      verificationPayload: verification.payload,
+    };
+  }
+  const verifiedBidAmount = Number(verification.payload?.bid_amount ?? NaN);
+  if (!Number.isFinite(verifiedBidAmount) || Math.round(verifiedBidAmount) !== bidAmount) {
+    return {
+      ok: false,
+      httpStatus: 502,
+      error: {
+        code: "silent_failure",
+        message: `Meta returned success but ad set bid verified as ${Number.isFinite(verifiedBidAmount) ? verifiedBidAmount : "unknown"} instead of ${bidAmount}.`,
+      },
+      responsePayload: write.payload,
+      verificationPayload: verification.payload,
+    };
+  }
+
+  return {
+    ok: true,
+    verifiedBidAmount,
+    responsePayload: write.payload,
+    verificationPayload: verification.payload,
+  };
 }
 
 export async function duplicateAd(

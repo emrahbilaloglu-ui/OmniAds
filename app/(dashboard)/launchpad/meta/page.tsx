@@ -20,6 +20,7 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAppStore } from "@/store/app-store";
@@ -83,6 +84,7 @@ import { cn } from "@/lib/utils";
 type LaunchpadMode = "new_campaign" | "add_to_existing" | "manage_existing";
 type WizardStep = "creatives" | "basics" | "budget" | "adsets" | "target" | "review" | "progress";
 type LaunchpadSurface = "index" | "wizard";
+type MetaBriefingLaunchMode = "rebuild" | "duplicate" | "apply_bid";
 
 interface LaunchTemplate {
   id: string;
@@ -307,6 +309,8 @@ function normalizeMetaAdStatus(value: string | null | undefined) {
 }
 
 export default function MetaLaunchpadPage() {
+  const searchParams = useSearchParams();
+  const launchpadQuery = searchParams?.toString() ?? "";
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businesses = useAppStore((state) => state.businesses);
   const activeBusiness = businesses.find((business) => business.id === selectedBusinessId);
@@ -347,6 +351,48 @@ export default function MetaLaunchpadPage() {
   const [appliedTemplateName, setAppliedTemplateName] = useState<string | null>(null);
   const [launchLoading, setLaunchLoading] = useState(false);
   const [launchResult, setLaunchResult] = useState<LaunchpadProgressResult | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(launchpadQuery);
+    const fromMetaBriefing = params.get("fromMetaBriefing") === "true";
+    const fromCreativeBriefing = params.get("fromBriefing") === "true";
+    const creativeIds = (params.get("creativeIds") ?? "")
+      .split(",")
+      .map((id) => decodeURIComponent(id.trim()))
+      .filter(Boolean);
+    const campaignIds = (params.get("campaignIds") ?? "")
+      .split(",")
+      .map((id) => decodeURIComponent(id.trim()))
+      .filter(Boolean);
+    const adsetIds = (params.get("adsetIds") ?? "")
+      .split(",")
+      .map((id) => decodeURIComponent(id.trim()))
+      .filter(Boolean);
+    const requestedMode = params.get("mode") as MetaBriefingLaunchMode | null;
+
+    if (!fromMetaBriefing && !fromCreativeBriefing) return;
+    if (creativeIds.length > 0) setSelectedCreativeIds(creativeIds);
+    if (campaignIds.length === 0 && adsetIds.length === 0) return;
+
+    if (requestedMode === "duplicate") {
+      setMode("add_to_existing");
+      setStep("target");
+    } else {
+      setMode("new_campaign");
+      setStep("basics");
+    }
+    setSurface("wizard");
+    setTemplateMessage(
+      [
+        "Meta briefing prefill",
+        requestedMode ? `mode=${requestedMode}` : null,
+        campaignIds.length > 0 ? `campaignIds=${campaignIds.join(",")}` : null,
+        adsetIds.length > 0 ? `adsetIds=${adsetIds.join(",")}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    );
+  }, [launchpadQuery]);
 
   useEffect(() => {
     if (!businessId) return;

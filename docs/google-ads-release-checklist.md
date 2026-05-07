@@ -4,8 +4,8 @@
 
 This is a V1 operator-first release candidate.
 
-Canonical product posture now lives in [`docs/google-ads-product-truth-matrix.md`](/Users/harmelek/Adsecute/docs/google-ads-product-truth-matrix.md).
-Operational rollout procedure now lives in [`docs/google-ads-rollout-runbook.md`](/Users/harmelek/Adsecute/docs/google-ads-rollout-runbook.md).
+Canonical product posture now lives in [`docs/platforms/google-product-truth-matrix.md`](/Users/harmelek/Adsecute/docs/platforms/google-product-truth-matrix.md).
+Operational rollout procedure now lives in [`docs/platforms/google-rollout-runbook.md`](/Users/harmelek/Adsecute/docs/platforms/google-rollout-runbook.md).
 
 - It is not autonomous.
 - It is not a verified write-back release.

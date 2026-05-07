@@ -9,6 +9,7 @@ export default [
   {
     ignores: [
       ".next/**",
+      ".claude/**",
       "dist/**",
       "node_modules/**",
       "playwright-report/**",

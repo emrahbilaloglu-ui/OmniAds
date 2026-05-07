@@ -85,7 +85,7 @@ Runtime smoke ran on the documented localhost + tunneled DB path.
 
 Confirmed:
 
-- `/creatives` loads
+- `/platforms/meta/creatives` loads
 - no obvious UI regression was introduced
 - reviewer smoke still passes
 

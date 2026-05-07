@@ -230,7 +230,7 @@ describe("buildCommandCenterHistoricalIntelligence", () => {
           sourceContext: {
             sourceLabel: "Creative Decision OS",
             operatingMode: "Exploit",
-            sourceDeepLink: "/creatives",
+            sourceDeepLink: "/platforms/meta/creatives",
             sourceDecisionId: "creative_1",
           },
         }),

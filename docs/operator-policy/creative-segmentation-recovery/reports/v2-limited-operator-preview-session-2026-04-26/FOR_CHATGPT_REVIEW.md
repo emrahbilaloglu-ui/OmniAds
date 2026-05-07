@@ -36,11 +36,11 @@ Runtime confirmation:
 
 Normal no-flag page:
 
-- `http://localhost:3000/creatives`
+- `http://localhost:3000/platforms/meta/creatives`
 
 V2 preview page:
 
-- `http://localhost:3000/creatives?creativeDecisionOsV2Preview=1`
+- `http://localhost:3000/platforms/meta/creatives?creativeDecisionOsV2Preview=1`
 
 The local worktree environment file was restored without printing secret values.
 The local DB tunnel and app server were verified before the session continued.

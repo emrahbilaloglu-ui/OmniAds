@@ -186,6 +186,8 @@ export async function GET(request: NextRequest) {
       engineLastRun: engineMetadata.engineLastRun,
       engineVersion: engineMetadata.engineVersion,
       trackingHealth,
+      trackingAnomalyActive:
+        trackingHealth.status === "blocked" || trackingHealth.status === "degraded",
     },
     { headers: { "Cache-Control": "no-store" } },
   );

@@ -179,7 +179,7 @@ Full `git diff --check` is blocked by unrelated pre-existing trailing whitespace
 
 Runtime smoke:
 
-- `/creatives` returned the expected auth redirect to `/login?next=%2Fcreatives`
+- `/platforms/meta/creatives` returned the expected auth redirect to `/login?next=%2Fcreatives`
 - `/platforms/meta` returned the expected auth redirect to `/login?next=%2Fplatforms%2Fmeta`
 - `/api/creatives/decision-os` returned `401 Unauthorized` without a session
 

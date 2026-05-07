@@ -15,7 +15,7 @@ Expected initial failures on the current codebase:
 
 Validation run:
 
-- `npm test -- lib/command-center.test.ts lib/meta/decision-os.test.ts lib/google-ads/serving.test.ts`
+- `npm test -- lib/command-center.test.ts lib/meta/decision-os.test.ts lib/platforms/google/serving.test.ts`
 - Result: 4 failing tests, 29 passing tests during the first QA pass.
 
 Scope correction:

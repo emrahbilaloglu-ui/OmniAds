@@ -42,8 +42,8 @@ Result for each file on the PR #81 head blob:
 
 | File | Total bytes | Non-ASCII chars | Hidden/bidi/control chars | New in PR #81? |
 |---|---:|---:|---:|---|
-| `app/(dashboard)/creatives/page.test.tsx` | 9,177 | **0** | 0 | yes (new file) |
-| `app/(dashboard)/creatives/page.tsx` | 53,973 | 73 | 0 | **NO - pre-existing on origin/main** |
+| `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx` | 9,177 | **0** | 0 | yes (new file) |
+| `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx` | 53,973 | 73 | 0 | **NO - pre-existing on origin/main** |
 | `app/api/creatives/decision-os-v2/preview/route.test.ts` | 2,476 | **0** | 0 | yes (new file) |
 | `app/api/creatives/decision-os-v2/preview/route.ts` | 3,732 | **0** | 0 | yes (new file) |
 
@@ -54,7 +54,7 @@ U+0131 ı x36   U+011F ğ x10   U+00E7 ç x8    U+015F ş x6
 U+00F6 ö x5    U+00FC ü x5    U+00B7 · x2    U+00D6 Ö x1
 ```
 
-Independently verified: the same 73 characters with the same per-codepoint counts are present in `origin/main:app/(dashboard)/creatives/page.tsx`. PR #81 did not introduce them; they pre-date this PR.
+Independently verified: the same 73 characters with the same per-codepoint counts are present in `origin/main:app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx`. PR #81 did not introduce them; they pre-date this PR.
 
 **Conclusion on hidden/bidi UI warning:** false positive in GitHub's files-view UI heuristic. The 4 new files (`page.test.tsx`, `route.test.ts`, `route.ts`) have **zero** non-ASCII bytes. The pre-existing `page.tsx` carries Turkish Latin-Extended letters that some GitHub UI views appear to flag conservatively, but no character in any of the 4 files falls in any documented hidden, bidirectional, or control codepoint range. PR #81 introduces zero new codepoints that could trigger the warning. Treating this as historical/stale UI rendering is correct  -  and now with character-level evidence rather than just clean-scan assertion.
 
@@ -136,7 +136,7 @@ Not permitted in this session:
 
 Recommended follow-up after the session (separate PRs, not blocking):
 
-- Localize the Turkish strings on `app/(dashboard)/creatives/page.tsx` to remove the GitHub UI banner for future PRs (cosmetic).
+- Localize the Turkish strings on `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx` to remove the GitHub UI banner for future PRs (cosmetic).
 - Seed a workspace with at least one direct-actionability row to close the visual sort-order proof gap noted in 5a.
 - Continue tracking the Vercel queued / GH Actions skipped items as the existing repository's external-integration polish.
 

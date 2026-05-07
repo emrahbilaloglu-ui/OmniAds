@@ -104,7 +104,7 @@ Test at command-center.test.ts:1394 verifies that fingerprints DO change when `d
 ### Deep links
 The `aggregateCommandCenterActions` function includes `startDate`/`endDate` in Creative deep links at line 1681:
 ```
-/creatives?...&startDate=...&endDate=...&creative=...
+/platforms/meta/creatives?...&startDate=...&endDate=...&creative=...
 ```
 These are navigation parameters, not action authority. The Creatives page independently anchors to its own Decision OS context. This is currently safe.
 
@@ -223,9 +223,9 @@ Documented in Section E. Not a current risk. Requires vigilance in Phase 5.
 - `lib/creative-operator-surface.ts` — full
 - `lib/command-center.ts` — lines 1–250, 1230–1350, 1560–1715, 1840–1910
 - `lib/command-center.test.ts` — full
-- `components/creatives/CreativeDecisionOsOverview.tsx` — full
-- `components/creatives/CreativesTopSection.tsx` — full
-- `components/creatives/creatives-top-section-support.ts` — lines 1–60, 335–380
+- `components/platforms/meta/creatives/CreativeDecisionOsOverview.tsx` — full
+- `components/platforms/meta/creatives/CreativesTopSection.tsx` — full
+- `components/platforms/meta/creatives/platforms/meta/creatives-top-section-support.ts` — lines 1–60, 335–380
 - `docs/operator-policy/phase-4/completion/reports/final.md` — full
 - `docs/operator-policy/phase-5/handoff.md` — full
 
@@ -235,7 +235,7 @@ git log --oneline -20
 git status
 git show c80de2d --stat
 git diff main~2 main --name-only
-npm test -- lib/creative-operator-policy.test.ts lib/creative-decision-os.test.ts lib/command-center.test.ts components/creatives/CreativeDecisionOsOverview.test.tsx
+npm test -- lib/creative-operator-policy.test.ts lib/creative-decision-os.test.ts lib/command-center.test.ts components/platforms/meta/creatives/CreativeDecisionOsOverview.test.tsx
 npm test
 npx tsc --noEmit
 ```

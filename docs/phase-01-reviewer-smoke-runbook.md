@@ -87,7 +87,7 @@ The Phase 01 smoke suite must verify all of the following:
 3. Meta recommendations panel is visible with deterministic wording
 4. at least one campaign can be selected
 5. campaign detail and ad set drilldown render
-6. `/creatives` loads
+6. `/platforms/meta/creatives` loads
 7. `Decision Signals` controls render
 8. at least one creative row can be opened
 9. deterministic decision section renders in the detail view
@@ -115,7 +115,7 @@ If Playwright fails but the environment is otherwise healthy, reproduce manually
 3. sign in with the emitted reviewer credentials
 4. visit `/platforms/meta`
 5. confirm `Recommendations`, campaign detail, and ad set drilldown
-6. visit `/creatives`
+6. visit `/platforms/meta/creatives`
 7. confirm `Decision Signals`
 8. open one creative
 9. confirm deterministic decision block

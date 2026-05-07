@@ -88,11 +88,11 @@ This change set makes the system:
 
 ## Reviewer guidance: what to inspect first
 
-1. Read [`docs/google-ads-decision-engine-v2.md`](/Users/harmelek/Adsecute/docs/google-ads-decision-engine-v2.md).
-2. Read [`docs/google-ads-release-checklist.md`](/Users/harmelek/Adsecute/docs/google-ads-release-checklist.md).
-3. Inspect [`lib/google-ads/decision-engine-config.ts`](/Users/harmelek/Adsecute/lib/google-ads/decision-engine-config.ts) for the explicit flags and write-back gate posture.
-4. Inspect [`lib/google-ads/decision-snapshot.ts`](/Users/harmelek/Adsecute/lib/google-ads/decision-snapshot.ts) and [`lib/google-ads/serving.ts`](/Users/harmelek/Adsecute/lib/google-ads/serving.ts) for Decision Snapshot V2 semantics.
-5. Inspect [`lib/google-ads/query-ownership.ts`](/Users/harmelek/Adsecute/lib/google-ads/query-ownership.ts), [`lib/google-ads/growth-advisor.ts`](/Users/harmelek/Adsecute/lib/google-ads/growth-advisor.ts), and [`lib/google-ads/reporting.ts`](/Users/harmelek/Adsecute/lib/google-ads/reporting.ts) for query-governance safety.
+1. Read [`docs/platforms/google-decision-engine-v2.md`](/Users/harmelek/Adsecute/docs/platforms/google-decision-engine-v2.md).
+2. Read [`docs/platforms/google-release-checklist.md`](/Users/harmelek/Adsecute/docs/platforms/google-release-checklist.md).
+3. Inspect [`lib/platforms/google/decision-engine-config.ts`](/Users/harmelek/Adsecute/lib/platforms/google/decision-engine-config.ts) for the explicit flags and write-back gate posture.
+4. Inspect [`lib/platforms/google/decision-snapshot.ts`](/Users/harmelek/Adsecute/lib/platforms/google/decision-snapshot.ts) and [`lib/platforms/google/serving.ts`](/Users/harmelek/Adsecute/lib/platforms/google/serving.ts) for Decision Snapshot V2 semantics.
+5. Inspect [`lib/platforms/google/query-ownership.ts`](/Users/harmelek/Adsecute/lib/platforms/google/query-ownership.ts), [`lib/platforms/google/growth-advisor.ts`](/Users/harmelek/Adsecute/lib/platforms/google/growth-advisor.ts), and [`lib/platforms/google/reporting.ts`](/Users/harmelek/Adsecute/lib/platforms/google/reporting.ts) for query-governance safety.
 6. Inspect [`components/google/google-advisor-panel.tsx`](/Users/harmelek/Adsecute/components/google/google-advisor-panel.tsx) for operator-first/manual-plan rendering.
 7. Run the targeted test/build commands listed in the release checklist.
 

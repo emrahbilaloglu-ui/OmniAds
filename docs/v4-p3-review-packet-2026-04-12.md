@@ -14,9 +14,9 @@
 
 ## 3. Architecture Changes
 - Preview truth and queue semantics in [lib/creative-decision-os.ts](/Users/harmelek/Adsecute/lib/creative-decision-os.ts) and [lib/creative-decision-os-source.ts](/Users/harmelek/Adsecute/lib/creative-decision-os-source.ts).
-- Overview/drawer changes in [components/creatives/CreativeDecisionOsOverview.tsx](/Users/harmelek/Adsecute/components/creatives/CreativeDecisionOsOverview.tsx) and [components/creatives/CreativeDecisionOsDrawer.tsx](/Users/harmelek/Adsecute/components/creatives/CreativeDecisionOsDrawer.tsx).
-- Table/detail changes in [components/creatives/CreativesTableSection.tsx](/Users/harmelek/Adsecute/components/creatives/CreativesTableSection.tsx) and [components/creatives/CreativeDetailExperience.tsx](/Users/harmelek/Adsecute/components/creatives/CreativeDetailExperience.tsx).
-- Creative presets in [app/(dashboard)/creatives/page.tsx](/Users/harmelek/Adsecute/app/(dashboard)/creatives/page.tsx).
+- Overview/drawer changes in [components/platforms/meta/creatives/CreativeDecisionOsOverview.tsx](/Users/harmelek/Adsecute/components/platforms/meta/creatives/CreativeDecisionOsOverview.tsx) and [components/platforms/meta/creatives/CreativeDecisionOsDrawer.tsx](/Users/harmelek/Adsecute/components/platforms/meta/creatives/CreativeDecisionOsDrawer.tsx).
+- Table/detail changes in [components/platforms/meta/creatives/CreativesTableSection.tsx](/Users/harmelek/Adsecute/components/platforms/meta/creatives/CreativesTableSection.tsx) and [components/platforms/meta/creatives/CreativeDetailExperience.tsx](/Users/harmelek/Adsecute/components/platforms/meta/creatives/CreativeDetailExperience.tsx).
+- Creative presets in [app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx](/Users/harmelek/Adsecute/app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx).
 
 ## 4. Acceptance Checklist
 - Phase closure verdict: `shipped-not-complete`
@@ -26,7 +26,7 @@
 - Reason: creative truth evidence came from live DB/runtime and local smoke only; no production cutover to `8c38576...` was observed.
 
 ## 5. Test Evidence
-- `npx vitest run components/creatives/CreativeDecisionOsOverview.test.tsx lib/creative-decision-os.test.ts app/api/creatives/decision-os/route.test.ts`
+- `npx vitest run components/platforms/meta/creatives/CreativeDecisionOsOverview.test.tsx lib/creative-decision-os.test.ts app/api/creatives/decision-os/route.test.ts`
 - `npm test` -> `201 passed`
 - `npm run test:smoke:local` -> `4 passed`, `1 skipped`
 - Local reviewer smoke accepted the new AI gating flow by handling both enabled and disabled commentary states.

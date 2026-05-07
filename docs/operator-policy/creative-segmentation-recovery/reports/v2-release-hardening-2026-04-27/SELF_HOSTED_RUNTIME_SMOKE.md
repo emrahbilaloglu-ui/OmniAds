@@ -46,8 +46,8 @@ raw customer/account/creative names into reports.
 
 The runner validates:
 
-- `/creatives` without the flag does not render the v2 preview surface.
-- `/creatives?creativeDecisionOsV2Preview=1` renders the v2 preview surface.
+- `/platforms/meta/creatives` without the flag does not render the v2 preview surface.
+- `/platforms/meta/creatives?creativeDecisionOsV2Preview=1` renders the v2 preview surface.
 - Today Priority is visible.
 - Scale-ready copy is visible.
 - Ready for Buyer Confirmation is visible.

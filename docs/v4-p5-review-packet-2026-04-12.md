@@ -14,7 +14,7 @@
 
 ## 3. Architecture Changes
 - Preset store in [store/preferences-store.ts](/Users/harmelek/Adsecute/store/preferences-store.ts).
-- Preset selectors in [app/(dashboard)/platforms/meta/page.tsx](/Users/harmelek/Adsecute/app/(dashboard)/platforms/meta/page.tsx) and [app/(dashboard)/creatives/page.tsx](/Users/harmelek/Adsecute/app/(dashboard)/creatives/page.tsx).
+- Preset selectors in [app/(dashboard)/platforms/meta/page.tsx](/Users/harmelek/Adsecute/app/(dashboard)/platforms/meta/page.tsx) and [app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx](/Users/harmelek/Adsecute/app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx).
 - Updated reviewer smoke contract in [playwright/tests/reviewer-smoke.spec.ts](/Users/harmelek/Adsecute/playwright/tests/reviewer-smoke.spec.ts).
 - Updated canonical authority copy in [docs/v3-01-release-authority.md](/Users/harmelek/Adsecute/docs/v3-01-release-authority.md) and [docs/meta-page-ui-contract.md](/Users/harmelek/Adsecute/docs/meta-page-ui-contract.md).
 

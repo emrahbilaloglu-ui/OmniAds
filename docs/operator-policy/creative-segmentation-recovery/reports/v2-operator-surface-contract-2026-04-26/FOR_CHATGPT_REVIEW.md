@@ -141,28 +141,28 @@ because they are direct.
 
 ### Current Route And Main Files
 
-- Route: `app/(dashboard)/creatives/page.tsx`
-- Support: `app/(dashboard)/creatives/page-support.tsx`
-- Top/header: `components/creatives/CreativesTopSection.tsx`
-- Table/grid: `components/creatives/CreativesTableSection.tsx`
-- Decision support: `components/creatives/CreativeDecisionSupportSurface.tsx`
+- Route: `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx`
+- Support: `app/(dashboard)/platforms/meta/platforms/meta/creatives/page-support.tsx`
+- Top/header: `components/platforms/meta/creatives/CreativesTopSection.tsx`
+- Table/grid: `components/platforms/meta/creatives/CreativesTableSection.tsx`
+- Decision support: `components/platforms/meta/creatives/CreativeDecisionSupportSurface.tsx`
 - Generic operator summary: `components/operator/OperatorSurfaceSummary.tsx`
-- Decision drawer: `components/creatives/CreativeDecisionOsDrawer.tsx`
-- Drawer content: `components/creatives/CreativeDecisionOsContent.tsx`
-- Overview panels: `components/creatives/CreativeDecisionOsOverview.tsx`
-- Row/detail drawer: `components/creatives/CreativeDetailExperience.tsx`
+- Decision drawer: `components/platforms/meta/creatives/CreativeDecisionOsDrawer.tsx`
+- Drawer content: `components/platforms/meta/creatives/CreativeDecisionOsContent.tsx`
+- Overview panels: `components/platforms/meta/creatives/CreativeDecisionOsOverview.tsx`
+- Row/detail drawer: `components/platforms/meta/creatives/CreativeDetailExperience.tsx`
 
-`app/(dashboard)/creatives/page.tsx` owns the Creative workflow. It
+`app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx` owns the Creative workflow. It
 loads creative rows, historical windows, ad-level breakdowns, the
 current Creative Decision OS snapshot, table state, drawer state, quick
 filters, and selected row state.
 
 ### Current API And Data Path
 
-- `fetchMetaCreatives` calls `/api/meta/creatives`.
-- `fetchMetaCreativesHistory` calls `/api/meta/creatives/history`.
-- `/api/meta/creatives` is implemented by `app/api/meta/creatives/route.ts`.
-- The Meta creative response is built through `lib/meta/creatives-api.ts`.
+- `fetchMetaCreatives` calls `/api/meta/platforms/meta/creatives`.
+- `fetchMetaCreativesHistory` calls `/api/meta/platforms/meta/creatives/history`.
+- `/api/meta/platforms/meta/creatives` is implemented by `app/api/meta/platforms/meta/creatives/route.ts`.
+- The Meta creative response is built through `lib/meta/platforms/meta/creatives-api.ts`.
 - `getCreativeDecisionOsSnapshot` calls `/api/creatives/decision-os`.
 - `runCreativeDecisionOsAnalysis` posts to `/api/creatives/decision-os`.
 - `/api/creatives/decision-os` is implemented by `app/api/creatives/decision-os/route.ts`.

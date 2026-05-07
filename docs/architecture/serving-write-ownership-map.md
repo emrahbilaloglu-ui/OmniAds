@@ -6,7 +6,7 @@ Purpose: make ownership of user-facing serving/projection/cache persistence expl
 
 | Surface | Owner module | Actual trigger / entrypoint | Ownership mode | Forbidden contexts | Freshness strategy |
 | --- | --- | --- | --- | --- | --- |
-| `platform_overview_daily_summary` | `lib/overview-summary-materializer.ts` | `lib/meta/warehouse.ts`, `lib/google-ads/warehouse.ts` | Automated sync/warehouse completion | Passive `GET`, `lib/overview-service.ts`, `lib/google-ads/serving.ts`, `lib/overview-summary-store.ts` | Warehouse upserts refresh daily rows; GET serves durable rows or computes ephemeral fallback |
+| `platform_overview_daily_summary` | `lib/overview-summary-materializer.ts` | `lib/meta/warehouse.ts`, `lib/platforms/google/warehouse.ts` | Automated sync/warehouse completion | Passive `GET`, `lib/overview-service.ts`, `lib/platforms/google/serving.ts`, `lib/overview-summary-store.ts` | Warehouse upserts refresh daily rows; GET serves durable rows or computes ephemeral fallback |
 | `platform_overview_summary_ranges` | `lib/overview-summary-materializer.ts` via `lib/overview-summary-range-owner.ts` | `npm run overview:summary:materialize -- --business-id ... --provider meta|google --start-date ... --end-date ... [--provider-account-ids ...]` | Manual/script owner for exact selected historical ranges, backfill, and manual refresh | Passive `GET`, shared read helpers, route handlers | Warehouse upserts invalidate manifests, but exact range hydration stays explicit. Google projection fallback only consumes exact historical windows, and the current materializer writes finalized manifests, so no exact existing worker/cron/admin lane can safely pre-hydrate arbitrary or speculative selected ranges. See `docs/architecture/serving-operational-freshness-matrix.md`. |
 
 ## User-facing durable reporting caches
@@ -31,4 +31,4 @@ Purpose: make ownership of user-facing serving/projection/cache persistence expl
 - Shared read helpers must not import the writer/materializer modules above.
 - `GET` routes may only read the durable state these tables/caches already hold.
 - If no safe automated owner exists, add an explicit script/CLI owner and document the exact command. Do not leave in-scope serving surfaces unwired.
-- Owner exceptions are intentionally tiny. Current explicit allowlist outside the owner modules is limited to `lib/google-ads/warehouse.ts` and `scripts/reset-google-ads-stack.ts` for out-of-scope Google Ads reset/deletion flows touching `provider_reporting_snapshots`.
+- Owner exceptions are intentionally tiny. Current explicit allowlist outside the owner modules is limited to `lib/platforms/google/warehouse.ts` and `scripts/reset-google-ads-stack.ts` for out-of-scope Google Ads reset/deletion flows touching `provider_reporting_snapshots`.

@@ -34,8 +34,8 @@ Primary hotspots:
 - `app/api/creatives/decision-os/route.ts` reads `startDate/endDate`.
 - `app/api/meta/recommendations/route.ts` requires selected dates and can fall back to selected-range heuristics.
 - `app/(dashboard)/platforms/meta/page.tsx` keys Decision OS and recommendations by selected dates.
-- `app/(dashboard)/creatives/page.tsx` keys Creative Decision OS by selected dates.
-- `components/meta/meta-campaign-detail.tsx` and `components/creatives/CreativeDetailExperience.tsx` build Command Center links with selected dates.
+- `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx` keys Creative Decision OS by selected dates.
+- `components/meta/meta-campaign-detail.tsx` and `components/platforms/meta/creatives/CreativeDetailExperience.tsx` build Command Center links with selected dates.
 - `lib/command-center.ts`, `lib/command-center-service.ts`, `src/services/data-service-command-center.ts`, and Command Center routes reconstruct workflow actions from selected dates.
 - Execution preview/apply/rollback routes still accept selected `startDate/endDate`.
 
@@ -77,10 +77,10 @@ export interface OperatorDecisionProvenance {
 
 Rules:
 
-- `analyticsStartDate/analyticsEndDate` must never be included in `stableDecisionId`, `evidenceHash`, or action fingerprint inputs.
+- `analyticsStartDate/insights/analyticsEndDate` must never be included in `stableDecisionId`, `evidenceHash`, or action fingerprint inputs.
 - `sourceQueryId` must be deterministic and based on business, provider, entity scope, `decisionAsOf`, `sourceWindowKey`, and source window dates.
 - `evidenceHash` must hash a normalized JSON object with sorted keys and stable numeric/string values. Do not include `generatedAt`, UI labels that can be translated, selected analytics dates, or array order unless the order is semantically part of evidence.
-- For Phase 3.1, provenance is additive to existing payloads. Existing `startDate/endDate` response fields may remain as compatibility aliases if clearly backed by `analyticsWindow`, but new code must use `analyticsStartDate/analyticsEndDate`.
+- For Phase 3.1, provenance is additive to existing payloads. Existing `startDate/endDate` response fields may remain as compatibility aliases if clearly backed by `analyticsWindow`, but new code must use `analyticsStartDate/insights/analyticsEndDate`.
 
 ## Implementation Sequence
 
@@ -107,7 +107,7 @@ Plan:
 Acceptance:
 
 - Same input with different object key order produces the same `evidenceHash`.
-- Changing `analyticsStartDate/analyticsEndDate` does not change provenance.
+- Changing `analyticsStartDate/insights/analyticsEndDate` does not change provenance.
 - Changing `decisionAsOf`, `sourceWindowKey`, source dates, entity ids, or evidence does change provenance.
 
 ### 2. Rename Decision Route Inputs
@@ -124,15 +124,15 @@ Files:
 
 Plan:
 
-- Accept `analyticsStartDate/analyticsEndDate` as the primary public query names.
+- Accept `analyticsStartDate/insights/analyticsEndDate` as the primary public query names.
 - Keep `startDate/endDate` as temporary deprecated aliases only for compatibility, mapping them immediately to analytics names.
 - Add optional `decisionAsOf`; default remains server-resolved provider previous complete date.
-- Rename internal source inputs from `startDate/endDate` to `analyticsStartDate/analyticsEndDate` where they represent selected reporting context.
-- Preserve selected-period Creative historical analysis, but make it visibly fed by `analyticsStartDate/analyticsEndDate`, not the decision identity.
+- Rename internal source inputs from `startDate/endDate` to `analyticsStartDate/insights/analyticsEndDate` where they represent selected reporting context.
+- Preserve selected-period Creative historical analysis, but make it visibly fed by `analyticsStartDate/insights/analyticsEndDate`, not the decision identity.
 
 Acceptance:
 
-- Route tests assert `analyticsStartDate/analyticsEndDate` are passed to `analyticsWindow`.
+- Route tests assert `analyticsStartDate/insights/analyticsEndDate` are passed to `analyticsWindow`.
 - Route tests assert `decisionAsOf` controls `primary30d`.
 - Compatibility tests assert old `startDate/endDate` still work temporarily but are not used as action identity.
 
@@ -203,7 +203,7 @@ Plan:
   - `provenance.sourceWindowStartDate`,
   - `provenance.sourceWindowEndDate`,
   - `provenance.evidenceHash`.
-- Exclude `analyticsStartDate/analyticsEndDate`, source deep links, UI labels, and `generatedAt`.
+- Exclude `analyticsStartDate/insights/analyticsEndDate`, source deep links, UI labels, and `generatedAt`.
 - Replace `findCommandCenterActionForRange` with `findCommandCenterActionForDecisionContext`, accepting `decisionAsOf` and action fingerprint/provenance, not selected dates.
 - Command Center GET may still accept analytics dates for historical intelligence panels, but workflow mutation, note, batch, feedback action-scope lookup, preview, apply, and rollback must resolve by provenance.
 
@@ -219,7 +219,7 @@ Acceptance:
 Files:
 
 - `components/meta/meta-campaign-detail.tsx`
-- `components/creatives/CreativeDetailExperience.tsx`
+- `components/platforms/meta/creatives/CreativeDetailExperience.tsx`
 - `components/command-center/CommandCenterDashboard.tsx`
 - `app/(dashboard)/command-center/page.tsx`
 - `lib/command-center.ts`
@@ -229,7 +229,7 @@ Files:
 Plan:
 
 - Source pages should link with `decisionAsOf` and `actionFingerprint` when targeting a workflow action.
-- Selected reporting dates may remain in links only as `analyticsStartDate/analyticsEndDate` for display context, never for action resolution.
+- Selected reporting dates may remain in links only as `analyticsStartDate/insights/analyticsEndDate` for display context, never for action resolution.
 - Extend handoff records to carry linked action provenance snapshots or, at minimum, linked provenance-bearing action fingerprints plus `decisionAsOf`.
 - Keep handoff text free-form; do not attempt policy decisions in handoff code.
 
@@ -271,9 +271,9 @@ Acceptance:
 Files:
 
 - `app/(dashboard)/platforms/meta/page.tsx`
-- `app/(dashboard)/creatives/page.tsx`
+- `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx`
 - `components/meta/meta-campaign-detail.tsx`
-- `components/creatives/CreativeDetailExperience.tsx`
+- `components/platforms/meta/creatives/CreativeDetailExperience.tsx`
 - `components/command-center/CommandCenterDashboard.tsx`
 - `src/services/data-service-ai.ts`
 - `src/services/data-service-command-center.ts`
@@ -287,7 +287,7 @@ Plan:
 - They may include analytics dates only in a nested/display subquery or selected-period analysis query, not the primary action identity.
 - Split Command Center query identity:
   - workflow/action query: business id + `decisionAsOf`.
-  - historical intelligence/display query: business id + `analyticsStartDate/analyticsEndDate`.
+  - historical intelligence/display query: business id + `analyticsStartDate/insights/analyticsEndDate`.
 
 Acceptance:
 
@@ -330,7 +330,7 @@ Add focused regression tests before broader policy work:
 - `lib/operator-decision-provenance.test.ts`: hash stability, analytics-date exclusion, source-window sensitivity.
 - `lib/meta/decision-os.test.ts`: same `decisionAsOf`, same rows, different analytics dates -> identical Meta primary action fields and provenance.
 - `lib/creative-decision-os.test.ts`: same invariant for Creative primary action fields and provenance; selected historical analysis may differ.
-- `app/api/meta/decision-os/route.test.ts`: `analyticsStartDate/analyticsEndDate` contract and legacy alias behavior.
+- `app/api/meta/decision-os/route.test.ts`: `analyticsStartDate/insights/analyticsEndDate` contract and legacy alias behavior.
 - `app/api/creatives/decision-os/route.test.ts`: same route contract.
 - `app/api/meta/recommendations/route.test.ts`: fallback is `non_authoritative_selected_range_context`.
 - `lib/command-center.test.ts`: action fingerprints use provenance and remain stable across analytics ranges.
@@ -385,7 +385,7 @@ Explicitly do not implement in Phase 3.1:
 
 Phase 3.1 is complete when:
 
-- Decision routes expose `analyticsStartDate/analyticsEndDate` and `decisionAsOf`.
+- Decision routes expose `analyticsStartDate/insights/analyticsEndDate` and `decisionAsOf`.
 - Primary Decision OS actions are keyed by decision provenance, not selected reporting dates.
 - Every action-bearing Decision OS row includes provenance.
 - Command Center action fingerprinting uses provenance and excludes analytics dates.

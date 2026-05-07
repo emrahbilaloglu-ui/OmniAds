@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, ChevronDown, ExternalLink } from "lucide-react";
+import { AlertTriangle, ChevronDown, Clock, ExternalLink } from "lucide-react";
 import { useState } from "react";
 import type { MetaAnomaly } from "@/lib/meta/anomalies";
 
@@ -23,7 +23,7 @@ function formatScanTime(value?: string | null) {
 
 export function MetaAlertsStrip({ anomalies, snapshotDate, onOpenDiagnostic }: MetaAlertsStripProps) {
   const [open, setOpen] = useState(false);
-  const visible = anomalies.slice(0, 3);
+  const visible = anomalies.slice(0, open ? anomalies.length : 3);
   const hidden = anomalies.slice(3);
 
   if (anomalies.length === 0) {
@@ -36,55 +36,50 @@ export function MetaAlertsStrip({ anomalies, snapshotDate, onOpenDiagnostic }: M
   }
 
   return (
-    <div className="rounded-lg border-l-4 border-l-rose-500 border border-rose-200 bg-rose-50/30 overflow-hidden" data-alerts-strip>
-      <div className="flex items-center gap-2 px-3 py-2 flex-wrap">
+    <div className="rounded-xl border-l-4 border-l-rose-500 border border-rose-200 bg-rose-50/30 overflow-hidden" data-alerts-strip>
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-rose-100 bg-rose-50/70">
         <AlertTriangle className="inline-block shrink-0 text-rose-600" size={15} aria-hidden="true" />
-        <span className="text-[12.5px] font-semibold text-rose-900">
+        <span className="text-[12.5px] font-semibold text-rose-950">
           {anomalies.length} active anomal{anomalies.length === 1 ? "y" : "ies"}
         </span>
-        {visible.map((anomaly) => (
-          <button
-            key={anomaly.id}
-            type="button"
-            className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-white px-2 py-1 text-[11.5px] text-slate-700 hover:bg-rose-50"
-            onClick={() => onOpenDiagnostic?.(anomaly)}
-          >
-            <span className={`rounded border px-1 text-[9.5px] font-semibold uppercase ${SEVERITY_CLASS[anomaly.severity]}`}>
-              {anomaly.severity}
-            </span>
-            <span className="max-w-[180px] truncate">{anomaly.scopeLabel}</span>
-            <ExternalLink className="inline-block shrink-0" size={11} aria-hidden="true" />
-          </button>
-        ))}
+        <span className="text-[11.5px] text-rose-700">diagnose before broad budget moves</span>
         {hidden.length > 0 ? (
           <button
             type="button"
-            className="ml-auto inline-flex items-center gap-1 px-2 py-1 text-[11.5px] text-rose-700 hover:text-rose-900"
+            className="ml-auto inline-flex items-center gap-1 px-2 py-1 text-[11.5px] text-rose-700 hover:text-rose-950"
             onClick={() => setOpen((current) => !current)}
           >
-            View all
+            {open ? "Show less" : "View all"}
             <ChevronDown className="inline-block shrink-0" size={12} aria-hidden="true" />
           </button>
         ) : null}
       </div>
-      {open ? (
-        <div className="border-t border-rose-100 bg-white px-3 py-2 grid gap-1.5">
-          {hidden.map((anomaly) => (
-            <button
-              key={anomaly.id}
-              type="button"
-              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-slate-50"
-              onClick={() => onOpenDiagnostic?.(anomaly)}
-            >
-              <span className={`rounded border px-1 text-[9.5px] font-semibold uppercase ${SEVERITY_CLASS[anomaly.severity]}`}>
-                {anomaly.severity}
-              </span>
-              <span className="text-[12px] font-medium text-slate-800">{anomaly.title}</span>
-              <span className="ml-auto text-[11px] text-slate-500">{anomaly.detectedAt}</span>
-            </button>
-          ))}
-        </div>
-      ) : null}
+      <div className="grid gap-1.5 bg-white/70 px-3 py-2">
+        {visible.map((anomaly) => (
+          <button
+            key={anomaly.id}
+            type="button"
+            className="grid gap-2 rounded-lg border border-rose-100 bg-white px-3 py-2 text-left hover:bg-rose-50/60 md:grid-cols-[auto_minmax(0,1fr)_auto_auto]"
+            onClick={() => onOpenDiagnostic?.(anomaly)}
+          >
+            <span className={`w-fit rounded border px-1.5 py-0.5 text-[9.5px] font-semibold uppercase ${SEVERITY_CLASS[anomaly.severity]}`}>
+              {anomaly.severity}
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-[12.5px] font-semibold text-slate-900">{anomaly.title}</span>
+              <span className="block truncate text-[11.5px] text-slate-500">{anomaly.scopeType} · {anomaly.scopeLabel}</span>
+            </span>
+            <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
+              <Clock className="inline-block shrink-0" size={11} aria-hidden="true" />
+              {anomaly.detectedAt}
+            </span>
+            <span className="inline-flex items-center gap-1 text-[11.5px] font-medium text-rose-700">
+              Open diagnostic
+              <ExternalLink className="inline-block shrink-0" size={11} aria-hidden="true" />
+            </span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

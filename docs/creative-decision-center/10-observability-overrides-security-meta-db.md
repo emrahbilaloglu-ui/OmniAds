@@ -100,8 +100,8 @@ Evidence:
 | `requireBusinessAccess` requires auth, reviewer access, active membership, role | `lib/access.ts` lines 148-181 |
 | Creative decision route calls `requireBusinessAccess` | `app/api/creatives/decision-os/route.ts` lines 82-115 |
 | V2 preview route calls `requireBusinessAccess` | `app/api/creatives/decision-os-v2/preview/route.ts` lines 45-78 |
-| Meta creatives route calls `requireBusinessAccess` | `app/api/meta/creatives/route.ts` lines 53-69 |
-| Meta history route calls `requireBusinessAccess` | `app/api/meta/creatives/history/route.ts` lines 20-28 |
+| Meta creatives route calls `requireBusinessAccess` | `app/api/meta/platforms/meta/creatives/route.ts` lines 53-69 |
+| Meta history route calls `requireBusinessAccess` | `app/api/meta/platforms/meta/creatives/history/route.ts` lines 20-28 |
 
 Security risks:
 

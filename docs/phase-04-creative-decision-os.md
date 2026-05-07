@@ -5,7 +5,7 @@
 
 ## Goal
 
-Phase 04 turns `/creatives` into a concept-first operator decision center.
+Phase 04 turns `/platforms/meta/creatives` into a concept-first operator decision center.
 
 Phase 05 keeps the same deterministic contract and read-only posture, but upgrades the shipped surface with:
 
@@ -32,7 +32,7 @@ The shipped surface must answer:
 - `AI Commentary` remains bounded interpretation. It may summarize deterministic evidence and uncertainty, but it may not invent actions, targets, or deployment changes.
 - `Operating Mode` remains the top commercial-truth guardrail for creative deployment aggressiveness.
 - Export/share truth remains unchanged.
-- `/copies` is untouched.
+- `/platforms/meta/copies` is untouched.
 
 ## Exact code path
 
@@ -40,11 +40,11 @@ The shipped surface must answer:
 - `lib/creative-decision-os.ts`
 - `lib/creative-decision-os-config.ts`
 - `lib/ai/generate-creative-decisions.ts`
-- `components/creatives/CreativeDecisionOsOverview.tsx`
-- `components/creatives/CreativeDecisionOsDrawer.tsx`
-- `components/creatives/CreativesTableSection.tsx`
-- `components/creatives/CreativeDetailExperience.tsx`
-- `app/(dashboard)/creatives/page.tsx`
+- `components/platforms/meta/creatives/CreativeDecisionOsOverview.tsx`
+- `components/platforms/meta/creatives/CreativeDecisionOsDrawer.tsx`
+- `components/platforms/meta/creatives/CreativesTableSection.tsx`
+- `components/platforms/meta/creatives/CreativeDetailExperience.tsx`
+- `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx`
 
 ## Contract summary
 
@@ -176,7 +176,7 @@ Deployment aggressiveness is softened by commercial truth and `Operating Mode`.
 
 ## Drawer UX
 
-- `/creatives` no longer renders the full Decision OS overview inline
+- `/platforms/meta/creatives` no longer renders the full Decision OS overview inline
 - the surface opens from a `Creative Decision OS` button in the top controls row
 - the drawer is right-anchored, resizable, wider than the creative detail panels by default, and persists its width locally
 - queue/family clicks still focus the main table

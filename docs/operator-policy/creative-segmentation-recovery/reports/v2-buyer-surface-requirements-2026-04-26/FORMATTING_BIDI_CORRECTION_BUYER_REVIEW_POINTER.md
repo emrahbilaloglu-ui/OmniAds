@@ -47,7 +47,7 @@ Code (`cb9eb9b`):
   constants and broke long inline class strings across multiple lines.
   No functional change. 593 lines, max 118 chars (independently
   verified).
-- `app/(dashboard)/creatives/page.test.tsx` — split dense vi.mock
+- `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx` — split dense vi.mock
   factories across multiple readable lines. 292 lines, max 108 chars
   (independently verified).
 - `lib/creative-decision-os-v2-preview.test.tsx` — added a new
@@ -61,8 +61,8 @@ Documentation (`256d337`, `0f90b2d`):
   for M1/M2.
 - Recorded post-push public GitHub evidence at PR #81 head `cb9eb9b`
   showing the GitHub files-view hidden/bidi warning banner is still
-  visible on `app/(dashboard)/creatives/page.test.tsx`,
-  `app/(dashboard)/creatives/page.tsx`,
+  visible on `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx`,
+  `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx`,
   `app/api/creatives/decision-os-v2/preview/route.test.ts`, and
   `app/api/creatives/decision-os-v2/preview/route.ts` after formatting,
   with raw scans reporting zero hidden/bidi/control codepoints in those
@@ -76,11 +76,11 @@ Active raw file metrics confirm the formatting fix:
 
 | File | Lines | Max line |
 | --- | ---: | ---: |
-| `app/(dashboard)/creatives/page.test.tsx` | 292 | 108 |
-| `app/(dashboard)/creatives/page.tsx` | 1266 | 196 |
+| `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx` | 292 | 108 |
+| `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx` | 1266 | 196 |
 | `app/api/creatives/decision-os-v2/preview/route.test.ts` | 65 | 109 |
 | `app/api/creatives/decision-os-v2/preview/route.ts` | 117 | 105 |
-| `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx` | 593 | 118 |
+| `components/platforms/meta/creatives/CreativeDecisionOsV2PreviewSurface.tsx` | 593 | 118 |
 
 Component still has only one `<button>` with `onClick`, wired to the
 existing `onOpenRow` callback. No new write paths.

@@ -29,6 +29,8 @@ interface CompareDrawerProps {
   open: boolean;
   items: CompareDrawerItem[];
   metrics?: CompareDrawerMetric[];
+  entityLabel?: string;
+  trendLabel?: string;
   actionBar?: ReactNode;
   onClose?: () => void;
 }
@@ -46,6 +48,8 @@ export function CompareDrawer({
   open,
   items,
   metrics = DEFAULT_METRICS,
+  entityLabel = "creatives",
+  trendLabel = "28d ROAS trend",
   actionBar,
   onClose,
 }: CompareDrawerProps) {
@@ -60,7 +64,7 @@ export function CompareDrawer({
         <div className="max-w-[1440px] mx-auto px-6 py-3 border-b border-slate-200 flex items-center gap-3">
           <div className="text-[14px] font-semibold text-slate-900 flex items-center gap-2">
             <GitCompare className="inline-block shrink-0" size={15} aria-hidden="true" />
-            Compare {cards.length} creatives
+            Compare {cards.length} {entityLabel}
           </div>
           <span className="text-[12px] text-slate-500">
             Diff highlights in <span className="text-amber-700 font-medium">amber</span>
@@ -107,7 +111,7 @@ export function CompareDrawer({
           ))}
 
           <div className="text-[10.5px] uppercase tracking-wider text-slate-400 font-semibold flex items-center">
-            28d ROAS trend
+            {trendLabel}
           </div>
           {cards.map((card) => (
             <div key={`${card.id}-sparkline`} className="rounded-md border border-slate-100 bg-slate-50/50 p-2">

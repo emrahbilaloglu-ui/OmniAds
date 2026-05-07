@@ -94,13 +94,13 @@ Still preserved:
 
 Ran targeted:
 
-- `npx vitest run components/creatives/creatives-top-section-support.test.ts components/creatives/CreativeBenchmarkScopeControl.test.tsx lib/creative-operator-surface.test.ts lib/operator-prescription.test.ts components/creatives/CreativeDecisionOsOverview.test.tsx components/creatives/CreativeDetailExperience.test.tsx`
+- `npx vitest run components/platforms/meta/creatives/platforms/meta/creatives-top-section-support.test.ts components/platforms/meta/creatives/CreativeBenchmarkScopeControl.test.tsx lib/creative-operator-surface.test.ts lib/operator-prescription.test.ts components/platforms/meta/creatives/CreativeDecisionOsOverview.test.tsx components/platforms/meta/creatives/CreativeDetailExperience.test.tsx`
 
 Runtime smoke:
 
 - documented localhost runtime path with local DB tunnel / existing local forward
 - `PLAYWRIGHT_USE_WEBSERVER=0 PLAYWRIGHT_BASE_URL=http://127.0.0.1:3000 npx playwright test playwright/tests/reviewer-smoke.spec.ts --project=smoke-chromium`
-- reviewer smoke passed against localhost and covered both `/platforms/meta` and `/creatives`
+- reviewer smoke passed against localhost and covered both `/platforms/meta` and `/platforms/meta/creatives`
 
 Full validation:
 

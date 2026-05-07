@@ -11,6 +11,7 @@ describe("MetaActionCard", () => {
     expect(html).toContain("Prospecting Scale");
     expect(html).toContain("Lowest Cost");
     expect(html).toContain("82%");
+    expect(html).toContain("What does Defer 24h do?");
   });
 
   it("renders anomaly cards in diagnostic mode", () => {

@@ -11,6 +11,7 @@ import type {
   EngineV3Flags,
   EngineMultiplierSet,
 } from "@/lib/creative-decision-engine";
+import { DecisionLabelChip } from "@/components/common/briefing/DecisionLabelChip";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
@@ -384,14 +385,16 @@ function DecisionRow({ decision }: { decision: DecisionOutput }) {
 
   return (
     <div className="flex flex-wrap items-center gap-2 rounded border border-border/60 bg-background/60 px-2 py-1.5 text-xs">
-      <span
+      <DecisionLabelChip
+        label={decision.label}
+        appearance="unstyled"
         className={cn(
           "shrink-0 rounded border px-1.5 py-0.5 font-semibold",
           TONE_CLASS[display.tone],
         )}
       >
         {display.label}
-      </span>
+      </DecisionLabelChip>
       <span className="max-w-[14rem] shrink-0 truncate font-medium">
         {creativeName ?? decision.creativeId}
       </span>

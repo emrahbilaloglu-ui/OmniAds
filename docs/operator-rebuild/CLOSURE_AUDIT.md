@@ -87,7 +87,7 @@ Acceptance rests on the combined proof chain:
 
 ## Temporary Proof Path Used In Step 10
 
-Step 10 used a narrow temporary proof-only path because all benchmark businesses were still effective plan `starter` and `/creatives` was Growth-gated.
+Step 10 used a narrow temporary proof-only path because all benchmark businesses were still effective plan `starter` and `/platforms/meta/creatives` was Growth-gated.
 
 That temporary path was:
 

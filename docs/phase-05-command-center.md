@@ -43,7 +43,7 @@
 - `Recommendations`, `Decision Signals`, and `AI Commentary` wording split remains unchanged on source surfaces.
 - `Operating Mode`, Meta `Decision OS`, and Creative `Decision OS` semantics remain deterministic and read-only.
 - Command Center overlays workflow state; it does not mutate decision-engine payloads.
-- `/copies` is untouched in this phase.
+- `/platforms/meta/copies` is untouched in this phase.
 - Export/share truth remains unchanged.
 
 ## Persistence

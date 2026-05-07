@@ -1,10 +1,12 @@
 import { META_CAMPAIGN_ROLE_LABELS, type MetaCampaignRole } from "@/lib/meta/types";
 
 interface MetaCampaignRoleChipProps {
-  role: MetaCampaignRole | "out_of_scope";
+  role: MetaCampaignRole | "out_of_scope" | "decommission";
 }
 
-const ROLE_TONES: Record<MetaCampaignRole | "out_of_scope", string> = {
+type DisplayRole = MetaCampaignRole | "out_of_scope" | "decommission";
+
+const ROLE_TONES: Record<DisplayRole, string> = {
   promo_clearance: "bg-amber-50 text-amber-800 border-amber-200",
   catalog_dpa: "bg-violet-50 text-violet-700 border-violet-200",
   retargeting: "bg-indigo-50 text-indigo-700 border-indigo-200",
@@ -14,11 +16,13 @@ const ROLE_TONES: Record<MetaCampaignRole | "out_of_scope", string> = {
   prospecting_validation: "bg-sky-50 text-sky-700 border-sky-200",
   prospecting_test: "bg-amber-50 text-amber-800 border-amber-200",
   out_of_scope: "bg-rose-50 text-rose-700 border-rose-200",
+  decommission: "bg-rose-50 text-rose-700 border-rose-200",
 };
 
-const FALLBACK_LABELS: Record<MetaCampaignRole | "out_of_scope", string> = {
+const FALLBACK_LABELS: Record<DisplayRole, string> = {
   ...META_CAMPAIGN_ROLE_LABELS,
   out_of_scope: "Decommission",
+  decommission: "Decommission",
 };
 
 export function MetaCampaignRoleChip({ role }: MetaCampaignRoleChipProps) {

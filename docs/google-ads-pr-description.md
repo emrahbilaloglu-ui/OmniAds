@@ -49,7 +49,7 @@ Visual notes for reviewer:
 
 Targeted Google Ads regression suite:
 
-- `npm test -- lib/google-ads/decision-engine-release.test.ts lib/google-ads/query-ownership.test.ts lib/google-ads/reporting.test.ts lib/google-ads/growth-advisor.test.ts lib/google-ads/decision-engine-v2.test.ts lib/google-ads/decision-snapshot.test.ts lib/google-ads/serving.test.ts lib/google-ads/advisor-ux.test.ts components/google/google-advisor-panel.test.tsx components/google-ads/GoogleAdsIntelligenceDashboard.test.tsx app/api/google-ads/advisor/route.test.ts app/api/google-ads/status/route.test.ts`
+- `npm test -- lib/platforms/google/decision-engine-release.test.ts lib/platforms/google/query-ownership.test.ts lib/platforms/google/reporting.test.ts lib/platforms/google/growth-advisor.test.ts lib/platforms/google/decision-engine-v2.test.ts lib/platforms/google/decision-snapshot.test.ts lib/platforms/google/serving.test.ts lib/platforms/google/advisor-ux.test.ts components/google/google-advisor-panel.test.tsx components/platforms/google/GoogleAdsIntelligenceDashboard.test.tsx app/api/google-ads/advisor/route.test.ts app/api/google-ads/status/route.test.ts`
 - result: `Test Files 12 passed (12)`, `Tests 98 passed (98)`
 
 Production build:

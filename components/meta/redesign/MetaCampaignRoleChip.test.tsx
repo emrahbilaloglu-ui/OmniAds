@@ -9,4 +9,10 @@ describe("MetaCampaignRoleChip", () => {
     expect(html).toContain("Prospecting Scale");
     expect(html).toContain("emerald");
   });
+
+  it("renders decommission as a supported role alias", () => {
+    const html = renderToStaticMarkup(<MetaCampaignRoleChip role="decommission" />);
+    expect(html).toContain("Decommission");
+    expect(html).toContain("rose");
+  });
 });

@@ -11,7 +11,7 @@ Scope:
 
 Verification:
 - `npx tsc --noEmit`
-- `npx vitest run lib/meta/decision-os.test.ts components/meta/meta-decision-os.test.tsx components/creatives/CreativeDecisionOsOverview.test.tsx components/meta/meta-operating-mode-card.test.tsx lib/business-operating-mode.test.ts`
+- `npx vitest run lib/meta/decision-os.test.ts components/meta/meta-decision-os.test.tsx components/platforms/meta/creatives/CreativeDecisionOsOverview.test.tsx components/meta/meta-operating-mode-card.test.tsx lib/business-operating-mode.test.ts`
 - `npm test`
 
 Residual risk:

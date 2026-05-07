@@ -454,7 +454,7 @@ describe("Creative Decision Center V2.1 PR2 golden fixtures", () => {
   });
 
   it("keeps Creative UI from computing V2.1 buyerAction during PR2", () => {
-    const files = ["app/(dashboard)/creatives", "components/creatives"]
+    const files = ["app/(dashboard)/platforms/meta/creatives", "components/creatives"]
       .filter((root) => existsSync(root))
       .flatMap(sourceFiles);
 

@@ -5,7 +5,7 @@ validation, recovery, and rollback while write-back remains disabled.
 
 Production rollout record:
 
-- `docs/google-ads-rollout-record-2026-04-10.md`
+- `docs/platforms/google-rollout-record-2026-04-10.md`
 
 ## Shipping Boundary
 
@@ -58,7 +58,7 @@ Run the commands in this order for each rollout business:
 6. UI/API smoke
    - `GET /api/google-ads/status?businessId=<businessId>`
    - `GET /api/google-ads/advisor?businessId=<businessId>&refresh=1`
-   - open `/google-ads`
+   - open `/platforms/google`
 
 ## Operator Smoke Checks
 

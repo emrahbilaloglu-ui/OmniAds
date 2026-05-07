@@ -6,10 +6,10 @@ Current evidence:
 
 | Evidence | File |
 |---|---|
-| Creative API supports `groupBy = "adName" | "creative" | "adSet"` | `lib/meta/creatives-types.ts` lines 1-5 |
-| Raw row id is ad-level while `creative_id` is separate | `lib/meta/creatives-row-mappers.ts` lines 548-560 |
-| Creative usage map groups `creative_id` to ad ids | `lib/meta/creatives-warehouse.ts` lines 71-78 |
-| Public table row exposes `id`, `creativeId`, account/campaign/adset | `components/creatives/metricConfig.ts` lines 59-76 |
+| Creative API supports `groupBy = "adName" | "creative" | "adSet"` | `lib/meta/platforms/meta/creatives-types.ts` lines 1-5 |
+| Raw row id is ad-level while `creative_id` is separate | `lib/meta/platforms/meta/creatives-row-mappers.ts` lines 548-560 |
+| Creative usage map groups `creative_id` to ad ids | `lib/meta/platforms/meta/creatives-warehouse.ts` lines 71-78 |
+| Public table row exposes `id`, `creativeId`, account/campaign/adset | `components/platforms/meta/creatives/metricConfig.ts` lines 59-76 |
 | V1 decision row uses `creativeId` but carries campaign/adset | `lib/creative-decision-os.ts` lines 162-210 |
 | V1 family grouping exists | `lib/creative-decision-os.ts` family fields lines 431-433, family type lines 471-487 |
 
@@ -91,7 +91,7 @@ Evidence:
 | UTC date helper | `lib/meta/history.ts` lines 4-13 |
 | Account timezone helper | `lib/meta/warehouse.ts` lines 160-178 |
 | Current account day uses account timezone | `lib/meta/warehouse.ts` lines 180-193 |
-| Mapper launch date from ad created or insight date | `lib/meta/creatives-row-mappers.ts` line 586 and earlier line 491 in audit |
+| Mapper launch date from ad created or insight date | `lib/meta/platforms/meta/creatives-row-mappers.ts` line 586 and earlier line 491 in audit |
 
 Do not call daily insights "last 24h". If the source is yesterday/today daily insight, label it "last verified Meta day" or "today observed daily slice".
 

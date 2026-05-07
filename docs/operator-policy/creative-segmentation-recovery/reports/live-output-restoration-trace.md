@@ -10,7 +10,7 @@ This pass traced why the live-firm audit branch reported:
 - non-zero screening live creative rows for each business
 - `0` current Creative Decision OS rows for all `8`
 
-The goal was to determine whether current `/creatives` output was actually broken, or whether the audit helper had drifted away from the current product source path.
+The goal was to determine whether current `/platforms/meta/creatives` output was actually broken, or whether the audit helper had drifted away from the current product source path.
 
 ## Root Cause
 
@@ -21,9 +21,9 @@ What happened:
 1. The audit helper used a warehouse-backed helper, `getCreativeDecisionOsForRangeWarehouseBacked()`.
 2. That helper read creative windows through `getMetaCreativesDbPayload()`, which depends on `meta_creative_daily`.
 3. In the validated runtime, `meta_creative_daily` is currently empty for the audited businesses.
-4. The actual `/creatives` Decision OS path does not read that warehouse path for current creative rows. It reads the live/persisted creative snapshot path through `getCreativeDecisionOsForRange()` and `getMetaCreativesApiPayload()`.
+4. The actual `/platforms/meta/creatives` Decision OS path does not read that warehouse path for current creative rows. It reads the live/persisted creative snapshot path through `getCreativeDecisionOsForRange()` and `getMetaCreativesApiPayload()`.
 
-So the branch audit proved a warehouse-helper mismatch, not a live `/creatives` empty-state defect.
+So the branch audit proved a warehouse-helper mismatch, not a live `/platforms/meta/creatives` empty-state defect.
 
 ## Concrete Trace
 
@@ -79,7 +79,7 @@ This was the real blocker.
 
 - Screening path on the audit branch: live current source
 - Decision path on the audit branch: warehouse-backed creative helper
-- Actual product `/creatives` path: live/persisted creative source
+- Actual product `/platforms/meta/creatives` path: live/persisted creative source
 
 The audit branch was comparing two different sources and treating the warehouse-backed result as if it were the current product output.
 

@@ -585,7 +585,7 @@ test("commercial truth smoke covers the dedicated page, Meta operating mode, and
     fullPage: true,
   });
 
-  await page.goto("/creatives");
+  await page.goto("/platforms/meta/creatives");
   await expectCreativeDashboardWithoutDecisionUi(page);
   for (const range of BROWSER_DECISION_RANGES) {
     await setStoredDateRange(page, "creativeDateRange", range.creative);

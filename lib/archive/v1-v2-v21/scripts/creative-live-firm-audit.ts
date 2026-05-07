@@ -23,7 +23,7 @@ import {
 import { getDb, resetDbClientCache } from "@/lib/db";
 import { getIntegration } from "@/lib/integrations";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
-import { mapApiRowToUiRow } from "@/app/(dashboard)/creatives/page-support";
+import { mapApiRowToUiRow } from "@/app/(dashboard)/platforms/meta/creatives/page-support";
 import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
 import { addDaysToIsoDate } from "@/lib/meta/history";
 import {

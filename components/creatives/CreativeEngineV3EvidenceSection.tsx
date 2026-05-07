@@ -2,6 +2,11 @@
 
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
+import {
+  EvidenceAccordion as SharedEvidenceAccordion,
+  type EvidenceAccordionSection,
+} from "@/components/common/briefing/EvidenceAccordion";
+import { DecisionLabelChip } from "@/components/common/briefing/DecisionLabelChip";
 import type {
   AccountDecisionProfile,
   CreativeInput,
@@ -81,26 +86,42 @@ export function CreativeEngineV3EvidenceSection({
     );
   }
 
+  const sections: EvidenceAccordionSection[] = [
+    {
+      key: "decision",
+      title: "Decision",
+      content: <DecisionEvidence payload={payload} />,
+    },
+    {
+      key: "inputs",
+      title: "Inputs",
+      content: <InputEvidence input={payload.input} />,
+    },
+    {
+      key: "funnel",
+      title: "Funnel",
+      content: <FunnelEvidence diagnosis={payload.funnelDiagnosis} />,
+    },
+    {
+      key: "engine",
+      title: "Engine trail",
+      content: <EngineTrailEvidence accountProfile={payload.accountProfile} payload={payload} />,
+    },
+    {
+      key: "operator",
+      title: "Operator response",
+      content: <OperatorResponseEvidence operatorResponse={payload.operatorResponse} />,
+    },
+    {
+      key: "provenance",
+      title: "Provenance",
+      content: <ProvenanceEvidence payload={payload} />,
+    },
+  ];
+
   return (
     <EvidenceShell>
-      <EvidenceAccordion title="Decision">
-        <DecisionEvidence payload={payload} />
-      </EvidenceAccordion>
-      <EvidenceAccordion title="Inputs">
-        <InputEvidence input={payload.input} />
-      </EvidenceAccordion>
-      <EvidenceAccordion title="Funnel">
-        <FunnelEvidence diagnosis={payload.funnelDiagnosis} />
-      </EvidenceAccordion>
-      <EvidenceAccordion title="Engine trail">
-        <EngineTrailEvidence accountProfile={payload.accountProfile} payload={payload} />
-      </EvidenceAccordion>
-      <EvidenceAccordion title="Operator response">
-        <OperatorResponseEvidence operatorResponse={payload.operatorResponse} />
-      </EvidenceAccordion>
-      <EvidenceAccordion title="Provenance">
-        <ProvenanceEvidence payload={payload} />
-      </EvidenceAccordion>
+      <SharedEvidenceAccordion sections={sections} variant="legacy" />
     </EvidenceShell>
   );
 }
@@ -142,37 +163,22 @@ function EvidenceShell({ children }: { children: ReactNode }) {
   );
 }
 
-function EvidenceAccordion({
-  title,
-  children,
-}: {
-  title: string;
-  children: ReactNode;
-}) {
-  return (
-    <details className="rounded-xl border border-slate-200 bg-white">
-      <summary className="cursor-pointer select-none px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-        {title}
-      </summary>
-      <div className="border-t border-slate-100 px-3 py-3">{children}</div>
-    </details>
-  );
-}
-
 function DecisionEvidence({ payload }: { payload: DecisionEvidenceResponse }) {
   const display = LABEL_DISPLAY[payload.decision.label];
 
   return (
     <div className="space-y-3 text-sm text-slate-700">
       <div className="flex flex-wrap items-center gap-2">
-        <span
+        <DecisionLabelChip
+          label={payload.decision.label}
+          appearance="unstyled"
           className={cn(
             "rounded border px-2 py-0.5 text-xs font-semibold",
             TONE_CLASS[display.tone],
           )}
         >
           {display.label}
-        </span>
+        </DecisionLabelChip>
         <MetricPill
           label="confidence"
           value={`${formatConfidence(payload.decision.confidence)}%`}

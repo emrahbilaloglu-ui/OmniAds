@@ -1475,7 +1475,7 @@ function mapCreativeOpportunityToCommandCenter(input: {
     sourceContext: {
       sourceLabel: "Creative Decision OS",
       operatingMode: input.operatingMode,
-      sourceDeepLink: `/creatives?businessId=${encodeURIComponent(
+      sourceDeepLink: `/platforms/meta/creatives?businessId=${encodeURIComponent(
         input.businessId,
       )}&startDate=${encodeURIComponent(input.startDate)}&endDate=${encodeURIComponent(
         input.endDate,
@@ -1933,7 +1933,7 @@ export function aggregateCommandCenterActions(input: {
           sourceContext: {
             sourceLabel: "Creative Decision OS",
             operatingMode,
-            sourceDeepLink: `/creatives?businessId=${encodeURIComponent(
+            sourceDeepLink: `/platforms/meta/creatives?businessId=${encodeURIComponent(
               input.businessId,
             )}&startDate=${encodeURIComponent(input.startDate)}&endDate=${encodeURIComponent(
               input.endDate,

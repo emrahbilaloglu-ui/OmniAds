@@ -151,7 +151,7 @@ Tests/checks:
 - `git diff --check` passed
 - hidden/bidi/control scan passed
 - raw ID scan on touched docs passed
-- runtime smoke passed with expected auth redirects for `/creatives` and `/platforms/meta`
+- runtime smoke passed with expected auth redirects for `/platforms/meta/creatives` and `/platforms/meta`
 
 Report:
 
@@ -256,7 +256,7 @@ Tests/checks so far:
 - `git diff --check` passed
 - hidden/bidi/control scan passed
 - raw ID scan on touched docs passed
-- runtime smoke passed with expected auth redirects for `/creatives` and `/platforms/meta`
+- runtime smoke passed with expected auth redirects for `/platforms/meta/creatives` and `/platforms/meta`
 
 Report:
 
@@ -284,7 +284,7 @@ PR:
 
 Root issue:
 
-- `app/(dashboard)/creatives/page.tsx` enabled a `creative-decision-os` query on page load.
+- `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx` enabled a `creative-decision-os` query on page load.
 - that query key included `drStart` and `drEnd`
 - changing the selected reporting range could refetch `/api/creatives/decision-os`
 - the API `GET` path computed Decision OS immediately
@@ -330,7 +330,7 @@ Validation:
 - `git diff --check`
 - hidden/bidi/control scan
 - raw ID scan on touched docs/reports
-- runtime smoke on `/creatives` and `/platforms/meta`
+- runtime smoke on `/platforms/meta/creatives` and `/platforms/meta`
 
 ## Current PR
 
@@ -726,7 +726,7 @@ Answers:
 - full `npm test`: passed
 - `npx tsc --noEmit`: passed
 - `npm run build`: passed
-- `/creatives` localhost smoke: passed through expected auth redirect/load
+- `/platforms/meta/creatives` localhost smoke: passed through expected auth redirect/load
 - `/platforms/meta` localhost smoke: passed through expected auth redirect/load
 - prior PR #65 `git diff --check`: passed before the current unstaged external-review edit
 - hidden/bidi/control scan: passed

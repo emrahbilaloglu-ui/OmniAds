@@ -5,7 +5,7 @@ SANITIZED: YES
 ## Scope
 
 - Promote the Creative v2 read-only buyer surface from limited query-gated
-  preview to normal `/creatives` page visibility.
+  preview to normal `/platforms/meta/creatives` page visibility.
 - Preserve explicit opt-out with `creativeDecisionOsV2Preview=0`,
   `creativeDecisionOsV2Preview=false`, `v2Preview=0`, or `v2Preview=false`.
 - Preserve the existing read-only safety boundary: v1 still renders, queue/apply
@@ -48,7 +48,7 @@ SANITIZED: YES
 
 ## Local DB Smoke Result
 
-- `/creatives` default buyer surface visible: true.
+- `/platforms/meta/creatives` default buyer surface visible: true.
 - `creativeDecisionOsV2Preview=0` explicit opt-out hidden: true.
 - `creativeDecisionOsV2Preview=1` explicit opt-in visible: true.
 - Today Priority visible: true.

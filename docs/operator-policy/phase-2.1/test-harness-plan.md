@@ -147,11 +147,11 @@ Assertions:
 
 Likely file location:
 - `components/meta/meta-campaign-detail.test.tsx`
-- `components/creatives/CreativeDetailExperience.test.tsx` if present; otherwise create focused component test beside `CreativeDetailExperience.tsx`.
+- `components/platforms/meta/creatives/CreativeDetailExperience.test.tsx` if present; otherwise create focused component test beside `CreativeDetailExperience.tsx`.
 - `app/api/command-center/route.test.ts` for parsing/forwarding provenance once route query shape is finalized.
 
 Blockers/data gaps:
-- Current links in `components/meta/meta-campaign-detail.tsx` and `components/creatives/CreativeDetailExperience.tsx` use selected dates in the Command Center URL.
+- Current links in `components/meta/meta-campaign-detail.tsx` and `components/platforms/meta/creatives/CreativeDetailExperience.tsx` use selected dates in the Command Center URL.
 - Query parameter names for provenance are not finalized. Suggested names: `decisionAsOf`, `sourceWindowKey`, `sourceStartDate`, `sourceEndDate`, plus optional `reportStartDate/reportEndDate`.
 
 ### 6. Legacy selected-range recommendations are report-only/context-only

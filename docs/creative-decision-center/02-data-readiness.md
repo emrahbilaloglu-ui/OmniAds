@@ -22,14 +22,14 @@ Live DB/API was not used.
 
 | Field | Current availability | Evidence |
 |---|---|---|
-| spend, purchases, impressions, ROAS, CPA, CTR, CPM | yes | `MetaCreativeRow` in `components/creatives/metricConfig.ts` lines 105-115; V1 input lines 176-184 |
+| spend, purchases, impressions, ROAS, CPA, CTR, CPM | yes | `MetaCreativeRow` in `components/platforms/meta/creatives/metricConfig.ts` lines 105-115; V1 input lines 176-184 |
 | historical windows last3/7/14/30/90 | yes | `CreativeDecisionOsHistoricalWindows` in `lib/creative-decision-os.ts` lines 153-160 |
-| launch date | partial | `MetaCreativeRow.launchDate` line 102; mapper derives from ad created time or insight date at `lib/meta/creatives-row-mappers.ts` line 491 |
+| launch date | partial | `MetaCreativeRow.launchDate` line 102; mapper derives from ad created time or insight date at `lib/meta/platforms/meta/creatives-row-mappers.ts` line 491 |
 | firstSeenAt / firstSpendAt | no | No public row/type field found |
 | spend24h / impressions24h | no | V1/V2 use aggregate/recent windows, no explicit 24h fields |
 | campaign/adset active status | partial | V1 `CreativeDecisionDeliveryContext` lines 213-221 has campaign/adset status and active/paused delivery |
 | ad active status | no/partial | Meta fetcher filters effective statuses but public row type does not expose ad status |
-| reviewStatus / disapprovalReason / limitedReason | no | Fetcher filters `PENDING_REVIEW`, `DISAPPROVED` at `lib/meta/creatives-fetchers.ts` lines 306-310 but mapper/type do not expose review/disapproval reasons |
+| reviewStatus / disapprovalReason / limitedReason | no | Fetcher filters `PENDING_REVIEW`, `DISAPPROVED` at `lib/meta/platforms/meta/creatives-fetchers.ts` lines 306-310 but mapper/type do not expose review/disapproval reasons |
 | effectiveStatus | no/partial | Fetcher status filter exists, public row lacks field |
 | benchmark reliability | yes | V1 creative has `benchmarkReliability` line 457 |
 | fatigue trends | partial | V1 fatigue object and historical windows exist; explicit CTR/CPM/frequency trend fields absent |

@@ -16,7 +16,7 @@
 - Shared linkage builder in [lib/meta/decision-os-linkage.ts](/Users/harmelek/Adsecute/lib/meta/decision-os-linkage.ts).
 - Additive Meta linkage in [app/api/meta/decision-os/route.ts](/Users/harmelek/Adsecute/app/api/meta/decision-os/route.ts) and [lib/meta/decision-os.ts](/Users/harmelek/Adsecute/lib/meta/decision-os.ts).
 - Queue/deployment semantics in [lib/creative-decision-os.ts](/Users/harmelek/Adsecute/lib/creative-decision-os.ts).
-- Surface rendering in [components/meta/meta-decision-os.tsx](/Users/harmelek/Adsecute/components/meta/meta-decision-os.tsx) and [components/creatives/CreativesTableSection.tsx](/Users/harmelek/Adsecute/components/creatives/CreativesTableSection.tsx).
+- Surface rendering in [components/meta/meta-decision-os.tsx](/Users/harmelek/Adsecute/components/meta/meta-decision-os.tsx) and [components/platforms/meta/creatives/CreativesTableSection.tsx](/Users/harmelek/Adsecute/components/platforms/meta/creatives/CreativesTableSection.tsx).
 
 ## 4. Acceptance Checklist
 - Phase closure verdict: `shipped-not-complete`
@@ -26,7 +26,7 @@
 - Reason: benchmark linkage evidence was captured from local DB/runtime and the V4 candidate only; live did not advance to `8c38576...`.
 
 ## 5. Test Evidence
-- `npx vitest run lib/command-center.test.ts lib/meta/decision-os.test.ts components/creatives/CreativeDecisionOsOverview.test.tsx`
+- `npx vitest run lib/command-center.test.ts lib/meta/decision-os.test.ts components/platforms/meta/creatives/CreativeDecisionOsOverview.test.tsx`
 - `npm test` -> `201 passed`
 - `npm run test:smoke:local` -> `4 passed`, `1 skipped`
 - Reviewer smoke now expects the queue filter label `Queue-ready`.

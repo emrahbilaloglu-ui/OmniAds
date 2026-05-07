@@ -38,8 +38,11 @@ function KpiTile({
 }
 
 export function MetaPulse({ pulse, window, onWindowChange }: MetaPulseProps) {
+  const selectedWindowLabel = window === "custom" ? "Custom" : window;
   const trackingTone =
-    pulse?.trackingHealth.status === "blocked"
+    !pulse || pulse.trackingHealth.status === "unknown"
+      ? "border-slate-200 bg-slate-50 text-slate-600"
+      : pulse.trackingHealth.status === "blocked"
       ? "border-rose-200 bg-rose-50 text-rose-700"
       : pulse?.trackingHealth.status === "degraded"
         ? "border-amber-200 bg-amber-50 text-amber-800"
@@ -54,10 +57,11 @@ export function MetaPulse({ pulse, window, onWindowChange }: MetaPulseProps) {
             Scope: Account
             <ChevronDown className="inline-block shrink-0" size={12} aria-hidden="true" />
           </label>
-          <label className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[12px] text-slate-700">
-            Date:
+          <label className="relative inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[12px] text-slate-700">
+            <span>Date: {selectedWindowLabel}</span>
+            <ChevronDown className="inline-block shrink-0" size={12} aria-hidden="true" />
             <select
-              className="bg-transparent text-[12px] font-medium outline-none"
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
               value={window}
               aria-label="Meta briefing date range"
               onChange={(event) => onWindowChange(event.currentTarget.value as MetaWindowKey)}
@@ -75,12 +79,14 @@ export function MetaPulse({ pulse, window, onWindowChange }: MetaPulseProps) {
         <div className="flex items-center gap-3 flex-wrap text-[12px]">
           <span className="inline-flex items-center gap-1 text-slate-600">
             <Gauge className="inline-block shrink-0 text-slate-400" size={13} aria-hidden="true" />
-            Pace <span className="font-mono text-slate-900">{Math.round((pulse?.pacing.dayPace ?? 0) * 100)}%</span>
+            Pace <span className="font-mono text-slate-900">{pulse ? `${Math.round(pulse.pacing.dayPace * 100)}%` : "—"}</span>
           </span>
           <span className="font-mono text-slate-700">
-            7d {formatRoas(pulse?.roas.d7 ?? 0)} / 14d {formatRoas(pulse?.roas.d14 ?? 0)} / 28d {formatRoas(pulse?.roas.d28 ?? 0)}
+            {pulse
+              ? `7d ${formatRoas(pulse.roas.d7)} / 14d ${formatRoas(pulse.roas.d14)} / 28d ${formatRoas(pulse.roas.d28)}`
+              : "7d — / 14d — / 28d —"}
           </span>
-          <span className="text-slate-500">{pulse?.matureCampaigns ?? 0} mature campaigns</span>
+          <span className="text-slate-500">{pulse ? `${pulse.matureCampaigns} mature campaigns` : "Loading campaigns"}</span>
         </div>
       }
       right={
@@ -114,10 +120,10 @@ export function MetaPulse({ pulse, window, onWindowChange }: MetaPulseProps) {
       }
       kpiBand={
         <>
-          <KpiTile label="Spend" value={formatCurrency(pulse?.spend.current ?? 0)} delta={kpiDelta(pulse?.spend.current ?? 0, pulse?.spend.prev ?? 0)} />
-          <KpiTile label="Revenue" value={formatCurrency(pulse?.revenue.current ?? 0)} delta={kpiDelta(pulse?.revenue.current ?? 0, pulse?.revenue.prev ?? 0)} />
-          <KpiTile label="CPA" value={pulse?.cpa.current == null ? "$0" : formatCurrency(pulse.cpa.current)} delta={kpiDelta(pulse?.cpa.current ?? 0, pulse?.cpa.prev ?? 0)} />
-          <KpiTile label="ROAS vs target" value={`${formatRoas(pulse?.roas.d28 ?? 0)} / ${formatRoas(pulse?.roas.target ?? 0)}`} />
+          <KpiTile label="Spend" value={pulse ? formatCurrency(pulse.spend.current) : "—"} delta={pulse ? kpiDelta(pulse.spend.current, pulse.spend.prev) : undefined} />
+          <KpiTile label="Revenue" value={pulse ? formatCurrency(pulse.revenue.current) : "—"} delta={pulse ? kpiDelta(pulse.revenue.current, pulse.revenue.prev) : undefined} />
+          <KpiTile label="CPA" value={!pulse ? "—" : pulse.cpa.current == null ? "—" : formatCurrency(pulse.cpa.current)} delta={pulse ? kpiDelta(pulse.cpa.current, pulse.cpa.prev) : undefined} />
+          <KpiTile label="ROAS vs target" value={pulse ? `${formatRoas(pulse.roas.d28)} / ${formatRoas(pulse.roas.target)}` : "—"} />
         </>
       }
     />

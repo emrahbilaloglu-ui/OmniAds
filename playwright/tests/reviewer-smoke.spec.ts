@@ -126,7 +126,7 @@ test("reviewer smoke covers Meta recommendations and creative dashboard", async 
   ).toBeDisabled();
   await page.screenshot({ path: testInfo.outputPath("command-center-reviewer.png"), fullPage: true });
 
-  await page.goto("/creatives");
+  await page.goto("/platforms/meta/creatives");
   await expect(page.getByRole("heading", { name: "Creatives", exact: true })).toBeVisible();
   await expect(page.getByText("Top Creatives").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Add filter" })).toBeVisible();

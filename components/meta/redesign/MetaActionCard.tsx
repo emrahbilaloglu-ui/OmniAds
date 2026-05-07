@@ -1,18 +1,21 @@
 "use client";
 
-import { ArrowRight, Check, Clock, ExternalLink, Pause, Sliders, SquareStack } from "lucide-react";
+import { useState } from "react";
+import { ArrowRight, Check, Clock, ExternalLink, Eye, Pause, Sliders, SquareStack } from "lucide-react";
 import {
   ConfidencePill,
   DecisionLabelChip,
   DeferChip,
+  DeferTooltip,
+  EvidencePopover,
 } from "@/components/common/briefing";
 import { cn } from "@/lib/utils";
 import type { MetaAnomaly } from "@/lib/meta/anomalies";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
-import { formatCurrency, formatRoas } from "@/lib/briefing/utils";
+import { formatCurrency, sparklinePath } from "@/lib/briefing/utils";
 import { MetaBidRegimeChip } from "@/components/meta/redesign/MetaBidRegimeChip";
 import { MetaCampaignRoleChip } from "@/components/meta/redesign/MetaCampaignRoleChip";
-import { MetaEvidenceAccordion } from "@/components/meta/redesign/MetaEvidenceAccordion";
+import { buildMetaEvidenceSections } from "@/components/meta/redesign/MetaEvidenceAccordion";
 import { MetaScopeChip } from "@/components/meta/redesign/MetaScopeChip";
 import {
   decisionLabelForRec,
@@ -77,6 +80,56 @@ function PrimaryIcon({ rec }: { rec: MetaRecommendation }) {
   return <ExternalLink className="inline-block shrink-0" size={13} aria-hidden="true" />;
 }
 
+function TrendSnapshot({ rec }: { rec: MetaRecommendation }) {
+  const history = rec.evidenceTrail?.roas_history;
+  const values = Array.isArray(history) ? history.map(Number).filter(Number.isFinite) : [];
+  if (values.length === 0 && !rec.predictiveOverlay) return null;
+  const latest = values.at(-1);
+  const first = values[0];
+  const trendTone = latest != null && first != null && latest >= first ? "text-emerald-600" : "text-rose-600";
+
+  return (
+    <div className="mt-3 flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1.5" data-meta-trend>
+      {values.length > 0 ? (
+        <svg viewBox="0 0 60 16" width="92" height="24" className={trendTone} preserveAspectRatio="none" aria-hidden="true">
+          <path d={sparklinePath(values)} fill="none" stroke="currentColor" strokeWidth="1.6" />
+        </svg>
+      ) : null}
+      <span className="min-w-0 flex-1 truncate text-[11.5px] text-slate-600">
+        {rec.predictiveOverlay ?? rec.timeframeContext.selectedRangeOverlay}
+      </span>
+    </div>
+  );
+}
+
+function DeploymentQueue({ rec }: { rec: MetaRecommendation }) {
+  const rows = [
+    { label: "Promote to main", values: rec.promoteCreatives, className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+    { label: "Keep testing", values: rec.keepTestingCreatives, className: "border-blue-200 bg-blue-50 text-blue-700" },
+    { label: "Do not deploy", values: rec.doNotDeployCreatives, className: "border-rose-200 bg-rose-50 text-rose-700" },
+  ].filter((row) => row.values && row.values.length > 0);
+
+  if (rows.length === 0 && !rec.targetScalingLane) return null;
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-1.5" data-meta-deployment-queue>
+      {rec.targetScalingLane ? (
+        <span className="inline-flex max-w-full items-center rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10.5px] text-slate-600">
+          Target: <span className="ml-1 truncate font-medium text-slate-800">{rec.targetScalingLane}</span>
+        </span>
+      ) : null}
+      {rows.map((row) => (
+        <span
+          key={row.label}
+          className={`inline-flex max-w-full items-center rounded-md border px-1.5 py-0.5 text-[10.5px] ${row.className}`}
+        >
+          {row.label}: <span className="ml-1 truncate font-medium">{row.values?.slice(0, 2).join(", ")}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export function MetaActionCard({
   rec,
   anomaly,
@@ -89,6 +142,8 @@ export function MetaActionCard({
   onDefer,
   onUndoDefer,
 }: MetaActionCardProps) {
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
+
   if (anomaly) {
     return (
       <article className={cn("rounded-2xl bg-white p-4 transition-all relative shadow-[0_1px_2px_rgba(15,23,42,0.04)]", cardBorder(undefined, anomaly))} data-card="anomaly">
@@ -164,6 +219,8 @@ export function MetaActionCard({
           <p className="mt-1 text-[12.5px] leading-snug text-slate-600">{rec.summary}</p>
 
           <EvidenceTags rec={rec} evidenceWindow={evidenceWindow} />
+          <TrendSnapshot rec={rec} />
+          <DeploymentQueue rec={rec} />
 
           {rec.level === "adset" && bidValue ? (
             <div className="mt-2 inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10.5px] text-blue-700">
@@ -171,8 +228,6 @@ export function MetaActionCard({
               Proposed bid {formatCurrency(bidValue)}
             </div>
           ) : null}
-
-          <MetaEvidenceAccordion rec={rec} />
 
           <div className="mt-3 flex items-center gap-2 flex-wrap">
             <button
@@ -191,25 +246,45 @@ export function MetaActionCard({
             <button
               type="button"
               className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] text-slate-700 hover:bg-slate-50"
+              aria-haspopup="dialog"
+              aria-expanded={evidenceOpen}
+              onClick={() => setEvidenceOpen(true)}
+            >
+              <Eye className="inline-block shrink-0" size={12} aria-hidden="true" />
+              Evidence
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] text-slate-700 hover:bg-slate-50"
               onClick={() => onOpenDrill?.(rec)}
             >
               Drilldown
               <ArrowRight className="inline-block shrink-0" size={12} aria-hidden="true" />
             </button>
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] text-slate-700 hover:bg-slate-50"
-              onClick={() => onDefer?.(rec)}
-            >
-              <Clock className="inline-block shrink-0" size={12} aria-hidden="true" />
-              Let cook
-            </button>
+            <DeferTooltip>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => onDefer?.(rec)}
+              >
+                <Clock className="inline-block shrink-0" size={12} aria-hidden="true" />
+                Let cook
+              </button>
+            </DeferTooltip>
             <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-slate-500">
               <Check className="inline-block shrink-0 text-emerald-600" size={12} aria-hidden="true" />
               {rec.engineVersion ?? "Meta engine"}
             </span>
           </div>
           <DeferChip id={scopeIdForRec(rec)} deferred={deferred} onUndo={() => onUndoDefer?.(rec)} />
+          <EvidencePopover
+            open={evidenceOpen}
+            title="Evidence"
+            subtitle={scopeName}
+            sections={buildMetaEvidenceSections(rec)}
+            variant="meta"
+            onClose={() => setEvidenceOpen(false)}
+          />
         </div>
       </div>
     </article>

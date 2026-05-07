@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
-import { mapApiRowToUiRow } from "@/app/(dashboard)/creatives/page-support";
+import { mapApiRowToUiRow } from "@/app/(dashboard)/platforms/meta/creatives/page-support";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";

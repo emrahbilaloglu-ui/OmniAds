@@ -20,6 +20,7 @@ export interface MetaPulsePayload {
   engineLastRun: string | null;
   engineVersion: string;
   trackingHealth: { status: "healthy" | "degraded" | "blocked" | "unknown"; detail: string };
+  trackingAnomalyActive?: boolean;
 }
 
 export interface MetaHealthyEntity {
@@ -48,7 +49,7 @@ export interface MetaLanePayload {
 }
 
 export type MetaDrillItem =
-  | { mode: "decision"; rec: MetaRecommendation }
+  | { mode: "decision"; rec: MetaRecommendation; relatedRecs?: MetaRecommendation[] }
   | { mode: "anomaly"; anomaly: MetaAnomaly };
 
 export type MetaLaunchMode = "rebuild" | "duplicate" | "apply_bid";

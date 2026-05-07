@@ -76,8 +76,8 @@ This file contains hidden or bidirectional Unicode text that may be interpreted 
 
 | PR | File | GitHub files-view line/context | Status |
 | --- | --- | --- | --- |
-| #81 | `app/(dashboard)/creatives/page.test.tsx` | lines 318-327 | Not fixed in code; no active codepoint found |
-| #81 | `app/(dashboard)/creatives/page.tsx` | lines 369-379 | Not fixed in code; no active hidden codepoint found |
+| #81 | `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx` | lines 318-327 | Not fixed in code; no active codepoint found |
+| #81 | `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx` | lines 369-379 | Not fixed in code; no active hidden codepoint found |
 | #81 | `app/api/creatives/decision-os-v2/preview/route.test.ts` | lines 469-478 | Not fixed in code; no active hidden codepoint found |
 | #81 | `app/api/creatives/decision-os-v2/preview/route.ts` | lines 542-551 | Not fixed in code; no active hidden codepoint found |
 
@@ -198,7 +198,7 @@ Repository reference scan:
 | --- | --- | --- | --- |
 | `lib/db.ts` | `DATABASE_URL` | active generic DB connection | keep |
 | `scripts/*seed*`, `scripts/check-google-reset.mjs` | `DATABASE_URL` | active generic DB connection | keep |
-| `lib/meta/*`, `lib/google-ads/*`, `lib/sync/runtime-contract.ts` | `DATABASE_URL` | active generic DB/runtime checks | keep |
+| `lib/meta/*`, `lib/platforms/google/*`, `lib/sync/runtime-contract.ts` | `DATABASE_URL` | active generic DB/runtime checks | keep |
 | `.github/workflows/db-normalization-second-window.yml` | remote `.env.production` `DATABASE_URL` | self-hosted workflow-style DB lookup | keep |
 | `app/api/db-test/route.ts` | legacy provider name in comment | legacy wording leftover | list only; no code change in PR #81 |
 | `lib/media-cache/cache-repository.ts` | legacy provider name in comment | legacy wording leftover | list only; no code change in PR #81 |
@@ -264,10 +264,10 @@ evidence.
 - PR #81, conversation historical commit `735765d`, web text lines 278-284:
   hidden/bidirectional Unicode warning. Not changed in code because active
   raw/diff/patch scans are clean. Warning remains visible in conversation.
-- PR #81, `app/(dashboard)/creatives/page.test.tsx`, GitHub files view lines
+- PR #81, `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx`, GitHub files view lines
   318-327: hidden/bidirectional Unicode warning. Active raw blob and PR patch
   have no matching hidden/bidi/control codepoint.
-- PR #81, `app/(dashboard)/creatives/page.tsx`, GitHub files view lines
+- PR #81, `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx`, GitHub files view lines
   369-379: hidden/bidirectional Unicode warning. Active raw blob and PR patch
   have no matching hidden/bidi/control codepoint.
 - PR #81, `app/api/creatives/decision-os-v2/preview/route.test.ts`, GitHub

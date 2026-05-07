@@ -26,7 +26,7 @@ import {
   getMetaDecisionSourceSnapshot,
   getMetaDecisionWindowContext,
 } from "@/lib/meta/operator-decision-source";
-import { mapApiRowToUiRow } from "@/app/(dashboard)/creatives/page-support";
+import { mapApiRowToUiRow } from "@/app/(dashboard)/platforms/meta/creatives/page-support";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import type { CreativeEvidenceSource } from "@/lib/creative-operator-policy";

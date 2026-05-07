@@ -17,6 +17,24 @@ describe("BulkToolbar", () => {
     expect(html).toContain("data-bulk=\"action\"");
   });
 
+  it("can render a restricted creative action set for Watching", () => {
+    const html = renderToStaticMarkup(
+      <BulkToolbar
+        selectedCount={2}
+        scope="watching"
+        actions={["launch_new", "add_existing", "compare", "clear"]}
+      />,
+    );
+
+    expect(html).toContain("2 selected");
+    expect(html).toContain("Launch new test");
+    expect(html).toContain("Add to existing");
+    expect(html).toContain("Compare side-by-side");
+    expect(html).toContain("data-bulk=\"watching\"");
+    expect(html).not.toContain("Cut all");
+    expect(html).not.toContain("Demote all");
+  });
+
   it("renders meta bulk actions and tracking blocker note", () => {
     const html = renderToStaticMarkup(<BulkToolbar selectedCount={2} variant="meta" trackingBlocked />);
 

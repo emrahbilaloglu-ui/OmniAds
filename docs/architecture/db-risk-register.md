@@ -29,10 +29,10 @@ Accepted intentional manual boundaries are tracked in `docs/architecture/serving
 | `app/api/google-ads/status/route.ts` | `GET()` | Status `GET` performed unconditional request-time migration. | Read schema readiness only and surface degraded reason when status tables are absent. | P0 | Resolved |
 | `lib/meta/config-snapshots.ts` | `readLatestMetaConfigSnapshots()`, `readPrevious*()` | Live-serving config readers migrated on read. | Keep repository read-only and return empty maps when snapshot table is absent. | P1 | Resolved |
 | `lib/provider-account-snapshots.ts` | `getSnapshotRow()` and read helpers | Snapshot reads used in status/serving performed migrations before lookup. | Introduce read-only readiness gating. | P1 | Resolved |
-| `lib/google-ads/warehouse.ts` | request-read health/coverage readers | Warehouse status/coverage reads could bootstrap schema transitively. | Guard read surfaces with `assertDbSchemaReady()` and let routes degrade without mutation. | P1 | Resolved |
+| `lib/platforms/google/warehouse.ts` | request-read health/coverage readers | Warehouse status/coverage reads could bootstrap schema transitively. | Guard read surfaces with `assertDbSchemaReady()` and let routes degrade without mutation. | P1 | Resolved |
 | `lib/meta/warehouse.ts` | request-read health/coverage readers | Meta health/coverage reads could bootstrap schema transitively. | Same as above. | P1 | Resolved |
 | `lib/business-timezone.ts` | `resolveDerivedBusinessTimezone()`, `getBusinessTimezoneSnapshot()` | Shared GET helper could bootstrap `businesses`/`integrations` from request reads. | Return null timezone snapshot when tables are not ready. | P1 | Resolved |
-| `lib/google-ads-gaql.ts` | `readGaqlFromDb()`, `writeGaqlToDb()` | Request-time GAQL cache reads/writes could trigger migration from Google Ads GET routes. | Gate reporting snapshot access on readiness and no-op when absent. | P1 | Resolved |
+| `lib/platforms/google-gaql.ts` | `readGaqlFromDb()`, `writeGaqlToDb()` | Request-time GAQL cache reads/writes could trigger migration from Google Ads GET routes. | Gate reporting snapshot access on readiness and no-op when absent. | P1 | Resolved |
 | `lib/seo/results-cache.ts` | `getSeoResultsCache()`, `setSeoResultsCache()` | SEO overview/findings GET routes could bootstrap serving cache table. | Read-only readiness gate with null/no-op fallback. | P1 | Resolved |
 | `lib/seo/monthly-ai-analysis-store.ts` | `getSeoMonthlyAiAnalysis()` | SEO analysis reads could bootstrap `seo_ai_monthly_analyses` from GET routes. | Return `null` when schema is not ready. | P1 | Resolved |
 | `lib/custom-report-store.ts` | `listCustomReportsByBusiness()`, `getCustomReportById()`, `getCustomReportShareSnapshot()` | Report/list/share reads could run migrations from GET routes and share pages. | Read-only readiness gate and null/empty degrade. | P1 | Resolved |
@@ -46,7 +46,7 @@ Accepted intentional manual boundaries are tracked in `docs/architecture/serving
 | `app/api/webhooks/shopify/customer-events/route.ts` | `POST()` | Same in-band migration pattern in webhook path. | Same as above; no success ack before durable schema is ready. | P1 | Resolved |
 | `app/businesses/[businessId]/meta/assign-accounts/route.ts` | `POST()` | UI mutation route retried writes by migrating the assignment table on demand. | Gate on assignment-table readiness and surface explicit `schema_not_ready` instead of retrying migrations. | P1 | Resolved |
 | `app/businesses/[businessId]/google/assign-accounts/route.ts` | `POST()` | Same migrate-on-request fallback as Meta account assignment. | Same as above. | P1 | Resolved |
-| `app/api/google-ads/advisor-memory/route.ts` | `POST()` via `lib/google-ads/advisor-memory.ts` | HTTP mutation route depended transitively on helper-level migrations for advisor memory and execution logs. | Route-adjacent helper now relies on readiness/fallback only; keep explicit bootstrap request-external. | P1 | Resolved |
+| `app/api/google-ads/advisor-memory/route.ts` | `POST()` via `lib/platforms/google/advisor-memory.ts` | HTTP mutation route depended transitively on helper-level migrations for advisor memory and execution logs. | Route-adjacent helper now relies on readiness/fallback only; keep explicit bootstrap request-external. | P1 | Resolved |
 | `app/api/meta/recommendations/route.ts` | `GET()` via `lib/meta/creative-score-service.ts` | Recommendations route depended transitively on creative-score snapshot migrations. | Snapshot helper now degrades when schema is absent instead of bootstrapping. | P1 | Resolved |
 | `lib/reporting-cache.ts` | `clearCachedReports()` transitively reachable from HTTP route graph | Shared cache module still imported migrations even though route reads only needed non-mutating helpers. | Replace helper-level migration with readiness assertion so route graph is migration-free. | P1 | Resolved |
 
@@ -55,7 +55,7 @@ Accepted intentional manual boundaries are tracked in `docs/architecture/serving
 | File | Function | Impact | Recommended fix | Priority | Status |
 | --- | --- | --- | --- | --- | --- |
 | `lib/shopify/read-adapter.ts` | `getShopifyOverviewReadCandidate()` | Overview `GET` used to persist `shopify_serving_state` and `shopify_reconciliation_runs`; repeated reads mutated serving state. | Move assessment persistence to webhook/worker/admin reconciliation job; keep request path read-only. | P0 | Resolved |
-| `lib/google-ads/serving.ts` | `getGoogleCanonicalOverviewTrends()` | Historical trend `GET` used to fire `hydrateOverviewSummaryRangeFromGoogle()` and write `platform_overview_*` projection rows/manifests. | Hydrate projections asynchronously in worker/backfill lane, not in request thread. | P0 | Resolved |
+| `lib/platforms/google/serving.ts` | `getGoogleCanonicalOverviewTrends()` | Historical trend `GET` used to fire `hydrateOverviewSummaryRangeFromGoogle()` and write `platform_overview_*` projection rows/manifests. | Hydrate projections asynchronously in worker/backfill lane, not in request thread. | P0 | Resolved |
 | `lib/overview-service.ts` | `getGa4EcommerceFallback()` | Overview `GET` used to write GA4 fallback cache rows into `provider_reporting_snapshots`. | Separate read cache warmer from request handler or make cache write explicitly asynchronous/off-path. | P1 | Resolved |
 | `lib/shopify/overview.ts` | `getShopifyOverviewAggregate()` | Shopify live aggregate used to write `provider_reporting_snapshots` during request evaluation. | Shift cache hydration to worker/cron or make it a non-blocking background task guarded outside core response path. | P1 | Resolved |
 | `lib/reporting-cache.ts` | `setCachedReport()` usage from request-time callers | Shared cache utility made overview, Shopify, analytics, and GAQL read paths write through the same serving table. | Restrict request paths to `getCachedReport()` and move persistence to `lib/reporting-cache-writer.ts`. | P1 | Resolved |
@@ -71,7 +71,7 @@ Accepted intentional manual boundaries are tracked in `docs/architecture/serving
 
 | File | Function | Impact | Recommended fix | Priority | Status |
 | --- | --- | --- | --- | --- | --- |
-| `lib/google-ads/serving.ts` | `getGoogleCanonicalOverviewTrends()` | Projection hydration was fire-and-forget, so request success was decoupled from projection correctness and retries. | Introduce explicit projection job table/worker or hydrate during sync completion hooks only. | P0 | Resolved |
+| `lib/platforms/google/serving.ts` | `getGoogleCanonicalOverviewTrends()` | Projection hydration was fire-and-forget, so request success was decoupled from projection correctness and retries. | Introduce explicit projection job table/worker or hydrate during sync completion hooks only. | P0 | Resolved |
 | `lib/overview-summary-materializer.ts` | `materializeOverviewSummaryRangeFromGoogle()` / `materializeOverviewSummaryRange()` | Projection writes needed an explicit non-`GET` owner for arbitrary/custom windows after GET hydration removal. | Keep range hydration in explicit materializer lane and invoke it only through `lib/overview-summary-range-owner.ts` / `npm run overview:summary:materialize`. | P1 | Resolved |
 | `lib/overview-summary-materializer.ts` | `clearOverviewSummaryRangeManifests()` | Range invalidation ownership is now explicit, but callers still derive affected windows ad hoc from warehouse upserts. | Centralize invalidation in sync completion hooks and schema-aware materializer service. | P1 | Partially resolved |
 
@@ -92,7 +92,7 @@ Accepted intentional manual boundaries are tracked in `docs/architecture/serving
 
 | File | Function | Impact | Recommended fix | Priority |
 | --- | --- | --- | --- | --- |
-| `lib/google-ads/serving.ts` | `getGoogleCanonicalOverviewSummary()` / `getGoogleCanonicalOverviewTrends()` | Same serving module mixes current-day live overlay, warehouse truth, and `platform_overview_*` projection fallback. This raises correctness and rollback risk. | Split into `live-lane`, `warehouse-lane`, and `projection-fallback` modules with explicit precedence contract. | P0 |
+| `lib/platforms/google/serving.ts` | `getGoogleCanonicalOverviewSummary()` / `getGoogleCanonicalOverviewTrends()` | Same serving module mixes current-day live overlay, warehouse truth, and `platform_overview_*` projection fallback. This raises correctness and rollback risk. | Split into `live-lane`, `warehouse-lane`, and `projection-fallback` modules with explicit precedence contract. | P0 |
 | `lib/meta/canonical-overview.ts` | `getMetaCanonicalOverviewSummary()` | Summary reads warehouse history and conditionally overlays live totals for current day. | Isolate live exception into dedicated adapter and keep historical path warehouse-only. | P1 |
 | `lib/overview-service.ts` | `getOverviewData()` / `buildDailyTrends()` | Aggregator composes Meta, Google, Shopify, and GA4 with different freshness models in one request. | Introduce provider-specific read contracts and a thin orchestration layer that only merges normalized outputs. | P1 |
 | `app/api/overview-summary/route.ts` | `GET()` | Route mixes summary aggregation, Shopify serving trust, GA4 analytics, cost model, and integration status in one handler. | Break into smaller fetch modules and keep route as response composer only. | P1 |
@@ -101,8 +101,8 @@ Accepted intentional manual boundaries are tracked in `docs/architecture/serving
 
 | File | Function / scope | Impact | Recommended fix | Priority |
 | --- | --- | --- | --- | --- |
-| `lib/google-ads/warehouse.ts` | 4703-line sync/control/repository module | Control plane, warehouse writes, coverage reads, cleanup, and reset logic are co-located. High regression surface. | Split into repositories (`sync-control`, `raw-store`, `warehouse-store`, `health-readers`, `admin-tools`). | P1 |
-| `lib/google-ads/serving.ts` | 2256-line serving/orchestration module | Historical serving, live overlay, advisor composition, and projection fallback sit in one file. | Split by surface: overview, campaigns, advisor, domain reports, fallback logic. | P1 |
+| `lib/platforms/google/warehouse.ts` | 4703-line sync/control/repository module | Control plane, warehouse writes, coverage reads, cleanup, and reset logic are co-located. High regression surface. | Split into repositories (`sync-control`, `raw-store`, `warehouse-store`, `health-readers`, `admin-tools`). | P1 |
+| `lib/platforms/google/serving.ts` | 2256-line serving/orchestration module | Historical serving, live overlay, advisor composition, and projection fallback sit in one file. | Split by surface: overview, campaigns, advisor, domain reports, fallback logic. | P1 |
 | `lib/meta/serving.ts` | 1991-line historical serving module | Campaign/breakdown/config snapshot enrichment and warehouse freshness logic are tightly coupled. | Split by output surface and move shared warehouse queries into repositories. | P1 |
 | `lib/migrations.ts` | 2341-line runtime migration bundle | Schema definition, data backfills, and runtime bootstrap behavior share one file. | Move to offline migration system plus minimal runtime schema probe. | P1 |
 | `app/api/overview-summary/route.ts` | 996-line route handler | Route owns translation, metric composition, comparison windows, and multi-source orchestration. | Extract pure response builders and keep the route thin. | P2 |
@@ -119,8 +119,8 @@ Accepted intentional manual boundaries are tracked in `docs/architecture/serving
 
 ## Top remaining architecture risks
 
-1. `lib/google-ads/serving.ts` still mixes live, warehouse, and projection lanes in one module.
-2. `lib/google-ads/warehouse.ts` is still an oversized mixed-responsibility file with sync, control, and read concerns co-located.
+1. `lib/platforms/google/serving.ts` still mixes live, warehouse, and projection lanes in one module.
+2. `lib/platforms/google/warehouse.ts` is still an oversized mixed-responsibility file with sync, control, and read concerns co-located.
 3. `lib/meta/serving.ts` remains a large mixed-concern module even after repair-on-read removal.
 4. Status routes are coupled directly to sync-control schema, making later table moves high risk.
 5. `lib/overview-summary-materializer.ts` still relies on callers deriving affected ranges ad hoc after warehouse writes.

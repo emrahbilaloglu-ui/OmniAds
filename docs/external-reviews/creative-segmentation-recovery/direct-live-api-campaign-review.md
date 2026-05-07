@@ -21,7 +21,7 @@ The verdict is TARGETED FIXES NEEDED, not TRUSTWORTHY ENOUGH, specifically becau
 
 **Primary source:** `/tmp/adsecute-creative-live-firm-audit-local.json` (post-fix artifact, generated `2026-04-24T15:21:36.024Z`, uncommitted private). This reflects the runtime state after the test-campaign actionability pass and contains sanitized aliases with the true name-to-alias mapping available privately.
 
-**Direct Meta Marketing API access not attempted.** The repo contains Meta provider clients, but invoking them would require credentials/tokens and could modify provider state or incur rate costs. I treated the provider audit helper's output (which uses the same runtime path as the `/creatives` page) as the closest-to-truth live data source available. This is the same path the actionability pass used to validate its fix, so it is directly comparable to what an operator would see in the UI.
+**Direct Meta Marketing API access not attempted.** The repo contains Meta provider clients, but invoking them would require credentials/tokens and could modify provider state or incur rate costs. I treated the provider audit helper's output (which uses the same runtime path as the `/platforms/meta/creatives` page) as the closest-to-truth live data source available. This is the same path the actionability pass used to validate its fix, so it is directly comparable to what an operator would see in the UI.
 
 **Runtime path:** `getCreativeDecisionOsForRange()` → `buildCreativeDecisionOs()` on the live Decision OS source. Window: 30 completed days ending `2026-04-23`. 8 readable businesses. 78 sampled creatives.
 
@@ -269,7 +269,7 @@ Do not bundle the IwaStore `creative-04` Scale Review borderline question into t
 
 **Verdict:** TARGETED FIXES NEEDED
 
-**Direct live data used:** Yes, via the post-fix audit artifact generated through the same runtime path as the `/creatives` page. Direct Meta Marketing API not invoked (would require live credentials and risks modifying provider state).
+**Direct live data used:** Yes, via the post-fix audit artifact generated through the same runtime path as the `/platforms/meta/creatives` page. Direct Meta Marketing API not invoked (would require live credentials and risks modifying provider state).
 
 **Zero Scale / Scale Review defensible:** Zero `Scale` — yes. Zero `Scale Review` in TheSwaf top-10 sample — yes (no clear candidate in the sampled rows). Zero `Scale Review` in IwaStore — no longer zero (3 Scale Review rows now surface correctly, including `decorita_93`).
 
@@ -310,11 +310,11 @@ For the first time across this review sequence, the Creative page is now better 
 
 ### 2. Data Source Used
 
-**Primary source:** `/tmp/adsecute-creative-live-firm-audit-local.json`, regenerated `2026-04-24T16:35:51.485Z` — the post-fix runtime audit artifact. Same runtime path as the `/creatives` page.
+**Primary source:** `/tmp/adsecute-creative-live-firm-audit-local.json`, regenerated `2026-04-24T16:35:51.485Z` — the post-fix runtime audit artifact. Same runtime path as the `/platforms/meta/creatives` page.
 
 **Validation method:** Independent media-buyer assessment of each row's raw metrics (spend / ROAS / purchases / baseline / lifecycle) BEFORE looking at Adsecute's segment label, then compared against the current label.
 
-**Direct Meta Marketing API:** Not invoked. The repo contains provider clients but using them would require live credentials and could modify state or incur rate costs. The post-fix audit artifact is the closest-to-truth live data source available and reflects exactly what an operator would see in the `/creatives` UI.
+**Direct Meta Marketing API:** Not invoked. The repo contains provider clients but using them would require live credentials and could modify state or incur rate costs. The post-fix audit artifact is the closest-to-truth live data source available and reflects exactly what an operator would see in the `/platforms/meta/creatives` UI.
 
 **PDFs:** Used only to identify business/campaign context (IwaStore `Test Kampanyası - 26 Mart`, TheSwaf `TEST — EMB - CreativeTest - Apr2026`). No numeric values read from PDFs.
 
@@ -389,7 +389,7 @@ This is a media-buyer-sensible distribution for a test campaign. Both scale cand
 | `creative-07`→ now relabeled `creative-02`: $3,427 / ROAS 1.39 / 0.76× / 26 purchases | **Cut** |
 | `creative-10`→ now relabeled `creative-03`: $1,155 / ROAS 1.29 / 0.71× / 7 purchases / active test | **Cut** |
 
-(Sample aliases shift slightly between pre-fix and post-fix because `/creatives` sample composition is deterministic but re-runs with updated evidence.)
+(Sample aliases shift slightly between pre-fix and post-fix because `/platforms/meta/creatives` sample composition is deterministic but re-runs with updated evidence.)
 
 The new Cut gate conditions (per Codex report) are strict enough to avoid premature kills:
 - `keep_in_test` + `validating` lifecycle
@@ -653,7 +653,7 @@ Four different operator meanings for one label. `Protect` should mean exactly on
 
 **Systemic Failure #4: Active-test-campaign context is not weighted into Scale decisions.** `strong_relative` rows in active test campaigns should be treated as candidates for `Scale Review` or `Test More` — the whole point of a test campaign is to surface winners. Current policy treats `strong_relative` + `stable_winner` as `Protect` regardless of whether the campaign is a standard scaling campaign or an explicitly-named test. Three TheSwaf rows (creative-05, creative-08, creative-10) in an ACTIVE `TEST — EMB - CreativeTest - Apr2026` campaign get Protect labels when they should be scale-review candidates.
 
-**Systemic Failure #5: No reactivation path for paused historical winners.** The `/creatives` page shows paused winners with `Protect` or `Scale Review` labels and no instruction verb. A buyer needs to know: "reactivate in scaling ad set", "archive, extract learning for variant", or "retest in fresh context". The system has `Retest` as a taxonomy label but it never fires (0 rows across all audits). Paused winners should route to `Retest` or a new `Reactivate` signal.
+**Systemic Failure #5: No reactivation path for paused historical winners.** The `/platforms/meta/creatives` page shows paused winners with `Protect` or `Scale Review` labels and no instruction verb. A buyer needs to know: "reactivate in scaling ad set", "archive, extract learning for variant", or "retest in fresh context". The system has `Retest` as a taxonomy label but it never fires (0 rows across all audits). Paused winners should route to `Retest` or a new `Reactivate` signal.
 
 **Systemic Failure #6: No urgency signal for accelerating creatives.** TheSwaf creative-07 has 7d ROAS 9.24 vs 30d ROAS 4.21 — a 2.19× acceleration. The label is `Scale Review` but the instruction doesn't flag the recent surge. A media buyer needs to know: act now before momentum fades, not just "review sometime."
 
@@ -786,13 +786,13 @@ If the user accepts PASS WITH MONITORING on the condition that this one narrow e
 
 ### 2. Data Source Used
 
-**Primary:** `/tmp/adsecute-creative-live-firm-audit-local.json`, regenerated `2026-04-24T18:45:54.637Z` — the post-fix runtime audit artifact via the same path the `/creatives` page uses.
+**Primary:** `/tmp/adsecute-creative-live-firm-audit-local.json`, regenerated `2026-04-24T18:45:54.637Z` — the post-fix runtime audit artifact via the same path the `/platforms/meta/creatives` page uses.
 
 **Method:** Independent media-buyer assessment from raw metrics (spend / 30d ROAS / 7d ROAS / purchases / CPA / account baseline / CPA ratio / 7d-vs-30d trend / lifecycle / campaign status) BEFORE looking at Adsecute's segment label, then match/mismatch comparison.
 
 **PDFs:** Used only to confirm the business context (IwaStore, TheSwaf) and to remember which campaigns the user was flagging. No metric values read from PDFs.
 
-**Direct Meta API:** Not invoked. Provider data via the `/creatives` Decision OS runtime path is the equivalent-fidelity source.
+**Direct Meta API:** Not invoked. Provider data via the `/platforms/meta/creatives` Decision OS runtime path is the equivalent-fidelity source.
 
 ---
 

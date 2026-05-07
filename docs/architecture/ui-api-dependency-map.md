@@ -49,10 +49,10 @@ The canonical backbone is authoritative for current request/runtime behavior. Th
 
 | UI surface | UI file / component | API endpoint | Route -> service chain | Table families touched |
 | --- | --- | --- | --- | --- |
-| Google Ads status header | `components/google-ads/GoogleAdsIntelligenceDashboard.tsx` | `GET /api/google-ads/status` | `app/api/google-ads/status/route.ts` -> warehouse/control readers + request governance | `control`: `google_ads_sync_*`, `google_ads_runner_leases`, `provider_cooldown_state`, `provider_quota_usage`, `sync_worker_heartbeats`; `warehouse`: coverage reads on Google daily tables; `core`: canonical integration/assignment/snapshot backbone |
-| Google Ads campaigns panel | same dashboard | `GET /api/google-ads/campaigns` | route -> `getGoogleAdsCampaignsReport()` -> `lib/google-ads/serving` | `warehouse`: `google_ads_campaign_daily`, `google_ads_account_daily`; `core`: canonical assignment/snapshot backbone; live current-day overlay exception |
-| Google Ads advisor | same dashboard | `GET /api/google-ads/advisor` | route -> `lib/google-ads/serving` + `advisor-memory` + `advisor-snapshots` | `serving`: `google_ads_advisor_memory`, `google_ads_advisor_snapshots`; `warehouse`: campaign/account/search tables; `audit`: advisor execution/outcome logs |
-| Search intelligence / products / assets / geo / devices / audiences / trends | same dashboard | `GET /api/google-ads/search-intelligence`, `/products`, `/assets`, `/asset-groups`, `/geo`, `/devices`, `/audiences`, `/trends` | routes -> `lib/google-ads/serving` specialized readers | `warehouse`: corresponding `google_ads_*_daily` tables plus search-intelligence tables; `core`: canonical integration/assignment/snapshot backbone |
+| Google Ads status header | `components/platforms/google/GoogleAdsIntelligenceDashboard.tsx` | `GET /api/google-ads/status` | `app/api/google-ads/status/route.ts` -> warehouse/control readers + request governance | `control`: `google_ads_sync_*`, `google_ads_runner_leases`, `provider_cooldown_state`, `provider_quota_usage`, `sync_worker_heartbeats`; `warehouse`: coverage reads on Google daily tables; `core`: canonical integration/assignment/snapshot backbone |
+| Google Ads campaigns panel | same dashboard | `GET /api/google-ads/campaigns` | route -> `getGoogleAdsCampaignsReport()` -> `lib/platforms/google/serving` | `warehouse`: `google_ads_campaign_daily`, `google_ads_account_daily`; `core`: canonical assignment/snapshot backbone; live current-day overlay exception |
+| Google Ads advisor | same dashboard | `GET /api/google-ads/advisor` | route -> `lib/platforms/google/serving` + `advisor-memory` + `advisor-snapshots` | `serving`: `google_ads_advisor_memory`, `google_ads_advisor_snapshots`; `warehouse`: campaign/account/search tables; `audit`: advisor execution/outcome logs |
+| Search intelligence / products / assets / geo / devices / audiences / trends | same dashboard | `GET /api/google-ads/search-intelligence`, `/products`, `/assets`, `/asset-groups`, `/geo`, `/devices`, `/audiences`, `/trends` | routes -> `lib/platforms/google/serving` specialized readers | `warehouse`: corresponding `google_ads_*_daily` tables plus search-intelligence tables; `core`: canonical integration/assignment/snapshot backbone |
 | Workspace overview card set | `GET /api/google-ads/overview` (also shared elsewhere) | `app/api/google-ads/overview/route.ts` -> `getGoogleAdsOverviewReport()` -> canonical summary/trend helpers | `warehouse`: `google_ads_account_daily`, `google_ads_campaign_daily`; `serving`: `platform_overview_*` fallback projection; live current-day overlay exception |
 
 ## Shopify-connected surface
@@ -66,7 +66,7 @@ The canonical backbone is authoritative for current request/runtime behavior. Th
 ## Critical fan-out notes
 
 1. `GET /api/overview-summary` is the widest request-time fan-out in the repo. It combines overview aggregation, Shopify serving-state resolution, GA4 analytics, integration status, and cost-model reads.
-2. `lib/google-ads/serving.ts` mixes historical warehouse reads, current-day live overlay, and projection fallback from `platform_overview_*`.
+2. `lib/platforms/google/serving.ts` mixes historical warehouse reads, current-day live overlay, and projection fallback from `platform_overview_*`.
 3. `lib/meta/canonical-overview.ts` mixes warehouse historical reads with a direct-live current-day exception.
 4. `lib/shopify/read-adapter.ts` is the serving trust switchboard. Request-time summary reads are projection-backed/read-only; live Shopify Admin reads remain in explicit sync/evidence lanes.
 5. `business_provider_accounts` is the join point that turns a workspace-scoped UI request into provider-account-scoped warehouse reads across Meta and Google Ads.

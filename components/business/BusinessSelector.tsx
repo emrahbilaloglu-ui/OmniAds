@@ -18,6 +18,12 @@ import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 import { getTranslations } from "@/lib/i18n";
 import { usePreferencesStore } from "@/store/preferences-store";
 import { sanitizeNextPath } from "@/lib/auth-routing";
+import { isDemoBusinessSelected } from "@/lib/business-mode";
+import {
+  getBusinessPlatformOrDefault,
+  getPlatformFromPathname,
+} from "@/lib/navigation/platform-context";
+import { getPlatformFirstHref } from "@/components/layout/nav-items";
 
 function getInitials(name: string) {
   return name
@@ -43,9 +49,10 @@ export function BusinessSelector() {
   const selectedBusiness =
     businesses.find((item) => item.id === selectedBusinessId) ?? null;
   const isDemoOnlyWorkspace = businesses.length === 1 && Boolean(businesses[0]?.isDemoBusiness);
+  const selectedIsDemo = isDemoBusinessSelected(selectedBusinessId, businesses);
   const t = getTranslations(language).layout;
 
-  function getPostSwitchDestination() {
+  function getPostSwitchDestination(nextBusinessId?: string) {
     const query = searchParams.toString();
     const candidate = `${pathname}${query ? `?${query}` : ""}`;
     const sanitized = sanitizeNextPath(candidate);
@@ -60,6 +67,9 @@ export function BusinessSelector() {
     ) {
       return "/overview";
     }
+    if (getPlatformFromPathname(sanitized.split("?")[0])) {
+      return getPlatformFirstHref(getBusinessPlatformOrDefault(nextBusinessId), language);
+    }
     return sanitized;
   }
 
@@ -67,7 +77,7 @@ export function BusinessSelector() {
     if (businessId === selectedBusinessId || pendingBusinessId) return;
     setPendingBusinessId(businessId);
     const previousBusinessId = selectedBusinessId;
-    const destination = getPostSwitchDestination();
+    const destination = getPostSwitchDestination(businessId);
     selectBusiness(businessId);
     const response = await fetch("/api/auth/switch-business", {
       method: "POST",
@@ -121,6 +131,11 @@ export function BusinessSelector() {
           {getInitials(selectedBusiness.name)}
         </div>
         <span className="truncate hidden sm:block">{selectedBusiness.name}</span>
+        {selectedIsDemo ? (
+          <span className="inline-flex items-center px-1 py-px rounded border border-emerald-200 bg-emerald-50 text-emerald-700 text-[9px] font-semibold uppercase tracking-wider">
+            Demo
+          </span>
+        ) : null}
       </Button>
     );
   }
@@ -138,6 +153,11 @@ export function BusinessSelector() {
           <span className="truncate hidden sm:block">
             {selectedBusiness?.name ?? t.selectBusiness}
           </span>
+          {selectedIsDemo ? (
+            <span className="inline-flex items-center px-1 py-px rounded border border-emerald-200 bg-emerald-50 text-emerald-700 text-[9px] font-semibold uppercase tracking-wider">
+              Demo
+            </span>
+          ) : null}
           <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
@@ -157,7 +177,14 @@ export function BusinessSelector() {
               {getInitials(business.name)}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{business.name}</p>
+              <p className="truncate text-sm font-medium">
+                {business.name}
+                {business.isDemoBusiness ? (
+                  <span className="ml-2 inline-flex items-center px-1 py-px rounded border border-emerald-200 bg-emerald-50 text-emerald-700 text-[9px] font-semibold uppercase tracking-wider">
+                    Demo
+                  </span>
+                ) : null}
+              </p>
               <p className="truncate text-xs text-muted-foreground">
                 {business.timezone ?? "Timezone pending"} • {business.currency}
               </p>

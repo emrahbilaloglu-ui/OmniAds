@@ -67,7 +67,7 @@ Even these are not automatic. They require:
 Phase 8 local runtime smoke passed through the owner-provided localhost DB tunnel path. The smoke covered:
 
 - `/platforms/meta` loads.
-- `/creatives` loads.
+- `/platforms/meta/creatives` loads.
 - Command Center loads.
 - Preview path renders for eligible actions.
 - Disabled apply path explains the active gate.

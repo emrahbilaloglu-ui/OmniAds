@@ -3,11 +3,12 @@
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, GitCompare, Plus, RefreshCw, Rocket, TrendingUp } from "lucide-react";
+import { AlertTriangle, GitCompare, Plus, RefreshCw, Rocket, Target, TrendingUp } from "lucide-react";
 import {
   BulkToolbar,
   CompareDrawer,
   LaneHeader,
+  TrackingConfirmModal,
   TrackingBlockerBanner,
   useDeferState,
   type CompareDrawerItem,
@@ -115,7 +116,7 @@ function launchpadHrefForRec(rec: MetaRecommendation, mode: MetaLaunchMode) {
   });
   if (rec.campaignId) params.set("campaignIds", rec.campaignId);
   if (rec.adsetId) params.set("adsetIds", rec.adsetId);
-  return `/launchpad/meta?${params.toString()}`;
+  return `/platforms/meta/launchpad?${params.toString()}`;
 }
 
 function compareItemForRec(rec: MetaRecommendation): CompareDrawerItem {
@@ -144,6 +145,7 @@ function groupAdsetRollups(recs: MetaRecommendation[]) {
   }
   return [...groups.entries()]
     .filter(([, items]) => items.length >= 2)
+    .filter(([, items]) => new Set(items.map(decisionLabelForRec)).size > 1)
     .map(([campaignId, items]) => ({
       campaignId,
       campaignName: items[0]?.campaignName ?? campaignId,
@@ -178,6 +180,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   const [drillItem, setDrillItem] = useState<MetaDrillItem | null>(null);
   const [overlay, setOverlay] = useState<OverlayState>(EMPTY_OVERLAY);
   const [compareOpen, setCompareOpen] = useState(false);
+  const [pendingPrimaryRec, setPendingPrimaryRec] = useState<MetaRecommendation | null>(null);
   const [localDeferredIds, setLocalDeferredIds] = useState<Set<string>>(new Set());
   const [trackingDismissed, setTrackingDismissed] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -213,7 +216,23 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   const healthy = laneQuery.data?.healthy ?? [];
   const anomalies = anomalyQuery.data?.anomalies ?? [];
   const rollups = useMemo(() => groupAdsetRollups(actionNow), [actionNow]);
+  const rollupRecIds = useMemo(
+    () => new Set(rollups.flatMap((rollup) => rollup.items.map((rec) => rec.id))),
+    [rollups],
+  );
+  const individualActionNow = useMemo(
+    () => actionNow.filter((rec) => !rollupRecIds.has(rec.id)),
+    [actionNow, rollupRecIds],
+  );
   const allRecs = useMemo(() => [...actionNow, ...watching], [actionNow, watching]);
+  const adsetRecsByCampaign = useMemo(() => {
+    const next = new Map<string, MetaRecommendation[]>();
+    for (const rec of allRecs) {
+      if (rec.level !== "adset" || !rec.campaignId) continue;
+      next.set(rec.campaignId, [...(next.get(rec.campaignId) ?? []), rec]);
+    }
+    return next;
+  }, [allRecs]);
   const selectedRecs = useMemo(
     () => allRecs.filter((rec) => selectedIds.has(rec.id)),
     [allRecs, selectedIds],
@@ -221,8 +240,11 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
 
   const trackingBlocked =
     !trackingDismissed &&
-    (pulseQuery.data?.trackingHealth.status === "blocked" ||
-      pulseQuery.data?.trackingHealth.status === "degraded");
+    Boolean(
+      pulseQuery.data?.trackingAnomalyActive ??
+        (pulseQuery.data?.trackingHealth.status === "blocked" ||
+          pulseQuery.data?.trackingHealth.status === "degraded"),
+    );
 
   const setWindow = (next: MetaWindowKey) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -295,7 +317,19 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
     setOverlay({ open: true, mode, rec });
   };
 
-  const handlePrimary = async (rec: MetaRecommendation) => {
+  const openDrillForRec = (rec: MetaRecommendation) => {
+    setDrillItem({
+      mode: "decision",
+      rec,
+      relatedRecs: rec.campaignId ? (adsetRecsByCampaign.get(rec.campaignId) ?? []) : [],
+    });
+  };
+
+  const isTrackingSensitiveRec = (rec: MetaRecommendation) => {
+    return rec.type === "adset_cut_spend" || launchModeForRec(rec) === "rebuild";
+  };
+
+  const performPrimary = async (rec: MetaRecommendation) => {
     if (rec.type === "adset_cut_spend" && rec.adsetId) {
       await fetch(`/api/meta/adsets/${encodeURIComponent(rec.adsetId)}/pause`, {
         method: "POST",
@@ -312,7 +346,15 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
       openOverlayForRec(rec, mode);
       return;
     }
-    setDrillItem({ mode: "decision", rec });
+    openDrillForRec(rec);
+  };
+
+  const handlePrimary = async (rec: MetaRecommendation) => {
+    if (trackingBlocked && isTrackingSensitiveRec(rec)) {
+      setPendingPrimaryRec(rec);
+      return;
+    }
+    await performPrimary(rec);
   };
 
   const confirmOverlay = async () => {
@@ -411,14 +453,14 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
               <LaneHeader
                 laneKey="action"
                 title="Action Now"
-                count={actionNow.length + anomalies.length}
+                count={individualActionNow.length + rollups.length + anomalies.length}
                 subtitle="confidence >= 70%, excluding deferred and learning"
                 variant="meta"
                 collapsed={collapsed.action}
                 onToggle={() => setCollapsed((current) => ({ ...current, action: !current.action }))}
               />
               {!collapsed.action ? (
-                <div className={cn("grid gap-3", actionNow.length > 1 || anomalies.length > 0 ? "lg:grid-cols-2" : "")}>
+                <div className={cn("grid gap-3", individualActionNow.length + rollups.length > 1 || anomalies.length > 0 ? "lg:grid-cols-2" : "")}>
                   {anomalies.map((anomaly) => (
                     <MetaActionCard
                       key={anomaly.id}
@@ -431,10 +473,10 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                       key={rollup.campaignId}
                       campaignName={rollup.campaignName}
                       recs={rollup.items}
-                      onOpenRec={(rec) => setDrillItem({ mode: "decision", rec })}
+                      onOpenRec={openDrillForRec}
                     />
                   ))}
-                  {actionNow.map((rec) => (
+                  {individualActionNow.map((rec) => (
                     <MetaActionCard
                       key={rec.id}
                       rec={rec}
@@ -443,13 +485,12 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                       evidenceWindow={selectedWindow}
                       onSelect={selectRec}
                       onPrimary={handlePrimary}
-                      onOpenDrill={(item) => setDrillItem({ mode: "decision", rec: item as MetaRecommendation })}
+                      onOpenDrill={(item) => openDrillForRec(item as MetaRecommendation)}
                       onDefer={deferRec}
                       onUndoDefer={undeferRec}
                     />
                   ))}
-                  {actionNow.length === 0 && anomalies.length === 0 ? <EmptyActionState anomaliesCount={0} /> : null}
-                  {actionNow.length === 0 && anomalies.length > 0 ? <EmptyActionState anomaliesCount={anomalies.length} /> : null}
+                  {individualActionNow.length === 0 && rollups.length === 0 && anomalies.length === 0 ? <EmptyActionState anomaliesCount={0} /> : null}
                 </div>
               ) : null}
             </section>
@@ -472,7 +513,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                       rec={rec}
                       deferred={isDeferred(rec)}
                       evidenceWindow={selectedWindow}
-                      onOpenDrill={(next) => setDrillItem({ mode: "decision", rec: next })}
+                      onOpenDrill={openDrillForRec}
                       onDefer={deferRec}
                       onUndoDefer={undeferRec}
                     />
@@ -504,6 +545,33 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                       Healthy entities will appear after the latest snapshot has enough stable mature rows.
                     </div>
                   ) : null}
+                </div>
+              ) : null}
+            </section>
+
+            <section id="audience-builder" className="scroll-mt-40 opacity-80">
+              <LaneHeader
+                laneKey="audience"
+                title="Audience Builder"
+                count={0}
+                subtitle="reserved slot for audience clustering and Meta Launchpad handoff"
+                variant="meta"
+                collapsed={collapsed.audience}
+                onToggle={() => setCollapsed((current) => ({ ...current, audience: !current.audience }))}
+              />
+              {!collapsed.audience ? (
+                <div className="rounded-2xl border border-dashed border-violet-200 bg-white/70 p-4" data-meta-audience-builder>
+                  <div className="flex items-start gap-3">
+                    <div className="rounded-lg bg-violet-50 p-2 text-violet-700">
+                      <Target className="inline-block shrink-0" size={16} aria-hidden="true" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[13px] font-semibold text-slate-900">Audience builder</div>
+                      <p className="mt-1 text-[12.5px] leading-snug text-slate-500">
+                        Future Meta audience clusters will land here before they are bridged into Launchpad. Current live decisions continue to use campaign and adset lanes above.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               ) : null}
             </section>
@@ -540,6 +608,8 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
         open={compareOpen}
         items={selectedRecs.map(compareItemForRec)}
         onClose={() => setCompareOpen(false)}
+        entityLabel="Meta entities"
+        trendLabel={`${selectedWindow === "custom" ? "Custom" : selectedWindow} ROAS trend`}
         actionBar={
           <>
             <button type="button" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-rose-600 text-white border border-rose-600 hover:bg-rose-700 text-[12.5px] font-medium">
@@ -559,8 +629,19 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
         }
       />
 
+      <TrackingConfirmModal
+        open={pendingPrimaryRec != null}
+        primaryLabel={pendingPrimaryRec?.type === "adset_cut_spend" ? "Pause anyway" : "Rebuild anyway"}
+        onClose={() => setPendingPrimaryRec(null)}
+        onConfirm={() => {
+          const rec = pendingPrimaryRec;
+          setPendingPrimaryRec(null);
+          if (rec) void performPrimary(rec);
+        }}
+      />
+
       <a
-        href="/launchpad/meta?fromMetaBriefing=true&mode=duplicate"
+        href="/platforms/meta/launchpad?fromMetaBriefing=true&mode=duplicate"
         className="fixed bottom-5 right-5 inline-flex items-center gap-1 rounded-full bg-slate-900 px-4 py-2 text-[12.5px] font-medium text-white shadow-lg hover:bg-slate-800"
       >
         <Plus className="inline-block shrink-0" size={14} aria-hidden="true" />

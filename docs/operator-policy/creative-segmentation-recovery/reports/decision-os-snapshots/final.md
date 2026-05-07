@@ -16,7 +16,7 @@ The Creative page no longer uses the selected reporting date range as an automat
 
 Before this pass:
 
-- `app/(dashboard)/creatives/page.tsx` used a React Query key:
+- `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx` used a React Query key:
   - `creative-decision-os`
   - `businessId`
   - `drStart`
@@ -99,7 +99,7 @@ Unchanged:
 
 Completed:
 
-- `npx vitest run lib/creative-decision-os-snapshots.test.ts app/api/creatives/decision-os/route.test.ts app/'(dashboard)'/creatives/page.test.tsx components/creatives/CreativeDecisionOsDrawer.test.tsx`
+- `npx vitest run lib/creative-decision-os-snapshots.test.ts app/api/creatives/decision-os/route.test.ts app/'(dashboard)'/platforms/meta/creatives/page.test.tsx components/platforms/meta/creatives/CreativeDecisionOsDrawer.test.tsx`
 - `npx tsc --noEmit`
 - targeted Creative/API/surface/Command Center tests
 - full `npm test` (`302` files, `2154` tests)
@@ -111,7 +111,7 @@ Completed:
 Runtime smoke:
 
 - built server started on `127.0.0.1:3100`
-- `/creatives` returned the expected unauthenticated redirect to `/login?next=%2Fcreatives`, then login HTML loaded
+- `/platforms/meta/creatives` returned the expected unauthenticated redirect to `/login?next=%2Fcreatives`, then login HTML loaded
 - `/platforms/meta` returned the expected unauthenticated redirect to `/login?next=%2Fplatforms%2Fmeta`, then login HTML loaded
 
 Remaining before merge:

@@ -1,0 +1,57 @@
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+import { CompareDrawerHost } from "@/components/creatives/briefing/CompareDrawerHost";
+import type { BriefingCreativeCard } from "@/components/creatives/briefing/types";
+
+function card(index: number, roas: number): BriefingCreativeCard {
+  return {
+    id: `creative_${index}`,
+    creativeId: `creative_${index}`,
+    name: `Creative ${index}`,
+    brand: "TheSwaf",
+    label: index === 1 ? "cut" : "scale",
+    spend: index * 100,
+    roas,
+    ctr: 1 + index / 10,
+    cpa: 20 + index,
+    purchases: index * 3,
+    frequency: 1 + index / 5,
+  };
+}
+
+describe("CompareDrawerHost", () => {
+  it("renders compare drawer with briefing action bar", () => {
+    const html = renderToStaticMarkup(
+      <CompareDrawerHost
+        open
+        cards={[card(1, 0.7), card(2, 3.1), card(3, 2.2)]}
+        onClose={() => undefined}
+        onCutCards={() => undefined}
+        onLaunchpad={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("Compare 3 creatives");
+    expect(html).toContain("Creative 1");
+    expect(html).toContain("Creative 3");
+    expect(html).toContain("data-compare-action=\"cut-weakest\"");
+    expect(html).toContain("data-compare-action=\"scale-strongest\"");
+    expect(html).toContain("data-compare-action=\"launch-test\"");
+    expect(html).toContain("Launch test with these");
+  });
+
+  it("hides when closed", () => {
+    expect(
+      renderToStaticMarkup(
+        <CompareDrawerHost
+          open={false}
+          cards={[card(1, 0.7)]}
+          onClose={() => undefined}
+          onCutCards={() => undefined}
+          onLaunchpad={() => undefined}
+        />,
+      ),
+    ).toBe("");
+  });
+});

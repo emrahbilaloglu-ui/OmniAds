@@ -60,5 +60,5 @@ This document is the accepted V2-06 workflow baseline layered on top of the ship
 ## Non-Goals
 
 - no execution subset expansion
-- no change to `/copies`
+- no change to `/platforms/meta/copies`
 - no change to rollout flag posture for apply/rollback

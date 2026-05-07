@@ -34,11 +34,11 @@ Main should contain Phase 4 only after this branch is merged through a normal PR
 - `lib/creative-operator-surface.ts`
 - `lib/command-center.ts`
 - `lib/command-center.test.ts`
-- `components/creatives/CreativeDecisionOsOverview.tsx`
-- `components/creatives/CreativeDecisionOsOverview.test.tsx`
-- `components/creatives/CreativeDetailExperience.tsx`
-- `components/creatives/CreativesTopSection.tsx`
-- `components/creatives/creatives-top-section-support.ts`
+- `components/platforms/meta/creatives/CreativeDecisionOsOverview.tsx`
+- `components/platforms/meta/creatives/CreativeDecisionOsOverview.test.tsx`
+- `components/platforms/meta/creatives/CreativeDetailExperience.tsx`
+- `components/platforms/meta/creatives/CreativesTopSection.tsx`
+- `components/platforms/meta/creatives/platforms/meta/creatives-top-section-support.ts`
 - `docs/operator-policy/phase-4/completion/reports/final.md`
 - `docs/operator-policy/phase-5/handoff.md`
 
@@ -159,7 +159,7 @@ Automated checks run on this branch:
 
 Targeted Phase 4 checks:
 
-- `npm test -- lib/creative-operator-policy.test.ts lib/creative-decision-os.test.ts lib/creative-operator-surface.test.ts components/creatives/creatives-top-section-support.test.ts components/creatives/CreativeDecisionOsOverview.test.tsx components/creatives/CreativeDetailExperience.test.tsx lib/command-center.test.ts app/api/creatives/decision-os/route.test.ts` - passed, 8 files / 47 tests.
+- `npm test -- lib/creative-operator-policy.test.ts lib/creative-decision-os.test.ts lib/creative-operator-surface.test.ts components/platforms/meta/creatives/platforms/meta/creatives-top-section-support.test.ts components/platforms/meta/creatives/CreativeDecisionOsOverview.test.tsx components/platforms/meta/creatives/CreativeDetailExperience.test.tsx lib/command-center.test.ts app/api/creatives/decision-os/route.test.ts` - passed, 8 files / 47 tests.
 
 Runtime smoke:
 

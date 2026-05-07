@@ -1,37 +1,47 @@
 import type { DecisionLabel } from "@/lib/creative-decision-engine";
+import {
+  CREATIVE_ENGINE_DECISION_LABELS,
+  DECISION_LABEL_PALETTE,
+  TONE_CLASS as BRIEFING_TONE_CLASS,
+  type BriefingLabelTone,
+} from "@/components/common/briefing/decision-label-palette";
 
-export type LabelTone = "success" | "warning" | "danger" | "info" | "muted";
+export type LabelTone = BriefingLabelTone;
 
-export const DECISION_LABELS: DecisionLabel[] = [
-  "scale",
-  "keep",
-  "refresh",
-  "cut",
-  "test_more",
-  "diagnose",
-  "out_of_scope",
-];
+export const DECISION_LABELS: DecisionLabel[] = [...CREATIVE_ENGINE_DECISION_LABELS];
 
 export const LABEL_DISPLAY: Record<
   DecisionLabel,
   { label: string; tone: LabelTone }
 > = {
-  scale: { label: "Scale", tone: "success" },
-  keep: { label: "Keep", tone: "info" },
-  refresh: { label: "Refresh", tone: "warning" },
-  cut: { label: "Cut", tone: "danger" },
-  test_more: { label: "Test more", tone: "muted" },
-  diagnose: { label: "Diagnose", tone: "warning" },
-  out_of_scope: { label: "Out of scope", tone: "muted" },
+  scale: {
+    label: DECISION_LABEL_PALETTE.scale.label,
+    tone: DECISION_LABEL_PALETTE.scale.tone,
+  },
+  keep: {
+    label: DECISION_LABEL_PALETTE.keep.label,
+    tone: DECISION_LABEL_PALETTE.keep.tone,
+  },
+  refresh: {
+    label: DECISION_LABEL_PALETTE.refresh.label,
+    tone: DECISION_LABEL_PALETTE.refresh.tone,
+  },
+  cut: {
+    label: DECISION_LABEL_PALETTE.cut.label,
+    tone: DECISION_LABEL_PALETTE.cut.tone,
+  },
+  test_more: {
+    label: DECISION_LABEL_PALETTE.test_more.label,
+    tone: DECISION_LABEL_PALETTE.test_more.tone,
+  },
+  diagnose: {
+    label: DECISION_LABEL_PALETTE.diagnose.label,
+    tone: DECISION_LABEL_PALETTE.diagnose.tone,
+  },
+  out_of_scope: {
+    label: DECISION_LABEL_PALETTE.out_of_scope.label,
+    tone: DECISION_LABEL_PALETTE.out_of_scope.tone,
+  },
 };
 
-export const TONE_CLASS: Record<LabelTone, string> = {
-  success:
-    "border-emerald-200 bg-emerald-500/15 text-emerald-700 dark:border-emerald-500/30 dark:text-emerald-300",
-  warning:
-    "border-amber-200 bg-amber-500/15 text-amber-800 dark:border-amber-500/30 dark:text-amber-300",
-  danger:
-    "border-rose-200 bg-rose-500/15 text-rose-700 dark:border-rose-500/30 dark:text-rose-300",
-  info: "border-sky-200 bg-sky-500/15 text-sky-700 dark:border-sky-500/30 dark:text-sky-300",
-  muted: "border-border bg-muted text-muted-foreground",
-};
+export const TONE_CLASS = BRIEFING_TONE_CLASS;

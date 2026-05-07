@@ -30,9 +30,9 @@ const previewOffQuery = "creativeDecisionOsV2Preview=0";
 const previewSurfaceTestId = "creative-v2-preview-surface";
 const previewVisibilityTimeoutMs = 45_000;
 const previewRoutes = {
-  default: "/creatives",
-  offFlag: `/creatives?${previewOffQuery}`,
-  withFlag: `/creatives?${previewFlagQuery}`,
+  default: "/platforms/meta/creatives",
+  offFlag: `/platforms/meta/creatives?${previewOffQuery}`,
+  withFlag: `/platforms/meta/creatives?${previewFlagQuery}`,
 } as const;
 
 function requiredEnv(name: string) {

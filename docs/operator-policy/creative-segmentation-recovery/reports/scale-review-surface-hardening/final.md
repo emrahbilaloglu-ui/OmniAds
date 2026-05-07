@@ -57,8 +57,8 @@ When a true direct-action Scale row exists:
 
 Passed:
 
-- `npx vitest run lib/creative-operator-surface.test.ts components/creatives/CreativeDecisionSupportSurface.test.tsx components/creatives/CreativesTopSection.test.tsx components/creatives/CreativeDecisionOsOverview.test.tsx components/creatives/CreativeDetailExperience.test.tsx`
-- `npx vitest run lib/creative-operator-surface.test.ts components/creatives/CreativeDecisionSupportSurface.test.tsx components/creatives/CreativesTopSection.test.tsx components/creatives/CreativeDecisionOsOverview.test.tsx components/creatives/CreativeDetailExperience.test.tsx lib/operator-prescription.test.ts`
+- `npx vitest run lib/creative-operator-surface.test.ts components/platforms/meta/creatives/CreativeDecisionSupportSurface.test.tsx components/platforms/meta/creatives/CreativesTopSection.test.tsx components/platforms/meta/creatives/CreativeDecisionOsOverview.test.tsx components/platforms/meta/creatives/CreativeDetailExperience.test.tsx`
+- `npx vitest run lib/creative-operator-surface.test.ts components/platforms/meta/creatives/CreativeDecisionSupportSurface.test.tsx components/platforms/meta/creatives/CreativesTopSection.test.tsx components/platforms/meta/creatives/CreativeDecisionOsOverview.test.tsx components/platforms/meta/creatives/CreativeDetailExperience.test.tsx lib/operator-prescription.test.ts`
 - `npm test`
 - `npx tsc --noEmit`
 - `npm run build`
@@ -69,7 +69,7 @@ Passed:
 Runtime smoke:
 
 - local production server started on `http://localhost:3000`
-- `/creatives` returned the expected auth redirect to `/login?next=%2Fcreatives`, then loaded with HTTP 200
+- `/platforms/meta/creatives` returned the expected auth redirect to `/login?next=%2Fcreatives`, then loaded with HTTP 200
 - `/platforms/meta` returned the expected auth redirect to `/login?next=%2Fplatforms%2Fmeta`, then loaded with HTTP 200
 
 Package has no lint script.

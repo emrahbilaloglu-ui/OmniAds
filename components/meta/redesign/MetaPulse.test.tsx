@@ -9,8 +9,18 @@ describe("MetaPulse", () => {
     const html = renderToStaticMarkup(
       <MetaPulse pulse={metaPulse()} window="28d" onWindowChange={vi.fn()} />,
     );
-    expect(html).toContain("Date:");
+    expect(html).toContain("Date: 28d");
     expect(html).toContain("Spend");
     expect(html).toContain("v3.6.0-meta-taxonomy");
+  });
+
+  it("renders unknown placeholders before pulse data loads", () => {
+    const html = renderToStaticMarkup(
+      <MetaPulse pulse={null} window="28d" onWindowChange={vi.fn()} />,
+    );
+
+    expect(html).toContain("Loading campaigns");
+    expect(html).toContain("unknown");
+    expect(html).not.toContain("$0");
   });
 });

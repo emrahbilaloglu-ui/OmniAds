@@ -21,16 +21,16 @@ All five behavioral requirements are correctly implemented: no auto-run on page 
 |---|---|
 | [docs/operator-policy/creative-segmentation-recovery/STATE.md](docs/operator-policy/creative-segmentation-recovery/STATE.md) | Root context and fix summary |
 | [docs/operator-policy/creative-segmentation-recovery/reports/decision-os-snapshots/final.md](docs/operator-policy/creative-segmentation-recovery/reports/decision-os-snapshots/final.md) | Codex implementation report |
-| [app/(dashboard)/creatives/page.tsx](app/(dashboard)/creatives/page.tsx) | Page query key, mutation, CTA, status UI |
+| [app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx](app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx) | Page query key, mutation, CTA, status UI |
 | [app/api/creatives/decision-os/route.ts](app/api/creatives/decision-os/route.ts) | GET/POST route handlers |
 | [lib/creative-decision-os-snapshots.ts](lib/creative-decision-os-snapshots.ts) | Snapshot store, identity, DB read/write |
-| [components/creatives/CreativeDecisionOsDrawer.tsx](components/creatives/CreativeDecisionOsDrawer.tsx) | Drawer — not-run state, CTA, header |
-| [components/creatives/CreativeDecisionOsContent.tsx](components/creatives/CreativeDecisionOsContent.tsx) | Drawer content panels |
-| [components/creatives/CreativeDecisionOsOverview.tsx](components/creatives/CreativeDecisionOsOverview.tsx) | Inline overview panels (unused at this call site) |
-| [components/creatives/CreativesTopSection.tsx](components/creatives/CreativesTopSection.tsx) | Filter bar, date range picker |
+| [components/platforms/meta/creatives/CreativeDecisionOsDrawer.tsx](components/platforms/meta/creatives/CreativeDecisionOsDrawer.tsx) | Drawer — not-run state, CTA, header |
+| [components/platforms/meta/creatives/CreativeDecisionOsContent.tsx](components/platforms/meta/creatives/CreativeDecisionOsContent.tsx) | Drawer content panels |
+| [components/platforms/meta/creatives/CreativeDecisionOsOverview.tsx](components/platforms/meta/creatives/CreativeDecisionOsOverview.tsx) | Inline overview panels (unused at this call site) |
+| [components/platforms/meta/creatives/CreativesTopSection.tsx](components/platforms/meta/creatives/CreativesTopSection.tsx) | Filter bar, date range picker |
 | [src/services/data-service-ai.ts](src/services/data-service-ai.ts) | Client-side fetch wrappers |
 | [app/api/creatives/decision-os/route.test.ts](app/api/creatives/decision-os/route.test.ts) | API route tests |
-| [app/(dashboard)/creatives/page.test.tsx](app/(dashboard)/creatives/page.test.tsx) | Page snapshot contract tests |
+| [app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx](app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx) | Page snapshot contract tests |
 | [lib/creative-decision-os-snapshots.test.ts](lib/creative-decision-os-snapshots.test.ts) | Snapshot store unit tests |
 
 ---

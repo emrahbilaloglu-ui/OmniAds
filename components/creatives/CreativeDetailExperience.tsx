@@ -10,7 +10,7 @@ import {
   formatCreativeDateLabel,
   type CreativeDateRangeValue,
 } from "@/components/creatives/CreativesTopSection";
-import { fetchMetaCreativeDetailPreview } from "@/app/(dashboard)/creatives/page-support";
+import { fetchMetaCreativeDetailPreview } from "@/app/(dashboard)/platforms/meta/creatives/page-support";
 import {
   creativeDateRangeToStandard,
   standardDateRangeToCreative,

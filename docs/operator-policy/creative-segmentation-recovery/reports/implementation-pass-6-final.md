@@ -123,7 +123,7 @@ Note:
 
 Runtime smoke passed on the documented localhost + tunneled DB path:
 
-- `/creatives` loaded
+- `/platforms/meta/creatives` loaded
 - account-wide benchmark stayed the default
 - campaign filter alone did not switch benchmark scope
 - explicit `Within campaign` re-evaluation still worked

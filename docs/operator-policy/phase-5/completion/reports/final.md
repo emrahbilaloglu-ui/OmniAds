@@ -23,9 +23,9 @@ Branch: `feature/adsecute-operator-prescription-layer`
 - `components/meta/meta-decision-os.tsx`
 - `lib/creative-operator-surface.ts`
 - `lib/creative-operator-surface.test.ts`
-- `components/creatives/CreativeDecisionOsOverview.tsx`
-- `components/creatives/CreativeDecisionOsOverview.test.tsx`
-- `components/creatives/CreativeDetailExperience.tsx`
+- `components/platforms/meta/creatives/CreativeDecisionOsOverview.tsx`
+- `components/platforms/meta/creatives/CreativeDecisionOsOverview.test.tsx`
+- `components/platforms/meta/creatives/CreativeDetailExperience.tsx`
 - `lib/command-center.ts`
 - `lib/command-center.test.ts`
 - `components/command-center/CommandCenterDashboard.tsx`
@@ -100,7 +100,7 @@ Passed on the owner-approved localhost SSH database tunnel path.
 
 - `npm run test:smoke:local` passed.
 - Playwright result: 5 passed, 1 execution canary skipped.
-- Smoke covered `/platforms/meta`, `/command-center`, `/creatives`, Creative Decision OS drawer/detail surfaces, and Commercial Truth smoke.
+- Smoke covered `/platforms/meta`, `/command-center`, `/platforms/meta/creatives`, Creative Decision OS drawer/detail surfaces, and Commercial Truth smoke.
 - No secrets, tokens, cookies, raw business ids, or ad account ids were recorded in this report.
 
 ## Automated Checks

@@ -7,7 +7,7 @@ This document is the accepted V2-07 execution baseline layered on top of the shi
 - keep preview-first execution honesty intact
 - keep deterministic decision sources authoritative
 - keep `Recommendations`, `Decision Signals`, and `AI Commentary` wording unchanged
-- keep `/copies` and unrelated workflow surfaces unchanged
+- keep `/platforms/meta/copies` and unrelated workflow surfaces unchanged
 - keep provider-backed execution limited to the already reviewed Meta ad set subset
 
 ## Supported Provider-Backed Subset

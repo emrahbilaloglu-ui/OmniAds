@@ -77,7 +77,7 @@ Normal no-flag page:
 
 | Field | Sanitized result |
 | --- | --- |
-| URL | `http://localhost:3000/creatives` |
+| URL | `http://localhost:3000/platforms/meta/creatives` |
 | no_flag_v2_preview_visible | false |
 | no_flag_v1_normal | true |
 | no_flag_notes | Supervisor reported that `Read-only buyer preview` was not visible on the normal Creative page. |
@@ -86,7 +86,7 @@ V2 preview page:
 
 | Field | Sanitized result |
 | --- | --- |
-| URL | `http://localhost:3000/creatives?creativeDecisionOsV2Preview=1` |
+| URL | `http://localhost:3000/platforms/meta/creatives?creativeDecisionOsV2Preview=1` |
 | with_flag_v2_preview_visible | true |
 | with_flag_v1_still_visible | unknown |
 | today_priority_visible | unknown |

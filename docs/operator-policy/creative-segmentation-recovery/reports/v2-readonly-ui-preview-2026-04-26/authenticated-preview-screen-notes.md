@@ -29,7 +29,7 @@ No queue/apply path was exercised. No platform write path was exercised.
 
 Validated URL:
 
-- `/creatives`
+- `/platforms/meta/creatives`
 
 Observed DOM result:
 
@@ -48,7 +48,7 @@ Observed DOM result:
 
 Validated URL:
 
-- `/creatives?creativeDecisionOsV2Preview=1&creative=SANITIZED`
+- `/platforms/meta/creatives?creativeDecisionOsV2Preview=1&creative=SANITIZED`
 
 Observed DOM result:
 

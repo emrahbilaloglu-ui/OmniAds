@@ -77,8 +77,8 @@ Preserved:
 
 Passed:
 
-- `npx vitest run lib/creative-operator-surface.test.ts components/creatives/CreativeDecisionSupportSurface.test.tsx components/creatives/CreativesTopSection.test.tsx`
-- `npx vitest run components/creatives/CreativeDecisionOsOverview.test.tsx components/creatives/CreativeDecisionOsDrawer.test.tsx components/creatives/CreativeDetailExperience.test.tsx lib/operator-prescription.test.ts app/api/creatives/decision-os/route.test.ts`
+- `npx vitest run lib/creative-operator-surface.test.ts components/platforms/meta/creatives/CreativeDecisionSupportSurface.test.tsx components/platforms/meta/creatives/CreativesTopSection.test.tsx`
+- `npx vitest run components/platforms/meta/creatives/CreativeDecisionOsOverview.test.tsx components/platforms/meta/creatives/CreativeDecisionOsDrawer.test.tsx components/platforms/meta/creatives/CreativeDetailExperience.test.tsx lib/operator-prescription.test.ts app/api/creatives/decision-os/route.test.ts`
 - `npm test`
 - `npx tsc --noEmit`
 - `npm run build`
@@ -89,7 +89,7 @@ Passed:
 Runtime smoke:
 
 - local production server started on `http://localhost:3000`
-- `/creatives` returned an expected auth redirect to `/login?next=%2Fcreatives`, then loaded the login page with HTTP 200
+- `/platforms/meta/creatives` returned an expected auth redirect to `/login?next=%2Fcreatives`, then loaded the login page with HTTP 200
 - `/platforms/meta` returned an expected auth redirect to `/login?next=%2Fplatforms%2Fmeta`, then loaded the login page with HTTP 200
 
 PR status: pending.

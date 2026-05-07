@@ -3,29 +3,25 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Lock } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { Separator } from "@/components/ui/separator";
 import { BrandLogo } from "@/components/brand/BrandLogo";
 import { usePlan } from "@/lib/pricing/usePlan";
 import { planRank } from "@/lib/pricing/usePlanLimits";
-import { PRICING_PLANS, type PlanId } from "@/lib/pricing/plans";
+import type { PlanId } from "@/lib/pricing/plans";
 import { useAppStore } from "@/store/app-store";
 import { isDemoBusinessSelected } from "@/lib/business-mode";
 import { getTranslations } from "@/lib/i18n";
 import { usePreferencesStore } from "@/store/preferences-store";
-import { getNavItems } from "./nav-items";
-
-const groups = ["Main", "Platforms", "Launchpad", "Assets", "Manage"] as const;
-
-const PLATFORM_LOGOS_BY_HREF: Record<string, string> = {
-  "/platforms/meta": "/platform-logos/Meta.png",
-  "/launchpad/meta": "/platform-logos/Meta.png",
-  "/google-ads": "/platform-logos/googleAds.svg",
-  "/platforms/tiktok": "/platform-logos/tiktok.svg",
-  "/platforms/pinterest": "/platform-logos/Pinterest.svg",
-  "/platforms/snapchat": "/platform-logos/snapchat.svg",
-  "/platforms/klaviyo": "/platform-logos/Klaviyo.svg",
-};
+import { cn } from "@/lib/utils";
+import { usePlatformContext } from "@/lib/navigation/platform-context";
+import { PlatformLogo } from "./PlatformSwitcher";
+import {
+  getLayer1Items,
+  getLayer3Items,
+  getPlatformLayer2Items,
+  platformsRegistry,
+  type PlatformAccent,
+  type ShellNavItem,
+} from "./nav-items";
 
 const PLAN_LABELS: Record<PlanId, string> = {
   starter: "Starter",
@@ -34,154 +30,283 @@ const PLAN_LABELS: Record<PlanId, string> = {
   scale: "Scale",
 };
 
-export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
-  const pathname = usePathname();
+const L2_ACTIVE_ACCENT_CLASSES: Record<PlatformAccent, string> = {
+  blue: "bg-blue-50 text-blue-700 font-semibold border-l-[3px] border-l-blue-600 pl-[7px]",
+  violet: "bg-violet-50 text-violet-700 font-semibold border-l-[3px] border-l-violet-600 pl-[7px]",
+  emerald:
+    "bg-emerald-50 text-emerald-700 font-semibold border-l-[3px] border-l-emerald-600 pl-[7px]",
+  slate: "bg-slate-100 text-slate-700 font-semibold border-l-[3px] border-l-slate-400 pl-[7px]",
+};
+
+const L2_SUB_STATUS_CLASSES = {
+  coming: "bg-amber-50 text-amber-800 border-amber-200",
+  soon: "bg-slate-100 text-slate-500 border-slate-200",
+} as const;
+
+function isItemActive(item: ShellNavItem, pathname: string) {
+  const candidates = [item.href, ...(item.activeHrefs ?? [])];
+  if (item.exact) return candidates.some((href) => pathname === href);
+  return candidates.some((href) => pathname === href || pathname.startsWith(`${href}/`));
+}
+
+function isLocked(item: ShellNavItem, currentPlan: PlanId, isDemo: boolean) {
+  return (
+    !isDemo &&
+    item.requiredPlan !== undefined &&
+    planRank(currentPlan) < planRank(item.requiredPlan)
+  );
+}
+
+function SubStatusBadge({ status }: { status: NonNullable<ShellNavItem["subStatus"]> }) {
+  const label = status === "coming" ? "Coming" : "Soon";
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center px-1 py-px rounded border text-[9px] font-semibold uppercase tracking-wider",
+        L2_SUB_STATUS_CLASSES[status]
+      )}
+    >
+      {label}
+    </span>
+  );
+}
+
+function LockTrail({ requiredPlan }: { requiredPlan: PlanId }) {
+  return (
+    <span className="ml-auto inline-flex items-center gap-0.5 text-[10px] text-slate-400">
+      <Lock className="h-[11px] w-[11px]" />
+      <span className="font-medium uppercase tracking-wider">{PLAN_LABELS[requiredPlan]}</span>
+    </span>
+  );
+}
+
+function renderL1Trail(item: ShellNavItem, locked: boolean) {
+  if (locked && item.requiredPlan) return <LockTrail requiredPlan={item.requiredPlan} />;
+  return null;
+}
+
+function L1NavItem({
+  item,
+  active,
+  locked,
+  onNavigate,
+}: {
+  item: ShellNavItem;
+  active: boolean;
+  locked: boolean;
+  onNavigate?: () => void;
+}) {
   const router = useRouter();
-  const language = usePreferencesStore((s) => s.language);
-  const currentPlan = usePlan();
-  const selectedBusinessId = useAppStore((s) => s.selectedBusinessId);
-  const businesses = useAppStore((s) => s.businesses);
-  const isDemo = isDemoBusinessSelected(selectedBusinessId, businesses);
-  const t = getTranslations(language);
-  const navItems = getNavItems(language);
-  const groupLabels = {
-    Main: t.navigation.main,
-    Platforms: t.navigation.platforms,
-    Launchpad: t.navigation.launchpad,
-    Assets: t.navigation.assets,
-    Manage: t.navigation.manage,
-  } as const;
+  const Icon = item.icon;
+  const className = cn(
+    "flex items-center gap-2 pl-2.5 pr-2 py-1.5 rounded-md text-[13px] cursor-pointer",
+    active ? "bg-slate-100 text-slate-900 font-medium" : "text-slate-600 hover:bg-slate-50"
+  );
+  const content = (
+    <>
+      <span className="w-4 h-4 grid place-items-center text-slate-500">
+        <Icon className="h-[15px] w-[15px]" />
+      </span>
+      <span>{item.label}</span>
+      {renderL1Trail(item, locked)}
+    </>
+  );
+
+  if (locked) {
+    return (
+      <button
+        type="button"
+        className={cn(className, "w-full text-left")}
+        title={`Upgrade to ${PLAN_LABELS[item.requiredPlan!]} to unlock`}
+        onClick={() => router.push("/settings")}
+      >
+        {content}
+      </button>
+    );
+  }
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="px-6 py-5 flex items-center gap-2">
-        <BrandLogo markClassName="h-8 w-8" textClassName="text-lg" size={32} />
+    <Link href={item.href} className={className} onClick={onNavigate} data-l1={item.id}>
+      {content}
+    </Link>
+  );
+}
+
+function L2NavItem({
+  item,
+  active,
+  dimmed,
+  locked,
+  accent,
+  onNavigate,
+}: {
+  item: ShellNavItem;
+  active: boolean;
+  dimmed: boolean;
+  locked: boolean;
+  accent: PlatformAccent;
+  onNavigate?: () => void;
+}) {
+  const router = useRouter();
+  const Icon = item.icon;
+  const className = cn(
+    "flex items-center gap-2 pr-2 py-1.5 rounded-r-md text-[13px] cursor-pointer",
+    active
+      ? L2_ACTIVE_ACCENT_CLASSES[accent]
+      : "text-slate-700 hover:bg-slate-50 border-l-[3px] border-l-transparent pl-[7px]",
+    dimmed ? "opacity-50" : ""
+  );
+  const content = (
+    <>
+      <span className={cn("w-4 h-4 grid place-items-center", active ? "" : "text-slate-500")}>
+        <Icon className="h-[15px] w-[15px]" />
+      </span>
+      <span>{item.label}</span>
+      {item.subStatus ? (
+        <span className="ml-auto">
+          <SubStatusBadge status={item.subStatus} />
+        </span>
+      ) : locked ? (
+        <span className="ml-auto inline-flex items-center text-slate-400">
+          <Lock className="h-3 w-3" />
+        </span>
+      ) : item.badge != null ? (
+        <span className="ml-auto text-[11px] font-mono tabular-nums text-slate-500 px-1.5 py-0.5 bg-white border border-slate-200 rounded-md">
+          {item.badge}
+        </span>
+      ) : null}
+    </>
+  );
+
+  if (locked) {
+    return (
+      <button
+        type="button"
+        className={cn(className, "w-full text-left")}
+        title={`Upgrade to ${PLAN_LABELS[item.requiredPlan!]} to unlock`}
+        onClick={() => router.push("/settings")}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <Link href={item.href} className={className} onClick={onNavigate} data-l2={item.id}>
+      {content}
+    </Link>
+  );
+}
+
+function SoonPlatformEmpty({ platformId }: { platformId: keyof typeof platformsRegistry }) {
+  const platform = platformsRegistry[platformId];
+  return (
+    <div className="mx-2 my-1 rounded-lg border border-dashed border-slate-300 bg-slate-50/50 p-3 text-center">
+      <div className="flex justify-center mb-1.5">
+        <PlatformLogo platformId={platformId} size={22} />
+      </div>
+      <div className="text-[11.5px] font-medium text-slate-700">
+        {platform.name} not live yet
+      </div>
+      <div className="text-[10.5px] text-slate-500 mt-0.5">
+        No tools to show. Switch platform from the topbar.
+      </div>
+    </div>
+  );
+}
+
+export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
+  const pathname = usePathname();
+  const language = usePreferencesStore((state) => state.language);
+  const currentPlan = usePlan();
+  const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
+  const businesses = useAppStore((state) => state.businesses);
+  const isDemo = isDemoBusinessSelected(selectedBusinessId, businesses);
+  const t = getTranslations(language);
+  const layer1Items = getLayer1Items(language);
+  const layer3Items = getLayer3Items(language);
+  const { activePlatformId } = usePlatformContext();
+  const platform = platformsRegistry[activePlatformId];
+  const layer2Items = getPlatformLayer2Items(activePlatformId, language);
+  const activeLayer1 = layer1Items.find((item) => isItemActive(item, pathname));
+  const activeLayer3 = layer3Items.find((item) => isItemActive(item, pathname));
+  const activeLayer = activeLayer1 ? "L1" : activeLayer3 ? "L3" : "L2";
+  const dimLayer2 = activeLayer === "L1";
+
+  return (
+    <div className="w-60 shrink-0 border-r border-slate-200 bg-white h-full flex flex-col" data-shell-sidebar>
+      <div className="px-3 py-2.5 border-b border-slate-200 flex items-center gap-2">
+        <BrandLogo
+          className="gap-2"
+          markClassName="h-7 w-7"
+          textClassName="text-[13px] font-semibold text-slate-900 leading-tight"
+          size={28}
+        />
       </div>
 
-      <Separator />
+      <nav className="flex-1 overflow-y-auto py-2 space-y-0.5">
+        <div className="px-2 pt-1 pb-1 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+          {t.navigation.workspace}
+        </div>
+        <div className="px-2 space-y-0.5">
+          {layer1Items.map((item) => (
+            <L1NavItem
+              key={item.id}
+              item={item}
+              active={activeLayer === "L1" && isItemActive(item, pathname)}
+              locked={isLocked(item, currentPlan, isDemo)}
+              onNavigate={onNavigate}
+            />
+          ))}
+        </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
-        {groups.map((group) => {
-          const items = navItems.filter((item) => item.group === group);
-          if (!items.length) return null;
-          return (
-            <div key={group}>
-              <p className="px-3 mb-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                {groupLabels[group]}
-              </p>
-              <ul className="space-y-0.5">
-                {items.map((item) => {
-                  const Icon = item.icon;
-                  const active = pathname === item.href;
-                  const logoSrc =
-                    item.group === "Platforms"
-                      ? PLATFORM_LOGOS_BY_HREF[item.href]
-                      : undefined;
-                  const locked =
-                    !isDemo &&
-                    item.requiredPlan !== undefined &&
-                    planRank(currentPlan) < planRank(item.requiredPlan);
-                  const disabled = item.disabled === true;
+        <div className="my-2 mx-3 border-t border-slate-200" />
 
-                  if (disabled) {
-                    return (
-                      <li key={item.href}>
-                        <button
-                          type="button"
-                          disabled
-                          title={item.disabledLabel ?? "Coming soon"}
-                          className="w-full flex items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground/40 cursor-not-allowed"
-                        >
-                          {logoSrc ? (
-                            <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded-sm opacity-40">
-                              <img
-                                src={logoSrc}
-                                alt={`${item.label} logo`}
-                                className="h-4 w-4 object-contain"
-                                loading="lazy"
-                              />
-                            </span>
-                          ) : (
-                            <Icon className="w-4 h-4 shrink-0 opacity-40" />
-                          )}
-                          <span className="flex-1 text-left">{item.label}</span>
-                          {item.disabledLabel ? (
-                            <span className="text-[10px] uppercase tracking-wide">
-                              {item.disabledLabel}
-                            </span>
-                          ) : null}
-                        </button>
-                      </li>
-                    );
-                  }
+        <div className="px-0">
+          <div className={cn("px-2 pt-1 pb-1 flex items-center gap-1.5", dimLayer2 ? "opacity-60" : "")}>
+            <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+              Platform
+            </span>
+            <span className="text-slate-300">·</span>
+            <PlatformLogo platformId={activePlatformId} size={14} />
+            <span className="text-[10.5px] font-semibold text-slate-700">{platform.name}</span>
+            {dimLayer2 ? <span className="ml-auto text-[10px] text-slate-400 italic">last viewed</span> : null}
+          </div>
+          <div className="space-y-0.5">
+            {platform.status === "soon" || layer2Items.length === 0 ? (
+              <SoonPlatformEmpty platformId={activePlatformId} />
+            ) : (
+              layer2Items.map((item) => (
+                <L2NavItem
+                  key={item.id}
+                  item={item}
+                  active={!dimLayer2 && activeLayer === "L2" && isItemActive(item, pathname)}
+                  dimmed={dimLayer2}
+                  locked={isLocked(item, currentPlan, isDemo)}
+                  accent={platform.accent}
+                  onNavigate={onNavigate}
+                />
+              ))
+            )}
+          </div>
+        </div>
 
-                  if (locked) {
-                    const requiredName = PLAN_LABELS[item.requiredPlan!];
-                    return (
-                      <li key={item.href}>
-                        <button
-                          type="button"
-                          onClick={() => router.push("/settings")}
-                          title={t.layout.upgradeToUnlock.replace("{plan}", requiredName)}
-                          className="w-full flex items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground/50 cursor-pointer hover:bg-accent/50 hover:text-muted-foreground transition-colors"
-                        >
-                          {logoSrc ? (
-                            <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded-sm opacity-40">
-                              <img
-                                src={logoSrc}
-                                alt={`${item.label} logo`}
-                                className="h-4 w-4 object-contain"
-                                loading="lazy"
-                              />
-                            </span>
-                          ) : (
-                            <Icon className="w-4 h-4 shrink-0 opacity-40" />
-                          )}
-                          <span className="flex-1 text-left">{item.label}</span>
-                          <Lock className="w-3 h-3 shrink-0 opacity-50" />
-                        </button>
-                      </li>
-                    );
-                  }
+        <div className="my-2 mx-3 border-t border-slate-200" />
 
-                  return (
-                    <li key={item.href}>
-                      <Link
-                        href={item.href}
-                        onClick={onNavigate}
-                        className={cn(
-                          "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
-                          active
-                            ? "bg-primary text-primary-foreground font-medium"
-                            : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                        )}
-                      >
-                        {logoSrc ? (
-                          <span
-                            className={cn(
-                              "inline-flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded-sm",
-                              active ? "bg-white/85" : "bg-transparent"
-                            )}
-                          >
-                            <img
-                              src={logoSrc}
-                              alt={`${item.label} logo`}
-                              className="h-4 w-4 object-contain"
-                              loading="lazy"
-                            />
-                          </span>
-                        ) : (
-                          <Icon className="w-4 h-4 shrink-0" />
-                        )}
-                        {item.label}
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          );
-        })}
+        <div className="px-2 pt-1 pb-1 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+          {t.navigation.manage}
+        </div>
+        <div className="px-2 space-y-0.5">
+          {layer3Items.map((item) => (
+            <L1NavItem
+              key={item.id}
+              item={item}
+              active={activeLayer === "L3" && isItemActive(item, pathname)}
+              locked={isLocked(item, currentPlan, isDemo)}
+              onNavigate={onNavigate}
+            />
+          ))}
+        </div>
       </nav>
     </div>
   );

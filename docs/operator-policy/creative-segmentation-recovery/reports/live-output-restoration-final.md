@@ -17,7 +17,7 @@ Specifically:
 - the branch audit read current Decision OS rows through a warehouse-backed helper
 - that helper depended on `meta_creative_daily`
 - `meta_creative_daily` is currently empty for the live audited cohort
-- the actual `/creatives` Decision OS path reads live/persisted creative payloads and returns rows
+- the actual `/platforms/meta/creatives` Decision OS path reads live/persisted creative payloads and returns rows
 
 This was a source-parity bug in the audit helper, not a Creative policy bug.
 

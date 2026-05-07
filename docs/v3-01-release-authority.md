@@ -30,7 +30,7 @@ Current accepted authority contract for this layer:
 | `Command Center Workflow` | `legacy` | `current` | n/a | Legacy Command Center workflow is archived in Phase 4.1. No serving workflow routes or dashboard components remain outside lib/archive/v1-v2-v21/. |
 | `Command Center Execution Preview` | `legacy` | `current` | n/a | Legacy Command Center execution preview is archived in Phase 4.1. Archived execution files remain available under lib/archive/v1-v2-v21/ for R&D reference. |
 | `Command Center Apply & Rollback` | `legacy` | `current` | n/a | Legacy Command Center apply and rollback routes are archived in Phase 4.1. No serving apply or rollback route remains outside lib/archive/v1-v2-v21/. |
-| `/copies` | `live` | `current` | n/a | The surface remains live and intentionally unchanged in this phase. Authority coverage is explicit so /copies cannot disappear into baseline ambiguity. |
+| `/platforms/meta/copies` | `live` | `current` | n/a | The surface remains live and intentionally unchanged in this phase. Authority coverage is explicit so /platforms/meta/copies cannot disappear into baseline ambiguity. |
 
 ## Unresolved Drift
 

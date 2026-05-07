@@ -30,17 +30,17 @@
     ]
   },
   "currentCreativeInventory": {
-    "route": "app/(dashboard)/creatives/page.tsx",
-    "supportFile": "app/(dashboard)/creatives/page-support.tsx",
+    "route": "app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx",
+    "supportFile": "app/(dashboard)/platforms/meta/platforms/meta/creatives/page-support.tsx",
     "apiPaths": [
       {
-        "path": "/api/meta/creatives",
-        "implementation": "app/api/meta/creatives/route.ts",
+        "path": "/api/meta/platforms/meta/creatives",
+        "implementation": "app/api/meta/platforms/meta/creatives/route.ts",
         "purpose": "Current creative metadata and metric rows"
       },
       {
-        "path": "/api/meta/creatives/history",
-        "implementation": "app/api/meta/creatives/history/route.ts",
+        "path": "/api/meta/platforms/meta/creatives/history",
+        "implementation": "app/api/meta/platforms/meta/creatives/history/route.ts",
         "purpose": "Historical creative metrics and ad-level breakdowns"
       },
       {
@@ -50,14 +50,14 @@
       }
     ],
     "mainComponents": [
-      "components/creatives/CreativesTopSection.tsx",
-      "components/creatives/CreativesTableSection.tsx",
-      "components/creatives/CreativeDecisionSupportSurface.tsx",
+      "components/platforms/meta/creatives/CreativesTopSection.tsx",
+      "components/platforms/meta/creatives/CreativesTableSection.tsx",
+      "components/platforms/meta/creatives/CreativeDecisionSupportSurface.tsx",
       "components/operator/OperatorSurfaceSummary.tsx",
-      "components/creatives/CreativeDecisionOsDrawer.tsx",
-      "components/creatives/CreativeDecisionOsContent.tsx",
-      "components/creatives/CreativeDecisionOsOverview.tsx",
-      "components/creatives/CreativeDetailExperience.tsx"
+      "components/platforms/meta/creatives/CreativeDecisionOsDrawer.tsx",
+      "components/platforms/meta/creatives/CreativeDecisionOsContent.tsx",
+      "components/platforms/meta/creatives/CreativeDecisionOsOverview.tsx",
+      "components/platforms/meta/creatives/CreativeDetailExperience.tsx"
     ],
     "featureFlagPatterns": [
       "CREATIVE_DECISION_OS_V1",

@@ -89,7 +89,7 @@ score.
 - full `npm test`: passed (`300` files, `2173` tests)
 - `npx tsc --noEmit`: passed
 - `npm run build`: passed
-- `/creatives` localhost smoke: passed through expected auth redirect/load
+- `/platforms/meta/creatives` localhost smoke: passed through expected auth redirect/load
 - `/platforms/meta` localhost smoke: passed through expected auth redirect/load
 - hidden/bidi/control scan on touched docs: passed
 - raw ID scan on touched docs: passed

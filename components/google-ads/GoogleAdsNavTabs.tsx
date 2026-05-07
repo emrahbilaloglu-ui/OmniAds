@@ -5,11 +5,11 @@ import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 
 const TABS = [
-  { label: 'Summary', href: '/google-ads/summary' },
-  { label: 'Insights & Reports', href: '/google-ads/insights' },
-  { label: 'Asset Group & Audience Signals', href: '/google-ads/asset-groups' },
-  { label: 'Product Spend & Performance', href: '/google-ads/products' },
-  { label: 'Asset Performance Radar', href: '/google-ads/assets' },
+  { label: 'Pulse', href: '/platforms/google' },
+  { label: 'Launchpad', href: '/platforms/google/launchpad' },
+  { label: 'Ads', href: '/platforms/google/ads' },
+  { label: 'Keywords', href: '/platforms/google/keywords' },
+  { label: 'Audiences', href: '/platforms/google/audiences' },
 ];
 
 export default function GoogleAdsNavTabs() {

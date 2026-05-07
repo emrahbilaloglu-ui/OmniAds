@@ -1,7 +1,7 @@
 # Google Ads Product Readiness Checklist
 
-Use this checklist together with [`docs/google-ads-product-truth-matrix.md`](/Users/harmelek/Adsecute/docs/google-ads-product-truth-matrix.md).
-Use the step-by-step rollout order in [`docs/google-ads-rollout-runbook.md`](/Users/harmelek/Adsecute/docs/google-ads-rollout-runbook.md).
+Use this checklist together with [`docs/platforms/google-product-truth-matrix.md`](/Users/harmelek/Adsecute/docs/platforms/google-product-truth-matrix.md).
+Use the step-by-step rollout order in [`docs/platforms/google-rollout-runbook.md`](/Users/harmelek/Adsecute/docs/platforms/google-rollout-runbook.md).
 
 The canonical executable gate is `npm run google:ads:product-gate -- <businessId>`.
 

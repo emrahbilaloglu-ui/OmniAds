@@ -20,7 +20,7 @@ export type MetaDecisionState = "act" | "test" | "watch";
 export type MetaRecommendationLens = "volume" | "profitability" | "structure";
 export type MetaRecommendationPriority = "high" | "medium" | "low";
 export type MetaRecommendationConfidence = "high" | "medium" | "low";
-export type MetaRecommendationLevel = "account" | "campaign";
+export type MetaRecommendationLevel = "account" | "campaign" | "adset";
 export type MetaRecommendationType =
   | "campaign_structure"
   | "optimization_fit"
@@ -36,7 +36,13 @@ export type MetaRecommendationType =
   | "geo_cluster_for_signal_density"
   | "creative_test_structure"
   | "scaling_structure_fit"
-  | "winner_promotion_flow";
+  | "winner_promotion_flow"
+  | "adset_bid_cap_adjust"
+  | "adset_audience_swap"
+  | "adset_pause_underperformer"
+  | "adset_budget_shift_within_campaign"
+  | "adset_optimization_event_switch"
+  | "adset_audience_expansion";
 
 export type MetaSeasonalState = "peak" | "post_peak" | "normalized" | "unstable";
 
@@ -59,6 +65,10 @@ export interface MetaRecommendation {
   level: MetaRecommendationLevel;
   campaignId?: string;
   campaignName?: string;
+  adsetId?: string;
+  adsetName?: string;
+  parentCampaignId?: string;
+  parentCampaignName?: string;
   type: MetaRecommendationType;
   lens: MetaRecommendationLens;
   priority: MetaRecommendationPriority;
@@ -87,6 +97,17 @@ export interface MetaRecommendation {
   scalingGeoCluster?: string[];
   testingGeoCluster?: string[];
   matureGeoSplit?: string[];
+  currentBidValue?: number;
+  proposedBidValue?: number;
+  acceptableRange?: { low: number; mid: number; high: number };
+  bidCurrency?: string;
+  currentAudienceLabel?: string;
+  proposedAudienceLabel?: string;
+  currentEvent?: string;
+  proposedEvent?: string;
+  currentDailyBudget?: number;
+  proposedDailyBudget?: number;
+  sourceAdsetIds?: string[];
 }
 
 export interface MetaDecisionSummary {
@@ -1319,7 +1340,7 @@ function accountAov(rows: MetaCampaignRow[]) {
   return purchases > 0 ? revenue / purchases : 0;
 }
 
-function historicalBidCandidates(input: MetaRecommendationWindows) {
+export function historicalBidCandidates(input: MetaRecommendationWindows) {
   return [input.last7, input.last14, input.last30, input.last90, input.allHistory]
     .map((rows) => {
       const metrics = accountMetrics(rows);

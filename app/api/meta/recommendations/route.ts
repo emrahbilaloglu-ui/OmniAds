@@ -9,6 +9,8 @@ import {
   type MetaRecommendationAnalysisSource,
   type MetaRecommendationsResponse,
 } from "@/lib/meta/recommendations";
+import { buildMetaAdsetRecommendations } from "@/lib/meta/adset-decisions";
+import { getMetaAdSetsForRange } from "@/lib/meta/adsets-source";
 import { readMetaBidRegimeHistorySummaries } from "@/lib/meta/config-snapshots";
 import { buildMetaCreativeIntelligence } from "@/lib/meta/creative-intelligence";
 import { getCreativeScoreSnapshot } from "@/lib/meta/creative-score-service";
@@ -57,6 +59,22 @@ function attachAnalysisSource(
   };
 }
 
+function appendAdsetRecommendations(
+  payload: MetaRecommendationsResponse,
+  adsetRecommendations: MetaRecommendationsResponse["recommendations"],
+): MetaRecommendationsResponse {
+  if (adsetRecommendations.length === 0) return payload;
+  const recommendations = [...payload.recommendations, ...adsetRecommendations];
+  return {
+    ...payload,
+    summary: {
+      ...payload.summary,
+      recommendationCount: recommendations.length,
+    },
+    recommendations,
+  };
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const language = await resolveRequestLanguage(request);
@@ -81,22 +99,47 @@ export async function GET(request: NextRequest) {
   if (await isDemoBusiness(businessId)) {
     const demoCampaigns = getDemoMetaCampaigns().rows as MetaCampaignRow[];
     const demoBreakdowns = getDemoMetaBreakdowns() as MetaBreakdownsResponse;
+    const demoCampaignIds = demoCampaigns.map((row) => row.id);
+    const demoAdsets = await getMetaAdSetsForRange({
+      businessId,
+      campaignIds: demoCampaignIds,
+      startDate,
+      endDate,
+      includePrev: true,
+    }).catch(() => ({ rows: [] }));
+    const basePayload = buildMetaRecommendations({
+      windows: {
+        selected: demoCampaigns,
+        previousSelected: demoCampaigns,
+        last3: demoCampaigns,
+        last7: demoCampaigns,
+        last14: demoCampaigns,
+        last30: demoCampaigns,
+        last90: demoCampaigns,
+        allHistory: demoCampaigns,
+      },
+      breakdowns: demoBreakdowns,
+      language,
+    });
+    const adsetRecommendations = buildMetaAdsetRecommendations({
+      adsets: demoAdsets.rows,
+      previousAdsets: [],
+      selectedCampaigns: demoCampaigns,
+      windows: {
+        selected: demoCampaigns,
+        previousSelected: demoCampaigns,
+        last3: demoCampaigns,
+        last7: demoCampaigns,
+        last14: demoCampaigns,
+        last30: demoCampaigns,
+        last90: demoCampaigns,
+        allHistory: demoCampaigns,
+      },
+      selectedRangeDays: dayDiffInclusive(startDate, endDate),
+    });
     return NextResponse.json(
       attachAnalysisSource(
-        buildMetaRecommendations({
-          windows: {
-            selected: demoCampaigns,
-            previousSelected: demoCampaigns,
-            last3: demoCampaigns,
-            last7: demoCampaigns,
-            last14: demoCampaigns,
-            last30: demoCampaigns,
-            last90: demoCampaigns,
-            allHistory: demoCampaigns,
-          },
-          breakdowns: demoBreakdowns,
-          language,
-        }),
+        appendAdsetRecommendations(basePayload, adsetRecommendations),
         {
           businessId,
           startDate,
@@ -199,31 +242,73 @@ export async function GET(request: NextRequest) {
     campaigns: selectedCampaigns.rows ?? [],
   });
 
-  const payload = attachAnalysisSource(
-    buildMetaRecommendations({
-      windows: {
-        selected: selectedCampaigns.rows ?? [],
-        previousSelected: previousSelectedCampaigns.rows ?? [],
-        last3: last3Campaigns.rows ?? [],
-        last7: last7Campaigns.rows ?? [],
-        last14: last14Campaigns.rows ?? [],
-        last30: last30Campaigns.rows ?? [],
-        last90: last90Campaigns.rows ?? [],
-        allHistory: allHistoryCampaigns.rows ?? [],
-      },
-      breakdowns,
-      creativeIntelligence,
-      historicalBidRegimes: Object.fromEntries(
-        (
-          await readMetaBidRegimeHistorySummaries({
+  const selectedCampaignRows = selectedCampaigns.rows ?? [];
+  const windows = {
+    selected: selectedCampaignRows,
+    previousSelected: previousSelectedCampaigns.rows ?? [],
+    last3: last3Campaigns.rows ?? [],
+    last7: last7Campaigns.rows ?? [],
+    last14: last14Campaigns.rows ?? [],
+    last30: last30Campaigns.rows ?? [],
+    last90: last90Campaigns.rows ?? [],
+    allHistory: allHistoryCampaigns.rows ?? [],
+  };
+  const selectedCampaignIds = selectedCampaignRows.map((row) => row.id);
+  const [selectedAdsets, previousSelectedAdsets] =
+    selectedCampaignIds.length > 0
+      ? await Promise.all([
+          getMetaAdSetsForRange({
             businessId,
-            entityLevel: "campaign",
-            entityIds: (selectedCampaigns.rows ?? []).map((row) => row.id),
-          })
-        ).entries()
-      ),
-      language,
-    }),
+            campaignIds: selectedCampaignIds,
+            startDate,
+            endDate,
+            includePrev: true,
+          }).catch((error) => {
+            console.warn("[meta-recommendations] selected_adsets_unavailable", {
+              businessId,
+              message: error instanceof Error ? error.message : String(error),
+            });
+            return { rows: [] };
+          }),
+          getMetaAdSetsForRange({
+            businessId,
+            campaignIds: selectedCampaignIds,
+            startDate: previousStart,
+            endDate: previousEnd,
+          }).catch((error) => {
+            console.warn("[meta-recommendations] previous_adsets_unavailable", {
+              businessId,
+              message: error instanceof Error ? error.message : String(error),
+            });
+            return { rows: [] };
+          }),
+        ])
+      : [{ rows: [] }, { rows: [] }];
+
+  const basePayload = buildMetaRecommendations({
+    windows,
+    breakdowns,
+    creativeIntelligence,
+    historicalBidRegimes: Object.fromEntries(
+      (
+        await readMetaBidRegimeHistorySummaries({
+          businessId,
+          entityLevel: "campaign",
+          entityIds: selectedCampaignRows.map((row) => row.id),
+        })
+      ).entries()
+    ),
+    language,
+  });
+  const adsetRecommendations = buildMetaAdsetRecommendations({
+    adsets: selectedAdsets.rows,
+    previousAdsets: previousSelectedAdsets.rows,
+    selectedCampaigns: selectedCampaignRows,
+    windows,
+    selectedRangeDays: selectedSpanDays,
+  });
+  const payload = attachAnalysisSource(
+    appendAdsetRecommendations(basePayload, adsetRecommendations),
     {
       businessId,
       startDate,

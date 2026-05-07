@@ -1307,8 +1307,15 @@ export function getDemoMetaAdSets(campaignId?: string | null): MetaAdSetData[] {
     },
   ];
 
-  if (!campaignId) return rows;
-  return rows.filter((row) => row.campaignId === campaignId);
+  const enrichedRows = rows.map((row) => ({
+    ...row,
+    currency: "USD",
+    frequency: row.frequency ?? null,
+    ageDays: row.ageDays ?? 30,
+  }));
+
+  if (!campaignId) return enrichedRows;
+  return enrichedRows.filter((row) => row.campaignId === campaignId);
 }
 
 export function getDemoMetaCreatives() {

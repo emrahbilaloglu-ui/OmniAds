@@ -68,6 +68,14 @@ function r2(value: number) {
   return Math.round(value * 100) / 100;
 }
 
+function ageDaysBetween(start: string | null | undefined, endDate: string) {
+  if (!start) return null;
+  const startMs = new Date(start).getTime();
+  const endMs = new Date(`${normalizeMetaServingDate(endDate)}T00:00:00.000Z`).getTime();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
+  return Math.max(1, Math.floor((endMs - startMs) / 86_400_000) + 1);
+}
+
 function buildFreshnessFromRows(
   rows: Array<{ updatedAt?: string }>,
   fallbackState: MetaWarehouseFreshness["dataState"] = "ready"
@@ -311,6 +319,7 @@ export interface MetaWarehouseAdSetTableRow {
   campaignId: string;
   status: string;
   budgetLevel?: "campaign" | "adset" | null;
+  currency?: string | null;
   dailyBudget: number | null;
   lifetimeBudget: number | null;
   optimizationGoal: string | null;
@@ -340,6 +349,8 @@ export interface MetaWarehouseAdSetTableRow {
   cpm: number;
   impressions: number;
   clicks: number;
+  frequency?: number | null;
+  ageDays?: number | null;
 }
 
 export interface MetaWarehouseBreakdownsResponse {
@@ -1719,6 +1730,7 @@ function buildAdSetTableRow(input: {
   row: MetaAdSetDailyRow;
   latestConfig?: MetaWarehouseCurrentConfig | null;
   previousConfig?: MetaWarehousePreviousConfig | null;
+  ageDays?: number | null;
 }): MetaWarehouseAdSetTableRow {
   const latest = input.latestConfig;
   const previous = input.previousConfig;
@@ -1729,6 +1741,7 @@ function buildAdSetTableRow(input: {
     campaignId: input.row.campaignId ?? "",
     status: input.row.adsetStatus ?? "UNKNOWN",
     budgetLevel: latest?.dailyBudget != null || latest?.lifetimeBudget != null ? "adset" : null,
+    currency: input.row.accountCurrency,
     dailyBudget: latest?.dailyBudget ?? null,
     lifetimeBudget: latest?.lifetimeBudget ?? null,
     optimizationGoal: latest?.optimizationGoal ?? null,
@@ -1758,6 +1771,8 @@ function buildAdSetTableRow(input: {
     cpm: input.row.impressions > 0 ? r2((input.row.spend / input.row.impressions) * 1000) : 0,
     impressions: input.row.impressions,
     clicks: input.row.clicks,
+    frequency: input.row.frequency,
+    ageDays: input.ageDays ?? null,
   };
 }
 
@@ -1817,6 +1832,7 @@ export async function getMetaWarehouseAdSets(input: {
     const purchases = dailyRows.reduce((sum, row) => sum + row.conversions, 0);
     const impressions = dailyRows.reduce((sum, row) => sum + row.impressions, 0);
     const clicks = dailyRows.reduce((sum, row) => sum + row.clicks, 0);
+    const reach = dailyRows.reduce((sum, row) => sum + row.reach, 0);
     return {
       ...latest,
       spend,
@@ -1828,6 +1844,8 @@ export async function getMetaWarehouseAdSets(input: {
       cpa: purchases > 0 ? r2(spend / purchases) : null,
       ctr: impressions > 0 ? r2((clicks / impressions) * 100) : null,
       cpc: clicks > 0 ? r2(spend / clicks) : null,
+      reach,
+      frequency: reach > 0 ? r2(impressions / reach) : latest.frequency,
     };
   });
 
@@ -1869,16 +1887,17 @@ export async function getMetaWarehouseAdSets(input: {
   ]);
 
   return aggregated
-    .map((row) =>
-      buildAdSetTableRow({
+    .map((row) => {
+      const dimension = dimensions.get(row.adsetId);
+      return buildAdSetTableRow({
         row: {
           ...row,
-          campaignId: dimensions.get(row.adsetId)?.campaignId ?? row.campaignId,
+          campaignId: dimension?.campaignId ?? row.campaignId,
           adsetNameCurrent:
-            dimensions.get(row.adsetId)?.adsetNameCurrent ?? row.adsetNameCurrent,
+            dimension?.adsetNameCurrent ?? row.adsetNameCurrent,
           adsetNameHistorical:
-            dimensions.get(row.adsetId)?.adsetNameHistorical ?? row.adsetNameHistorical,
-          adsetStatus: dimensions.get(row.adsetId)?.adsetStatus ?? row.adsetStatus,
+            dimension?.adsetNameHistorical ?? row.adsetNameHistorical,
+          adsetStatus: dimension?.adsetStatus ?? row.adsetStatus,
         },
         latestConfig: latestConfigHistory.get(row.adsetId)
           ? buildCurrentConfigFromSnapshot(latestConfigHistory.get(row.adsetId)!)
@@ -1886,8 +1905,9 @@ export async function getMetaWarehouseAdSets(input: {
         previousConfig: input.includePrev
           ? mergePreviousConfig(null, previousHistoryDiffs.get(row.adsetId))
           : null,
-      })
-    )
+        ageDays: ageDaysBetween(dimension?.firstSeenAt, input.endDate),
+      });
+    })
     .sort((a, b) => b.spend - a.spend);
 }
 

@@ -245,8 +245,9 @@ export interface MetaAdSetData extends MetaMetricsData {
   campaignId: string;
   status: string;
   budgetLevel?: "campaign" | "adset" | null;
-  dailyBudget: number | null;    // USD, null when lifetime budget is used
-  lifetimeBudget: number | null; // USD, null when daily budget is used
+  dailyBudget: number | null;    // account-currency minor units, null when lifetime budget is used
+  lifetimeBudget: number | null; // account-currency minor units, null when daily budget is used
+  currency?: string | null;
   optimizationGoal: string | null;
   bidStrategyType: string | null;
   bidStrategyLabel: string | null;
@@ -267,6 +268,12 @@ export interface MetaAdSetData extends MetaMetricsData {
   isBidValueMixed?: boolean;
   /** CTR (Link click-through rate) — inline_link_click_ctr from Meta API. Null for warehouse data. */
   inlineLinkClickCtr?: number | null;
+  frequency?: number | null;
+  ageDays?: number | null;
+  audienceLabel?: string | null;
+  ctrDecay14d?: number | null;
+  winRate?: number | null;
+  dailyTargetImpressions?: number | null;
 }
 
 export interface MetaBreakdownRow extends MetaMetricsData {
@@ -313,6 +320,8 @@ interface RawAdSetInsight {
   adset_id?: string;
   adset_name?: string;
   campaign_id?: string;
+  reach?: string;
+  frequency?: string;
   spend?: string;
   ctr?: string;
   inline_link_click_ctr?: string;
@@ -330,6 +339,7 @@ interface RawAdSet {
   campaign_id?: string;
   status?: string;
   effective_status?: string;
+  created_time?: string;
   daily_budget?: string;
   lifetime_budget?: string;
   optimization_goal?: string;
@@ -840,6 +850,14 @@ function isSingleDayWindow(since: string, until: string) {
 
 function isCurrentDayForTimezone(date: string, timeZone?: string | null) {
   return normalizeMetaApiDate(date) === getTodayIsoForTimeZone(timeZone);
+}
+
+function ageDaysFromCreatedTime(createdTime: string | null | undefined, until: string) {
+  if (!createdTime) return null;
+  const created = new Date(createdTime).getTime();
+  const end = new Date(`${normalizeMetaApiDate(until)}T00:00:00.000Z`).getTime();
+  if (!Number.isFinite(created) || !Number.isFinite(end)) return null;
+  return Math.max(1, Math.floor((end - created) / 86_400_000) + 1);
 }
 
 function resolveMetaAuthoritativeSourceWindowKind(input: {
@@ -4388,7 +4406,7 @@ export async function getAdSets(
       );
       statusUrl.searchParams.set(
         "fields",
-        "id,name,campaign_id,effective_status,status,daily_budget,lifetime_budget,optimization_goal,bid_strategy,bid_amount,bid_constraints{roas_average_floor}"
+        "id,name,campaign_id,effective_status,status,created_time,daily_budget,lifetime_budget,optimization_goal,bid_strategy,bid_amount,bid_constraints{roas_average_floor}"
       );
       statusUrl.searchParams.set("limit", "200");
       statusUrl.searchParams.set("access_token", credentials.accessToken);
@@ -4400,7 +4418,7 @@ export async function getAdSets(
       insightUrl.searchParams.set("level", "adset");
       insightUrl.searchParams.set(
         "fields",
-        "adset_id,adset_name,campaign_id,spend,ctr,inline_link_click_ctr,cpm,impressions,clicks,actions,action_values,purchase_roas"
+        "adset_id,adset_name,campaign_id,reach,frequency,spend,ctr,inline_link_click_ctr,cpm,impressions,clicks,actions,action_values,purchase_roas"
       );
       if (campaignId) {
         insightUrl.searchParams.set(
@@ -4440,7 +4458,7 @@ export async function getAdSets(
           payload: statusJson.data ?? [],
           status: statusRes.ok ? "fetched" : "failed",
           providerHttpStatus: statusRes.status,
-          requestContext: { campaignId, fields: "id,name,campaign_id,effective_status,status,daily_budget,lifetime_budget,optimization_goal,bid_strategy,bid_amount,bid_constraints{roas_average_floor}" },
+          requestContext: { campaignId, fields: "id,name,campaign_id,effective_status,status,created_time,daily_budget,lifetime_budget,optimization_goal,bid_strategy,bid_amount,bid_constraints{roas_average_floor}" },
         });
         await recordMetaRawSnapshot({
           credentials,
@@ -4533,6 +4551,14 @@ export async function getAdSets(
           const campaignConfig = campaignConfigs.get(resolvedCampaignId) ?? null;
           const previousDiff = previousDiffs.get(adsetId);
           const previousCampaignDiff = previousCampaignDiffs.get(resolvedCampaignId);
+          const accountCurrency = profile?.currency ?? credentials.currency ?? "USD";
+          const reach = Math.round(parseNum(insight.reach));
+          const frequency =
+            insight.frequency != null
+              ? r2(parseNum(insight.frequency))
+              : reach > 0 && insight.impressions != null
+                ? r2(parseNum(insight.impressions) / reach)
+                : null;
           const usesCampaignBudgetFallback =
             meta?.daily_budget == null &&
             meta?.lifetime_budget == null &&
@@ -4556,6 +4582,7 @@ export async function getAdSets(
               campaignConfig?.status ??
               "UNKNOWN",
             budgetLevel: usesCampaignBudgetFallback ? "campaign" : "adset",
+            currency: accountCurrency,
             dailyBudget: config.dailyBudget,
             lifetimeBudget: config.lifetimeBudget,
             optimizationGoal: config.optimizationGoal,
@@ -4590,6 +4617,8 @@ export async function getAdSets(
             isOptimizationGoalMixed: false,
             isBidStrategyMixed: false,
             isBidValueMixed: false,
+            frequency,
+            ageDays: ageDaysFromCreatedTime(meta?.created_time, normalizedUntil),
             ...buildMetrics({
               spend_str: insight.spend,
               ctr_str: insight.ctr,
@@ -4621,12 +4650,14 @@ export async function getAdSets(
               adsetNameHistorical: row.name,
               adsetStatus: row.status,
               accountTimezone: profile?.timezone ?? "UTC",
-              accountCurrency: profile?.currency ?? credentials.currency ?? "USD",
+              accountCurrency: row.currency ?? profile?.currency ?? credentials.currency ?? "USD",
               spend: row.spend,
               impressions: row.impressions,
               clicks: row.clicks,
-              reach: row.impressions,
-              frequency: null,
+              reach: row.frequency != null && row.frequency > 0
+                ? Math.round(row.impressions / row.frequency)
+                : row.impressions,
+              frequency: row.frequency ?? null,
               conversions: row.purchases,
               revenue: row.revenue,
               roas: row.roas,

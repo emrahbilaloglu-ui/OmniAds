@@ -2603,6 +2603,18 @@ export async function runMigrations(options?: {
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_decision_snapshots_daily_business_date
           ON meta_decision_snapshots_daily (business_id, snapshot_date)`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_snapshots_daily
+          ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'recommendation'
+          CHECK (kind IN ('recommendation', 'anomaly'))`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_snapshots_daily
+          ADD COLUMN IF NOT EXISTS severity TEXT
+          CHECK (severity IS NULL OR severity IN ('high', 'medium', 'low'))`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_snapshots_daily
+          ADD COLUMN IF NOT EXISTS diagnostics JSONB NOT NULL DEFAULT '[]'::jsonb`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_snapshots_daily
+          ADD COLUMN IF NOT EXISTS detected_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_snapshots_daily
+          ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_decision_calibration_daily (
           business_id   TEXT NOT NULL,
           scope_type    TEXT NOT NULL CHECK (scope_type IN ('account', 'campaign')),

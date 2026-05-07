@@ -13,6 +13,11 @@ import {
   runMetaCalibrationForBusiness,
   type RunMetaCalibrationResult,
 } from "@/lib/meta/calibration";
+import {
+  detectAnomaliesForBusiness,
+  type MetaAnomaly,
+  type MetaAnomalySeverity,
+} from "@/lib/meta/anomalies";
 import { buildMetaAdsetRecommendations } from "@/lib/meta/adset-decisions";
 import {
   buildMetaRecommendations,
@@ -32,6 +37,7 @@ export interface RunMetaSnapshotResult {
   snapshotDate: string;
   calibration: RunMetaCalibrationResult;
   recommendationsWritten: number;
+  anomaliesWritten: number;
 }
 
 export interface RunMetaSnapshotAllBusinessesResult {
@@ -63,6 +69,7 @@ type SnapshotDbRow = {
   predictive_overlay: string | null;
   engine_version: string;
   created_at: string;
+  kind?: "recommendation" | "anomaly";
 };
 
 interface SnapshotPayloadRow {
@@ -82,6 +89,11 @@ interface SnapshotPayloadRow {
   reasoning: string;
   predictive_overlay: string | null;
   engine_version: string;
+  kind: "recommendation" | "anomaly";
+  severity?: MetaAnomalySeverity | null;
+  diagnostics?: string[];
+  detected_at?: string | null;
+  resolved_at?: string | null;
 }
 
 function parseISODate(value: string): Date {
@@ -159,6 +171,49 @@ function recommendationToSnapshotRow(
       null,
     engine_version:
       recommendation.engineVersion ?? META_RECOMMENDATION_ENGINE_VERSION,
+    kind: "recommendation",
+  };
+}
+
+function decisionStateForAnomaly(severity: MetaAnomalySeverity): MetaRecommendation["decisionState"] {
+  if (severity === "high") return "act";
+  if (severity === "medium") return "test";
+  return "watch";
+}
+
+function confidenceForAnomaly(severity: MetaAnomalySeverity) {
+  if (severity === "high") return 0.85;
+  if (severity === "medium") return 0.65;
+  return 0.45;
+}
+
+function anomalyToSnapshotRow(
+  anomaly: MetaAnomaly,
+  businessId: string,
+  snapshotDate: string,
+): SnapshotPayloadRow {
+  return {
+    scope_type: anomaly.scopeType,
+    scope_id: anomaly.scopeId,
+    business_id: businessId,
+    snapshot_date: snapshotDate,
+    rec_id: anomaly.id,
+    rec_type: anomaly.type,
+    level: anomaly.scopeType,
+    decision_state: decisionStateForAnomaly(anomaly.severity),
+    confidence_score: confidenceForAnomaly(anomaly.severity),
+    evidence: { anomaly },
+    recommended_action: anomaly.title,
+    target_value: null,
+    expected_impact: null,
+    reasoning: anomaly.detail,
+    predictive_overlay: "Diagnose-first anomaly signal.",
+    engine_version: META_RECOMMENDATION_ENGINE_VERSION,
+    kind: "anomaly",
+    severity: anomaly.severity,
+    diagnostics: anomaly.diagnostics,
+    detected_at: anomaly.detectedAt,
+    resolved_at: anomaly.resolvedAt ?? null,
   };
 }
 
@@ -168,12 +223,114 @@ async function upsertSnapshotRows(input: {
   rows: SnapshotPayloadRow[];
 }) {
   const sql = getDb();
+  const recommendationRows = input.rows.filter((row) => row.kind === "recommendation");
+  const anomalyRows = input.rows.filter((row) => row.kind === "anomaly");
+
   await sql`
     DELETE FROM meta_decision_snapshots_daily
     WHERE business_id = ${input.businessId}
       AND snapshot_date = ${input.snapshotDate}::date
+      AND kind = 'recommendation'
   `;
-  if (input.rows.length === 0) return;
+  if (recommendationRows.length > 0) {
+    await sql.query(
+      `
+        WITH payload AS (
+          SELECT *
+          FROM jsonb_to_recordset($1::jsonb) AS row(
+            scope_type text,
+            scope_id text,
+            business_id text,
+            snapshot_date date,
+            rec_id text,
+            rec_type text,
+            level text,
+            decision_state text,
+            confidence_score numeric,
+            evidence jsonb,
+            recommended_action text,
+            target_value jsonb,
+            expected_impact text,
+            reasoning text,
+            predictive_overlay text,
+            engine_version text,
+            kind text
+          )
+        )
+        INSERT INTO meta_decision_snapshots_daily (
+          scope_type,
+          scope_id,
+          business_id,
+          snapshot_date,
+          rec_id,
+          rec_type,
+          level,
+          decision_state,
+          confidence_score,
+          evidence,
+          recommended_action,
+          target_value,
+          expected_impact,
+          reasoning,
+          predictive_overlay,
+          engine_version,
+          kind
+        )
+        SELECT
+          scope_type,
+          scope_id,
+          business_id,
+          snapshot_date,
+          rec_id,
+          rec_type,
+          level,
+          decision_state,
+          confidence_score,
+          evidence,
+          recommended_action,
+          target_value,
+          expected_impact,
+          reasoning,
+          predictive_overlay,
+          engine_version,
+          kind
+        FROM payload
+        ON CONFLICT (scope_type, scope_id, snapshot_date, rec_type)
+        DO UPDATE SET
+          business_id = EXCLUDED.business_id,
+          rec_id = EXCLUDED.rec_id,
+          level = EXCLUDED.level,
+          decision_state = EXCLUDED.decision_state,
+          confidence_score = EXCLUDED.confidence_score,
+          evidence = EXCLUDED.evidence,
+          recommended_action = EXCLUDED.recommended_action,
+          target_value = EXCLUDED.target_value,
+          expected_impact = EXCLUDED.expected_impact,
+          reasoning = EXCLUDED.reasoning,
+          predictive_overlay = EXCLUDED.predictive_overlay,
+          engine_version = EXCLUDED.engine_version,
+          kind = EXCLUDED.kind,
+          severity = NULL,
+          diagnostics = '[]'::jsonb,
+          detected_at = NULL,
+          resolved_at = NULL,
+          created_at = now()
+      `,
+      [JSON.stringify(recommendationRows)],
+    );
+  }
+
+  if (anomalyRows.length === 0) {
+    await sql`
+      UPDATE meta_decision_snapshots_daily
+      SET resolved_at = now()
+      WHERE business_id = ${input.businessId}
+        AND snapshot_date = ${input.snapshotDate}::date
+        AND kind = 'anomaly'
+        AND resolved_at IS NULL
+    `;
+    return;
+  }
 
   await sql.query(
     `
@@ -195,8 +352,29 @@ async function upsertSnapshotRows(input: {
           expected_impact text,
           reasoning text,
           predictive_overlay text,
-          engine_version text
+          engine_version text,
+          kind text,
+          severity text,
+          diagnostics jsonb,
+          detected_at timestamptz,
+          resolved_at timestamptz
         )
+      ),
+      resolved AS (
+        UPDATE meta_decision_snapshots_daily existing
+        SET resolved_at = now()
+        WHERE existing.business_id = $2
+          AND existing.snapshot_date = $3::date
+          AND existing.kind = 'anomaly'
+          AND existing.resolved_at IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM payload
+            WHERE payload.scope_type = existing.scope_type
+              AND payload.scope_id = existing.scope_id
+              AND payload.rec_type = existing.rec_type
+          )
+        RETURNING existing.rec_id
       )
       INSERT INTO meta_decision_snapshots_daily (
         scope_type,
@@ -214,7 +392,12 @@ async function upsertSnapshotRows(input: {
         expected_impact,
         reasoning,
         predictive_overlay,
-        engine_version
+        engine_version,
+        kind,
+        severity,
+        diagnostics,
+        detected_at,
+        resolved_at
       )
       SELECT
         scope_type,
@@ -232,7 +415,12 @@ async function upsertSnapshotRows(input: {
         expected_impact,
         reasoning,
         predictive_overlay,
-        engine_version
+        engine_version,
+        kind,
+        severity,
+        diagnostics,
+        detected_at,
+        resolved_at
       FROM payload
       ON CONFLICT (scope_type, scope_id, snapshot_date, rec_type)
       DO UPDATE SET
@@ -248,9 +436,14 @@ async function upsertSnapshotRows(input: {
         reasoning = EXCLUDED.reasoning,
         predictive_overlay = EXCLUDED.predictive_overlay,
         engine_version = EXCLUDED.engine_version,
+        kind = EXCLUDED.kind,
+        severity = EXCLUDED.severity,
+        diagnostics = EXCLUDED.diagnostics,
+        detected_at = EXCLUDED.detected_at,
+        resolved_at = NULL,
         created_at = now()
     `,
-    [JSON.stringify(input.rows)],
+    [JSON.stringify(anomalyRows), input.businessId, input.snapshotDate],
   );
 }
 
@@ -413,9 +606,19 @@ export async function runMetaSnapshotForBusiness(
     businessId,
     snapshotDate: normalizedSnapshotDate,
   });
-  const rows = recommendations.map((recommendation) =>
-    recommendationToSnapshotRow(recommendation, businessId, normalizedSnapshotDate),
-  );
+  const anomalies = await detectAnomaliesForBusiness({
+    businessId,
+    snapshotDate: normalizedSnapshotDate,
+    calibrationContext: null,
+  });
+  const rows = [
+    ...recommendations.map((recommendation) =>
+      recommendationToSnapshotRow(recommendation, businessId, normalizedSnapshotDate),
+    ),
+    ...anomalies.map((anomaly) =>
+      anomalyToSnapshotRow(anomaly, businessId, normalizedSnapshotDate),
+    ),
+  ];
   await upsertSnapshotRows({
     businessId,
     snapshotDate: normalizedSnapshotDate,
@@ -425,7 +628,8 @@ export async function runMetaSnapshotForBusiness(
     businessId,
     snapshotDate: normalizedSnapshotDate,
     calibration,
-    recommendationsWritten: rows.length,
+    recommendationsWritten: recommendations.length,
+    anomaliesWritten: anomalies.length,
   };
 }
 
@@ -607,6 +811,7 @@ export async function readMetaDecisionSnapshotForRange(input: {
       SELECT MAX(snapshot_date) AS snapshot_date
       FROM meta_decision_snapshots_daily
       WHERE business_id = ${input.businessId}
+        AND kind = 'recommendation'
         AND snapshot_date BETWEEN ${normalizeDate(input.startDate)}::date AND ${normalizeDate(input.endDate)}::date
     )
     SELECT
@@ -630,6 +835,7 @@ export async function readMetaDecisionSnapshotForRange(input: {
     FROM meta_decision_snapshots_daily
     WHERE business_id = ${input.businessId}
       AND snapshot_date = (SELECT snapshot_date FROM latest)
+      AND kind = 'recommendation'
     ORDER BY
       CASE decision_state
         WHEN 'act' THEN 3

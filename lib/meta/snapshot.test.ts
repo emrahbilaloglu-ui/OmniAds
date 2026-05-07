@@ -39,6 +39,10 @@ vi.mock("@/lib/meta/config-snapshots", () => ({
   readMetaBidRegimeHistorySummaries: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/anomalies", () => ({
+  detectAnomaliesForBusiness: vi.fn(),
+}));
+
 const db = await import("@/lib/db");
 const activeBusinesses = await import("@/lib/sync/active-businesses");
 const calibration = await import("@/lib/meta/calibration");
@@ -46,6 +50,7 @@ const campaignSource = await import("@/lib/meta/campaigns-source");
 const adsetsSource = await import("@/lib/meta/adsets-source");
 const breakdownsSource = await import("@/lib/meta/breakdowns-source");
 const configSnapshots = await import("@/lib/meta/config-snapshots");
+const anomalies = await import("@/lib/meta/anomalies");
 
 function makeSqlMock() {
   const calls: string[] = [];
@@ -148,6 +153,7 @@ describe("meta snapshot job", () => {
       products: { available: false },
     } as never);
     vi.mocked(configSnapshots.readMetaBidRegimeHistorySummaries).mockResolvedValue(new Map());
+    vi.mocked(anomalies.detectAnomaliesForBusiness).mockResolvedValue([]);
   });
 
   it("deletes and rewrites same-day rows on re-run", async () => {
@@ -209,5 +215,74 @@ describe("meta snapshot job", () => {
     expect(result.businessCount).toBe(2);
     expect(result.results.map((item) => item.status)).toEqual(["fulfilled", "rejected"]);
     expect(result.results[1]?.reason).toContain("calibration failed");
+  });
+
+  it("persists anomaly rows alongside recommendation rows", async () => {
+    const sql = makeSqlMock();
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+    vi.mocked(anomalies.detectAnomaliesForBusiness).mockResolvedValue([
+      {
+        id: "meta_anomaly_2026-05-06_campaign_cmp_1_roas_drop_sudden",
+        type: "roas_drop_sudden",
+        scopeType: "campaign",
+        scopeId: "cmp_1",
+        scopeLabel: "Campaign 1",
+        severity: "high",
+        kind: "anomaly",
+        title: "Sudden ROAS drop",
+        detail: "7d ROAS fell sharply.",
+        diagnostics: ["Tracking interruption candidate"],
+        detectedAt: "2026-05-06T03:00:00.000Z",
+      },
+    ]);
+
+    await runMetaSnapshotForBusiness("biz_1", "2026-05-06");
+
+    const payloads = sql.queryPayloads
+      .filter(Boolean)
+      .map((payload) => JSON.parse(String(payload)) as Array<Record<string, unknown>>);
+    const anomalyPayload = payloads.flat().find((row) => row.kind === "anomaly");
+
+    expect(anomalyPayload).toMatchObject({
+      kind: "anomaly",
+      rec_type: "roas_drop_sudden",
+      severity: "high",
+      diagnostics: ["Tracking interruption candidate"],
+      detected_at: "2026-05-06T03:00:00.000Z",
+    });
+  });
+
+  it("marks previously active anomalies resolved when absent on rerun", async () => {
+    const sql = makeSqlMock();
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+    vi.mocked(anomalies.detectAnomaliesForBusiness)
+      .mockResolvedValueOnce([
+        {
+          id: "meta_anomaly_2026-05-06_campaign_cmp_1_roas_drop_sudden",
+          type: "roas_drop_sudden",
+          scopeType: "campaign",
+          scopeId: "cmp_1",
+          scopeLabel: "Campaign 1",
+          severity: "medium",
+          kind: "anomaly",
+          title: "Sudden ROAS drop",
+          detail: "7d ROAS fell.",
+          diagnostics: ["Recent bid change candidate"],
+          detectedAt: "2026-05-06T03:00:00.000Z",
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    await runMetaSnapshotForBusiness("biz_1", "2026-05-06");
+    await runMetaSnapshotForBusiness("biz_1", "2026-05-06");
+
+    expect(
+      sql.calls.some(
+        (text) =>
+          text.includes("SET resolved_at = now()") &&
+          text.includes("kind = 'anomaly'") &&
+          text.includes("resolved_at IS NULL"),
+      ),
+    ).toBe(true);
   });
 });

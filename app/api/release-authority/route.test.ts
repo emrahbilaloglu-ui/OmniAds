@@ -212,7 +212,7 @@ describe("GET /api/release-authority", () => {
         surfaces: [
           {
             id: "copies",
-            label: "/copies",
+            label: "/platforms/meta/copies",
             area: "copy",
             repositoryState: "merged",
             runtimeState: "live",

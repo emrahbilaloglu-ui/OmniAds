@@ -1422,6 +1422,8 @@ export async function runMigrations(options?: {
           ON meta_ads_action_log (business_id, requested_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_ads_action_log_ad
           ON meta_ads_action_log (ad_id, requested_at DESC)`.catch(() => {}),
+        sql`ALTER TABLE meta_ads_action_log
+          ADD COLUMN IF NOT EXISTS rec_id_origin TEXT`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_launch_drafts (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
@@ -2581,6 +2583,71 @@ export async function runMigrations(options?: {
           ON meta_adset_daily (business_id, provider_account_id, date DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_adset_daily_business_date_adset
           ON meta_adset_daily (business_id, date DESC, adset_id)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_decision_snapshots_daily (
+          scope_type          TEXT NOT NULL CHECK (scope_type IN ('account', 'campaign', 'adset')),
+          scope_id            TEXT NOT NULL,
+          business_id         TEXT NOT NULL,
+          snapshot_date       DATE NOT NULL,
+          rec_id              TEXT NOT NULL,
+          rec_type            TEXT NOT NULL,
+          level               TEXT NOT NULL,
+          decision_state      TEXT NOT NULL CHECK (decision_state IN ('act', 'test', 'watch')),
+          confidence_score    NUMERIC NOT NULL CHECK (confidence_score BETWEEN 0 AND 1),
+          evidence            JSONB NOT NULL DEFAULT '{}'::jsonb,
+          recommended_action  TEXT NOT NULL,
+          target_value        JSONB,
+          expected_impact     TEXT,
+          reasoning           TEXT NOT NULL,
+          predictive_overlay  TEXT,
+          engine_version      TEXT NOT NULL,
+          created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (scope_type, scope_id, snapshot_date, rec_type)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_decision_snapshots_daily_business_date
+          ON meta_decision_snapshots_daily (business_id, snapshot_date)`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_snapshots_daily
+          ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'recommendation'
+          CHECK (kind IN ('recommendation', 'anomaly'))`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_snapshots_daily
+          ADD COLUMN IF NOT EXISTS severity TEXT
+          CHECK (severity IS NULL OR severity IN ('high', 'medium', 'low'))`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_snapshots_daily
+          ADD COLUMN IF NOT EXISTS diagnostics JSONB NOT NULL DEFAULT '[]'::jsonb`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_snapshots_daily
+          ADD COLUMN IF NOT EXISTS detected_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_snapshots_daily
+          ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_snapshots_daily
+          ADD COLUMN IF NOT EXISTS evidence_trail JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_snapshots_daily
+          ADD COLUMN IF NOT EXISTS campaign_role TEXT`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_snapshots_daily
+          ADD COLUMN IF NOT EXISTS bid_regime TEXT`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_decision_calibration_daily (
+          business_id   TEXT NOT NULL,
+          scope_type    TEXT NOT NULL CHECK (scope_type IN ('account', 'campaign')),
+          scope_id      TEXT NOT NULL,
+          snapshot_date DATE NOT NULL,
+          metric_name   TEXT NOT NULL,
+          p10           NUMERIC NOT NULL,
+          p25           NUMERIC NOT NULL,
+          p50           NUMERIC NOT NULL,
+          p75           NUMERIC NOT NULL,
+          p90           NUMERIC NOT NULL,
+          sample_size   INTEGER NOT NULL,
+          PRIMARY KEY (business_id, scope_type, scope_id, snapshot_date, metric_name)
+        )`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_decision_responses (
+          rec_id         TEXT NOT NULL,
+          business_id    TEXT NOT NULL,
+          action         TEXT NOT NULL CHECK (action IN ('acted', 'deferred', 'undeferred', 'ignored')),
+          action_subtype TEXT,
+          timestamp      TIMESTAMPTZ NOT NULL DEFAULT now(),
+          reappear_at    TIMESTAMPTZ,
+          PRIMARY KEY (rec_id, action, timestamp)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_decision_responses_business_timestamp
+          ON meta_decision_responses (business_id, timestamp)`.catch(() => {}),
         sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS optimization_goal TEXT`.catch(() => {}),
         sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS bid_strategy_type TEXT`.catch(() => {}),
         sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS bid_strategy_label TEXT`.catch(() => {}),

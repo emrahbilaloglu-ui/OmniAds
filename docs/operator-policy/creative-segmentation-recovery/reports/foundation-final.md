@@ -27,8 +27,8 @@ Branch: `feature/adsecute-creative-segmentation-recovery-foundation`
 ## Tests Run
 
 - `npx vitest run lib/creative-operator-policy.test.ts lib/creative-operator-surface.test.ts` - passed, 23 tests.
-- `npx vitest run lib/creative-operator-policy.test.ts lib/creative-operator-surface.test.ts components/creatives/CreativeDecisionOsOverview.test.tsx` - passed, 24 tests.
-- `npx vitest run lib/creative-decision-os.test.ts components/creatives/CreativeDecisionOsOverview.test.tsx components/creatives/CreativesTableSection.test.tsx` - passed, 12 tests.
+- `npx vitest run lib/creative-operator-policy.test.ts lib/creative-operator-surface.test.ts components/platforms/meta/creatives/CreativeDecisionOsOverview.test.tsx` - passed, 24 tests.
+- `npx vitest run lib/creative-decision-os.test.ts components/platforms/meta/creatives/CreativeDecisionOsOverview.test.tsx components/platforms/meta/creatives/CreativesTableSection.test.tsx` - passed, 12 tests.
 - `npx vitest run lib/command-center.test.ts` - passed, 39 tests.
 - `npm test` - passed, 292 files and 2008 tests.
 - `npx tsc --noEmit` - passed.

@@ -72,7 +72,7 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
     runtimeState: "legacy",
     docsState: "current",
     references: [
-      { kind: "page", path: "app/(dashboard)/creatives/page.tsx", label: "Creatives page" },
+      { kind: "page", path: "app/(dashboard)/platforms/meta/creatives/page.tsx", label: "Creatives page" },
       { kind: "component", path: "lib/archive/v1-v2-v21/components/creatives/CreativeDecisionOsOverview.tsx", label: "Archived Creative Decision OS overview" },
       { kind: "component", path: "lib/archive/v1-v2-v21/components/creatives/CreativeDecisionOsDrawer.tsx", label: "Archived Creative Decision OS drawer" },
       { kind: "api", path: "lib/archive/v1-v2-v21/app/api/creatives/decision-os/route.ts", label: "Archived Creative Decision OS route" },
@@ -112,7 +112,7 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
     runtimeState: "live",
     docsState: "current",
     references: [
-      { kind: "page", path: "app/(dashboard)/creatives/page.tsx", label: "Creatives page" },
+      { kind: "page", path: "app/(dashboard)/platforms/meta/creatives/page.tsx", label: "Creatives page" },
       { kind: "component", path: "components/creatives/CreativeDetailExperience.tsx", label: "Creative detail experience" },
       { kind: "api", path: "app/api/ai/creatives/commentary/route.ts", label: "AI commentary route" },
       { kind: "doc", path: RELEASE_AUTHORITY_CANONICAL_DOC, label: "V3-01 authority doc" },
@@ -199,13 +199,13 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
   },
   {
     id: "copies",
-    label: "/copies",
+    label: "/platforms/meta/copies",
     area: "copy",
     repositoryState: "merged",
     runtimeState: "live",
     docsState: "current",
     references: [
-      { kind: "page", path: "app/(dashboard)/copies/page.tsx", label: "Copies page" },
+      { kind: "page", path: "app/(dashboard)/platforms/meta/copies/page.tsx", label: "Copies page" },
       { kind: "api", path: "app/api/meta/copies/route.ts", label: "Copies route" },
       { kind: "doc", path: RELEASE_AUTHORITY_CANONICAL_DOC, label: "V3-01 authority doc" },
       { kind: "doc", path: "docs/phase-04-creative-action-contract.md", label: "Phase 04 creative action contract" },
@@ -214,7 +214,7 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
     ],
     notes: [
       "The surface remains live and intentionally unchanged in this phase.",
-      "Authority coverage is explicit so /copies cannot disappear into baseline ambiguity.",
+      "Authority coverage is explicit so /platforms/meta/copies cannot disappear into baseline ambiguity.",
     ],
   },
 ];

@@ -50,11 +50,11 @@ No merge conflicts occurred.
 
 The merge brought in the PR #81 changed files relative to PR #78:
 
-- `app/(dashboard)/creatives/page.test.tsx`
-- `app/(dashboard)/creatives/page.tsx`
+- `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx`
+- `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx`
 - `app/api/creatives/decision-os-v2/preview/route.test.ts`
 - `app/api/creatives/decision-os-v2/preview/route.ts`
-- `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx`
+- `components/platforms/meta/creatives/CreativeDecisionOsV2PreviewSurface.tsx`
 - `lib/creative-decision-os-v2-preview.test.tsx`
 - `lib/creative-decision-os-v2-preview.ts`
 - `src/services/data-service-ai.ts`
@@ -89,9 +89,9 @@ npx tsc --noEmit
 npm run build
 npx vitest run lib/creative-decision-os-v2.test.ts \
   lib/creative-decision-os-v2-preview.test.tsx \
-  components/creatives/CreativeDecisionSupportSurface.test.tsx \
-  components/creatives/CreativesTableSection.test.tsx \
-  app/'(dashboard)'/creatives/page.test.tsx \
+  components/platforms/meta/creatives/CreativeDecisionSupportSurface.test.tsx \
+  components/platforms/meta/creatives/CreativesTableSection.test.tsx \
+  app/'(dashboard)'/platforms/meta/creatives/page.test.tsx \
   app/api/creatives/decision-os-v2/preview/route.test.ts
 node --import tsx scripts/creative-decision-os-v2-gold-eval.ts
 node <targeted changed-file hygiene scan>
@@ -107,9 +107,9 @@ npx tsc --noEmit
 npm run build
 npx vitest run lib/creative-decision-os-v2.test.ts \
   lib/creative-decision-os-v2-preview.test.tsx \
-  components/creatives/CreativeDecisionSupportSurface.test.tsx \
-  components/creatives/CreativesTableSection.test.tsx \
-  app/'(dashboard)'/creatives/page.test.tsx \
+  components/platforms/meta/creatives/CreativeDecisionSupportSurface.test.tsx \
+  components/platforms/meta/creatives/CreativesTableSection.test.tsx \
+  app/'(dashboard)'/platforms/meta/creatives/page.test.tsx \
   app/api/creatives/decision-os-v2/preview/route.test.ts
 node --import tsx scripts/creative-decision-os-v2-gold-eval.ts
 node <targeted changed-file hygiene scan>

@@ -3,6 +3,8 @@ import { getActiveBusinesses } from "@/lib/sync/active-businesses";
 import { evaluateAndPersistGoogleAdsControlPlane } from "@/lib/google-ads/control-plane-runtime";
 import { enqueueMetaScheduledWork } from "@/lib/sync/meta-sync";
 import { enqueueGoogleAdsScheduledWork } from "@/lib/sync/google-ads-sync";
+import { runMetaSnapshotJobIfDue } from "@/lib/meta/scheduled";
+import { runMetaDecisionIgnoredMarkerIfDue } from "@/lib/meta/decision-responses";
 import { syncGA4Reports } from "@/lib/sync/ga4-sync";
 import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
 import { syncShopifyCommerceReports } from "@/lib/sync/shopify-sync";
@@ -212,6 +214,24 @@ export async function POST(request: NextRequest) {
   const summary = results.map((r) =>
     r.status === "fulfilled" ? r.value : { error: String(r.reason) }
   );
+  const metaSnapshotJob = await runMetaSnapshotJobIfDue().catch((error) => {
+    console.error("[sync-cron] meta_snapshot_job_failed", error);
+    return {
+      skipped: true,
+      reason: "failed" as const,
+      snapshotDate: new Date().toISOString().slice(0, 10),
+      error: error instanceof Error ? error.message : String(error),
+    };
+  });
+  const metaIgnoredMarkerJob = await runMetaDecisionIgnoredMarkerIfDue().catch((error) => {
+    console.error("[sync-cron] meta_decision_ignored_marker_failed", error);
+    return {
+      skipped: true,
+      reason: "failed" as const,
+      snapshotDate: new Date().toISOString().slice(0, 10),
+      error: error instanceof Error ? error.message : String(error),
+    };
+  });
 
   const shouldEnforceSoakGate =
     process.env.SYNC_CRON_ENFORCE_SOAK_GATE?.trim() === "true";
@@ -330,6 +350,11 @@ export async function POST(request: NextRequest) {
     repairRecommendationCount: repairPlan?.recommendations.length ?? null,
     googleReleaseGateVerdict: googleGateVerdicts?.releaseGate?.verdict ?? null,
     googleRepairRecommendationCount: googleRepairPlan?.recommendations.length ?? null,
+    metaSnapshotJobSkipped: metaSnapshotJob.skipped,
+    metaSnapshotJobReason: "reason" in metaSnapshotJob ? metaSnapshotJob.reason : null,
+    metaIgnoredMarkerJobSkipped: metaIgnoredMarkerJob.skipped,
+    metaIgnoredMarkerJobReason:
+      "reason" in metaIgnoredMarkerJob ? metaIgnoredMarkerJob.reason : null,
   });
   return NextResponse.json(
     {
@@ -343,6 +368,8 @@ export async function POST(request: NextRequest) {
       ...(googleRepairPlan ? { googleRepairPlan } : {}),
       ...(metaAutoRepair ? { metaAutoRepairResults: metaAutoRepair.results } : {}),
       ...(googleAutoRepair ? { googleAutoRepairResults: googleAutoRepair.results } : {}),
+      metaSnapshotJob,
+      metaIgnoredMarkerJob,
     },
     { status: soakGate?.outcome === "fail" ? 503 : 200 }
   );

@@ -14,9 +14,9 @@ Single-operator product (Erhan). This is a reference, not a tutorial. Reach for 
   - `GET /api/admin/engine-v3/readiness?businessId=…` — ops dashboard JSON (jobs + dataHealth + gating)
   - `PATCH /api/admin/engine-v3/preset` — body `{ businessId, preset: "aggressive"|"balanced"|"conservative"|null }` (admin-only)
 - **UI**:
-  - Strip: `components/creatives/CreativeDecisionEngineV3Surface.tsx` (preset dropdown + Account profile disclosure live here)
-  - Drawer evidence: `components/creatives/CreativeEngineV3EvidenceSection.tsx`
-  - Grid badges: `components/creatives/CreativeDecisionLabelBadge.tsx` (used by `CreativesTopGrid.tsx`)
+  - Strip: `components/platforms/meta/creatives/CreativeDecisionEngineV3Surface.tsx` (preset dropdown + Account profile disclosure live here)
+  - Drawer evidence: `components/platforms/meta/creatives/CreativeEngineV3EvidenceSection.tsx`
+  - Grid badges: `components/platforms/meta/creatives/CreativeDecisionLabelBadge.tsx` (used by `CreativesTopGrid.tsx`)
 
 ## Feature flags
 

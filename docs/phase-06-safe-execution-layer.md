@@ -27,7 +27,7 @@ Phase 06 extends Command Center from a deterministic decision queue into a human
 - Existing deterministic vs AI provenance split remains unchanged.
 - `Recommendations`, `Decision Signals`, and `AI Commentary` wording remains unchanged.
 - `Operating Mode`, Meta `Decision OS`, Creative `Decision OS`, and Command Center semantics remain unchanged.
-- `/copies`, export, and share truth surfaces remain unchanged.
+- `/platforms/meta/copies`, export, and share truth surfaces remain unchanged.
 - Apply never runs without explicit human approval.
 - Unsupported and manual-only actions never present as successful execution.
 - Rollback is only exposed when a real provider rollback path exists.

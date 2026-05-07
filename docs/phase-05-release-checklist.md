@@ -5,7 +5,7 @@
 - Run targeted Command Center tests plus existing Meta/Creative regression tests
 - Run `npm run test`
 - Run `npm run build`
-- Confirm export/share parity and `/copies` are unchanged
+- Confirm export/share parity and `/platforms/meta/copies` are unchanged
 
 ## Local Browser Smoke
 - Reviewer
@@ -50,6 +50,6 @@
 - deterministic/AI provenance boundary regresses
 - wording split or operating-mode semantics regress
 - export/share truth regresses
-- `/copies` risk worsens
+- `/platforms/meta/copies` risk worsens
 - build-info does not match release SHA
 - local or live smoke fails

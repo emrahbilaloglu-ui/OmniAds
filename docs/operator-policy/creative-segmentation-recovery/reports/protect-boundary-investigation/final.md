@@ -130,5 +130,5 @@ Claude equal-segment re-review should now run before PR #65 is merged.
 - `git diff --check`: passed
 - hidden/bidi/control scan: passed
 - raw ID scan on touched docs: passed
-- `/creatives` and `/platforms/meta` localhost smoke: passed through expected auth redirect/load
+- `/platforms/meta/creatives` and `/platforms/meta` localhost smoke: passed through expected auth redirect/load
 - live-firm audit rerun attempt: blocked by production DB query timeout over the SSH tunnel; no committed live-firm artifact changed

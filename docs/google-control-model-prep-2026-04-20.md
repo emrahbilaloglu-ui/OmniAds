@@ -37,14 +37,14 @@ Prepare a Google rollout plan that reuses the Meta control model primitives with
 - `app/api/google-ads/status/route.ts`
   - Google status route
   - computes Google truth from warehouse, advisor, queue, retention, and status-machine logic
-- `lib/google-ads/status-machine.ts`
+- `lib/platforms/google/status-machine.ts`
   - Google-specific status state transitions
-- `lib/google-ads/status-types.ts`
+- `lib/platforms/google/status-types.ts`
   - Google status payload contract
-- `lib/sync/google-ads-sync.ts`
+- `lib/sync/platforms/google-sync.ts`
   - Google sync engine, queue, leases, retries, throughput, repair helpers
 - `app/(dashboard)/platforms/google/page.tsx`
-  - current Google route is a redirect to `/google-ads`
+  - current Google route is a redirect to `/platforms/google`
 
 ## Current Data Flow
 
@@ -59,7 +59,7 @@ Prepare a Google rollout plan that reuses the Meta control model primitives with
 ### Google today
 
 1. Warehouse/sync/advisor evidence is collected.
-2. `lib/google-ads/status-machine.ts` derives Google page state.
+2. `lib/platforms/google/status-machine.ts` derives Google page state.
 3. `/api/google-ads/status` serves provider-specific readiness and queue truth.
 4. Google does **not** yet appear to be wired into the shared deploy/release gate + repair-plan control-plane surface.
 

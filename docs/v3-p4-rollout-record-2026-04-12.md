@@ -11,7 +11,7 @@ Scope:
 
 Verification:
 - `npx tsc --noEmit`
-- `npx vitest run lib/command-center.test.ts lib/meta/decision-os.test.ts components/meta/meta-decision-os.test.tsx components/creatives/CreativeDecisionOsOverview.test.tsx`
+- `npx vitest run lib/command-center.test.ts lib/meta/decision-os.test.ts components/meta/meta-decision-os.test.tsx components/platforms/meta/creatives/CreativeDecisionOsOverview.test.tsx`
 - `npm test`
 
 Closure result:

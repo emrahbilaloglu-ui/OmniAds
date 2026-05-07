@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mapApiRowToUiRow } from "@/app/(dashboard)/creatives/page-support";
+import { mapApiRowToUiRow } from "@/app/(dashboard)/platforms/meta/creatives/page-support";
 import {
   applyCreativeFilters,
   filterRowsForCreativeBenchmarkScope,

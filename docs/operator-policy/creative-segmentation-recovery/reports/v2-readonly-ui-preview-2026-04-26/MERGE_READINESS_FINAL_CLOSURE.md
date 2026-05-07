@@ -113,8 +113,8 @@ Active PR evidence used:
   `docs: record creative v2 raw url verification`.
 - Public GitHub files HTML still contained hidden/bidirectional warning template
   sections for:
-  - `app/(dashboard)/creatives/page.test.tsx`
-  - `app/(dashboard)/creatives/page.tsx`
+  - `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx`
+  - `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx`
   - `app/api/creatives/decision-os-v2/preview/route.test.ts`
 - ChatGPT also reported `app/api/creatives/decision-os-v2/preview/route.ts`;
   the targeted raw scan below includes that file too.
@@ -132,7 +132,7 @@ git diff -U0 origin/wip/creative-decision-os-v2-baseline-first-2026-04-26...HEAD
 
 File-by-file results:
 
-`app/(dashboard)/creatives/page.test.tsx`:
+`app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx`:
 
 - Public raw lines: 297.
 - Lines greater than 220 characters: none.
@@ -142,7 +142,7 @@ File-by-file results:
 - GitHub files warning status: warning template still present in public files
   HTML.
 
-`app/(dashboard)/creatives/page.tsx`:
+`app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx`:
 
 - Public raw lines: 1267.
 - Lines greater than 220 characters: none.
@@ -184,7 +184,7 @@ File-by-file results:
   warning-template list during this verification, but included because ChatGPT
   reported it.
 
-For the normal Turkish UI characters in `app/(dashboard)/creatives/page.tsx`,
+For the normal Turkish UI characters in `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx`,
 base-branch comparison found the same non-ASCII character set and the exact
 zero-context diff command above produced no non-ASCII added or removed lines.
 These characters are visible letters/punctuation, not zero-width, bidi, or
@@ -202,21 +202,21 @@ Conclusion:
 # Active source formatting correction after ChatGPT rejection
 
 ChatGPT rejected the previous PR #81 state because the active branch still
-appeared to have a single-line `app/(dashboard)/creatives/page.test.tsx`, dense
+appeared to have a single-line `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx`, dense
 generated-looking TSX in
-`components/creatives/CreativeDecisionOsV2PreviewSurface.tsx`, and an active
+`components/platforms/meta/creatives/CreativeDecisionOsV2PreviewSurface.tsx`, and an active
 GitHub files-view hidden/bidirectional warning.
 
 Formatting correction applied in this update:
 
 - Ran a Prettier formatting pass with LF line endings and retained changes on:
-  - `app/(dashboard)/creatives/page.test.tsx`
-  - `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx`
+  - `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx`
+  - `components/platforms/meta/creatives/CreativeDecisionOsV2PreviewSurface.tsx`
   - `app/api/creatives/decision-os-v2/preview/route.ts`
   - `lib/creative-decision-os-v2-preview.ts`
   - `lib/creative-decision-os-v2-preview.test.tsx`
   - `src/services/data-service-ai.ts`
-- Inspected `app/(dashboard)/creatives/page.tsx`; it was left unchanged
+- Inspected `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx`; it was left unchanged
   because formatting existing Turkish UI text would create non-ASCII churn in
   this file-hygiene patch.
 - Inspected `app/api/creatives/decision-os-v2/preview/route.test.ts`; the
@@ -232,9 +232,9 @@ Local raw file readability after the formatting correction:
 
 | File | Lines | Max line |
 | --- | ---: | ---: |
-| `app/(dashboard)/creatives/page.test.tsx` | 298 | 99 |
-| `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx` | 625 | 111 |
-| `app/(dashboard)/creatives/page.tsx` | 1268 | 196 |
+| `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx` | 298 | 99 |
+| `components/platforms/meta/creatives/CreativeDecisionOsV2PreviewSurface.tsx` | 625 | 111 |
+| `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx` | 1268 | 196 |
 | `app/api/creatives/decision-os-v2/preview/route.ts` | 121 | 100 |
 | `app/api/creatives/decision-os-v2/preview/route.test.ts` | 67 | 109 |
 | `lib/creative-decision-os-v2-preview.ts` | 663 | 100 |
@@ -261,16 +261,16 @@ Post-push GitHub raw/files-view status for formatting correction commit
 - PR #81 commits page also shows `41a9d80` with message
   `docs: record creative v2 formatting verification`.
 - PR #81 remains Draft.
-- Exact public raw URL check for `app/(dashboard)/creatives/page.test.tsx`:
+- Exact public raw URL check for `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx`:
   - URL:
-    `https://raw.githubusercontent.com/erhanrdn/OmniAds/wip/creative-v2-readonly-ui-preview-2026-04-26/app/%28dashboard%29/creatives/page.test.tsx`.
+    `https://raw.githubusercontent.com/erhanrdn/OmniAds/wip/creative-v2-readonly-ui-preview-2026-04-26/app/%28dashboard%29/platforms/meta/creatives/page.test.tsx`.
   - HTTP status: 200.
   - `curl -L <url> | wc -l`: 297.
   - `curl -L <url> | awk 'length($0)>220 {print FNR ":" length($0)}'`: no output.
 - Exact public raw URL check for
-  `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx`:
+  `components/platforms/meta/creatives/CreativeDecisionOsV2PreviewSurface.tsx`:
   - URL:
-    `https://raw.githubusercontent.com/erhanrdn/OmniAds/wip/creative-v2-readonly-ui-preview-2026-04-26/components/creatives/CreativeDecisionOsV2PreviewSurface.tsx`.
+    `https://raw.githubusercontent.com/erhanrdn/OmniAds/wip/creative-v2-readonly-ui-preview-2026-04-26/components/platforms/meta/creatives/CreativeDecisionOsV2PreviewSurface.tsx`.
   - HTTP status: 200.
   - `curl -L <url> | wc -l`: 624.
   - `curl -L <url> | awk 'length($0)>220 {print FNR ":" length($0)}'`: no output.
@@ -280,8 +280,8 @@ Post-push GitHub raw/files-view status for formatting correction commit
   codepoints.
 - Public GitHub files HTML still contains hidden/bidirectional warning template
   sections for:
-  - `app/(dashboard)/creatives/page.test.tsx`.
-  - `app/(dashboard)/creatives/page.tsx`.
+  - `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx`.
+  - `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx`.
   - `app/api/creatives/decision-os-v2/preview/route.test.ts`.
 - No exact raw file line or codepoint was found for those warning template
   sections.
@@ -296,17 +296,17 @@ sections and no exact line/codepoint can be documented from raw files.
 ChatGPT review found that the prior closure claims conflicted with active
 GitHub evidence:
 
-- `app/(dashboard)/creatives/page.test.tsx` was reported to still show a
+- `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx` was reported to still show a
   hidden/bidirectional Unicode warning in the GitHub files view.
-- The active raw file for `app/(dashboard)/creatives/page.test.tsx` was
+- The active raw file for `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx` was
   reported as a single giant line.
-- `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx` was reported
+- `components/platforms/meta/creatives/CreativeDecisionOsV2PreviewSurface.tsx` was reported
   as still having generated-looking dense lines.
 
 Correction in this update:
 
-- `app/(dashboard)/creatives/page.test.tsx` was reformatted.
-- `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx` was
+- `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx` was reformatted.
+- `components/platforms/meta/creatives/CreativeDecisionOsV2PreviewSurface.tsx` was
   reformatted.
 - `lib/creative-decision-os-v2-preview.test.tsx` now fails if active preview
   code files collapse into one or two huge generated-looking lines.
@@ -318,9 +318,9 @@ Readable source metrics after correction:
 
 | File | Lines | Max line |
 | --- | ---: | ---: |
-| `app/(dashboard)/creatives/page.test.tsx` | 294 | 108 |
-| `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx` | 595 | 118 |
-| `app/(dashboard)/creatives/page.tsx` | 1268 | 196 |
+| `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx` | 294 | 108 |
+| `components/platforms/meta/creatives/CreativeDecisionOsV2PreviewSurface.tsx` | 595 | 118 |
+| `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx` | 1268 | 196 |
 | `app/api/creatives/decision-os-v2/preview/route.ts` | 119 | 105 |
 | `app/api/creatives/decision-os-v2/preview/route.test.ts` | 67 | 109 |
 | `lib/creative-decision-os-v2-preview.ts` | 651 | 133 |
@@ -358,14 +358,14 @@ Post-push public GitHub evidence for formatting correction commit
 - PR #81 is still Draft.
 - Public GitHub files HTML still shows hidden/bidirectional warning banners.
 - Warning banner file sections:
-  - `app/(dashboard)/creatives/page.test.tsx`
-  - `app/(dashboard)/creatives/page.tsx`
+  - `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx`
+  - `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx`
   - `app/api/creatives/decision-os-v2/preview/route.test.ts`
   - `app/api/creatives/decision-os-v2/preview/route.ts`
 - Public raw targeted scan found zero hidden/bidi/control codepoints in all
   four warning-banner files.
 - Public raw targeted scan also found zero hidden/bidi/control codepoints in
-  `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx`; no banner was
+  `components/platforms/meta/creatives/CreativeDecisionOsV2PreviewSurface.tsx`; no banner was
   found for that component section in the public files HTML.
 - Public PR #81 `.diff` and `.patch` scans found zero hidden/bidi/control
   codepoints.
@@ -409,9 +409,9 @@ npm test
 npx vitest run \
   lib/creative-decision-os-v2.test.ts \
   lib/creative-decision-os-v2-preview.test.tsx \
-  components/creatives/CreativeDecisionSupportSurface.test.tsx \
-  components/creatives/CreativesTableSection.test.tsx \
-  'app/(dashboard)/creatives/page.test.tsx' \
+  components/platforms/meta/creatives/CreativeDecisionSupportSurface.test.tsx \
+  components/platforms/meta/creatives/CreativesTableSection.test.tsx \
+  'app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx' \
   app/api/creatives/decision-os-v2/preview/route.test.ts
 ```
 

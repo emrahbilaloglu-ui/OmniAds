@@ -37,8 +37,8 @@ If the candidate or PR #81 is later merged into the PR #78 branch and needs to
 be backed out before main:
 
 1. Revert the merge commit on the PR #78 branch.
-2. Verify `/creatives` without the preview query parameter still renders v1.
-3. Verify `/creatives?creativeDecisionOsV2Preview=1` no longer renders the v2
+2. Verify `/platforms/meta/creatives` without the preview query parameter still renders v1.
+3. Verify `/platforms/meta/creatives?creativeDecisionOsV2Preview=1` no longer renders the v2
    preview if the revert removes the preview.
 4. Rerun `npm test`.
 5. Rerun the focused Creative/v2 tests if any v2 files remain.
@@ -49,13 +49,13 @@ be backed out before main:
 
 The v2 read-only preview integration is mainly contained in:
 
-- `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx`
+- `components/platforms/meta/creatives/CreativeDecisionOsV2PreviewSurface.tsx`
 - `lib/creative-decision-os-v2-preview.ts`
 - `lib/creative-decision-os-v2-preview.test.tsx`
 - `app/api/creatives/decision-os-v2/preview/route.ts`
 - `app/api/creatives/decision-os-v2/preview/route.test.ts`
-- `app/(dashboard)/creatives/page.tsx`
-- `app/(dashboard)/creatives/page.test.tsx`
+- `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx`
+- `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx`
 - `src/services/data-service-ai.ts`
 
 Report-only artifacts live under:

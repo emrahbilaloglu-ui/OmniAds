@@ -63,7 +63,7 @@ No same-creative segment mutation was found in the traced runtime path.
 
 The actual ambiguity was UI scope:
 
-- `app/(dashboard)/creatives/page.tsx` fetches table/reporting rows for the selected reporting range.
+- `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx` fetches table/reporting rows for the selected reporting range.
 - `buildCreativeQuickFilters()` receives `visibleIds` from the currently visible table rows.
 - quick-filter counts therefore represent the current visible reporting set, not the global invariant Decision OS distribution.
 - the UI did not explicitly say that, so count changes could look like segment reclassification.

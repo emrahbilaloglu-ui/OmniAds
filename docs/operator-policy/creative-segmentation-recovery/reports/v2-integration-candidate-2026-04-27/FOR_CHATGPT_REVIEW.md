@@ -208,8 +208,8 @@ File-level proof from `bc9624e` and Claude review:
 
 | File | Public raw lines | Long lines >220 | Hidden/bidi/control | Non-ASCII |
 | --- | ---: | ---: | ---: | --- |
-| `app/(dashboard)/creatives/page.test.tsx` | 297 | 0 | 0 | none |
-| `app/(dashboard)/creatives/page.tsx` | 1267 | 0 | 0 | normal Turkish UI codepoints only, pre-existing in base |
+| `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx` | 297 | 0 | 0 | none |
+| `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx` | 1267 | 0 | 0 | normal Turkish UI codepoints only, pre-existing in base |
 | `app/api/creatives/decision-os-v2/preview/route.test.ts` | 66 | 0 | 0 | none |
 | `app/api/creatives/decision-os-v2/preview/route.ts` | 120 | 0 | 0 | none |
 

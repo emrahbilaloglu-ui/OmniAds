@@ -16,7 +16,7 @@ recommendation families, while write-back remained disabled.
   - no business allowlist configured
   - residual scope only
 - Rollout runbook:
-  - `docs/google-ads-rollout-runbook.md`
+  - `docs/platforms/google-rollout-runbook.md`
 
 ## Validation Commands
 

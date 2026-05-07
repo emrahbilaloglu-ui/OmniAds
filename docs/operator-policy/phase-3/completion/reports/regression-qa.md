@@ -38,7 +38,7 @@ The untracked path is the Phase 3 completion report directory. This pass did not
 
 These checks were recently run by the orchestrator and recorded for this QA pass:
 
-- `npm test -- lib/operator-decision-metadata.test.ts lib/command-center.test.ts lib/command-center-execution-service.test.ts app/api/meta/decision-os/route.test.ts app/api/meta/recommendations/route.test.ts app/api/creatives/decision-os/route.test.ts lib/meta/decision-os.test.ts lib/creative-decision-os.test.ts components/meta/meta-decision-os.test.tsx components/creatives/CreativeDecisionOsOverview.test.tsx`
+- `npm test -- lib/operator-decision-metadata.test.ts lib/command-center.test.ts lib/command-center-execution-service.test.ts app/api/meta/decision-os/route.test.ts app/api/meta/recommendations/route.test.ts app/api/creatives/decision-os/route.test.ts lib/meta/decision-os.test.ts lib/creative-decision-os.test.ts components/meta/meta-decision-os.test.tsx components/platforms/meta/creatives/CreativeDecisionOsOverview.test.tsx`
   - Result: passed, 10 files / 72 tests
 - `npm test`
   - Result: passed, 288 files / 1908 tests

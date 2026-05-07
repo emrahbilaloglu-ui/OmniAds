@@ -23,6 +23,10 @@ function sourceTone(source: MetaAnalysisStatus["recommendationSource"]) {
   switch (source) {
     case "snapshot_fallback":
       return "border-amber-200 bg-amber-50 text-amber-800";
+    case "snapshot_persistent":
+      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+    case "snapshot_live":
+      return "border-sky-200 bg-sky-50 text-sky-800";
     case "demo":
       return "border-violet-200 bg-violet-50 text-violet-800";
     default:

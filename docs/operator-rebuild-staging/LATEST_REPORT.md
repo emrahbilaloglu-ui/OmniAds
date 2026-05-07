@@ -104,11 +104,11 @@ That artifact now records:
 
 ### 4.2 Creative
 
-* `components/creatives/CreativeDetailExperience.test.tsx`
+* `components/platforms/meta/creatives/CreativeDetailExperience.test.tsx`
   * added preview-ready support-only AI framing coverage
-* `components/creatives/CreativeDecisionOsOverview.test.tsx`
+* `components/platforms/meta/creatives/CreativeDecisionOsOverview.test.tsx`
   * tightened preview-truth wording and lane vocabulary coverage
-* `components/creatives/CreativeDecisionOsDrawer.test.tsx`
+* `components/platforms/meta/creatives/CreativeDecisionOsDrawer.test.tsx`
   * added drawer support-framing coverage
 * `playwright/tests/reviewer-smoke.spec.ts`
   * tightened preview-truth contract wording checks
@@ -167,7 +167,7 @@ Build and typecheck:
 
 Targeted tests:
 
-* `npx vitest run 'app/(dashboard)/platforms/meta/page.test.tsx' 'components/meta/meta-campaign-list.test.tsx' 'components/creatives/CreativeDetailExperience.test.tsx' 'components/creatives/CreativeDecisionOsOverview.test.tsx' 'components/creatives/CreativeDecisionOsDrawer.test.tsx'`
+* `npx vitest run 'app/(dashboard)/platforms/meta/page.test.tsx' 'components/meta/meta-campaign-list.test.tsx' 'components/platforms/meta/creatives/CreativeDetailExperience.test.tsx' 'components/platforms/meta/creatives/CreativeDecisionOsOverview.test.tsx' 'components/platforms/meta/creatives/CreativeDecisionOsDrawer.test.tsx'`
   * passed
 * `PLAYWRIGHT_USE_WEBSERVER=0 PLAYWRIGHT_BASE_URL=https://adsecute.com npx playwright test playwright/tests/reviewer-smoke.spec.ts`
   * passed

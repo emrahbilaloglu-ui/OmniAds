@@ -9,8 +9,8 @@ Branch: `feature/adsecute-creative-segmentation-recovery-foundation`
 - `lib/creative-decision-os.ts`
 - `lib/creative-decision-os-source.ts`
 - `lib/creative-operator-surface.ts`
-- `components/creatives/*`
-- `app/(dashboard)/creatives/page.tsx`
+- `components/platforms/meta/creatives/*`
+- `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx`
 - `lib/ai/generate-creative-decisions.ts`
 - `lib/meta/creative-intelligence.ts`
 - `lib/meta/creative-score-service.ts`

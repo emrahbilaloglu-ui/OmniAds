@@ -4,6 +4,7 @@ import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getDemoMetaBreakdowns, getDemoMetaCampaigns } from "@/lib/demo-business";
 import { getMetaBreakdownsForRange } from "@/lib/meta/breakdowns-source";
 import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
+import { readMetaDecisionSnapshotForRange } from "@/lib/meta/snapshot";
 import {
   buildMetaRecommendations,
   type MetaRecommendationAnalysisSource,
@@ -57,12 +58,40 @@ function attachAnalysisSource(
   };
 }
 
+function emptyPersistentSnapshotPayload(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+}): MetaRecommendationsResponse {
+  return {
+    status: "ok",
+    businessId: input.businessId,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    summary: {
+      title: "No persisted Meta recommendation snapshot",
+      summary: "No daily Meta decision snapshot rows were found for the selected range.",
+      primaryLens: "structure",
+      confidence: "low",
+      recommendationCount: 0,
+    },
+    recommendations: [],
+    sourceModel: "snapshot_persistent",
+    analysisSource: {
+      system: "snapshot_persistent",
+      decisionOsAvailable: false,
+      fallbackReason: "legacy_decision_os_archived_phase_4_1",
+    },
+  };
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const language = await resolveRequestLanguage(request);
   const businessId = searchParams.get("businessId");
   const startDate = searchParams.get("startDate");
   const endDate = searchParams.get("endDate");
+  const live = searchParams.get("live") === "1";
 
   const access = await requireBusinessAccess({
     request,
@@ -78,7 +107,9 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  if (await isDemoBusiness(businessId)) {
+  const demoBusiness = await isDemoBusiness(businessId);
+
+  if (demoBusiness) {
     const demoCampaigns = getDemoMetaCampaigns().rows as MetaCampaignRow[];
     const demoBreakdowns = getDemoMetaBreakdowns() as MetaBreakdownsResponse;
     return NextResponse.json(
@@ -101,13 +132,27 @@ export async function GET(request: NextRequest) {
           businessId,
           startDate,
           endDate,
-          sourceModel: "snapshot_heuristics",
+          sourceModel: "snapshot_live",
           analysisSource: {
             system: "demo",
             decisionOsAvailable: false,
           },
         },
       ),
+    );
+  }
+
+  if (!live) {
+    const snapshotPayload = await readMetaDecisionSnapshotForRange({
+      businessId,
+      startDate,
+      endDate,
+    });
+    if (snapshotPayload) {
+      return NextResponse.json(snapshotPayload);
+    }
+    return NextResponse.json(
+      emptyPersistentSnapshotPayload({ businessId, startDate, endDate }),
     );
   }
 
@@ -228,9 +273,9 @@ export async function GET(request: NextRequest) {
       businessId,
       startDate,
       endDate,
-      sourceModel: "snapshot_heuristics",
+      sourceModel: "snapshot_live",
       analysisSource: {
-        system: "snapshot_fallback",
+        system: "snapshot_live",
         decisionOsAvailable: false,
         fallbackReason: "legacy_decision_os_archived_phase_4_1",
       },

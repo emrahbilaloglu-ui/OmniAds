@@ -94,7 +94,7 @@ The conditions are Phase 3.1 entry gates, not reasons to reject Phase 2 doctrine
 ## Required Conditions Before Phase 3.1
 
 1. Define one canonical decision/queue/push eligibility enum and map every specialist vocabulary into it.
-2. Split decision route inputs into `decisionAsOf` authority and `analyticsStartDate/analyticsEndDate` context.
+2. Split decision route inputs into `decisionAsOf` authority and `analyticsStartDate/insights/analyticsEndDate` context.
 3. Remove selected dates from Decision OS query identity for primary Meta and Creative decisions.
 4. Add per-decision provenance fields: stable decision id, `decisionAsOf`, source window key, source window dates, source row scope, source query id, evidence hash, and action fingerprint.
 5. Block Command Center queue, preview, apply, rollback, and workflow links unless provenance is present and current.

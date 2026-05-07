@@ -152,7 +152,7 @@ Runtime smoke:
 
 - documented localhost runtime path with local DB tunnel / existing local forward
 - `PLAYWRIGHT_USE_WEBSERVER=0 PLAYWRIGHT_BASE_URL=http://127.0.0.1:3000 npx playwright test playwright/tests/reviewer-smoke.spec.ts`
-- ad hoc Playwright runtime check on `/creatives` confirmed:
+- ad hoc Playwright runtime check on `/platforms/meta/creatives` confirmed:
   - default benchmark stays `Account-wide`
   - adding a campaign filter alone does not silently switch scope
   - explicit `Within campaign` switch activates campaign-relative evaluation

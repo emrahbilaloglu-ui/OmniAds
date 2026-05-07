@@ -1,6 +1,6 @@
 # Phase 3.1 Contract Review
 
-Scope: `src/types/operator-decision.ts`, `lib/operator-decision-provenance.ts`, `lib/meta/decision-os.ts`, `lib/meta/decision-os-source.ts`, `lib/creative-decision-os.ts`, `lib/creative-decision-os-source.ts`, `app/api/meta/decision-os/route.ts`, `app/api/creatives/decision-os/route.ts`, `app/(dashboard)/platforms/meta/page.tsx`, `app/(dashboard)/creatives/page.tsx`.
+Scope: `src/types/operator-decision.ts`, `lib/operator-decision-provenance.ts`, `lib/meta/decision-os.ts`, `lib/meta/decision-os-source.ts`, `lib/creative-decision-os.ts`, `lib/creative-decision-os-source.ts`, `app/api/meta/decision-os/route.ts`, `app/api/creatives/decision-os/route.ts`, `app/(dashboard)/platforms/meta/page.tsx`, `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx`.
 
 ## Findings
 
@@ -17,7 +17,7 @@ Verified points:
 - Backward compatibility with `startDate` / `endDate` callers is preserved. Both routes still accept the legacy pair, default analytics dates from them, and only layer explicit analytics params when provided. See [app/api/meta/decision-os/route.ts](</Users/harmelek/Adsecute/app/api/meta/decision-os/route.ts:50>) and [app/api/creatives/decision-os/route.ts](</Users/harmelek/Adsecute/app/api/creatives/decision-os/route.ts:46>).
 - No full media-buyer policy engine was introduced. The implementation remains a deterministic Decision OS with trust, policy ladders, queue eligibility, and bounded execution gates, not a general-purpose purchasing agent. See [lib/meta/decision-os.ts](</Users/harmelek/Adsecute/lib/meta/decision-os.ts:3311>) and [lib/creative-decision-os.ts](</Users/harmelek/Adsecute/lib/creative-decision-os.ts:2625>).
 
-Route and UI call sites also stay aligned with that split: the dashboard pages request the Decision OS with the selected reporting range only, and the routes decide how to map that into analytics context and decision authority. See [app/(dashboard)/platforms/meta/page.tsx](</Users/harmelek/Adsecute/app/(dashboard)/platforms/meta/page.tsx:129>) and [app/(dashboard)/creatives/page.tsx](</Users/harmelek/Adsecute/app/(dashboard)/creatives/page.tsx:307>).
+Route and UI call sites also stay aligned with that split: the dashboard pages request the Decision OS with the selected reporting range only, and the routes decide how to map that into analytics context and decision authority. See [app/(dashboard)/platforms/meta/page.tsx](</Users/harmelek/Adsecute/app/(dashboard)/platforms/meta/page.tsx:129>) and [app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx](</Users/harmelek/Adsecute/app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx:307>).
 
 ## Conclusion
 

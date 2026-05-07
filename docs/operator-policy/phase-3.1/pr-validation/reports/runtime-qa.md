@@ -38,14 +38,14 @@ Result:
 
 Conclusion:
 
-- Browser screenshots for `/platforms/meta` and `/creatives` were not obtainable in this run because the local database bootstrap blocked auth setup before page validation could start.
+- Browser screenshots for `/platforms/meta` and `/platforms/meta/creatives` were not obtainable in this run because the local database bootstrap blocked auth setup before page validation could start.
 
 ## API And Unit Smoke
 
 Ran:
 
 ```bash
-npm test -- 'components/meta/meta-analysis-status-card.test.tsx' 'components/meta/meta-decision-os.test.tsx' 'app/(dashboard)/platforms/meta/page.test.tsx' 'lib/meta/decision-os.test.ts' 'app/api/meta/decision-os/route.test.ts' 'components/creatives/CreativeDecisionOsOverview.test.tsx' 'components/creatives/CreativeDecisionOsDrawer.test.tsx' 'app/(dashboard)/creatives/page-support.test.ts' 'lib/creative-decision-os.test.ts' 'app/api/creatives/decision-os/route.test.ts'
+npm test -- 'components/meta/meta-analysis-status-card.test.tsx' 'components/meta/meta-decision-os.test.tsx' 'app/(dashboard)/platforms/meta/page.test.tsx' 'lib/meta/decision-os.test.ts' 'app/api/meta/decision-os/route.test.ts' 'components/platforms/meta/creatives/CreativeDecisionOsOverview.test.tsx' 'components/platforms/meta/creatives/CreativeDecisionOsDrawer.test.tsx' 'app/(dashboard)/platforms/meta/platforms/meta/creatives/page-support.test.ts' 'lib/creative-decision-os.test.ts' 'app/api/creatives/decision-os/route.test.ts'
 ```
 
 Result:
@@ -64,7 +64,7 @@ What this covered:
 
 Not observed in the blocked browser run:
 
-- A live screenshot pass for `/platforms/meta` and `/creatives`
+- A live screenshot pass for `/platforms/meta` and `/platforms/meta/creatives`
 - A direct browser-level check that changing `decisionAsOf` alters the rendered decisions
 
 ## Sanitization

@@ -22,7 +22,7 @@ Verification:
 
 Local DB smoke result:
 
-- `/creatives` default buyer preview visible: true
+- `/platforms/meta/creatives` default buyer preview visible: true
 - explicit preview opt-out hidden: true
 - explicit preview opt-in visible: true
 - forbidden action terms: `0`

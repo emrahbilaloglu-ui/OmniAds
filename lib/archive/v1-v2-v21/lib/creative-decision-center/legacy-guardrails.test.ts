@@ -34,7 +34,7 @@ describe("Creative Decision Center legacy migration guardrails", () => {
 
   it("prevents Creative UI code from computing buyer actions or emitting row-level aggregate actions", () => {
     const files = [
-      ...sourceFiles("app/(dashboard)/creatives"),
+      ...sourceFiles("app/(dashboard)/platforms/meta/creatives"),
       ...sourceFiles("components/creatives"),
     ];
     const offenders = files.flatMap((path) => {

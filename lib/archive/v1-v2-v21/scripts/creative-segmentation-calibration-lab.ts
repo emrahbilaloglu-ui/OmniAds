@@ -2,7 +2,7 @@ import { writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { NextRequest } from "next/server";
-import { mapApiRowToUiRow } from "@/app/(dashboard)/creatives/page-support";
+import { mapApiRowToUiRow } from "@/app/(dashboard)/platforms/meta/creatives/page-support";
 import {
   buildCreativeOperatorItem,
   creativeOperatorSegmentLabel,

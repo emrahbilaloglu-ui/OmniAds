@@ -38,7 +38,7 @@ Current accepted live baseline for this authority layer:
 | `Command Center workflow` | `live` or `flagged` | `COMMAND_CENTER_V1`, `COMMAND_CENTER_CANARY_BUSINESSES` | `current` | Unified queue, journal, saved views, throughput budgeting, structured feedback, status-only batch workflow, and an additive historical intelligence / self-tuning panel. |
 | `Command Center execution preview` | `live` or `flagged` | `COMMAND_CENTER_EXECUTION_V1` | `current` | Preview-first surface is inventoried separately from apply authority and now includes an explicit per-family support matrix plus rollback-truth copy. |
 | `Command Center apply / rollback` | `flagged` until canary apply is explicitly enabled | `COMMAND_CENTER_EXECUTION_V1`, `META_EXECUTION_APPLY_ENABLED`, `META_EXECUTION_CANARY_BUSINESSES` | `current` | This baseline must never present disabled apply as live. Duplicate `clientMutationId` flows must replay the terminal result or stop with a non-dispatching conflict instead of issuing a second write. |
-| `/copies` | `live` | `n/a` | `current` | The route stays visible in the matrix so copy-surface risk cannot go opaque. |
+| `/platforms/meta/copies` | `live` | `n/a` | `current` | The route stays visible in the matrix so copy-surface risk cannot go opaque. |
 
 ## Docs Role Split
 

@@ -237,7 +237,7 @@ None of those actions require new repo code for this signoff.
 
 These remain out of scope for this signoff and do not block direct production release of the serving/projection/cache hardening work:
 
-- large mixed-concern modules such as `lib/google-ads/serving.ts`, `lib/google-ads/warehouse.ts`, and `lib/meta/serving.ts`
+- large mixed-concern modules such as `lib/platforms/google/serving.ts`, `lib/platforms/google/warehouse.ts`, and `lib/meta/serving.ts`
 - direct status-route coupling to control-plane tables instead of dedicated summary projections
 - `lib/migrations.ts` remaining a large runtime migration bundle even though request/read-path bootstrap was removed
 - intentional operator-owned manual freshness boundaries listed above

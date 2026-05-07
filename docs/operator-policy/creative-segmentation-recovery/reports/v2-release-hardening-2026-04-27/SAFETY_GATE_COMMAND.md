@@ -64,9 +64,9 @@ lib/creative-decision-os-v2-preview.test.tsx
 lib/creative-v2-no-write-enforcement.test.ts
 lib/get-route-side-effect-guard.test.ts
 src/services/data-service-ai.test.ts
-components/creatives/CreativeDecisionSupportSurface.test.tsx
-components/creatives/CreativesTableSection.test.tsx
-app/(dashboard)/creatives/page.test.tsx
+components/platforms/meta/creatives/CreativeDecisionSupportSurface.test.tsx
+components/platforms/meta/creatives/CreativesTableSection.test.tsx
+app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx
 app/api/creatives/decision-os-v2/preview/route.test.ts
 ```
 

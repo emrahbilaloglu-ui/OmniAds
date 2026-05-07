@@ -66,8 +66,8 @@ Yeni motor şu input'lara ihtiyaç duyacak:
 1. `lib/creative-decision-engine/types.ts` — input/output contract
 2. `lib/creative-decision-engine/engine.ts` — stub (mock output döner)
 3. `lib/creative-decision-engine/data-source.ts` — adapter interface (mock + real fallback)
-4. `app/(dashboard)/creatives/page.tsx` — eski surface kaldır, yeni surface mount et
-5. `components/creatives/CreativeDecisionEngineV3Surface.tsx` — yeni UI iskeleti
+4. `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx` — eski surface kaldır, yeni surface mount et
+5. `components/platforms/meta/creatives/CreativeDecisionEngineV3Surface.tsx` — yeni UI iskeleti
 6. Eski `CreativeDecisionCenterSurface.tsx` ve V1/V2/V2.1 zinciri **surface'tan kaldırılır** (cutover, kod AR-GE'de kalır)
 
 **Sonuç**: Motor henüz logic üretmiyor, ama UI iskelesi 76 kreatif için "out_of_scope/test_more" gibi default kararlar gösterir. Layout, badge, confidence düzeni netleşir.
@@ -249,8 +249,8 @@ Per-creative override DB tablosu: `creative_decision_overrides`
 - `lib/creative-decision-center/*` (V2.1 buyer adapter)
 
 **Surface kapatılıyor (Faz 5)**:
-- `app/(dashboard)/creatives/page.tsx` v3 motoruna bağlanıyor
-- `components/creatives/CreativeDecisionCenterSurface.tsx` v3 output formatına adapte ediliyor (Today Brief + Action Board basitleştiriliyor)
+- `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx` v3 motoruna bağlanıyor
+- `components/platforms/meta/creatives/CreativeDecisionCenterSurface.tsx` v3 output formatına adapte ediliyor (Today Brief + Action Board basitleştiriliyor)
 
 **Snapshot tablosu**:
 - `creative_decision_os_snapshots` korunuyor (V1 output AR-GE), v3 ayrı tablo: `creative_engine_v3_decisions` (per-creative satır, daha küçük JSON)

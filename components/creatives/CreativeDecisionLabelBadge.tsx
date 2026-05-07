@@ -1,10 +1,11 @@
 "use client";
 
 import type { DecisionLabel } from "@/lib/creative-decision-engine";
+import { DecisionLabelChip } from "@/components/common/briefing/DecisionLabelChip";
+import { DECISION_LABEL_PALETTE } from "@/components/common/briefing/decision-label-palette";
 import { cn } from "@/lib/utils";
 import {
   LABEL_DISPLAY,
-  TONE_CLASS,
 } from "@/components/creatives/decision-label-display";
 
 interface CreativeDecisionLabelBadgeProps {
@@ -26,14 +27,16 @@ export function CreativeDecisionLabelBadge({
       )}
       data-testid="creative-decision-label-badge"
     >
-      <span
+      <DecisionLabelChip
+        label={label}
+        appearance="unstyled"
         className={cn(
           "rounded-full border px-2 py-0.5 text-[10px] font-semibold leading-none",
-          TONE_CLASS[display.tone],
+          DECISION_LABEL_PALETTE[label].legacyClassName,
         )}
       >
         {display.label}
-      </span>
+      </DecisionLabelChip>
     </span>
   );
 }

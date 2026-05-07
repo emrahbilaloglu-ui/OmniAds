@@ -1,0 +1,1186 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import {
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  ExternalLink,
+  Layers,
+  RefreshCw,
+  ShieldCheck,
+  TrendingDown,
+  TrendingUp,
+} from "lucide-react";
+import {
+  useDeferState,
+  BulkToolbar,
+  LaunchpadOverlay,
+  LaneHeader,
+  PulseStrip,
+  TrackingBlockerBanner,
+  TrackingConfirmModal,
+  type BulkAction,
+} from "@/components/common/briefing";
+import type { LaunchpadOverlayMode } from "@/components/common/briefing/LaunchpadOverlay";
+import type { LaneKey } from "@/components/common/briefing/types";
+import type { MetaStatusResponse } from "@/lib/meta/status-types";
+import { formatCurrency, formatRoas, sparklinePath } from "@/lib/briefing/utils";
+import { useAppStore } from "@/store/app-store";
+import { ActionNowCard } from "@/components/creatives/briefing/ActionNowCard";
+import { AssetLibrarySection } from "@/components/creatives/briefing/AssetLibrarySection";
+import { BulkCutConfirmModal } from "@/components/creatives/briefing/BulkCutConfirmModal";
+import { CompareDrawerHost } from "@/components/creatives/briefing/CompareDrawerHost";
+import {
+  CrossPlacementCard,
+  isCrossPlacementRollup,
+} from "@/components/creatives/briefing/CrossPlacementCard";
+import {
+  EMPTY_ACTION_LAUNCH_HREF,
+  EmptyActionState,
+} from "@/components/creatives/briefing/EmptyActionState";
+import { HealthyRow } from "@/components/creatives/briefing/HealthyRow";
+import { WatchingCard } from "@/components/creatives/briefing/WatchingCard";
+import {
+  cardId,
+  numberOrZero,
+} from "@/components/creatives/briefing/card-utils";
+import {
+  buildCutSuccessToast,
+  getCreativeScopeId,
+  pauseBriefingCard,
+  type BriefingToast,
+} from "@/components/creatives/briefing/action-handlers";
+import {
+  buildLaunchpadBridgeHref,
+  buildLaunchpadOverlayItem,
+  type LaunchpadBridgeMode,
+  type LaunchpadOpenPayload,
+} from "@/components/creatives/briefing/launchpad-bridge";
+import {
+  buildBulkLaunchpadHref,
+  pauseBriefingCardsBulk,
+} from "@/components/creatives/briefing/bulk-actions";
+import type {
+  BriefingActionItem,
+  BriefingCreativeCard,
+  BriefingRollupItem,
+  CreativesBriefingResponse,
+  MetaSummaryPulseResponse,
+} from "@/components/creatives/briefing/types";
+import {
+  fetchMetaCreatives,
+  mapApiRowToUiRow,
+} from "@/app/(dashboard)/platforms/meta/creatives/page-support";
+import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
+
+type LaneCollapseState = Record<Extract<LaneKey, "action" | "watching" | "healthy">, boolean>;
+
+interface NormalizedActionItem {
+  key: string;
+  type: "card" | "rollup";
+  card?: BriefingCreativeCard;
+  rollup?: BriefingRollupItem;
+}
+
+export interface LaunchpadOverlayState {
+  open: boolean;
+  mode: LaunchpadOverlayMode | null;
+  card: BriefingCreativeCard | null;
+}
+
+interface BulkCutModalState {
+  open: boolean;
+  cards: BriefingCreativeCard[];
+}
+
+interface CompareDrawerState {
+  open: boolean;
+  cards: BriefingCreativeCard[];
+}
+
+export const CLOSED_LAUNCHPAD_OVERLAY_STATE: LaunchpadOverlayState = {
+  open: false,
+  mode: null,
+  card: null,
+};
+
+const CLOSED_BULK_CUT_MODAL_STATE: BulkCutModalState = {
+  open: false,
+  cards: [],
+};
+
+const CLOSED_COMPARE_DRAWER_STATE: CompareDrawerState = {
+  open: false,
+  cards: [],
+};
+
+export function openLaunchpadOverlayState(
+  payload: LaunchpadOpenPayload,
+): LaunchpadOverlayState {
+  return {
+    open: true,
+    mode: payload.mode,
+    card: payload.card,
+  };
+}
+
+export function launchpadHrefFromOverlayState(state: LaunchpadOverlayState) {
+  if (!state.card || !state.mode) return null;
+  return buildLaunchpadBridgeHref(state.card, state.mode);
+}
+
+export function filterSelectedIdsForLane(
+  selectedIds: Iterable<string>,
+  laneIds: Iterable<string>,
+) {
+  const laneIdSet = new Set(laneIds);
+  return Array.from(selectedIds).filter((id) => laneIdSet.has(id));
+}
+
+async function fetchJson<T>(path: string): Promise<T> {
+  const response = await fetch(path, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.message ?? `Request failed (${response.status})`);
+  }
+  return payload as T;
+}
+
+function fetchCreativesBriefing(businessId: string): Promise<CreativesBriefingResponse> {
+  const params = new URLSearchParams({ businessId });
+  return fetchJson<CreativesBriefingResponse>(`/api/creatives/briefing?${params.toString()}`);
+}
+
+function fetchMetaSummary(
+  businessId: string,
+  startDate: string,
+  endDate: string,
+): Promise<MetaSummaryPulseResponse> {
+  const params = new URLSearchParams({ businessId, startDate, endDate });
+  return fetchJson<MetaSummaryPulseResponse>(`/api/meta/summary?${params.toString()}`);
+}
+
+function fetchMetaStatus(businessId: string): Promise<MetaStatusResponse> {
+  const params = new URLSearchParams({ businessId });
+  return fetchJson<MetaStatusResponse>(`/api/meta/status?${params.toString()}`);
+}
+
+async function fetchAssetLibraryRows(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+}) {
+  const response = await fetchMetaCreatives({
+    businessId: input.businessId,
+    start: input.startDate,
+    end: input.endDate,
+    groupBy: "creative",
+    format: "all",
+    sort: "spend",
+    mediaMode: "full",
+  });
+  return response.rows.map(mapApiRowToUiRow);
+}
+
+function getTodayIsoForTimeZone(timeZone: string) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date());
+    const year = parts.find((part) => part.type === "year")?.value ?? "1970";
+    const month = parts.find((part) => part.type === "month")?.value ?? "01";
+    const day = parts.find((part) => part.type === "day")?.value ?? "01";
+    return `${year}-${month}-${day}`;
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+function addDaysToIso(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function formatTodayLabel() {
+  return new Date().toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function isCardRollup(card: BriefingCreativeCard) {
+  return (card.placementList?.length ?? 0) > 1;
+}
+
+function normalizeActionItems(items: BriefingActionItem[]): NormalizedActionItem[] {
+  return items.map((item, index) => {
+    if (isCrossPlacementRollup(item)) {
+      const key = item.id || item.primaryRec.id || `rollup-${index}`;
+      return { key, type: "rollup", rollup: item };
+    }
+
+    const card = item as BriefingCreativeCard;
+    if (isCardRollup(card)) {
+      const placementList = card.placementList ?? [];
+      return {
+        key: cardId(card),
+        type: "rollup",
+        rollup: {
+          id: cardId(card),
+          primaryRec: card,
+          placementList,
+          mixed: card.mixed,
+        },
+      };
+    }
+
+    return { key: cardId(card), type: "card", card };
+  });
+}
+
+export function actionItemId(item: NormalizedActionItem) {
+  if (item.type === "rollup") {
+    return item.rollup?.primaryRec.id || item.rollup?.id || item.key;
+  }
+  return item.card ? cardId(item.card) : item.key;
+}
+
+export function filterRemovedActionItems(
+  items: NormalizedActionItem[],
+  removedIds: Iterable<string>,
+) {
+  const removed = new Set(removedIds);
+  return items.filter((item) => !removed.has(actionItemId(item)));
+}
+
+export function briefingCardForActionItem(item: NormalizedActionItem): BriefingCreativeCard | null {
+  if (item.type === "card") return item.card ?? null;
+  if (!item.rollup) return null;
+  const placementList = item.rollup.placementList ?? [];
+  return {
+    ...item.rollup.primaryRec,
+    id: item.rollup.primaryRec.id || item.rollup.id || item.key,
+    placementList,
+    placements: placementList.length,
+    mixed: item.rollup.mixed,
+  };
+}
+
+export function selectedCardsForActionItems(
+  items: NormalizedActionItem[],
+  selectedIds: Iterable<string>,
+) {
+  const selected = new Set(selectedIds);
+  return items
+    .filter((item) => selected.has(actionItemId(item)))
+    .map(briefingCardForActionItem)
+    .filter((card): card is BriefingCreativeCard => Boolean(card));
+}
+
+export function selectedCardsForCards(
+  items: BriefingCreativeCard[],
+  selectedIds: Iterable<string>,
+) {
+  const selected = new Set(selectedIds);
+  return items.filter((card) => selected.has(cardId(card)));
+}
+
+function usePersistentSelectedIds(businessId: string) {
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [ready, setReady] = useState(false);
+  const storageKey = `creatives-briefing-selected:${businessId}`;
+
+  useEffect(() => {
+    setReady(false);
+    if (!businessId || typeof window === "undefined") {
+      setSelectedIds([]);
+      setReady(true);
+      return;
+    }
+
+    const raw = window.localStorage.getItem(storageKey);
+    try {
+      setSelectedIds(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch {
+      setSelectedIds([]);
+    }
+    setReady(true);
+  }, [businessId, storageKey]);
+
+  useEffect(() => {
+    if (!ready || !businessId || typeof window === "undefined") return;
+    window.localStorage.setItem(storageKey, JSON.stringify(selectedIds));
+  }, [businessId, ready, selectedIds, storageKey]);
+
+  return [selectedIds, setSelectedIds] as const;
+}
+
+export function CreativesBriefingPage() {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const businesses = useAppStore((state) => state.businesses);
+  const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
+  const activeBusiness = businesses.find((business) => business.id === selectedBusinessId) ?? null;
+  const businessId = selectedBusinessId ?? "";
+  const todayIso = useMemo(
+    () => getTodayIsoForTimeZone(activeBusiness?.timezone ?? "UTC"),
+    [activeBusiness?.timezone],
+  );
+  const sevenDayStart = useMemo(() => addDaysToIso(todayIso, -6), [todayIso]);
+  const libraryStart = useMemo(() => addDaysToIso(todayIso, -29), [todayIso]);
+
+  const briefingQuery = useQuery({
+    queryKey: ["creatives-briefing", businessId],
+    enabled: Boolean(businessId),
+    staleTime: 30 * 1000,
+    queryFn: () => fetchCreativesBriefing(businessId),
+  });
+  const todaySummaryQuery = useQuery({
+    queryKey: ["creatives-briefing-meta-summary-today", businessId, todayIso],
+    enabled: Boolean(businessId),
+    staleTime: 60 * 1000,
+    queryFn: () => fetchMetaSummary(businessId, todayIso, todayIso),
+  });
+  const sevenDaySummaryQuery = useQuery({
+    queryKey: ["creatives-briefing-meta-summary-7d", businessId, sevenDayStart, todayIso],
+    enabled: Boolean(businessId),
+    staleTime: 60 * 1000,
+    queryFn: () => fetchMetaSummary(businessId, sevenDayStart, todayIso),
+  });
+  const metaStatusQuery = useQuery({
+    queryKey: ["creatives-briefing-meta-status", businessId],
+    enabled: Boolean(businessId),
+    staleTime: 30 * 1000,
+    queryFn: () => fetchMetaStatus(businessId),
+  });
+  const assetLibraryQuery = useQuery({
+    queryKey: ["creatives-briefing-asset-library", businessId, libraryStart, todayIso],
+    enabled: Boolean(businessId),
+    staleTime: 60 * 1000,
+    queryFn: () => fetchAssetLibraryRows({ businessId, startDate: libraryStart, endDate: todayIso }),
+  });
+
+  const [collapsed, setCollapsed] = useState<LaneCollapseState>({
+    action: false,
+    watching: true,
+    healthy: true,
+  });
+  const [toast, setToast] = useState<BriefingToast | null>(null);
+  const [cuttingIds, setCuttingIds] = useState<Set<string>>(new Set());
+  const [cutPendingIds, setCutPendingIds] = useState<Set<string>>(new Set());
+  const [bulkPendingIds, setBulkPendingIds] = useState<Set<string>>(new Set());
+  const [removedActionIds, setRemovedActionIds] = useState<Set<string>>(new Set());
+  const [launchpadOverlayState, setLaunchpadOverlayState] =
+    useState<LaunchpadOverlayState>(CLOSED_LAUNCHPAD_OVERLAY_STATE);
+  const [bulkCutModalState, setBulkCutModalState] =
+    useState<BulkCutModalState>(CLOSED_BULK_CUT_MODAL_STATE);
+  const [compareDrawerState, setCompareDrawerState] =
+    useState<CompareDrawerState>(CLOSED_COMPARE_DRAWER_STATE);
+  const [trackingCutCard, setTrackingCutCard] = useState<BriefingCreativeCard | null>(null);
+  const [librarySelectedRowIds, setLibrarySelectedRowIds] = useState<string[]>([]);
+  const [libraryHighlightedRowId, setLibraryHighlightedRowId] = useState<string | null>(null);
+  const [libraryMetricIds, setLibraryMetricIds] = useState<string[]>(["spend", "roas", "cpa", "ctrAll"]);
+  const [selectedIds, setSelectedIds] = usePersistentSelectedIds(businessId);
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const showToast = useCallback((nextToast: BriefingToast) => {
+    setToast(nextToast);
+  }, []);
+  const deferState = useDeferState({
+    businessId,
+    scopeType: "creative",
+    snapshotDate: todayIso,
+    onError: (message) => showToast({ type: "error", message }),
+  });
+
+  useEffect(() => {
+    if (!toast) return;
+    const timeout = window.setTimeout(() => setToast(null), 3600);
+    return () => window.clearTimeout(timeout);
+  }, [toast]);
+
+  const handleToggleLane = useCallback((laneKey: LaneKey) => {
+    if (laneKey === "audience") return;
+    setCollapsed((current) => ({ ...current, [laneKey]: !current[laneKey] }));
+  }, []);
+
+  const handleSelectChange = useCallback(
+    (id: string, nextSelected: boolean) => {
+      setSelectedIds((current) => {
+        const next = new Set(current);
+        if (nextSelected) {
+          next.add(id);
+        } else {
+          next.delete(id);
+        }
+        return Array.from(next);
+      });
+    },
+    [setSelectedIds],
+  );
+
+  const clearSelectedIdsForLane = useCallback(
+    (idsToClear: Iterable<string>) => {
+      const clearSet = new Set(idsToClear);
+      setSelectedIds((current) => current.filter((id) => !clearSet.has(id)));
+    },
+    [setSelectedIds],
+  );
+
+  const briefingData = briefingQuery.data;
+  const actionItems = useMemo(
+    () => normalizeActionItems(briefingData?.actionNow ?? []),
+    [briefingData?.actionNow],
+  );
+  const visibleActionItems = useMemo(
+    () => filterRemovedActionItems(actionItems, removedActionIds),
+    [actionItems, removedActionIds],
+  );
+  const watchingItems = briefingData?.watching ?? [];
+  const healthyItems = briefingData?.healthy ?? [];
+  const actionIds = useMemo(() => visibleActionItems.map(actionItemId), [visibleActionItems]);
+  const watchingIds = useMemo(() => watchingItems.map(cardId), [watchingItems]);
+  const healthyIds = useMemo(() => healthyItems.map(cardId), [healthyItems]);
+  const actionSelectedIds = useMemo(
+    () => filterSelectedIdsForLane(selectedIds, actionIds),
+    [actionIds, selectedIds],
+  );
+  const watchingSelectedIds = useMemo(
+    () => filterSelectedIdsForLane(selectedIds, watchingIds),
+    [selectedIds, watchingIds],
+  );
+  const selectedActionCards = useMemo(
+    () => selectedCardsForActionItems(visibleActionItems, actionSelectedIds),
+    [actionSelectedIds, visibleActionItems],
+  );
+  const selectedWatchingCards = useMemo(
+    () => selectedCardsForCards(watchingItems, watchingSelectedIds),
+    [watchingItems, watchingSelectedIds],
+  );
+
+  const trackingAnomalyActive = Boolean(
+    briefingData?.trackingAnomalyActive ||
+      briefingData?.trackingBlocked ||
+      briefingData?.pulse?.trackingAnomalyActive ||
+      metaStatusQuery.data?.degradedServing,
+  );
+  const matureCount = briefingData?.pulse?.matureCount ?? healthyItems.length;
+  const isInitialLoading = briefingQuery.isLoading && !briefingData;
+  const briefingError = briefingQuery.error instanceof Error ? briefingQuery.error.message : null;
+  const deferredCount = deferState.deferredCount || briefingData?.deferredCount || 0;
+  const trackingBlockerDetail =
+    briefingData?.trackingDetail ||
+    briefingData?.trackingAnomalyDetail ||
+    briefingData?.pulse?.trackingDetail ||
+    briefingData?.pulse?.trackingAnomalyDetail ||
+    undefined;
+  const assetLibraryRows = assetLibraryQuery.data ?? [];
+  const launchpadOverlayItem = launchpadOverlayState.card
+    ? buildLaunchpadOverlayItem(launchpadOverlayState.card)
+    : null;
+
+  const handleLaunchpadOpen = useCallback((payload: LaunchpadOpenPayload) => {
+    setLaunchpadOverlayState(openLaunchpadOverlayState(payload));
+  }, []);
+
+  const handleLaunchpadCancel = useCallback(() => {
+    setLaunchpadOverlayState(CLOSED_LAUNCHPAD_OVERLAY_STATE);
+  }, []);
+
+  const handleLaunchpadConfirm = useCallback(() => {
+    const href = launchpadHrefFromOverlayState(launchpadOverlayState);
+    if (!href) return;
+    setLaunchpadOverlayState(CLOSED_LAUNCHPAD_OVERLAY_STATE);
+    router.push(href);
+  }, [launchpadOverlayState, router]);
+
+  const handleDefer = useCallback(
+    (id: string) => {
+      void deferState.defer(id);
+    },
+    [deferState],
+  );
+
+  const handleUndefer = useCallback(
+    (id: string) => {
+      void deferState.undefer(id);
+    },
+    [deferState],
+  );
+
+  const handleCut = useCallback(
+    async (card: BriefingCreativeCard) => {
+      const itemId = cardId(card);
+      setCutPendingIds((current) => new Set(current).add(itemId));
+      try {
+        const result = await pauseBriefingCard({ businessId, card });
+        showToast(buildCutSuccessToast(card, result));
+        setCuttingIds((current) => new Set(current).add(itemId));
+        window.setTimeout(() => {
+          setRemovedActionIds((current) => new Set(current).add(itemId));
+          setCuttingIds((current) => {
+            const next = new Set(current);
+            next.delete(itemId);
+            return next;
+          });
+          void queryClient.invalidateQueries({ queryKey: ["creatives-briefing", businessId] });
+        }, 220);
+      } catch (error) {
+        showToast({
+          type: "error",
+          message: error instanceof Error ? error.message : "Cut failed.",
+        });
+      } finally {
+        setCutPendingIds((current) => {
+          const next = new Set(current);
+          next.delete(itemId);
+          return next;
+        });
+      }
+    },
+    [businessId, queryClient, showToast],
+  );
+
+  const handleCutRequest = useCallback(
+    (card: BriefingCreativeCard) => {
+      if (trackingAnomalyActive) {
+        setTrackingCutCard(card);
+        return;
+      }
+      void handleCut(card);
+    },
+    [handleCut, trackingAnomalyActive],
+  );
+
+  const handleBulkCutOpen = useCallback((cards: BriefingCreativeCard[] = selectedActionCards) => {
+    if (cards.length === 0) return;
+    setBulkCutModalState({ open: true, cards });
+  }, [selectedActionCards]);
+
+  const executeBulkCut = useCallback(
+    async (cards: BriefingCreativeCard[]) => {
+      if (cards.length === 0) return;
+      const itemIds = cards.map(cardId);
+      setBulkCutModalState(CLOSED_BULK_CUT_MODAL_STATE);
+      setBulkPendingIds((current) => {
+        const next = new Set(current);
+        itemIds.forEach((id) => next.add(id));
+        return next;
+      });
+      try {
+        const result = await pauseBriefingCardsBulk({ businessId, cards, trackingBlocked: trackingAnomalyActive });
+        if (!result.ok) {
+          throw new Error(
+            result.failedCount
+              ? `Bulk cut failed for ${result.failedCount} creatives.`
+              : "Bulk cut failed.",
+          );
+        }
+        showToast({
+          type: "success",
+          message: `Cut ${cards.length} creatives`,
+        });
+        setCuttingIds((current) => {
+          const next = new Set(current);
+          itemIds.forEach((id) => next.add(id));
+          return next;
+        });
+        window.setTimeout(() => {
+          setRemovedActionIds((current) => {
+            const next = new Set(current);
+            itemIds.forEach((id) => next.add(id));
+            return next;
+          });
+          setSelectedIds((current) => current.filter((id) => !itemIds.includes(id)));
+          setCuttingIds((current) => {
+            const next = new Set(current);
+            itemIds.forEach((id) => next.delete(id));
+            return next;
+          });
+          void queryClient.invalidateQueries({ queryKey: ["creatives-briefing", businessId] });
+        }, 220);
+      } catch (error) {
+        showToast({
+          type: "error",
+          message: error instanceof Error ? error.message : "Bulk cut failed.",
+        });
+      } finally {
+        setBulkPendingIds((current) => {
+          const next = new Set(current);
+          itemIds.forEach((id) => next.delete(id));
+          return next;
+        });
+      }
+    },
+    [businessId, queryClient, setSelectedIds, showToast, trackingAnomalyActive],
+  );
+
+  const handleBulkLaunchpadTeleport = useCallback(
+    (cards: BriefingCreativeCard[], mode: LaunchpadBridgeMode) => {
+      if (cards.length === 0) return;
+      setCompareDrawerState(CLOSED_COMPARE_DRAWER_STATE);
+      router.push(buildBulkLaunchpadHref(cards, mode));
+    },
+    [router],
+  );
+
+  const handleCompareOpen = useCallback((cards: BriefingCreativeCard[] = selectedActionCards) => {
+    if (cards.length === 0) return;
+    setCompareDrawerState({ open: true, cards: cards.slice(0, 5) });
+  }, [selectedActionCards]);
+
+  const handleBulkToolbarAction = useCallback(
+    (action: BulkAction, cards: BriefingCreativeCard[] = selectedActionCards) => {
+      if (action === "clear") {
+        return;
+      }
+      if (action === "cut") {
+        handleBulkCutOpen(cards);
+        return;
+      }
+      if (action === "demote") {
+        handleBulkLaunchpadTeleport(cards, "demote");
+        return;
+      }
+      if (action === "launch_new") {
+        handleBulkLaunchpadTeleport(cards, "fresh_test");
+        return;
+      }
+      if (action === "add_existing") {
+        handleBulkLaunchpadTeleport(cards, "add_existing");
+        return;
+      }
+      if (action === "compare") {
+        handleCompareOpen(cards);
+      }
+    },
+    [
+      handleBulkCutOpen,
+      handleBulkLaunchpadTeleport,
+      handleCompareOpen,
+      selectedActionCards,
+    ],
+  );
+
+  const handleToggleLibraryRow = useCallback((rowId: string) => {
+    setLibrarySelectedRowIds((current) =>
+      current.includes(rowId)
+        ? current.filter((id) => id !== rowId)
+        : [...current, rowId],
+    );
+  }, []);
+
+  const handleToggleAllLibraryRows = useCallback(() => {
+    setLibrarySelectedRowIds((current) =>
+      current.length === assetLibraryRows.length
+        ? []
+        : assetLibraryRows.map((row) => row.id),
+    );
+  }, [assetLibraryRows]);
+
+  const handleLaunchEmptyNewTest = useCallback(() => {
+    router.push(EMPTY_ACTION_LAUNCH_HREF);
+  }, [router]);
+
+  if (!businessId) {
+    return <div className="min-h-screen bg-slate-50 text-slate-900" />;
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      <PulseStrip
+        left={<PulseScope />}
+        center={
+          <PulseCenter
+            spendToday={todaySummaryQuery.data?.totals?.spend}
+            spendTarget={briefingData?.pulse?.spendTarget}
+            spendHistory={briefingData?.pulse?.spendHistory}
+            roas7d={sevenDaySummaryQuery.data?.totals?.roas}
+            roasTarget={briefingData?.pulse?.rolling7dRoasTarget}
+            matureCount={matureCount}
+          />
+        }
+        right={
+          <PulseRight
+            metaStatus={metaStatusQuery.data}
+            trackingAnomalyActive={trackingAnomalyActive}
+            engineVersion={briefingData?.pulse?.engineVersion}
+            calibratedAgo={briefingData?.pulse?.calibratedAgo}
+          />
+        }
+        jumpNav={<PulseJumpNav />}
+      />
+
+      <div className="max-w-[1440px] mx-auto px-6 pt-6 pb-2">
+        <div className="flex items-baseline gap-3">
+          <h1 className="text-[22px] font-semibold text-slate-900 tracking-tight">Creatives</h1>
+          <span className="text-[12.5px] text-slate-500">
+            Daily 5-minute triage. Engine v3 has done the thinking — confirm or redirect.
+          </span>
+        </div>
+      </div>
+
+      <section className="max-w-[1440px] mx-auto px-6 py-4">
+        <div className="flex items-baseline gap-3 mb-3">
+          <h2 className="text-[15px] font-semibold text-slate-900">Decision briefing</h2>
+          <span className="text-[12px] text-slate-500">Today · {formatTodayLabel()}</span>
+          <span className="ml-auto text-[11.5px] text-slate-500">
+            Engine v3 confidence ≥ 70 surfaces here
+          </span>
+        </div>
+
+        <TrackingBlockerBanner
+          visible={trackingAnomalyActive}
+          detail={trackingBlockerDetail}
+        />
+
+        {briefingError ? (
+          <div className="rounded-lg border border-rose-200 bg-rose-50/60 px-4 py-3 mb-4 flex items-start gap-3">
+            <AlertTriangle className="text-rose-600 mt-0.5 inline-block shrink-0" size={18} aria-hidden="true" />
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-semibold text-rose-900 leading-snug">
+                Briefing could not load.
+              </div>
+              <div className="text-[12px] text-rose-800/80 mt-0.5">{briefingError}</div>
+            </div>
+          </div>
+        ) : null}
+
+        <BulkToolbar
+          selectedCount={actionSelectedIds.length}
+          variant="creative"
+          scope="action"
+          actions={["cut", "demote", "launch_new", "add_existing", "compare", "clear"]}
+          trackingBlocked={trackingAnomalyActive}
+          trackingConfirmBehavior="consumer"
+          stickyTop={trackingAnomalyActive ? "170px" : "126px"}
+          onAction={(action) => handleBulkToolbarAction(action, selectedActionCards)}
+          onClear={() => clearSelectedIdsForLane(actionSelectedIds)}
+        />
+
+        <div className="mb-6" data-lane-section="action" id="lane-action">
+          <LaneHeader
+            laneKey="action"
+            title="Action now"
+            count={visibleActionItems.length}
+            subtitle={
+              deferredCount > 0
+                ? `${deferredCount} deferred — back tomorrow 9am`
+                : "High-confidence engine recommendations awaiting your call."
+            }
+            collapsed={collapsed.action}
+            onToggle={handleToggleLane}
+          />
+          {collapsed.action ? null : (
+            <div className="space-y-3">
+              {isInitialLoading ? <LaneSkeleton /> : null}
+              {!isInitialLoading && !briefingError && visibleActionItems.length === 0 && !trackingAnomalyActive ? (
+                <EmptyActionState
+                  matureCount={matureCount}
+                  watchingCount={watchingItems.length}
+                  onLaunchNewTest={handleLaunchEmptyNewTest}
+                />
+              ) : null}
+              {!isInitialLoading && !briefingError && visibleActionItems.length === 0 && trackingAnomalyActive ? (
+                <div className="rounded-2xl border border-rose-200 bg-rose-50/60 px-5 py-4 text-[12.5px] text-rose-900">
+                  <div className="font-semibold">Tracking needs attention before action triage.</div>
+                  <div className="mt-1 text-rose-800/80">
+                    No high-confidence action cards are shown while tracking is degraded. Resolve the blocker or open Watching for diagnostic cases.
+                  </div>
+                </div>
+              ) : null}
+              {visibleActionItems.length > 0 ? visibleActionItems.map((item) =>
+                  item.type === "rollup" && item.rollup ? (
+                    <CrossPlacementCard
+                      key={item.key}
+                      rollup={item.rollup}
+                      selected={selectedSet.has(actionItemId(item))}
+                      onSelectChange={handleSelectChange}
+                      deferred={deferState.isDeferred(getCreativeScopeId(item.rollup.primaryRec))}
+                      onDefer={handleDefer}
+                      onUndefer={handleUndefer}
+                      onLaunchpadOpen={handleLaunchpadOpen}
+                      cutting={cuttingIds.has(actionItemId(item))}
+                    />
+                  ) : item.card ? (
+                    <ActionNowCard
+                      key={item.key}
+                      card={item.card}
+                      selected={selectedSet.has(cardId(item.card))}
+                      onSelectChange={handleSelectChange}
+                      deferred={deferState.isDeferred(getCreativeScopeId(item.card))}
+                      cutting={cuttingIds.has(cardId(item.card))}
+                      cutPending={cutPendingIds.has(cardId(item.card)) || bulkPendingIds.has(cardId(item.card))}
+                      onDefer={handleDefer}
+                      onUndefer={handleUndefer}
+                      onCut={handleCutRequest}
+                      onLaunchpadOpen={handleLaunchpadOpen}
+                    />
+                  ) : null,
+                ) : null}
+            </div>
+          )}
+        </div>
+
+        <div className="mb-6" data-lane-section="watching" id="lane-watching">
+          <LaneHeader
+            laneKey="watching"
+            title="Watching"
+            count={watchingItems.length}
+            subtitle={
+              collapsed.watching
+                ? "Low-confidence and diagnose cases. Click expand to triage."
+                : "Low-confidence cases · let cook or open evidence."
+            }
+            collapsed={collapsed.watching}
+            onToggle={handleToggleLane}
+          />
+          {collapsed.watching ? null : (
+            <>
+              <BulkToolbar
+                selectedCount={watchingSelectedIds.length}
+                variant="creative"
+                scope="watching"
+                actions={["launch_new", "add_existing", "compare", "clear"]}
+                trackingBlocked={trackingAnomalyActive}
+                trackingConfirmBehavior="consumer"
+                stickyTop={trackingAnomalyActive ? "170px" : "126px"}
+                onAction={(action) => handleBulkToolbarAction(action, selectedWatchingCards)}
+                onClear={() => clearSelectedIdsForLane(watchingSelectedIds)}
+              />
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+                {watchingItems.map((card) => (
+                  <WatchingCard
+                    key={cardId(card)}
+                    card={card}
+                    selected={selectedSet.has(cardId(card))}
+                    onSelectChange={handleSelectChange}
+                    deferred={deferState.isDeferred(getCreativeScopeId(card))}
+                    onDefer={handleDefer}
+                    onUndefer={handleUndefer}
+                    onLaunchpadOpen={handleLaunchpadOpen}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="mb-2" data-lane-section="healthy" id="lane-healthy">
+          <LaneHeader
+            laneKey="healthy"
+            title="Healthy"
+            count={healthyItems.length}
+            subtitle={
+              collapsed.healthy
+                ? "Stable keep + scale. Operator rarely opens this lane."
+                : "Compact list — name, label, ROAS only."
+            }
+            collapsed={collapsed.healthy}
+            onToggle={handleToggleLane}
+          />
+          {collapsed.healthy ? null : (
+            <div className="rounded-xl border border-slate-200 bg-white overflow-hidden divide-y divide-slate-100 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+              {healthyItems.slice(0, 20).map((card) => (
+                <HealthyRow
+                  key={cardId(card)}
+                  card={card}
+                  selected={selectedSet.has(cardId(card))}
+                  onSelectChange={handleSelectChange}
+                />
+              ))}
+              {healthyItems.length > 20 ? (
+                <div className="px-3 py-2 text-[11px] text-slate-400 bg-slate-50 text-center">
+                  + {healthyItems.length - 20} more healthy creatives in{" "}
+                  <span className="text-slate-500">Library</span>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
+
+        <span className="sr-only">{actionSelectedIds.length} action selections prepared for Phase 3.4</span>
+        <span className="sr-only">{watchingIds.length + healthyIds.length} non-action lane rows loaded</span>
+        <AssetLibrarySection
+          rows={assetLibraryRows}
+          defaultCurrency={activeBusiness?.currency ?? null}
+          selectedMetricIds={libraryMetricIds}
+          onSelectedMetricIdsChange={setLibraryMetricIds}
+          selectedRowIds={librarySelectedRowIds}
+          highlightedRowId={libraryHighlightedRowId}
+          onToggleRow={handleToggleLibraryRow}
+          onToggleAll={handleToggleAllLibraryRows}
+          onOpenRow={setLibraryHighlightedRowId}
+          onSortedRowsChange={(rows: MetaCreativeRow[]) => {
+            if (!libraryHighlightedRowId && rows[0]) setLibraryHighlightedRowId(rows[0].id);
+          }}
+        />
+      </section>
+      <LaunchpadOverlay
+        open={launchpadOverlayState.open && Boolean(launchpadOverlayItem)}
+        mode={launchpadOverlayState.mode ?? "fresh_test"}
+        item={launchpadOverlayItem ?? { id: "launchpad-briefing" }}
+        onClose={handleLaunchpadCancel}
+        onConfirm={handleLaunchpadConfirm}
+        presentation="modal"
+      />
+      <BulkCutConfirmModal
+        open={bulkCutModalState.open}
+        cards={bulkCutModalState.cards}
+        trackingBlocked={trackingAnomalyActive}
+        onCancel={() => setBulkCutModalState(CLOSED_BULK_CUT_MODAL_STATE)}
+        onConfirm={() => void executeBulkCut(bulkCutModalState.cards)}
+      />
+      <TrackingConfirmModal
+        open={trackingCutCard != null}
+        primaryLabel="Cut anyway"
+        onClose={() => setTrackingCutCard(null)}
+        onConfirm={() => {
+          const card = trackingCutCard;
+          setTrackingCutCard(null);
+          if (card) void handleCut(card);
+        }}
+      />
+      <CompareDrawerHost
+        open={compareDrawerState.open}
+        cards={compareDrawerState.cards}
+        onClose={() => setCompareDrawerState(CLOSED_COMPARE_DRAWER_STATE)}
+        onCutCards={handleBulkCutOpen}
+        onLaunchpad={handleBulkLaunchpadTeleport}
+      />
+      <BriefingToastViewport toast={toast} />
+    </div>
+  );
+}
+
+function PulseScope() {
+  return (
+    <button
+      type="button"
+      data-pulse="scope"
+      className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+      onClick={(event) => {
+        event.preventDefault();
+        // TODO Phase 11+: within-business scope filter — Account / Campaign / Adset.
+      }}
+    >
+      <span className="text-slate-400">
+        <Layers className="inline-block shrink-0" size={13} aria-hidden="true" />
+      </span>
+      <span>Scope:</span>
+      <span className="font-medium text-slate-900">Account</span>
+      <ChevronDown className="inline-block shrink-0 text-slate-400" size={12} aria-hidden="true" />
+    </button>
+  );
+}
+
+function BriefingToastViewport({ toast }: { toast: BriefingToast | null }) {
+  if (!toast) return null;
+
+  return (
+    <div
+      className={`fixed bottom-5 right-5 z-[120] max-w-md rounded-xl border px-4 py-3 text-sm shadow-xl ${
+        toast.type === "success"
+          ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+          : toast.type === "error"
+            ? "border-rose-200 bg-rose-50 text-rose-900"
+            : "border-slate-200 bg-white text-slate-900"
+      }`}
+    >
+      <div className="flex items-center gap-3">
+        <span>{toast.message}</span>
+        {toast.link ? (
+          <a
+            href={toast.link.href}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 font-semibold underline"
+          >
+            {toast.link.label}
+            <ExternalLink className="inline-block shrink-0" size={13} aria-hidden="true" />
+          </a>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function PulseCenter({
+  spendToday,
+  spendTarget,
+  spendHistory,
+  roas7d,
+  roasTarget,
+  matureCount,
+}: {
+  spendToday?: number | null;
+  spendTarget?: number | null;
+  spendHistory?: number[] | null;
+  roas7d?: number | null;
+  roasTarget?: number | null;
+  matureCount: number;
+}) {
+  const spend = numberOrZero(spendToday);
+  const target = numberOrZero(spendTarget) || spend || 1;
+  const spendPct = Math.round((spend / target) * 100);
+  const sparkValues = spendHistory && spendHistory.length > 0 ? spendHistory.concat([spend]) : [0, spend * 0.62, spend * 0.78, spend];
+  const roas = numberOrZero(roas7d);
+  const targetRoas = numberOrZero(roasTarget) || roas || 1;
+  const roasDelta = Math.round(((roas - targetRoas) / targetRoas) * 100);
+  const DeltaIcon = roasDelta >= 0 ? TrendingUp : TrendingDown;
+
+  return (
+    <>
+      <div className="h-5 w-px bg-slate-200" />
+      <button data-pulse="spend" className="flex items-center gap-2 hover:bg-slate-50 rounded-md px-1.5 py-1">
+        <span className="text-slate-500">Spend today</span>
+        <span className="font-mono tabular-nums font-semibold text-slate-900">
+          {formatCurrency(spend)}
+        </span>
+        <span className="text-slate-400">/ {formatCurrency(target)}</span>
+        <svg viewBox="0 0 60 16" width="60" height="16" className="text-blue-600" aria-hidden="true">
+          <path d={sparklinePath(sparkValues)} fill="none" stroke="currentColor" strokeWidth="1.5" />
+        </svg>
+        <span className="text-slate-500 font-mono tabular-nums">{spendPct}%</span>
+      </button>
+      <button data-pulse="roas" className="flex items-center gap-2 hover:bg-slate-50 rounded-md px-1.5 py-1">
+        <span className="text-slate-500">7d ROAS</span>
+        <span className="font-mono tabular-nums font-semibold text-slate-900">{formatRoas(roas)}</span>
+        <span className={`${roasDelta >= 0 ? "text-emerald-600" : "text-rose-600"} inline-flex items-center gap-0.5`}>
+          <DeltaIcon className="inline-block shrink-0" size={12} aria-hidden="true" />
+          <span className="font-mono tabular-nums">{roasDelta >= 0 ? "+" : ""}{roasDelta}%</span>
+        </span>
+        <span className="text-slate-400">vs {formatRoas(targetRoas)}</span>
+      </button>
+      <button data-pulse="mature" className="flex items-center gap-1.5 hover:bg-slate-50 rounded-md px-1.5 py-1">
+        <span className="text-slate-500">Mature</span>
+        <span className="font-mono tabular-nums font-semibold text-slate-900">{matureCount}</span>
+      </button>
+      <div className="h-5 w-px bg-slate-200" />
+    </>
+  );
+}
+
+function PulseRight({
+  metaStatus,
+  trackingAnomalyActive,
+  engineVersion,
+  calibratedAgo,
+}: {
+  metaStatus?: MetaStatusResponse;
+  trackingAnomalyActive: boolean;
+  engineVersion?: string | null;
+  calibratedAgo?: string | null;
+}) {
+  const engineLive = !metaStatus || metaStatus.state === "ready" || metaStatus.state === "partial";
+  const syncMinutes = getSyncMinutes(metaStatus);
+
+  return (
+    <div className="flex items-center gap-3 text-slate-500">
+      <button data-pulse="engine" className="flex items-center gap-1.5 hover:bg-slate-50 rounded-md px-1.5 py-1">
+        <span
+          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider ${
+            engineLive
+              ? "bg-emerald-500/15 text-emerald-700 border border-emerald-200"
+              : "bg-amber-500/15 text-amber-800 border border-amber-200"
+          }`}
+        >
+          <span className={`w-1.5 h-1.5 rounded-full ${engineLive ? "bg-emerald-500" : "bg-amber-500"}`} />
+          {engineLive ? "Live" : "Syncing"}
+        </span>
+        <span className="text-slate-500">{engineVersion || "Engine v3"}</span>
+        <span className="text-slate-400">· calibrated {calibratedAgo || "2d ago"}</span>
+      </button>
+      <button data-pulse="tracking" className="flex items-center gap-1.5 hover:bg-slate-50 rounded-md px-1.5 py-1" id="pulse-tracking">
+        {trackingAnomalyActive ? (
+          <AlertTriangle className="inline-block shrink-0 text-rose-600" size={13} aria-hidden="true" />
+        ) : (
+          <ShieldCheck className="inline-block shrink-0 text-emerald-600" size={13} aria-hidden="true" />
+        )}
+        <span className={trackingAnomalyActive ? "text-rose-700" : "text-slate-700"}>
+          {trackingAnomalyActive ? "Tracking anomaly active" : "Tracking healthy"}
+        </span>
+      </button>
+      <span className="inline-flex items-center gap-1">
+        <span className="text-slate-400">
+          <Check className="inline-block shrink-0" size={12} aria-hidden="true" />
+        </span>
+        Saved 2s ago
+      </span>
+      <span className="inline-flex items-center gap-1">
+        <span className="text-slate-400">
+          <RefreshCw className="inline-block shrink-0" size={12} aria-hidden="true" />
+        </span>
+        Sync {syncMinutes}
+      </span>
+    </div>
+  );
+}
+
+function getSyncMinutes(metaStatus?: MetaStatusResponse) {
+  const timestamp =
+    metaStatus?.latestSync?.finishedAt ||
+    metaStatus?.latestSync?.startedAt ||
+    null;
+  if (!timestamp) return "—";
+  const ms = Date.now() - new Date(timestamp).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return "—";
+  const minutes = Math.max(1, Math.round(ms / 60_000));
+  return `${minutes}m ago`;
+}
+
+function PulseJumpNav() {
+  return (
+    <>
+      <JumpLink href="#lane-action" num="1" label="Action Now" />
+      <JumpLink href="#lane-watching" num="2" label="Watching" />
+      <JumpLink href="#lane-healthy" num="3" label="Healthy" />
+    </>
+  );
+}
+
+function JumpLink({
+  href,
+  num,
+  label,
+}: {
+  href: string;
+  num: string;
+  label: string;
+}) {
+  return (
+    <a
+      href={href}
+      className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+    >
+      <span className="font-mono tabular-nums text-slate-400">{num}</span>
+      <span>{label}</span>
+    </a>
+  );
+}
+
+function LaneSkeleton() {
+  return (
+    <div className="rounded-2xl bg-white p-4 border border-slate-200 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      <div className="flex items-start gap-3">
+        <div className="w-4 h-4 rounded border border-slate-200 bg-slate-100" />
+        <div className="w-[72px] h-[72px] rounded-xl bg-slate-100" />
+        <div className="flex-1 min-w-0 space-y-2">
+          <div className="h-4 w-60 rounded bg-slate-100" />
+          <div className="h-3 w-96 rounded bg-slate-100" />
+          <div className="h-3 w-full rounded bg-slate-100" />
+        </div>
+      </div>
+    </div>
+  );
+}

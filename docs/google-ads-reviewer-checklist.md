@@ -2,8 +2,8 @@
 
 ## Config / Feature Flags
 
-- [ ] Confirm [`lib/google-ads/decision-engine-config.ts`](/Users/harmelek/Adsecute/lib/google-ads/decision-engine-config.ts) exposes `GOOGLE_ADS_DECISION_ENGINE_V2`
-- [ ] Confirm [`lib/google-ads/decision-engine-config.ts`](/Users/harmelek/Adsecute/lib/google-ads/decision-engine-config.ts) exposes `GOOGLE_ADS_WRITEBACK_ENABLED`
+- [ ] Confirm [`lib/platforms/google/decision-engine-config.ts`](/Users/harmelek/Adsecute/lib/platforms/google/decision-engine-config.ts) exposes `GOOGLE_ADS_DECISION_ENGINE_V2`
+- [ ] Confirm [`lib/platforms/google/decision-engine-config.ts`](/Users/harmelek/Adsecute/lib/platforms/google/decision-engine-config.ts) exposes `GOOGLE_ADS_WRITEBACK_ENABLED`
 - [ ] Confirm Decision Engine V2 default posture is enabled
 - [ ] Confirm write-back default posture is disabled
 
@@ -33,9 +33,9 @@
 
 ## Query Guardrails
 
-- [ ] Review [`lib/google-ads/query-ownership.ts`](/Users/harmelek/Adsecute/lib/google-ads/query-ownership.ts)
-- [ ] Review [`lib/google-ads/growth-advisor.ts`](/Users/harmelek/Adsecute/lib/google-ads/growth-advisor.ts)
-- [ ] Review [`lib/google-ads/reporting.ts`](/Users/harmelek/Adsecute/lib/google-ads/reporting.ts)
+- [ ] Review [`lib/platforms/google/query-ownership.ts`](/Users/harmelek/Adsecute/lib/platforms/google/query-ownership.ts)
+- [ ] Review [`lib/platforms/google/growth-advisor.ts`](/Users/harmelek/Adsecute/lib/platforms/google/growth-advisor.ts)
+- [ ] Review [`lib/platforms/google/reporting.ts`](/Users/harmelek/Adsecute/lib/platforms/google/reporting.ts)
 - [ ] Confirm branded queries do not become negative-keyword actions
 - [ ] Confirm SKU-specific and product-specific queries are suppressed
 - [ ] Confirm low-confidence and ambiguous cases are suppressed
@@ -44,8 +44,8 @@
 
 ## Snapshot Semantics
 
-- [ ] Review [`lib/google-ads/decision-snapshot.ts`](/Users/harmelek/Adsecute/lib/google-ads/decision-snapshot.ts)
-- [ ] Review [`lib/google-ads/serving.ts`](/Users/harmelek/Adsecute/lib/google-ads/serving.ts)
+- [ ] Review [`lib/platforms/google/decision-snapshot.ts`](/Users/harmelek/Adsecute/lib/platforms/google/decision-snapshot.ts)
+- [ ] Review [`lib/platforms/google/serving.ts`](/Users/harmelek/Adsecute/lib/platforms/google/serving.ts)
 - [ ] Confirm approved windows are explicit:
 - [ ] `1d`, `3d`, `7d`, `28d`, `56d`, `84d`
 - [ ] Confirm selected range stays contextual
@@ -53,7 +53,7 @@
 
 ## Release Checklist Alignment
 
-- [ ] Review [`docs/google-ads-release-checklist.md`](/Users/harmelek/Adsecute/docs/google-ads-release-checklist.md)
+- [ ] Review [`docs/platforms/google-release-checklist.md`](/Users/harmelek/Adsecute/docs/platforms/google-release-checklist.md)
 - [ ] Confirm rollout guidance matches current code posture
 - [ ] Confirm rollback guidance is realistic
 - [ ] Confirm known limitations are honest
@@ -62,7 +62,7 @@
 ## Build / Test Verification
 
 - [ ] Run the targeted Google Ads suite:
-- [ ] `npm test -- lib/google-ads/decision-engine-release.test.ts lib/google-ads/query-ownership.test.ts lib/google-ads/reporting.test.ts lib/google-ads/growth-advisor.test.ts lib/google-ads/decision-engine-v2.test.ts lib/google-ads/decision-snapshot.test.ts lib/google-ads/serving.test.ts lib/google-ads/advisor-ux.test.ts components/google/google-advisor-panel.test.tsx components/google-ads/GoogleAdsIntelligenceDashboard.test.tsx app/api/google-ads/advisor/route.test.ts app/api/google-ads/status/route.test.ts`
+- [ ] `npm test -- lib/platforms/google/decision-engine-release.test.ts lib/platforms/google/query-ownership.test.ts lib/platforms/google/reporting.test.ts lib/platforms/google/growth-advisor.test.ts lib/platforms/google/decision-engine-v2.test.ts lib/platforms/google/decision-snapshot.test.ts lib/platforms/google/serving.test.ts lib/platforms/google/advisor-ux.test.ts components/google/google-advisor-panel.test.tsx components/platforms/google/GoogleAdsIntelligenceDashboard.test.tsx app/api/google-ads/advisor/route.test.ts app/api/google-ads/status/route.test.ts`
 - [ ] Confirm result: `Test Files 12 passed (12)`, `Tests 98 passed (98)` or re-run equivalent current pass
 - [ ] Run `npm run build`
 - [ ] Confirm build passes

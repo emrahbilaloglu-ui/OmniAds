@@ -16,7 +16,7 @@ Scope: production-safe operator decision telemetry staging, targeted operator cl
 - `lib/operator-decision-telemetry.ts`
 - `lib/operator-prescription.ts`
 - `lib/creative-operator-surface.ts`
-- `components/creatives/CreativeDecisionOsOverview.tsx`
+- `components/platforms/meta/creatives/CreativeDecisionOsOverview.tsx`
 - Phase 7 tests in `lib/*` and Creative overview tests
 - `docs/operator-policy/phase-7/completion/reports/final.md`
 - `docs/operator-policy/phase-8/handoff.md`
@@ -66,8 +66,8 @@ Scope: production-safe operator decision telemetry staging, targeted operator cl
 
 - `npm test -- lib/operator-prescription.test.ts lib/creative-operator-surface.test.ts lib/operator-decision-telemetry.test.ts` - passed, 26 tests.
 - `npm test -- lib/operator-prescription.test.ts lib/creative-operator-surface.test.ts lib/operator-decision-telemetry.test.ts lib/command-center.test.ts` - passed, 62 tests.
-- `npm test -- components/creatives/CreativeDecisionOsOverview.test.tsx components/creatives/CreativeDetailExperience.test.tsx components/creatives/CreativesTableSection.test.tsx` - passed, 10 tests.
-- `npm test -- lib/operator-decision-telemetry.test.ts lib/operator-prescription.test.ts lib/creative-operator-surface.test.ts components/creatives/CreativeDecisionOsOverview.test.tsx` - passed, 26 tests.
+- `npm test -- components/platforms/meta/creatives/CreativeDecisionOsOverview.test.tsx components/platforms/meta/creatives/CreativeDetailExperience.test.tsx components/platforms/meta/creatives/CreativesTableSection.test.tsx` - passed, 10 tests.
+- `npm test -- lib/operator-decision-telemetry.test.ts lib/operator-prescription.test.ts lib/creative-operator-surface.test.ts components/platforms/meta/creatives/CreativeDecisionOsOverview.test.tsx` - passed, 26 tests.
 - `npm test` - passed, 292 files / 1984 tests.
 - `npx tsc --noEmit` - passed.
 - `npm run build` - passed.

@@ -116,7 +116,7 @@ Release verification:
 
 ## Remaining non-blocking debt
 
-- Large mixed-concern modules remain, especially `lib/google-ads/warehouse.ts`, `lib/google-ads/serving.ts`, `lib/meta/serving.ts`, and `lib/migrations.ts`.
+- Large mixed-concern modules remain, especially `lib/platforms/google/warehouse.ts`, `lib/platforms/google/serving.ts`, `lib/meta/serving.ts`, and `lib/migrations.ts`.
 - Status routes still couple directly to control-plane tables instead of dedicated serving summaries.
 - Some request-time orchestration paths still read across live, warehouse, and serving layers inside broad modules, even though passive-read writes are removed.
 - Intentional manual freshness boundaries remain operator-owned by design.

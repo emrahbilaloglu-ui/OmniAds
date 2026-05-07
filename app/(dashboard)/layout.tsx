@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { DesktopSidebar, MobileSidebar } from "@/components/layout/sidebar";
+import { DesktopSidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { BusinessGuard } from "@/components/layout/business-guard";
 import { AuthBootstrap } from "@/components/layout/auth-bootstrap";
@@ -25,9 +25,6 @@ export default async function DashboardLayout({
       <AuthBootstrap />
       {/* Desktop sidebar */}
       <DesktopSidebar />
-
-      {/* Mobile sidebar (Sheet) */}
-      <MobileSidebar />
 
       {/* Main content */}
       <div className="flex flex-col flex-1 overflow-hidden">

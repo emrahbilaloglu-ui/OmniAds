@@ -44,8 +44,8 @@ This file is a pointer only. The full review is at the
 # Independently verified state
 
 - PR #81 head: `41a9d8030de6ef770f64088a98225791cdd5e51b`. Draft.
-- `app/(dashboard)/creatives/page.test.tsx`: 297 lines.
-- `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx`: 624
+- `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx`: 297 lines.
+- `components/platforms/meta/creatives/CreativeDecisionOsV2PreviewSurface.tsx`: 624
   lines.
 - Component still has only the row-card `<button>` wired to
   `onOpenRow`. No new write paths.

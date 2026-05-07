@@ -51,11 +51,11 @@ Code (`0ab332e`):
 
 | File | Lines | Max line |
 | --- | ---: | ---: |
-| `app/(dashboard)/creatives/page.test.tsx` | 296 | 99 |
-| `app/(dashboard)/creatives/page.tsx` | 1266 | 196 |
+| `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx` | 296 | 99 |
+| `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx` | 1266 | 196 |
 | `app/api/creatives/decision-os-v2/preview/route.test.ts` | 65 | 109 |
 | `app/api/creatives/decision-os-v2/preview/route.ts` | 119 | 100 |
-| `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx` | 623 | 111 |
+| `components/platforms/meta/creatives/CreativeDecisionOsV2PreviewSurface.tsx` | 623 | 111 |
 | `lib/creative-decision-os-v2-preview.ts` | 661 | 100 |
 | `lib/creative-decision-os-v2-preview.test.tsx` | 392 | 137 |
 | `src/services/data-service-ai.ts` | 444 | 100 |
@@ -67,8 +67,8 @@ Documentation (`41a9d80`):
   - Cleared:
     `app/api/creatives/decision-os-v2/preview/route.ts`
   - Still flagged:
-    `app/(dashboard)/creatives/page.test.tsx`,
-    `app/(dashboard)/creatives/page.tsx`,
+    `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx`,
+    `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx`,
     `app/api/creatives/decision-os-v2/preview/route.test.ts`
 - Raw active blob, `.diff`, and `.patch` scans report zero
   hidden/bidi/control codepoints across all PR #81 files.

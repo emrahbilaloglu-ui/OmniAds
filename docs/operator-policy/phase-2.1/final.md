@@ -84,7 +84,7 @@ Exact sequence:
    - Prove analytics dates do not change provenance.
 
 2. Rename decision route inputs.
-   - Accept `analyticsStartDate/analyticsEndDate`.
+   - Accept `analyticsStartDate/insights/analyticsEndDate`.
    - Keep `startDate/endDate` only as deprecated aliases.
    - Add optional `decisionAsOf`.
    - Ensure selected-period Creative analysis remains context only.
@@ -130,7 +130,7 @@ Exact first test build order:
    - Validate sensitivity to `decisionAsOf`, source window, entity ids, and evidence.
 
 2. `app/api/meta/decision-os/route.test.ts`
-   - Assert `analyticsStartDate/analyticsEndDate` map to `analyticsWindow`.
+   - Assert `analyticsStartDate/insights/analyticsEndDate` map to `analyticsWindow`.
    - Assert `decisionAsOf` controls `primary30d`.
    - Assert legacy `startDate/endDate` aliases still work temporarily but do not become action identity.
 
@@ -197,7 +197,7 @@ Do not implement the Creative policy engine until the same selected-range and pr
 
 Allowed first implementation scope:
 
-- `analyticsStartDate/analyticsEndDate` route contract.
+- `analyticsStartDate/insights/analyticsEndDate` route contract.
 - `decisionAsOf` passthrough.
 - provenance helpers and action-bearing provenance fields.
 - Command Center fingerprint rebinding.

@@ -24,7 +24,7 @@ The contract for this phase is:
   - source of truth is the deterministic recommendation engine behind `/api/meta/recommendations`
   - page status truth class is `deterministic_decision_engine`
 - Creative metrics:
-  - source of truth is the raw Meta creatives row mapper plus explicit derived formulas in `app/(dashboard)/creatives/page-support.tsx` and `components/creatives/creative-truth.ts`
+  - source of truth is the raw Meta creatives row mapper plus explicit derived formulas in `app/(dashboard)/platforms/meta/platforms/meta/creatives/page-support.tsx` and `components/platforms/meta/creatives/creative-truth.ts`
 - Creative decision signals:
   - source of truth is `/api/creatives/decisions`
   - response provenance is only `cache` or `deterministic`
@@ -134,9 +134,9 @@ These values remain available for continuity, but the label must make the reuse 
 ## Implementation anchors
 
 - Creative mapper and export/share alignment:
-  - `app/(dashboard)/creatives/page-support.tsx`
-  - `components/creatives/creative-truth.ts`
-  - `components/creatives/shareTableEngine.ts`
+  - `app/(dashboard)/platforms/meta/platforms/meta/creatives/page-support.tsx`
+  - `components/platforms/meta/creatives/creative-truth.ts`
+  - `components/platforms/meta/creatives/shareTableEngine.ts`
 - Creative deterministic provenance:
   - `src/services/data-service-ai.ts`
   - `app/api/ai/creatives/decisions/route.ts`

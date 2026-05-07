@@ -18,7 +18,7 @@ Result: passed locally through `npm run creative:v2:safety`.
 | `src/services/data-service-ai.test.ts` | client preview fetch remains GET-only with no body |
 | `lib/creative-v2-no-write-enforcement.test.ts` | static and route-scanner no-write boundary assertions |
 | `lib/creative-decision-os-v2-preview.test.tsx` | preview component/model read-only checks |
-| `app/(dashboard)/creatives/page.test.tsx` | page keeps v2 preview off by default and query gated |
+| `app/(dashboard)/platforms/meta/platforms/meta/creatives/page.test.tsx` | page keeps v2 preview off by default and query gated |
 
 # Mocked Or Scanned Write Boundaries
 

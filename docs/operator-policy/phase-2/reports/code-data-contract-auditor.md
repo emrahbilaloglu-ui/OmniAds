@@ -47,14 +47,14 @@ This contract is good and should remain the basis for Phase 2.
 | Meta campaign detail | Command Center overlay is keyed by selected `since/until` (`components/meta/meta-campaign-detail.tsx:606`), breakdowns fetch selected dates (`components/meta/meta-campaign-detail.tsx:618`), and workflow link includes selected dates (`components/meta/meta-campaign-detail.tsx:796`). | Design flaw for workflow handoff. Execution context can inherit reporting dates. |
 | Creative Decision OS route | Reads selected dates from query params and passes them into `getCreativeDecisionOsForRange` (`app/api/creatives/decision-os/route.ts:46`). | Design flaw at API contract level, even though primary decision rows are not selected-period rows. |
 | Creative Decision OS source | Accepts selected dates (`lib/creative-decision-os-source.ts:257`) and uses them for `analyticsWindow`, operating mode wrapper, and selected-period historical analysis (`lib/creative-decision-os-source.ts:362`, `lib/creative-decision-os-source.ts:376`). Primary decision rows come from `primary30d` (`lib/creative-decision-os-source.ts:296`, `lib/creative-decision-os-source.ts:323`, `lib/creative-decision-os-source.ts:347`). | Primary decisions are stable-window anchored. Selected dates still change response metadata and historical analysis, so the route should not present them as decision inputs. |
-| Creative page | Persists selected creative date range (`app/(dashboard)/creatives/page.tsx:140`), uses it for main table fetch (`app/(dashboard)/creatives/page.tsx:216`), derives page history windows from selected `drEnd` (`app/(dashboard)/creatives/page.tsx:254`), and keys Creative Decision OS by selected dates (`app/(dashboard)/creatives/page.tsx:307`). | Design flaw. Page history and query identity are selected-range dependent; users can infer that changing the selected range changes the operator decision. |
+| Creative page | Persists selected creative date range (`app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx:140`), uses it for main table fetch (`app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx:216`), derives page history windows from selected `drEnd` (`app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx:254`), and keys Creative Decision OS by selected dates (`app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx:307`). | Design flaw. Page history and query identity are selected-range dependent; users can infer that changing the selected range changes the operator decision. |
 | Command Center/execution client | Queue fetch, mutations, execution preview, apply, and rollback accept/pass selected `startDate/endDate` (`src/services/data-service-command-center.ts:19`, `src/services/data-service-command-center.ts:50`, `src/services/data-service-command-center.ts:304`, `src/services/data-service-command-center.ts:335`, `src/services/data-service-command-center.ts:366`). | Critical pre-implementation blocker. Workflow execution must bind to decision provenance, not selected reporting range. |
 
 ## Stable Multi-Window Context Already Present
 
 Meta:
 
-- `getMetaDecisionWindowContext` maps selected dates only into `analyticsStartDate/analyticsEndDate` and returns shared decision metadata (`lib/meta/operator-decision-source.ts:14`).
+- `getMetaDecisionWindowContext` maps selected dates only into `analyticsStartDate/insights/analyticsEndDate` and returns shared decision metadata (`lib/meta/operator-decision-source.ts:14`).
 - `getMetaDecisionSourceSnapshot` fetches campaigns, breakdowns, country breakdowns, and ad sets with `primary30d.startDate/endDate` (`lib/meta/operator-decision-source.ts:32`).
 - Meta ad set decisions use signal floors, recent-change cooldown, target/break-even thresholds, mixed config, bid regime, constraints, and campaign role (`lib/meta/decision-os.ts:1592`, `lib/meta/decision-os.ts:1596`, `lib/meta/decision-os.ts:1605`, `lib/meta/decision-os.ts:1617`, `lib/meta/decision-os.ts:1632`).
 - Meta downgrades aggressive actions when commercial targets are missing (`lib/meta/decision-os.ts:1880`).
@@ -108,7 +108,7 @@ Creative performance/metadata:
 - Creative daily has campaign/ad set/ad/creative ids, name, headline, primary text, destination URL, thumbnail URL, asset type, spend, impressions, clicks, conversions, revenue, ROAS, CTR, CPC, and link clicks (`lib/migrations.ts:2490`).
 - Creative dimensions store creative metadata and projection JSON (`lib/migrations.ts:2835`).
 - Creative score snapshots are keyed by selected start/end and as-of date (`lib/migrations.ts:2861`), which is useful for reporting but reinforces selected-window coupling.
-- Creative row type includes preview/media fields, taxonomy, tags, spend, purchase value, ROAS, CPA, CPC/CPM/CTR, purchases, impressions, clicks, link clicks, landing page views, add to cart, checkout, leads, messages, video/attention metrics, and funnel ratios (`components/creatives/metricConfig.ts:59`).
+- Creative row type includes preview/media fields, taxonomy, tags, spend, purchase value, ROAS, CPA, CPC/CPM/CTR, purchases, impressions, clicks, link clicks, landing page views, add to cart, checkout, leads, messages, video/attention metrics, and funnel ratios (`components/platforms/meta/creatives/metricConfig.ts:59`).
 
 ## Data Missing For Expert Policy
 
@@ -139,7 +139,7 @@ These are the places current code can still produce media-buyer-stupid recommend
 
 4. Hard-coded evidence floors and fallback thresholds can be too generic for a business. Meta uses fixed spend/purchase floors such as `$250/8`, `$500/12`, `$500/18` (`lib/meta/decision-os.ts:1592`). Creative fallback promotion can use `$250`, 5 purchases, and 2.0x ROAS when commercial targets are absent (`lib/creative-decision-os.ts:1044`). Trust caps help, but the numeric policy is still hard-coded rather than business-calibrated.
 
-5. Creative decisions are stable-window based, but the UI query identity is selected-range based. The Creative page keys Decision OS by `drStart/drEnd` (`app/(dashboard)/creatives/page.tsx:307`) and selected historical analysis is visible in the same operator console (`components/creatives/CreativeDecisionOsOverview.tsx:624`). Even though the UI says selected period affects analysis only (`components/creatives/CreativeDecisionOsOverview.tsx:195`), the coupling can still teach operators that range-picking changes decisions.
+5. Creative decisions are stable-window based, but the UI query identity is selected-range based. The Creative page keys Decision OS by `drStart/drEnd` (`app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx:307`) and selected historical analysis is visible in the same operator console (`components/platforms/meta/creatives/CreativeDecisionOsOverview.tsx:624`). Even though the UI says selected period affects analysis only (`components/platforms/meta/creatives/CreativeDecisionOsOverview.tsx:195`), the coupling can still teach operators that range-picking changes decisions.
 
 6. Meta page runs Decision OS and legacy recommendations side by side for the selected range. The detail card says Decision OS takes precedence (`components/meta/meta-campaign-detail.tsx:270`), but fallback recommendation context remains visible when Decision OS does not produce authoritative guidance (`components/meta/meta-campaign-detail.tsx:275`). This is safer than primary fallback, but not enough for Phase 2 execution readiness.
 
@@ -167,14 +167,14 @@ Evidence:
 - The route accepts selected `startDate/endDate` (`app/api/creatives/decision-os/route.ts:46`).
 - The source fetches primary decision rows from `primary30d` (`lib/creative-decision-os-source.ts:323`) and assigns them to `decisionRows` (`lib/creative-decision-os-source.ts:347`).
 - The same source separately fetches selected-period rows for historical analysis (`lib/creative-decision-os-source.ts:339`, `lib/creative-decision-os-source.ts:376`).
-- The page keys Creative Decision OS by selected dates (`app/(dashboard)/creatives/page.tsx:307`) and page history windows are derived from selected `drEnd` (`app/(dashboard)/creatives/page.tsx:254`).
+- The page keys Creative Decision OS by selected dates (`app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx:307`) and page history windows are derived from selected `drEnd` (`app/(dashboard)/platforms/meta/platforms/meta/creatives/page.tsx:254`).
 
 Verdict: selected range should not be an input identity for Creative operator decisions. Selected-period historical analysis is valid only as descriptive context and must be contractually separated from primary actions.
 
 ## Required Contract Changes Before Implementation
 
 1. Split API parameters:
-   - Replace decision-route `startDate/endDate` semantics with explicit `analyticsStartDate/analyticsEndDate` for reporting overlays.
+   - Replace decision-route `startDate/endDate` semantics with explicit `analyticsStartDate/insights/analyticsEndDate` for reporting overlays.
    - Add explicit `decisionAsOf` or server-resolved provider previous date as the only anchor for Decision OS authority.
 
 2. Add per-decision provenance:

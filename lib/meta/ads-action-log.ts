@@ -31,6 +31,7 @@ export interface MetaAdsActionLogRow {
   durationMs: number | null;
   verifiedAt: string | null;
   verificationPayload: Record<string, unknown> | null;
+  recIdOrigin: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -60,6 +61,7 @@ interface MetaAdsActionLogDbRow {
   duration_ms: number | null;
   verified_at: string | null;
   verification_payload: Record<string, unknown> | null;
+  rec_id_origin: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -83,6 +85,7 @@ function mapActionLogRow(row: MetaAdsActionLogDbRow): MetaAdsActionLogRow {
     durationMs: row.duration_ms,
     verifiedAt: row.verified_at,
     verificationPayload: row.verification_payload,
+    recIdOrigin: row.rec_id_origin,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -339,6 +342,7 @@ export async function createMetaAdsActionLog(input: {
   action: MetaAdsActionKind;
   requestedBy?: string | null;
   payloadRequest?: Record<string, unknown> | null;
+  recIdOrigin?: string | null;
 }): Promise<MetaAdsActionLogRow> {
   const sql = getDb();
   const rows = (await sql`
@@ -349,6 +353,7 @@ export async function createMetaAdsActionLog(input: {
       action,
       requested_by,
       payload_request,
+      rec_id_origin,
       status
     ) VALUES (
       ${input.businessId},
@@ -357,6 +362,7 @@ export async function createMetaAdsActionLog(input: {
       ${input.action},
       ${input.requestedBy ?? null},
       ${JSON.stringify(input.payloadRequest ?? null)}::jsonb,
+      ${input.recIdOrigin ?? null},
       'pending'
     )
     RETURNING *

@@ -63,7 +63,7 @@ Creative flaws:
 - Page history windows are derived from selected `drEnd`.
 - Selected-period historical analysis is valid as context, but it is still presented close enough to the decision route/query identity that users can infer the selected range changes the operator decision.
 
-Required correction: decision routes and execution flows must bind to `decisionAsOf`, source window key, source window dates, stable decision id, source row scope, and evidence hash. Selected reporting dates may remain as `analyticsStartDate/analyticsEndDate` only.
+Required correction: decision routes and execution flows must bind to `decisionAsOf`, source window key, source window dates, stable decision id, source row scope, and evidence hash. Selected reporting dates may remain as `analyticsStartDate/insights/analyticsEndDate` only.
 
 ## 5. Recommended Stable Decision Windows for Meta
 
@@ -363,7 +363,7 @@ Creative, GEO, placement, structure, bid/control, objective, targeting, duplicat
 Phase 2 should end with doctrine, contracts, scenario bank, and data gaps ready. Phase 3 should implement in deterministic layers.
 
 1. Contract firewall.
-   - Rename selected dates in decision routes to `analyticsStartDate/analyticsEndDate`.
+   - Rename selected dates in decision routes to `analyticsStartDate/insights/analyticsEndDate`.
    - Make `decisionAsOf` the decision anchor.
    - Stop using selected dates as Decision OS query identity.
    - Add tests proving selected-range changes do not mutate primary Meta or Creative decisions.

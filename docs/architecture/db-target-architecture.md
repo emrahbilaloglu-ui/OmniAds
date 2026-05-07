@@ -143,7 +143,7 @@ The target architecture still allows narrow live exceptions, but they must be ex
    - Overview projection materialization should continue to run after sync completion, not during reads.
 
 4. Break large mixed-concern modules after the seams are stable.
-   - `lib/google-ads/warehouse.ts`, `lib/google-ads/serving.ts`, `lib/meta/serving.ts`, `lib/migrations.ts`, and `app/api/overview-summary/route.ts` remain the highest-value cleanup targets.
+   - `lib/platforms/google/warehouse.ts`, `lib/platforms/google/serving.ts`, `lib/meta/serving.ts`, `lib/migrations.ts`, and `app/api/overview-summary/route.ts` remain the highest-value cleanup targets.
 
 ## Non-goals of the current policy
 

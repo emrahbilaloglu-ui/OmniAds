@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildMetaRecommendations } from "@/lib/meta/recommendations";
+import {
+  buildMetaRecommendations,
+  calculateMetaStatisticalConfidence,
+} from "@/lib/meta/recommendations";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCreativeIntelligenceSummary } from "@/lib/meta/creative-intelligence";
@@ -231,6 +234,55 @@ const creativeIntelligence: MetaCreativeIntelligenceSummary = {
 };
 
 describe("buildMetaRecommendations", () => {
+  it("calculates statistical confidence from sample and magnitude factors", () => {
+    expect(
+      calculateMetaStatisticalConfidence({
+        level: "campaign",
+        metricValue: 3,
+        threshold: 2,
+        sampleSize: 4,
+        minRequiredSample: 8,
+      }),
+    ).toEqual({
+      score: 0.7,
+      label: "high",
+    });
+  });
+
+  it("caps immature campaign confidence with a thin-data watch reason", () => {
+    expect(
+      calculateMetaStatisticalConfidence({
+        level: "campaign",
+        metricValue: 3,
+        threshold: 2,
+        sampleSize: 8,
+        minRequiredSample: 8,
+        ageDays: 3,
+      }),
+    ).toEqual({
+      score: 0.4,
+      label: "low",
+      reason: "thin_data_watching",
+    });
+  });
+
+  it("floors severe loser confidence so high-spend losers surface", () => {
+    expect(
+      calculateMetaStatisticalConfidence({
+        level: "campaign",
+        metricValue: 0.5,
+        threshold: 1.5,
+        sampleSize: 1,
+        minRequiredSample: 8,
+        severeLoser: true,
+      }),
+    ).toEqual({
+      score: 0.7,
+      label: "high",
+      reason: "severe_loser_bypass",
+    });
+  });
+
   it("returns test instead of act when selected signal is strong but historical support is weak", () => {
     const selected = campaign({ roas: 3.2, purchases: 24, spend: 1200 });
     const weak30 = campaign({ roas: 2.95, purchases: 18, spend: 1180 });
@@ -850,5 +902,40 @@ describe("buildMetaRecommendations", () => {
 
     expect(result.recommendations.every((item) => item.comparisonCohort !== "Reach")).toBe(true);
     expect(result.summary.title).not.toContain("No purchase-focused");
+  });
+
+  it("populates campaign role and bid regime taxonomy fields on campaign recommendations", () => {
+    const row = campaign({
+      id: "promo-target-roas",
+      name: "Promo Clearance Sale",
+      bidStrategyType: "target_roas",
+      bidStrategyLabel: "Target ROAS",
+      bidValue: null,
+      bidValueFormat: null,
+      roas: 2.6,
+      revenue: 5200,
+      purchases: 32,
+      spend: 2000,
+    });
+
+    const result = buildMetaRecommendations({
+      windows: {
+        selected: [row],
+        previousSelected: [],
+        last3: [row],
+        last7: [row],
+        last14: [campaign({ id: "promo-14", name: row.name, roas: 2.5, revenue: 5000, purchases: 31, spend: 2000 })],
+        last30: [campaign({ id: "promo-30", name: row.name, roas: 2.4, revenue: 4800, purchases: 30, spend: 2000 })],
+        last90: [campaign({ id: "promo-90", name: row.name, roas: 2.7, revenue: 5400, purchases: 33, spend: 2000 })],
+        allHistory: [campaign({ id: "promo-history", name: row.name, roas: 2.55, revenue: 5100, purchases: 32, spend: 2000 })],
+      },
+      breakdowns,
+    });
+
+    const rec = result.recommendations.find(
+      (item) => item.type === "bid_value_guidance",
+    );
+    expect(rec?.campaignRole).toBe("promo_clearance");
+    expect(rec?.bidRegime).toBe("minimum_roas");
   });
 });

@@ -16,16 +16,12 @@ export interface Business {
 }
 
 interface AppState {
-  desktopSidebarOpen: boolean;
-  mobileSidebarOpen: boolean;
   businesses: Business[];
   selectedBusinessId: string | null;
   workspaceOwnerId: string | null;
   hasHydrated: boolean;
   authBootstrapStatus: "idle" | "loading" | "ready";
   workspaceResolved: boolean;
-  toggleDesktopSidebar: () => void;
-  setMobileSidebarOpen: (open: boolean) => void;
   createBusiness: (name: string, currency: string) => string;
   deleteBusiness: (id: string) => string | null;
   setWorkspaceSnapshot: (
@@ -43,17 +39,12 @@ interface AppState {
 export const useAppStore = create<AppState>()(
   persist(
     (set) => ({
-      desktopSidebarOpen: true,
-      mobileSidebarOpen: false,
       businesses: [],
       selectedBusinessId: null,
       workspaceOwnerId: null,
       hasHydrated: false,
       authBootstrapStatus: "idle",
       workspaceResolved: false,
-      toggleDesktopSidebar: () =>
-        set((state) => ({ desktopSidebarOpen: !state.desktopSidebarOpen })),
-      setMobileSidebarOpen: (open) => set({ mobileSidebarOpen: open }),
       createBusiness: (name, currency) => {
         const id = crypto.randomUUID();
         set((state) => ({
@@ -116,7 +107,6 @@ export const useAppStore = create<AppState>()(
       name: APP_STORE_PERSIST_KEY,
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
-        desktopSidebarOpen: state.desktopSidebarOpen,
         businesses: state.businesses,
         selectedBusinessId: state.selectedBusinessId,
         workspaceOwnerId: state.workspaceOwnerId,

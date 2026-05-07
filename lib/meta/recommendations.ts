@@ -1,8 +1,19 @@
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { AppLanguage } from "@/lib/i18n";
+import type {
+  MetaCalibrationScopeResult,
+  MetaCalibrationThresholds,
+  MetaMetricPercentiles,
+} from "@/lib/meta/calibration";
+import { LEGACY_META_CALIBRATION_THRESHOLDS } from "@/lib/meta/calibration";
 import type { MetaBidRegimeHistorySummary } from "@/lib/meta/config-snapshots";
 import type { MetaCreativeIntelligenceSummary } from "@/lib/meta/creative-intelligence";
+import type { MetaEvidenceTrail } from "@/lib/meta/evidence-trail";
+import {
+  inferBidRegime,
+  inferCampaignRole,
+} from "@/lib/meta/campaign-roles";
 import {
   buildMetaCampaignLaneSignals,
   buildMetaCampaignLaneSummary,
@@ -14,14 +25,19 @@ import {
   type MetaCampaignFamily,
   type MetaCampaignLaneFamilySummary,
   type MetaCampaignLaneLabel,
+  type MetaCampaignLaneSignal,
 } from "@/lib/meta/campaign-lanes";
+import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
 
 export type MetaDecisionState = "act" | "test" | "watch";
 export type MetaRecommendationLens = "volume" | "profitability" | "structure";
 export type MetaRecommendationPriority = "high" | "medium" | "low";
 export type MetaRecommendationConfidence = "high" | "medium" | "low";
-export type MetaRecommendationLevel = "account" | "campaign";
+export type MetaRecommendationLevel = "account" | "campaign" | "adset";
 export type MetaRecommendationType =
+  | "adset_scale_budget"
+  | "adset_cut_spend"
+  | "adset_watch_learning"
   | "campaign_structure"
   | "optimization_fit"
   | "bid_strategy_fit"
@@ -59,10 +75,14 @@ export interface MetaRecommendation {
   level: MetaRecommendationLevel;
   campaignId?: string;
   campaignName?: string;
+  adsetId?: string;
+  adsetName?: string;
   type: MetaRecommendationType;
   lens: MetaRecommendationLens;
   priority: MetaRecommendationPriority;
   confidence: MetaRecommendationConfidence;
+  confidenceScore?: number;
+  confidenceReason?: string | null;
   decisionState: MetaDecisionState;
   decision: string;
   title: string;
@@ -87,6 +107,12 @@ export interface MetaRecommendation {
   scalingGeoCluster?: string[];
   testingGeoCluster?: string[];
   matureGeoSplit?: string[];
+  targetValue?: unknown;
+  predictiveOverlay?: string | null;
+  engineVersion?: string;
+  evidenceTrail?: MetaEvidenceTrail;
+  campaignRole?: MetaCampaignRole;
+  bidRegime?: MetaBidRegime;
 }
 
 export interface MetaDecisionSummary {
@@ -102,6 +128,8 @@ export interface MetaDecisionSummary {
 
 export type MetaRecommendationAnalysisSourceSystem =
   | "snapshot_fallback"
+  | "snapshot_persistent"
+  | "snapshot_live"
   | "demo";
 
 export interface MetaRecommendationAnalysisSource {
@@ -117,8 +145,32 @@ export interface MetaRecommendationsResponse {
   endDate?: string;
   summary: MetaDecisionSummary;
   recommendations: MetaRecommendation[];
-  sourceModel?: "snapshot_heuristics";
+  sourceModel?: "snapshot_heuristics" | "snapshot_persistent" | "snapshot_live";
   analysisSource?: MetaRecommendationAnalysisSource;
+}
+
+export const META_RECOMMENDATION_ENGINE_VERSION = "v3.6.0-meta-taxonomy";
+
+export interface MetaCalibrationContext {
+  thresholds: MetaCalibrationThresholds;
+  scope?: MetaCalibrationScopeResult["scope"];
+  reason?: MetaCalibrationScopeResult["reason"];
+}
+
+export interface MetaStatisticalConfidenceInput {
+  level: MetaRecommendationLevel;
+  metricValue: number;
+  threshold: number;
+  sampleSize: number;
+  minRequiredSample: number;
+  ageDays?: number | null;
+  severeLoser?: boolean;
+}
+
+export interface MetaStatisticalConfidenceResult {
+  score: number;
+  label: MetaRecommendationConfidence;
+  reason?: "thin_data_watching" | "severe_loser_bypass";
 }
 
 function evidenceValue(recommendation: MetaRecommendation, label: string) {
@@ -605,6 +657,160 @@ function byId(rows: MetaCampaignRow[]) {
 function average(values: number[]) {
   if (values.length === 0) return 0;
   return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function clamp(value: number, min = 0, max = 1) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function confidenceLabelFromScore(score: number): MetaRecommendationConfidence {
+  if (score >= 0.7) return "high";
+  if (score >= 0.55) return "medium";
+  return "low";
+}
+
+function defaultConfidenceScore(confidence: MetaRecommendationConfidence) {
+  if (confidence === "high") return 0.85;
+  if (confidence === "medium") return 0.6;
+  return 0.4;
+}
+
+export function calculateMetaStatisticalConfidence(
+  input: MetaStatisticalConfidenceInput,
+): MetaStatisticalConfidenceResult {
+  const sampleFactor = clamp(
+    input.minRequiredSample > 0 ? input.sampleSize / input.minRequiredSample : 0,
+  );
+  const magnitudeFactor =
+    input.threshold > 0
+      ? clamp(Math.abs(input.metricValue - input.threshold) / input.threshold)
+      : input.metricValue > 0
+        ? 1
+        : 0;
+  let score = clamp(0.4 + 0.3 * sampleFactor + 0.3 * magnitudeFactor);
+  let reason: MetaStatisticalConfidenceResult["reason"];
+
+  if (input.level === "campaign" && input.ageDays != null && input.ageDays < 7) {
+    score = Math.min(score, 0.4);
+    reason = "thin_data_watching";
+  }
+
+  if (input.severeLoser) {
+    score = Math.max(score, 0.7);
+    reason = "severe_loser_bypass";
+  }
+
+  const roundedScore = Math.round(score * 100) / 100;
+  return {
+    score: roundedScore,
+    label: confidenceLabelFromScore(roundedScore),
+    ...(reason ? { reason } : {}),
+  };
+}
+
+function thresholdMetric(
+  calibrationContext: MetaCalibrationContext | null | undefined,
+  metricName: keyof MetaCalibrationThresholds["metrics"],
+): MetaMetricPercentiles {
+  return calibrationContext?.thresholds.metrics[metricName] ??
+    LEGACY_META_CALIBRATION_THRESHOLDS.metrics[metricName];
+}
+
+function hardCutSpend(calibrationContext: MetaCalibrationContext | null | undefined) {
+  return calibrationContext?.thresholds.hardCutSpend ??
+    LEGACY_META_CALIBRATION_THRESHOLDS.hardCutSpend;
+}
+
+function minRequiredSample(calibrationContext: MetaCalibrationContext | null | undefined) {
+  return calibrationContext?.thresholds.minRequiredSample ??
+    LEGACY_META_CALIBRATION_THRESHOLDS.minRequiredSample;
+}
+
+function campaignAgeDays(row: MetaCampaignRow) {
+  const candidate = row as MetaCampaignRow & {
+    ageDays?: unknown;
+    firstSeenAt?: unknown;
+    firstSpendAt?: unknown;
+    launchDate?: unknown;
+  };
+  if (typeof candidate.ageDays === "number" && Number.isFinite(candidate.ageDays)) {
+    return candidate.ageDays;
+  }
+  const dateValue = candidate.firstSpendAt ?? candidate.firstSeenAt ?? candidate.launchDate;
+  if (typeof dateValue !== "string") return null;
+  const parsed = new Date(dateValue);
+  if (!Number.isFinite(parsed.getTime())) return null;
+  return Math.max(0, Math.floor((Date.now() - parsed.getTime()) / 86_400_000));
+}
+
+function applyConfidence(
+  recommendation: MetaRecommendation,
+  result: MetaStatisticalConfidenceResult,
+): MetaRecommendation {
+  return {
+    ...recommendation,
+    confidence: result.label,
+    confidenceScore: result.score,
+    confidenceReason: result.reason ?? recommendation.confidenceReason ?? null,
+    ...(result.reason === "thin_data_watching"
+      ? { decisionState: "watch" as const }
+      : {}),
+    engineVersion: META_RECOMMENDATION_ENGINE_VERSION,
+  };
+}
+
+function stampRecommendation(recommendation: MetaRecommendation): MetaRecommendation {
+  return {
+    ...recommendation,
+    confidenceScore:
+      typeof recommendation.confidenceScore === "number"
+        ? recommendation.confidenceScore
+        : defaultConfidenceScore(recommendation.confidence),
+    confidenceReason: recommendation.confidenceReason ?? null,
+    engineVersion: recommendation.engineVersion ?? META_RECOMMENDATION_ENGINE_VERSION,
+  };
+}
+
+interface MetaRecommendationTaxonomyContext {
+  campaigns: MetaCampaignRow[];
+  campaignsById: Map<string, MetaCampaignRow>;
+  laneSignals: Map<string, MetaCampaignLaneSignal>;
+}
+
+function buildRecommendationTaxonomyContext(
+  campaigns: MetaCampaignRow[],
+): MetaRecommendationTaxonomyContext {
+  return {
+    campaigns,
+    campaignsById: new Map(campaigns.map((campaign) => [campaign.id, campaign])),
+    laneSignals: buildMetaCampaignLaneSignals(campaigns),
+  };
+}
+
+function enrichRecommendationTaxonomy(
+  recommendation: MetaRecommendation,
+  context: MetaRecommendationTaxonomyContext,
+): MetaRecommendation {
+  if (recommendation.level !== "campaign" && recommendation.level !== "adset") {
+    return recommendation;
+  }
+  const campaignId = recommendation.campaignId;
+  if (!campaignId) return recommendation;
+  const campaign = context.campaignsById.get(campaignId);
+  if (!campaign) return recommendation;
+
+  return {
+    ...recommendation,
+    campaignRole:
+      recommendation.campaignRole ??
+      inferCampaignRole(campaign, {
+        campaigns: context.campaigns,
+        laneSignals: context.laneSignals,
+      }),
+    bidRegime:
+      recommendation.bidRegime ??
+      inferBidRegime(null, campaign),
+  };
 }
 
 function isActiveCampaign(row: MetaCampaignRow) {
@@ -1885,11 +2091,13 @@ function maybeBidRecommendation(
   window: CampaignWindowSnapshot,
   accountRoas: number,
   suggestedBidRange: { low: number; high: number } | null,
-  suggestedRoasRange: { low: number; high: number } | null
+  suggestedRoasRange: { low: number; high: number } | null,
+  calibrationContext?: MetaCalibrationContext | null
 ): MetaRecommendation | null {
   const row = window.selected;
   const core = buildWeightedCampaignSnapshot(window);
   const seasonality = seasonalitySignal(window);
+  const roasThresholds = thresholdMetric(calibrationContext, "roas_28d");
 
   if (row.bidStrategyType === "target_roas") {
     const targetBidValue = typeof row.bidValue === "number" ? row.bidValue : null;
@@ -1912,7 +2120,7 @@ function maybeBidRecommendation(
         : suggestedRoasText
           ? `Use ${suggestedRoasText} as the working Target ROAS range, then tighten or loosen based on whether actual ROAS holds above that band.`
           : "Set an explicit Target ROAS range before scaling so delivery and profitability are easier to control.";
-    return {
+    return applyConfidence({
       id: `bid-${row.id}`,
       level: "campaign",
       campaignId: row.id,
@@ -1962,7 +2170,14 @@ function maybeBidRecommendation(
         seasonality.flag,
         seasonality.note
       ),
-    };
+    }, calculateMetaStatisticalConfidence({
+      level: "campaign",
+      metricValue: core.roas,
+      threshold: targetBidValue ?? suggestedRoasRange?.low ?? roasThresholds.p50,
+      sampleSize: roasThresholds.sampleSize,
+      minRequiredSample: minRequiredSample(calibrationContext),
+      ageDays: campaignAgeDays(row),
+    }));
   }
 
   if (row.bidStrategyType === "bid_cap" || row.bidStrategyType === "cost_cap" || row.bidStrategyType === "manual_bid") {
@@ -1976,7 +2191,7 @@ function maybeBidRecommendation(
       suggestedBidRange
         ? fmtCurrencyRange(suggestedBidRange.low, suggestedBidRange.high, bidCurrencySymbol)
         : null;
-    return {
+    return applyConfidence({
       id: `bid-${row.id}`,
       level: "campaign",
       campaignId: row.id,
@@ -2021,13 +2236,28 @@ function maybeBidRecommendation(
         seasonality.flag,
         seasonality.note
       ),
-    };
+    }, calculateMetaStatisticalConfidence({
+      level: "campaign",
+      metricValue: core.roas,
+      threshold: Math.max(
+        roasThresholds.p50,
+        suggestedRoasRange ? (suggestedRoasRange.low + suggestedRoasRange.high) / 2 : 0,
+      ),
+      sampleSize: roasThresholds.sampleSize,
+      minRequiredSample: minRequiredSample(calibrationContext),
+      ageDays: campaignAgeDays(row),
+    }));
   }
 
-  if (row.bidStrategyType === "lowest_cost" && row.roas < Math.max(1.5, accountRoas * 0.75)) {
-    const support = buildHistoricalSupport(window, (historical) => historical.roas < Math.max(1.5, accountRoas * 0.75));
+  const lowestCostWeakThreshold = calibrationContext
+    ? roasThresholds.p25
+    : Math.max(1.5, accountRoas * 0.75);
+  if (row.bidStrategyType === "lowest_cost" && row.roas < lowestCostWeakThreshold) {
+    const support = buildHistoricalSupport(window, (historical) => historical.roas < lowestCostWeakThreshold);
     const decision = conservativeDecision(support.supportCount, support.total, seasonality.flag);
-    return {
+    const severeLoser =
+      core.roas < roasThresholds.p10 && core.spend > hardCutSpend(calibrationContext);
+    return applyConfidence({
       id: `bid-${row.id}`,
       level: "campaign",
       campaignId: row.id,
@@ -2055,19 +2285,42 @@ function maybeBidRecommendation(
         seasonality.flag,
         seasonality.note
       ),
-    };
+    }, calculateMetaStatisticalConfidence({
+      level: "campaign",
+      metricValue: core.roas,
+      threshold: lowestCostWeakThreshold,
+      sampleSize: roasThresholds.sampleSize,
+      minRequiredSample: minRequiredSample(calibrationContext),
+      ageDays: campaignAgeDays(row),
+      severeLoser,
+    }));
   }
 
   return null;
 }
 
-function maybeVolumeScaleRecommendation(window: CampaignWindowSnapshot, peerRoas: number, peerCpa: number): MetaRecommendation | null {
+function maybeVolumeScaleRecommendation(
+  window: CampaignWindowSnapshot,
+  peerRoas: number,
+  peerCpa: number,
+  calibrationContext?: MetaCalibrationContext | null,
+): MetaRecommendation | null {
   const row = window.selected;
   const core = buildWeightedCampaignSnapshot(window);
+  const roasThresholds = thresholdMetric(calibrationContext, "roas_28d");
+  const cpaThresholds = thresholdMetric(calibrationContext, "cpa_28d");
+  const scaleRoasThreshold = calibrationContext
+    ? roasThresholds.p75
+    : Math.max(peerRoas * 0.95, 2);
+  const cpaCeiling = calibrationContext
+    ? cpaThresholds.p75
+    : peerCpa > 0
+      ? peerCpa * 1.1
+      : Number.POSITIVE_INFINITY;
   if (row.status !== "ACTIVE") return null;
   if (core.purchases < 10) return null;
-  if (core.roas < Math.max(peerRoas * 0.95, 2)) return null;
-  if (peerCpa > 0 && core.cpa > peerCpa * 1.1) return null;
+  if (core.roas < scaleRoasThreshold) return null;
+  if (Number.isFinite(cpaCeiling) && core.cpa > cpaCeiling) return null;
 
   const support = buildHistoricalSupport(
     window,
@@ -2076,7 +2329,7 @@ function maybeVolumeScaleRecommendation(window: CampaignWindowSnapshot, peerRoas
   const seasonality = seasonalitySignal(window);
   const decision = conservativeDecision(support.supportCount, support.total, seasonality.flag);
 
-  return {
+  return applyConfidence({
     id: `volume-${row.id}`,
     level: "campaign",
     campaignId: row.id,
@@ -2111,21 +2364,39 @@ function maybeVolumeScaleRecommendation(window: CampaignWindowSnapshot, peerRoas
     ),
     comparisonCohort: comparableMetaIntentLabel(row),
     strategyLayer: "scaling",
-  };
+  }, calculateMetaStatisticalConfidence({
+    level: "campaign",
+    metricValue: core.roas,
+    threshold: scaleRoasThreshold,
+    sampleSize: roasThresholds.sampleSize,
+    minRequiredSample: minRequiredSample(calibrationContext),
+    ageDays: campaignAgeDays(row),
+  }));
 }
 
-function maybeProfitabilityRecommendation(window: CampaignWindowSnapshot, peerRoas: number, selectedRows: MetaCampaignRow[]): MetaRecommendation | null {
+function maybeProfitabilityRecommendation(
+  window: CampaignWindowSnapshot,
+  peerRoas: number,
+  selectedRows: MetaCampaignRow[],
+  calibrationContext?: MetaCalibrationContext | null,
+): MetaRecommendation | null {
   const row = window.selected;
   const core = buildWeightedCampaignSnapshot(window);
+  const roasThresholds = thresholdMetric(calibrationContext, "roas_28d");
+  const weakRoasThreshold = calibrationContext
+    ? roasThresholds.p25
+    : Math.max(1.6, peerRoas * 0.8);
   const totalSpend = selectedRows.reduce((sum, campaign) => sum + campaign.spend, 0);
   const spendShare = totalSpend > 0 ? row.spend / totalSpend : 0;
   if (spendShare < 0.12 && row.spend < average(selectedRows.map((campaign) => campaign.spend))) return null;
-  if (core.roas >= Math.max(1.6, peerRoas * 0.8)) return null;
+  if (core.roas >= weakRoasThreshold) return null;
 
-  const support = buildHistoricalSupport(window, (historical) => historical.roas < Math.max(1.6, peerRoas * 0.8));
+  const support = buildHistoricalSupport(window, (historical) => historical.roas < weakRoasThreshold);
   const seasonality = seasonalitySignal(window);
   const decision = conservativeDecision(support.supportCount, support.total, seasonality.flag);
-  return {
+  const severeLoser =
+    core.roas < roasThresholds.p10 && core.spend > hardCutSpend(calibrationContext);
+  return applyConfidence({
     id: `profit-${row.id}`,
     level: "campaign",
     campaignId: row.id,
@@ -2158,7 +2429,15 @@ function maybeProfitabilityRecommendation(window: CampaignWindowSnapshot, peerRo
     ),
     comparisonCohort: comparableMetaIntentLabel(row),
     strategyLayer: "scaling",
-  };
+  }, calculateMetaStatisticalConfidence({
+    level: "campaign",
+    metricValue: core.roas,
+    threshold: weakRoasThreshold,
+    sampleSize: roasThresholds.sampleSize,
+    minRequiredSample: minRequiredSample(calibrationContext),
+    ageDays: campaignAgeDays(row),
+    severeLoser,
+  }));
 }
 
 function maybeAccountBudgetShift(
@@ -2374,6 +2653,8 @@ export function buildMetaRecommendations(input: {
   breakdowns: MetaBreakdownsResponse | null;
   historicalBidRegimes?: Record<string, MetaBidRegimeHistorySummary>;
   creativeIntelligence?: MetaCreativeIntelligenceSummary | null;
+  calibrationContext?: MetaCalibrationContext | null;
+  calibrationContextByCampaignId?: Record<string, MetaCalibrationContext | null | undefined>;
   language?: AppLanguage;
 }): MetaRecommendationsResponse {
   const language = input.language ?? "en";
@@ -2406,6 +2687,7 @@ export function buildMetaRecommendations(input: {
     };
   }
   const selectedAccount = accountMetrics(selectedRows);
+  const taxonomyContext = buildRecommendationTaxonomyContext(selectedRows);
   const suggestedBidRange = historicalBidRange(purchaseWindows);
   const suggestedRoasRange = historicalRoasRange(purchaseWindows);
   const seasonalContext = buildSeasonalContext(purchaseWindows);
@@ -2469,32 +2751,57 @@ export function buildMetaRecommendations(input: {
   for (const campaignWindow of windows) {
     const peerRows = comparablePeerRows(selectedRows, campaignWindow.selected);
     const peerMetrics = accountMetrics(peerRows);
+    const calibrationContext =
+      input.calibrationContextByCampaignId?.[campaignWindow.selected.id] ??
+      input.calibrationContext ??
+      null;
     const structure = maybeStructureRecommendation(campaignWindow);
     if (structure) recommendations.push(structure);
 
     const optimization = maybeOptimizationRecommendation(campaignWindow);
     if (optimization) recommendations.push(optimization);
 
-    const bid = maybeBidRecommendation(campaignWindow, selectedAccount.roas, suggestedBidRange, suggestedRoasRange);
+    const bid = maybeBidRecommendation(
+      campaignWindow,
+      selectedAccount.roas,
+      suggestedBidRange,
+      suggestedRoasRange,
+      calibrationContext,
+    );
     if (bid) recommendations.push(bid);
 
-    const volume = maybeVolumeScaleRecommendation(campaignWindow, peerMetrics.roas || selectedAccount.roas, peerMetrics.cpa || selectedAccount.cpa);
+    const volume = maybeVolumeScaleRecommendation(
+      campaignWindow,
+      peerMetrics.roas || selectedAccount.roas,
+      peerMetrics.cpa || selectedAccount.cpa,
+      calibrationContext,
+    );
     if (volume) recommendations.push(volume);
 
-    const profitability = maybeProfitabilityRecommendation(campaignWindow, peerMetrics.roas || selectedAccount.roas, peerRows);
+    const profitability = maybeProfitabilityRecommendation(
+      campaignWindow,
+      peerMetrics.roas || selectedAccount.roas,
+      peerRows,
+      calibrationContext,
+    );
     if (profitability) recommendations.push(profitability);
   }
 
   const accountBudgetShift = maybeAccountBudgetShift(windows, recommendations);
   if (accountBudgetShift) recommendations.push(accountBudgetShift);
 
-  const dedupedBase = recommendations
+  const stampedRecommendations = recommendations
+    .map((recommendation) =>
+      enrichRecommendationTaxonomy(recommendation, taxonomyContext),
+    )
+    .map(stampRecommendation);
+  const dedupedBase = stampedRecommendations
     .sort((a, b) => sortWeight(b) - sortWeight(a))
     .filter((recommendation, index, list) =>
       list.findIndex((item) => item.id === recommendation.id) === index
     )
     .slice(0, 8);
-  const deduped = ensurePriorityRecommendationsIncluded(recommendations, dedupedBase);
+  const deduped = ensurePriorityRecommendationsIncluded(stampedRecommendations, dedupedBase);
 
   return localizeMetaRecommendationsResponse({
     status: "ok",

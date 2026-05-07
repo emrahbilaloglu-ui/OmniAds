@@ -19,8 +19,8 @@ Scope: bounded operator parameters, Creative target context, evidence-based urge
 - `lib/creative-operator-surface.ts`
 - `lib/command-center.ts`
 - `components/meta/meta-decision-os.tsx`
-- `components/creatives/CreativeDecisionOsOverview.tsx`
-- `components/creatives/CreativeDetailExperience.tsx`
+- `components/platforms/meta/creatives/CreativeDecisionOsOverview.tsx`
+- `components/platforms/meta/creatives/CreativeDetailExperience.tsx`
 - `components/command-center/CommandCenterDashboard.tsx`
 - Phase 6 tests in `lib/*` and component surfaces
 
@@ -101,7 +101,7 @@ Telemetry intentionally excludes raw business IDs, provider account IDs, entity 
 ## Checks Run
 
 - `npm test -- lib/operator-prescription.test.ts lib/meta/operator-surface.test.ts lib/creative-operator-surface.test.ts lib/command-center.test.ts` - passed, 62 tests.
-- `npm test -- components/meta/meta-decision-os.test.tsx components/creatives/CreativeDecisionOsOverview.test.tsx components/creatives/CreativeDetailExperience.test.tsx components/command-center/CommandCenterDashboard.test.tsx` - passed, 17 tests across 3 available files.
+- `npm test -- components/meta/meta-decision-os.test.tsx components/platforms/meta/creatives/CreativeDecisionOsOverview.test.tsx components/platforms/meta/creatives/CreativeDetailExperience.test.tsx components/command-center/CommandCenterDashboard.test.tsx` - passed, 17 tests across 3 available files.
 - `npm test` - passed, 291 files / 1977 tests.
 - `npx tsc --noEmit` - passed.
 - `git diff --check` - passed.

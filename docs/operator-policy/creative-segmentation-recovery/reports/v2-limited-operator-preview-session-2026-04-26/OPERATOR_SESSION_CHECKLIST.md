@@ -23,9 +23,9 @@ into a technical audit checklist.
 
 Current local URLs, when the dev server is running on the default port:
 
-- Normal Creative page: `http://localhost:3000/creatives`
+- Normal Creative page: `http://localhost:3000/platforms/meta/creatives`
 - V2 preview Creative page:
-  `http://localhost:3000/creatives?creativeDecisionOsV2Preview=1`
+  `http://localhost:3000/platforms/meta/creatives?creativeDecisionOsV2Preview=1`
 
 Normal page expectation:
 
@@ -66,7 +66,7 @@ V2 preview page expectation:
 
 Open:
 
-- `/creatives`
+- `/platforms/meta/creatives`
 
 Verify:
 
@@ -80,8 +80,8 @@ Verify:
 
 Open one of:
 
-- `/creatives?creativeDecisionOsV2Preview=1`
-- `/creatives?v2Preview=1`
+- `/platforms/meta/creatives?creativeDecisionOsV2Preview=1`
+- `/platforms/meta/creatives?v2Preview=1`
 
 Verify:
 

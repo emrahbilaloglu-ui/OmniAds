@@ -35,8 +35,8 @@ The helper emits challenger action, lifecycle state, reason, metrics used, confi
 
 ## Tests Run
 
-- `npx vitest run lib/creative-operator-policy.test.ts lib/creative-operator-surface.test.ts lib/creative-decision-os.test.ts lib/creative-old-rule-challenger.test.ts components/creatives/CreativeDecisionOsOverview.test.tsx` - passed, 42 tests.
-- `npx vitest run lib/creative-operator-policy.test.ts lib/creative-operator-surface.test.ts lib/creative-decision-os.test.ts lib/creative-old-rule-challenger.test.ts components/creatives/CreativeDecisionOsOverview.test.tsx lib/command-center.test.ts` - passed, 81 tests.
+- `npx vitest run lib/creative-operator-policy.test.ts lib/creative-operator-surface.test.ts lib/creative-decision-os.test.ts lib/creative-old-rule-challenger.test.ts components/platforms/meta/creatives/CreativeDecisionOsOverview.test.tsx` - passed, 42 tests.
+- `npx vitest run lib/creative-operator-policy.test.ts lib/creative-operator-surface.test.ts lib/creative-decision-os.test.ts lib/creative-old-rule-challenger.test.ts components/platforms/meta/creatives/CreativeDecisionOsOverview.test.tsx lib/command-center.test.ts` - passed, 81 tests.
 - `npm test` - passed, 293 files and 2021 tests.
 - `npx tsc --noEmit` - passed.
 - `npm run build` - passed.

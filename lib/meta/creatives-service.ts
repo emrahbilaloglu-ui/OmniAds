@@ -906,7 +906,7 @@ export async function buildCreativesResponse(
   let rows = groupRows(scopedRows, groupBy, creativeUsageMap);
   rows = sortRows(rows, sort);
 
-  // Copy enrichment fallback path for /copies use-cases.
+  // Copy enrichment fallback path for copy-surface use-cases.
   const unresolvedCopyRows = enableCopyRecovery ? rows.filter((row) => !normalizeCopyText(row.copy_text)) : [];
   if (enableCopyRecovery && unresolvedCopyRows.length > 0) {
     const storyLookupIds = Array.from(

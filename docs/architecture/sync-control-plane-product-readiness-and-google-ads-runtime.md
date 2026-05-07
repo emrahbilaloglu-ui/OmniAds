@@ -436,7 +436,7 @@ Expected future work:
 ## Cross-References
 
 - [ADR-001 Legacy-First Sync Control Plane](/Users/harmelek/Adsecute/docs/adr-001-sync-control-plane.md)
-- [Google Ads Product Truth Matrix](/Users/harmelek/Adsecute/docs/google-ads-product-truth-matrix.md)
+- [Google Ads Product Truth Matrix](/Users/harmelek/Adsecute/docs/platforms/google-product-truth-matrix.md)
 - [Sync Effectiveness Review](/Users/harmelek/Adsecute/docs/sync-effectiveness-review.md)
 - [Google Control Model Prep 2026-04-20](/Users/harmelek/Adsecute/docs/google-control-model-prep-2026-04-20.md)
 - [Serving Write Ownership Map](/Users/harmelek/Adsecute/docs/architecture/serving-write-ownership-map.md)

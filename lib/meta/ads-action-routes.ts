@@ -26,6 +26,8 @@ interface ActionBody {
   targetAdsetId?: string;
   name?: string;
   activateAfterCreate?: boolean;
+  recId?: string;
+  recIdOrigin?: string;
 }
 
 function jsonError(
@@ -48,6 +50,10 @@ function sanitizeErrorMessage(error: unknown) {
 
 function ensureRecord(value: Record<string, unknown> | null | undefined) {
   return value ?? null;
+}
+
+function recIdOriginFromBody(body: ActionBody | null) {
+  return body?.recIdOrigin?.trim() || body?.recId?.trim() || null;
 }
 
 async function readActionBody(request: NextRequest): Promise<ActionBody | null> {
@@ -215,11 +221,13 @@ export async function handleMetaAdStatusAction(
     creativeId: prepared.target.creativeId,
     action,
     requestedBy: prepared.userId,
+    recIdOrigin: recIdOriginFromBody(body),
     payloadRequest: {
       method: "POST",
       endpoint: `/${resolvedAdId}`,
       body: { status },
       input_ad_id: inputAdId,
+      rec_id_origin: recIdOriginFromBody(body),
     },
   });
 
@@ -323,6 +331,7 @@ export async function handleMetaAdDuplicateAction(
       name: trimmedName ?? null,
     },
     input_ad_id: inputAdId,
+    rec_id_origin: recIdOriginFromBody(body),
   };
   const log = await createMetaAdsActionLog({
     businessId: prepared.businessId,
@@ -330,6 +339,7 @@ export async function handleMetaAdDuplicateAction(
     creativeId: prepared.target.creativeId,
     action: "duplicate",
     requestedBy: prepared.userId,
+    recIdOrigin: recIdOriginFromBody(body),
     payloadRequest,
   });
 

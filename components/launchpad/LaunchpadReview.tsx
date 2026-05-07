@@ -140,6 +140,10 @@ export function LaunchpadReview({
   const launchBlocked = validating || !validation?.ok;
   const targetCount = Math.max(1, targetSummary?.targetCount ?? 1);
   const campaignCount = Math.max(1, targetSummary?.campaignCount ?? 1);
+  const addToExistingCopyMode =
+    mode === "add_to_existing" && "copyMode" in payload
+      ? payload.copyMode
+      : null;
   const afterLaunchCount =
     targetSummary?.currentAdCount == null
       ? null
@@ -169,6 +173,9 @@ export function LaunchpadReview({
             {targetCount > 1 ? "Selected ad sets" : "The ad set"} will inherit pixel, attribution, targeting, and budget settings.
             {targetSummary?.currentAdCount != null && afterLaunchCount != null
               ? ` Current ads: ${targetSummary.currentAdCount}; after launch: ${afterLaunchCount}.`
+              : ""}
+            {addToExistingCopyMode
+              ? ` Creative copy: ${addToExistingCopyMode === "reuse_creative" ? "duplicate" : "recreate exact ad"}.`
               : ""}
           </p>
         </div>

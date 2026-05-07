@@ -42,6 +42,7 @@ export interface MetaAddToExistingCreativeStatus {
   creativeName: string | null;
   effectiveStatus: string | null;
   sourceAdId: string | null;
+  providerAccountId: string | null;
 }
 
 export interface MetaAddToExistingValidationResult {
@@ -195,10 +196,11 @@ async function readLatestCreativeStatusesWithNames(input: {
       target.creative_id,
       COALESCE(latest.creative_name, dim.creative_name) AS creative_name,
       latest.effective_status,
-      COALESCE(latest.ad_id, dim.ad_id) AS source_ad_id
+      COALESCE(latest.ad_id, dim.ad_id) AS source_ad_id,
+      COALESCE(latest.provider_account_id, dim.provider_account_id) AS provider_account_id
     FROM unnest(${input.creativeIds}::text[]) AS target(creative_id)
     LEFT JOIN LATERAL (
-      SELECT creative_name, effective_status, ad_id
+      SELECT creative_name, effective_status, ad_id, provider_account_id
       FROM meta_creative_daily
       WHERE business_id = ${input.businessId}
         AND creative_id = target.creative_id
@@ -206,7 +208,7 @@ async function readLatestCreativeStatusesWithNames(input: {
       LIMIT 1
     ) latest ON TRUE
     LEFT JOIN LATERAL (
-      SELECT creative_name, ad_id
+      SELECT creative_name, ad_id, provider_account_id
       FROM meta_creative_dimensions
       WHERE business_id = ${input.businessId}
         AND creative_id = target.creative_id
@@ -218,12 +220,14 @@ async function readLatestCreativeStatusesWithNames(input: {
     creative_name: string | null;
     effective_status: string | null;
     source_ad_id: string | null;
+    provider_account_id: string | null;
   }>;
   return rows.map((row) => ({
     creativeId: row.creative_id,
     creativeName: row.creative_name ?? null,
     effectiveStatus: row.effective_status ?? null,
     sourceAdId: row.source_ad_id ?? null,
+    providerAccountId: row.provider_account_id ?? null,
   }));
 }
 
@@ -434,6 +438,30 @@ export async function validateMetaAddToExistingRequest(input: {
       });
     }
   });
+
+  if (payload.copyMode === "reuse_creative") {
+    const sourceAccounts = new Set(
+      creatives
+        .map((creative) => creative.providerAccountId?.trim())
+        .filter((account): account is string => Boolean(account)),
+    );
+    const targetAccounts = new Set(
+      targets
+        .map((target) => target.providerAccountId?.trim())
+        .filter((account): account is string => Boolean(account)),
+    );
+    const hasCrossAccountSelection =
+      sourceAccounts.size > 0 &&
+      targetAccounts.size > 0 &&
+      Array.from(sourceAccounts).some((sourceAccount) => !targetAccounts.has(sourceAccount));
+    if (hasCrossAccountSelection) {
+      blockers.push({
+        code: "cross_account_duplicate_not_supported",
+        message:
+          "Duplicate mode cannot use a creative from another Meta ad account. Choose Recreate exact ad for cross-account launches.",
+      });
+    }
+  }
 
   return {
     ok: blockers.length === 0,

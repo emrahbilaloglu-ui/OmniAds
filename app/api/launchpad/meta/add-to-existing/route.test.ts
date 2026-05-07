@@ -96,8 +96,8 @@ function mockValid() {
       },
     ],
     creatives: [
-      { creativeId: "creative_1", creativeName: "Creative 1", effectiveStatus: "ACTIVE", sourceAdId: "source_ad_1" },
-      { creativeId: "creative_2", creativeName: "Creative 2", effectiveStatus: "ACTIVE", sourceAdId: "source_ad_2" },
+      { creativeId: "creative_1", creativeName: "Creative 1", effectiveStatus: "ACTIVE", sourceAdId: "source_ad_1", providerAccountId: "act_123" },
+      { creativeId: "creative_2", creativeName: "Creative 2", effectiveStatus: "ACTIVE", sourceAdId: "source_ad_2", providerAccountId: "act_123" },
     ],
   });
 }
@@ -175,6 +175,7 @@ describe("POST /api/launchpad/meta/add-to-existing", () => {
           target_adset_name: "Ad set",
           source_name: "Creative 1",
           body: expect.objectContaining({
+            copy_mode: "rebuild_creative",
             source_name: "Creative 1",
             name: "Creative 1 added",
           }),
@@ -236,6 +237,23 @@ describe("POST /api/launchpad/meta/add-to-existing", () => {
     expect(adsWrite.duplicateAd).toHaveBeenCalledTimes(2);
   });
 
+  it("passes duplicate copy mode through to Meta write helper", async () => {
+    const response = await POST(request({ ...body(), idempotencyKey: "idem_reuse", copyMode: "reuse_creative" }));
+
+    expect(response.status).toBe(200);
+    expect(adsWrite.duplicateAd).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ copyMode: "reuse_creative" }),
+    );
+    expect(actionLog.createMetaAdsActionLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payloadRequest: expect.objectContaining({
+          body: expect.objectContaining({ copy_mode: "reuse_creative" }),
+        }),
+      }),
+    );
+  });
+
   it("creates ads across multiple selected campaign targets", async () => {
     vi.mocked(validation.validateMetaAddToExistingRequest).mockResolvedValue({
       ok: true,
@@ -278,7 +296,7 @@ describe("POST /api/launchpad/meta/add-to-existing", () => {
         },
       ],
       creatives: [
-        { creativeId: "creative_1", creativeName: "Creative 1", effectiveStatus: "ACTIVE", sourceAdId: "source_ad_1" },
+        { creativeId: "creative_1", creativeName: "Creative 1", effectiveStatus: "ACTIVE", sourceAdId: "source_ad_1", providerAccountId: "act_123" },
       ],
     });
     vi.mocked(adsWrite.duplicateAd)
@@ -329,13 +347,13 @@ describe("POST /api/launchpad/meta/add-to-existing", () => {
     expect(adsWrite.duplicateAd).toHaveBeenCalledTimes(2);
     expect(adsWrite.duplicateAd).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ providerAccountId: "act_123" }),
-      expect.objectContaining({ targetAdsetId: "adset_1" }),
+        expect.objectContaining({ providerAccountId: "act_123" }),
+      expect.objectContaining({ targetAdsetId: "adset_1", copyMode: "rebuild_creative" }),
     );
     expect(adsWrite.duplicateAd).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ providerAccountId: "act_456" }),
-      expect.objectContaining({ targetAdsetId: "adset_2" }),
+      expect.objectContaining({ targetAdsetId: "adset_2", copyMode: "rebuild_creative" }),
     );
   });
 

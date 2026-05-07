@@ -141,7 +141,7 @@ describe("LaunchpadAddToExistingTarget", () => {
     const html = renderToStaticMarkup(
       <LaunchpadAddToExistingTarget
         businessId="biz"
-        value={{ targetCampaign: campaign, targetAdset: adset, nameOverrides: {} }}
+        value={{ targetCampaign: campaign, targetAdset: adset, copyMode: "rebuild_creative", nameOverrides: {} }}
         selectedCreatives={[creative()]}
         campaignOptions={[campaign]}
         adsetOptions={[adset]}
@@ -179,6 +179,7 @@ describe("LaunchpadAddToExistingTarget", () => {
             cmp_1: adset,
             cmp_2: secondAdset,
           },
+          copyMode: "rebuild_creative",
           nameOverrides: {},
         }}
         selectedCreatives={[creative()]}
@@ -193,6 +194,23 @@ describe("LaunchpadAddToExistingTarget", () => {
     expect(html).toContain("2 campaigns");
     expect(html).toContain("1 creatives -&gt; 14 ads");
     expect(html).toContain("Retargeting Campaign");
+  });
+
+  it("renders copy mode choices", () => {
+    const html = renderToStaticMarkup(
+      <LaunchpadAddToExistingTarget
+        businessId="biz"
+        value={{ targetCampaign: campaign, targetAdset: adset, copyMode: "reuse_creative", nameOverrides: {} }}
+        selectedCreatives={[creative()]}
+        campaignOptions={[campaign]}
+        adsetOptions={[adset]}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("Creative copy mode");
+    expect(html).toContain("Duplicate");
+    expect(html).toContain("Recreate exact ad");
   });
 
   it("retries an empty ad set response when the campaign reports active ad sets", async () => {

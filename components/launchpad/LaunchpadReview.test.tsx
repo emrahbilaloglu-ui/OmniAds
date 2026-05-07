@@ -180,6 +180,7 @@ describe("LaunchpadReview", () => {
       targetAdsetId: "adset_1",
       targetCampaignName: "Campaign",
       targetAdsetName: "Ad set",
+      copyMode: "rebuild_creative" as const,
       targets: [
         {
           targetCampaignId: "cmp_1",
@@ -206,6 +207,7 @@ describe("LaunchpadReview", () => {
     );
 
     expect(html).toContain("1 creatives -&gt; existing ad set Ad set under campaign Campaign");
+    expect(html).toContain("Creative copy: recreate exact ad");
     expect(html).toContain("after launch: 5");
     expect(html).not.toContain("Save as template");
     expect(html).toContain("Save draft");

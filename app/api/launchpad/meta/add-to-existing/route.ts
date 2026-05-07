@@ -10,6 +10,7 @@ import {
   type MetaAdsWriteFailure,
 } from "@/lib/meta/ads-write";
 import { adsManagerUrl } from "@/lib/launchpad/meta";
+import type { MetaAddToExistingCopyMode } from "@/lib/launchpad/meta";
 import {
   resolveMetaLaunchWriteContext,
   validateMetaAddToExistingRequest,
@@ -48,6 +49,7 @@ type AddToExistingBody = {
   }>;
   names?: Record<string, string>;
   sourceAdIds?: Record<string, string>;
+  copyMode?: MetaAddToExistingCopyMode;
   idempotencyKey?: string;
 };
 
@@ -129,6 +131,8 @@ export async function POST(request: NextRequest) {
   const firstRequestedTarget = requestedTargets[0] ?? null;
   const targetCampaignId = firstRequestedTarget?.targetCampaignId ?? "";
   const targetAdsetId = firstRequestedTarget?.targetAdsetId ?? "";
+  const copyMode: MetaAddToExistingCopyMode =
+    body?.copyMode === "reuse_creative" ? "reuse_creative" : "rebuild_creative";
   const idempotencyKey = body?.idempotencyKey?.trim() ?? "";
 
   const access = await requireLaunchpadBusinessAccess({ request, businessId });
@@ -164,6 +168,7 @@ export async function POST(request: NextRequest) {
       mode: "add_to_existing",
       targetCampaignId,
       targetAdsetId,
+      copyMode,
       targets: requestedTargets,
       creativeIds: body?.creativeIds ?? [],
       creatives: body?.creatives ?? [],
@@ -298,6 +303,7 @@ export async function POST(request: NextRequest) {
               source_ad_id: sourceAdId,
               source_creative_id: creativeId,
               source_name: creativeName,
+              copy_mode: copyMode,
               status_option: "PAUSED",
               name: adName,
             },
@@ -309,6 +315,7 @@ export async function POST(request: NextRequest) {
           targetAdsetId: target.targetAdsetId,
           name: adName,
           activateAfterCreate: false,
+          copyMode,
         });
         if (!adResult.ok) {
           await completeFailure({ logId: adLog.id, startedAt, result: adResult });

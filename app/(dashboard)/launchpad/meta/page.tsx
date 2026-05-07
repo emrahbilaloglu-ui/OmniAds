@@ -536,12 +536,14 @@ export default function MetaLaunchpadPage() {
   const addToExistingPayload = useMemo(
     () => {
       const firstTarget = selectedExistingTargets[0] ?? null;
+      const copyMode = addToExistingTarget.copyMode ?? "rebuild_creative";
       return {
         mode: "add_to_existing" as const,
         targetCampaignId: firstTarget?.campaign.id ?? "",
         targetAdsetId: firstTarget?.adset.id ?? "",
         targetCampaignName: firstTarget?.campaign.name ?? null,
         targetAdsetName: firstTarget?.adset.name ?? null,
+        copyMode,
         targets: selectedExistingTargets.map(({ campaign, adset }) => ({
           targetCampaignId: campaign.id,
           targetAdsetId: adset.id,
@@ -565,7 +567,7 @@ export default function MetaLaunchpadPage() {
         }, {}),
       };
     },
-    [addToExistingTarget.nameOverrides, selectedCreatives, selectedExistingTargets],
+    [addToExistingTarget.copyMode, addToExistingTarget.nameOverrides, selectedCreatives, selectedExistingTargets],
   );
 
   const activeSteps =
@@ -650,6 +652,7 @@ export default function MetaLaunchpadPage() {
           selectedExistingTargets.length > 0 ||
           addToExistingTarget.targetCampaign ||
           addToExistingTarget.targetAdset ||
+          addToExistingTarget.copyMode !== "rebuild_creative" ||
           Object.keys(addToExistingTarget.nameOverrides).length > 0,
       );
     }
@@ -728,6 +731,7 @@ export default function MetaLaunchpadPage() {
           : null,
         targetCampaigns,
         targetAdsetsByCampaignId,
+        copyMode: next.copyMode,
         nameOverrides: next.names ?? {},
       });
       setTemplateMessage(`Resumed ${draft.name}`);
@@ -841,6 +845,7 @@ export default function MetaLaunchpadPage() {
                 businessId,
                 targetCampaignId: addToExistingPayload.targetCampaignId,
                 targetAdsetId: addToExistingPayload.targetAdsetId,
+                copyMode: addToExistingPayload.copyMode,
                 targets: addToExistingPayload.targets,
                 creativeIds: addToExistingPayload.creativeIds,
                 creatives: addToExistingPayload.creatives,

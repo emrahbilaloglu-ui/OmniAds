@@ -175,6 +175,7 @@ export async function resolveMetaAdActionTarget(input: {
       LIMIT 1
     ) dim_by_warehouse_creative ON TRUE
     LEFT JOIN LATERAL (
+      -- Newly written ads can be actionable before the next warehouse sync materializes dimensions.
       SELECT
         COALESCE(
           CASE

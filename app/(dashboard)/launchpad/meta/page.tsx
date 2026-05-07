@@ -454,8 +454,9 @@ export default function MetaLaunchpadPage() {
     () =>
       applyRecentAdActionsToRows(
         creatives,
-        mode === "manage_existing" ? recentAdActions : [],
+        mode === "manage_existing" || mode === "add_to_existing" ? recentAdActions : [],
         currency,
+        { surface: mode === "add_to_existing" ? "source_creatives" : "resulting_ads" },
       ),
     [creatives, currency, mode, recentAdActions],
   );

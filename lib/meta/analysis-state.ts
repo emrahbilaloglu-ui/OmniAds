@@ -141,10 +141,19 @@ export function getMetaRecommendationSource(
 ): MetaRecommendationSourceSystem {
   if (!recommendationsData) return "none";
   const system = recommendationsData?.analysisSource?.system;
-  if (system === "snapshot_fallback" || system === "demo") {
+  if (
+    system === "snapshot_fallback" ||
+    system === "snapshot_persistent" ||
+    system === "snapshot_live" ||
+    system === "demo"
+  ) {
     return system;
   }
-  if (recommendationsData?.sourceModel === "snapshot_heuristics") {
+  if (
+    recommendationsData?.sourceModel === "snapshot_heuristics" ||
+    recommendationsData?.sourceModel === "snapshot_persistent" ||
+    recommendationsData?.sourceModel === "snapshot_live"
+  ) {
     return "snapshot_fallback";
   }
   return "unknown";
@@ -154,6 +163,10 @@ function sourceLabel(source: MetaRecommendationSourceSystem) {
   switch (source) {
     case "snapshot_fallback":
       return "Snapshot fallback";
+    case "snapshot_persistent":
+      return "Daily snapshot";
+    case "snapshot_live":
+      return "Live snapshot";
     case "demo":
       return "Demo";
     case "none":
@@ -225,7 +238,9 @@ export function deriveMetaAnalysisStatus(
     ? "loading"
     : recommendationRangeMismatch
       ? "error"
-      : recommendationSource === "snapshot_fallback"
+      : recommendationSource === "snapshot_fallback" ||
+        recommendationSource === "snapshot_persistent" ||
+        recommendationSource === "snapshot_live"
         ? "fallback_context"
         : recommendationSource === "demo"
           ? "demo_context"
@@ -266,7 +281,11 @@ export function deriveMetaAnalysisStatus(
     };
   }
 
-  if (recommendationSource === "snapshot_fallback") {
+  if (
+    recommendationSource === "snapshot_fallback" ||
+    recommendationSource === "snapshot_persistent" ||
+    recommendationSource === "snapshot_live"
+  ) {
     return {
       state: "recommendation_fallback",
       ...base,

@@ -13,6 +13,10 @@ vi.mock("@/lib/sync/google-ads-sync", () => ({
   enqueueGoogleAdsScheduledWork: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/scheduled", () => ({
+  runMetaSnapshotJobIfDue: vi.fn(),
+}));
+
 vi.mock("@/lib/sync/ga4-sync", () => ({
   syncGA4Reports: vi.fn(),
 }));
@@ -51,6 +55,7 @@ vi.mock("@/lib/google-ads/control-plane-runtime", () => ({
 const activeBusinesses = await import("@/lib/sync/active-businesses");
 const metaSync = await import("@/lib/sync/meta-sync");
 const googleSync = await import("@/lib/sync/google-ads-sync");
+const metaScheduled = await import("@/lib/meta/scheduled");
 const ga4Sync = await import("@/lib/sync/ga4-sync");
 const searchConsoleSync = await import("@/lib/sync/search-console-sync");
 const shopifySync = await import("@/lib/sync/shopify-sync");
@@ -72,6 +77,11 @@ describe("POST /api/sync/cron", () => {
     ] as never);
     vi.mocked(metaSync.enqueueMetaScheduledWork).mockResolvedValue({ queued: 1 } as never);
     vi.mocked(googleSync.enqueueGoogleAdsScheduledWork).mockResolvedValue({ queued: 1 } as never);
+    vi.mocked(metaScheduled.runMetaSnapshotJobIfDue).mockResolvedValue({
+      skipped: true,
+      reason: "outside_slot",
+      snapshotDate: "2026-04-15",
+    });
     vi.mocked(ga4Sync.syncGA4Reports).mockResolvedValue({ synced: true } as never);
     vi.mocked(searchConsoleSync.syncSearchConsoleReports).mockResolvedValue({ synced: true } as never);
     vi.mocked(shopifySync.syncShopifyCommerceReports).mockResolvedValue({
@@ -233,6 +243,30 @@ describe("POST /api/sync/cron", () => {
     expect(payload.repairPlan).toBeDefined();
     expect(soakGate.runSyncSoakGate).not.toHaveBeenCalled();
     expect(payload.results[0].shopify).toEqual({ skipped: true, reason: "disabled" });
+    expect(payload.metaSnapshotJob).toEqual({
+      skipped: true,
+      reason: "outside_slot",
+      snapshotDate: "2026-04-15",
+    });
+  });
+
+  it("does not fail cron when the Meta snapshot job fails", async () => {
+    vi.mocked(metaScheduled.runMetaSnapshotJobIfDue).mockRejectedValue(new Error("snapshot failed"));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const request = new NextRequest("http://localhost/api/sync/cron", {
+      method: "POST",
+      headers: { authorization: "Bearer secret" },
+    });
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.metaSnapshotJob.skipped).toBe(true);
+    expect(payload.metaSnapshotJob.reason).toBe("failed");
+    expect(spy).toHaveBeenCalledWith("[sync-cron] meta_snapshot_job_failed", expect.any(Error));
+
+    spy.mockRestore();
   });
 
   it("runs Shopify sync when enabled", async () => {

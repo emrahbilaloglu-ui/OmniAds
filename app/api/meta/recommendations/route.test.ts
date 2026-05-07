@@ -38,6 +38,10 @@ vi.mock("@/lib/meta/campaigns-source", () => ({
   })),
 }));
 
+vi.mock("@/lib/meta/snapshot", () => ({
+  readMetaDecisionSnapshotForRange: vi.fn(),
+}));
+
 vi.mock("@/lib/meta/config-snapshots", () => ({
   readMetaBidRegimeHistorySummaries: vi.fn(),
 }));
@@ -105,6 +109,7 @@ const businessMode = await import("@/lib/business-mode.server");
 const campaignsSource = await import("@/lib/meta/campaigns-source");
 const breakdownsSource = await import("@/lib/meta/breakdowns-source");
 const metaRecommendations = await import("@/lib/meta/recommendations");
+const snapshot = await import("@/lib/meta/snapshot");
 const requestLanguage = await import("@/lib/request-language");
 const configSnapshots = await import("@/lib/meta/config-snapshots");
 
@@ -118,9 +123,55 @@ describe("GET /api/meta/recommendations", () => {
     vi.mocked(businessMode.isDemoBusiness).mockResolvedValue(false);
     vi.mocked(requestLanguage.resolveRequestLanguage).mockResolvedValue("en");
     vi.mocked(configSnapshots.readMetaBidRegimeHistorySummaries).mockResolvedValue(new Map());
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+      summary: {
+        title: "Snapshot summary",
+        summary: "Snapshot summary",
+        primaryLens: "volume",
+        confidence: "medium",
+        recommendationCount: 1,
+      },
+      recommendations: [
+        {
+          id: "snapshot_rec_1",
+          level: "campaign",
+          campaignId: "cmp_1",
+          type: "budget_allocation",
+          lens: "volume",
+          priority: "high",
+          confidence: "medium",
+          confidenceScore: 0.63,
+          decisionState: "act",
+          decision: "increase budget",
+          title: "Persisted budget move",
+          recommendedAction: "Increase the budget on the best campaign.",
+          why: "The selected campaign is outperforming peers.",
+          summary: "Strong profitability signal.",
+          expectedImpact: "More profitable volume.",
+          evidence: [{ label: "ROAS", value: "3.20x", tone: "positive" }],
+          timeframeContext: {
+            coreVerdict: "Strong selected range",
+            selectedRangeOverlay: "Selected range is healthy",
+            historicalSupport: "History supports the move",
+            seasonalityFlag: "none",
+            note: null,
+          },
+        },
+      ],
+      sourceModel: "snapshot_persistent",
+      analysisSource: {
+        system: "snapshot_persistent",
+        decisionOsAvailable: false,
+        fallbackReason: "legacy_decision_os_archived_phase_4_1",
+      },
+    });
   });
 
-  it("returns snapshot-backed recommendations and archival source metadata", async () => {
+  it("reads persisted snapshot recommendations by default", async () => {
     const response = await GET(
       new NextRequest(
         "http://localhost/api/meta/recommendations?businessId=biz&startDate=2026-03-01&endDate=2026-03-31",
@@ -132,26 +183,35 @@ describe("GET /api/meta/recommendations", () => {
     expect(payload.status).toBe("ok");
     assertMetaRecommendationsPageContract(payload);
     expect(payload.analysisSource).toEqual({
-      system: "snapshot_fallback",
+      system: "snapshot_persistent",
       decisionOsAvailable: false,
       fallbackReason: "legacy_decision_os_archived_phase_4_1",
     });
-    expect(payload.sourceModel).toBe("snapshot_heuristics");
+    expect(payload.sourceModel).toBe("snapshot_persistent");
     expect(payload.businessId).toBe("biz");
     expect(payload.startDate).toBe("2026-03-01");
     expect(payload.endDate).toBe("2026-03-31");
-    expect(campaignsSource.getMetaCampaignsForRange).toHaveBeenCalled();
-    expect(breakdownsSource.getMetaBreakdownsForRange).toHaveBeenCalled();
-    expect(metaRecommendations.buildMetaRecommendations).toHaveBeenCalled();
+    expect(snapshot.readMetaDecisionSnapshotForRange).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+    });
+    expect(campaignsSource.getMetaCampaignsForRange).not.toHaveBeenCalled();
+    expect(breakdownsSource.getMetaBreakdownsForRange).not.toHaveBeenCalled();
+    expect(metaRecommendations.buildMetaRecommendations).not.toHaveBeenCalled();
   });
 
-  it("keeps the intentional snapshot-backed bid regime analysis path", async () => {
+  it("keeps the intentional live debug path with archival sentinel", async () => {
     await GET(
       new NextRequest(
-        "http://localhost/api/meta/recommendations?businessId=biz&startDate=2026-03-01&endDate=2026-03-31",
+        "http://localhost/api/meta/recommendations?businessId=biz&startDate=2026-03-01&endDate=2026-03-31&live=1",
       ),
     );
 
+    expect(snapshot.readMetaDecisionSnapshotForRange).not.toHaveBeenCalled();
+    expect(campaignsSource.getMetaCampaignsForRange).toHaveBeenCalled();
+    expect(breakdownsSource.getMetaBreakdownsForRange).toHaveBeenCalled();
+    expect(metaRecommendations.buildMetaRecommendations).toHaveBeenCalled();
     expect(configSnapshots.readMetaBidRegimeHistorySummaries).toHaveBeenCalledTimes(1);
     expect(configSnapshots.readMetaBidRegimeHistorySummaries).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -159,6 +219,22 @@ describe("GET /api/meta/recommendations", () => {
         entityLevel: "campaign",
       }),
     );
+  });
+
+  it("marks live debug responses as snapshot_live and preserves the sentinel", async () => {
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/recommendations?businessId=biz&startDate=2026-03-01&endDate=2026-03-31&live=1",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(payload.sourceModel).toBe("snapshot_live");
+    expect(payload.analysisSource).toEqual({
+      system: "snapshot_live",
+      decisionOsAvailable: false,
+      fallbackReason: "legacy_decision_os_archived_phase_4_1",
+    });
   });
 
   it("rejects missing required params before building recommendations", async () => {
@@ -170,5 +246,6 @@ describe("GET /api/meta/recommendations", () => {
     expect(response.status).toBe(400);
     expect(payload.error).toBe("missing_params");
     expect(metaRecommendations.buildMetaRecommendations).not.toHaveBeenCalled();
+    expect(snapshot.readMetaDecisionSnapshotForRange).not.toHaveBeenCalled();
   });
 });

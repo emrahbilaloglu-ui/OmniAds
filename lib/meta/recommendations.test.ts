@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildMetaRecommendations } from "@/lib/meta/recommendations";
+import {
+  buildMetaRecommendations,
+  calculateMetaStatisticalConfidence,
+} from "@/lib/meta/recommendations";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCreativeIntelligenceSummary } from "@/lib/meta/creative-intelligence";
@@ -231,6 +234,55 @@ const creativeIntelligence: MetaCreativeIntelligenceSummary = {
 };
 
 describe("buildMetaRecommendations", () => {
+  it("calculates statistical confidence from sample and magnitude factors", () => {
+    expect(
+      calculateMetaStatisticalConfidence({
+        level: "campaign",
+        metricValue: 3,
+        threshold: 2,
+        sampleSize: 4,
+        minRequiredSample: 8,
+      }),
+    ).toEqual({
+      score: 0.7,
+      label: "high",
+    });
+  });
+
+  it("caps immature campaign confidence with a thin-data watch reason", () => {
+    expect(
+      calculateMetaStatisticalConfidence({
+        level: "campaign",
+        metricValue: 3,
+        threshold: 2,
+        sampleSize: 8,
+        minRequiredSample: 8,
+        ageDays: 3,
+      }),
+    ).toEqual({
+      score: 0.4,
+      label: "low",
+      reason: "thin_data_watching",
+    });
+  });
+
+  it("floors severe loser confidence so high-spend losers surface", () => {
+    expect(
+      calculateMetaStatisticalConfidence({
+        level: "campaign",
+        metricValue: 0.5,
+        threshold: 1.5,
+        sampleSize: 1,
+        minRequiredSample: 8,
+        severeLoser: true,
+      }),
+    ).toEqual({
+      score: 0.7,
+      label: "high",
+      reason: "severe_loser_bypass",
+    });
+  });
+
   it("returns test instead of act when selected signal is strong but historical support is weak", () => {
     const selected = campaign({ roas: 3.2, purchases: 24, spend: 1200 });
     const weak30 = campaign({ roas: 2.95, purchases: 18, spend: 1180 });

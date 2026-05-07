@@ -110,26 +110,30 @@ export async function resolveMetaAdActionTarget(input: {
   //   1) direct ad_id match in dimensions / daily (real Meta ad_id)
   //   2) treat the input as a creative_id and resolve real ad_id from dimensions
   //   3) fall back to meta_creative_daily lookup, then creative_id → dimensions
+  //   4) use recent successful launch/duplicate action logs before warehouse sync catches up
   const adRows = (await sql`
     SELECT
       COALESCE(
         dim_direct.provider_account_id,
         daily_direct.provider_account_id,
         dim_by_creative.provider_account_id,
-        dim_by_warehouse_creative.provider_account_id
+        dim_by_warehouse_creative.provider_account_id,
+        action_result.provider_account_id
       ) AS provider_account_id,
       COALESCE(
         dim_direct.ad_id,
         daily_direct.ad_id,
         dim_by_creative.ad_id,
-        dim_by_warehouse_creative.ad_id
+        dim_by_warehouse_creative.ad_id,
+        action_result.resolved_ad_id
       ) AS resolved_ad_id,
       COALESCE(
         dim_direct.creative_id,
         daily_direct.creative_id,
         dim_by_creative.creative_id,
         dim_by_warehouse_creative.creative_id,
-        warehouse_creative.creative_id
+        warehouse_creative.creative_id,
+        action_result.creative_id
       ) AS creative_id
     FROM (
       SELECT ${input.businessId}::text AS business_id, ${input.adId}::text AS input_id
@@ -170,11 +174,47 @@ export async function resolveMetaAdActionTarget(input: {
       ORDER BY updated_at DESC
       LIMIT 1
     ) dim_by_warehouse_creative ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT
+        COALESCE(
+          CASE
+            WHEN substring(COALESCE(log.payload_request->>'endpoint', '') FROM '^/act_([^/]+)/ads$') IS NOT NULL
+            THEN 'act_' || substring(COALESCE(log.payload_request->>'endpoint', '') FROM '^/act_([^/]+)/ads$')
+            ELSE NULL
+          END,
+          action_adset.provider_account_id
+        ) AS provider_account_id,
+        log.resulting_ad_id AS resolved_ad_id,
+        COALESCE(
+          log.creative_id,
+          NULLIF(log.payload_request->'body'->>'source_creative_id', '')
+        ) AS creative_id
+      FROM meta_ads_action_log log
+      LEFT JOIN LATERAL (
+        SELECT provider_account_id
+        FROM meta_adset_dimensions
+        WHERE business_id = target.business_id
+          AND adset_id = COALESCE(
+            NULLIF(log.payload_request->>'target_adset_id', ''),
+            NULLIF(log.payload_request->'body'->>'target_adset_id', ''),
+            NULLIF(log.payload_request->'body'->>'adset_id', '')
+          )
+        ORDER BY updated_at DESC
+        LIMIT 1
+      ) action_adset ON TRUE
+      WHERE log.business_id = target.business_id
+        AND log.resulting_ad_id = target.input_id
+        AND log.action IN ('launch_ad', 'duplicate')
+        AND log.status IN ('success', 'silent_failure')
+      ORDER BY log.verified_at DESC NULLS LAST, log.requested_at DESC
+      LIMIT 1
+    ) action_result ON TRUE
     WHERE COALESCE(
       dim_direct.provider_account_id,
       daily_direct.provider_account_id,
       dim_by_creative.provider_account_id,
-      dim_by_warehouse_creative.provider_account_id
+      dim_by_warehouse_creative.provider_account_id,
+      action_result.provider_account_id
     ) IS NOT NULL
     LIMIT 1
   `) as Array<{

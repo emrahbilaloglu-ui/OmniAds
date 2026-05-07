@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import { summarizeAttributionSpec, type MetaAttributionSpecItem } from "@/lib/launchpad/attribution-presets";
+import type { MetaAddToExistingCopyMode } from "@/lib/launchpad/meta";
 
 export interface LaunchpadExistingCampaign {
   id: string;
@@ -51,6 +52,7 @@ export interface LaunchpadAddToExistingState {
   targetAdset: LaunchpadExistingAdSet | null;
   targetCampaigns?: LaunchpadExistingCampaign[];
   targetAdsetsByCampaignId?: Record<string, LaunchpadExistingAdSet | null>;
+  copyMode: MetaAddToExistingCopyMode;
   nameOverrides: Record<string, string>;
 }
 
@@ -61,6 +63,7 @@ const EMPTY_STATE: LaunchpadAddToExistingState = {
   targetAdset: null,
   targetCampaigns: [],
   targetAdsetsByCampaignId: {},
+  copyMode: "rebuild_creative",
   nameOverrides: {},
 };
 
@@ -161,6 +164,7 @@ export function getSelectedExistingTargets(value: LaunchpadAddToExistingState) {
 function buildTargetState(input: {
   campaigns: LaunchpadExistingCampaign[];
   adsetsByCampaignId: Record<string, LaunchpadExistingAdSet | null>;
+  copyMode?: MetaAddToExistingCopyMode;
   nameOverrides: Record<string, string>;
 }): LaunchpadAddToExistingState {
   const firstCampaign = input.campaigns[0] ?? null;
@@ -169,6 +173,7 @@ function buildTargetState(input: {
     targetAdset: firstCampaign ? input.adsetsByCampaignId[firstCampaign.id] ?? null : null,
     targetCampaigns: input.campaigns,
     targetAdsetsByCampaignId: input.adsetsByCampaignId,
+    copyMode: input.copyMode ?? "rebuild_creative",
     nameOverrides: input.nameOverrides,
   };
 }
@@ -207,6 +212,7 @@ export function LaunchpadAddToExistingTarget({
     () => selectedCampaigns.map((campaign) => campaign.id),
     [selectedCampaigns],
   );
+  const activeCopyMode = value.copyMode ?? "rebuild_creative";
 
   useEffect(() => {
     if (campaignOptions) setCampaigns(campaignOptions);
@@ -322,6 +328,7 @@ export function LaunchpadAddToExistingTarget({
       buildTargetState({
         campaigns: nextCampaigns,
         adsetsByCampaignId: nextAdsetsByCampaignId,
+        copyMode: activeCopyMode,
         nameOverrides: value.nameOverrides,
       }),
     );
@@ -338,6 +345,18 @@ export function LaunchpadAddToExistingTarget({
           ...(value.targetAdsetsByCampaignId ?? {}),
           [campaign.id]: adset,
         },
+        copyMode: activeCopyMode,
+        nameOverrides: value.nameOverrides,
+      }),
+    );
+  }
+
+  function setCopyMode(copyMode: MetaAddToExistingCopyMode) {
+    onChange(
+      buildTargetState({
+        campaigns: selectedCampaigns,
+        adsetsByCampaignId: value.targetAdsetsByCampaignId ?? {},
+        copyMode,
         nameOverrides: value.nameOverrides,
       }),
     );
@@ -372,6 +391,7 @@ export function LaunchpadAddToExistingTarget({
               buildTargetState({
                 campaigns: [],
                 adsetsByCampaignId: {},
+                copyMode: activeCopyMode,
                 nameOverrides: value.nameOverrides,
               }),
             );
@@ -528,6 +548,45 @@ export function LaunchpadAddToExistingTarget({
           </div>
         </div>
       ) : null}
+
+      <div className="rounded-md border p-4" data-testid="launchpad-copy-mode">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-semibold">Creative copy mode</p>
+          <Badge variant="outline">
+            {activeCopyMode === "reuse_creative" ? "Duplicate" : "Recreate"}
+          </Badge>
+        </div>
+        <div className="grid gap-2 md:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => setCopyMode("reuse_creative")}
+            className={`rounded-md border px-3 py-3 text-left text-sm transition ${
+              activeCopyMode === "reuse_creative"
+                ? "border-blue-500 bg-blue-50 text-slate-950"
+                : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+            }`}
+          >
+            <span className="block font-medium">Duplicate</span>
+            <span className="mt-1 block text-xs text-muted-foreground">
+              Use the existing Meta creative object.
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setCopyMode("rebuild_creative")}
+            className={`rounded-md border px-3 py-3 text-left text-sm transition ${
+              activeCopyMode === "rebuild_creative"
+                ? "border-blue-500 bg-blue-50 text-slate-950"
+                : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+            }`}
+          >
+            <span className="block font-medium">Recreate exact ad</span>
+            <span className="mt-1 block text-xs text-muted-foreground">
+              Create a new target-account creative from the same assets and copy.
+            </span>
+          </button>
+        </div>
+      </div>
 
       <div className="rounded-md border">
         <div className="border-b px-4 py-3 text-sm font-semibold">Ad names</div>

@@ -28,12 +28,14 @@ export type MetaAdStatusWriteSuccess = {
 export type MetaAdDuplicateWriteSuccess = {
   ok: true;
   newAdId: string;
+  newCreativeId?: string | null;
   verifiedStatus: string;
   responsePayload?: Record<string, unknown> | null;
   verificationPayload?: Record<string, unknown> | null;
 };
 
 type MetaFetchMethod = "GET" | "POST";
+export type MetaAdDuplicateCopyMode = "reuse_creative" | "rebuild_creative";
 
 const GRAPH_API_VERSION = "v22.0";
 const META_RATE_LIMIT_CODE = 17;
@@ -83,6 +85,15 @@ function getNestedRecord(
     : null;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function cloneRecord(value: Record<string, unknown> | null) {
+  if (!value) return null;
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+}
+
 function getMetaError(
   payload: Record<string, unknown> | null | undefined,
   fallback: { code: string; message: string },
@@ -117,8 +128,211 @@ function readStringField(
   return typeof value === "string" ? value.trim() : "";
 }
 
+function pruneCreativeValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    const items = value
+      .map(pruneCreativeValue)
+      .filter((item) => {
+        if (item == null) return false;
+        if (Array.isArray(item)) return item.length > 0;
+        if (isRecord(item)) return Object.keys(item).length > 0;
+        return true;
+      });
+    return items.length > 0 ? items : undefined;
+  }
+  if (!isRecord(value)) {
+    return value == null || value === "" ? undefined : value;
+  }
+  const entries = Object.entries(value).flatMap(([key, item]) => {
+    const pruned = pruneCreativeValue(item);
+    if (pruned == null) return [];
+    if (Array.isArray(pruned) && pruned.length === 0) return [];
+    if (isRecord(pruned) && Object.keys(pruned).length === 0) return [];
+    return [[key, pruned] as const];
+  });
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
 function getAccountNumericId(providerAccountId: string) {
   return providerAccountId.trim().replace(/^act_/, "");
+}
+
+function readFirstStringField(payload: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = readStringField(payload, key);
+    if (value) return value;
+  }
+  return "";
+}
+
+function extractAdImageHash(payload: Record<string, unknown> | null) {
+  const direct = readStringField(payload, "hash");
+  if (direct) return direct;
+  const images = getNestedRecord(payload, "images");
+  if (!images) return "";
+  for (const value of Object.values(images)) {
+    if (!isRecord(value)) continue;
+    const hash = readStringField(value, "hash");
+    if (hash) return hash;
+  }
+  return "";
+}
+
+async function uploadAdImageFromUrl(ctx: MetaAdsWriteContext, imageUrl: string) {
+  const accountNumericId = getAccountNumericId(ctx.providerAccountId);
+  const body = new URLSearchParams({ url: imageUrl });
+  const result = await metaFetchWithRateLimitRetry({
+    ctx,
+    path: `act_${accountNumericId}/adimages`,
+    method: "POST",
+    body,
+  });
+  if (
+    result.error ||
+    !result.response?.ok ||
+    isFailureBody(result.payload)
+  ) {
+    return "";
+  }
+  return extractAdImageHash(result.payload);
+}
+
+async function replaceImageUrlWithTargetHash(
+  ctx: MetaAdsWriteContext,
+  record: Record<string, unknown>,
+  hashKey: "image_hash" | "hash",
+) {
+  const imageUrl = readFirstStringField(record, [
+    "picture",
+    "image_url",
+    "url",
+    "original_url",
+  ]);
+  if (!imageUrl) return;
+  const hash = await uploadAdImageFromUrl(ctx, imageUrl);
+  if (!hash) return;
+  record[hashKey] = hash;
+  delete record.picture;
+  delete record.image_url;
+  delete record.url;
+  delete record.original_url;
+}
+
+async function prepareObjectStorySpecForTarget(
+  ctx: MetaAdsWriteContext,
+  objectStorySpec: Record<string, unknown>,
+) {
+  const linkData = getNestedRecord(objectStorySpec, "link_data");
+  if (linkData) {
+    await replaceImageUrlWithTargetHash(ctx, linkData, "image_hash");
+    const childAttachments = Array.isArray(linkData.child_attachments)
+      ? linkData.child_attachments
+      : [];
+    for (const attachment of childAttachments) {
+      if (isRecord(attachment)) await replaceImageUrlWithTargetHash(ctx, attachment, "image_hash");
+    }
+  }
+
+  const photoData = getNestedRecord(objectStorySpec, "photo_data");
+  if (photoData) await replaceImageUrlWithTargetHash(ctx, photoData, "image_hash");
+}
+
+async function prepareAssetFeedSpecForTarget(
+  ctx: MetaAdsWriteContext,
+  assetFeedSpec: Record<string, unknown>,
+) {
+  const images = Array.isArray(assetFeedSpec.images) ? assetFeedSpec.images : [];
+  for (const image of images) {
+    if (isRecord(image)) await replaceImageUrlWithTargetHash(ctx, image, "hash");
+  }
+}
+
+async function buildRecreatedCreative(input: {
+  ctx: MetaAdsWriteContext;
+  sourceCreative: Record<string, unknown>;
+  name: string;
+}): Promise<
+  | { ok: true; creativeId: string; responsePayload: Record<string, unknown> | null }
+  | MetaAdsWriteFailure
+> {
+  const accountNumericId = getAccountNumericId(input.ctx.providerAccountId);
+  const body = new URLSearchParams({
+    name: `${input.name} creative`,
+  });
+
+  const objectStorySpec = cloneRecord(getNestedRecord(input.sourceCreative, "object_story_spec"));
+  if (objectStorySpec) {
+    await prepareObjectStorySpecForTarget(input.ctx, objectStorySpec);
+    const pruned = pruneCreativeValue(objectStorySpec);
+    if (isRecord(pruned)) body.set("object_story_spec", JSON.stringify(pruned));
+  }
+
+  const assetFeedSpec = cloneRecord(getNestedRecord(input.sourceCreative, "asset_feed_spec"));
+  if (assetFeedSpec) {
+    await prepareAssetFeedSpecForTarget(input.ctx, assetFeedSpec);
+    const pruned = pruneCreativeValue(assetFeedSpec);
+    if (isRecord(pruned)) body.set("asset_feed_spec", JSON.stringify(pruned));
+  }
+
+  const urlTags = readStringField(input.sourceCreative, "url_tags");
+  if (urlTags) body.set("url_tags", urlTags);
+
+  if (!body.has("object_story_spec") && !body.has("asset_feed_spec")) {
+    const objectStoryId =
+      readStringField(input.sourceCreative, "object_story_id") ||
+      readStringField(input.sourceCreative, "effective_object_story_id");
+    if (objectStoryId) body.set("object_story_id", objectStoryId);
+  }
+
+  if (
+    !body.has("object_story_spec") &&
+    !body.has("asset_feed_spec") &&
+    !body.has("object_story_id")
+  ) {
+    return {
+      ok: false,
+      httpStatus: 422,
+      error: {
+        code: "creative_rebuild_not_supported",
+        message: "Source ad creative does not expose enough creative spec data to recreate it.",
+      },
+      responsePayload: { source_creative_id: readStringField(input.sourceCreative, "id") },
+    };
+  }
+
+  const write = await metaFetchWithRateLimitRetry({
+    ctx: input.ctx,
+    path: `act_${accountNumericId}/adcreatives`,
+    method: "POST",
+    body,
+  });
+  if (write.error) {
+    return {
+      ok: false,
+      httpStatus: 502,
+      error: write.error,
+      responsePayload: write.payload,
+    };
+  }
+  const httpStatus = write.response?.status ?? 502;
+  if (!write.response?.ok || isFailureBody(write.payload)) {
+    return buildWriteFailure({
+      payload: write.payload,
+      httpStatus,
+      fallbackCode: "meta_creative_rebuild_failed",
+      fallbackMessage: "Meta failed to recreate the source ad creative in the target account.",
+    });
+  }
+  const creativeId = readStringField(write.payload, "id");
+  if (!creativeId) {
+    return buildWriteFailure({
+      payload: write.payload,
+      httpStatus: 502,
+      fallbackCode: "silent_failure",
+      fallbackMessage: "Meta returned success but did not return a recreated creative id.",
+    });
+  }
+  return { ok: true, creativeId, responsePayload: write.payload };
 }
 
 async function metaFetch(input: {
@@ -328,13 +542,18 @@ export async function duplicateAd(
     targetAdsetId: string;
     name?: string;
     activateAfterCreate: boolean;
+    copyMode?: MetaAdDuplicateCopyMode;
   },
 ): Promise<MetaAdDuplicateWriteSuccess | MetaAdsWriteFailure> {
+  const copyMode = input.copyMode ?? "reuse_creative";
   const sourceAd = await metaFetch({
     ctx,
     path: input.adId,
     method: "GET",
-    fields: "name,creative{id},adset_id",
+    fields:
+      copyMode === "rebuild_creative"
+        ? "name,account_id,creative{id,name,object_type,object_story_id,effective_object_story_id,url_tags,object_story_spec{page_id,instagram_actor_id,link_data{link,message,name,description,picture,image_hash,call_to_action{type,value{link}},child_attachments{link,name,description,picture,image_hash,call_to_action{type,value{link}}}},video_data{video_id,message,title,image_url,thumbnail_url,call_to_action{type,value{link}}},photo_data{message,caption,url,image_hash,call_to_action{type,value{link}}},template_data},asset_feed_spec{bodies{text},titles{text},descriptions{text},images{hash,url,image_url,original_url},videos{video_id,thumbnail_url,image_url}}},adset_id"
+        : "name,creative{id},adset_id",
   });
   if (sourceAd.error) {
     return {
@@ -386,11 +605,35 @@ export async function duplicateAd(
     typeof input.name === "string" && input.name.trim().length > 0
       ? input.name.trim()
       : `${sourceName || input.adId} (copy)`;
+  let adCreativeId = sourceCreativeId;
+  let creativeResponsePayload: Record<string, unknown> | null = null;
+  if (copyMode === "rebuild_creative") {
+    const sourceCreative = getNestedRecord(sourceAd.payload, "creative");
+    if (!sourceCreative) {
+      return {
+        ok: false,
+        httpStatus: 502,
+        error: {
+          code: "source_ad_fetch_failed",
+          message: "Meta source ad fetch did not include creative details.",
+        },
+        responsePayload: sourceAd.payload,
+      };
+    }
+    const rebuiltCreative = await buildRecreatedCreative({
+      ctx,
+      sourceCreative,
+      name,
+    });
+    if (!rebuiltCreative.ok) return rebuiltCreative;
+    adCreativeId = rebuiltCreative.creativeId;
+    creativeResponsePayload = rebuiltCreative.responsePayload;
+  }
   const accountNumericId = getAccountNumericId(ctx.providerAccountId);
   const body = new URLSearchParams({
     name,
     adset_id: input.targetAdsetId,
-    creative: JSON.stringify({ creative_id: sourceCreativeId }),
+    creative: JSON.stringify({ creative_id: adCreativeId }),
     status: statusOption,
   });
 
@@ -464,7 +707,7 @@ export async function duplicateAd(
   if (
     verifiedStatus !== statusOption ||
     verifiedAdsetId !== input.targetAdsetId ||
-    verifiedCreativeId !== sourceCreativeId
+    verifiedCreativeId !== adCreativeId
   ) {
     return {
       ok: false,
@@ -482,8 +725,12 @@ export async function duplicateAd(
   return {
     ok: true,
     newAdId,
+    newCreativeId: copyMode === "rebuild_creative" ? adCreativeId : null,
     verifiedStatus,
-    responsePayload: write.payload,
+    responsePayload:
+      creativeResponsePayload && write.payload
+        ? { adcreative: creativeResponsePayload, ad: write.payload }
+        : write.payload,
     verificationPayload: verification.payload,
   };
 }

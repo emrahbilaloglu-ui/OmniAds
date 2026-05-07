@@ -81,6 +81,8 @@ export interface MetaAddToExistingCreativeRef extends MetaLaunchCreativeRef {
   nameOverride?: string | null;
 }
 
+export type MetaAddToExistingCopyMode = "reuse_creative" | "rebuild_creative";
+
 export interface MetaAddToExistingTargetRef {
   targetCampaignId: string;
   targetAdsetId: string;
@@ -95,6 +97,7 @@ export interface MetaAddToExistingPayload {
   targetCampaignName?: string | null;
   targetAdsetName?: string | null;
   targets: MetaAddToExistingTargetRef[];
+  copyMode: MetaAddToExistingCopyMode;
   creativeIds: string[];
   creatives: MetaAddToExistingCreativeRef[];
   names?: Record<string, string>;
@@ -273,6 +276,10 @@ function normalizeAddToExistingTargets(record: Record<string, unknown>) {
   return Array.from(byPair.values());
 }
 
+function normalizeAddToExistingCopyMode(value: unknown): MetaAddToExistingCopyMode {
+  return value === "reuse_creative" ? "reuse_creative" : "rebuild_creative";
+}
+
 export function normalizeMetaLaunchPayload(value: unknown): MetaLaunchPayload {
   const record = isRecord(value) ? value : {};
   const campaign = isRecord(record.campaign) ? record.campaign : {};
@@ -359,6 +366,7 @@ export function normalizeMetaAddToExistingPayload(value: unknown): MetaAddToExis
     targetCampaignName: firstTarget.targetCampaignName ?? null,
     targetAdsetName: firstTarget.targetAdsetName ?? null,
     targets,
+    copyMode: normalizeAddToExistingCopyMode(record.copyMode),
     creativeIds: creatives.map((creative) => creative.creativeId),
     creatives,
     names,

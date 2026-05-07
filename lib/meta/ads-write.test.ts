@@ -154,6 +154,92 @@ describe("Meta ads write client", () => {
     expect(body.get("conversion_specs")).toBeNull();
   });
 
+  it("duplicateAd can recreate the creative in the target account before creating the ad", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "ad_1",
+          name: "Source Ad",
+          adset_id: "adset_1",
+          creative: {
+            id: "creative_1",
+            name: "Source Creative",
+            object_story_spec: {
+              page_id: "page_1",
+              link_data: {
+                link: "https://example.com/products/a",
+                message: "Primary text",
+                name: "Headline",
+                description: "Description",
+                picture: "https://cdn.example.com/image.jpg",
+                call_to_action: {
+                  type: "SHOP_NOW",
+                  value: { link: "https://example.com/products/a" },
+                },
+              },
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          images: {
+            "https://cdn.example.com/image.jpg": { hash: "target_hash_1" },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: "creative_copy_1" }))
+      .mockResolvedValueOnce(jsonResponse({ id: "ad_copy_1" }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "ad_copy_1",
+          status: "PAUSED",
+          effective_status: "PAUSED",
+          adset_id: "adset_2",
+          creative: { id: "creative_copy_1" },
+        }),
+      );
+
+    const result = await duplicateAd(ctx, {
+      adId: "ad_1",
+      targetAdsetId: "adset_2",
+      name: "Source Ad added",
+      activateAfterCreate: false,
+      copyMode: "rebuild_creative",
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      newAdId: "ad_copy_1",
+      newCreativeId: "creative_copy_1",
+      verifiedStatus: "PAUSED",
+    });
+    expect(String(vi.mocked(fetch).mock.calls[1]?.[0])).toContain(
+      "/v22.0/act_123/adimages?",
+    );
+    expect(String(vi.mocked(fetch).mock.calls[2]?.[0])).toContain(
+      "/v22.0/act_123/adcreatives?",
+    );
+    const creativeBody = vi.mocked(fetch).mock.calls[2]?.[1]?.body as URLSearchParams;
+    expect(creativeBody.get("name")).toBe("Source Ad added creative");
+    expect(JSON.parse(creativeBody.get("object_story_spec") ?? "{}")).toMatchObject({
+      page_id: "page_1",
+      link_data: {
+        link: "https://example.com/products/a",
+        message: "Primary text",
+        name: "Headline",
+        description: "Description",
+        image_hash: "target_hash_1",
+        call_to_action: {
+          type: "SHOP_NOW",
+          value: { link: "https://example.com/products/a" },
+        },
+      },
+    });
+    const adBody = vi.mocked(fetch).mock.calls[3]?.[1]?.body as URLSearchParams;
+    expect(adBody.get("creative")).toBe(JSON.stringify({ creative_id: "creative_copy_1" }));
+  });
+
   it("duplicateAd reports source_ad_fetch_failed when the source ad read fails", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       jsonResponse(

@@ -78,6 +78,42 @@ function mockDbStatus(status: string | null) {
   vi.mocked(db.getDb).mockReturnValue(sql as never);
 }
 
+function mockAddToExistingDb(input: {
+  targetProviderAccountId: string;
+  sourceProviderAccountId: string;
+}) {
+  const sql = vi.fn(async (strings: TemplateStringsArray) => {
+    const query = strings.join(" ");
+    if (query.includes("FROM meta_adset_dimensions")) {
+      return [
+        {
+          campaign_id: "cmp_1",
+          campaign_name_current: "Campaign",
+          campaign_name_historical: null,
+          adset_id: "adset_1",
+          adset_name_current: "Ad set",
+          adset_name_historical: null,
+          adset_status: "ACTIVE",
+          provider_account_id: input.targetProviderAccountId,
+        },
+      ];
+    }
+    if (query.includes("FROM unnest") && query.includes("meta_creative_daily")) {
+      return [
+        {
+          creative_id: "creative_1",
+          creative_name: "Creative 1",
+          effective_status: "ACTIVE",
+          source_ad_id: "source_ad_1",
+          provider_account_id: input.sourceProviderAccountId,
+        },
+      ];
+    }
+    return [];
+  });
+  vi.mocked(db.getDb).mockReturnValue(sql as never);
+}
+
 describe("POST /api/launchpad/meta/validate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -158,6 +194,59 @@ describe("POST /api/launchpad/meta/validate", () => {
       businessId: BUSINESS_ID,
       minRole: "collaborator",
     });
+  });
+
+  it("blocks duplicate mode when source and target ad accounts differ", async () => {
+    mockAddToExistingDb({
+      targetProviderAccountId: "act_222",
+      sourceProviderAccountId: "act_111",
+    });
+
+    const response = await POST(
+      request({
+        businessId: BUSINESS_ID,
+        payload: {
+          mode: "add_to_existing",
+          copyMode: "reuse_creative",
+          targets: [{ targetCampaignId: "cmp_1", targetAdsetId: "adset_1" }],
+          creativeIds: ["creative_1"],
+          creatives: [{ creativeId: "creative_1", sourceAdId: "source_ad_1" }],
+        },
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.ok).toBe(false);
+    expect(body.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "cross_account_duplicate_not_supported" }),
+      ]),
+    );
+  });
+
+  it("allows recreate mode when source and target ad accounts differ", async () => {
+    mockAddToExistingDb({
+      targetProviderAccountId: "act_222",
+      sourceProviderAccountId: "act_111",
+    });
+
+    const response = await POST(
+      request({
+        businessId: BUSINESS_ID,
+        payload: {
+          mode: "add_to_existing",
+          copyMode: "rebuild_creative",
+          targets: [{ targetCampaignId: "cmp_1", targetAdsetId: "adset_1" }],
+          creativeIds: ["creative_1"],
+          creatives: [{ creativeId: "creative_1", sourceAdId: "source_ad_1" }],
+        },
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ ok: true, blockers: [] });
   });
 
   it("returns auth errors before validation work", async () => {

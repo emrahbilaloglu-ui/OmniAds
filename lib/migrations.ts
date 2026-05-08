@@ -2694,6 +2694,48 @@ export async function runMigrations(options?: {
           ADD COLUMN IF NOT EXISTS campaign_role TEXT`.catch(() => {}),
         sql`ALTER TABLE meta_decision_snapshots_daily
           ADD COLUMN IF NOT EXISTS bid_regime TEXT`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_snapshots_daily
+          ADD COLUMN IF NOT EXISTS decision_label TEXT`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_snapshots_daily
+          ADD COLUMN IF NOT EXISTS state_reason TEXT`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_snapshots_daily
+          ADD COLUMN IF NOT EXISTS calibration_scope JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_snapshots_daily
+          ADD COLUMN IF NOT EXISTS signal_quality JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_entity_decision_signals_daily (
+          business_id TEXT NOT NULL,
+          provider_account_id TEXT,
+          scope_type TEXT NOT NULL CHECK (scope_type IN ('campaign', 'adset')),
+          scope_id TEXT NOT NULL,
+          as_of_date DATE NOT NULL,
+          learning_state TEXT,
+          days_at_learning_state INTEGER,
+          last_significant_edit_at TIMESTAMPTZ,
+          recent_change_cooldown_until TIMESTAMPTZ,
+          audience_overlap_pct DOUBLE PRECISION,
+          audience_size BIGINT,
+          lookalike_pct DOUBLE PRECISION,
+          audience_stage TEXT,
+          creative_age_days INTEGER,
+          frequency_p80 DOUBLE PRECISION,
+          ctr_decay_pct DOUBLE PRECISION,
+          feed_disapproval_count INTEGER,
+          feed_status TEXT,
+          dedup_rate_pct DOUBLE PRECISION,
+          meta_to_crm_ratio DOUBLE PRECISION,
+          tracking_quality_status TEXT,
+          source_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+          quality_status TEXT NOT NULL DEFAULT 'missing'
+            CHECK (quality_status IN ('ready', 'partial', 'missing', 'stale', 'unsupported')),
+          computed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (business_id, scope_type, scope_id, as_of_date)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_entity_decision_signals_business_date
+          ON meta_entity_decision_signals_daily (business_id, as_of_date DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_entity_decision_signals_scope_date
+          ON meta_entity_decision_signals_daily (scope_type, scope_id, as_of_date DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_entity_decision_signals_quality
+          ON meta_entity_decision_signals_daily (business_id, as_of_date DESC, quality_status)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_decision_calibration_daily (
           business_id   TEXT NOT NULL,
           scope_type    TEXT NOT NULL CHECK (scope_type IN ('account', 'campaign')),

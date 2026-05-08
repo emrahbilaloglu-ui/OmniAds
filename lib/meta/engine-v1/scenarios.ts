@@ -1,0 +1,74 @@
+import type { MetaRecommendation } from "@/lib/meta/recommendations";
+
+export type MetaEngineScenarioId =
+  | "A1" | "A2" | "A3" | "A4" | "A5"
+  | "B1" | "B2" | "B3" | "B4" | "B5" | "B6"
+  | "C1" | "C2" | "C3"
+  | "D1" | "D2" | "D3" | "D4" | "D5"
+  | "E1" | "E2" | "E3" | "E4"
+  | "F1" | "F2" | "F3" | "F4"
+  | "G1" | "G2" | "G3"
+  | "H1" | "H2" | "H3" | "H4"
+  | "I1" | "I2" | "I3" | "I4" | "I5"
+  | "J1" | "J2" | "J3"
+  | "K1" | "K2" | "K3" | "K4";
+
+export interface MetaEngineScenarioDefinition {
+  id: MetaEngineScenarioId;
+  recType: MetaRecommendation["type"];
+  requiredSignals: string[];
+  missingSignalFallback: "state_watch" | "diagnose_low_confidence" | "unsupported_state";
+}
+
+export const META_ENGINE_V1_SCENARIOS: MetaEngineScenarioDefinition[] = [
+  { id: "A1", recType: "scenario_a1_math_floor_unmet", requiredSignals: ["weekly_budget", "account_cpa_p50", "purchases_7d"], missingSignalFallback: "state_watch" },
+  { id: "A2", recType: "scenario_a2_learning_weak_structural", requiredSignals: ["age_days", "roas_p25", "spend", "cpa"], missingSignalFallback: "state_watch" },
+  { id: "A3", recType: "scenario_a3_learning_on_pace_wait", requiredSignals: ["learning_state", "conversion_pace", "roas_p25", "roas_p75"], missingSignalFallback: "state_watch" },
+  { id: "A4", recType: "scenario_a4_learning_limited_persistent", requiredSignals: ["learning_state", "days_at_learning_state", "audience_size", "adset_count", "overlap_pct", "budget"], missingSignalFallback: "diagnose_low_confidence" },
+  { id: "A5", recType: "scenario_a5_post_learning_underperformer", requiredSignals: ["learning_state", "learning_exit_at", "roas_p50"], missingSignalFallback: "state_watch" },
+  { id: "B1", recType: "scenario_b1_capped_winner_bid_raise", requiredSignals: ["bid_strategy", "budget_utilization", "roas_p50", "bid_amount"], missingSignalFallback: "state_watch" },
+  { id: "B2", recType: "scenario_b2_lowest_cost_budget_scale", requiredSignals: ["bid_strategy", "budget_utilization", "roas_p50", "daily_roas_volatility"], missingSignalFallback: "state_watch" },
+  { id: "B3", recType: "scenario_b3_bid_cap_underperforming", requiredSignals: ["bid_cap", "auction_loss_to_bid_ratio", "roas_target"], missingSignalFallback: "state_watch" },
+  { id: "B4", recType: "scenario_b4_min_roas_loosen", requiredSignals: ["minimum_roas", "delivery_starvation", "roas_target"], missingSignalFallback: "state_watch" },
+  { id: "B5", recType: "scenario_b5_lowest_cost_volatility_switch", requiredSignals: ["daily_roas_volatility", "bid_strategy"], missingSignalFallback: "state_watch" },
+  { id: "B6", recType: "scenario_b6_profit_first_bid_cap_keep", requiredSignals: ["operating_mode", "bid_cap", "profit_stability", "volume_volatility"], missingSignalFallback: "state_watch" },
+  { id: "C1", recType: "scenario_c1_controlled_scale", requiredSignals: ["roas_p75", "age_days", "last_significant_edit_at"], missingSignalFallback: "state_watch" },
+  { id: "C2", recType: "scenario_c2_recent_edit_cooldown", requiredSignals: ["last_significant_edit_at", "learning_state"], missingSignalFallback: "state_watch" },
+  { id: "C3", recType: "scenario_c3_scale_sample_gate", requiredSignals: ["purchases", "days_at_target", "roas_windows"], missingSignalFallback: "state_watch" },
+  { id: "D1", recType: "scenario_d1_lal_beats_broad_control", requiredSignals: ["audience_label", "roas", "maturity"], missingSignalFallback: "unsupported_state" },
+  { id: "D2", recType: "scenario_d2_lal_wide_efficiency_loss", requiredSignals: ["lookalike_pct", "roas_trend", "cpm_trend"], missingSignalFallback: "unsupported_state" },
+  { id: "D3", recType: "scenario_d3_lal_compound_scale", requiredSignals: ["lookalike_pct", "winner_state", "expansion_need"], missingSignalFallback: "unsupported_state" },
+  { id: "D4", recType: "scenario_d4_audience_overlap_consolidate", requiredSignals: ["audience_overlap_pct"], missingSignalFallback: "unsupported_state" },
+  { id: "D5", recType: "scenario_d5_funnel_mixed_split", requiredSignals: ["audience_stage"], missingSignalFallback: "unsupported_state" },
+  { id: "E1", recType: "scenario_e1_frequency_fatigue", requiredSignals: ["frequency_p75", "frequency_p90", "vertical"], missingSignalFallback: "state_watch" },
+  { id: "E2", recType: "scenario_e2_ctr_decay_refresh", requiredSignals: ["ctr_decay_pct", "stable_spend"], missingSignalFallback: "state_watch" },
+  { id: "E3", recType: "scenario_e3_frequency_p80_fatigue", requiredSignals: ["frequency_p80", "mean_frequency"], missingSignalFallback: "state_watch" },
+  { id: "E4", recType: "scenario_e4_creative_age_refresh", requiredSignals: ["creative_age_days", "ctr_decay_pct"], missingSignalFallback: "state_watch" },
+  { id: "F1", recType: "scenario_f1_roas_drop_diagnostic", requiredSignals: ["roas_drop", "tracking_context", "fatigue_context", "edit_context", "auction_context", "seasonality_context"], missingSignalFallback: "diagnose_low_confidence" },
+  { id: "F2", recType: "scenario_f2_recent_data_confidence_cap", requiredSignals: ["data_freshness", "window_age"], missingSignalFallback: "state_watch" },
+  { id: "F3", recType: "scenario_f3_budget_change_cooldown", requiredSignals: ["budget_edit_pct", "last_significant_edit_at", "performance_drop"], missingSignalFallback: "state_watch" },
+  { id: "F4", recType: "scenario_f4_stable_winner_drop_context", requiredSignals: ["stable_winner", "roas_drop", "cpm_trend", "seasonality_context"], missingSignalFallback: "diagnose_low_confidence" },
+  { id: "G1", recType: "scenario_g1_upper_funnel_event", requiredSignals: ["purchases_7d", "optimization_event", "age_days"], missingSignalFallback: "state_watch" },
+  { id: "G2", recType: "scenario_g2_downshift_to_purchase", requiredSignals: ["optimization_event", "purchases_7d", "roas_p50"], missingSignalFallback: "state_watch" },
+  { id: "G3", recType: "scenario_g3_ab_test_bottom_funnel_verdict", requiredSignals: ["test_pairing", "purchase_roas"], missingSignalFallback: "state_watch" },
+  { id: "H1", recType: "scenario_h1_dedup_tracking", requiredSignals: ["dedup_rate_pct"], missingSignalFallback: "unsupported_state" },
+  { id: "H2", recType: "scenario_h2_meta_crm_ratio", requiredSignals: ["meta_to_crm_ratio"], missingSignalFallback: "unsupported_state" },
+  { id: "H3", recType: "scenario_h3_ios_tracking_degradation", requiredSignals: ["ios_share", "tracking_quality_status"], missingSignalFallback: "unsupported_state" },
+  { id: "H4", recType: "scenario_h4_event_quota", requiredSignals: ["event_priority_list"], missingSignalFallback: "unsupported_state" },
+  { id: "I1", recType: "scenario_i1_abo_winner_budget_shift", requiredSignals: ["adset_family_roas", "budget_mode"], missingSignalFallback: "state_watch" },
+  { id: "I2", recType: "scenario_i2_abo_to_cbo", requiredSignals: ["adset_count", "winner_count", "budget_adequacy"], missingSignalFallback: "state_watch" },
+  { id: "I3", recType: "scenario_i3_cbo_overcrowded", requiredSignals: ["budget_mode", "adset_count", "per_adset_spend"], missingSignalFallback: "state_watch" },
+  { id: "I4", recType: "scenario_i4_test_should_use_abo", requiredSignals: ["campaign_role", "budget_mode"], missingSignalFallback: "state_watch" },
+  { id: "I5", recType: "scenario_i5_cross_campaign_overlap", requiredSignals: ["audience_overlap_pct"], missingSignalFallback: "unsupported_state" },
+  { id: "J1", recType: "scenario_j1_stable_winner_protected", requiredSignals: ["mature_winner", "last_significant_edit_at"], missingSignalFallback: "state_watch" },
+  { id: "J2", recType: "scenario_j2_fade_risk_diagnose", requiredSignals: ["roas_decline", "ctr_decline"], missingSignalFallback: "diagnose_low_confidence" },
+  { id: "J3", recType: "scenario_j3_aggressive_scale_guard", requiredSignals: ["proposed_scale_pct", "winner_state"], missingSignalFallback: "state_watch" },
+  { id: "K1", recType: "scenario_k1_mixed_config_rebuild", requiredSignals: ["mixed_config_flags"], missingSignalFallback: "state_watch" },
+  { id: "K2", recType: "scenario_k2_peak_scale_ceiling", requiredSignals: ["seasonal_regime", "winner_state"], missingSignalFallback: "state_watch" },
+  { id: "K3", recType: "scenario_k3_post_peak_taper", requiredSignals: ["seasonal_regime", "cpm_trend", "frequency_trend"], missingSignalFallback: "state_watch" },
+  { id: "K4", recType: "scenario_k4_catalog_feed_first", requiredSignals: ["catalog_role", "feed_disapproval_count", "feed_status"], missingSignalFallback: "unsupported_state" },
+];
+
+export function scenarioDefinitionById(id: MetaEngineScenarioId) {
+  return META_ENGINE_V1_SCENARIOS.find((scenario) => scenario.id === id) ?? null;
+}

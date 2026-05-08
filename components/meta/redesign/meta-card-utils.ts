@@ -1,5 +1,10 @@
 import type { DecisionLabel } from "@/components/common/briefing/types";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
+import {
+  decisionLabelForMetaRec,
+  launchModeForMetaRec,
+  primaryLabelForMetaRec,
+} from "@/lib/meta/rec-label-mapping";
 import type { MetaLaunchMode } from "@/components/meta/redesign/types";
 
 export function scopeIdForRec(rec: MetaRecommendation) {
@@ -15,68 +20,15 @@ export function scopeNameForRec(rec: MetaRecommendation) {
 }
 
 export function decisionLabelForRec(rec: MetaRecommendation): DecisionLabel {
-  if (rec.type === "adset_cut_spend") return "cut";
-  if (
-    rec.type === "adset_scale_budget" ||
-    rec.type === "scale_for_volume" ||
-    rec.type === "scale_for_profitability" ||
-    rec.type === "winner_promotion_flow"
-  ) {
-    return "scale";
-  }
-  if (
-    rec.type === "rebuild_with_constraints" ||
-    rec.type === "campaign_structure" ||
-    rec.type === "scaling_structure_fit"
-  ) {
-    return "rebuild";
-  }
-  if (rec.type === "historical_bid_regime_fit") return "switch";
-  if (
-    rec.type === "bid_strategy_fit" ||
-    rec.type === "bid_value_guidance" ||
-    rec.type === "bid_band_from_history"
-  ) {
-    return "tune";
-  }
-  if (rec.type === "geo_cluster_for_signal_density") return "swap";
-  if (rec.type === "creative_test_structure") return "test_more";
-  if (rec.type === "seasonal_regime_shift" || rec.type === "optimization_fit") return "diagnose";
-  if (rec.decisionState === "watch") return "diagnose";
-  return rec.decisionState === "test" ? "test_more" : "keep";
+  return decisionLabelForMetaRec(rec);
 }
 
 export function launchModeForRec(rec: MetaRecommendation): MetaLaunchMode | null {
-  if (
-    rec.type === "rebuild_with_constraints" ||
-    rec.type === "campaign_structure" ||
-    rec.type === "creative_test_structure" ||
-    rec.type === "scaling_structure_fit"
-  ) {
-    return "rebuild";
-  }
-  if (rec.type === "geo_cluster_for_signal_density" || rec.type === "winner_promotion_flow") {
-    return "duplicate";
-  }
-  if (rec.level === "adset" && rec.type === "bid_value_guidance") return "apply_bid";
-  return null;
+  return launchModeForMetaRec(rec);
 }
 
 export function primaryLabelForRec(rec: MetaRecommendation) {
-  const mode = launchModeForRec(rec);
-  if (rec.type === "winner_promotion_flow") return "Promote to main";
-  if (rec.type === "creative_test_structure") return "Demote to test";
-  if (rec.type === "scaling_structure_fit") return "Rebuild lanes";
-  if (rec.type === "geo_cluster_for_signal_density") return "Swap audience";
-  if (mode === "rebuild") return "Rebuild in Launchpad";
-  if (mode === "duplicate") return "Duplicate to test";
-  if (mode === "apply_bid") return "Apply bid cap";
-  if (rec.type === "adset_cut_spend") return "Pause adset";
-  if (rec.type === "adset_scale_budget") return "Scale budget";
-  if (rec.type === "bid_strategy_fit") return rec.lens === "profitability" ? "Test Cost Cap" : "Review bid strategy";
-  if (rec.type === "historical_bid_regime_fit") return "Switch strategy";
-  if (rec.type === "bid_band_from_history") return "Apply bid band";
-  return rec.decisionState === "act" ? "Act now" : "Open drilldown";
+  return primaryLabelForMetaRec(rec);
 }
 
 export function evidenceValue(rec: MetaRecommendation, label: string) {

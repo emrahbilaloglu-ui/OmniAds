@@ -15,7 +15,7 @@ Total PRs opened for the v1 release path: 8.
 | ME5 - Production Deployment | https://github.com/erhanrdn/OmniAds/pull/128 |
 | ME6 - UI Integration | https://github.com/erhanrdn/OmniAds/pull/129 |
 | ME7 close - Validation Recalibration + Sign-Off | https://github.com/erhanrdn/OmniAds/pull/130 |
-| ME8 - Cleanup + Handover + V1 Close | Pending at time of file creation |
+| ME8 - Cleanup + Handover + V1 Close | https://github.com/erhanrdn/OmniAds/pull/131 |
 
 ## Test Coverage Delta
 

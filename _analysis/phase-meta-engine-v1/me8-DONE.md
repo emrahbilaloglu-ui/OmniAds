@@ -29,4 +29,4 @@ Sam recommended retaining active legacy rec types as compatibility adapters rath
 
 ## PR
 
-ME8 PR URL: pending branch push and PR creation.
+ME8 PR URL: https://github.com/erhanrdn/OmniAds/pull/131

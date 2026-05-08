@@ -96,26 +96,41 @@ describe("creative detail field contracts", () => {
   });
 
   it("keeps thumbnail_url out of ids and nested ad creative field sets", () => {
-    expect(getCreativeDetailFields().startsWith("id,name,object_type,video_id,object_story_spec")).toBe(true);
+    expect(getCreativeDetailFields().startsWith("id,name,object_story_spec")).toBe(true);
+    expect(getCreativeDetailFields()).toContain("object_story_id");
+    expect(getCreativeDetailFields()).toContain("effective_object_story_id");
     expect(getCreativeMediaFields().startsWith("id,name,object_type,video_id,object_story_spec")).toBe(true);
+    expect(getCreativeMediaFields()).toContain("object_story_id");
+    expect(getCreativeMediaFields()).toContain("effective_object_story_id");
     expect(getCreativeSummaryFields()).not.toContain("thumbnail_url");
     expect(getCreativeSummaryFields()).not.toContain("image_url");
     expect(getCreativeSummaryFields()).not.toContain("image_hash");
     expect(getCreativeSummaryFields()).toContain("template_data");
+    expect(getCreativeSummaryFields()).toContain("object_story_id");
+    expect(getCreativeSummaryFields()).toContain("effective_object_story_id");
     expect(getCreativeSummaryFields()).not.toMatch(/(^|[{,])catalog_id(?=[,}])/);
     expect(getCreativeSummaryFields()).not.toMatch(/(^|[{,])product_set_id(?=[,}])/);
     expect(getNestedCreativeMediaFields().startsWith("id,name,object_type,video_id,object_story_spec")).toBe(true);
+    expect(getNestedCreativeMediaFields()).toContain("object_story_id");
+    expect(getNestedCreativeMediaFields()).toContain("effective_object_story_id");
     expect(getNestedCreativeSummaryFields()).not.toContain("thumbnail_url");
     expect(getNestedCreativeSummaryFields()).not.toContain("image_url");
     expect(getNestedCreativeSummaryFields()).not.toContain("image_hash");
     expect(getNestedCreativeSummaryFields()).toContain("template_data");
+    expect(getNestedCreativeSummaryFields()).toContain("object_story_id");
+    expect(getNestedCreativeSummaryFields()).toContain("effective_object_story_id");
     expect(getNestedCreativeSummaryFields()).not.toMatch(/(^|[{,])catalog_id(?=[,}])/);
     expect(getNestedCreativeSummaryFields()).not.toMatch(/(^|[{,])product_set_id(?=[,}])/);
     expect(getCreativeDetailFields()).not.toContain("image_hash,");
     expect(getCreativeMediaFields()).not.toContain("image_hash,");
     expect(getCreativeMediaFields()).not.toMatch(/(^|[{,])catalog_id(?=[,}])/);
     expect(getCreativeMediaFields()).not.toMatch(/(^|[{,])product_set_id(?=[,}])/);
+    expect(getCreativeMediaFields()).not.toContain("link_urls{website_url,display_url,url}");
+    expect(getCreativeSummaryFields()).not.toContain("link_urls{website_url,display_url,url}");
+    expect(getCreativeDetailFields()).not.toContain("link_urls{website_url,display_url,url}");
     expect(getNestedCreativeMediaFields()).not.toContain("image_hash,");
+    expect(getNestedCreativeMediaFields()).not.toContain("link_urls{website_url,display_url,url}");
+    expect(getNestedCreativeSummaryFields()).not.toContain("link_urls{website_url,display_url,url}");
   });
 });
 
@@ -152,6 +167,11 @@ describe("fetchCreativeDetailsMap", () => {
     const result = await fetchCreativeDetailsMap(["cr_1"], "token-fetchers-test");
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    const fields = requestUrl.searchParams.get("fields") ?? "";
+
+    expect(fields).toContain("object_story_id");
+    expect(fields).toContain("effective_object_story_id");
     expect(result.get("cr_1")).toMatchObject({
       id: "cr_1",
       object_type: "VIDEO",
@@ -188,6 +208,9 @@ describe("batchFetchAdsByIds", () => {
     expect(fields).not.toContain("status,attribution_setting");
     expect(fields).toContain("promoted_object{pixel_id,custom_event_type,custom_conversion_id}");
     expect(fields).toContain("template_data");
+    expect(fields).toContain("object_story_id");
+    expect(fields).toContain("effective_object_story_id");
+    expect(fields).not.toContain("link_urls{website_url,display_url,url}");
     expect(fields).not.toMatch(/(^|[{,])catalog_id(?=[,}])/);
     expect(fields).not.toMatch(/(^|[{,])product_set_id(?=[,}])/);
   });
@@ -217,6 +240,9 @@ describe("fetchAdCreativeBasicsByAdIds", () => {
     expect(fields).toContain("adset{id,name}");
     expect(fields).not.toContain("promoted_object");
     expect(fields).toContain("template_data");
+    expect(fields).toContain("object_story_id");
+    expect(fields).toContain("effective_object_story_id");
+    expect(fields).not.toContain("link_urls{website_url,display_url,url}");
     expect(fields).not.toMatch(/(^|[{,])catalog_id(?=[,}])/);
     expect(fields).not.toMatch(/(^|[{,])product_set_id(?=[,}])/);
   });

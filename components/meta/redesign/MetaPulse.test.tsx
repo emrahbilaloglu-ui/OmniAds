@@ -16,6 +16,14 @@ function isoDaysAgo(days: number) {
 }
 
 describe("MetaPulse", () => {
+  it("does not render the Meta pulse strip as sticky", () => {
+    const html = renderPulse();
+
+    expect(html).toContain('id="pulse"');
+    expect(html).not.toContain("sticky top-0");
+    expect(html).toContain("relative z-0 bg-white border-b border-slate-200");
+  });
+
   it("applies severity tones to KPI band deltas", () => {
     const html = renderPulse({
       revenue: { current: 1200, prev: 2500 },

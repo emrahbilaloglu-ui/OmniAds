@@ -9,7 +9,8 @@ describe("MetaHealthyRow", () => {
     const html = renderToStaticMarkup(
       <MetaHealthyRow
         row={metaHealthy({
-          optimizationGoal: "Purchase",
+          optimizationGoal: "OFFSITE_CONVERSIONS",
+          customEventType: "PURCHASE",
           bidStrategyLabel: "Cost Cap",
           bidValue: 1200,
           bidValueFormat: "currency",
@@ -23,6 +24,7 @@ describe("MetaHealthyRow", () => {
     expect(html).toContain("$820");
     expect(html).toContain("Optimization");
     expect(html).toContain("Purchase");
+    expect(html).not.toContain("Offsite Conversions");
     expect(html).toContain("Cost Cap");
     expect(html).toContain("$12");
     expect(html).toContain("Prev");
@@ -49,10 +51,11 @@ describe("MetaHealthyRow", () => {
     expect(html).not.toContain("Healthy ASC");
   });
 
-  it("marks mixed optimization and bid configuration", () => {
+  it("marks mixed event and bid configuration", () => {
     const html = renderToStaticMarkup(
       <MetaHealthyRow
         row={metaHealthy({
+          isCustomEventTypeMixed: true,
           isOptimizationGoalMixed: true,
           isBidStrategyMixed: true,
           isBidValueMixed: true,
@@ -60,7 +63,7 @@ describe("MetaHealthyRow", () => {
       />,
     );
 
-    expect(html).toContain("Mixed goals");
+    expect(html).toContain("Mixed events");
     expect(html).toContain("Mixed strategies");
     expect(html).toContain("Mixed bids");
   });
@@ -70,6 +73,7 @@ describe("MetaHealthyRow", () => {
       <MetaHealthyRow
         row={metaHealthy({
           optimizationGoal: "LINK_CLICK",
+          customEventType: "ADD_TO_CART",
           bidStrategyType: "lowest_cost_without_cap",
           bidValue: null,
           manualBidAmount: 1500,
@@ -80,14 +84,15 @@ describe("MetaHealthyRow", () => {
       />,
     );
 
-    expect(html).toContain("Link Click");
+    expect(html).toContain("Add to Cart");
+    expect(html).not.toContain("Link Click");
     expect(html).toContain("Lowest Cost Without Cap");
     expect(html).toContain("$15");
     expect(html).toContain("$12");
     expect(html).toContain("changed Apr 2, 2026");
   });
 
-  it("shows the previous bid change timestamp when the previous value was unset", () => {
+  it("hides previous bid when the previous value was unset", () => {
     const html = renderToStaticMarkup(
       <MetaHealthyRow
         row={metaHealthy({
@@ -102,8 +107,27 @@ describe("MetaHealthyRow", () => {
       />,
     );
 
-    expect(html).toContain("Prev");
-    expect(html).toContain("No bid");
-    expect(html).toContain("changed May 8, 2026");
+    expect(html).not.toContain("Prev");
+    expect(html).not.toContain("No bid");
+    expect(html).not.toContain("changed May 8, 2026");
+  });
+
+  it("hides previous bid when the value did not change", () => {
+    const html = renderToStaticMarkup(
+      <MetaHealthyRow
+        row={metaHealthy({
+          bidStrategyLabel: "Cost Cap",
+          bidValue: 3000,
+          bidValueFormat: "currency",
+          previousBidValue: 3000,
+          previousBidValueFormat: "currency",
+          previousBidValueCapturedAt: "2026-05-08T04:15:38.152Z",
+        })}
+      />,
+    );
+
+    expect(html).toContain("$30");
+    expect(html).not.toContain("Prev");
+    expect(html).not.toContain("changed May 8, 2026");
   });
 });

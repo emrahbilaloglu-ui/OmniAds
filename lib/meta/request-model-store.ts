@@ -282,6 +282,28 @@ async function readPreviousDifferentConfigHistory(input: {
           ORDER BY captured_at DESC, created_at DESC
           LIMIT 1
         ) current_row ON true
+      ),
+      latest_bid AS (
+        SELECT
+          requested_entities.entity_id,
+          current_bid.captured_at,
+          current_bid.created_at,
+          current_bid.bid_value,
+          current_bid.bid_value_format
+        FROM requested_entities
+        LEFT JOIN LATERAL (
+          SELECT
+            captured_at,
+            created_at,
+            bid_value,
+            bid_value_format
+          FROM ${input.tableName}
+          WHERE business_id = $1
+            AND ${input.entityColumn} = requested_entities.entity_id
+            AND bid_value IS NOT NULL
+          ORDER BY captured_at DESC, created_at DESC
+          LIMIT 1
+        ) current_bid ON true
       )
       SELECT
         latest.entity_id,
@@ -290,6 +312,7 @@ async function readPreviousDifferentConfigHistory(input: {
         previous_bid.bid_value_format AS previous_bid_value_format,
         ${previousBudgetSelect}
       FROM latest
+      LEFT JOIN latest_bid ON latest_bid.entity_id = latest.entity_id
       LEFT JOIN LATERAL (
         SELECT
           captured_at,
@@ -298,13 +321,18 @@ async function readPreviousDifferentConfigHistory(input: {
         FROM ${input.tableName}
         WHERE business_id = $1
           AND ${input.entityColumn} = latest.entity_id
+          AND latest_bid.bid_value IS NOT NULL
+          AND bid_value IS NOT NULL
           AND (
-            latest.bid_value IS NOT NULL OR
-            latest.bid_value_format IS NOT NULL
+            bid_value IS DISTINCT FROM latest_bid.bid_value OR
+            bid_value_format IS DISTINCT FROM latest_bid.bid_value_format
           )
           AND (
-            bid_value IS DISTINCT FROM latest.bid_value OR
-            bid_value_format IS DISTINCT FROM latest.bid_value_format
+            captured_at < latest_bid.captured_at OR
+            (
+              captured_at = latest_bid.captured_at AND
+              created_at < latest_bid.created_at
+            )
           )
         ORDER BY captured_at DESC, created_at DESC
         LIMIT 1

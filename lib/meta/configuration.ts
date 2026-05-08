@@ -146,6 +146,31 @@ export function deriveManualBidAmount(
   return bidValueFormat === "currency" ? roundCurrencyAmount(bidValue) : null;
 }
 
+export function isMetaConstrainedBidStrategy(value: string | null | undefined) {
+  const normalized = normalizeToken(value);
+  return normalized === "bid_cap" || normalized === "cost_cap" || normalized === "target_roas";
+}
+
+export function stripIncompleteConstrainedBidFields<
+  T extends {
+    bidStrategyType?: string | null;
+    bidValue?: number | null;
+    bidValueFormat?: "currency" | "roas" | null;
+    isBidValueMixed?: boolean;
+  },
+>(payload: T): T {
+  if (!isMetaConstrainedBidStrategy(payload.bidStrategyType) || payload.bidValue != null) {
+    return payload;
+  }
+  return {
+    ...payload,
+    bidStrategyType: null,
+    bidValue: null,
+    bidValueFormat: null,
+    isBidValueMixed: false,
+  };
+}
+
 export function withDerivedMetaConfigFields(
   payload: MetaConfigSnapshotPayload
 ): MetaConfigSnapshotPayload {

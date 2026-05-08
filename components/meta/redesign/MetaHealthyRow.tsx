@@ -8,6 +8,13 @@ interface MetaHealthyRowProps {
   row: MetaHealthyEntity;
   depth?: "root" | "child";
   hideCampaignName?: boolean;
+  hideOptimization?: boolean;
+  optimizationValueOverride?: string | null;
+  bidStrategyValueOverride?: string | null;
+  hideBid?: boolean;
+  hideBidStrategy?: boolean;
+  showBidValue?: boolean;
+  showPreviousBid?: boolean;
 }
 
 function formatBidValue(value: number | null | undefined, format: "currency" | "roas" | null | undefined) {
@@ -21,7 +28,12 @@ function formatConfigLabel(value: string | null | undefined) {
   return value
     .replace(/_/g, " ")
     .toLowerCase()
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+    .split(/\s+/)
+    .map((word, index) => {
+      if (index > 0 && ["and", "or", "of", "to", "with"].includes(word)) return word;
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(" ");
 }
 
 function formatChangedAt(value: string | null | undefined) {
@@ -39,18 +51,24 @@ function ConfigChip({
   label,
   value,
   tone = "slate",
+  className,
+  valueClassName,
 }: {
   label: string;
   value: string;
   tone?: "slate" | "violet";
+  className?: string;
+  valueClassName?: string;
 }) {
   return (
     <span
+      title={`${label}: ${value}`}
       className={cn(
-        "inline-flex min-w-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10.5px]",
+        "inline-flex min-w-0 max-w-[220px] items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10.5px]",
         tone === "violet"
           ? "border-violet-200 bg-violet-50 text-violet-700"
           : "border-slate-200 bg-slate-50 text-slate-600",
+        className,
       )}
     >
       {tone === "violet" ? (
@@ -59,31 +77,68 @@ function ConfigChip({
         <SlidersHorizontal className="inline-block shrink-0" size={10} aria-hidden="true" />
       )}
       <span className="shrink-0 text-slate-400">{label}</span>
-      <span className="truncate font-medium">{value}</span>
+      <span className={cn("truncate font-medium", valueClassName)}>{value}</span>
     </span>
   );
 }
 
-export function MetaHealthyRow({ row, depth = "root", hideCampaignName = false }: MetaHealthyRowProps) {
-  const optimizationValue = row.isOptimizationGoalMixed
-    ? "Mixed goals"
-    : formatConfigLabel(row.optimizationGoal) ?? "Unknown";
-  const bidStrategyValue = row.isBidStrategyMixed
+function BidConfigChip({ strategy, bid }: { strategy: string | null; bid: string | null }) {
+  if (!strategy && !bid) return null;
+  const displayValue = [strategy, bid].filter(Boolean).join(" · ");
+  return (
+    <span
+      title={`Bid: ${displayValue}`}
+      className="inline-flex min-w-0 max-w-[260px] shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10.5px] text-slate-600"
+    >
+      <SlidersHorizontal className="inline-block shrink-0" size={10} aria-hidden="true" />
+      <span className="shrink-0 text-slate-400">Bid</span>
+      {strategy ? <span className="min-w-0 truncate font-medium text-slate-700">{strategy}</span> : null}
+      {bid ? <span className="shrink-0 font-mono font-semibold tabular-nums text-slate-900">{bid}</span> : null}
+    </span>
+  );
+}
+
+export function MetaHealthyRow({
+  row,
+  depth = "root",
+  hideCampaignName = false,
+  hideOptimization = false,
+  optimizationValueOverride,
+  bidStrategyValueOverride,
+  hideBid = false,
+  hideBidStrategy = false,
+  showBidValue = true,
+  showPreviousBid = true,
+}: MetaHealthyRowProps) {
+  const optimizationValue = optimizationValueOverride ?? (row.isCustomEventTypeMixed
+    ? "Mixed events"
+    : formatConfigLabel(row.customEventType) ??
+      (row.isOptimizationGoalMixed
+        ? "Mixed goals"
+        : formatConfigLabel(row.optimizationGoal) ?? "Unknown"));
+  const bidStrategyValue = bidStrategyValueOverride ?? (row.isBidStrategyMixed
     ? "Mixed strategies"
-    : (row.bidStrategyLabel ?? formatConfigLabel(row.bidStrategyType)) ?? "Unknown";
+    : (row.bidStrategyLabel ?? formatConfigLabel(row.bidStrategyType)) ?? "Unknown");
   const currentBidAmount = row.bidValue ?? row.manualBidAmount;
   const previousBidAmount = row.previousBidValue ?? row.previousManualBidAmount;
-  const bidValue = row.isBidValueMixed
+  const bidValue = showBidValue && row.isBidValueMixed
     ? "Mixed bids"
-    : formatBidValue(currentBidAmount, row.bidValueFormat);
+    : showBidValue
+      ? formatBidValue(currentBidAmount, row.bidValueFormat)
+      : null;
   const previousBidValue = formatBidValue(
     previousBidAmount,
     row.previousBidValueFormat ?? row.bidValueFormat,
   );
   const previousBidChangedAt = formatChangedAt(row.previousBidValueCapturedAt);
-  const previousBidLabel =
-    previousBidValue ??
-    (previousBidChangedAt ? "No bid" : null);
+  const hasDifferentPreviousBid =
+    previousBidAmount != null &&
+    (
+      currentBidAmount == null ||
+      previousBidAmount !== currentBidAmount ||
+      (row.previousBidValueFormat ?? row.bidValueFormat) !== row.bidValueFormat
+    );
+  const previousBidLabel = showPreviousBid && hasDifferentPreviousBid ? previousBidValue : null;
 
   return (
     <div
@@ -101,13 +156,17 @@ export function MetaHealthyRow({ row, depth = "root", hideCampaignName = false }
         <div className="truncate text-[12.5px] font-medium text-slate-900">{row.name}</div>
         {!hideCampaignName && row.campaignName ? <div className="truncate text-[11px] text-slate-500">{row.campaignName}</div> : null}
       </div>
-      <div className="hidden min-w-0 flex-1 items-center gap-1.5 xl:flex" data-healthy-config={row.id}>
-        <ConfigChip label="Optimization" value={optimizationValue} tone="violet" />
-        <ConfigChip label="Bid" value={bidValue ? `${bidStrategyValue} · ${bidValue}` : bidStrategyValue} />
+      <div className="hidden min-w-0 max-w-[58%] shrink-0 items-center justify-end gap-1.5 xl:flex" data-healthy-config={row.id}>
+        {hideOptimization ? null : (
+          <ConfigChip label="Optimization" value={optimizationValue} tone="violet" className="max-w-[210px]" />
+        )}
+        {hideBid ? null : <BidConfigChip strategy={hideBidStrategy ? null : bidStrategyValue} bid={bidValue} />}
         {previousBidLabel ? (
           <ConfigChip
             label="Prev"
             value={`${previousBidLabel}${previousBidChangedAt ? ` · changed ${previousBidChangedAt}` : ""}`}
+            className="max-w-[240px]"
+            valueClassName="font-mono tabular-nums"
           />
         ) : null}
       </div>

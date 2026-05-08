@@ -179,6 +179,8 @@ describe("CreativesBriefingPage", () => {
     const html = renderToStaticMarkup(<CreativesBriefingPage />);
 
     expect(html).toContain("account-pulse");
+    expect(html).not.toContain('id="account-pulse" class="sticky top-0');
+    expect(html).toContain('id="account-pulse" class="relative z-0 bg-white/95 backdrop-blur border-b border-slate-200"');
     expect(html).toContain('Scope:</span><span class="font-medium text-slate-900">Account</span>');
     expect(html).not.toContain(
       'Scope:</span><span class="font-medium text-slate-900">Account</span><span class="text-slate-400">TheSwaf',

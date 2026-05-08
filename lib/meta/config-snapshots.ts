@@ -4,6 +4,7 @@ import {
   deriveManualBidAmount,
   formatBidStrategyLabel,
   normalizeTargetRoasValue,
+  stripIncompleteConstrainedBidFields,
   stripDerivedMetaConfigFields,
   type MetaConfigSnapshotPayload,
 } from "@/lib/meta/configuration";
@@ -101,7 +102,12 @@ export async function readLatestMetaConfigSnapshots(input: {
       WHERE row_num = 1
     `) as unknown as Array<{ entity_id: string; payload: MetaConfigSnapshotPayload }>;
 
-    return new Map(rows.map((row) => [row.entity_id, row.payload]));
+    return new Map(
+      rows.map((row) => [
+        row.entity_id,
+        stripIncompleteConstrainedBidFields(normalizeLegacySnapshotPayload(row.payload)),
+      ]),
+    );
   } catch (error) {
     console.warn("[meta-config-snapshots] read_latest_failed", {
       businessId: input.businessId,
@@ -153,7 +159,12 @@ export async function readPreviousMetaConfigSnapshots(input: {
       WHERE row_num = 2
     `) as unknown as Array<{ entity_id: string; payload: MetaConfigSnapshotPayload }>;
 
-    return new Map(rows.map((row) => [row.entity_id, row.payload]));
+    return new Map(
+      rows.map((row) => [
+        row.entity_id,
+        stripIncompleteConstrainedBidFields(normalizeLegacySnapshotPayload(row.payload)),
+      ]),
+    );
   } catch (error) {
     console.warn("[meta-config-snapshots] read_previous_failed", {
       businessId: input.businessId,
@@ -195,6 +206,10 @@ function isInformativePayload(payload: MetaConfigSnapshotPayload) {
   );
 }
 
+function hasBidValue(payload: MetaConfigSnapshotPayload) {
+  return payload.bidValue != null;
+}
+
 export async function readPreviousDifferentMetaConfigDiffs(input: {
   businessId: string;
   entityLevel: MetaConfigEntityLevel;
@@ -226,7 +241,9 @@ export async function readPreviousDifferentMetaConfigDiffs(input: {
 
     const byEntity = new Map<string, Array<{ capturedAt: string; payload: MetaConfigSnapshotPayload }>>();
     for (const row of rows) {
-      const payload = normalizeLegacySnapshotPayload(row.payload);
+      const payload = stripIncompleteConstrainedBidFields(
+        normalizeLegacySnapshotPayload(row.payload),
+      );
       if (!isInformativePayload(payload)) continue;
       const existing = byEntity.get(row.entity_id) ?? [];
       existing.push({
@@ -242,21 +259,28 @@ export async function readPreviousDifferentMetaConfigDiffs(input: {
       const history = byEntity.get(entityId) ?? [];
       const current = history[0]?.payload;
       if (!current) continue;
+      const currentBidIndex = history.findIndex((row) => hasBidValue(row.payload));
+      const currentBid = currentBidIndex >= 0 ? history[currentBidIndex]?.payload : null;
 
       let previousBid: { payload: MetaConfigSnapshotPayload; capturedAt: string } | null = null;
       let previousBudget: { payload: MetaConfigSnapshotPayload; capturedAt: string } | null = null;
 
-      for (const row of history.slice(1)) {
+      for (const row of currentBidIndex >= 0 ? history.slice(currentBidIndex + 1) : []) {
         if (
           previousBid == null &&
+          currentBid != null &&
+          hasBidValue(row.payload) &&
           (
-            !valuesEqual(row.payload.bidValue, current.bidValue) ||
-            !valuesEqual(row.payload.bidValueFormat, current.bidValueFormat)
+            !valuesEqual(row.payload.bidValue, currentBid.bidValue) ||
+            !valuesEqual(row.payload.bidValueFormat, currentBid.bidValueFormat)
           )
         ) {
           previousBid = row;
         }
+        if (previousBid) break;
+      }
 
+      for (const row of history.slice(1)) {
         if (
           previousBudget == null &&
           (
@@ -320,7 +344,9 @@ export async function appendMetaConfigSnapshots(
         provider_account_ref_id: providerAccountRefIds.get(row.accountId) ?? null,
         entity_level: row.entityLevel,
         entity_id: row.entityId,
-        payload: sanitizeForJson(stripDerivedMetaConfigFields(row.payload)),
+        payload: sanitizeForJson(
+          stripIncompleteConstrainedBidFields(stripDerivedMetaConfigFields(row.payload)),
+        ),
       }))
     );
 

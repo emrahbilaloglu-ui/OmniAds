@@ -20,6 +20,19 @@ interface HealthyMetaRow {
   roas: number;
   cpa: number | null;
   status: string | null;
+  optimizationGoal?: string | null;
+  bidStrategyType?: string | null;
+  bidStrategyLabel?: string | null;
+  manualBidAmount?: number | null;
+  previousManualBidAmount?: number | null;
+  bidValue?: number | null;
+  bidValueFormat?: "currency" | "roas" | null;
+  previousBidValue?: number | null;
+  previousBidValueFormat?: "currency" | "roas" | null;
+  previousBidValueCapturedAt?: string | null;
+  isOptimizationGoalMixed?: boolean;
+  isBidStrategyMixed?: boolean;
+  isBidValueMixed?: boolean;
 }
 
 function parseWindow(value: string | null): PulseWindow {
@@ -116,12 +129,26 @@ function healthyCampaignRows(input: {
       roas: toNumber(row.roas),
       cpa: row.cpa == null ? null : toNumber(row.cpa),
       status: row.status,
+      optimizationGoal: row.optimizationGoal,
+      bidStrategyType: row.bidStrategyType,
+      bidStrategyLabel: row.bidStrategyLabel,
+      manualBidAmount: row.manualBidAmount,
+      previousManualBidAmount: row.previousManualBidAmount,
+      bidValue: row.bidValue,
+      bidValueFormat: row.bidValueFormat,
+      previousBidValue: row.previousBidValue,
+      previousBidValueFormat: row.previousBidValueFormat,
+      previousBidValueCapturedAt: row.previousBidValueCapturedAt,
+      isOptimizationGoalMixed: row.isOptimizationGoalMixed,
+      isBidStrategyMixed: row.isBidStrategyMixed,
+      isBidValueMixed: row.isBidValueMixed,
     }));
 }
 
 function healthyAdsetRows(input: {
   rows: Awaited<ReturnType<typeof getMetaAdSetsForRange>>["rows"];
   recommendedScopeIds: Set<string>;
+  campaignNamesById?: Map<string, string>;
 }): HealthyMetaRow[] {
   return input.rows
     .filter((row) => !input.recommendedScopeIds.has(row.id))
@@ -133,10 +160,24 @@ function healthyAdsetRows(input: {
       level: "adset" as const,
       name: row.name,
       campaignId: row.campaignId,
+      campaignName: row.campaignId ? (input.campaignNamesById?.get(row.campaignId) ?? null) : null,
       spend: toNumber(row.spend),
       roas: toNumber(row.roas),
       cpa: row.cpa == null ? null : toNumber(row.cpa),
       status: row.status,
+      optimizationGoal: row.optimizationGoal,
+      bidStrategyType: row.bidStrategyType,
+      bidStrategyLabel: row.bidStrategyLabel,
+      manualBidAmount: row.manualBidAmount,
+      previousManualBidAmount: row.previousManualBidAmount,
+      bidValue: row.bidValue,
+      bidValueFormat: row.bidValueFormat,
+      previousBidValue: row.previousBidValue,
+      previousBidValueFormat: row.previousBidValueFormat,
+      previousBidValueCapturedAt: row.previousBidValueCapturedAt,
+      isOptimizationGoalMixed: row.isOptimizationGoalMixed,
+      isBidStrategyMixed: row.isBidStrategyMixed,
+      isBidValueMixed: row.isBidValueMixed,
     }));
 }
 
@@ -165,8 +206,20 @@ export async function GET(request: NextRequest) {
   const [snapshot, deferredIds, campaigns, adsets] = await Promise.all([
     readMetaDecisionSnapshotForRange({ businessId, startDate, endDate }),
     readDeferredRecIds(businessId).catch(() => new Set<string>()),
-    getMetaCampaignsForRange({ businessId, startDate, endDate }),
-    getMetaAdSetsForRange({ businessId, startDate, endDate }),
+    getMetaCampaignsForRange({
+      businessId,
+      startDate,
+      endDate,
+      includePrev: true,
+      includePrevBudget: false,
+    }),
+    getMetaAdSetsForRange({
+      businessId,
+      startDate,
+      endDate,
+      includePrev: true,
+      includePrevBudget: false,
+    }),
   ]);
 
   const recommendations = snapshot?.recommendations ?? [];
@@ -184,9 +237,10 @@ export async function GET(request: NextRequest) {
   const recommendedScopeIds = new Set(
     recommendations.flatMap((rec) => [rec.campaignId, rec.adsetId]).filter(Boolean) as string[],
   );
+  const campaignNamesById = new Map((campaigns.rows ?? []).map((row) => [row.id, row.name]));
   const healthy = [
     ...healthyCampaignRows({ rows: campaigns.rows ?? [], recommendedScopeIds }),
-    ...healthyAdsetRows({ rows: adsets.rows ?? [], recommendedScopeIds }),
+    ...healthyAdsetRows({ rows: adsets.rows ?? [], recommendedScopeIds, campaignNamesById }),
   ].slice(0, 18);
 
   return NextResponse.json(

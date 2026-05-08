@@ -66,6 +66,7 @@ describe("GET /api/meta/account-pulse", () => {
     expect(payload.roas.d28).toBe(3);
     expect(payload.engineVersion).toBe("v3.6.0-meta-taxonomy");
     expect(payload.trackingHealth.status).toBe("healthy");
+    expect(typeof payload.lastSyncAt).toBe("string");
   });
 
   it("authorizes guest access", async () => {

@@ -1686,15 +1686,32 @@ export async function getMetaWarehouseCampaignTable(input: {
   providerAccountIds?: string[] | null;
   campaignIds?: string[] | null;
   includePrev?: boolean;
+  includePrevBudget?: boolean;
 }): Promise<MetaWarehouseCampaignTableRow[]> {
   const payload = await getMetaWarehouseCampaigns(input);
   if (payload.rows.length === 0) return [];
   const entityIds = Array.from(new Set(payload.rows.map((row) => row.campaignId)));
+  const previousEntityIds =
+    input.includePrevBudget === false
+      ? Array.from(
+          new Set(
+            payload.rows
+              .filter((row) => String(row.campaignStatus ?? "").toUpperCase() === "ACTIVE")
+              .filter((row) =>
+                row.manualBidAmount != null ||
+                row.bidValue != null ||
+                row.bidValueFormat != null
+              )
+              .map((row) => row.campaignId),
+          ),
+        )
+      : entityIds;
   const previousHistoryDiffs =
-    input.includePrev && entityIds.length > 0
+    input.includePrev && previousEntityIds.length > 0
       ? await readPreviousDifferentMetaCampaignConfigHistoryDiffs({
           businessId: input.businessId,
-          campaignIds: entityIds,
+          campaignIds: previousEntityIds,
+          includeBudget: input.includePrevBudget,
         }).catch((error) => {
           console.warn("[meta-serving] campaign_previous_config_unavailable", {
             businessId: input.businessId,
@@ -1769,6 +1786,7 @@ export async function getMetaWarehouseAdSets(input: {
   campaignIds?: string[] | null;
   providerAccountIds?: string[] | null;
   includePrev?: boolean;
+  includePrevBudget?: boolean;
 }): Promise<MetaWarehouseAdSetTableRow[]> {
   const providerAccountIds = input.providerAccountIds ?? [];
   const v2Enabled =
@@ -1833,6 +1851,21 @@ export async function getMetaWarehouseAdSets(input: {
 
   const adsetIds = Array.from(new Set(aggregated.map((row) => row.adsetId)));
   if (adsetIds.length === 0) return [];
+  const previousAdsetIds =
+    input.includePrevBudget === false
+      ? Array.from(
+          new Set(
+            aggregated
+              .filter((row) => String(row.adsetStatus ?? "").toUpperCase() === "ACTIVE")
+              .filter((row) =>
+                row.manualBidAmount != null ||
+                row.bidValue != null ||
+                row.bidValueFormat != null
+              )
+              .map((row) => row.adsetId),
+          ),
+        )
+      : adsetIds;
   const [dimensions, latestConfigHistory, previousHistoryDiffs] = await Promise.all([
     readMetaAdSetDimensions({
       businessId: input.businessId,
@@ -1857,7 +1890,8 @@ export async function getMetaWarehouseAdSets(input: {
     input.includePrev
       ? readPreviousDifferentMetaAdSetConfigHistoryDiffs({
           businessId: input.businessId,
-          adsetIds,
+          adsetIds: previousAdsetIds,
+          includeBudget: input.includePrevBudget,
         }).catch((error) => {
           console.warn("[meta-serving] adset_previous_config_unavailable", {
             businessId: input.businessId,

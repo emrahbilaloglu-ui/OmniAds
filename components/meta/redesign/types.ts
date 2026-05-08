@@ -8,8 +8,15 @@ export interface MetaPulsePayload {
   window: MetaWindowKey;
   startDate: string;
   endDate: string;
-  pacing: { mtdSpend: number; mtdTarget: number; dayPace: number };
+  pacing: {
+    mtdSpend: number;
+    mtdTarget: number;
+    dayPace: number;
+    spendToday?: number;
+    dailyTarget?: number;
+  };
   roas: { d7: number; d14: number; d28: number; target: number };
+  roasHistory?: number[];
   spend: { current: number; prev: number };
   revenue: { current: number; prev: number };
   cpa: { current: number | null; prev: number | null };
@@ -19,8 +26,9 @@ export interface MetaPulsePayload {
   seasonalRegime: string;
   engineLastRun: string | null;
   engineVersion: string;
-  trackingHealth: { status: "healthy" | "degraded" | "blocked" | "unknown"; detail: string };
+  trackingHealth: { status: "healthy" | "degraded" | "blocked" | "syncing" | "unknown"; detail: string };
   trackingAnomalyActive?: boolean;
+  lastSyncAt?: string | null;
 }
 
 export interface MetaHealthyEntity {
@@ -33,6 +41,19 @@ export interface MetaHealthyEntity {
   roas: number;
   cpa: number | null;
   status: string | null;
+  optimizationGoal?: string | null;
+  bidStrategyType?: string | null;
+  bidStrategyLabel?: string | null;
+  manualBidAmount?: number | null;
+  previousManualBidAmount?: number | null;
+  bidValue?: number | null;
+  bidValueFormat?: "currency" | "roas" | null;
+  previousBidValue?: number | null;
+  previousBidValueFormat?: "currency" | "roas" | null;
+  previousBidValueCapturedAt?: string | null;
+  isOptimizationGoalMixed?: boolean;
+  isBidStrategyMixed?: boolean;
+  isBidValueMixed?: boolean;
 }
 
 export interface MetaLanePayload {

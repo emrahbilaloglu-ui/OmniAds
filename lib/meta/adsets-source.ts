@@ -28,6 +28,7 @@ export async function getMetaAdSetsForRange(input: {
   startDate?: string | null;
   endDate?: string | null;
   includePrev?: boolean;
+  includePrevBudget?: boolean;
 }): Promise<MetaAdSetsSourceResult> {
   const resolvedStart =
     input.startDate ??
@@ -163,6 +164,7 @@ export async function getMetaAdSetsForRange(input: {
         requestedCampaignIds.length > 0 ? requestedCampaignIds : null,
       providerAccountIds,
       includePrev: input.includePrev,
+      includePrevBudget: input.includePrevBudget,
     });
     const filteredWarehouseRows = filterAdSetRows(warehouseRows);
     if (filteredWarehouseRows.length > 0) {
@@ -231,6 +233,7 @@ export async function getMetaAdSetsForRange(input: {
           requestedCampaignIds.length > 0 ? requestedCampaignIds : null,
         providerAccountIds,
         includePrev: input.includePrev,
+        includePrevBudget: input.includePrevBudget,
       });
       const filteredWarehouseRows = filterAdSetRows(warehouseRows);
       if (filteredWarehouseRows.length > 0) {

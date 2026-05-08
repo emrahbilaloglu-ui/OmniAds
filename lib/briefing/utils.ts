@@ -11,35 +11,61 @@ const TILE_PALETTE: Array<[string, string]> = [
   ["bg-cyan-800", "text-cyan-50"],
 ];
 
-export function formatCurrency(value: number | null | undefined): string {
-  return `$${Math.round(value || 0).toLocaleString("en-US")}`;
+function finiteNumber(value: unknown, fallback = 0): number {
+  if (typeof value === "number") return Number.isFinite(value) ? value : fallback;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+  return fallback;
 }
 
-export function formatRoas(value: number | null | undefined): string {
-  return `${(value || 0).toFixed(2)}×`;
+function safeText(value: unknown, fallback = ""): string {
+  return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function finiteNumberOrNull(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+export function formatCurrency(value: unknown): string {
+  return `$${Math.round(finiteNumber(value)).toLocaleString("en-US")}`;
+}
+
+export function formatRoas(value: unknown): string {
+  return `${finiteNumber(value).toFixed(2)}×`;
 }
 
 export function formatPercent(
-  value: number,
+  value: unknown,
   digits = 0,
   opts: { signed?: boolean } = {},
 ): string {
-  const sign = opts.signed && value >= 0 ? "+" : "";
-  return `${sign}${value.toFixed(digits)}%`;
+  const numeric = finiteNumber(value);
+  const sign = opts.signed && numeric >= 0 ? "+" : "";
+  return `${sign}${numeric.toFixed(digits)}%`;
 }
 
-export function sparklinePath(values: number[]): string {
-  if (values.length === 0) return "";
-  if (values.length === 1) return "M0.0,16.0";
+export function sparklinePath(values: unknown[]): string {
+  const normalizedValues = values
+    .map(finiteNumberOrNull)
+    .filter((value): value is number => value != null);
+  if (normalizedValues.length === 0) return "";
+  if (normalizedValues.length === 1) return "M0.0,16.0";
 
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  const min = Math.min(...normalizedValues);
+  const max = Math.max(...normalizedValues);
   const range = max - min || 1;
   const width = 60;
   const height = 16;
-  const step = width / (values.length - 1);
+  const step = width / (normalizedValues.length - 1);
 
-  return values
+  return normalizedValues
     .map((value, index) => {
       const x = (index * step).toFixed(1);
       const y = (height - ((value - min) / range) * height).toFixed(1);
@@ -48,8 +74,8 @@ export function sparklinePath(values: number[]): string {
     .join(" ");
 }
 
-export function initials(name: string): string {
-  return name
+export function initials(name: unknown): string {
+  return safeText(name, "Creative")
     .replace(/[^A-Za-z0-9 ]/g, " ")
     .split(/\s+/)
     .filter(Boolean)
@@ -58,10 +84,11 @@ export function initials(name: string): string {
     .join("");
 }
 
-export function tileFor(name: string): [string, string] {
+export function tileFor(name: unknown): [string, string] {
+  const safeName = safeText(name, "Creative");
   let hash = 0;
-  for (let index = 0; index < name.length; index += 1) {
-    hash = (hash * 31 + name.charCodeAt(index)) | 0;
+  for (let index = 0; index < safeName.length; index += 1) {
+    hash = (hash * 31 + safeName.charCodeAt(index)) | 0;
   }
   return TILE_PALETTE[Math.abs(hash) % TILE_PALETTE.length];
 }

@@ -71,7 +71,16 @@ describe("GET /api/meta/lane-classify", () => {
     });
     vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
       status: "ok",
-      rows: [],
+      rows: [{
+        id: "adset_healthy",
+        name: "Healthy Broad",
+        campaignId: "cmp_healthy",
+        status: "ACTIVE",
+        spend: 120,
+        purchases: 4,
+        roas: 2.4,
+        cpa: 30,
+      }] as never,
       evidenceSource: "live",
     });
   });
@@ -84,6 +93,11 @@ describe("GET /api/meta/lane-classify", () => {
     expect(payload.actionNow.map((rec: { id: string }) => rec.id)).toEqual(["rec_action"]);
     expect(payload.watching.map((rec: { id: string }) => rec.id)).toEqual(["rec_deferred", "rec_watch"]);
     expect(payload.healthy[0].name).toBe("Healthy ASC");
+    expect(payload.healthy[1]).toMatchObject({
+      id: "adset_healthy",
+      campaignId: "cmp_healthy",
+      campaignName: "Healthy ASC",
+    });
     expect(payload.deferredIds).toEqual(["rec_deferred"]);
   });
 });

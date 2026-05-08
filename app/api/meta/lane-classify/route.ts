@@ -122,6 +122,7 @@ function healthyCampaignRows(input: {
 function healthyAdsetRows(input: {
   rows: Awaited<ReturnType<typeof getMetaAdSetsForRange>>["rows"];
   recommendedScopeIds: Set<string>;
+  campaignNamesById?: Map<string, string>;
 }): HealthyMetaRow[] {
   return input.rows
     .filter((row) => !input.recommendedScopeIds.has(row.id))
@@ -133,6 +134,7 @@ function healthyAdsetRows(input: {
       level: "adset" as const,
       name: row.name,
       campaignId: row.campaignId,
+      campaignName: row.campaignId ? (input.campaignNamesById?.get(row.campaignId) ?? null) : null,
       spend: toNumber(row.spend),
       roas: toNumber(row.roas),
       cpa: row.cpa == null ? null : toNumber(row.cpa),
@@ -184,9 +186,10 @@ export async function GET(request: NextRequest) {
   const recommendedScopeIds = new Set(
     recommendations.flatMap((rec) => [rec.campaignId, rec.adsetId]).filter(Boolean) as string[],
   );
+  const campaignNamesById = new Map((campaigns.rows ?? []).map((row) => [row.id, row.name]));
   const healthy = [
     ...healthyCampaignRows({ rows: campaigns.rows ?? [], recommendedScopeIds }),
-    ...healthyAdsetRows({ rows: adsets.rows ?? [], recommendedScopeIds }),
+    ...healthyAdsetRows({ rows: adsets.rows ?? [], recommendedScopeIds, campaignNamesById }),
   ].slice(0, 18);
 
   return NextResponse.json(

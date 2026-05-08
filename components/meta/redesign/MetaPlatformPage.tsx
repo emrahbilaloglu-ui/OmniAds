@@ -23,6 +23,7 @@ import { MetaDrillDrawer } from "@/components/meta/redesign/MetaDrillDrawer";
 import { MetaHealthyRow } from "@/components/meta/redesign/MetaHealthyRow";
 import { MetaLaunchpadOverlay } from "@/components/meta/redesign/MetaLaunchpadOverlay";
 import { MetaPulse } from "@/components/meta/redesign/MetaPulse";
+import { MetaScopeChip } from "@/components/meta/redesign/MetaScopeChip";
 import { MetaWatchingCard } from "@/components/meta/redesign/MetaWatchingCard";
 import {
   decisionLabelForRec,
@@ -33,6 +34,7 @@ import {
 } from "@/components/meta/redesign/meta-card-utils";
 import type {
   MetaDrillItem,
+  MetaHealthyEntity,
   MetaLanePayload,
   MetaLaunchMode,
   MetaPulsePayload,
@@ -153,6 +155,104 @@ function groupAdsetRollups(recs: MetaRecommendation[]) {
     }));
 }
 
+interface HealthyCampaignGroup {
+  campaignKey: string;
+  campaignName: string;
+  campaign?: MetaHealthyEntity;
+  adsets: MetaHealthyEntity[];
+}
+
+function healthyCampaignKey(row: MetaHealthyEntity) {
+  if (row.level === "campaign") return row.campaignId ?? row.id;
+  if (row.campaignId) return row.campaignId;
+  if (row.campaignName) return `campaign-name:${row.campaignName}`;
+  return "unassigned-campaign";
+}
+
+function ensureHealthyGroup(groups: Map<string, HealthyCampaignGroup>, row: MetaHealthyEntity) {
+  const campaignKey = healthyCampaignKey(row);
+  const fallbackName =
+    row.level === "campaign"
+      ? row.name
+      : row.campaignName ?? (row.campaignId ? `Campaign ${row.campaignId}` : "Unassigned campaign");
+  const existing = groups.get(campaignKey);
+  if (existing) return existing;
+  const next: HealthyCampaignGroup = {
+    campaignKey,
+    campaignName: fallbackName,
+    adsets: [],
+  };
+  groups.set(campaignKey, next);
+  return next;
+}
+
+function groupHealthyEntities(rows: MetaHealthyEntity[]) {
+  const groups = new Map<string, HealthyCampaignGroup>();
+  for (const row of rows) {
+    const group = ensureHealthyGroup(groups, row);
+    if (row.level === "campaign") {
+      group.campaign = row;
+      group.campaignName = row.name;
+    } else {
+      group.adsets.push(row);
+      if (!group.campaign && row.campaignName) group.campaignName = row.campaignName;
+    }
+  }
+  return [...groups.values()];
+}
+
+function SyntheticHealthyCampaignHeader({ group }: { group: HealthyCampaignGroup }) {
+  return (
+    <div
+      className="flex items-center gap-3 rounded-lg border border-dashed border-slate-200 bg-white px-3 py-2"
+      data-healthy-synthetic-campaign={group.campaignKey}
+    >
+      <div className="size-[15px] rounded-full border border-slate-300 bg-slate-50" aria-hidden="true" />
+      <MetaScopeChip level="campaign" />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[12.5px] font-medium text-slate-900">{group.campaignName}</div>
+        <div className="truncate text-[11px] text-slate-500">Campaign context inferred from adset snapshot</div>
+      </div>
+      <div className="text-[11px] text-slate-500">{group.adsets.length} adsets</div>
+    </div>
+  );
+}
+
+function MetaHealthyHierarchy({ groups }: { groups: HealthyCampaignGroup[] }) {
+  return (
+    <>
+      {groups.map((group) => (
+        <div
+          key={group.campaignKey}
+          className="rounded-xl border border-slate-200 bg-slate-50/60 p-2"
+          data-healthy-campaign-group={group.campaignKey}
+        >
+          {group.campaign ? (
+            <MetaHealthyRow row={group.campaign} />
+          ) : (
+            <SyntheticHealthyCampaignHeader group={group} />
+          )}
+          {group.adsets.length > 0 ? (
+            <div
+              className="ml-5 mt-2 grid gap-2 border-l border-slate-200 pl-4"
+              data-healthy-adsets-for-campaign={group.campaignKey}
+            >
+              {group.adsets.map((row) => (
+                <MetaHealthyRow
+                  key={`${row.level}-${row.id}`}
+                  row={row}
+                  depth="child"
+                  hideCampaignName={row.campaignName === group.campaignName}
+                />
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </>
+  );
+}
+
 function EmptyActionState({ anomaliesCount }: { anomaliesCount: number }) {
   return (
     <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center" data-empty-action-state>
@@ -215,6 +315,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   const watching = laneQuery.data?.watching ?? [];
   const healthy = laneQuery.data?.healthy ?? [];
   const anomalies = anomalyQuery.data?.anomalies ?? [];
+  const healthyGroups = useMemo(() => groupHealthyEntities(healthy), [healthy]);
   const rollups = useMemo(() => groupAdsetRollups(actionNow), [actionNow]);
   const rollupRecIds = useMemo(
     () => new Set(rollups.flatMap((rollup) => rollup.items.map((rec) => rec.id))),
@@ -539,7 +640,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
               />
               {!collapsed.healthy ? (
                 <div className="grid gap-2">
-                  {healthy.map((row) => <MetaHealthyRow key={`${row.level}-${row.id}`} row={row} />)}
+                  <MetaHealthyHierarchy groups={healthyGroups} />
                   {healthy.length === 0 ? (
                     <div className="rounded-xl border border-slate-200 bg-white p-4 text-[12.5px] text-slate-500">
                       Healthy entities will appear after the latest snapshot has enough stable mature rows.

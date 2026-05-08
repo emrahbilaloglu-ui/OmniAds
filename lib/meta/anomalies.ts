@@ -25,6 +25,11 @@ export interface MetaAnomaly {
   title: string;
   detail: string;
   diagnostics: string[];
+  diagnosticLadder?: Array<{
+    step: number;
+    label: string;
+    detail: string;
+  }>;
   detectedAt: string;
   resolvedAt?: string | null;
 }
@@ -200,6 +205,33 @@ function anomalyId(input: {
 }
 
 function makeAnomaly(input: Omit<MetaAnomaly, "id" | "kind"> & { snapshotDate: string }): MetaAnomaly {
+  const diagnosticLadder = input.diagnosticLadder ?? [
+    {
+      step: 1,
+      label: "Tracking",
+      detail: input.diagnostics.find((item) => /tracking|attribution|event/i.test(item)) ?? "Check pixel, CAPI, event match quality, and attribution freshness first.",
+    },
+    {
+      step: 2,
+      label: "Fatigue",
+      detail: input.diagnostics.find((item) => /fatigue|audience|frequency|saturation/i.test(item)) ?? "Check CTR, frequency, audience pressure, and creative age before changing bids.",
+    },
+    {
+      step: 3,
+      label: "Recent edits",
+      detail: input.diagnostics.find((item) => /change|budget|bid|landing/i.test(item)) ?? "Check budget, bid, learning, landing-page, and campaign edits in the last seven days.",
+    },
+    {
+      step: 4,
+      label: "Auction",
+      detail: input.diagnostics.find((item) => /auction|cpm|placement|inventory/i.test(item)) ?? "Check CPM, placement mix, bid pressure, and auction competition.",
+    },
+    {
+      step: 5,
+      label: "Seasonality",
+      detail: input.diagnostics.find((item) => /season|calendar|promo/i.test(item)) ?? "Check calendar, promotion, and demand-regime context before taking a single action.",
+    },
+  ];
   return {
     id: anomalyId({
       type: input.type,
@@ -216,6 +248,7 @@ function makeAnomaly(input: Omit<MetaAnomaly, "id" | "kind"> & { snapshotDate: s
     title: input.title,
     detail: input.detail,
     diagnostics: input.diagnostics,
+    diagnosticLadder,
     detectedAt: input.detectedAt,
     resolvedAt: input.resolvedAt ?? null,
   };
@@ -547,6 +580,9 @@ function hydrateAnomaly(row: SnapshotAnomalyRow): MetaAnomaly {
     title: stored?.title ?? row.recommended_action,
     detail: stored?.detail ?? row.reasoning,
     diagnostics: diagnostics.length > 0 ? diagnostics : diagnosticsFrom(stored?.diagnostics),
+    diagnosticLadder: Array.isArray(stored?.diagnosticLadder)
+      ? stored.diagnosticLadder as MetaAnomaly["diagnosticLadder"]
+      : undefined,
     detectedAt: row.detected_at ?? stored?.detectedAt ?? row.snapshot_date,
     resolvedAt: row.resolved_at,
   };

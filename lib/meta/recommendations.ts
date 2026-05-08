@@ -220,7 +220,7 @@ export interface MetaRecommendationsResponse {
   analysisSource?: MetaRecommendationAnalysisSource;
 }
 
-export const META_RECOMMENDATION_ENGINE_VERSION = "v3.6.0-meta-taxonomy";
+export const META_RECOMMENDATION_ENGINE_VERSION = "v1.0.0";
 
 export interface MetaCalibrationContext {
   thresholds: MetaCalibrationThresholds;

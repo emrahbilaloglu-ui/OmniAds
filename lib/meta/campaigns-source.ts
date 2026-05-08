@@ -60,6 +60,7 @@ export async function getMetaCampaignsForRange(input: {
   campaignId?: string | null;
   campaignIds?: string[] | null;
   includePrev?: boolean;
+  includePrevBudget?: boolean;
 }): Promise<MetaCampaignsSourceResult> {
   if (await isDemoBusiness(input.businessId)) {
     return {
@@ -212,6 +213,7 @@ export async function getMetaCampaignsForRange(input: {
       campaignIds:
         requestedCampaignIds.length > 0 ? requestedCampaignIds : null,
       includePrev: input.includePrev,
+      includePrevBudget: input.includePrevBudget,
     })) as MetaCampaignRow[];
     rows = filterCampaignRows(rows);
   } catch (error) {
@@ -257,6 +259,7 @@ export async function getMetaCampaignsForRange(input: {
         campaignIds:
           requestedCampaignIds.length > 0 ? requestedCampaignIds : null,
         includePrev: input.includePrev,
+        includePrevBudget: input.includePrevBudget,
       })) as MetaCampaignRow[];
       rows = filterCampaignRows(rows);
     } catch {

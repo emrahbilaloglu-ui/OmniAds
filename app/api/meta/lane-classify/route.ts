@@ -206,8 +206,20 @@ export async function GET(request: NextRequest) {
   const [snapshot, deferredIds, campaigns, adsets] = await Promise.all([
     readMetaDecisionSnapshotForRange({ businessId, startDate, endDate }),
     readDeferredRecIds(businessId).catch(() => new Set<string>()),
-    getMetaCampaignsForRange({ businessId, startDate, endDate }),
-    getMetaAdSetsForRange({ businessId, startDate, endDate }),
+    getMetaCampaignsForRange({
+      businessId,
+      startDate,
+      endDate,
+      includePrev: true,
+      includePrevBudget: false,
+    }),
+    getMetaAdSetsForRange({
+      businessId,
+      startDate,
+      endDate,
+      includePrev: true,
+      includePrevBudget: false,
+    }),
   ]);
 
   const recommendations = snapshot?.recommendations ?? [];

@@ -94,9 +94,28 @@ async function readLatestConfigHistory(input: {
       : "NULL::text AS objective";
   const rows = await sql.query(
     `
-      WITH ranked AS (
+      WITH requested_entities AS (
+        SELECT unnest($2::text[]) AS entity_id
+      )
+      SELECT
+        requested_entities.entity_id,
+        latest.objective,
+        latest.optimization_goal,
+        latest.bid_strategy_type,
+        latest.bid_strategy_label,
+        latest.manual_bid_amount,
+        latest.bid_value,
+        latest.bid_value_format,
+        latest.daily_budget,
+        latest.lifetime_budget,
+        latest.is_budget_mixed,
+        latest.is_config_mixed,
+        latest.is_optimization_goal_mixed,
+        latest.is_bid_strategy_mixed,
+        latest.is_bid_value_mixed
+      FROM requested_entities
+      JOIN LATERAL (
         SELECT
-          ${input.entityColumn} AS entity_id,
           ${objectiveSelect},
           optimization_goal,
           bid_strategy_type,
@@ -110,18 +129,13 @@ async function readLatestConfigHistory(input: {
           is_config_mixed,
           is_optimization_goal_mixed,
           is_bid_strategy_mixed,
-          is_bid_value_mixed,
-          ROW_NUMBER() OVER (
-            PARTITION BY ${input.entityColumn}
-            ORDER BY captured_at DESC, created_at DESC
-          ) AS row_num
+          is_bid_value_mixed
         FROM ${input.tableName}
         WHERE business_id = $1
-          AND ${input.entityColumn} = ANY($2::text[])
-      )
-      SELECT *
-      FROM ranked
-      WHERE row_num = 1
+          AND ${input.entityColumn} = requested_entities.entity_id
+        ORDER BY captured_at DESC, created_at DESC
+        LIMIT 1
+      ) latest ON true
     `,
     [input.businessId, entityIds],
   ) as Array<{
@@ -170,85 +184,129 @@ async function readPreviousDifferentConfigHistory(input: {
   entityColumn: "campaign_id" | "adset_id";
   businessId: string;
   entityIds: string[];
+  includeBudget?: boolean;
 }) {
   const entityIds = Array.from(new Set(input.entityIds.filter(Boolean)));
   if (entityIds.length === 0) return new Map<string, MetaPreviousConfigDiff>();
   if (!(await schemaReady([input.tableName]))) return new Map();
 
   const sql = getDb();
+  const previousBudgetSelect = input.includeBudget === false
+    ? `
+        NULL::timestamptz AS previous_budget_captured_at,
+        NULL::double precision AS previous_daily_budget,
+        NULL::double precision AS previous_lifetime_budget
+      `
+    : `
+        previous_budget.captured_at AS previous_budget_captured_at,
+        previous_budget.daily_budget AS previous_daily_budget,
+        previous_budget.lifetime_budget AS previous_lifetime_budget
+      `;
+  const previousBudgetJoin = input.includeBudget === false
+    ? ""
+    : `
+      LEFT JOIN LATERAL (
+        SELECT
+          captured_at,
+          daily_budget,
+          lifetime_budget
+        FROM ${input.tableName}
+        WHERE business_id = $1
+          AND ${input.entityColumn} = latest.entity_id
+          AND (
+            daily_budget IS DISTINCT FROM latest.daily_budget OR
+            lifetime_budget IS DISTINCT FROM latest.lifetime_budget
+          )
+        ORDER BY captured_at DESC, created_at DESC
+        LIMIT 1
+      ) previous_budget ON true
+    `;
   const rows = await sql.query(
     `
+      WITH requested_entities AS (
+        SELECT unnest($2::text[]) AS entity_id
+      ),
+      latest AS (
+        SELECT
+          requested_entities.entity_id,
+          current_row.captured_at,
+          current_row.created_at,
+          current_row.manual_bid_amount,
+          current_row.bid_value,
+          current_row.bid_value_format,
+          current_row.daily_budget,
+          current_row.lifetime_budget
+        FROM requested_entities
+        JOIN LATERAL (
+          SELECT
+            captured_at,
+            created_at,
+            manual_bid_amount,
+            bid_value,
+            bid_value_format,
+            daily_budget,
+            lifetime_budget
+          FROM ${input.tableName}
+          WHERE business_id = $1
+            AND ${input.entityColumn} = requested_entities.entity_id
+          ORDER BY captured_at DESC, created_at DESC
+          LIMIT 1
+        ) current_row ON true
+      )
       SELECT
-        ${input.entityColumn} AS entity_id,
-        captured_at,
-        manual_bid_amount,
-        bid_value,
-        bid_value_format,
-        daily_budget,
-        lifetime_budget
-      FROM ${input.tableName}
-      WHERE business_id = $1
-        AND ${input.entityColumn} = ANY($2::text[])
-      ORDER BY ${input.entityColumn} ASC, captured_at DESC, created_at DESC
+        latest.entity_id,
+        previous_bid.captured_at AS previous_bid_captured_at,
+        previous_bid.manual_bid_amount AS previous_bid_manual_bid_amount,
+        previous_bid.bid_value AS previous_bid_value,
+        previous_bid.bid_value_format AS previous_bid_value_format,
+        ${previousBudgetSelect}
+      FROM latest
+      LEFT JOIN LATERAL (
+        SELECT
+          captured_at,
+          manual_bid_amount,
+          bid_value,
+          bid_value_format
+        FROM ${input.tableName}
+        WHERE business_id = $1
+          AND ${input.entityColumn} = latest.entity_id
+          AND (
+            latest.manual_bid_amount IS NOT NULL OR
+            latest.bid_value IS NOT NULL OR
+            latest.bid_value_format IS NOT NULL
+          )
+          AND (
+            manual_bid_amount IS DISTINCT FROM latest.manual_bid_amount OR
+            bid_value IS DISTINCT FROM latest.bid_value OR
+            bid_value_format IS DISTINCT FROM latest.bid_value_format
+          )
+        ORDER BY captured_at DESC, created_at DESC
+        LIMIT 1
+      ) previous_bid ON true
+      ${previousBudgetJoin}
     `,
     [input.businessId, entityIds],
   ) as Array<{
     entity_id: string;
-    captured_at: string;
-    manual_bid_amount: number | null;
-    bid_value: number | null;
-    bid_value_format: "currency" | "roas" | null;
-    daily_budget: number | null;
-    lifetime_budget: number | null;
+    previous_bid_captured_at: string | null;
+    previous_bid_manual_bid_amount: number | null;
+    previous_bid_value: number | null;
+    previous_bid_value_format: "currency" | "roas" | null;
+    previous_budget_captured_at: string | null;
+    previous_daily_budget: number | null;
+    previous_lifetime_budget: number | null;
   }>;
 
-  const grouped = new Map<string, typeof rows>();
-  for (const row of rows) {
-    const existing = grouped.get(row.entity_id) ?? [];
-    existing.push(row);
-    grouped.set(row.entity_id, existing);
-  }
-
   const result = new Map<string, MetaPreviousConfigDiff>();
-  for (const entityId of entityIds) {
-    const history = grouped.get(entityId) ?? [];
-    const current = history[0];
-    if (!current) continue;
-
-    let previousBid: (typeof history)[number] | null = null;
-    let previousBudget: (typeof history)[number] | null = null;
-
-    for (const row of history.slice(1)) {
-      if (
-        previousBid == null &&
-        (
-          row.manual_bid_amount !== current.manual_bid_amount ||
-          row.bid_value !== current.bid_value ||
-          row.bid_value_format !== current.bid_value_format
-        )
-      ) {
-        previousBid = row;
-      }
-      if (
-        previousBudget == null &&
-        (
-          row.daily_budget !== current.daily_budget ||
-          row.lifetime_budget !== current.lifetime_budget
-        )
-      ) {
-        previousBudget = row;
-      }
-      if (previousBid && previousBudget) break;
-    }
-
-    result.set(entityId, {
-      previousManualBidAmount: previousBid?.manual_bid_amount ?? null,
-      previousBidValue: previousBid?.bid_value ?? null,
-      previousBidValueFormat: previousBid?.bid_value_format ?? null,
-      previousBidCapturedAt: previousBid?.captured_at ?? null,
-      previousDailyBudget: previousBudget?.daily_budget ?? null,
-      previousLifetimeBudget: previousBudget?.lifetime_budget ?? null,
-      previousBudgetCapturedAt: previousBudget?.captured_at ?? null,
+  for (const row of rows) {
+    result.set(row.entity_id, {
+      previousManualBidAmount: row.previous_bid_manual_bid_amount ?? null,
+      previousBidValue: row.previous_bid_value ?? null,
+      previousBidValueFormat: row.previous_bid_value_format ?? null,
+      previousBidCapturedAt: row.previous_bid_captured_at ?? null,
+      previousDailyBudget: row.previous_daily_budget ?? null,
+      previousLifetimeBudget: row.previous_lifetime_budget ?? null,
+      previousBudgetCapturedAt: row.previous_budget_captured_at ?? null,
     });
   }
 
@@ -308,24 +366,28 @@ export async function readLatestMetaAdSetConfigHistory(input: {
 export async function readPreviousDifferentMetaCampaignConfigHistoryDiffs(input: {
   businessId: string;
   campaignIds: string[];
+  includeBudget?: boolean;
 }) {
   return readPreviousDifferentConfigHistory({
     tableName: "meta_campaign_config_history",
     entityColumn: "campaign_id",
     businessId: input.businessId,
     entityIds: input.campaignIds,
+    includeBudget: input.includeBudget,
   });
 }
 
 export async function readPreviousDifferentMetaAdSetConfigHistoryDiffs(input: {
   businessId: string;
   adsetIds: string[];
+  includeBudget?: boolean;
 }) {
   return readPreviousDifferentConfigHistory({
     tableName: "meta_adset_config_history",
     entityColumn: "adset_id",
     businessId: input.businessId,
     entityIds: input.adsetIds,
+    includeBudget: input.includeBudget,
   });
 }
 

@@ -86,4 +86,24 @@ describe("MetaHealthyRow", () => {
     expect(html).toContain("$12");
     expect(html).toContain("changed Apr 2, 2026");
   });
+
+  it("shows the previous bid change timestamp when the previous value was unset", () => {
+    const html = renderToStaticMarkup(
+      <MetaHealthyRow
+        row={metaHealthy({
+          optimizationGoal: "Purchase",
+          bidStrategyLabel: "Cost Cap",
+          bidValue: 3000,
+          bidValueFormat: "currency",
+          previousBidValue: null,
+          previousManualBidAmount: null,
+          previousBidValueCapturedAt: "2026-05-08T04:15:38.152Z",
+        })}
+      />,
+    );
+
+    expect(html).toContain("Prev");
+    expect(html).toContain("No bid");
+    expect(html).toContain("changed May 8, 2026");
+  });
 });

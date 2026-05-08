@@ -54,6 +54,8 @@ describe("meta request model store", () => {
     });
 
     expect(queryText).toContain("objective,");
+    expect(queryText).toContain("JOIN LATERAL");
+    expect(queryText).not.toContain("ROW_NUMBER()");
     expect(rows.get("cmp-1")).toMatchObject({
       objective: "OUTCOME_SALES",
       optimizationGoal: "OFFSITE_CONVERSIONS",
@@ -93,11 +95,49 @@ describe("meta request model store", () => {
     });
 
     expect(queryText).toContain("NULL::text AS objective");
+    expect(queryText).toContain("JOIN LATERAL");
+    expect(queryText).not.toContain("ROW_NUMBER()");
     expect(rows.get("adset-1")).toMatchObject({
       objective: null,
       optimizationGoal: "OFFSITE_CONVERSIONS",
       bidValue: 2.5,
       bidValueFormat: "roas",
+    });
+  });
+
+  it("reads previous campaign config diffs with lateral lookups", async () => {
+    let queryText = "";
+    const query = vi.fn(async (text: string) => {
+      queryText = text;
+      return [
+        {
+          entity_id: "cmp-1",
+          previous_bid_captured_at: "2026-04-01T00:00:00.000Z",
+          previous_bid_manual_bid_amount: 10,
+          previous_bid_value: 10,
+          previous_bid_value_format: "currency",
+          previous_budget_captured_at: "2026-04-02T00:00:00.000Z",
+          previous_daily_budget: 100,
+          previous_lifetime_budget: null,
+        },
+      ];
+    });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+
+    const rows = await requestModelStore.readPreviousDifferentMetaCampaignConfigHistoryDiffs({
+      businessId: "biz-1",
+      campaignIds: ["cmp-1"],
+    });
+
+    expect(queryText).toContain("LEFT JOIN LATERAL");
+    expect(queryText).not.toContain("ORDER BY campaign_id ASC");
+    expect(rows.get("cmp-1")).toMatchObject({
+      previousManualBidAmount: 10,
+      previousBidValue: 10,
+      previousBidValueFormat: "currency",
+      previousBidCapturedAt: "2026-04-01T00:00:00.000Z",
+      previousDailyBudget: 100,
+      previousBudgetCapturedAt: "2026-04-02T00:00:00.000Z",
     });
   });
 });

@@ -81,6 +81,9 @@ export function MetaHealthyRow({ row, depth = "root", hideCampaignName = false }
     row.previousBidValueFormat ?? row.bidValueFormat,
   );
   const previousBidChangedAt = formatChangedAt(row.previousBidValueCapturedAt);
+  const previousBidLabel =
+    previousBidValue ??
+    (previousBidChangedAt ? "No bid" : null);
 
   return (
     <div
@@ -101,10 +104,10 @@ export function MetaHealthyRow({ row, depth = "root", hideCampaignName = false }
       <div className="hidden min-w-0 flex-1 items-center gap-1.5 xl:flex" data-healthy-config={row.id}>
         <ConfigChip label="Optimization" value={optimizationValue} tone="violet" />
         <ConfigChip label="Bid" value={bidValue ? `${bidStrategyValue} · ${bidValue}` : bidStrategyValue} />
-        {previousBidValue ? (
+        {previousBidLabel ? (
           <ConfigChip
             label="Prev"
-            value={`${previousBidValue}${previousBidChangedAt ? ` · changed ${previousBidChangedAt}` : ""}`}
+            value={`${previousBidLabel}${previousBidChangedAt ? ` · changed ${previousBidChangedAt}` : ""}`}
           />
         ) : null}
       </div>

@@ -186,6 +186,7 @@ export async function GET(request: NextRequest) {
       engineLastRun: engineMetadata.engineLastRun,
       engineVersion: engineMetadata.engineVersion,
       trackingHealth,
+      lastSyncAt: new Date().toISOString(),
       trackingAnomalyActive:
         trackingHealth.status === "blocked" || trackingHealth.status === "degraded",
     },

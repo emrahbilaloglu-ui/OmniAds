@@ -29,6 +29,7 @@ import {
 } from "@/lib/meta/campaign-lanes";
 import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
 import { emitHighPriorityCampaignScenario } from "@/lib/meta/scenario-emitters/high-priority";
+import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
 
 export type MetaDecisionState = "act" | "test" | "watch";
 export type MetaRecommendationLens = "volume" | "profitability" | "structure";
@@ -2725,6 +2726,7 @@ export function buildMetaRecommendations(input: {
   creativeIntelligence?: MetaCreativeIntelligenceSummary | null;
   calibrationContext?: MetaCalibrationContext | null;
   calibrationContextByCampaignId?: Record<string, MetaCalibrationContext | null | undefined>;
+  entitySignalsByCampaignId?: Record<string, MetaEntityDecisionSignal | null | undefined>;
   language?: AppLanguage;
 }): MetaRecommendationsResponse {
   const language = input.language ?? "en";
@@ -2835,6 +2837,7 @@ export function buildMetaRecommendations(input: {
       context: calibrationContext,
       campaignRole,
       bidRegime,
+      signals: input.entitySignalsByCampaignId?.[campaignWindow.selected.id] ?? null,
     });
     if (scenario) recommendations.push(scenario);
 

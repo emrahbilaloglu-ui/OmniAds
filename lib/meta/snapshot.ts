@@ -24,6 +24,8 @@ import {
 } from "@/lib/meta/evidence-trail";
 import { buildMetaAdsetRecommendations } from "@/lib/meta/adset-decisions";
 import { buildMetaEntityStateRows } from "@/lib/meta/engine-v1/state-rows";
+import { readMetaEntityDecisionSignalsDaily } from "@/lib/meta/entity-signals";
+import { runMetaSignalsBackfillForBusiness } from "@/lib/meta/entity-signals-backfill";
 import { decisionLabelForMetaRec } from "@/lib/meta/rec-label-mapping";
 import {
   buildMetaRecommendations,
@@ -583,62 +585,68 @@ async function buildSnapshotRecommendations(input: {
   const last90Start = addDaysToISO(endDate, -89);
   const allHistoryStart = addDaysToISO(endDate, -(META_WAREHOUSE_HISTORY_DAYS - 1));
 
-  const [
-    selectedCampaigns,
-    previousSelectedCampaigns,
-    last3Campaigns,
-    last7Campaigns,
-    last14Campaigns,
-    last30Campaigns,
-    last90Campaigns,
-    allHistoryCampaigns,
-    breakdowns,
-  ] = await Promise.all([
-    getMetaCampaignsForRange({
-      businessId: input.businessId,
-      startDate,
-      endDate,
-      includePrev: true,
-    }),
-    getMetaCampaignsForRange({
-      businessId: input.businessId,
-      startDate: previousStart,
-      endDate: previousEnd,
-    }),
-    getMetaCampaignsForRange({
-      businessId: input.businessId,
-      startDate: last3Start,
-      endDate,
-    }),
-    getMetaCampaignsForRange({
-      businessId: input.businessId,
-      startDate: last7Start,
-      endDate,
-    }),
-    getMetaCampaignsForRange({
-      businessId: input.businessId,
-      startDate: last14Start,
-      endDate,
-    }),
-    getMetaCampaignsForRange({
-      businessId: input.businessId,
-      startDate: last30Start,
-      endDate,
-    }),
-    getMetaCampaignsForRange({
-      businessId: input.businessId,
-      startDate: last90Start,
-      endDate,
-    }),
-    getMetaCampaignsForRange({
-      businessId: input.businessId,
-      startDate: allHistoryStart,
-      endDate,
-    }),
-    getMetaBreakdownsForRange({ businessId: input.businessId, startDate, endDate }),
-  ]);
+  const selectedCampaigns = await getMetaCampaignsForRange({
+    businessId: input.businessId,
+    startDate,
+    endDate,
+    includePrev: true,
+  });
+  const previousSelectedCampaigns = await getMetaCampaignsForRange({
+    businessId: input.businessId,
+    startDate: previousStart,
+    endDate: previousEnd,
+  });
+  const last3Campaigns = await getMetaCampaignsForRange({
+    businessId: input.businessId,
+    startDate: last3Start,
+    endDate,
+  });
+  const last7Campaigns = await getMetaCampaignsForRange({
+    businessId: input.businessId,
+    startDate: last7Start,
+    endDate,
+  });
+  const last14Campaigns = await getMetaCampaignsForRange({
+    businessId: input.businessId,
+    startDate: last14Start,
+    endDate,
+  });
+  const last30Campaigns = await getMetaCampaignsForRange({
+    businessId: input.businessId,
+    startDate: last30Start,
+    endDate,
+  });
+  const last90Campaigns = await getMetaCampaignsForRange({
+    businessId: input.businessId,
+    startDate: last90Start,
+    endDate,
+  });
+  const allHistoryCampaigns = await getMetaCampaignsForRange({
+    businessId: input.businessId,
+    startDate: allHistoryStart,
+    endDate,
+  });
+  const breakdowns = await getMetaBreakdownsForRange({
+    businessId: input.businessId,
+    startDate,
+    endDate,
+  });
 
   const campaigns = selectedCampaigns.rows ?? [];
+  const entitySignals = await readMetaEntityDecisionSignalsDaily({
+    businessId: input.businessId,
+    asOfDate: endDate,
+  });
+  const entitySignalsByCampaignId = Object.fromEntries(
+    Array.from(entitySignals.values())
+      .filter((signal) => signal.scopeType === "campaign")
+      .map((signal) => [signal.scopeId, signal]),
+  );
+  const entitySignalsByAdsetId = Object.fromEntries(
+    Array.from(entitySignals.values())
+      .filter((signal) => signal.scopeType === "adset")
+      .map((signal) => [signal.scopeId, signal]),
+  );
   const contexts = await buildCalibrationContexts({
     businessId: input.businessId,
     snapshotDate: endDate,
@@ -669,6 +677,7 @@ async function buildSnapshotRecommendations(input: {
     historicalBidRegimes,
     calibrationContext: contexts.accountContext,
     calibrationContextByCampaignId: contexts.byCampaignId,
+    entitySignalsByCampaignId,
     language: "en",
   }).recommendations;
 
@@ -683,6 +692,7 @@ async function buildSnapshotRecommendations(input: {
     campaigns,
     calibrationContext: contexts.accountContext,
     calibrationContextByCampaignId: contexts.byCampaignId,
+    entitySignalsByAdsetId,
   });
   const stateRows = buildMetaEntityStateRows({
     campaigns,
@@ -703,6 +713,17 @@ export async function runMetaSnapshotForBusiness(
     businessId,
     normalizedSnapshotDate,
   );
+  await runMetaSignalsBackfillForBusiness(
+    businessId,
+    normalizedSnapshotDate,
+  ).catch((error) => {
+    console.warn("[meta-snapshot] signals_backfill_failed", {
+      businessId,
+      snapshotDate: normalizedSnapshotDate,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  });
   const recommendations = await buildSnapshotRecommendations({
     businessId,
     snapshotDate: normalizedSnapshotDate,

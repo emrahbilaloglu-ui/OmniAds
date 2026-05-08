@@ -348,6 +348,8 @@ export interface MetaWarehouseAdSetTableRow {
   ctr: number;
   cpm: number;
   impressions: number;
+  reach: number;
+  frequency: number | null;
   clicks: number;
 }
 
@@ -1840,6 +1842,8 @@ function buildAdSetTableRow(input: {
     ctr: input.row.ctr ?? 0,
     cpm: input.row.impressions > 0 ? r2((input.row.spend / input.row.impressions) * 1000) : 0,
     impressions: input.row.impressions,
+    reach: input.row.reach,
+    frequency: input.row.frequency,
     clicks: input.row.clicks,
   };
 }
@@ -1901,13 +1905,16 @@ export async function getMetaWarehouseAdSets(input: {
     const purchases = dailyRows.reduce((sum, row) => sum + row.conversions, 0);
     const impressions = dailyRows.reduce((sum, row) => sum + row.impressions, 0);
     const clicks = dailyRows.reduce((sum, row) => sum + row.clicks, 0);
+    const reach = dailyRows.reduce((sum, row) => sum + row.reach, 0);
     return {
       ...latest,
       spend,
       revenue,
       conversions: purchases,
       impressions,
+      reach,
       clicks,
+      frequency: reach > 0 ? r2(impressions / reach) : null,
       roas: spend > 0 ? r2(revenue / spend) : 0,
       cpa: purchases > 0 ? r2(spend / purchases) : null,
       ctr: impressions > 0 ? r2((clicks / impressions) * 100) : null,

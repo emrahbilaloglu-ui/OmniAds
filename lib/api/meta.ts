@@ -274,6 +274,8 @@ export interface MetaAdSetData extends MetaMetricsData {
   isBidValueMixed?: boolean;
   /** CTR (Link click-through rate) — inline_link_click_ctr from Meta API. Null for warehouse data. */
   inlineLinkClickCtr?: number | null;
+  reach?: number | null;
+  frequency?: number | null;
 }
 
 export interface MetaBreakdownRow extends MetaMetricsData {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { MetaAdSetData } from "@/lib/api/meta";
 import type { MetaCalibrationContext } from "@/lib/meta/recommendations";
+import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
 import {
   emitHighPriorityCampaignScenario,
   maybeA1MathFloor,
@@ -179,19 +180,41 @@ function adset(overrides: Partial<MetaAdSetData> = {}): MetaAdSetData {
   } as MetaAdSetData;
 }
 
+function signal(overrides: Partial<MetaEntityDecisionSignal> = {}): MetaEntityDecisionSignal {
+  return {
+    businessId: "biz_1",
+    providerAccountId: "act_1",
+    scopeType: "campaign",
+    scopeId: "cmp_1",
+    asOfDate: "2026-05-08",
+    learningState: "LEARNING_LIMITED",
+    daysAtLearningState: null,
+    lastSignificantEditAt: null,
+    daysSinceSignificantEdit: null,
+    recentChangeCooldownUntil: null,
+    creativeAgeDays: 28,
+    creativeAgeDaysMax: 28,
+    frequencyP80: 3,
+    ctrDecayPct: -20,
+    sourceJson: {},
+    qualityStatus: "ready",
+    ...overrides,
+  };
+}
+
 describe("high priority Meta scenario emitters", () => {
   it.each([
     ["C1", () => maybeC1ControlledScale({ window: windowFor(campaign({ roas: 3.4, purchases: 20 })), context })],
     ["B1", () => maybeB1CappedBidRaise({ window: windowFor(campaign({ bidStrategyType: "cost_cap", bidValue: 5000, roas: 2.4, dailyBudget: 500, spend: 1000 })), context })],
     ["J1", () => maybeJ1StableWinnerProtected({ window: windowFor(campaign({ roas: 3.4, purchases: 20 })), context })],
-    ["A2", () => maybeA2StructuralRebuild({ window: windowFor(campaign({ roas: 0.7, spend: 500, purchases: 2 })), context })],
+    ["A2", () => maybeA2StructuralRebuild({ window: windowFor(campaign({ roas: 0.7, spend: 500, purchases: 2 })), context, signals: signal() })],
     ["F1", () => maybeF1SuddenRoasDrop({ window: windowFor(campaign({ roas: 2.4 }), { last7: campaign({ roas: 1, spend: 500 }) }), context })],
     ["F4", () => maybeF4StableWinnerFade({ window: windowFor(campaign({ roas: 2, ctr: 1 }), { last30: campaign({ roas: 2 }), last90: campaign({ roas: 3, ctr: 2 }) }), context })],
-    ["E2", () => maybeE2CtrDecay({ window: windowFor(campaign({ ctr: 1 }), { last7: campaign({ ctr: 1, spend: 800 }), last14: campaign({ ctr: 1.4 }) }), context })],
-    ["E4", () => maybeE4CreativeAge({ window: windowFor(campaign({ ctr: 1 }), { last7: campaign({ ctr: 1, spend: 800 }), last14: campaign({ ctr: 1.4 }) }), context })],
+    ["E2", () => maybeE2CtrDecay({ window: windowFor(campaign({ ctr: 1 }), { last7: campaign({ ctr: 1, spend: 800 }), last14: campaign({ ctr: 1.4 }) }), context, signals: signal({ ctrDecayPct: -22 }) })],
+    ["E4", () => maybeE4CreativeAge({ window: windowFor(campaign({ ctr: 1 }), { last7: campaign({ ctr: 1, spend: 800 }), last14: campaign({ ctr: 1.4 }) }), context, signals: signal({ ctrDecayPct: -22, creativeAgeDaysMax: 30 }) })],
     ["K1", () => maybeK1MixedConfig({ window: windowFor(campaign({ isBudgetMixed: true })), context })],
     ["I4", () => maybeI4TestShouldUseAbo({ window: windowFor(campaign({ name: "Creative Test Campaign", budgetLevel: "campaign" })), context, campaignRole: "prospecting_test" })],
-    ["A1", () => maybeA1MathFloor({ window: windowFor(campaign({ dailyBudget: 100, roas: 1.5 })), context })],
+    ["A1", () => maybeA1MathFloor({ window: windowFor(campaign({ dailyBudget: 100, roas: 1.5 })), context, signals: signal({ learningState: "LEARNING" }) })],
   ])("fires %s on a positive account-history fixture", (_id, build) => {
     const rec = build();
     expect(rec).toBeTruthy();
@@ -200,9 +223,39 @@ describe("high priority Meta scenario emitters", () => {
   });
 
   it("fires E1 fatigue on an adset account-history fixture", () => {
-    const rec = maybeE1FatigueAdset({ adset: adset(), campaign: campaign(), context });
+    const rec = maybeE1FatigueAdset({ adset: adset(), campaign: campaign(), context, signals: signal({ scopeType: "adset", scopeId: "adset_1", frequencyP80: 3 }) });
     expect(rec?.type).toBe("scenario_e1_frequency_fatigue");
     expect(rec?.targetValue === undefined || JSON.parse(JSON.stringify(rec.targetValue))).toBeTruthy();
+  });
+
+  it("does not fire signal-aware refresh when CTR decay signal is missing", () => {
+    const rec = maybeE2CtrDecay({
+      window: windowFor(campaign({ ctr: 1 }), {
+        last7: campaign({ ctr: 1, spend: 800 }),
+        last14: campaign({ ctr: 1.4 }),
+      }),
+      context,
+      signals: signal({ ctrDecayPct: null }),
+    });
+    expect(rec).toBeNull();
+  });
+
+  it("suppresses scale during recent significant edit cooldown", () => {
+    const rec = maybeC1ControlledScale({
+      window: windowFor(campaign({ roas: 3.4, purchases: 20 })),
+      context,
+      signals: signal({ daysSinceSignificantEdit: 2, lastSignificantEditAt: "2026-05-06T00:00:00.000Z" }),
+    });
+    expect(rec).toBeNull();
+  });
+
+  it("does not fire math floor when learning state signal is missing", () => {
+    const rec = maybeA1MathFloor({
+      window: windowFor(campaign({ dailyBudget: 100, roas: 1.5 })),
+      context,
+      signals: signal({ learningState: null }),
+    });
+    expect(rec).toBeNull();
   });
 
   it("does not fire controlled scale below account p75", () => {

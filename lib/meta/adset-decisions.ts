@@ -16,12 +16,14 @@ import {
 import { buildMetaCampaignLaneSignals } from "@/lib/meta/campaign-lanes";
 import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
 import { emitHighPriorityAdsetScenario } from "@/lib/meta/scenario-emitters/high-priority";
+import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
 
 export interface BuildMetaAdsetRecommendationsInput {
   adsets: MetaAdSetData[];
   campaigns?: MetaCampaignRow[];
   calibrationContext?: MetaCalibrationContext | null;
   calibrationContextByCampaignId?: Record<string, MetaCalibrationContext | null | undefined>;
+  entitySignalsByAdsetId?: Record<string, MetaEntityDecisionSignal | null | undefined>;
 }
 
 function r2(value: number) {
@@ -178,6 +180,7 @@ export function buildMetaAdsetRecommendations(
       campaign,
       context,
       ...taxonomyFields,
+      signals: input.entitySignalsByAdsetId?.[adset.id] ?? null,
     });
     if (scenario) {
       recommendations.push(scenario);

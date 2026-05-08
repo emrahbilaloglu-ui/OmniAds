@@ -48,6 +48,14 @@ vi.mock("@/lib/meta/evidence-trail", () => ({
   buildEvidenceTrailsForRecommendations: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/entity-signals", () => ({
+  readMetaEntityDecisionSignalsDaily: vi.fn(),
+}));
+
+vi.mock("@/lib/meta/entity-signals-backfill", () => ({
+  runMetaSignalsBackfillForBusiness: vi.fn(),
+}));
+
 const db = await import("@/lib/db");
 const activeBusinesses = await import("@/lib/sync/active-businesses");
 const calibration = await import("@/lib/meta/calibration");
@@ -57,6 +65,8 @@ const breakdownsSource = await import("@/lib/meta/breakdowns-source");
 const configSnapshots = await import("@/lib/meta/config-snapshots");
 const anomalies = await import("@/lib/meta/anomalies");
 const evidenceTrail = await import("@/lib/meta/evidence-trail");
+const entitySignals = await import("@/lib/meta/entity-signals");
+const entitySignalsBackfill = await import("@/lib/meta/entity-signals-backfill");
 
 function makeSqlMock(tagRows: unknown[] = []) {
   const calls: string[] = [];
@@ -160,6 +170,21 @@ describe("meta snapshot job", () => {
     } as never);
     vi.mocked(configSnapshots.readMetaBidRegimeHistorySummaries).mockResolvedValue(new Map());
     vi.mocked(anomalies.detectAnomaliesForBusiness).mockResolvedValue([]);
+    vi.mocked(entitySignals.readMetaEntityDecisionSignalsDaily).mockResolvedValue(new Map());
+    vi.mocked(entitySignalsBackfill.runMetaSignalsBackfillForBusiness).mockResolvedValue({
+      businessId: "biz_1",
+      asOfDate: "2026-05-06",
+      rowsWritten: 0,
+      campaignSignals: 0,
+      adsetSignals: 0,
+      signalCounts: {
+        frequencyP80: 0,
+        ctrDecayPct: 0,
+        creativeAgeDaysMax: 0,
+        lastSignificantEditAt: 0,
+        learningState: 0,
+      },
+    });
     vi.mocked(evidenceTrail.buildEvidenceTrailsForRecommendations).mockImplementation(
       async ({ recommendations }) =>
         Object.fromEntries(

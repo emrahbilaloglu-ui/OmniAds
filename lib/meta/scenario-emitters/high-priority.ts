@@ -8,6 +8,7 @@ import {
 } from "@/lib/meta/recommendations";
 import { LEGACY_META_CALIBRATION_THRESHOLDS } from "@/lib/meta/calibration";
 import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
+import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
 
 export interface CampaignScenarioWindow {
   selected: MetaCampaignRow;
@@ -23,6 +24,7 @@ export interface CampaignScenarioInput {
   context: MetaCalibrationContext | null;
   campaignRole?: MetaCampaignRole;
   bidRegime?: MetaBidRegime;
+  signals?: MetaEntityDecisionSignal | null;
 }
 
 export interface AdsetScenarioInput {
@@ -31,6 +33,7 @@ export interface AdsetScenarioInput {
   context: MetaCalibrationContext | null;
   campaignRole?: MetaCampaignRole;
   bidRegime?: MetaBidRegime;
+  signals?: MetaEntityDecisionSignal | null;
 }
 
 function metric(context: MetaCalibrationContext | null, name: keyof typeof LEGACY_META_CALIBRATION_THRESHOLDS.metrics) {
@@ -115,6 +118,23 @@ function targetBand(current: number, pct: number) {
   };
 }
 
+function signalQuality(signals: MetaEntityDecisionSignal | null | undefined, confidenceLabel: string) {
+  if (!signals) {
+    return { quality_status: "missing", confidence_cap: "low_without_signal_table" };
+  }
+  return {
+    quality_status: signals.qualityStatus,
+    confidence_cap: confidenceLabel,
+    signal_source: "meta_entity_decision_signals_daily",
+    learning_state: signals.learningState,
+    days_since_significant_edit: signals.daysSinceSignificantEdit,
+  };
+}
+
+function recentEditCooldownActive(signals: MetaEntityDecisionSignal | null | undefined) {
+  return signals?.daysSinceSignificantEdit != null && signals.daysSinceSignificantEdit < 7;
+}
+
 function baseCampaignRec(input: {
   row: MetaCampaignRow;
   type: MetaRecommendation["type"];
@@ -131,6 +151,7 @@ function baseCampaignRec(input: {
   targetValue?: unknown;
   campaignRole?: MetaCampaignRole;
   bidRegime?: MetaBidRegime;
+  signals?: MetaEntityDecisionSignal | null;
 }): MetaRecommendation {
   return {
     id: `${input.type}-${input.row.id}`,
@@ -164,7 +185,7 @@ function baseCampaignRec(input: {
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
     calibrationScope: input.confidenceScore.reason ? { reason: input.confidenceScore.reason } : {},
-    signalQuality: { quality_status: "scenario_triggered", confidence_cap: input.confidenceScore.label },
+    signalQuality: signalQuality(input.signals, input.confidenceScore.label),
   };
 }
 
@@ -185,6 +206,7 @@ function baseAdsetRec(input: {
   targetValue?: unknown;
   campaignRole?: MetaCampaignRole;
   bidRegime?: MetaBidRegime;
+  signals?: MetaEntityDecisionSignal | null;
 }): MetaRecommendation {
   return {
     id: `${input.type}-${input.adset.id}`,
@@ -220,7 +242,7 @@ function baseAdsetRec(input: {
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
     calibrationScope: input.confidenceScore.reason ? { reason: input.confidenceScore.reason } : {},
-    signalQuality: { quality_status: "scenario_triggered", confidence_cap: input.confidenceScore.label },
+    signalQuality: signalQuality(input.signals, input.confidenceScore.label),
   };
 }
 
@@ -228,6 +250,7 @@ export function maybeC1ControlledScale(input: CampaignScenarioInput): MetaRecomm
   const row = input.window.selected;
   const roas = metric(input.context, "roas_28d");
   if (!roas || !sampleReady(input.context, "roas_28d")) return null;
+  if (recentEditCooldownActive(input.signals)) return null;
   if (historyAgeDays(input.window) < 28 || row.roas < roas.p75 || row.purchases < 8) return null;
   const budget = budgetAmount(row);
   if (!budget) return null;
@@ -252,6 +275,7 @@ export function maybeC1ControlledScale(input: CampaignScenarioInput): MetaRecomm
     targetValue: { budget: { current: budget, proposed: r2(budget * 1.15), range: { low: r2(budget * 1.1), high: r2(budget * 1.25) } } },
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    signals: input.signals,
   });
 }
 
@@ -286,6 +310,7 @@ export function maybeB1CappedBidRaise(input: CampaignScenarioInput): MetaRecomme
     targetValue: { bid: targetBand(bid, 0.1) },
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    signals: input.signals,
   });
 }
 
@@ -293,6 +318,7 @@ export function maybeJ1StableWinnerProtected(input: CampaignScenarioInput): Meta
   const row = input.window.selected;
   const roas = metric(input.context, "roas_28d");
   if (!roas || !sampleReady(input.context, "roas_28d")) return null;
+  if (recentEditCooldownActive(input.signals)) return null;
   if (historyAgeDays(input.window) < 28 || row.purchases < 8 || row.roas < roas.p75) return null;
   const conf = confidence({ level: "campaign", context: input.context, metricValue: row.roas, threshold: roas.p75 });
   return baseCampaignRec({
@@ -315,6 +341,7 @@ export function maybeJ1StableWinnerProtected(input: CampaignScenarioInput): Meta
     targetValue: { state: "stable_winner_protected" },
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    signals: input.signals,
   });
 }
 
@@ -322,6 +349,7 @@ export function maybeA2StructuralRebuild(input: CampaignScenarioInput): MetaReco
   const row = input.window.selected;
   const roas = metric(input.context, "roas_28d");
   if (!roas || !sampleReady(input.context, "roas_28d")) return null;
+  if (!input.signals?.learningState || input.signals.learningState === "LEARNING") return null;
   if (historyAgeDays(input.window) < 7 || row.roas >= roas.p25 || row.spend < hardCutSpend(input.context)) return null;
   const conf = confidence({ level: "campaign", context: input.context, metricValue: row.roas, threshold: roas.p25, severeLoser: row.roas <= roas.p10 });
   return baseCampaignRec({
@@ -343,12 +371,14 @@ export function maybeA2StructuralRebuild(input: CampaignScenarioInput): MetaReco
     ],
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    signals: input.signals,
   });
 }
 
 export function maybeF1SuddenRoasDrop(input: CampaignScenarioInput): MetaRecommendation | null {
   const row = input.window.selected;
   const last7 = input.window.last7;
+  if (recentEditCooldownActive(input.signals)) return null;
   if (!last7 || row.roas <= 0 || last7.spend <= 200 || last7.roas >= row.roas * 0.5) return null;
   const roas = metric(input.context, "roas_28d");
   const conf = confidence({ level: "campaign", context: input.context, metricValue: last7.roas, threshold: roas?.p50 ?? row.roas });
@@ -372,6 +402,7 @@ export function maybeF1SuddenRoasDrop(input: CampaignScenarioInput): MetaRecomme
     targetValue: { diagnostics: ["tracking", "fatigue", "recent_edits", "auction", "seasonality"] },
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    signals: input.signals,
   });
 }
 
@@ -379,6 +410,7 @@ export function maybeF4StableWinnerFade(input: CampaignScenarioInput): MetaRecom
   const row = input.window.selected;
   const last30 = input.window.last30;
   const last90 = input.window.last90;
+  if (recentEditCooldownActive(input.signals)) return null;
   if (!last30 || !last90 || last90.roas <= 0 || last30.roas / last90.roas >= 0.85) return null;
   if (row.ctr > 0 && last90.ctr > 0 && row.ctr / last90.ctr >= 0.9) return null;
   const roas = metric(input.context, "roas_28d");
@@ -402,15 +434,18 @@ export function maybeF4StableWinnerFade(input: CampaignScenarioInput): MetaRecom
     ],
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    signals: input.signals,
   });
 }
 
 export function maybeE1FatigueAdset(input: AdsetScenarioInput): MetaRecommendation | null {
   const frequency = metric(input.context, "freq_14d");
   const ctr = metric(input.context, "ctr_28d");
-  const freqValue = Number((input.adset as MetaAdSetData & { frequency?: number | null }).frequency ?? 0);
-  if (!frequency || !ctr || freqValue <= frequency.p75 || input.adset.ctr > ctr.p50) return null;
-  const conf = confidence({ level: "adset", context: input.context, metricValue: freqValue, threshold: frequency.p75 });
+  const hasCalibratedFrequency = Boolean(frequency && sampleReady(input.context, "freq_14d"));
+  const frequencyThreshold = hasCalibratedFrequency && frequency ? frequency.p75 : 2.5;
+  const freqValue = Number(input.signals?.frequencyP80 ?? (input.adset as MetaAdSetData & { frequency?: number | null }).frequency ?? 0);
+  if (!ctr || freqValue <= frequencyThreshold || input.adset.ctr > ctr.p50) return null;
+  const conf = confidence({ level: "adset", context: input.context, metricValue: freqValue, threshold: frequencyThreshold });
   return baseAdsetRec({
     adset: input.adset,
     campaign: input.campaign,
@@ -420,17 +455,18 @@ export function maybeE1FatigueAdset(input: AdsetScenarioInput): MetaRecommendati
     confidenceScore: conf,
     decisionState: "test",
     title: `${input.adset.name}: refresh fatigued delivery`,
-    why: `Frequency ${r2(freqValue)} is above calibrated p75 ${r2(frequency.p75)} while CTR is not above median.`,
+    why: `Frequency ${r2(freqValue)} is above ${hasCalibratedFrequency && frequency ? `calibrated p75 ${r2(frequency.p75)}` : "the documented ecommerce fatigue fallback"} while CTR is not above median.`,
     summary: "Creative or audience pressure is likely stale.",
     recommendedAction: "Refresh creative and reduce repeated delivery pressure before scaling.",
     expectedImpact: "Improves click freshness and reduces spend into stale impressions.",
     evidence: [
       { label: "Frequency", value: String(r2(freqValue)), tone: "warning" },
-      { label: "Frequency p75", value: String(r2(frequency.p75)), tone: "neutral" },
+      { label: "Frequency threshold", value: String(r2(frequencyThreshold)), tone: "neutral" },
       { label: "CTR", value: `${r2(input.adset.ctr)}%`, tone: "warning" },
     ],
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    signals: input.signals,
   });
 }
 
@@ -438,7 +474,9 @@ export function maybeE2CtrDecay(input: CampaignScenarioInput): MetaRecommendatio
   const row = input.window.selected;
   const last7 = input.window.last7;
   const last14 = input.window.last14;
-  if (!last7 || !last14 || last14.ctr <= 0 || last7.ctr / last14.ctr >= 0.85 || last7.spend < row.spend * 0.15) return null;
+  const signalDecayPct = input.signals?.ctrDecayPct;
+  if (signalDecayPct == null) return null;
+  if (!last7 || !last14 || signalDecayPct > -15 || last7.spend < row.spend * 0.15) return null;
   const ctr = metric(input.context, "ctr_28d");
   const conf = confidence({ level: "campaign", context: input.context, metricValue: last7.ctr, threshold: ctr?.p25 ?? last14.ctr });
   return baseCampaignRec({
@@ -449,7 +487,7 @@ export function maybeE2CtrDecay(input: CampaignScenarioInput): MetaRecommendatio
     confidenceScore: conf,
     decisionState: "test",
     title: `${row.name}: CTR decay needs refresh`,
-    why: `7d CTR is below 85% of the 14d baseline while spend remains active.`,
+    why: `Signal table shows CTR decay of ${r2(signalDecayPct)}% versus the 14d baseline while spend remains active.`,
     summary: "Refresh creative before making a bid or budget call.",
     recommendedAction: "Rotate new hooks/angles and hold budget until CTR stabilizes.",
     expectedImpact: "Separates creative decay from auction or bid issues.",
@@ -457,17 +495,19 @@ export function maybeE2CtrDecay(input: CampaignScenarioInput): MetaRecommendatio
       { label: "7d CTR", value: `${r2(last7.ctr)}%`, tone: "warning" },
       { label: "14d CTR", value: `${r2(last14.ctr)}%`, tone: "neutral" },
     ],
-    targetValue: { ctr_decay_pct: r2((1 - last7.ctr / last14.ctr) * 100) },
+    targetValue: { ctr_decay_pct: r2(signalDecayPct) },
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    signals: input.signals,
   });
 }
 
 export function maybeE4CreativeAge(input: CampaignScenarioInput): MetaRecommendation | null {
-  if (historyAgeDays(input.window) < 21) return null;
-  return maybeE2CtrDecay(input)
+  if ((input.signals?.creativeAgeDaysMax ?? 0) < 21) return null;
+  const e2 = maybeE2CtrDecay(input);
+  return e2
     ? {
-        ...maybeE2CtrDecay(input)!,
+        ...e2,
         id: `scenario_e4_creative_age_refresh-${input.window.selected.id}`,
         type: "scenario_e4_creative_age_refresh",
         title: `${input.window.selected.name}: aged creative needs refresh`,
@@ -499,6 +539,7 @@ export function maybeK1MixedConfig(input: CampaignScenarioInput): MetaRecommenda
     ],
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    signals: input.signals,
   });
 }
 
@@ -526,6 +567,7 @@ export function maybeI4TestShouldUseAbo(input: CampaignScenarioInput): MetaRecom
     ],
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    signals: input.signals,
   });
 }
 
@@ -534,6 +576,7 @@ export function maybeA1MathFloor(input: CampaignScenarioInput): MetaRecommendati
   const cpa = metric(input.context, "cpa_28d");
   const budget = budgetAmount(row);
   if (!cpa || !budget || historyAgeDays(input.window) < 7) return null;
+  if (!input.signals?.learningState || input.signals.learningState === "OPTIMAL_LEARNING_DONE") return null;
   const possibleWeeklyConversions = budget * 7 / Math.max(cpa.p50, 1);
   if (possibleWeeklyConversions >= 50) return null;
   const conf = confidence({ level: "campaign", context: input.context, metricValue: row.roas, threshold: metric(input.context, "roas_28d")?.p50 ?? (row.roas || 1) });
@@ -557,6 +600,7 @@ export function maybeA1MathFloor(input: CampaignScenarioInput): MetaRecommendati
     targetValue: { current_event: row.optimizationGoal, proposed_event: "ADD_TO_CART_OR_INITIATE_CHECKOUT" },
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    signals: input.signals,
   });
 }
 

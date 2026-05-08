@@ -141,7 +141,6 @@ export function getPlatformLayer2Items(
     case "meta":
       return [
         { id: "pulse", label: t.pulse, href: "/platforms/meta", icon: Activity, exact: true },
-        { id: "launchpad", label: t.launchpad, href: "/platforms/meta/launchpad", icon: Rocket },
         { id: "creatives", label: t.creatives, href: "/platforms/meta/creatives", icon: Layers },
         { id: "copies", label: t.copies, href: "/platforms/meta/copies", icon: FileText },
         {
@@ -150,6 +149,7 @@ export function getPlatformLayer2Items(
           href: "/platforms/meta/landing-pages",
           icon: Globe,
         },
+        { id: "launchpad", label: t.launchpad, href: "/platforms/meta/launchpad", icon: Rocket },
         {
           id: "audiences",
           label: t.audiences,

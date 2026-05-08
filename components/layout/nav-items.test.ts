@@ -33,10 +33,10 @@ describe("shell navigation items", () => {
 
     expect(metaItems.map((item) => item.href)).toEqual([
       "/platforms/meta",
-      "/platforms/meta/launchpad",
       "/platforms/meta/creatives",
       "/platforms/meta/copies",
       "/platforms/meta/landing-pages",
+      "/platforms/meta/launchpad",
       "/platforms/meta/audiences",
     ]);
   });

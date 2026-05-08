@@ -60,6 +60,7 @@ interface OverlayState {
 }
 
 const EMPTY_OVERLAY: OverlayState = { open: false, mode: "rebuild", rec: null };
+type LocalResponseState = "acted" | "deferred" | "ignored";
 
 function todayPlusHours(hours: number) {
   return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
@@ -398,6 +399,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   const [compareOpen, setCompareOpen] = useState(false);
   const [pendingPrimaryRec, setPendingPrimaryRec] = useState<MetaRecommendation | null>(null);
   const [localDeferredIds, setLocalDeferredIds] = useState<Set<string>>(new Set());
+  const [localResponseStates, setLocalResponseStates] = useState<Record<string, LocalResponseState>>({});
   const [trackingDismissed, setTrackingDismissed] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -491,6 +493,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   };
 
   const markActed = async (rec: MetaRecommendation, subtype: string) => {
+    setLocalResponseStates((current) => ({ ...current, [rec.id]: "acted" }));
     await postResponse({ businessId, recId: rec.id, action: "acted", actionSubtype: subtype }).catch(() => null);
   };
 
@@ -498,6 +501,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
     const scopeId = scopeIdForRec(rec);
     const state = rec.level === "adset" ? adsetDefer : campaignDefer;
     setLocalDeferredIds((current) => new Set(current).add(rec.id));
+    setLocalResponseStates((current) => ({ ...current, [rec.id]: "deferred" }));
     await state.defer(scopeId);
     await postResponse({
       businessId,
@@ -516,6 +520,11 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
       next.delete(rec.id);
       return next;
     });
+    setLocalResponseStates((current) => {
+      const next = { ...current };
+      delete next[rec.id];
+      return next;
+    });
     await state.undefer(scopeId);
     await postResponse({
       businessId,
@@ -528,6 +537,10 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   const isDeferred = (rec: MetaRecommendation) => {
     const state = rec.level === "adset" ? adsetDefer : campaignDefer;
     return localDeferredIds.has(rec.id) || state.isDeferred(scopeIdForRec(rec));
+  };
+
+  const responseStateForRec = (rec: MetaRecommendation): LocalResponseState | null => {
+    return localResponseStates[rec.id] ?? (isDeferred(rec) ? "deferred" : null);
   };
 
   const openOverlayForRec = (rec: MetaRecommendation, mode: MetaLaunchMode) => {
@@ -699,6 +712,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                       rec={rec}
                       selected={selectedIds.has(rec.id)}
                       deferred={isDeferred(rec)}
+                      responseState={responseStateForRec(rec)}
                       evidenceWindow={selectedWindow}
                       onSelect={selectRec}
                       onPrimary={handlePrimary}
@@ -729,6 +743,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                       key={rec.id}
                       rec={rec}
                       deferred={isDeferred(rec)}
+                      responseState={responseStateForRec(rec)}
                       evidenceWindow={selectedWindow}
                       onOpenDrill={openDrillForRec}
                       onDefer={deferRec}

@@ -33,6 +33,8 @@ export function metaRec(overrides: Partial<MetaRecommendation> = {}): MetaRecomm
       note: null,
     },
     engineVersion: "v3.6.0-meta-taxonomy",
+    calibrationScope: { type: "account", source: "28d_history" },
+    signalQuality: { quality_status: "ready", confidence_cap: "high" },
     evidenceTrail: {
       roas_history: [2.2, 2.8, 3.2],
       peer_comparison: { p10: 1, p50: 2, p90: 4, this_value: 3.2 },

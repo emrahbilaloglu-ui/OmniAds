@@ -65,14 +65,13 @@ describe("MetaPulse", () => {
     expect(unknown).not.toContain(">unknown<");
   });
 
-  it("renders engine status without exposing the version as a strip-level chip", () => {
+  it("renders engine status with the snapshot engine version", () => {
     const live = renderPulse({ engineLastRun: isoDaysAgo(2), engineVersion: "v3.6.0-meta-taxonomy" });
-    expect(live).toContain("Engine v3 · Live");
+    expect(live).toContain("v3.6.0-meta-taxonomy · Live");
     expect(live).toContain("v3.6.0-meta-taxonomy");
-    expect(live).not.toContain(">v3.6.0-meta-taxonomy<");
 
     const stale = renderPulse({ engineLastRun: isoDaysAgo(15), engineVersion: "v3.6.0-meta-taxonomy" });
-    expect(stale).toContain("Engine v3 · Stale");
+    expect(stale).toContain("v3.6.0-meta-taxonomy · Stale");
     expect(stale).toContain("border-rose-200");
     expect(stale).toContain("bg-rose-50");
     expect(stale).toContain("text-rose-700");

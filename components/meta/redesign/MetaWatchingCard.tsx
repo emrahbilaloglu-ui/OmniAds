@@ -6,6 +6,7 @@ import { MetaActionCard } from "@/components/meta/redesign/MetaActionCard";
 interface MetaWatchingCardProps {
   rec: MetaRecommendation;
   deferred?: boolean;
+  responseState?: "acted" | "deferred" | "ignored" | null;
   evidenceWindow?: string;
   onOpenDrill?: (rec: MetaRecommendation) => void;
   onDefer?: (rec: MetaRecommendation) => void;
@@ -17,6 +18,7 @@ export function MetaWatchingCard(props: MetaWatchingCardProps) {
     <MetaActionCard
       rec={props.rec}
       deferred={props.deferred}
+      responseState={props.responseState}
       evidenceWindow={props.evidenceWindow}
       onPrimary={props.onOpenDrill}
       onOpenDrill={(item) => {

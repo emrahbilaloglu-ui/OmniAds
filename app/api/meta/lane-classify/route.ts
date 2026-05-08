@@ -20,6 +20,19 @@ interface HealthyMetaRow {
   roas: number;
   cpa: number | null;
   status: string | null;
+  optimizationGoal?: string | null;
+  bidStrategyType?: string | null;
+  bidStrategyLabel?: string | null;
+  manualBidAmount?: number | null;
+  previousManualBidAmount?: number | null;
+  bidValue?: number | null;
+  bidValueFormat?: "currency" | "roas" | null;
+  previousBidValue?: number | null;
+  previousBidValueFormat?: "currency" | "roas" | null;
+  previousBidValueCapturedAt?: string | null;
+  isOptimizationGoalMixed?: boolean;
+  isBidStrategyMixed?: boolean;
+  isBidValueMixed?: boolean;
 }
 
 function parseWindow(value: string | null): PulseWindow {
@@ -116,6 +129,19 @@ function healthyCampaignRows(input: {
       roas: toNumber(row.roas),
       cpa: row.cpa == null ? null : toNumber(row.cpa),
       status: row.status,
+      optimizationGoal: row.optimizationGoal,
+      bidStrategyType: row.bidStrategyType,
+      bidStrategyLabel: row.bidStrategyLabel,
+      manualBidAmount: row.manualBidAmount,
+      previousManualBidAmount: row.previousManualBidAmount,
+      bidValue: row.bidValue,
+      bidValueFormat: row.bidValueFormat,
+      previousBidValue: row.previousBidValue,
+      previousBidValueFormat: row.previousBidValueFormat,
+      previousBidValueCapturedAt: row.previousBidValueCapturedAt,
+      isOptimizationGoalMixed: row.isOptimizationGoalMixed,
+      isBidStrategyMixed: row.isBidStrategyMixed,
+      isBidValueMixed: row.isBidValueMixed,
     }));
 }
 
@@ -139,6 +165,19 @@ function healthyAdsetRows(input: {
       roas: toNumber(row.roas),
       cpa: row.cpa == null ? null : toNumber(row.cpa),
       status: row.status,
+      optimizationGoal: row.optimizationGoal,
+      bidStrategyType: row.bidStrategyType,
+      bidStrategyLabel: row.bidStrategyLabel,
+      manualBidAmount: row.manualBidAmount,
+      previousManualBidAmount: row.previousManualBidAmount,
+      bidValue: row.bidValue,
+      bidValueFormat: row.bidValueFormat,
+      previousBidValue: row.previousBidValue,
+      previousBidValueFormat: row.previousBidValueFormat,
+      previousBidValueCapturedAt: row.previousBidValueCapturedAt,
+      isOptimizationGoalMixed: row.isOptimizationGoalMixed,
+      isBidStrategyMixed: row.isBidStrategyMixed,
+      isBidValueMixed: row.isBidValueMixed,
     }));
 }
 

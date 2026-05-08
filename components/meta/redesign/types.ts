@@ -41,6 +41,19 @@ export interface MetaHealthyEntity {
   roas: number;
   cpa: number | null;
   status: string | null;
+  optimizationGoal?: string | null;
+  bidStrategyType?: string | null;
+  bidStrategyLabel?: string | null;
+  manualBidAmount?: number | null;
+  previousManualBidAmount?: number | null;
+  bidValue?: number | null;
+  bidValueFormat?: "currency" | "roas" | null;
+  previousBidValue?: number | null;
+  previousBidValueFormat?: "currency" | "roas" | null;
+  previousBidValueCapturedAt?: string | null;
+  isOptimizationGoalMixed?: boolean;
+  isBidStrategyMixed?: boolean;
+  isBidValueMixed?: boolean;
 }
 
 export interface MetaLanePayload {

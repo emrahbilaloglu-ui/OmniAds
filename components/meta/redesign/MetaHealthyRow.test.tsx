@@ -6,9 +6,28 @@ import { metaHealthy } from "@/components/meta/redesign/test-fixtures";
 
 describe("MetaHealthyRow", () => {
   it("renders compact stable entity metrics", () => {
-    const html = renderToStaticMarkup(<MetaHealthyRow row={metaHealthy()} />);
+    const html = renderToStaticMarkup(
+      <MetaHealthyRow
+        row={metaHealthy({
+          optimizationGoal: "Purchase",
+          bidStrategyLabel: "Cost Cap",
+          bidValue: 1200,
+          bidValueFormat: "currency",
+          previousBidValue: 1000,
+          previousBidValueFormat: "currency",
+          previousBidValueCapturedAt: "2026-04-01T00:00:00.000Z",
+        })}
+      />,
+    );
     expect(html).toContain("Healthy ASC");
     expect(html).toContain("$820");
+    expect(html).toContain("Optimization");
+    expect(html).toContain("Purchase");
+    expect(html).toContain("Cost Cap");
+    expect(html).toContain("$12");
+    expect(html).toContain("Prev");
+    expect(html).toContain("$10");
+    expect(html).toContain("changed Apr 1, 2026");
   });
 
   it("marks nested adset rows for campaign hierarchy", () => {
@@ -28,5 +47,43 @@ describe("MetaHealthyRow", () => {
     expect(html).toContain('data-healthy-level="adset"');
     expect(html).toContain('data-healthy-depth="child"');
     expect(html).not.toContain("Healthy ASC");
+  });
+
+  it("marks mixed optimization and bid configuration", () => {
+    const html = renderToStaticMarkup(
+      <MetaHealthyRow
+        row={metaHealthy({
+          isOptimizationGoalMixed: true,
+          isBidStrategyMixed: true,
+          isBidValueMixed: true,
+        })}
+      />,
+    );
+
+    expect(html).toContain("Mixed goals");
+    expect(html).toContain("Mixed strategies");
+    expect(html).toContain("Mixed bids");
+  });
+
+  it("falls back to manual bid fields when display bid values are absent", () => {
+    const html = renderToStaticMarkup(
+      <MetaHealthyRow
+        row={metaHealthy({
+          optimizationGoal: "LINK_CLICK",
+          bidStrategyType: "lowest_cost_without_cap",
+          bidValue: null,
+          manualBidAmount: 1500,
+          previousBidValue: null,
+          previousManualBidAmount: 1200,
+          previousBidValueCapturedAt: "2026-04-02T00:00:00.000Z",
+        })}
+      />,
+    );
+
+    expect(html).toContain("Link Click");
+    expect(html).toContain("Lowest Cost Without Cap");
+    expect(html).toContain("$15");
+    expect(html).toContain("$12");
+    expect(html).toContain("changed Apr 2, 2026");
   });
 });

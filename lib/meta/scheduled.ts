@@ -1,6 +1,7 @@
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { runMetaSnapshotForAllBusinesses } from "@/lib/meta/snapshot";
+import { getActiveBusinesses } from "@/lib/sync/active-businesses";
 
 export interface MetaSnapshotJobDueResult {
   skipped: boolean;
@@ -19,19 +20,16 @@ function isDailyMetaSnapshotSlot(now: Date) {
 
 async function alreadyRan(snapshotDate: string) {
   const sql = getDb();
-  const rows = (await sql`
-    SELECT EXISTS (
-      SELECT 1
-      FROM meta_decision_snapshots_daily
-      WHERE snapshot_date = ${snapshotDate}::date
-      UNION ALL
-      SELECT 1
-      FROM meta_decision_calibration_daily
-      WHERE snapshot_date = ${snapshotDate}::date
-      LIMIT 1
-    ) AS exists
-  `) as Array<{ exists?: boolean }>;
-  return rows[0]?.exists === true;
+  const [coverage] = (await sql`
+    SELECT COUNT(DISTINCT business_id)::integer AS business_count
+    FROM meta_decision_snapshots_daily
+    WHERE snapshot_date = ${snapshotDate}::date
+      AND kind IN ('recommendation', 'anomaly')
+  `) as Array<{ business_count?: number | string | null }>;
+  const activeBusinesses = await getActiveBusinesses();
+  const activeBusinessCount = activeBusinesses.length;
+  if (activeBusinessCount === 0) return true;
+  return Number(coverage?.business_count ?? 0) >= activeBusinessCount;
 }
 
 export async function runMetaSnapshotJobIfDue(

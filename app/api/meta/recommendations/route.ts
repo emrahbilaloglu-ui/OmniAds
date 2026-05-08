@@ -80,7 +80,7 @@ function emptyPersistentSnapshotPayload(input: {
     analysisSource: {
       system: "snapshot_persistent",
       decisionOsAvailable: false,
-      fallbackReason: "legacy_decision_os_archived_phase_4_1",
+      fallbackReason: "meta_engine_v1_snapshot_empty",
     },
   };
 }
@@ -277,7 +277,7 @@ export async function GET(request: NextRequest) {
       analysisSource: {
         system: "snapshot_live",
         decisionOsAvailable: false,
-        fallbackReason: "legacy_decision_os_archived_phase_4_1",
+        fallbackReason: "meta_engine_v1_live_debug",
       },
     },
   );

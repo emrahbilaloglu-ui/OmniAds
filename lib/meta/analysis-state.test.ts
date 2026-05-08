@@ -25,7 +25,7 @@ function recommendations(
       system,
       decisionOsAvailable: false,
       ...(system === "snapshot_fallback"
-        ? { fallbackReason: "legacy_decision_os_archived_phase_4_1" }
+        ? { fallbackReason: "meta_engine_v1_snapshot" }
         : {}),
     },
     ...overrides,
@@ -68,7 +68,7 @@ describe("deriveMetaAnalysisStatus", () => {
     expect(status.state).toBe("recommendation_fallback");
     expect(status.decisionOsStatus).toBe("archived");
     expect(status.recommendationSourceLabel).toBe("Snapshot fallback");
-    expect(status.detailReasons).toContain("legacy_decision_os_archived_phase_4_1");
+    expect(status.detailReasons).toContain("meta_engine_v1_snapshot");
   });
 
   it("labels demo recommendations as context instead of no guidance", () => {

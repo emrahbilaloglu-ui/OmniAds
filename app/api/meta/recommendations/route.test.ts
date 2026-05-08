@@ -184,7 +184,7 @@ describe("GET /api/meta/recommendations", () => {
       analysisSource: {
         system: "snapshot_persistent",
         decisionOsAvailable: false,
-        fallbackReason: "legacy_decision_os_archived_phase_4_1",
+        fallbackReason: "meta_engine_v1_snapshot",
       },
     });
   });
@@ -203,7 +203,7 @@ describe("GET /api/meta/recommendations", () => {
     expect(payload.analysisSource).toEqual({
       system: "snapshot_persistent",
       decisionOsAvailable: false,
-      fallbackReason: "legacy_decision_os_archived_phase_4_1",
+      fallbackReason: "meta_engine_v1_snapshot",
     });
     expect(payload.sourceModel).toBe("snapshot_persistent");
     expect(payload.businessId).toBe("biz");
@@ -228,7 +228,7 @@ describe("GET /api/meta/recommendations", () => {
     expect(metaRecommendations.buildMetaRecommendations).not.toHaveBeenCalled();
   });
 
-  it("keeps the intentional live debug path with archival sentinel", async () => {
+  it("keeps the intentional live debug path", async () => {
     await GET(
       new NextRequest(
         "http://localhost/api/meta/recommendations?businessId=biz&startDate=2026-03-01&endDate=2026-03-31&live=1",
@@ -248,7 +248,7 @@ describe("GET /api/meta/recommendations", () => {
     );
   });
 
-  it("marks live debug responses as snapshot_live and preserves the sentinel", async () => {
+  it("marks live debug responses as snapshot_live and uses the v1 live debug reason", async () => {
     const response = await GET(
       new NextRequest(
         "http://localhost/api/meta/recommendations?businessId=biz&startDate=2026-03-01&endDate=2026-03-31&live=1",
@@ -260,7 +260,7 @@ describe("GET /api/meta/recommendations", () => {
     expect(payload.analysisSource).toEqual({
       system: "snapshot_live",
       decisionOsAvailable: false,
-      fallbackReason: "legacy_decision_os_archived_phase_4_1",
+      fallbackReason: "meta_engine_v1_live_debug",
     });
   });
 

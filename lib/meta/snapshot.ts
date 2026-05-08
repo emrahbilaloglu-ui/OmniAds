@@ -981,7 +981,7 @@ export async function readMetaDecisionSnapshotForRange(input: {
     analysisSource: {
       system: "snapshot_persistent",
       decisionOsAvailable: false,
-      fallbackReason: "legacy_decision_os_archived_phase_4_1",
+      fallbackReason: "meta_engine_v1_snapshot",
     },
   };
 }

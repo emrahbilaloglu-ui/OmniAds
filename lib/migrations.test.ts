@@ -13,6 +13,12 @@ vi.mock("@/lib/db", () => ({
 const db = await import("@/lib/db");
 const startupDiagnostics = await import("@/lib/startup-diagnostics");
 
+function expectDropColumnQuery(queries: string, tableName: string, columnName: string) {
+  expect(queries).toMatch(
+    new RegExp(`ALTER TABLE ${tableName}\\s+DROP COLUMN IF EXISTS ${columnName}`),
+  );
+}
+
 describe("runMigrations", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -104,6 +110,11 @@ describe("runMigrations", () => {
     expect(queries.join("\n")).toContain("idx_meta_creative_media_business_date");
     expect(queries.join("\n")).toContain("idx_google_ads_account_daily_business_account_date");
     expect(queries.join("\n")).toContain("idx_shopify_orders_business_account_created_local");
+    expect(queries.join("\n")).toContain("SET lock_timeout = '2000ms'");
+    expectDropColumnQuery(queries.join("\n"), "meta_campaign_daily", "bid_strategy_label");
+    expectDropColumnQuery(queries.join("\n"), "meta_campaign_daily", "manual_bid_amount");
+    expectDropColumnQuery(queries.join("\n"), "meta_adset_daily", "bid_strategy_label");
+    expectDropColumnQuery(queries.join("\n"), "meta_adset_daily", "manual_bid_amount");
   });
 
   it("drops only retired legacy core tables when the cleanup switch is enabled", async () => {
@@ -169,17 +180,18 @@ describe("runMigrations", () => {
     });
 
     const joinedQueries = queries.join("\n");
-    expect(joinedQueries).toContain("ALTER TABLE shopify_orders\n          DROP COLUMN IF EXISTS payload_json");
-    expect(joinedQueries).toContain("ALTER TABLE shopify_order_lines\n          DROP COLUMN IF EXISTS payload_json");
-    expect(joinedQueries).toContain("ALTER TABLE shopify_refunds\n          DROP COLUMN IF EXISTS payload_json");
-    expect(joinedQueries).toContain("ALTER TABLE shopify_order_transactions\n          DROP COLUMN IF EXISTS payload_json");
-    expect(joinedQueries).toContain("ALTER TABLE shopify_returns\n          DROP COLUMN IF EXISTS payload_json");
-    expect(joinedQueries).toContain("ALTER TABLE shopify_sales_events\n          DROP COLUMN IF EXISTS payload_json");
-    expect(joinedQueries).toContain("ALTER TABLE shopify_customer_events\n          DROP COLUMN IF EXISTS payload_json");
-    expect(joinedQueries).toContain("ALTER TABLE shopify_webhook_deliveries\n          DROP COLUMN IF EXISTS payload_json");
-    expect(joinedQueries).toContain("ALTER TABLE shopify_webhook_deliveries\n          DROP COLUMN IF EXISTS result_summary");
-    expect(joinedQueries).toContain("ALTER TABLE shopify_repair_intents\n          DROP COLUMN IF EXISTS last_sync_result");
-    expect(joinedQueries).toContain("ALTER TABLE shopify_sync_state\n          DROP COLUMN IF EXISTS last_result_summary");
+    expect(joinedQueries).toContain("SET lock_timeout = '2000ms'");
+    expectDropColumnQuery(joinedQueries, "shopify_orders", "payload_json");
+    expectDropColumnQuery(joinedQueries, "shopify_order_lines", "payload_json");
+    expectDropColumnQuery(joinedQueries, "shopify_refunds", "payload_json");
+    expectDropColumnQuery(joinedQueries, "shopify_order_transactions", "payload_json");
+    expectDropColumnQuery(joinedQueries, "shopify_returns", "payload_json");
+    expectDropColumnQuery(joinedQueries, "shopify_sales_events", "payload_json");
+    expectDropColumnQuery(joinedQueries, "shopify_customer_events", "payload_json");
+    expectDropColumnQuery(joinedQueries, "shopify_webhook_deliveries", "payload_json");
+    expectDropColumnQuery(joinedQueries, "shopify_webhook_deliveries", "result_summary");
+    expectDropColumnQuery(joinedQueries, "shopify_repair_intents", "last_sync_result");
+    expectDropColumnQuery(joinedQueries, "shopify_sync_state", "last_result_summary");
     expect(joinedQueries).not.toContain("CREATE TABLE IF NOT EXISTS shopify_repair_intents (\n          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n          business_id TEXT NOT NULL,\n          provider_account_id TEXT NOT NULL,\n          entity_type TEXT NOT NULL,\n          entity_id TEXT NOT NULL,\n          topic TEXT NOT NULL,\n          payload_hash TEXT NOT NULL,\n          event_timestamp TIMESTAMPTZ,\n          event_age_days INTEGER,\n          escalation_level INTEGER NOT NULL DEFAULT 0,\n          status TEXT NOT NULL DEFAULT 'pending',\n          attempt_count INTEGER NOT NULL DEFAULT 0,\n          last_error TEXT,\n          last_sync_result JSONB,");
     expect(joinedQueries).not.toContain("CREATE TABLE IF NOT EXISTS shopify_sync_state (\n          business_id              TEXT NOT NULL,\n          provider_account_id      TEXT NOT NULL,\n          sync_target              TEXT NOT NULL,\n          historical_target_start  DATE,\n          historical_target_end    DATE,\n          ready_through_date       DATE,\n          cursor_timestamp         TIMESTAMPTZ,\n          cursor_value             TEXT,\n          latest_sync_started_at   TIMESTAMPTZ,\n          latest_successful_sync_at TIMESTAMPTZ,\n          latest_sync_status       TEXT,\n          latest_sync_window_start DATE,\n          latest_sync_window_end   DATE,\n          last_error               TEXT,\n          last_result_summary      JSONB,");
   });

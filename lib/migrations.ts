@@ -7,6 +7,7 @@ let loggedMigrationSkip = false;
 
 const DEFAULT_MIGRATION_TIMEOUT_MS = 60_000;
 type MigrationBatchQuery = Promise<unknown>;
+const DESTRUCTIVE_COLUMN_DROP_LOCK_TIMEOUT_MS = 2_000;
 
 function createMigrationDb(sql: ReturnType<typeof getDb>) {
   let queue = Promise.resolve();
@@ -30,6 +31,63 @@ function createMigrationDb(sql: ReturnType<typeof getDb>) {
 async function runMigrationBatchSequentially(queries: MigrationBatchQuery[]) {
   for (const query of queries) {
     await query;
+  }
+}
+
+function assertMigrationIdentifier(identifier: string) {
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(identifier)) {
+    throw new Error(`Unsafe migration identifier: ${identifier}`);
+  }
+}
+
+function buildLockSafeDropColumnQuery(tableName: string, columnName: string) {
+  assertMigrationIdentifier(tableName);
+  assertMigrationIdentifier(columnName);
+  return `
+    SET lock_timeout = '${DESTRUCTIVE_COLUMN_DROP_LOCK_TIMEOUT_MS}ms';
+    ALTER TABLE ${tableName}
+      DROP COLUMN IF EXISTS ${columnName};
+    RESET lock_timeout;
+  `;
+}
+
+function isLockTimeoutError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error != null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "55P03"
+  );
+}
+
+function getMigrationErrorCode(error: unknown) {
+  if (typeof error !== "object" || error == null || !("code" in error)) return null;
+  const code = (error as { code?: unknown }).code;
+  return code == null ? null : String(code);
+}
+
+async function dropColumnIfExistsWithShortLock(
+  sql: ReturnType<typeof createMigrationDb>,
+  tableName: string,
+  columnName: string,
+) {
+  try {
+    await sql.query(buildLockSafeDropColumnQuery(tableName, columnName));
+  } catch (error) {
+    if (isLockTimeoutError(error)) {
+      logStartupEvent("migration_column_drop_deferred_lock_timeout", {
+        tableName,
+        columnName,
+        lockTimeoutMs: DESTRUCTIVE_COLUMN_DROP_LOCK_TIMEOUT_MS,
+      });
+      return;
+    }
+    logStartupEvent("migration_column_drop_deferred_error", {
+      tableName,
+      columnName,
+      code: getMigrationErrorCode(error),
+      message: error instanceof Error ? error.message : String(error ?? ""),
+    });
   }
 }
 
@@ -3196,14 +3254,14 @@ export async function runMigrations(options?: {
         sql`ALTER TABLE meta_adset_config_history ADD COLUMN IF NOT EXISTS pixel_id TEXT`.catch(() => {}),
         sql`ALTER TABLE meta_adset_config_history ADD COLUMN IF NOT EXISTS custom_conversion_id TEXT`.catch(() => {}),
         sql`ALTER TABLE meta_adset_config_history ADD COLUMN IF NOT EXISTS promoted_object_json JSONB`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_daily DROP COLUMN IF EXISTS bid_strategy_label`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_daily DROP COLUMN IF EXISTS manual_bid_amount`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_daily DROP COLUMN IF EXISTS bid_strategy_label`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_daily DROP COLUMN IF EXISTS manual_bid_amount`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_config_history DROP COLUMN IF EXISTS bid_strategy_label`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_config_history DROP COLUMN IF EXISTS manual_bid_amount`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_config_history DROP COLUMN IF EXISTS bid_strategy_label`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_config_history DROP COLUMN IF EXISTS manual_bid_amount`.catch(() => {}),
+        dropColumnIfExistsWithShortLock(sql, "meta_campaign_daily", "bid_strategy_label"),
+        dropColumnIfExistsWithShortLock(sql, "meta_campaign_daily", "manual_bid_amount"),
+        dropColumnIfExistsWithShortLock(sql, "meta_adset_daily", "bid_strategy_label"),
+        dropColumnIfExistsWithShortLock(sql, "meta_adset_daily", "manual_bid_amount"),
+        dropColumnIfExistsWithShortLock(sql, "meta_campaign_config_history", "bid_strategy_label"),
+        dropColumnIfExistsWithShortLock(sql, "meta_campaign_config_history", "manual_bid_amount"),
+        dropColumnIfExistsWithShortLock(sql, "meta_adset_config_history", "bid_strategy_label"),
+        dropColumnIfExistsWithShortLock(sql, "meta_adset_config_history", "manual_bid_amount"),
         sql`CREATE TABLE IF NOT EXISTS meta_ad_dimensions (
           id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id             TEXT NOT NULL,
@@ -5311,28 +5369,17 @@ export async function runMigrations(options?: {
       ]);
 
       await runMigrationBatchSequentially([
-        sql`ALTER TABLE shopify_orders
-          DROP COLUMN IF EXISTS payload_json`.catch(() => {}),
-        sql`ALTER TABLE shopify_order_lines
-          DROP COLUMN IF EXISTS payload_json`.catch(() => {}),
-        sql`ALTER TABLE shopify_refunds
-          DROP COLUMN IF EXISTS payload_json`.catch(() => {}),
-        sql`ALTER TABLE shopify_order_transactions
-          DROP COLUMN IF EXISTS payload_json`.catch(() => {}),
-        sql`ALTER TABLE shopify_returns
-          DROP COLUMN IF EXISTS payload_json`.catch(() => {}),
-        sql`ALTER TABLE shopify_sales_events
-          DROP COLUMN IF EXISTS payload_json`.catch(() => {}),
-        sql`ALTER TABLE shopify_customer_events
-          DROP COLUMN IF EXISTS payload_json`.catch(() => {}),
-        sql`ALTER TABLE shopify_webhook_deliveries
-          DROP COLUMN IF EXISTS payload_json`.catch(() => {}),
-        sql`ALTER TABLE shopify_webhook_deliveries
-          DROP COLUMN IF EXISTS result_summary`.catch(() => {}),
-        sql`ALTER TABLE shopify_repair_intents
-          DROP COLUMN IF EXISTS last_sync_result`.catch(() => {}),
-        sql`ALTER TABLE shopify_sync_state
-          DROP COLUMN IF EXISTS last_result_summary`.catch(() => {}),
+        dropColumnIfExistsWithShortLock(sql, "shopify_orders", "payload_json"),
+        dropColumnIfExistsWithShortLock(sql, "shopify_order_lines", "payload_json"),
+        dropColumnIfExistsWithShortLock(sql, "shopify_refunds", "payload_json"),
+        dropColumnIfExistsWithShortLock(sql, "shopify_order_transactions", "payload_json"),
+        dropColumnIfExistsWithShortLock(sql, "shopify_returns", "payload_json"),
+        dropColumnIfExistsWithShortLock(sql, "shopify_sales_events", "payload_json"),
+        dropColumnIfExistsWithShortLock(sql, "shopify_customer_events", "payload_json"),
+        dropColumnIfExistsWithShortLock(sql, "shopify_webhook_deliveries", "payload_json"),
+        dropColumnIfExistsWithShortLock(sql, "shopify_webhook_deliveries", "result_summary"),
+        dropColumnIfExistsWithShortLock(sql, "shopify_repair_intents", "last_sync_result"),
+        dropColumnIfExistsWithShortLock(sql, "shopify_sync_state", "last_result_summary"),
       ]);
 
       await runMigrationBatchSequentially([

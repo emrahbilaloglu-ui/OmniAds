@@ -185,6 +185,17 @@ async function doesTableExist(
   return rows[0]?.exists === true;
 }
 
+async function doesTableHaveRows(
+  sql: ReturnType<typeof createMigrationDb>,
+  tableName: string,
+): Promise<boolean> {
+  assertMigrationIdentifier(tableName);
+  const rows = (await sql.query<{ exists: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM ${tableName} LIMIT 1) AS exists`,
+  )) as Array<{ exists?: boolean }>;
+  return rows[0]?.exists === true;
+}
+
 function buildProviderAccountSeedUnionQuery(
   tableNames: readonly string[],
   columnName: string,
@@ -5489,6 +5500,25 @@ export async function runMigrations(options?: {
         ).catch(() => {}),
       ]);
 
+      const [
+        campaignConfigHistoryHasRows,
+        adsetConfigHistoryHasRows,
+      ] = await Promise.all([
+        doesTableHaveRows(sql, "meta_campaign_config_history"),
+        doesTableHaveRows(sql, "meta_adset_config_history"),
+      ]);
+
+      if (campaignConfigHistoryHasRows) {
+        logStartupEvent("migration_config_history_backfill_skipped_existing_rows", {
+          tableName: "meta_campaign_config_history",
+        });
+      }
+      if (adsetConfigHistoryHasRows) {
+        logStartupEvent("migration_config_history_backfill_skipped_existing_rows", {
+          tableName: "meta_adset_config_history",
+        });
+      }
+
       await runMigrationBatchSequentially([
         sql.query(
           `
@@ -6807,8 +6837,11 @@ export async function runMigrations(options?: {
               updated_at = now()
           `,
         ).catch(() => {}),
-        sql.query(
-          `
+        ...(campaignConfigHistoryHasRows
+          ? []
+          : [
+              sql.query(
+                `
             INSERT INTO meta_campaign_config_history (
               business_id,
               business_ref_id,
@@ -6956,9 +6989,13 @@ export async function runMigrations(options?: {
             WHERE source.campaign_id IS NOT NULL
             ON CONFLICT (business_id, provider_account_id, campaign_id, config_fingerprint, captured_at) DO NOTHING
           `,
-        ).catch(() => {}),
-        sql.query(
-          `
+              ).catch(() => {}),
+            ]),
+        ...(adsetConfigHistoryHasRows
+          ? []
+          : [
+              sql.query(
+                `
             INSERT INTO meta_adset_config_history (
               business_id,
               business_ref_id,
@@ -7116,7 +7153,8 @@ export async function runMigrations(options?: {
             WHERE source.adset_id IS NOT NULL
             ON CONFLICT (business_id, provider_account_id, adset_id, config_fingerprint, captured_at) DO NOTHING
           `,
-        ).catch(() => {}),
+              ).catch(() => {}),
+            ]),
       ]);
 
       await runMigrationBatchSequentially([

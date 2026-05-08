@@ -195,4 +195,46 @@ describe("runMigrations", () => {
     expect(joinedQueries).not.toContain("CREATE TABLE IF NOT EXISTS shopify_repair_intents (\n          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n          business_id TEXT NOT NULL,\n          provider_account_id TEXT NOT NULL,\n          entity_type TEXT NOT NULL,\n          entity_id TEXT NOT NULL,\n          topic TEXT NOT NULL,\n          payload_hash TEXT NOT NULL,\n          event_timestamp TIMESTAMPTZ,\n          event_age_days INTEGER,\n          escalation_level INTEGER NOT NULL DEFAULT 0,\n          status TEXT NOT NULL DEFAULT 'pending',\n          attempt_count INTEGER NOT NULL DEFAULT 0,\n          last_error TEXT,\n          last_sync_result JSONB,");
     expect(joinedQueries).not.toContain("CREATE TABLE IF NOT EXISTS shopify_sync_state (\n          business_id              TEXT NOT NULL,\n          provider_account_id      TEXT NOT NULL,\n          sync_target              TEXT NOT NULL,\n          historical_target_start  DATE,\n          historical_target_end    DATE,\n          ready_through_date       DATE,\n          cursor_timestamp         TIMESTAMPTZ,\n          cursor_value             TEXT,\n          latest_sync_started_at   TIMESTAMPTZ,\n          latest_successful_sync_at TIMESTAMPTZ,\n          latest_sync_status       TEXT,\n          latest_sync_window_start DATE,\n          latest_sync_window_end   DATE,\n          last_error               TEXT,\n          last_result_summary      JSONB,");
   });
+
+  it("skips expensive Meta config history backfills when history tables already have rows", async () => {
+    const queries: string[] = [];
+    const sql = Object.assign(
+      vi.fn(async (strings: TemplateStringsArray) => {
+        queries.push(strings.join(" "));
+        return [];
+      }),
+      {
+        query: vi.fn(async (query: string) => {
+          queries.push(query);
+          if (
+            query.includes("SELECT EXISTS (SELECT 1 FROM meta_campaign_config_history") ||
+            query.includes("SELECT EXISTS (SELECT 1 FROM meta_adset_config_history")
+          ) {
+            return [{ exists: true }];
+          }
+          return [];
+        }),
+      }
+    );
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+    vi.mocked(db.getDbWithTimeout).mockReturnValue(sql as never);
+
+    const migrations = await import("@/lib/migrations");
+    await migrations.runMigrations({
+      force: true,
+      reason: "config-history-guard-test",
+    });
+
+    const joinedQueries = queries.join("\n");
+    expect(joinedQueries).not.toContain("INSERT INTO meta_campaign_config_history");
+    expect(joinedQueries).not.toContain("INSERT INTO meta_adset_config_history");
+    expect(startupDiagnostics.logStartupEvent).toHaveBeenCalledWith(
+      "migration_config_history_backfill_skipped_existing_rows",
+      { tableName: "meta_campaign_config_history" },
+    );
+    expect(startupDiagnostics.logStartupEvent).toHaveBeenCalledWith(
+      "migration_config_history_backfill_skipped_existing_rows",
+      { tableName: "meta_adset_config_history" },
+    );
+  });
 });

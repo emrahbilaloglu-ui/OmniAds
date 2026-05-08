@@ -283,7 +283,7 @@ describe("meta snapshot job", () => {
       .filter(Boolean)
       .map((payload) => JSON.parse(String(payload)) as Array<Record<string, unknown>>)
       .flat()
-      .find((row) => row.kind === "recommendation" && row.rec_type !== "entity_state");
+      .find((row) => row.kind === "recommendation" && !String(row.rec_type).endsWith("_state"));
 
     expect(recommendationPayload?.evidence_trail).toEqual({
       roas_history: [2.8, 3.2],
@@ -341,12 +341,92 @@ describe("meta snapshot job", () => {
       .filter(Boolean)
       .map((payload) => JSON.parse(String(payload)) as Array<Record<string, unknown>>)
       .flat();
-    const stateRows = rows.filter((row) => row.rec_type === "entity_state");
+    const stateRows = rows.filter((row) => String(row.rec_type).endsWith("_state"));
 
     expect(stateRows).toHaveLength(2);
     expect(stateRows.map((row) => row.scope_type).sort()).toEqual(["adset", "campaign"]);
+    expect(stateRows.map((row) => row.rec_type).sort()).toEqual(["adset_state", "campaign_state"]);
     expect(stateRows.every((row) => row.decision_label)).toBe(true);
     expect(stateRows.every((row) => row.state_reason)).toBe(true);
+  });
+
+  it("iterates every mature campaign into a state row even when only adsets have action recs", async () => {
+    const sql = makeSqlMock();
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+    vi.mocked(campaignSource.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        campaign({ id: "cmp_1", name: "Campaign 1", purchases: 1, roas: 0.8 }),
+        campaign({ id: "cmp_2", name: "Campaign 2", purchases: 0, roas: 0 }),
+        campaign({ id: "cmp_3", name: "Campaign 3", purchases: 12, roas: 3.6 }),
+      ],
+      evidenceSource: "live",
+    } as never);
+    vi.mocked(adsetsSource.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        {
+          id: "adset_1",
+          accountId: "act_1",
+          campaignId: "cmp_1",
+          name: "Adset 1",
+          status: "ACTIVE",
+          spend: 100,
+          purchases: 1,
+          revenue: 100,
+          roas: 1,
+          cpa: 100,
+          ctr: 0.5,
+          cpm: 10,
+          cpc: 1,
+          impressions: 1000,
+          clicks: 10,
+          frequency: 1.2,
+          currency: "USD",
+          dailyBudget: 25,
+          lifetimeBudget: null,
+          optimizationGoal: "Purchase",
+          bidStrategyType: "lowest_cost",
+          bidStrategyLabel: "Lowest Cost",
+          manualBidAmount: null,
+          bidValue: null,
+          bidValueFormat: null,
+          isBudgetMixed: false,
+          isConfigMixed: false,
+        },
+      ],
+      evidenceSource: "live",
+    } as never);
+
+    await runMetaSnapshotForBusiness("biz_1", "2026-05-06");
+
+    const rows = sql.queryPayloads
+      .filter(Boolean)
+      .map((payload) => JSON.parse(String(payload)) as Array<Record<string, unknown>>)
+      .flat();
+    const campaignStateRows = rows.filter((row) => row.scope_type === "campaign" && row.rec_type === "campaign_state");
+    const adsetStateRows = rows.filter((row) => row.scope_type === "adset" && row.rec_type === "adset_state");
+
+    expect(campaignStateRows).toHaveLength(3);
+    expect(campaignStateRows.map((row) => row.scope_id).sort()).toEqual(["cmp_1", "cmp_2", "cmp_3"]);
+    expect(adsetStateRows).toHaveLength(1);
+  });
+
+  it("allows campaign state and action recommendations to coexist for the same entity", async () => {
+    const sql = makeSqlMock();
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+
+    await runMetaSnapshotForBusiness("biz_1", "2026-05-06");
+
+    const rows = sql.queryPayloads
+      .filter(Boolean)
+      .map((payload) => JSON.parse(String(payload)) as Array<Record<string, unknown>>)
+      .flat();
+    const campaignRows = rows.filter((row) => row.scope_type === "campaign" && row.scope_id === "cmp_1");
+    const recTypes = new Set(campaignRows.map((row) => row.rec_type));
+
+    expect(recTypes.has("campaign_state")).toBe(true);
+    expect([...recTypes].some((recType) => recType !== "campaign_state")).toBe(true);
   });
 
   it("hydrates taxonomy fields from persisted snapshot rows", async () => {

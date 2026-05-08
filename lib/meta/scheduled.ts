@@ -20,16 +20,31 @@ function isDailyMetaSnapshotSlot(now: Date) {
 
 async function alreadyRan(snapshotDate: string) {
   const sql = getDb();
-  const [coverage] = (await sql`
-    SELECT COUNT(DISTINCT business_id)::integer AS business_count
+  const coverage = (await sql`
+    SELECT
+      business_id,
+      bool_or(scope_type = 'campaign') AS has_campaign_rows,
+      bool_or(scope_type = 'adset') AS has_adset_rows
     FROM meta_decision_snapshots_daily
     WHERE snapshot_date = ${snapshotDate}::date
       AND kind IN ('recommendation', 'anomaly')
-  `) as Array<{ business_count?: number | string | null }>;
+    GROUP BY business_id
+  `) as Array<{
+    business_id?: string | null;
+    has_campaign_rows?: boolean | null;
+    has_adset_rows?: boolean | null;
+  }>;
   const activeBusinesses = await getActiveBusinesses();
-  const activeBusinessCount = activeBusinesses.length;
-  if (activeBusinessCount === 0) return true;
-  return Number(coverage?.business_count ?? 0) >= activeBusinessCount;
+  if (activeBusinesses.length === 0) return true;
+  const coverageByBusiness = new Map(
+    coverage
+      .filter((row) => row.business_id)
+      .map((row) => [row.business_id!, row]),
+  );
+  return activeBusinesses.every((business) => {
+    const row = coverageByBusiness.get(business.id);
+    return Boolean(row?.has_campaign_rows && row?.has_adset_rows);
+  });
 }
 
 export async function runMetaSnapshotJobIfDue(

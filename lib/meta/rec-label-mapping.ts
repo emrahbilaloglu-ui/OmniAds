@@ -106,6 +106,8 @@ export function decisionLabelForMetaRec(input: MetaRecLabelInput): DecisionLabel
     case "scenario_b6_profit_first_bid_cap_keep":
     case "scenario_j1_stable_winner_protected":
     case "entity_state":
+    case "campaign_state":
+    case "adset_state":
       return "keep";
     case "scenario_k2_peak_scale_ceiling":
       return "scale";

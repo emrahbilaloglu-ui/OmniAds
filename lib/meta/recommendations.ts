@@ -36,6 +36,8 @@ export type MetaRecommendationConfidence = "high" | "medium" | "low";
 export type MetaRecommendationLevel = "account" | "campaign" | "adset";
 export type MetaRecommendationType =
   | "entity_state"
+  | "campaign_state"
+  | "adset_state"
   | "scenario_a1_math_floor_unmet"
   | "scenario_a2_learning_weak_structural"
   | "scenario_a3_learning_on_pace_wait"

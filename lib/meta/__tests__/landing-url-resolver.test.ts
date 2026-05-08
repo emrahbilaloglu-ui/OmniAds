@@ -4,6 +4,7 @@ import {
   resolveMetaLandingUrl,
 } from "@/lib/meta/landing-url-resolver";
 import { META_LANDING_PAGE_BLOCKED_FIELDS, getMetaLandingPageCreativeFields } from "@/lib/meta/landing-pages-fetchers";
+import { resolveMetaStoryLandingUrl } from "@/lib/meta/landing-url-story-fallback";
 import type { MetaAdRecord } from "@/lib/meta/creatives-types";
 
 function makeCreative(
@@ -68,6 +69,31 @@ describe("resolveMetaLandingUrl", () => {
     expect(result.confidence).toBe("medium");
   });
 
+  it("uses asset feed link URLs before low-confidence template discovery", () => {
+    const result = resolveMetaLandingUrl(
+      makeCreative({
+        asset_feed_spec: {
+          link_urls: [
+            {
+              website_url: "https://example.com/feed?utm_medium=paid",
+            },
+          ],
+        },
+        object_story_spec: {
+          template_data: {
+            nested: {
+              website_url: "https://example.com/template",
+            },
+          },
+        },
+      })
+    );
+
+    expect(result.canonicalUrl).toBe("https://example.com/feed");
+    expect(result.source).toBe("asset_feed_spec.link_urls[].website_url");
+    expect(result.confidence).toBe("high");
+  });
+
   it("falls back to template_data URL discovery", () => {
     const result = resolveMetaLandingUrl(
       makeCreative({
@@ -101,6 +127,43 @@ describe("resolveMetaLandingUrl", () => {
     expect(result.canonicalUrl).toBeNull();
     expect(result.source).toBe("unresolved");
     expect(result.confidence).toBe("unresolved");
+  });
+});
+
+describe("resolveMetaStoryLandingUrl", () => {
+  it("resolves Page-token story CTA links with CTA type", () => {
+    const result = resolveMetaStoryLandingUrl({
+      id: "123_456",
+      call_to_action: {
+        type: "SHOP_NOW",
+        value: {
+          link: "https://example.com/story?fbclid=abc",
+        },
+      },
+    });
+
+    expect(result.canonicalUrl).toBe("https://example.com/story");
+    expect(result.source).toBe("story.call_to_action.value.link");
+    expect(result.ctaType).toBe("SHOP_NOW");
+    expect(result.confidence).toBe("medium");
+  });
+
+  it("falls back to story attachment targets", () => {
+    const result = resolveMetaStoryLandingUrl({
+      id: "123_456",
+      attachments: {
+        data: [
+          {
+            target: {
+              url: "https://example.com/attachment",
+            },
+          },
+        ],
+      },
+    });
+
+    expect(result.canonicalUrl).toBe("https://example.com/attachment");
+    expect(result.source).toBe("story.attachments[].target.url");
   });
 });
 

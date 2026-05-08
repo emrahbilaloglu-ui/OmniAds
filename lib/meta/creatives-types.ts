@@ -220,6 +220,10 @@ export interface PreviewAuditSample {
 export type MetaPromotedObjectLike = {
   product_set_id?: string | null;
   catalog_id?: string | null;
+  pixel_id?: string | null;
+  custom_event_type?: string | null;
+  custom_conversion_id?: string | null;
+  smart_pse_enabled?: boolean | null;
 } | null;
 
 export interface MetaActionValue {
@@ -294,6 +298,10 @@ export interface MetaAdRecord {
     promoted_object?: {
       product_set_id?: string | null;
       catalog_id?: string | null;
+      pixel_id?: string | null;
+      custom_event_type?: string | null;
+      custom_conversion_id?: string | null;
+      smart_pse_enabled?: boolean | null;
     } | null;
   } | null;
   campaign?: {
@@ -307,6 +315,10 @@ export interface MetaAdRecord {
   promoted_object?: {
     product_set_id?: string | null;
     catalog_id?: string | null;
+    pixel_id?: string | null;
+    custom_event_type?: string | null;
+    custom_conversion_id?: string | null;
+    smart_pse_enabled?: boolean | null;
   } | null;
   created_time?: string;
   creative?: {
@@ -386,6 +398,11 @@ export interface MetaAdRecord {
         image_hash?: string | null;
       }> | null;
       videos?: Array<{ video_id?: string | null; thumbnail_url?: string | null; image_url?: string | null }> | null;
+      link_urls?: Array<{
+        website_url?: string | null;
+        display_url?: string | null;
+        url?: string | null;
+      }> | null;
     } | null;
   } | null;
 }
@@ -502,6 +519,11 @@ export interface CreativeWarehouseCommonFields {
   adset_daily_budget?: number | null;
   campaign_lifetime_budget?: number | null;
   adset_lifetime_budget?: number | null;
+  destination_url?: string | null;
+  destination_url_raw?: string | null;
+  destination_url_source?: string | null;
+  destination_url_confidence?: string | null;
+  cta_type?: string | null;
 }
 
 export interface CreativePreviewManifest {

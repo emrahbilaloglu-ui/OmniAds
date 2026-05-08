@@ -80,7 +80,8 @@ export async function GET(request: NextRequest) {
         adset_id,
         optimization_goal,
         bid_strategy_type,
-        manual_bid_amount,
+        bid_value,
+        bid_value_format,
         daily_budget,
         lifetime_budget
       FROM meta_adset_config_history

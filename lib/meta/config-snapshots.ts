@@ -1,7 +1,10 @@
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import {
+  deriveManualBidAmount,
+  formatBidStrategyLabel,
   normalizeTargetRoasValue,
+  stripDerivedMetaConfigFields,
   type MetaConfigSnapshotPayload,
 } from "@/lib/meta/configuration";
 import {
@@ -140,6 +143,7 @@ export async function readPreviousMetaConfigSnapshots(input: {
           AND entity_id = ANY(${entityIds}::text[])
           AND (
             payload->>'bidValue' IS NOT NULL
+            OR payload->>'bidStrategyType' IS NOT NULL
             OR payload->>'manualBidAmount' IS NOT NULL
             OR payload->>'bidStrategyLabel' IS NOT NULL
           )
@@ -165,16 +169,25 @@ function valuesEqual(left: number | string | null | undefined, right: number | s
 }
 
 function normalizeLegacySnapshotPayload(payload: MetaConfigSnapshotPayload): MetaConfigSnapshotPayload {
-  if (payload.bidValueFormat !== "roas") return payload;
+  const bidValue =
+    payload.bidValueFormat === "roas"
+      ? normalizeTargetRoasValue(payload.bidValue)
+      : payload.bidValue;
   return {
     ...payload,
-    bidValue: normalizeTargetRoasValue(payload.bidValue),
+    bidValue,
+    bidStrategyLabel:
+      payload.bidStrategyLabel ?? formatBidStrategyLabel(payload.bidStrategyType),
+    manualBidAmount:
+      payload.manualBidAmount ??
+      deriveManualBidAmount(bidValue, payload.bidValueFormat),
   };
 }
 
 function isInformativePayload(payload: MetaConfigSnapshotPayload) {
   return (
     payload.bidValue != null ||
+    payload.bidStrategyType != null ||
     payload.manualBidAmount != null ||
     payload.bidStrategyLabel != null ||
     payload.dailyBudget != null ||
@@ -238,8 +251,7 @@ export async function readPreviousDifferentMetaConfigDiffs(input: {
           previousBid == null &&
           (
             !valuesEqual(row.payload.bidValue, current.bidValue) ||
-            !valuesEqual(row.payload.bidValueFormat, current.bidValueFormat) ||
-            !valuesEqual(row.payload.manualBidAmount, current.manualBidAmount)
+            !valuesEqual(row.payload.bidValueFormat, current.bidValueFormat)
           )
         ) {
           previousBid = row;
@@ -308,7 +320,7 @@ export async function appendMetaConfigSnapshots(
         provider_account_ref_id: providerAccountRefIds.get(row.accountId) ?? null,
         entity_level: row.entityLevel,
         entity_id: row.entityId,
-        payload: sanitizeForJson(row.payload),
+        payload: sanitizeForJson(stripDerivedMetaConfigFields(row.payload)),
       }))
     );
 
@@ -392,7 +404,7 @@ export async function readMetaBidRegimeHistorySummaries(input: {
 
       for (const payload of history) {
         const type = payload.bidStrategyType ?? null;
-        const label = payload.bidStrategyLabel ?? null;
+        const label = payload.bidStrategyLabel ?? formatBidStrategyLabel(type);
         const key = `${type ?? "null"}|${label ?? "null"}`;
         const existing = counts.get(key) ?? { count: 0, type, label };
         existing.count += 1;

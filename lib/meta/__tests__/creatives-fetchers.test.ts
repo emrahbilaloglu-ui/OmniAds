@@ -186,7 +186,7 @@ describe("batchFetchAdsByIds", () => {
     expect(fields).not.toContain("status,bid_strategy");
     expect(fields).not.toContain("status,optimization_goal");
     expect(fields).not.toContain("status,attribution_setting");
-    expect(fields).not.toContain("promoted_object");
+    expect(fields).toContain("promoted_object{pixel_id,custom_event_type,custom_conversion_id}");
     expect(fields).toContain("template_data");
     expect(fields).not.toMatch(/(^|[{,])catalog_id(?=[,}])/);
     expect(fields).not.toMatch(/(^|[{,])product_set_id(?=[,}])/);

@@ -243,7 +243,8 @@ export async function listRecentMetaLaunchTemplates(input: {
         cfg.daily_budget,
         cfg.lifetime_budget,
         cfg.bid_strategy_type,
-        cfg.manual_bid_amount
+        cfg.bid_value,
+        cfg.bid_value_format
       FROM meta_campaign_dimensions dim
       LEFT JOIN LATERAL (
         SELECT *
@@ -273,7 +274,8 @@ export async function listRecentMetaLaunchTemplates(input: {
       recent.daily_budget,
       recent.lifetime_budget,
       recent.bid_strategy_type,
-      recent.manual_bid_amount,
+      recent.bid_value,
+      recent.bid_value_format,
       COALESCE(counts.adset_count, 1) AS adset_count
     FROM recent_campaigns recent
     LEFT JOIN adset_counts counts ON counts.campaign_id = recent.campaign_id
@@ -286,7 +288,8 @@ export async function listRecentMetaLaunchTemplates(input: {
     daily_budget: number | null;
     lifetime_budget: number | null;
     bid_strategy_type: string | null;
-    manual_bid_amount: number | null;
+    bid_value: number | null;
+    bid_value_format: string | null;
     adset_count: number;
   }>;
 
@@ -309,8 +312,8 @@ export async function listRecentMetaLaunchTemplates(input: {
           row.bid_strategy_type === "COST_CAP"
             ? row.bid_strategy_type
             : "LOWEST_COST_WITHOUT_CAP",
-        bidAmountMinor: row.manual_bid_amount
-          ? Math.round(Number(row.manual_bid_amount) * 100)
+        bidAmountMinor: row.bid_value != null && row.bid_value_format === "currency"
+          ? Math.round(Number(row.bid_value) * 100)
           : null,
       },
       creativeIds: [],

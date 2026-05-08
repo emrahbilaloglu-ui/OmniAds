@@ -1,7 +1,11 @@
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import type { MetaPreviousConfigDiff } from "@/lib/meta/config-snapshots";
-import type { MetaConfigSnapshotPayload } from "@/lib/meta/configuration";
+import {
+  deriveManualBidAmount,
+  formatBidStrategyLabel,
+  type MetaConfigSnapshotPayload,
+} from "@/lib/meta/configuration";
 
 export interface MetaCampaignDimensionRecord {
   businessId: string;
@@ -92,6 +96,22 @@ async function readLatestConfigHistory(input: {
     input.tableName === "meta_campaign_config_history"
       ? "objective"
       : "NULL::text AS objective";
+  const customEventMixedSelect =
+    input.tableName === "meta_campaign_config_history"
+      ? "is_custom_event_type_mixed"
+      : "FALSE AS is_custom_event_type_mixed";
+  const adsetPromotedObjectSelect =
+    input.tableName === "meta_adset_config_history"
+      ? `
+          pixel_id,
+          custom_conversion_id,
+          promoted_object_json
+        `
+      : `
+          NULL::text AS pixel_id,
+          NULL::text AS custom_conversion_id,
+          NULL::jsonb AS promoted_object_json
+        `;
   const rows = await sql.query(
     `
       WITH requested_entities AS (
@@ -101,9 +121,11 @@ async function readLatestConfigHistory(input: {
         requested_entities.entity_id,
         latest.objective,
         latest.optimization_goal,
+        latest.custom_event_type,
+        latest.pixel_id,
+        latest.custom_conversion_id,
+        latest.promoted_object_json,
         latest.bid_strategy_type,
-        latest.bid_strategy_label,
-        latest.manual_bid_amount,
         latest.bid_value,
         latest.bid_value_format,
         latest.daily_budget,
@@ -111,6 +133,7 @@ async function readLatestConfigHistory(input: {
         latest.is_budget_mixed,
         latest.is_config_mixed,
         latest.is_optimization_goal_mixed,
+        latest.is_custom_event_type_mixed,
         latest.is_bid_strategy_mixed,
         latest.is_bid_value_mixed
       FROM requested_entities
@@ -118,9 +141,9 @@ async function readLatestConfigHistory(input: {
         SELECT
           ${objectiveSelect},
           optimization_goal,
+          custom_event_type,
+          ${adsetPromotedObjectSelect},
           bid_strategy_type,
-          bid_strategy_label,
-          manual_bid_amount,
           bid_value,
           bid_value_format,
           daily_budget,
@@ -128,6 +151,7 @@ async function readLatestConfigHistory(input: {
           is_budget_mixed,
           is_config_mixed,
           is_optimization_goal_mixed,
+          ${customEventMixedSelect},
           is_bid_strategy_mixed,
           is_bid_value_mixed
         FROM ${input.tableName}
@@ -142,9 +166,11 @@ async function readLatestConfigHistory(input: {
     entity_id: string;
     objective: string | null;
     optimization_goal: string | null;
+    custom_event_type: string | null;
+    pixel_id: string | null;
+    custom_conversion_id: string | null;
+    promoted_object_json: unknown;
     bid_strategy_type: string | null;
-    bid_strategy_label: string | null;
-    manual_bid_amount: number | null;
     bid_value: number | null;
     bid_value_format: "currency" | "roas" | null;
     daily_budget: number | null;
@@ -152,6 +178,7 @@ async function readLatestConfigHistory(input: {
     is_budget_mixed: boolean;
     is_config_mixed: boolean;
     is_optimization_goal_mixed: boolean;
+    is_custom_event_type_mixed: boolean;
     is_bid_strategy_mixed: boolean;
     is_bid_value_mixed: boolean;
   }>;
@@ -162,9 +189,13 @@ async function readLatestConfigHistory(input: {
       {
         objective: row.objective,
         optimizationGoal: row.optimization_goal,
+        customEventType: row.custom_event_type,
+        pixelId: row.pixel_id,
+        customConversionId: row.custom_conversion_id,
+        promotedObject: row.promoted_object_json,
         bidStrategyType: row.bid_strategy_type,
-        bidStrategyLabel: row.bid_strategy_label,
-        manualBidAmount: row.manual_bid_amount,
+        bidStrategyLabel: formatBidStrategyLabel(row.bid_strategy_type),
+        manualBidAmount: deriveManualBidAmount(row.bid_value, row.bid_value_format),
         bidValue: row.bid_value,
         bidValueFormat: row.bid_value_format,
         dailyBudget: row.daily_budget,
@@ -172,6 +203,7 @@ async function readLatestConfigHistory(input: {
         isBudgetMixed: row.is_budget_mixed,
         isConfigMixed: row.is_config_mixed,
         isOptimizationGoalMixed: row.is_optimization_goal_mixed,
+        isCustomEventTypeMixed: row.is_custom_event_type_mixed,
         isBidStrategyMixed: row.is_bid_strategy_mixed,
         isBidValueMixed: row.is_bid_value_mixed,
       } satisfies MetaConfigSnapshotPayload,
@@ -231,7 +263,6 @@ async function readPreviousDifferentConfigHistory(input: {
           requested_entities.entity_id,
           current_row.captured_at,
           current_row.created_at,
-          current_row.manual_bid_amount,
           current_row.bid_value,
           current_row.bid_value_format,
           current_row.daily_budget,
@@ -241,7 +272,6 @@ async function readPreviousDifferentConfigHistory(input: {
           SELECT
             captured_at,
             created_at,
-            manual_bid_amount,
             bid_value,
             bid_value_format,
             daily_budget,
@@ -256,7 +286,6 @@ async function readPreviousDifferentConfigHistory(input: {
       SELECT
         latest.entity_id,
         previous_bid.captured_at AS previous_bid_captured_at,
-        previous_bid.manual_bid_amount AS previous_bid_manual_bid_amount,
         previous_bid.bid_value AS previous_bid_value,
         previous_bid.bid_value_format AS previous_bid_value_format,
         ${previousBudgetSelect}
@@ -264,19 +293,16 @@ async function readPreviousDifferentConfigHistory(input: {
       LEFT JOIN LATERAL (
         SELECT
           captured_at,
-          manual_bid_amount,
           bid_value,
           bid_value_format
         FROM ${input.tableName}
         WHERE business_id = $1
           AND ${input.entityColumn} = latest.entity_id
           AND (
-            latest.manual_bid_amount IS NOT NULL OR
             latest.bid_value IS NOT NULL OR
             latest.bid_value_format IS NOT NULL
           )
           AND (
-            manual_bid_amount IS DISTINCT FROM latest.manual_bid_amount OR
             bid_value IS DISTINCT FROM latest.bid_value OR
             bid_value_format IS DISTINCT FROM latest.bid_value_format
           )
@@ -289,7 +315,6 @@ async function readPreviousDifferentConfigHistory(input: {
   ) as Array<{
     entity_id: string;
     previous_bid_captured_at: string | null;
-    previous_bid_manual_bid_amount: number | null;
     previous_bid_value: number | null;
     previous_bid_value_format: "currency" | "roas" | null;
     previous_budget_captured_at: string | null;
@@ -300,7 +325,10 @@ async function readPreviousDifferentConfigHistory(input: {
   const result = new Map<string, MetaPreviousConfigDiff>();
   for (const row of rows) {
     result.set(row.entity_id, {
-      previousManualBidAmount: row.previous_bid_manual_bid_amount ?? null,
+      previousManualBidAmount: deriveManualBidAmount(
+        row.previous_bid_value,
+        row.previous_bid_value_format,
+      ),
       previousBidValue: row.previous_bid_value ?? null,
       previousBidValueFormat: row.previous_bid_value_format ?? null,
       previousBidCapturedAt: row.previous_bid_captured_at ?? null,

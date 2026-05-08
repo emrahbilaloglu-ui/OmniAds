@@ -62,6 +62,10 @@ import {
   assertMetaFinalizationCompletenessProof,
 } from "@/lib/meta/finalization-proof";
 import { META_CANONICAL_METRIC_SCHEMA_VERSION } from "@/lib/meta/canonical-metrics";
+import {
+  deriveManualBidAmount,
+  formatBidStrategyLabel,
+} from "@/lib/meta/configuration";
 
 const META_SOURCE_PRIORITY_SQL = `
   CASE source
@@ -547,6 +551,19 @@ function chunkRows<T>(rows: T[], size = 250) {
     chunks.push(rows.slice(index, index + size));
   }
   return chunks;
+}
+
+function buildSqlValueTuple(
+  offset: number,
+  valueCount: number,
+  casts: Record<number, string> = {},
+) {
+  const refs = Array.from({ length: valueCount }, (_, index) => {
+    const position = index + 1;
+    return `$${offset + position}${casts[position] ?? ""}`;
+  });
+  refs.push("now()");
+  return `(${refs.join(",")})`;
 }
 
 async function resolveMetaChunkReferenceContext(
@@ -7236,9 +7253,8 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
           row.objective,
           row.buyingType,
           row.optimizationGoal,
+          row.customEventType ?? null,
           row.bidStrategyType,
-          row.bidStrategyLabel,
-          row.manualBidAmount,
           row.bidValue,
           row.bidValueFormat,
           row.dailyBudget,
@@ -7246,6 +7262,7 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
           row.isBudgetMixed,
           row.isConfigMixed,
           row.isOptimizationGoalMixed,
+          row.isCustomEventTypeMixed ?? false,
           row.isBidStrategyMixed,
           row.isBidValueMixed,
           row.accountTimezone,
@@ -7272,9 +7289,9 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
             row.validationStatus ?? "passed",
             row.sourceRunId ?? null
           );
-          return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},$${offset + 37},$${offset + 38},$${offset + 39},$${offset + 40},$${offset + 41},$${offset + 42},$${offset + 43},$${offset + 44},now())`;
+          return buildSqlValueTuple(offset, 44);
         }
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},$${offset + 37},$${offset + 38},$${offset + 39},now())`;
+        return buildSqlValueTuple(offset, 39);
       })
       .join(", ");
     const query = supportsTruthLifecycle
@@ -7292,9 +7309,8 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
         objective,
         buying_type,
         optimization_goal,
+        custom_event_type,
         bid_strategy_type,
-        bid_strategy_label,
-        manual_bid_amount,
         bid_value,
         bid_value_format,
         daily_budget,
@@ -7302,6 +7318,7 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
         is_budget_mixed,
         is_config_mixed,
         is_optimization_goal_mixed,
+        is_custom_event_type_mixed,
         is_bid_strategy_mixed,
         is_bid_value_mixed,
         account_timezone,
@@ -7336,9 +7353,8 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
         objective = COALESCE(EXCLUDED.objective, meta_campaign_daily.objective),
         buying_type = EXCLUDED.buying_type,
         optimization_goal = COALESCE(EXCLUDED.optimization_goal, meta_campaign_daily.optimization_goal),
+        custom_event_type = COALESCE(EXCLUDED.custom_event_type, meta_campaign_daily.custom_event_type),
         bid_strategy_type = COALESCE(EXCLUDED.bid_strategy_type, meta_campaign_daily.bid_strategy_type),
-        bid_strategy_label = COALESCE(EXCLUDED.bid_strategy_label, meta_campaign_daily.bid_strategy_label),
-        manual_bid_amount = COALESCE(EXCLUDED.manual_bid_amount, meta_campaign_daily.manual_bid_amount),
         bid_value = COALESCE(EXCLUDED.bid_value, meta_campaign_daily.bid_value),
         bid_value_format = COALESCE(EXCLUDED.bid_value_format, meta_campaign_daily.bid_value_format),
         daily_budget = COALESCE(EXCLUDED.daily_budget, meta_campaign_daily.daily_budget),
@@ -7346,6 +7362,7 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
         is_budget_mixed = EXCLUDED.is_budget_mixed OR meta_campaign_daily.is_budget_mixed,
         is_config_mixed = EXCLUDED.is_config_mixed OR meta_campaign_daily.is_config_mixed,
         is_optimization_goal_mixed = EXCLUDED.is_optimization_goal_mixed OR meta_campaign_daily.is_optimization_goal_mixed,
+        is_custom_event_type_mixed = EXCLUDED.is_custom_event_type_mixed OR meta_campaign_daily.is_custom_event_type_mixed,
         is_bid_strategy_mixed = EXCLUDED.is_bid_strategy_mixed OR meta_campaign_daily.is_bid_strategy_mixed,
         is_bid_value_mixed = EXCLUDED.is_bid_value_mixed OR meta_campaign_daily.is_bid_value_mixed,
         account_timezone = EXCLUDED.account_timezone,
@@ -7389,9 +7406,8 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
         objective,
         buying_type,
         optimization_goal,
+        custom_event_type,
         bid_strategy_type,
-        bid_strategy_label,
-        manual_bid_amount,
         bid_value,
         bid_value_format,
         daily_budget,
@@ -7399,6 +7415,7 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
         is_budget_mixed,
         is_config_mixed,
         is_optimization_goal_mixed,
+        is_custom_event_type_mixed,
         is_bid_strategy_mixed,
         is_bid_value_mixed,
         account_timezone,
@@ -7428,9 +7445,8 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
         objective = COALESCE(EXCLUDED.objective, meta_campaign_daily.objective),
         buying_type = EXCLUDED.buying_type,
         optimization_goal = COALESCE(EXCLUDED.optimization_goal, meta_campaign_daily.optimization_goal),
+        custom_event_type = COALESCE(EXCLUDED.custom_event_type, meta_campaign_daily.custom_event_type),
         bid_strategy_type = COALESCE(EXCLUDED.bid_strategy_type, meta_campaign_daily.bid_strategy_type),
-        bid_strategy_label = COALESCE(EXCLUDED.bid_strategy_label, meta_campaign_daily.bid_strategy_label),
-        manual_bid_amount = COALESCE(EXCLUDED.manual_bid_amount, meta_campaign_daily.manual_bid_amount),
         bid_value = COALESCE(EXCLUDED.bid_value, meta_campaign_daily.bid_value),
         bid_value_format = COALESCE(EXCLUDED.bid_value_format, meta_campaign_daily.bid_value_format),
         daily_budget = COALESCE(EXCLUDED.daily_budget, meta_campaign_daily.daily_budget),
@@ -7438,6 +7454,7 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
         is_budget_mixed = EXCLUDED.is_budget_mixed OR meta_campaign_daily.is_budget_mixed,
         is_config_mixed = EXCLUDED.is_config_mixed OR meta_campaign_daily.is_config_mixed,
         is_optimization_goal_mixed = EXCLUDED.is_optimization_goal_mixed OR meta_campaign_daily.is_optimization_goal_mixed,
+        is_custom_event_type_mixed = EXCLUDED.is_custom_event_type_mixed OR meta_campaign_daily.is_custom_event_type_mixed,
         is_bid_strategy_mixed = EXCLUDED.is_bid_strategy_mixed OR meta_campaign_daily.is_bid_strategy_mixed,
         is_bid_value_mixed = EXCLUDED.is_bid_value_mixed OR meta_campaign_daily.is_bid_value_mixed,
         account_timezone = EXCLUDED.account_timezone,
@@ -7482,7 +7499,7 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
-        const offset = index * (supportsTruthLifecycle ? 43 : 38);
+        const offset = index * (supportsTruthLifecycle ? 45 : 40);
         values.push(
           row.businessId,
           referenceContext.businessRefIds.get(row.businessId) ?? null,
@@ -7495,9 +7512,13 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
           row.adsetNameHistorical,
           row.adsetStatus,
           row.optimizationGoal,
+          row.customEventType ?? null,
+          row.pixelId ?? null,
+          row.customConversionId ?? null,
+          row.promotedObjectJson == null
+            ? null
+            : JSON.stringify(row.promotedObjectJson),
           row.bidStrategyType,
-          row.bidStrategyLabel,
-          row.manualBidAmount,
           row.bidValue,
           row.bidValueFormat,
           row.dailyBudget,
@@ -7531,9 +7552,9 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
             row.validationStatus ?? "passed",
             row.sourceRunId ?? null
           );
-          return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},$${offset + 37},$${offset + 38},$${offset + 39},$${offset + 40},$${offset + 41},$${offset + 42},$${offset + 43},now())`;
+          return buildSqlValueTuple(offset, 45, { 15: "::jsonb" });
         }
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},$${offset + 37},$${offset + 38},now())`;
+        return buildSqlValueTuple(offset, 40, { 15: "::jsonb" });
       })
       .join(", ");
     const query = supportsTruthLifecycle
@@ -7550,9 +7571,11 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
         adset_name_historical,
         adset_status,
         optimization_goal,
+        custom_event_type,
+        pixel_id,
+        custom_conversion_id,
+        promoted_object_json,
         bid_strategy_type,
-        bid_strategy_label,
-        manual_bid_amount,
         bid_value,
         bid_value_format,
         daily_budget,
@@ -7593,9 +7616,11 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
         adset_name_historical = EXCLUDED.adset_name_historical,
         adset_status = EXCLUDED.adset_status,
         optimization_goal = COALESCE(EXCLUDED.optimization_goal, meta_adset_daily.optimization_goal),
+        custom_event_type = COALESCE(EXCLUDED.custom_event_type, meta_adset_daily.custom_event_type),
+        pixel_id = COALESCE(EXCLUDED.pixel_id, meta_adset_daily.pixel_id),
+        custom_conversion_id = COALESCE(EXCLUDED.custom_conversion_id, meta_adset_daily.custom_conversion_id),
+        promoted_object_json = COALESCE(EXCLUDED.promoted_object_json, meta_adset_daily.promoted_object_json),
         bid_strategy_type = COALESCE(EXCLUDED.bid_strategy_type, meta_adset_daily.bid_strategy_type),
-        bid_strategy_label = COALESCE(EXCLUDED.bid_strategy_label, meta_adset_daily.bid_strategy_label),
-        manual_bid_amount = COALESCE(EXCLUDED.manual_bid_amount, meta_adset_daily.manual_bid_amount),
         bid_value = COALESCE(EXCLUDED.bid_value, meta_adset_daily.bid_value),
         bid_value_format = COALESCE(EXCLUDED.bid_value_format, meta_adset_daily.bid_value_format),
         daily_budget = COALESCE(EXCLUDED.daily_budget, meta_adset_daily.daily_budget),
@@ -7645,9 +7670,11 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
         adset_name_historical,
         adset_status,
         optimization_goal,
+        custom_event_type,
+        pixel_id,
+        custom_conversion_id,
+        promoted_object_json,
         bid_strategy_type,
-        bid_strategy_label,
-        manual_bid_amount,
         bid_value,
         bid_value_format,
         daily_budget,
@@ -7683,9 +7710,11 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
         adset_name_historical = EXCLUDED.adset_name_historical,
         adset_status = EXCLUDED.adset_status,
         optimization_goal = COALESCE(EXCLUDED.optimization_goal, meta_adset_daily.optimization_goal),
+        custom_event_type = COALESCE(EXCLUDED.custom_event_type, meta_adset_daily.custom_event_type),
+        pixel_id = COALESCE(EXCLUDED.pixel_id, meta_adset_daily.pixel_id),
+        custom_conversion_id = COALESCE(EXCLUDED.custom_conversion_id, meta_adset_daily.custom_conversion_id),
+        promoted_object_json = COALESCE(EXCLUDED.promoted_object_json, meta_adset_daily.promoted_object_json),
         bid_strategy_type = COALESCE(EXCLUDED.bid_strategy_type, meta_adset_daily.bid_strategy_type),
-        bid_strategy_label = COALESCE(EXCLUDED.bid_strategy_label, meta_adset_daily.bid_strategy_label),
-        manual_bid_amount = COALESCE(EXCLUDED.manual_bid_amount, meta_adset_daily.manual_bid_amount),
         bid_value = COALESCE(EXCLUDED.bid_value, meta_adset_daily.bid_value),
         bid_value_format = COALESCE(EXCLUDED.bid_value_format, meta_adset_daily.bid_value_format),
         daily_budget = COALESCE(EXCLUDED.daily_budget, meta_adset_daily.daily_budget),
@@ -7945,9 +7974,11 @@ export async function upsertMetaBreakdownDailyRows(rows: MetaBreakdownDailyRow[]
 function buildMetaConfigHistoryFingerprint(input: {
   objective?: string | null;
   optimizationGoal?: string | null;
+  customEventType?: string | null;
+  pixelId?: string | null;
+  customConversionId?: string | null;
+  promotedObject?: unknown;
   bidStrategyType?: string | null;
-  bidStrategyLabel?: string | null;
-  manualBidAmount: number | null;
   bidValue: number | null;
   bidValueFormat: "currency" | "roas" | null;
   dailyBudget: number | null;
@@ -7955,6 +7986,7 @@ function buildMetaConfigHistoryFingerprint(input: {
   isBudgetMixed: boolean;
   isConfigMixed: boolean;
   isOptimizationGoalMixed: boolean;
+  isCustomEventTypeMixed?: boolean;
   isBidStrategyMixed: boolean;
   isBidValueMixed: boolean;
 }) {
@@ -7963,9 +7995,11 @@ function buildMetaConfigHistoryFingerprint(input: {
       JSON.stringify({
         objective: input.objective ?? null,
         optimizationGoal: input.optimizationGoal ?? null,
+        customEventType: input.customEventType ?? null,
+        pixelId: input.pixelId ?? null,
+        customConversionId: input.customConversionId ?? null,
+        promotedObject: input.promotedObject ?? null,
         bidStrategyType: input.bidStrategyType ?? null,
-        bidStrategyLabel: input.bidStrategyLabel ?? null,
-        manualBidAmount: input.manualBidAmount ?? null,
         bidValue: input.bidValue ?? null,
         bidValueFormat: input.bidValueFormat ?? null,
         dailyBudget: input.dailyBudget ?? null,
@@ -7973,6 +8007,7 @@ function buildMetaConfigHistoryFingerprint(input: {
         isBudgetMixed: Boolean(input.isBudgetMixed),
         isConfigMixed: Boolean(input.isConfigMixed),
         isOptimizationGoalMixed: Boolean(input.isOptimizationGoalMixed),
+        isCustomEventTypeMixed: Boolean(input.isCustomEventTypeMixed),
         isBidStrategyMixed: Boolean(input.isBidStrategyMixed),
         isBidValueMixed: Boolean(input.isBidValueMixed),
       }),
@@ -8068,15 +8103,15 @@ async function appendMetaCampaignConfigHistoryRows(
       .filter((row) =>
         row.objective != null ||
         row.optimizationGoal != null ||
+        row.customEventType != null ||
         row.bidStrategyType != null ||
-        row.bidStrategyLabel != null ||
-        row.manualBidAmount != null ||
         row.bidValue != null ||
         row.dailyBudget != null ||
         row.lifetimeBudget != null ||
         row.isBudgetMixed ||
         row.isConfigMixed ||
         row.isOptimizationGoalMixed ||
+        Boolean(row.isCustomEventTypeMixed) ||
         row.isBidStrategyMixed ||
         row.isBidValueMixed,
       )
@@ -8092,9 +8127,8 @@ async function appendMetaCampaignConfigHistoryRows(
           buildMetaConfigHistoryFingerprint(row),
           row.objective,
           row.optimizationGoal,
+          row.customEventType ?? null,
           row.bidStrategyType,
-          row.bidStrategyLabel,
-          row.manualBidAmount,
           row.bidValue,
           row.bidValueFormat,
           row.dailyBudget,
@@ -8102,6 +8136,7 @@ async function appendMetaCampaignConfigHistoryRows(
           row.isBudgetMixed,
           row.isConfigMixed,
           row.isOptimizationGoalMixed,
+          row.isCustomEventTypeMixed ?? false,
           row.isBidStrategyMixed,
           row.isBidValueMixed,
           row.sourceSnapshotId,
@@ -8125,9 +8160,8 @@ async function appendMetaCampaignConfigHistoryRows(
           config_fingerprint,
           objective,
           optimization_goal,
+          custom_event_type,
           bid_strategy_type,
-          bid_strategy_label,
-          manual_bid_amount,
           bid_value,
           bid_value_format,
           daily_budget,
@@ -8135,6 +8169,7 @@ async function appendMetaCampaignConfigHistoryRows(
           is_budget_mixed,
           is_config_mixed,
           is_optimization_goal_mixed,
+          is_custom_event_type_mixed,
           is_bid_strategy_mixed,
           is_bid_value_mixed,
           source_kind,
@@ -8231,9 +8266,11 @@ async function appendMetaAdSetConfigHistoryRows(
     const values: unknown[] = [];
     const filtered = chunk.filter((row) =>
       row.optimizationGoal != null ||
+      row.customEventType != null ||
+      row.pixelId != null ||
+      row.customConversionId != null ||
+      row.promotedObjectJson != null ||
       row.bidStrategyType != null ||
-      row.bidStrategyLabel != null ||
-      row.manualBidAmount != null ||
       row.bidValue != null ||
       row.dailyBudget != null ||
       row.lifetimeBudget != null ||
@@ -8245,7 +8282,7 @@ async function appendMetaAdSetConfigHistoryRows(
     );
 
     const placeholders = filtered.map((row, index) => {
-      const offset = index * 24;
+      const offset = index * 26;
       const capturedAt = buildMetaHistoryCapturedAt(row);
       values.push(
         row.businessId,
@@ -8256,9 +8293,11 @@ async function appendMetaAdSetConfigHistoryRows(
         row.adsetId,
         buildMetaConfigHistoryFingerprint({
           optimizationGoal: row.optimizationGoal,
+          customEventType: row.customEventType,
+          pixelId: row.pixelId,
+          customConversionId: row.customConversionId,
+          promotedObject: row.promotedObjectJson,
           bidStrategyType: row.bidStrategyType,
-          bidStrategyLabel: row.bidStrategyLabel,
-          manualBidAmount: row.manualBidAmount,
           bidValue: row.bidValue,
           bidValueFormat: row.bidValueFormat,
           dailyBudget: row.dailyBudget,
@@ -8270,9 +8309,13 @@ async function appendMetaAdSetConfigHistoryRows(
           isBidValueMixed: row.isBidValueMixed,
         }),
         row.optimizationGoal,
+        row.customEventType ?? null,
+        row.pixelId ?? null,
+        row.customConversionId ?? null,
+        row.promotedObjectJson == null
+          ? null
+          : JSON.stringify(row.promotedObjectJson),
         row.bidStrategyType,
-        row.bidStrategyLabel,
-        row.manualBidAmount,
         row.bidValue,
         row.bidValueFormat,
         row.dailyBudget,
@@ -8287,7 +8330,7 @@ async function appendMetaAdSetConfigHistoryRows(
         normalizeDate(row.date),
         normalizeDate(row.date),
       );
-      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},'warehouse_daily',$${offset + 21},$${offset + 22}::timestamptz,$${offset + 23}::date,$${offset + 24}::date,now())`;
+      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12}::jsonb,$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},'warehouse_daily',$${offset + 23},$${offset + 24}::timestamptz,$${offset + 25}::date,$${offset + 26}::date,now())`;
     }).join(", ");
 
     if (!placeholders) continue;
@@ -8302,9 +8345,11 @@ async function appendMetaAdSetConfigHistoryRows(
           adset_id,
           config_fingerprint,
           optimization_goal,
+          custom_event_type,
+          pixel_id,
+          custom_conversion_id,
+          promoted_object_json,
           bid_strategy_type,
-          bid_strategy_label,
-          manual_bid_amount,
           bid_value,
           bid_value_format,
           daily_budget,
@@ -8514,7 +8559,7 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
-        const offset = index * 33;
+        const offset = index * 40;
         values.push(
           row.businessId,
           referenceContext.businessRefIds.get(row.businessId) ?? null,
@@ -8527,6 +8572,13 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
           row.adNameCurrent,
           row.adNameHistorical,
           row.adStatus,
+          row.destinationUrl ?? null,
+          row.destinationUrlRaw ?? null,
+          row.destinationUrlSource ?? null,
+          row.destinationUrlConfidence ?? null,
+          row.ctaType ?? null,
+          row.objectStoryId ?? null,
+          row.effectiveObjectStoryId ?? null,
           row.accountTimezone,
           row.accountCurrency,
           row.spend,
@@ -8550,7 +8602,7 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
           row.metricSchemaVersion ?? META_CANONICAL_METRIC_SCHEMA_VERSION,
           JSON.stringify(row.payloadJson ?? null)
         );
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33}::jsonb,now())`;
+        return buildSqlValueTuple(offset, 40, { 40: "::jsonb" });
       })
       .join(", ");
     await sql.query(
@@ -8567,6 +8619,13 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
         ad_name_current,
         ad_name_historical,
         ad_status,
+        destination_url,
+        destination_url_raw,
+        destination_url_source,
+        destination_url_confidence,
+        cta_type,
+        object_story_id,
+        effective_object_story_id,
         account_timezone,
         account_currency,
         spend,
@@ -8600,6 +8659,13 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
         ad_name_current = EXCLUDED.ad_name_current,
         ad_name_historical = EXCLUDED.ad_name_historical,
         ad_status = EXCLUDED.ad_status,
+        destination_url = COALESCE(EXCLUDED.destination_url, meta_ad_daily.destination_url),
+        destination_url_raw = COALESCE(EXCLUDED.destination_url_raw, meta_ad_daily.destination_url_raw),
+        destination_url_source = COALESCE(EXCLUDED.destination_url_source, meta_ad_daily.destination_url_source),
+        destination_url_confidence = COALESCE(EXCLUDED.destination_url_confidence, meta_ad_daily.destination_url_confidence),
+        cta_type = COALESCE(EXCLUDED.cta_type, meta_ad_daily.cta_type),
+        object_story_id = COALESCE(EXCLUDED.object_story_id, meta_ad_daily.object_story_id),
+        effective_object_story_id = COALESCE(EXCLUDED.effective_object_story_id, meta_ad_daily.effective_object_story_id),
         account_timezone = EXCLUDED.account_timezone,
         account_currency = EXCLUDED.account_currency,
         spend = EXCLUDED.spend,
@@ -8651,7 +8717,7 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
-        const offset = index * 55;
+        const offset = index * 61;
         const normalizedRowDate = normalizeDate(row.date);
         const launchDate = row.launchDate ? normalizeDate(row.launchDate) : null;
         const firstSeenAt =
@@ -8675,6 +8741,12 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
           row.primaryText,
           row.descriptionText ?? null,
           row.destinationUrl,
+          row.destinationUrlRaw ?? null,
+          row.destinationUrlSource ?? null,
+          row.destinationUrlConfidence ?? null,
+          row.ctaType ?? null,
+          row.objectStoryId ?? null,
+          row.effectiveObjectStoryId ?? null,
           row.thumbnailUrl,
           row.assetType,
           row.accountTimezone,
@@ -8717,7 +8789,7 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
           row.imageHash ?? null,
           JSON.stringify(stripMetaCreativeMediaPayload(row.payloadJson ?? null))
         );
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},$${offset + 37},$${offset + 38},$${offset + 39},$${offset + 40},$${offset + 41},$${offset + 42},$${offset + 43},$${offset + 44},$${offset + 45},$${offset + 46},$${offset + 47},$${offset + 48},$${offset + 49},$${offset + 50},$${offset + 51},$${offset + 52},$${offset + 53},$${offset + 54},$${offset + 55}::jsonb,now())`;
+        return buildSqlValueTuple(offset, 61, { 61: "::jsonb" });
       })
       .join(", ");
 
@@ -8738,6 +8810,12 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
         primary_text,
         description_text,
         destination_url,
+        destination_url_raw,
+        destination_url_source,
+        destination_url_confidence,
+        cta_type,
+        object_story_id,
+        effective_object_story_id,
         thumbnail_url,
         asset_type,
         account_timezone,
@@ -8793,6 +8871,12 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
         primary_text = EXCLUDED.primary_text,
         description_text = EXCLUDED.description_text,
         destination_url = EXCLUDED.destination_url,
+        destination_url_raw = COALESCE(EXCLUDED.destination_url_raw, meta_creative_daily.destination_url_raw),
+        destination_url_source = COALESCE(EXCLUDED.destination_url_source, meta_creative_daily.destination_url_source),
+        destination_url_confidence = COALESCE(EXCLUDED.destination_url_confidence, meta_creative_daily.destination_url_confidence),
+        cta_type = COALESCE(EXCLUDED.cta_type, meta_creative_daily.cta_type),
+        object_story_id = COALESCE(EXCLUDED.object_story_id, meta_creative_daily.object_story_id),
+        effective_object_story_id = COALESCE(EXCLUDED.effective_object_story_id, meta_creative_daily.effective_object_story_id),
         thumbnail_url = EXCLUDED.thumbnail_url,
         asset_type = EXCLUDED.asset_type,
         account_timezone = EXCLUDED.account_timezone,
@@ -9800,9 +9884,8 @@ export async function getMetaCampaignDailyRange(input: {
       objective,
       buying_type,
       optimization_goal,
+      custom_event_type,
       bid_strategy_type,
-      bid_strategy_label,
-      manual_bid_amount,
       bid_value,
       bid_value_format,
       daily_budget,
@@ -9810,6 +9893,7 @@ export async function getMetaCampaignDailyRange(input: {
       is_budget_mixed,
       is_config_mixed,
       is_optimization_goal_mixed,
+      is_custom_event_type_mixed,
       is_bid_strategy_mixed,
       is_bid_value_mixed,
       account_timezone,
@@ -9867,9 +9951,8 @@ export async function getMetaCampaignDailyRange(input: {
       objective,
       buying_type,
       optimization_goal,
+      custom_event_type,
       bid_strategy_type,
-      bid_strategy_label,
-      manual_bid_amount,
       bid_value,
       bid_value_format,
       daily_budget,
@@ -9877,6 +9960,7 @@ export async function getMetaCampaignDailyRange(input: {
       is_budget_mixed,
       is_config_mixed,
       is_optimization_goal_mixed,
+      is_custom_event_type_mixed,
       is_bid_strategy_mixed,
       is_bid_value_mixed,
       account_timezone,
@@ -9924,9 +10008,8 @@ export async function getMetaCampaignDailyRange(input: {
       objective,
       buying_type,
       optimization_goal,
+      custom_event_type,
       bid_strategy_type,
-      bid_strategy_label,
-      manual_bid_amount,
       bid_value,
       bid_value_format,
       daily_budget,
@@ -9934,6 +10017,7 @@ export async function getMetaCampaignDailyRange(input: {
       is_budget_mixed,
       is_config_mixed,
       is_optimization_goal_mixed,
+      is_custom_event_type_mixed,
       is_bid_strategy_mixed,
       is_bid_value_mixed,
       account_timezone,
@@ -9978,9 +10062,8 @@ export async function getMetaCampaignDailyRange(input: {
     objective: string | null;
     buying_type: string | null;
     optimization_goal: string | null;
+    custom_event_type: string | null;
     bid_strategy_type: string | null;
-    bid_strategy_label: string | null;
-    manual_bid_amount: number | null;
     bid_value: number | null;
     bid_value_format: "currency" | "roas" | null;
     daily_budget: number | null;
@@ -9988,6 +10071,7 @@ export async function getMetaCampaignDailyRange(input: {
     is_budget_mixed: boolean;
     is_config_mixed: boolean;
     is_optimization_goal_mixed: boolean;
+    is_custom_event_type_mixed: boolean;
     is_bid_strategy_mixed: boolean;
     is_bid_value_mixed: boolean;
     account_timezone: string;
@@ -10025,9 +10109,10 @@ export async function getMetaCampaignDailyRange(input: {
     objective: row.objective,
     buyingType: row.buying_type,
     optimizationGoal: row.optimization_goal,
+    customEventType: row.custom_event_type,
     bidStrategyType: row.bid_strategy_type,
-    bidStrategyLabel: row.bid_strategy_label,
-    manualBidAmount: row.manual_bid_amount == null ? null : Number(row.manual_bid_amount),
+    bidStrategyLabel: formatBidStrategyLabel(row.bid_strategy_type),
+    manualBidAmount: deriveManualBidAmount(row.bid_value, row.bid_value_format),
     bidValue: row.bid_value == null ? null : Number(row.bid_value),
     bidValueFormat: row.bid_value_format,
     dailyBudget: row.daily_budget == null ? null : Number(row.daily_budget),
@@ -10035,6 +10120,7 @@ export async function getMetaCampaignDailyRange(input: {
     isBudgetMixed: Boolean(row.is_budget_mixed),
     isConfigMixed: Boolean(row.is_config_mixed),
     isOptimizationGoalMixed: Boolean(row.is_optimization_goal_mixed),
+    isCustomEventTypeMixed: Boolean(row.is_custom_event_type_mixed),
     isBidStrategyMixed: Boolean(row.is_bid_strategy_mixed),
     isBidValueMixed: Boolean(row.is_bid_value_mixed),
     accountTimezone: row.account_timezone,
@@ -10094,9 +10180,11 @@ export async function getMetaAdSetDailyRange(input: {
       adset_name_historical,
       adset_status,
       optimization_goal,
+      custom_event_type,
+      pixel_id,
+      custom_conversion_id,
+      promoted_object_json,
       bid_strategy_type,
-      bid_strategy_label,
-      manual_bid_amount,
       bid_value,
       bid_value_format,
       daily_budget,
@@ -10160,9 +10248,11 @@ export async function getMetaAdSetDailyRange(input: {
       adset_name_historical,
       adset_status,
       optimization_goal,
+      custom_event_type,
+      pixel_id,
+      custom_conversion_id,
+      promoted_object_json,
       bid_strategy_type,
-      bid_strategy_label,
-      manual_bid_amount,
       bid_value,
       bid_value_format,
       daily_budget,
@@ -10210,9 +10300,11 @@ export async function getMetaAdSetDailyRange(input: {
       adset_name_historical,
       adset_status,
       optimization_goal,
+      custom_event_type,
+      pixel_id,
+      custom_conversion_id,
+      promoted_object_json,
       bid_strategy_type,
-      bid_strategy_label,
-      manual_bid_amount,
       bid_value,
       bid_value_format,
       daily_budget,
@@ -10263,9 +10355,11 @@ export async function getMetaAdSetDailyRange(input: {
     adset_name_historical: string | null;
     adset_status: string | null;
     optimization_goal: string | null;
+    custom_event_type: string | null;
+    pixel_id: string | null;
+    custom_conversion_id: string | null;
+    promoted_object_json: unknown;
     bid_strategy_type: string | null;
-    bid_strategy_label: string | null;
-    manual_bid_amount: number | null;
     bid_value: number | null;
     bid_value_format: "currency" | "roas" | null;
     daily_budget: number | null;
@@ -10309,9 +10403,13 @@ export async function getMetaAdSetDailyRange(input: {
     adsetNameHistorical: row.adset_name_historical,
     adsetStatus: row.adset_status,
     optimizationGoal: row.optimization_goal,
+    customEventType: row.custom_event_type,
+    pixelId: row.pixel_id,
+    customConversionId: row.custom_conversion_id,
+    promotedObjectJson: row.promoted_object_json,
     bidStrategyType: row.bid_strategy_type,
-    bidStrategyLabel: row.bid_strategy_label,
-    manualBidAmount: row.manual_bid_amount == null ? null : Number(row.manual_bid_amount),
+    bidStrategyLabel: formatBidStrategyLabel(row.bid_strategy_type),
+    manualBidAmount: deriveManualBidAmount(row.bid_value, row.bid_value_format),
     bidValue: row.bid_value == null ? null : Number(row.bid_value),
     bidValueFormat: row.bid_value_format,
     dailyBudget: row.daily_budget == null ? null : Number(row.daily_budget),
@@ -10461,6 +10559,13 @@ export async function getMetaAdDailyRange(input: {
       ad_name_current,
       ad_name_historical,
       ad_status,
+      destination_url,
+      destination_url_raw,
+      destination_url_source,
+      destination_url_confidence,
+      cta_type,
+      object_story_id,
+      effective_object_story_id,
       account_timezone,
       account_currency,
       spend,
@@ -10504,6 +10609,13 @@ export async function getMetaAdDailyRange(input: {
     ad_name_current: string | null;
     ad_name_historical: string | null;
     ad_status: string | null;
+    destination_url: string | null;
+    destination_url_raw: string | null;
+    destination_url_source: string | null;
+    destination_url_confidence: string | null;
+    cta_type: string | null;
+    object_story_id: string | null;
+    effective_object_story_id: string | null;
     account_timezone: string;
     account_currency: string;
     spend: number;
@@ -10540,6 +10652,13 @@ export async function getMetaAdDailyRange(input: {
     adNameCurrent: row.ad_name_current,
     adNameHistorical: row.ad_name_historical,
     adStatus: row.ad_status,
+    destinationUrl: row.destination_url,
+    destinationUrlRaw: row.destination_url_raw,
+    destinationUrlSource: row.destination_url_source,
+    destinationUrlConfidence: row.destination_url_confidence as MetaAdDailyRow["destinationUrlConfidence"],
+    ctaType: row.cta_type,
+    objectStoryId: row.object_story_id,
+    effectiveObjectStoryId: row.effective_object_story_id,
     accountTimezone: row.account_timezone,
     accountCurrency: row.account_currency,
     spend: Number(row.spend ?? 0),
@@ -10599,6 +10718,12 @@ export async function getMetaCreativeDailyRange(input: {
       primary_text,
       description_text,
       destination_url,
+      destination_url_raw,
+      destination_url_source,
+      destination_url_confidence,
+      cta_type,
+      object_story_id,
+      effective_object_story_id,
       thumbnail_url,
       asset_type,
       account_timezone,
@@ -10664,6 +10789,12 @@ export async function getMetaCreativeDailyRange(input: {
     primary_text: string | null;
     description_text: string | null;
     destination_url: string | null;
+    destination_url_raw: string | null;
+    destination_url_source: string | null;
+    destination_url_confidence: string | null;
+    cta_type: string | null;
+    object_story_id: string | null;
+    effective_object_story_id: string | null;
     thumbnail_url: string | null;
     asset_type: string | null;
     account_timezone: string;
@@ -10722,6 +10853,12 @@ export async function getMetaCreativeDailyRange(input: {
     primaryText: row.primary_text,
     descriptionText: row.description_text,
     destinationUrl: row.destination_url,
+    destinationUrlRaw: row.destination_url_raw,
+    destinationUrlSource: row.destination_url_source,
+    destinationUrlConfidence: row.destination_url_confidence as MetaCreativeDailyRow["destinationUrlConfidence"],
+    ctaType: row.cta_type,
+    objectStoryId: row.object_story_id,
+    effectiveObjectStoryId: row.effective_object_story_id,
     thumbnailUrl: row.thumbnail_url,
     assetType: row.asset_type,
     accountTimezone: row.account_timezone,

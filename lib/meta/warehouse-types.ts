@@ -208,6 +208,7 @@ export interface MetaCampaignDailyRow extends MetaWarehouseBaseRow {
   objective: string | null;
   buyingType: string | null;
   optimizationGoal: string | null;
+  customEventType?: string | null;
   bidStrategyType: string | null;
   bidStrategyLabel: string | null;
   manualBidAmount: number | null;
@@ -218,6 +219,7 @@ export interface MetaCampaignDailyRow extends MetaWarehouseBaseRow {
   isBudgetMixed: boolean;
   isConfigMixed: boolean;
   isOptimizationGoalMixed: boolean;
+  isCustomEventTypeMixed?: boolean;
   isBidStrategyMixed: boolean;
   isBidValueMixed: boolean;
 }
@@ -229,6 +231,10 @@ export interface MetaAdSetDailyRow extends MetaWarehouseBaseRow {
   adsetNameHistorical: string | null;
   adsetStatus: string | null;
   optimizationGoal: string | null;
+  customEventType?: string | null;
+  pixelId?: string | null;
+  customConversionId?: string | null;
+  promotedObjectJson?: unknown;
   bidStrategyType: string | null;
   bidStrategyLabel: string | null;
   manualBidAmount: number | null;
@@ -251,6 +257,13 @@ export interface MetaAdDailyRow extends MetaWarehouseBaseRow {
   adNameHistorical: string | null;
   adStatus: string | null;
   linkClicks?: number | null;
+  destinationUrl?: string | null;
+  destinationUrlRaw?: string | null;
+  destinationUrlSource?: string | null;
+  destinationUrlConfidence?: string | null;
+  ctaType?: string | null;
+  objectStoryId?: string | null;
+  effectiveObjectStoryId?: string | null;
   payloadJson?: unknown;
 }
 
@@ -264,6 +277,12 @@ export interface MetaCreativeDailyRow extends MetaWarehouseBaseRow {
   primaryText: string | null;
   descriptionText?: string | null;
   destinationUrl: string | null;
+  destinationUrlRaw?: string | null;
+  destinationUrlSource?: string | null;
+  destinationUrlConfidence?: string | null;
+  ctaType?: string | null;
+  objectStoryId?: string | null;
+  effectiveObjectStoryId?: string | null;
   thumbnailUrl: string | null;
   assetType: string | null;
   launchDate?: string | null;

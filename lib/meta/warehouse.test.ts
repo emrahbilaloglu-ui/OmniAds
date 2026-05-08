@@ -722,7 +722,7 @@ describe("meta warehouse ownership safety", () => {
       query.includes("INSERT INTO meta_ad_daily"),
     );
     expect(adDailyQueryIndex).toBeGreaterThanOrEqual(0);
-    expect(capturedValues[adDailyQueryIndex]?.[24]).toBe(0);
+    expect(capturedValues[adDailyQueryIndex]?.[31]).toBe(0);
   });
 
   it("casts warehouse range dates to text when truth lifecycle columns are enabled", async () => {
@@ -865,15 +865,15 @@ describe("meta warehouse ownership safety", () => {
     expect(creativeDailyQueries).toHaveLength(1);
     expect(creativeDimensionQueries).toHaveLength(1);
     expect(creativeDailyQueries[0]).toContain("VALUES ($1,$2,$3");
-    expect(creativeDailyQueries[0]).toContain("), ($56,$57,$58");
+    expect(creativeDailyQueries[0]).toContain("), ($62,$63,$64");
     expect(creativeDailyQueries[0]).toContain(
       "ON CONFLICT (business_id, provider_account_id, date, creative_id) DO UPDATE SET",
     );
     const creativeDailyCall = queryMock.mock.calls.find(([query]) =>
       String(query).includes("INSERT INTO meta_creative_daily"),
     );
-    expect((creativeDailyCall?.[1] as unknown[])[30]).toBe(0);
-    expect((creativeDailyCall?.[1] as unknown[])[85]).toBe(0);
+    expect((creativeDailyCall?.[1] as unknown[])[36]).toBe(0);
+    expect((creativeDailyCall?.[1] as unknown[])[97]).toBe(0);
   });
 
   it("batches meta ad daily upserts instead of writing one row per query", async () => {
@@ -956,7 +956,7 @@ describe("meta warehouse ownership safety", () => {
     expect(adDailyQueries).toHaveLength(1);
     expect(adDimensionQueries).toHaveLength(1);
     expect(adDailyQueries[0]).toContain("VALUES ($1,$2,$3");
-    expect(adDailyQueries[0]).toContain("), ($34,$35,$36");
+    expect(adDailyQueries[0]).toContain("), ($41,$42,$43");
     expect(adDailyQueries[0]).toContain(
       "ON CONFLICT (business_id, provider_account_id, date, ad_id) DO UPDATE SET",
     );
@@ -3770,10 +3770,10 @@ describe("meta warehouse config columns", () => {
     const adQuery = queries.find((text) => text.includes("INSERT INTO meta_ad_daily"));
     const creativeQuery = queries.find((text) => text.includes("INSERT INTO meta_creative_daily"));
 
-    expect(adQuery).toContain("$32");
-    expect(adQuery).toContain("$33::jsonb");
-    expect(creativeQuery).toContain("$54");
-    expect(creativeQuery).toContain("$55::jsonb");
+    expect(adQuery).toContain("$39");
+    expect(adQuery).toContain("$40::jsonb");
+    expect(creativeQuery).toContain("$60");
+    expect(creativeQuery).toContain("$61::jsonb");
   });
 
   it("keeps long-retention creative payloads free of media URLs", () => {

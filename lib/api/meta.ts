@@ -217,6 +217,8 @@ export interface MetaCampaignData extends MetaMetricsData {
   objective?: string | null;
   budgetLevel?: "campaign" | "adset" | null;
   optimizationGoal: string | null;
+  customEventType?: string | null;
+  isCustomEventTypeMixed?: boolean;
   bidStrategyType: string | null;
   bidStrategyLabel: string | null;
   manualBidAmount: number | null;
@@ -248,6 +250,10 @@ export interface MetaAdSetData extends MetaMetricsData {
   dailyBudget: number | null;    // USD, null when lifetime budget is used
   lifetimeBudget: number | null; // USD, null when daily budget is used
   optimizationGoal: string | null;
+  customEventType?: string | null;
+  pixelId?: string | null;
+  customConversionId?: string | null;
+  promotedObject?: unknown;
   bidStrategyType: string | null;
   bidStrategyLabel: string | null;
   manualBidAmount: number | null;
@@ -338,6 +344,12 @@ interface RawAdSet {
   bid_constraints?: {
     roas_average_floor?: string;
   };
+  promoted_object?: {
+    pixel_id?: string;
+    custom_event_type?: string;
+    custom_conversion_id?: string;
+    [key: string]: unknown;
+  } | null;
 }
 
 interface RawAdInsight {
@@ -579,6 +591,10 @@ function applyConfigPayloadToDailyRow<
   T extends {
     objective?: string | null;
     optimizationGoal?: string | null;
+    customEventType?: string | null;
+    pixelId?: string | null;
+    customConversionId?: string | null;
+    promotedObjectJson?: unknown;
     bidStrategyType?: string | null;
     bidStrategyLabel?: string | null;
     manualBidAmount?: number | null;
@@ -589,6 +605,7 @@ function applyConfigPayloadToDailyRow<
     isBudgetMixed?: boolean;
     isConfigMixed?: boolean;
     isOptimizationGoalMixed?: boolean;
+    isCustomEventTypeMixed?: boolean;
     isBidStrategyMixed?: boolean;
     isBidValueMixed?: boolean;
   },
@@ -597,6 +614,10 @@ function applyConfigPayloadToDailyRow<
     ...row,
     objective: payload.objective ?? row.objective ?? null,
     optimizationGoal: payload.optimizationGoal,
+    customEventType: payload.customEventType,
+    pixelId: payload.pixelId,
+    customConversionId: payload.customConversionId,
+    promotedObjectJson: payload.promotedObject,
     bidStrategyType: payload.bidStrategyType,
     bidStrategyLabel: payload.bidStrategyLabel,
     manualBidAmount: payload.manualBidAmount,
@@ -607,6 +628,7 @@ function applyConfigPayloadToDailyRow<
     isBudgetMixed: Boolean(payload.isBudgetMixed),
     isConfigMixed: Boolean(payload.isConfigMixed),
     isOptimizationGoalMixed: Boolean(payload.isOptimizationGoalMixed),
+    isCustomEventTypeMixed: Boolean(payload.isCustomEventTypeMixed),
     isBidStrategyMixed: Boolean(payload.isBidStrategyMixed),
     isBidValueMixed: Boolean(payload.isBidValueMixed),
   };
@@ -683,6 +705,22 @@ function buildMetaAdSetConfigPayload(input: {
         input.latestSnapshot?.optimizationGoal ??
         input.latestCampaignSnapshot?.optimizationGoal ??
         null,
+      customEventType:
+        input.adset?.promoted_object?.custom_event_type ??
+        input.latestSnapshot?.customEventType ??
+        null,
+      pixelId:
+        input.adset?.promoted_object?.pixel_id ??
+        input.latestSnapshot?.pixelId ??
+        null,
+      customConversionId:
+        input.adset?.promoted_object?.custom_conversion_id ??
+        input.latestSnapshot?.customConversionId ??
+        null,
+      promotedObject:
+        input.adset?.promoted_object ??
+        input.latestSnapshot?.promotedObject ??
+        null,
       bidStrategy: effectiveBidStrategy,
       manualBidAmount: effectiveManualBid,
       targetRoas: effectiveTargetRoas,
@@ -735,6 +773,10 @@ function buildMetaCampaignDailyConfigRow(input: {
         campaignSummary.optimizationGoal ??
         input.latestCampaignSnapshot?.optimizationGoal ??
         null,
+      customEventType:
+        campaignSummary.customEventType ??
+        input.latestCampaignSnapshot?.customEventType ??
+        null,
       bidStrategyType:
         campaignSummary.bidStrategyType ??
         input.latestCampaignSnapshot?.bidStrategyType ??
@@ -772,6 +814,9 @@ function buildMetaCampaignDailyConfigRow(input: {
       isOptimizationGoalMixed:
         Boolean(campaignSummary.isOptimizationGoalMixed) ||
         Boolean(input.latestCampaignSnapshot?.isOptimizationGoalMixed),
+      isCustomEventTypeMixed:
+        Boolean(campaignSummary.isCustomEventTypeMixed) ||
+        Boolean(input.latestCampaignSnapshot?.isCustomEventTypeMixed),
       isBidStrategyMixed:
         Boolean(campaignSummary.isBidStrategyMixed) ||
         Boolean(input.latestCampaignSnapshot?.isBidStrategyMixed),
@@ -3954,7 +3999,7 @@ export async function fetchMetaAdSetConfigs(
   );
   adsetConfigUrl.searchParams.set(
     "fields",
-    "id,name,campaign_id,effective_status,status,daily_budget,lifetime_budget,optimization_goal,bid_strategy,bid_amount,bid_constraints{roas_average_floor}"
+    "id,name,campaign_id,effective_status,status,daily_budget,lifetime_budget,optimization_goal,promoted_object{pixel_id,custom_event_type,custom_conversion_id},bid_strategy,bid_amount,bid_constraints{roas_average_floor}"
   );
   adsetConfigUrl.searchParams.set("limit", "500");
   adsetConfigUrl.searchParams.set("access_token", accessToken);
@@ -4388,7 +4433,7 @@ export async function getAdSets(
       );
       statusUrl.searchParams.set(
         "fields",
-        "id,name,campaign_id,effective_status,status,daily_budget,lifetime_budget,optimization_goal,bid_strategy,bid_amount,bid_constraints{roas_average_floor}"
+        "id,name,campaign_id,effective_status,status,daily_budget,lifetime_budget,optimization_goal,promoted_object{pixel_id,custom_event_type,custom_conversion_id},bid_strategy,bid_amount,bid_constraints{roas_average_floor}"
       );
       statusUrl.searchParams.set("limit", "200");
       statusUrl.searchParams.set("access_token", credentials.accessToken);
@@ -4440,7 +4485,7 @@ export async function getAdSets(
           payload: statusJson.data ?? [],
           status: statusRes.ok ? "fetched" : "failed",
           providerHttpStatus: statusRes.status,
-          requestContext: { campaignId, fields: "id,name,campaign_id,effective_status,status,daily_budget,lifetime_budget,optimization_goal,bid_strategy,bid_amount,bid_constraints{roas_average_floor}" },
+          requestContext: { campaignId, fields: "id,name,campaign_id,effective_status,status,daily_budget,lifetime_budget,optimization_goal,promoted_object{pixel_id,custom_event_type,custom_conversion_id},bid_strategy,bid_amount,bid_constraints{roas_average_floor}" },
         });
         await recordMetaRawSnapshot({
           credentials,
@@ -4559,6 +4604,10 @@ export async function getAdSets(
             dailyBudget: config.dailyBudget,
             lifetimeBudget: config.lifetimeBudget,
             optimizationGoal: config.optimizationGoal,
+            customEventType: config.customEventType,
+            pixelId: config.pixelId,
+            customConversionId: config.customConversionId,
+            promotedObject: config.promotedObject,
             bidStrategyType: config.bidStrategyType,
             bidStrategyLabel: config.bidStrategyLabel,
             manualBidAmount: config.manualBidAmount,
@@ -4674,6 +4723,10 @@ export async function getAdSets(
                   payload: buildConfigSnapshotPayload({
                     campaignId: resolvedCampaignId,
                     optimizationGoal: meta.optimization_goal ?? null,
+                    customEventType: meta.promoted_object?.custom_event_type ?? null,
+                    pixelId: meta.promoted_object?.pixel_id ?? null,
+                    customConversionId: meta.promoted_object?.custom_conversion_id ?? null,
+                    promotedObject: meta.promoted_object ?? null,
                     bidStrategy:
                       meta.bid_strategy ?? campaignConfig?.bid_strategy ?? null,
                     manualBidAmount:

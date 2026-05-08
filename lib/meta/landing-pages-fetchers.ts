@@ -87,6 +87,7 @@ export function getMetaLandingPageCreativeFields(): string {
     "object_story_id",
     "effective_object_story_id",
     "object_story_spec{link_data{link,call_to_action{type,value{link}},child_attachments{link}},video_data{call_to_action{type,value{link}}},photo_data{call_to_action{type,value{link}}},template_data}",
+    "asset_feed_spec{link_urls{website_url,display_url,url}}",
   ].join(",");
 
   for (const blockedField of META_LANDING_PAGE_BLOCKED_FIELDS) {

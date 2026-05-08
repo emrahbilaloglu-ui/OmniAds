@@ -185,6 +185,8 @@ export interface MetaWarehouseCampaignResponse {
     objective: string | null;
     buyingType: string | null;
     optimizationGoal?: string | null;
+    customEventType?: string | null;
+    isCustomEventTypeMixed?: boolean;
     bidStrategyType?: string | null;
     bidStrategyLabel?: string | null;
     manualBidAmount?: number | null;
@@ -283,6 +285,7 @@ export interface MetaWarehouseCampaignTableRow {
   costPerVideoView: number;
   currency: string;
   optimizationGoal: string | null;
+  customEventType?: string | null;
   bidStrategyType: string | null;
   bidStrategyLabel: string | null;
   manualBidAmount: number | null;
@@ -300,6 +303,7 @@ export interface MetaWarehouseCampaignTableRow {
   isBudgetMixed: boolean;
   isConfigMixed: boolean;
   isOptimizationGoalMixed: boolean;
+  isCustomEventTypeMixed?: boolean;
   isBidStrategyMixed: boolean;
   isBidValueMixed: boolean;
 }
@@ -314,6 +318,10 @@ export interface MetaWarehouseAdSetTableRow {
   dailyBudget: number | null;
   lifetimeBudget: number | null;
   optimizationGoal: string | null;
+  customEventType?: string | null;
+  pixelId?: string | null;
+  customConversionId?: string | null;
+  promotedObject?: unknown;
   bidStrategyType: string | null;
   bidStrategyLabel: string | null;
   manualBidAmount: number | null;
@@ -329,6 +337,7 @@ export interface MetaWarehouseAdSetTableRow {
   previousBudgetCapturedAt: string | null;
   isConfigMixed: boolean;
   isOptimizationGoalMixed: boolean;
+  isCustomEventTypeMixed?: boolean;
   isBidStrategyMixed: boolean;
   isBidValueMixed: boolean;
   spend: number;
@@ -1021,6 +1030,9 @@ export async function getMetaWarehouseCampaigns(input: {
       campaignStatus: latest.campaignStatus,
       objective: latest.objective,
       buyingType: latest.buyingType,
+      optimizationGoal: latest.optimizationGoal ?? null,
+      customEventType: latest.customEventType ?? null,
+      isCustomEventTypeMixed: Boolean(latest.isCustomEventTypeMixed),
       spend,
       revenue,
       conversions,
@@ -1084,6 +1096,7 @@ export async function getMetaWarehouseCampaigns(input: {
       objective: currentConfig?.objective ?? row.objective,
       buyingType: dimension?.buyingType ?? row.buyingType,
       optimizationGoal: currentConfig?.optimizationGoal ?? null,
+      customEventType: currentConfig?.customEventType ?? row.customEventType ?? null,
       bidStrategyType: currentConfig?.bidStrategyType ?? null,
       bidStrategyLabel: currentConfig?.bidStrategyLabel ?? null,
       manualBidAmount: currentConfig?.manualBidAmount ?? null,
@@ -1094,6 +1107,7 @@ export async function getMetaWarehouseCampaigns(input: {
       isBudgetMixed: currentConfig?.isBudgetMixed ?? false,
       isConfigMixed: currentConfig?.isConfigMixed ?? false,
       isOptimizationGoalMixed: currentConfig?.isOptimizationGoalMixed ?? false,
+      isCustomEventTypeMixed: currentConfig?.isCustomEventTypeMixed ?? row.isCustomEventTypeMixed ?? false,
       isBidStrategyMixed: currentConfig?.isBidStrategyMixed ?? false,
       isBidValueMixed: currentConfig?.isBidValueMixed ?? false,
     };
@@ -1112,6 +1126,10 @@ export async function getMetaWarehouseCampaigns(input: {
 type MetaWarehouseCurrentConfig = {
   objective?: string | null;
   optimizationGoal: string | null;
+  customEventType: string | null;
+  pixelId?: string | null;
+  customConversionId?: string | null;
+  promotedObject?: unknown;
   bidStrategyType: string | null;
   bidStrategyLabel: string | null;
   manualBidAmount: number | null;
@@ -1122,6 +1140,7 @@ type MetaWarehouseCurrentConfig = {
   isBudgetMixed: boolean;
   isConfigMixed: boolean;
   isOptimizationGoalMixed: boolean;
+  isCustomEventTypeMixed: boolean;
   isBidStrategyMixed: boolean;
   isBidValueMixed: boolean;
 };
@@ -1139,6 +1158,7 @@ type MetaWarehousePreviousConfig = {
 function hasMissingConfigValues(input: {
   objective?: string | null;
   optimizationGoal?: string | null;
+  customEventType?: string | null;
   bidStrategyType?: string | null;
   bidStrategyLabel?: string | null;
   manualBidAmount: number | null;
@@ -1156,6 +1176,7 @@ function hasMissingConfigValues(input: {
   return (
     ("objective" in input && input.objective == null) ||
     ("optimizationGoal" in input && input.optimizationGoal == null) ||
+    ("customEventType" in input && input.customEventType == null) ||
     ("bidStrategyType" in input && input.bidStrategyType == null) ||
     ("bidStrategyLabel" in input && input.bidStrategyLabel == null) ||
     missingBid ||
@@ -1167,6 +1188,10 @@ function mergeCurrentConfig<
   T extends {
     objective?: string | null;
     optimizationGoal: string | null;
+    customEventType?: string | null;
+    pixelId?: string | null;
+    customConversionId?: string | null;
+    promotedObjectJson?: unknown;
     bidStrategyType: string | null;
     bidStrategyLabel: string | null;
     manualBidAmount: number | null;
@@ -1177,6 +1202,7 @@ function mergeCurrentConfig<
     isBudgetMixed: boolean;
     isConfigMixed: boolean;
     isOptimizationGoalMixed: boolean;
+    isCustomEventTypeMixed?: boolean;
     isBidStrategyMixed: boolean;
     isBidValueMixed: boolean;
   },
@@ -1186,6 +1212,10 @@ function mergeCurrentConfig<
     ...row,
     objective: row.objective ?? fallback.objective,
     optimizationGoal: row.optimizationGoal ?? fallback.optimizationGoal,
+    customEventType: row.customEventType ?? fallback.customEventType,
+    pixelId: row.pixelId ?? fallback.pixelId ?? null,
+    customConversionId: row.customConversionId ?? fallback.customConversionId ?? null,
+    promotedObjectJson: row.promotedObjectJson ?? fallback.promotedObject ?? null,
     bidStrategyType: row.bidStrategyType ?? fallback.bidStrategyType,
     bidStrategyLabel: row.bidStrategyLabel ?? fallback.bidStrategyLabel,
     manualBidAmount: row.manualBidAmount ?? fallback.manualBidAmount,
@@ -1197,6 +1227,8 @@ function mergeCurrentConfig<
     isConfigMixed: row.isConfigMixed || fallback.isConfigMixed,
     isOptimizationGoalMixed:
       row.isOptimizationGoalMixed || fallback.isOptimizationGoalMixed,
+    isCustomEventTypeMixed:
+      Boolean(row.isCustomEventTypeMixed) || fallback.isCustomEventTypeMixed,
     isBidStrategyMixed: row.isBidStrategyMixed || fallback.isBidStrategyMixed,
     isBidValueMixed: row.isBidValueMixed || fallback.isBidValueMixed,
   };
@@ -1206,6 +1238,10 @@ function buildEmptyCurrentConfig(objective: string | null = null): MetaWarehouse
   return {
     objective,
     optimizationGoal: null,
+    customEventType: null,
+    pixelId: null,
+    customConversionId: null,
+    promotedObject: null,
     bidStrategyType: null,
     bidStrategyLabel: null,
     manualBidAmount: null,
@@ -1216,6 +1252,7 @@ function buildEmptyCurrentConfig(objective: string | null = null): MetaWarehouse
     isBudgetMixed: false,
     isConfigMixed: false,
     isOptimizationGoalMixed: false,
+    isCustomEventTypeMixed: false,
     isBidStrategyMixed: false,
     isBidValueMixed: false,
   };
@@ -1226,6 +1263,9 @@ function hasInformativeCurrentConfig(config: MetaWarehouseCurrentConfig | null |
   return (
     config.objective != null ||
     config.optimizationGoal != null ||
+    config.customEventType != null ||
+    config.pixelId != null ||
+    config.customConversionId != null ||
     config.bidStrategyType != null ||
     config.bidStrategyLabel != null ||
     config.manualBidAmount != null ||
@@ -1236,6 +1276,7 @@ function hasInformativeCurrentConfig(config: MetaWarehouseCurrentConfig | null |
     config.isBudgetMixed ||
     config.isConfigMixed ||
     config.isOptimizationGoalMixed ||
+    config.isCustomEventTypeMixed ||
     config.isBidStrategyMixed ||
     config.isBidValueMixed
   );
@@ -1247,6 +1288,7 @@ function buildCurrentConfigFromCampaignResponseRow(
   const config: MetaWarehouseCurrentConfig = {
     objective: row.objective ?? null,
     optimizationGoal: row.optimizationGoal ?? null,
+    customEventType: row.customEventType ?? null,
     bidStrategyType: row.bidStrategyType ?? null,
     bidStrategyLabel: row.bidStrategyLabel ?? null,
     manualBidAmount: row.manualBidAmount ?? null,
@@ -1257,6 +1299,7 @@ function buildCurrentConfigFromCampaignResponseRow(
     isBudgetMixed: Boolean(row.isBudgetMixed),
     isConfigMixed: Boolean(row.isConfigMixed),
     isOptimizationGoalMixed: Boolean(row.isOptimizationGoalMixed),
+    isCustomEventTypeMixed: Boolean(row.isCustomEventTypeMixed),
     isBidStrategyMixed: Boolean(row.isBidStrategyMixed),
     isBidValueMixed: Boolean(row.isBidValueMixed),
   };
@@ -1282,6 +1325,10 @@ function resolveCurrentConfig(input: {
 function buildCurrentConfigFromSnapshot(payload: {
   objective?: string | null;
   optimizationGoal: string | null;
+  customEventType?: string | null;
+  pixelId?: string | null;
+  customConversionId?: string | null;
+  promotedObject?: unknown;
   bidStrategyType: string | null;
   bidStrategyLabel: string | null;
   manualBidAmount: number | null;
@@ -1292,12 +1339,17 @@ function buildCurrentConfigFromSnapshot(payload: {
   isBudgetMixed?: boolean;
   isConfigMixed?: boolean;
   isOptimizationGoalMixed?: boolean;
+  isCustomEventTypeMixed?: boolean;
   isBidStrategyMixed?: boolean;
   isBidValueMixed?: boolean;
 }): MetaWarehouseCurrentConfig {
   return {
     objective: payload.objective ?? null,
     optimizationGoal: payload.optimizationGoal,
+    customEventType: payload.customEventType ?? null,
+    pixelId: payload.pixelId ?? null,
+    customConversionId: payload.customConversionId ?? null,
+    promotedObject: payload.promotedObject ?? null,
     bidStrategyType: payload.bidStrategyType,
     bidStrategyLabel: payload.bidStrategyLabel,
     manualBidAmount: payload.manualBidAmount,
@@ -1308,6 +1360,7 @@ function buildCurrentConfigFromSnapshot(payload: {
     isBudgetMixed: Boolean(payload.isBudgetMixed),
     isConfigMixed: Boolean(payload.isConfigMixed),
     isOptimizationGoalMixed: Boolean(payload.isOptimizationGoalMixed),
+    isCustomEventTypeMixed: Boolean(payload.isCustomEventTypeMixed),
     isBidStrategyMixed: Boolean(payload.isBidStrategyMixed),
     isBidValueMixed: Boolean(payload.isBidValueMixed),
   };
@@ -1388,6 +1441,10 @@ async function readCurrentConfigFallbacks(input: {
             buildConfigSnapshotPayload({
               campaignId: adsetConfig.campaign_id ?? null,
               optimizationGoal: adsetConfig.optimization_goal ?? null,
+              customEventType: adsetConfig.promoted_object?.custom_event_type ?? null,
+              pixelId: adsetConfig.promoted_object?.pixel_id ?? null,
+              customConversionId: adsetConfig.promoted_object?.custom_conversion_id ?? null,
+              promotedObject: adsetConfig.promoted_object ?? null,
               bidStrategy:
                 adsetConfig.bid_strategy ?? parentCampaign?.bid_strategy ?? null,
               manualBidAmount:
@@ -1462,6 +1519,7 @@ export async function hydrateCampaignRowsFromSnapshotsForServing(input: {
           hasMissingConfigValues({
             objective: row.objective,
             optimizationGoal: row.optimizationGoal,
+            customEventType: row.customEventType,
             bidStrategyType: row.bidStrategyType,
             bidStrategyLabel: row.bidStrategyLabel,
             manualBidAmount: row.manualBidAmount,
@@ -1521,6 +1579,7 @@ export async function hydrateAdSetRowsFromSnapshotsForServing(input: {
         .filter((row) =>
           hasMissingConfigValues({
             optimizationGoal: row.optimizationGoal,
+            customEventType: row.customEventType,
             bidStrategyType: row.bidStrategyType,
             bidStrategyLabel: row.bidStrategyLabel,
             manualBidAmount: row.manualBidAmount,
@@ -1656,6 +1715,7 @@ function buildCampaignTableRow(input: {
     clicks: input.row.clicks,
     currency: "USD",
     optimizationGoal: latest?.optimizationGoal ?? null,
+    customEventType: latest?.customEventType ?? null,
     bidStrategyType: latest?.bidStrategyType ?? null,
     bidStrategyLabel: latest?.bidStrategyLabel ?? null,
     manualBidAmount: latest?.manualBidAmount ?? null,
@@ -1673,6 +1733,7 @@ function buildCampaignTableRow(input: {
     isBudgetMixed: Boolean(latest?.isBudgetMixed),
     isConfigMixed: Boolean(latest?.isConfigMixed),
     isOptimizationGoalMixed: Boolean(latest?.isOptimizationGoalMixed),
+    isCustomEventTypeMixed: Boolean(latest?.isCustomEventTypeMixed),
     isBidStrategyMixed: Boolean(latest?.isBidStrategyMixed),
     isBidValueMixed: Boolean(latest?.isBidValueMixed),
     ...zeroDetailedMetrics(),
@@ -1749,6 +1810,10 @@ function buildAdSetTableRow(input: {
     dailyBudget: latest?.dailyBudget ?? null,
     lifetimeBudget: latest?.lifetimeBudget ?? null,
     optimizationGoal: latest?.optimizationGoal ?? null,
+    customEventType: latest?.customEventType ?? null,
+    pixelId: latest?.pixelId ?? null,
+    customConversionId: latest?.customConversionId ?? null,
+    promotedObject: latest?.promotedObject ?? input.row.promotedObjectJson ?? null,
     bidStrategyType: latest?.bidStrategyType ?? null,
     bidStrategyLabel: latest?.bidStrategyLabel ?? null,
     manualBidAmount: latest?.manualBidAmount ?? null,
@@ -1764,6 +1829,7 @@ function buildAdSetTableRow(input: {
     previousBudgetCapturedAt: previous?.previousBudgetCapturedAt ?? null,
     isConfigMixed: Boolean(latest?.isConfigMixed),
     isOptimizationGoalMixed: Boolean(latest?.isOptimizationGoalMixed),
+    isCustomEventTypeMixed: Boolean(latest?.isCustomEventTypeMixed),
     isBidStrategyMixed: Boolean(latest?.isBidStrategyMixed),
     isBidValueMixed: Boolean(latest?.isBidValueMixed),
     spend: input.row.spend,

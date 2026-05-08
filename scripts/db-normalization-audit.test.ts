@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildDuplicateDerivedCandidates,
   buildAuditSummary,
   isExpectedNullProviderAccountRef,
 } from "@/scripts/db-normalization-audit";
@@ -112,5 +113,79 @@ describe("db normalization audit", () => {
     expect(summary.providerRefGapTables).toBe(1);
     expect(summary.expectedNullRefTables).toBe(1);
     expect(summary.expectedNullRefRows).toBe(1);
+    expect(summary.duplicateDerivedCandidateCount).toBe(0);
+  });
+
+  it("classifies duplicate and derived candidates across provider families", () => {
+    const candidates = buildDuplicateDerivedCandidates({
+      columns: [
+        { tableName: "meta_campaign_daily", columnName: "bid_strategy_type" },
+        { tableName: "meta_campaign_daily", columnName: "bid_strategy_label" },
+        { tableName: "meta_campaign_daily", columnName: "manual_bid_amount" },
+        { tableName: "meta_campaign_daily", columnName: "bid_value" },
+        { tableName: "meta_campaign_daily", columnName: "bid_value_format" },
+        { tableName: "google_ads_campaign_daily", columnName: "status" },
+        { tableName: "google_ads_campaign_daily", columnName: "effective_status" },
+        { tableName: "command_center_events", columnName: "payload_json" },
+        { tableName: "shopify_order_snapshots", columnName: "raw_payload" },
+        { tableName: "engine_v3_creative_lifecycle_daily", columnName: "creative_name_current" },
+        { tableName: "engine_v3_creative_lifecycle_daily", columnName: "creative_name_historical" },
+        { tableName: "meta_ads", columnName: "normalized_url" },
+        { tableName: "meta_ads", columnName: "display_url" },
+        { tableName: "meta_breakdown_daily", columnName: "breakdown_type" },
+        { tableName: "meta_breakdown_daily", columnName: "breakdown_key" },
+        { tableName: "meta_breakdown_daily", columnName: "breakdown_label" },
+        { tableName: "google_ads_query_dictionary", columnName: "normalized_query" },
+        { tableName: "google_ads_query_dictionary", columnName: "display_query" },
+      ],
+    });
+
+    const byColumn = new Map(
+      candidates.map((candidate) => [
+        `${candidate.tableName}.${candidate.columnName}`,
+        candidate,
+      ]),
+    );
+
+    expect(
+      byColumn.get("meta_campaign_daily.bid_strategy_label")?.classification,
+    ).toBe("derived_label");
+    expect(
+      byColumn.get("meta_campaign_daily.bid_strategy_type")
+        ?.recommendedCanonicalField,
+    ).toBe("bid_strategy_type");
+    expect(
+      byColumn.get("meta_campaign_daily.manual_bid_amount")?.classification,
+    ).toBe("compatibility_shadow");
+    expect(
+      byColumn.get("meta_campaign_daily.manual_bid_amount")?.removalRisk,
+    ).toBe("medium");
+    expect(
+      byColumn.get("meta_campaign_daily.bid_value")
+        ?.recommendedCanonicalField,
+    ).toBe("bid_value + bid_value_format");
+    expect(
+      byColumn.get("google_ads_campaign_daily.status")?.classification,
+    ).toBe("compatibility_shadow");
+    expect(
+      byColumn.get("google_ads_campaign_daily.effective_status")
+        ?.classification,
+    ).toBe("canonical");
+    expect(
+      byColumn.get("command_center_events.payload_json")?.classification,
+    ).toBe("raw_payload");
+    expect(
+      byColumn.get("shopify_order_snapshots.raw_payload")?.classification,
+    ).toBe("raw_payload");
+    expect(
+      byColumn.get(
+        "engine_v3_creative_lifecycle_daily.creative_name_historical",
+      )?.classification,
+    ).toBe("historical_snapshot");
+    expect(byColumn.get("meta_ads.display_url")?.classification).toBe(
+      "display_alias",
+    );
+    expect(byColumn.has("meta_breakdown_daily.breakdown_label")).toBe(false);
+    expect(byColumn.has("google_ads_query_dictionary.display_query")).toBe(false);
   });
 });

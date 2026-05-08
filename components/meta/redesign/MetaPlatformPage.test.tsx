@@ -305,4 +305,35 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain(">$30</span>");
     expect(html).toContain(">$24</span>");
   });
+
+  it("shows uniform optimization on synthetic campaign headers inferred from adsets", () => {
+    state.lanePayload = metaLanePayload({
+      healthy: [
+        metaHealthy({
+          id: "adset_atc_only",
+          level: "adset",
+          name: "25Video",
+          campaignId: "cmp_adtc",
+          campaignName: "ADTC",
+          spend: 541,
+          roas: 0.13,
+          customEventType: "ADD_TO_CART",
+          bidStrategyType: "lowest_cost",
+          bidStrategyLabel: "Lowest Cost",
+        }),
+      ],
+      counts: { actionNow: 1, watching: 1, healthy: 1 },
+    });
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="IwaStore" currency="USD" />,
+    );
+
+    expect(html).toContain('data-healthy-synthetic-campaign="cmp_adtc"');
+    expect(html).toContain(">ADTC</div>");
+    expect(html).toContain(">Add to Cart</span>");
+    expect(countText(html, ">Optimization</span>")).toBe(1);
+    expect(html).toContain(">Lowest Cost</span>");
+    expect(html).toContain(">1 adset</div>");
+  });
 });

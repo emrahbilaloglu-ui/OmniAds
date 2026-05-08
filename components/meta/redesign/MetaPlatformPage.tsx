@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, GitCompare, Plus, RefreshCw, Rocket, Target, TrendingUp } from "lucide-react";
+import { AlertTriangle, GitCompare, Plus, RefreshCw, Rocket, SlidersHorizontal, Target, TrendingUp } from "lucide-react";
 import {
   BulkToolbar,
   CompareDrawer,
@@ -162,6 +162,11 @@ interface HealthyCampaignGroup {
   adsets: MetaHealthyEntity[];
 }
 
+interface HealthyConfigSummary {
+  isMixed: boolean;
+  value: string | null;
+}
+
 function healthyCampaignKey(row: MetaHealthyEntity) {
   if (row.level === "campaign") return row.campaignId ?? row.id;
   if (row.campaignId) return row.campaignId;
@@ -236,14 +241,53 @@ function summarizeGroupConfig(
   adsets: MetaHealthyEntity[],
   keyForRow: (row: MetaHealthyEntity) => string,
   labelForRow: (row: MetaHealthyEntity) => string | null | undefined,
-) {
+): HealthyConfigSummary {
   if (adsets.length === 0) return { isMixed: false, value: null };
   const keys = new Set(adsets.map(keyForRow));
   if (keys.size !== 1 || keys.has("__mixed__")) return { isMixed: true, value: "Mix" };
   return { isMixed: false, value: labelForRow(adsets[0]) ?? null };
 }
 
-function SyntheticHealthyCampaignHeader({ group }: { group: HealthyCampaignGroup }) {
+function SyntheticConfigChip({
+  label,
+  value,
+  tone = "slate",
+}: {
+  label: string;
+  value: string | null;
+  tone?: "slate" | "violet";
+}) {
+  if (!value) return null;
+  return (
+    <span
+      title={`${label}: ${value}`}
+      className={cn(
+        "inline-flex min-w-0 max-w-[210px] items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10.5px]",
+        tone === "violet"
+          ? "border-violet-200 bg-violet-50 text-violet-700"
+          : "border-slate-200 bg-slate-50 text-slate-600",
+      )}
+    >
+      {tone === "violet" ? (
+        <Target className="inline-block shrink-0" size={10} aria-hidden="true" />
+      ) : (
+        <SlidersHorizontal className="inline-block shrink-0" size={10} aria-hidden="true" />
+      )}
+      <span className="shrink-0 text-slate-400">{label}</span>
+      <span className="truncate font-medium">{value}</span>
+    </span>
+  );
+}
+
+function SyntheticHealthyCampaignHeader({
+  group,
+  optimizationSummary,
+  bidStrategySummary,
+}: {
+  group: HealthyCampaignGroup;
+  optimizationSummary: HealthyConfigSummary;
+  bidStrategySummary: HealthyConfigSummary;
+}) {
   return (
     <div
       className="flex items-center gap-3 rounded-lg border border-dashed border-slate-200 bg-white px-3 py-2"
@@ -255,7 +299,11 @@ function SyntheticHealthyCampaignHeader({ group }: { group: HealthyCampaignGroup
         <div className="truncate text-[12.5px] font-medium text-slate-900">{group.campaignName}</div>
         <div className="truncate text-[11px] text-slate-500">Campaign context inferred from adset snapshot</div>
       </div>
-      <div className="text-[11px] text-slate-500">{group.adsets.length} adsets</div>
+      <div className="hidden min-w-0 shrink-0 items-center justify-end gap-1.5 xl:flex">
+        <SyntheticConfigChip label="Optimization" value={optimizationSummary.value} tone="violet" />
+        <SyntheticConfigChip label="Bid" value={bidStrategySummary.value} />
+      </div>
+      <div className="text-[11px] text-slate-500">{group.adsets.length} {group.adsets.length === 1 ? "adset" : "adsets"}</div>
     </div>
   );
 }
@@ -291,7 +339,11 @@ function MetaHealthyHierarchy({ groups }: { groups: HealthyCampaignGroup[] }) {
                 showPreviousBid={false}
               />
             ) : (
-              <SyntheticHealthyCampaignHeader group={group} />
+              <SyntheticHealthyCampaignHeader
+                group={group}
+                optimizationSummary={optimizationSummary}
+                bidStrategySummary={bidStrategySummary}
+              />
             )}
             {group.adsets.length > 0 ? (
               <div

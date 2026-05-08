@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { QueryProvider } from "@/providers/query-provider";
+import { RouteRecoveryListener } from "@/components/layout/route-recovery-listener";
 import { getSessionFromCookies } from "@/lib/auth";
 import { getLanguageFromCookieValue, getPreferredLanguage, LANGUAGE_COOKIE_NAME } from "@/lib/i18n";
 import { logStartupError } from "@/lib/startup-diagnostics";
@@ -57,7 +58,10 @@ export default async function RootLayout({
   return (
     <html lang={language} suppressHydrationWarning>
       <body suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        <QueryProvider>{children}</QueryProvider>
+        <QueryProvider>
+          <RouteRecoveryListener />
+          {children}
+        </QueryProvider>
       </body>
     </html>
   );

@@ -297,6 +297,25 @@ describe("meta snapshot job", () => {
     expect(recommendationPayload?.bid_regime).toBe("lowest_cost");
   });
 
+  it("emits high-priority scenario recommendations through the snapshot path", async () => {
+    const sql = makeSqlMock();
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+    vi.mocked(campaignSource.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [campaign({ isBudgetMixed: true })],
+      evidenceSource: "live",
+    } as never);
+
+    await runMetaSnapshotForBusiness("biz_1", "2026-05-06");
+
+    const rows = sql.queryPayloads
+      .filter(Boolean)
+      .map((payload) => JSON.parse(String(payload)) as Array<Record<string, unknown>>)
+      .flat();
+
+    expect(rows.some((row) => row.rec_type === "scenario_k1_mixed_config_rebuild")).toBe(true);
+  });
+
   it("persists entity state rows for campaign and adset coverage", async () => {
     const sql = makeSqlMock();
     vi.mocked(db.getDb).mockReturnValue(sql.tag);

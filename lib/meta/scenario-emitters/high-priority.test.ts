@@ -1,0 +1,235 @@
+import { describe, expect, it } from "vitest";
+import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
+import type { MetaAdSetData } from "@/lib/api/meta";
+import type { MetaCalibrationContext } from "@/lib/meta/recommendations";
+import {
+  emitHighPriorityCampaignScenario,
+  maybeA1MathFloor,
+  maybeA2StructuralRebuild,
+  maybeB1CappedBidRaise,
+  maybeC1ControlledScale,
+  maybeE1FatigueAdset,
+  maybeE2CtrDecay,
+  maybeE4CreativeAge,
+  maybeF1SuddenRoasDrop,
+  maybeF4StableWinnerFade,
+  maybeI4TestShouldUseAbo,
+  maybeJ1StableWinnerProtected,
+  maybeK1MixedConfig,
+} from "@/lib/meta/scenario-emitters/high-priority";
+
+const context: MetaCalibrationContext = {
+  thresholds: {
+    source: "calibrated",
+    hardCutSpend: 200,
+    minRequiredSample: 3,
+    metrics: {
+      roas_28d: { p10: 0.5, p25: 1, p50: 2, p75: 3, p90: 4, sampleSize: 20 },
+      cpa_28d: { p10: 20, p25: 30, p50: 50, p75: 80, p90: 120, sampleSize: 20 },
+      freq_14d: { p10: 1, p25: 1.3, p50: 1.8, p75: 2.5, p90: 3.5, sampleSize: 20 },
+      cpm_14d: { p10: 5, p25: 8, p50: 12, p75: 18, p90: 25, sampleSize: 20 },
+      ctr_28d: { p10: 0.5, p25: 1, p50: 2, p75: 3, p90: 4, sampleSize: 20 },
+      win_rate_28d: { p10: 0.1, p25: 0.2, p50: 0.4, p75: 0.6, p90: 0.8, sampleSize: 20 },
+    },
+  },
+  scope: { type: "account", id: "biz_1", snapshotDate: "2026-05-08" },
+  reason: undefined,
+};
+
+function campaign(overrides: Partial<MetaCampaignRow> = {}): MetaCampaignRow {
+  return {
+    id: "cmp_1",
+    accountId: "act_1",
+    name: "Campaign 1",
+    status: "ACTIVE",
+    objective: "OUTCOME_SALES",
+    budgetLevel: "campaign",
+    spend: 2800,
+    purchases: 20,
+    revenue: 8400,
+    roas: 3,
+    cpa: 60,
+    ctr: 2,
+    cpm: 10,
+    cpc: 1,
+    cpp: 0.01,
+    impressions: 10000,
+    reach: 9000,
+    frequency: 1.4,
+    clicks: 200,
+    uniqueClicks: 0,
+    uniqueCtr: 0,
+    inlineLinkClickCtr: 0,
+    outboundClicks: 0,
+    outboundCtr: 0,
+    uniqueOutboundClicks: 0,
+    uniqueOutboundCtr: 0,
+    landingPageViews: 0,
+    costPerLandingPageView: 0,
+    addToCart: 0,
+    addToCartValue: 0,
+    costPerAddToCart: 0,
+    initiateCheckout: 0,
+    initiateCheckoutValue: 0,
+    costPerCheckoutInitiated: 0,
+    leads: 0,
+    leadsValue: 0,
+    costPerLead: 0,
+    registrationsCompleted: 0,
+    registrationsCompletedValue: 0,
+    costPerRegistrationCompleted: 0,
+    searches: 0,
+    searchesValue: 0,
+    costPerSearch: 0,
+    addPaymentInfo: 0,
+    addPaymentInfoValue: 0,
+    costPerAddPaymentInfo: 0,
+    pageLikes: 0,
+    costPerPageLike: 0,
+    postEngagement: 0,
+    costPerEngagement: 0,
+    postReactions: 0,
+    costPerReaction: 0,
+    postComments: 0,
+    costPerPostComment: 0,
+    postShares: 0,
+    costPerPostShare: 0,
+    messagingConversationsStarted: 0,
+    costPerMessagingConversationStarted: 0,
+    appInstalls: 0,
+    costPerAppInstall: 0,
+    contentViews: 0,
+    contentViewsValue: 0,
+    costPerContentView: 0,
+    videoViews3s: 0,
+    videoViews15s: 0,
+    videoViews25: 0,
+    videoViews50: 0,
+    videoViews75: 0,
+    videoViews95: 0,
+    videoViews100: 0,
+    costPerVideoView: 0,
+    currency: "USD",
+    optimizationGoal: "Purchase",
+    customEventType: null,
+    bidStrategyType: "lowest_cost",
+    bidStrategyLabel: "Lowest Cost",
+    manualBidAmount: null,
+    previousManualBidAmount: null,
+    bidValue: null,
+    bidValueFormat: null,
+    previousBidValue: null,
+    previousBidValueFormat: null,
+    previousBidValueCapturedAt: null,
+    dailyBudget: 100,
+    lifetimeBudget: null,
+    previousDailyBudget: null,
+    previousLifetimeBudget: null,
+    previousBudgetCapturedAt: null,
+    isBudgetMixed: false,
+    isConfigMixed: false,
+    isOptimizationGoalMixed: false,
+    isCustomEventTypeMixed: false,
+    isBidStrategyMixed: false,
+    isBidValueMixed: false,
+    ...overrides,
+  };
+}
+
+function windowFor(selected: MetaCampaignRow, overrides: Partial<{ last7: MetaCampaignRow; last14: MetaCampaignRow; last30: MetaCampaignRow; last90: MetaCampaignRow }> = {}) {
+  return {
+    selected,
+    last7: overrides.last7 ?? campaign({ id: selected.id, spend: selected.spend / 4, roas: selected.roas, ctr: selected.ctr }),
+    last14: overrides.last14 ?? campaign({ id: selected.id, spend: selected.spend / 2, roas: selected.roas, ctr: selected.ctr }),
+    last30: overrides.last30 ?? selected,
+    last90: overrides.last90 ?? campaign({ id: selected.id, spend: selected.spend * 2, roas: selected.roas, ctr: selected.ctr }),
+  };
+}
+
+function adset(overrides: Partial<MetaAdSetData> = {}): MetaAdSetData {
+  return {
+    id: "adset_1",
+    accountId: "act_1",
+    campaignId: "cmp_1",
+    name: "Adset 1",
+    status: "ACTIVE",
+    spend: 400,
+    purchases: 8,
+    revenue: 800,
+    roas: 2,
+    cpa: 50,
+    ctr: 1,
+    cpm: 15,
+    cpc: 1,
+    impressions: 10000,
+    clicks: 100,
+    frequency: 3,
+    currency: "USD",
+    dailyBudget: 50,
+    lifetimeBudget: null,
+    optimizationGoal: "Purchase",
+    bidStrategyType: "lowest_cost",
+    bidStrategyLabel: "Lowest Cost",
+    manualBidAmount: null,
+    bidValue: null,
+    bidValueFormat: null,
+    isBudgetMixed: false,
+    isConfigMixed: false,
+    ...overrides,
+  } as MetaAdSetData;
+}
+
+describe("high priority Meta scenario emitters", () => {
+  it.each([
+    ["C1", () => maybeC1ControlledScale({ window: windowFor(campaign({ roas: 3.4, purchases: 20 })), context })],
+    ["B1", () => maybeB1CappedBidRaise({ window: windowFor(campaign({ bidStrategyType: "cost_cap", bidValue: 5000, roas: 2.4, dailyBudget: 500, spend: 1000 })), context })],
+    ["J1", () => maybeJ1StableWinnerProtected({ window: windowFor(campaign({ roas: 3.4, purchases: 20 })), context })],
+    ["A2", () => maybeA2StructuralRebuild({ window: windowFor(campaign({ roas: 0.7, spend: 500, purchases: 2 })), context })],
+    ["F1", () => maybeF1SuddenRoasDrop({ window: windowFor(campaign({ roas: 2.4 }), { last7: campaign({ roas: 1, spend: 500 }) }), context })],
+    ["F4", () => maybeF4StableWinnerFade({ window: windowFor(campaign({ roas: 2, ctr: 1 }), { last30: campaign({ roas: 2 }), last90: campaign({ roas: 3, ctr: 2 }) }), context })],
+    ["E2", () => maybeE2CtrDecay({ window: windowFor(campaign({ ctr: 1 }), { last7: campaign({ ctr: 1, spend: 800 }), last14: campaign({ ctr: 1.4 }) }), context })],
+    ["E4", () => maybeE4CreativeAge({ window: windowFor(campaign({ ctr: 1 }), { last7: campaign({ ctr: 1, spend: 800 }), last14: campaign({ ctr: 1.4 }) }), context })],
+    ["K1", () => maybeK1MixedConfig({ window: windowFor(campaign({ isBudgetMixed: true })), context })],
+    ["I4", () => maybeI4TestShouldUseAbo({ window: windowFor(campaign({ name: "Creative Test Campaign", budgetLevel: "campaign" })), context, campaignRole: "prospecting_test" })],
+    ["A1", () => maybeA1MathFloor({ window: windowFor(campaign({ dailyBudget: 100, roas: 1.5 })), context })],
+  ])("fires %s on a positive account-history fixture", (_id, build) => {
+    const rec = build();
+    expect(rec).toBeTruthy();
+    expect(rec?.kind).toBe("recommendation");
+    expect(rec?.targetValue === undefined || JSON.parse(JSON.stringify(rec.targetValue))).toBeTruthy();
+  });
+
+  it("fires E1 fatigue on an adset account-history fixture", () => {
+    const rec = maybeE1FatigueAdset({ adset: adset(), campaign: campaign(), context });
+    expect(rec?.type).toBe("scenario_e1_frequency_fatigue");
+    expect(rec?.targetValue === undefined || JSON.parse(JSON.stringify(rec.targetValue))).toBeTruthy();
+  });
+
+  it("does not fire controlled scale below account p75", () => {
+    const rec = maybeC1ControlledScale({ window: windowFor(campaign({ roas: 2.5, purchases: 20 })), context });
+    expect(rec).toBeNull();
+  });
+
+  it("does not fire scale when calibration sample is too thin", () => {
+    const thinContext: MetaCalibrationContext = {
+      ...context,
+      thresholds: {
+        ...context.thresholds,
+        metrics: {
+          ...context.thresholds.metrics,
+          roas_28d: { ...context.thresholds.metrics.roas_28d, sampleSize: 1 },
+        },
+      },
+    };
+    const rec = maybeC1ControlledScale({ window: windowFor(campaign({ roas: 3.4, purchases: 20 })), context: thinContext });
+    expect(rec).toBeNull();
+  });
+
+  it("applies precedence with rebuild before controlled scale", () => {
+    const rec = emitHighPriorityCampaignScenario({
+      window: windowFor(campaign({ roas: 3.4, purchases: 20, isBudgetMixed: true })),
+      context,
+    });
+    expect(rec?.type).toBe("scenario_k1_mixed_config_rebuild");
+  });
+});

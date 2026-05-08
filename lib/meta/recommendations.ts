@@ -28,6 +28,7 @@ import {
   type MetaCampaignLaneSignal,
 } from "@/lib/meta/campaign-lanes";
 import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
+import { emitHighPriorityCampaignScenario } from "@/lib/meta/scenario-emitters/high-priority";
 
 export type MetaDecisionState = "act" | "test" | "watch";
 export type MetaRecommendationLens = "volume" | "profitability" | "structure";
@@ -2824,6 +2825,19 @@ export function buildMetaRecommendations(input: {
       input.calibrationContextByCampaignId?.[campaignWindow.selected.id] ??
       input.calibrationContext ??
       null;
+    const campaignRole = inferCampaignRole(campaignWindow.selected, {
+      campaigns: selectedRows,
+      laneSignals: taxonomyContext.laneSignals,
+    });
+    const bidRegime = inferBidRegime(null, campaignWindow.selected);
+    const scenario = emitHighPriorityCampaignScenario({
+      window: campaignWindow,
+      context: calibrationContext,
+      campaignRole,
+      bidRegime,
+    });
+    if (scenario) recommendations.push(scenario);
+
     const structure = maybeStructureRecommendation(campaignWindow);
     if (structure) recommendations.push(structure);
 
@@ -2869,7 +2883,7 @@ export function buildMetaRecommendations(input: {
     .filter((recommendation, index, list) =>
       list.findIndex((item) => item.id === recommendation.id) === index
     )
-    .slice(0, 8);
+    .slice(0, 250);
   const deduped = ensurePriorityRecommendationsIncluded(stampedRecommendations, dedupedBase);
 
   return localizeMetaRecommendationsResponse({

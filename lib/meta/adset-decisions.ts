@@ -15,6 +15,7 @@ import {
 } from "@/lib/meta/campaign-roles";
 import { buildMetaCampaignLaneSignals } from "@/lib/meta/campaign-lanes";
 import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
+import { emitHighPriorityAdsetScenario } from "@/lib/meta/scenario-emitters/high-priority";
 
 export interface BuildMetaAdsetRecommendationsInput {
   adsets: MetaAdSetData[];
@@ -147,7 +148,10 @@ function baseAdsetRecommendation(input: {
 export function buildMetaAdsetRecommendations(
   input: BuildMetaAdsetRecommendationsInput,
 ): MetaRecommendation[] {
-  const activeAdsets = input.adsets.filter((adset) => adset.status === "ACTIVE");
+  const activeAdsets = input.adsets.filter((adset) => {
+    const status = String(adset.status ?? "").toUpperCase();
+    return status === "ACTIVE" || status === "WITH_ISSUES" || status === "UNKNOWN" || adset.spend > 0;
+  });
   const campaigns = input.campaigns ?? [];
   const campaignsById = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
   const laneSignals = buildMetaCampaignLaneSignals(campaigns);
@@ -168,6 +172,17 @@ export function buildMetaAdsetRecommendations(
     const ctr = metricThresholds(context, "ctr_28d");
     const frequency = metricThresholds(context, "freq_14d");
     const cpm = metricThresholds(context, "cpm_14d");
+
+    const scenario = emitHighPriorityAdsetScenario({
+      adset,
+      campaign,
+      context,
+      ...taxonomyFields,
+    });
+    if (scenario) {
+      recommendations.push(scenario);
+      continue;
+    }
 
     const scaleThreshold = context ? roas.p75 : Math.max(roas.p75, 2.5);
     const weakThreshold = context ? roas.p25 : Math.max(roas.p25, 1.5);
@@ -276,5 +291,5 @@ export function buildMetaAdsetRecommendations(
 
   return recommendations
     .sort((left, right) => (right.confidenceScore ?? 0) - (left.confidenceScore ?? 0))
-    .slice(0, 5);
+    .slice(0, 250);
 }

@@ -424,7 +424,14 @@ async function upsertSnapshotRows(input: {
           severity text,
           diagnostics jsonb,
           detected_at timestamptz,
-          resolved_at timestamptz
+          resolved_at timestamptz,
+          evidence_trail jsonb,
+          campaign_role text,
+          bid_regime text,
+          decision_label text,
+          state_reason text,
+          calibration_scope jsonb,
+          signal_quality jsonb
         )
       ),
       resolved AS (
@@ -464,7 +471,14 @@ async function upsertSnapshotRows(input: {
         severity,
         diagnostics,
         detected_at,
-        resolved_at
+        resolved_at,
+        evidence_trail,
+        campaign_role,
+        bid_regime,
+        decision_label,
+        state_reason,
+        calibration_scope,
+        signal_quality
       )
       SELECT
         scope_type,
@@ -487,7 +501,14 @@ async function upsertSnapshotRows(input: {
         severity,
         diagnostics,
         detected_at,
-        resolved_at
+        resolved_at,
+        evidence_trail,
+        campaign_role,
+        bid_regime,
+        decision_label,
+        state_reason,
+        calibration_scope,
+        signal_quality
       FROM payload
       ON CONFLICT (scope_type, scope_id, snapshot_date, rec_type)
       DO UPDATE SET
@@ -506,6 +527,13 @@ async function upsertSnapshotRows(input: {
         kind = EXCLUDED.kind,
         severity = EXCLUDED.severity,
         diagnostics = EXCLUDED.diagnostics,
+        evidence_trail = EXCLUDED.evidence_trail,
+        campaign_role = EXCLUDED.campaign_role,
+        bid_regime = EXCLUDED.bid_regime,
+        decision_label = EXCLUDED.decision_label,
+        state_reason = EXCLUDED.state_reason,
+        calibration_scope = EXCLUDED.calibration_scope,
+        signal_quality = EXCLUDED.signal_quality,
         detected_at = EXCLUDED.detected_at,
         resolved_at = NULL,
         created_at = now()

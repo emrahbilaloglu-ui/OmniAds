@@ -267,6 +267,7 @@ describe("meta snapshot job", () => {
     expect(anomalyPayload).toMatchObject({
       kind: "anomaly",
       rec_type: "roas_drop_sudden",
+      decision_label: "diagnose",
       severity: "high",
       diagnostics: ["Tracking interruption candidate"],
       detected_at: "2026-05-06T03:00:00.000Z",

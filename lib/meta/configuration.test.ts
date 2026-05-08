@@ -85,6 +85,49 @@ describe("meta configuration helpers", () => {
     expect(summary.isBudgetMixed).toBe(true);
   });
 
+  it("rolls up ad set custom events and flags mixed campaigns", () => {
+    const purchaseSummary = summarizeCampaignConfig({
+      campaignId: "cmp_events",
+      adsets: [
+        buildConfigSnapshotPayload({
+          campaignId: "cmp_events",
+          optimizationGoal: "offsite_conversions",
+          customEventType: "purchase",
+          pixelId: "px_1",
+          promotedObject: { pixel_id: "px_1", custom_event_type: "PURCHASE" },
+        }),
+        buildConfigSnapshotPayload({
+          campaignId: "cmp_events",
+          optimizationGoal: "offsite_conversions",
+          customEventType: "PURCHASE",
+          pixelId: "px_1",
+          promotedObject: { pixel_id: "px_1", custom_event_type: "PURCHASE" },
+        }),
+      ],
+    });
+
+    expect(purchaseSummary.customEventType).toBe("PURCHASE");
+    expect(purchaseSummary.isCustomEventTypeMixed).toBe(false);
+
+    const mixedSummary = summarizeCampaignConfig({
+      campaignId: "cmp_mixed_events",
+      adsets: [
+        buildConfigSnapshotPayload({
+          campaignId: "cmp_mixed_events",
+          customEventType: "PURCHASE",
+        }),
+        buildConfigSnapshotPayload({
+          campaignId: "cmp_mixed_events",
+          customEventType: "ADD_TO_CART",
+        }),
+      ],
+    });
+
+    expect(mixedSummary.customEventType).toBeNull();
+    expect(mixedSummary.isCustomEventTypeMixed).toBe(true);
+    expect(mixedSummary.isConfigMixed).toBe(true);
+  });
+
   it("uses target roas constraints as bid value", () => {
     const adset = buildConfigSnapshotPayload({
       campaignId: "cmp_3",

@@ -69,6 +69,12 @@ interface RawAdSet {
   bid_strategy?: string;
   bid_amount?: string;
   bid_constraints?: { roas_average_floor?: string };
+  promoted_object?: {
+    pixel_id?: string;
+    custom_event_type?: string;
+    custom_conversion_id?: string;
+    [key: string]: unknown;
+  } | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -158,7 +164,7 @@ export async function getMetaLiveCampaignRows(input: {
       const adsetConfigUrl = new URL(`https://graph.facebook.com/v25.0/${accountId}/adsets`);
       adsetConfigUrl.searchParams.set(
         "fields",
-        "id,name,campaign_id,effective_status,status,daily_budget,lifetime_budget,optimization_goal,bid_strategy,bid_amount,bid_constraints{roas_average_floor}"
+        "id,name,campaign_id,effective_status,status,daily_budget,lifetime_budget,optimization_goal,promoted_object{pixel_id,custom_event_type,custom_conversion_id},bid_strategy,bid_amount,bid_constraints{roas_average_floor}"
       );
       adsetConfigUrl.searchParams.set("limit", "500");
       adsetConfigUrl.searchParams.set("access_token", accessToken);
@@ -219,6 +225,22 @@ export async function getMetaLiveCampaignRows(input: {
           optimizationGoal:
             adset.optimization_goal ??
             latestAdSetConfigs.get(adset.id)?.optimizationGoal ??
+            null,
+          customEventType:
+            adset.promoted_object?.custom_event_type ??
+            latestAdSetConfigs.get(adset.id)?.customEventType ??
+            null,
+          pixelId:
+            adset.promoted_object?.pixel_id ??
+            latestAdSetConfigs.get(adset.id)?.pixelId ??
+            null,
+          customConversionId:
+            adset.promoted_object?.custom_conversion_id ??
+            latestAdSetConfigs.get(adset.id)?.customConversionId ??
+            null,
+          promotedObject:
+            adset.promoted_object ??
+            latestAdSetConfigs.get(adset.id)?.promotedObject ??
             null,
           bidStrategy:
             adset.bid_strategy ??
@@ -382,6 +404,8 @@ export async function getMetaLiveCampaignRows(input: {
           costPerVideoView: 0,
           currency,
           optimizationGoal: config.optimizationGoal ?? latestSnapshot?.optimizationGoal ?? null,
+          customEventType: config.customEventType ?? latestSnapshot?.customEventType ?? null,
+          isCustomEventTypeMixed: Boolean(config.isCustomEventTypeMixed),
           bidStrategyType: config.bidStrategyType,
           bidStrategyLabel: config.bidStrategyLabel,
           manualBidAmount: config.manualBidAmount,

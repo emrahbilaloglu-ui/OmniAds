@@ -2,6 +2,10 @@ export interface MetaConfigSnapshotPayload {
   campaignId?: string | null;
   objective?: string | null;
   optimizationGoal: string | null;
+  customEventType?: string | null;
+  pixelId?: string | null;
+  customConversionId?: string | null;
+  promotedObject?: unknown;
   bidStrategyType: string | null;
   bidStrategyLabel: string | null;
   manualBidAmount: number | null;
@@ -12,6 +16,7 @@ export interface MetaConfigSnapshotPayload {
   isBudgetMixed?: boolean;
   isConfigMixed?: boolean;
   isOptimizationGoalMixed?: boolean;
+  isCustomEventTypeMixed?: boolean;
   isBidStrategyMixed?: boolean;
   isBidValueMixed?: boolean;
 }
@@ -79,6 +84,24 @@ export function normalizeOptimizationGoal(value: string | null | undefined): str
   return labelMap[normalized] ?? toTitleCase(normalized);
 }
 
+export function normalizeCustomEventType(value: string | null | undefined): string | null {
+  const normalized = normalizeToken(value);
+  if (!normalized) return null;
+
+  const labelMap: Record<string, string> = {
+    add_to_cart: "ADD_TO_CART",
+    purchase: "PURCHASE",
+    initiate_checkout: "INITIATE_CHECKOUT",
+    view_content: "VIEW_CONTENT",
+    lead: "LEAD",
+    search: "SEARCH",
+    add_payment_info: "ADD_PAYMENT_INFO",
+    complete_registration: "COMPLETE_REGISTRATION",
+  };
+
+  return labelMap[normalized] ?? normalized.toUpperCase();
+}
+
 export function normalizeBidStrategy(
   strategy: string | null | undefined,
   manualBidAmount: number | null | undefined
@@ -108,6 +131,39 @@ export function normalizeBidStrategy(
   if (mapped) return mapped;
   if (hasManualBid) return { type: "manual_bid", label: "Manual Bid" };
   return { type: normalized, label: toTitleCase(normalized) };
+}
+
+export function formatBidStrategyLabel(
+  bidStrategyType: string | null | undefined
+): string | null {
+  return normalizeBidStrategy(bidStrategyType, null).label;
+}
+
+export function deriveManualBidAmount(
+  bidValue: number | null | undefined,
+  bidValueFormat: "currency" | "roas" | string | null | undefined
+): number | null {
+  return bidValueFormat === "currency" ? roundCurrencyAmount(bidValue) : null;
+}
+
+export function withDerivedMetaConfigFields(
+  payload: MetaConfigSnapshotPayload
+): MetaConfigSnapshotPayload {
+  return {
+    ...payload,
+    bidStrategyLabel:
+      payload.bidStrategyLabel ?? formatBidStrategyLabel(payload.bidStrategyType),
+    manualBidAmount:
+      payload.manualBidAmount ??
+      deriveManualBidAmount(payload.bidValue, payload.bidValueFormat),
+  };
+}
+
+export function stripDerivedMetaConfigFields(
+  payload: MetaConfigSnapshotPayload
+): Omit<MetaConfigSnapshotPayload, "bidStrategyLabel" | "manualBidAmount"> {
+  const { bidStrategyLabel: _bidStrategyLabel, manualBidAmount: _manualBidAmount, ...canonical } = payload;
+  return canonical;
 }
 
 function summarizeSingleValue(values: Array<string | null | undefined>): {
@@ -174,6 +230,10 @@ export function buildConfigSnapshotPayload(input: {
   campaignId?: string | null;
   objective?: string | null;
   optimizationGoal?: string | null;
+  customEventType?: string | null;
+  pixelId?: string | null;
+  customConversionId?: string | null;
+  promotedObject?: unknown;
   bidStrategy?: string | null;
   manualBidAmount?: number | null;
   targetRoas?: number | null;
@@ -182,6 +242,7 @@ export function buildConfigSnapshotPayload(input: {
   isBudgetMixed?: boolean;
   isConfigMixed?: boolean;
   isOptimizationGoalMixed?: boolean;
+  isCustomEventTypeMixed?: boolean;
   isBidStrategyMixed?: boolean;
   isBidValueMixed?: boolean;
 }): MetaConfigSnapshotPayload {
@@ -201,6 +262,10 @@ export function buildConfigSnapshotPayload(input: {
     campaignId: input.campaignId ?? null,
     objective: input.objective?.trim() ? input.objective.trim() : null,
     optimizationGoal: normalizeOptimizationGoal(input.optimizationGoal),
+    customEventType: normalizeCustomEventType(input.customEventType),
+    pixelId: input.pixelId?.trim() ? input.pixelId.trim() : null,
+    customConversionId: input.customConversionId?.trim() ? input.customConversionId.trim() : null,
+    promotedObject: input.promotedObject ?? null,
     bidStrategyType: strategy.type,
     bidStrategyLabel: strategy.label,
     manualBidAmount,
@@ -211,6 +276,7 @@ export function buildConfigSnapshotPayload(input: {
     isBudgetMixed: Boolean(input.isBudgetMixed),
     isConfigMixed: Boolean(input.isConfigMixed),
     isOptimizationGoalMixed: Boolean(input.isOptimizationGoalMixed),
+    isCustomEventTypeMixed: Boolean(input.isCustomEventTypeMixed),
     isBidStrategyMixed: Boolean(input.isBidStrategyMixed),
     isBidValueMixed: Boolean(input.isBidValueMixed),
   };
@@ -229,6 +295,9 @@ export function summarizeCampaignConfig(input: {
 }): MetaCampaignConfigSummary {
   const optimizationSummary = summarizeSingleValue(
     input.adsets.map((adset) => adset.optimizationGoal)
+  );
+  const customEventTypeSummary = summarizeSingleValue(
+    input.adsets.map((adset) => adset.customEventType)
   );
   const bidStrategySummary = summarizeSingleValueIgnoringNull(
     input.adsets.map((adset) => adset.bidStrategyLabel)
@@ -272,6 +341,10 @@ export function summarizeCampaignConfig(input: {
   return {
     campaignId: input.campaignId ?? null,
     optimizationGoal: optimizationSummary.isMixed ? null : optimizationSummary.value,
+    customEventType: customEventTypeSummary.isMixed ? null : customEventTypeSummary.value,
+    pixelId: null,
+    customConversionId: null,
+    promotedObject: null,
     bidStrategyType: bidStrategyTypeSummary.isMixed
       ? fallbackStrategy.type
       : bidStrategyTypeSummary.value ?? fallbackStrategy.type,
@@ -300,11 +373,13 @@ export function summarizeCampaignConfig(input: {
         input.adsets.some((adset) => adset.lifetimeBudget != null)),
     isConfigMixed:
       optimizationSummary.isMixed ||
+      customEventTypeSummary.isMixed ||
       bidStrategySummary.isMixed ||
       manualBidSummary.isMixed ||
       bidValueSummary.isMixed ||
       bidValueFormatSummary.isMixed,
     isOptimizationGoalMixed: optimizationSummary.isMixed,
+    isCustomEventTypeMixed: customEventTypeSummary.isMixed,
     isBidStrategyMixed: bidStrategySummary.isMixed || bidStrategyTypeSummary.isMixed,
     isBidValueMixed: bidValueSummary.isMixed || bidValueFormatSummary.isMixed,
   };

@@ -127,7 +127,7 @@ export function getCreativeMediaFields(): string {
     "object_type",
     "video_id",
     "object_story_spec{link_data{link,message,name,description,picture,call_to_action{type,value{link}},child_attachments{link,picture}},video_data{video_id,message,title,call_to_action{type,value{link}}},photo_data{message,caption,call_to_action{type,value{link}}},template_data}",
-    "asset_feed_spec{bodies{text},titles{text},descriptions{text},videos{video_id}}",
+    "asset_feed_spec{bodies{text},titles{text},descriptions{text},videos{video_id},link_urls{website_url,display_url,url}}",
   ].join(",");
 }
 
@@ -138,7 +138,7 @@ export function getCreativeSummaryFields(): string {
     "object_type",
     "video_id",
     "object_story_spec{link_data{child_attachments{link,picture}},video_data{video_id},template_data}",
-    "asset_feed_spec{images{hash},videos{video_id},bodies{text},titles{text},descriptions{text}}",
+    "asset_feed_spec{images{hash},videos{video_id},bodies{text},titles{text},descriptions{text},link_urls{website_url,display_url,url}}",
   ].join(",");
 }
 
@@ -150,7 +150,7 @@ export function getCreativeDetailFields(): string {
     "video_id",
     "object_story_spec{link_data{link,message,name,description,picture,call_to_action{type,value{link}},child_attachments{link,picture}},video_data{video_id,message,title,call_to_action{type,value{link}}},photo_data{message,caption,call_to_action{type,value{link}}},template_data}",
     // Keep this set conservative for adcreative IDs endpoint stability.
-    "asset_feed_spec{bodies{text},titles{text},descriptions{text},videos{video_id}}",
+    "asset_feed_spec{bodies{text},titles{text},descriptions{text},videos{video_id},link_urls{website_url,display_url,url}}",
   ].join(",");
 }
 
@@ -161,7 +161,7 @@ export function getNestedCreativeMediaFields(): string {
     "object_type",
     "video_id",
     "object_story_spec{link_data{link,message,name,description,picture,call_to_action{type,value{link}},child_attachments{link,picture}},video_data{video_id,message,title,call_to_action{type,value{link}}},photo_data{message,caption,call_to_action{type,value{link}}},template_data}",
-    "asset_feed_spec{bodies{text},titles{text},descriptions{text},videos{video_id}}",
+    "asset_feed_spec{bodies{text},titles{text},descriptions{text},videos{video_id},link_urls{website_url,display_url,url}}",
   ].join(",");
 }
 
@@ -172,7 +172,7 @@ export function getNestedCreativeSummaryFields(): string {
     "object_type",
     "video_id",
     "object_story_spec{link_data{child_attachments{link,picture}},video_data{video_id},template_data}",
-    "asset_feed_spec{images{hash},videos{video_id},bodies{text},titles{text},descriptions{text}}",
+    "asset_feed_spec{images{hash},videos{video_id},bodies{text},titles{text},descriptions{text},link_urls{website_url,display_url,url}}",
   ].join(",");
 }
 
@@ -415,9 +415,9 @@ export async function fetchAccountAdsMap(
           "effective_status",
           "status",
           "adset_id",
-          "adset{id,name,daily_budget,lifetime_budget,bid_strategy,optimization_goal,promoted_object{product_set_id,catalog_id}}",
+          "adset{id,name,daily_budget,lifetime_budget,bid_strategy,optimization_goal,promoted_object{pixel_id,custom_event_type,custom_conversion_id}}",
           "campaign{id,name,objective,daily_budget,lifetime_budget,bid_strategy}",
-          "promoted_object{product_set_id,catalog_id}",
+          "promoted_object{pixel_id,custom_event_type,custom_conversion_id}",
           "created_time",
           `creative{${getNestedCreativeMediaFields()}}`,
         ].join(",")
@@ -510,7 +510,7 @@ export async function batchFetchAdsByIds(
     "effective_status",
     "status",
     "adset_id",
-    "adset{id,name,daily_budget,lifetime_budget,bid_strategy,optimization_goal}",
+    "adset{id,name,daily_budget,lifetime_budget,bid_strategy,optimization_goal,promoted_object{pixel_id,custom_event_type,custom_conversion_id}}",
     "campaign{id,name,objective,daily_budget,lifetime_budget,bid_strategy}",
     ...(mode === "full" ? ["created_time"] : []),
     `creative{${mode === "full" ? getNestedCreativeMediaFields() : getNestedCreativeSummaryFields()}}`,

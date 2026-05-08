@@ -29,6 +29,7 @@ import {
   mergeDebugSources,
   buildCreativeDebugInfo,
 } from "@/lib/meta/creatives-copy";
+import { resolveMetaLandingUrl } from "@/lib/meta/landing-url-resolver";
 import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 export function r2(n: number) {
@@ -550,6 +551,7 @@ export function toRawRow(
     extractPostIdFromStoryIdentifier(objectStoryId) ??
     extractPostIdFromStoryIdentifier(effectiveObjectStoryId) ??
     null;
+  const landingUrl = resolveMetaLandingUrl(creative);
 
   const rowDebugBase = buildCreativeDebugInfo({
     debug_stage_fetch_source: debugContext?.fetchSource ?? null,
@@ -667,6 +669,11 @@ export function toRawRow(
     adset_daily_budget: parseMetaBudgetAmount(ad?.adset?.daily_budget),
     campaign_lifetime_budget: parseMetaBudgetAmount(ad?.campaign?.lifetime_budget),
     adset_lifetime_budget: parseMetaBudgetAmount(ad?.adset?.lifetime_budget),
+    destination_url: landingUrl.canonicalUrl,
+    destination_url_raw: landingUrl.rawUrl,
+    destination_url_source: landingUrl.source,
+    destination_url_confidence: landingUrl.confidence,
+    cta_type: landingUrl.ctaType ?? null,
     landing_page_views: landingPageViews,
     add_to_cart: addToCart,
     initiate_checkout: initiateCheckout,
@@ -960,6 +967,12 @@ export function groupRows(
       adset_daily_budget: list.map((item) => item.adset_daily_budget ?? null).find((value): value is number => value != null) ?? null,
       campaign_lifetime_budget: list.map((item) => item.campaign_lifetime_budget ?? null).find((value): value is number => value != null) ?? null,
       adset_lifetime_budget: list.map((item) => item.adset_lifetime_budget ?? null).find((value): value is number => value != null) ?? null,
+      destination_url: list.map((item) => item.destination_url ?? null).find((value): value is string => Boolean(value)) ?? null,
+      destination_url_raw: list.map((item) => item.destination_url_raw ?? null).find((value): value is string => Boolean(value)) ?? null,
+      destination_url_source: list.map((item) => item.destination_url_source ?? null).find((value): value is string => Boolean(value)) ?? null,
+      destination_url_confidence:
+        list.map((item) => item.destination_url_confidence ?? null).find((value): value is string => Boolean(value)) ?? null,
+      cta_type: list.map((item) => item.cta_type ?? null).find((value): value is string => Boolean(value)) ?? null,
       landing_page_views: landingPageViews,
       add_to_cart: addToCart,
       initiate_checkout: initiateCheckout,

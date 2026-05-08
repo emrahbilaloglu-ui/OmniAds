@@ -78,6 +78,8 @@ export interface MetaCampaignRow {
   costPerVideoView: number;
   currency: string;
   optimizationGoal: string | null;
+  customEventType?: string | null;
+  isCustomEventTypeMixed?: boolean;
   bidStrategyType: string | null;
   bidStrategyLabel: string | null;
   manualBidAmount: number | null;

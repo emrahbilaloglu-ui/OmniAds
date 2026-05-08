@@ -21,6 +21,7 @@ import {
   groupRows,
   sortRows,
 } from "@/lib/meta/creatives-row-mappers";
+import { resolveMetaStoryIdLandingUrl } from "@/lib/meta/landing-url-story-fallback";
 import {
   META_CANONICAL_METRIC_SCHEMA_VERSION,
   assertMetaCanonicalClicksSource,
@@ -79,6 +80,26 @@ function buildCreativeUsageMap(rows: RawCreativeRow[]) {
   return map;
 }
 
+async function hydrateCreativeLandingUrls(rows: RawCreativeRow[], accessToken: string) {
+  await Promise.all(
+    rows.map(async (row) => {
+      if (row.destination_url) return;
+      const storyId = row.effective_object_story_id ?? row.object_story_id ?? null;
+      if (!storyId) return;
+      const resolved = await resolveMetaStoryIdLandingUrl({
+        storyId,
+        accessToken,
+      });
+      if (!resolved.rawUrl) return;
+      row.destination_url = resolved.canonicalUrl;
+      row.destination_url_raw = resolved.rawUrl;
+      row.destination_url_source = resolved.source;
+      row.destination_url_confidence = resolved.confidence;
+      row.cta_type = resolved.ctaType ?? null;
+    }),
+  );
+}
+
 function buildUnavailablePreview(isCatalog: boolean): NormalizedRenderPreviewPayload {
   return {
     render_mode: "unavailable",
@@ -120,8 +141,8 @@ function buildFallbackAdRawRow(input: {
     id: factRow.adId,
     creative_id: input.creativeId ?? factRow.adId,
     real_ad_id: factRow.adId,
-    object_story_id: null,
-    effective_object_story_id: null,
+    object_story_id: factRow.objectStoryId ?? null,
+    effective_object_story_id: factRow.effectiveObjectStoryId ?? null,
     post_id: null,
     associated_ads_count: 1,
     account_id: factRow.providerAccountId,
@@ -176,6 +197,11 @@ function buildFallbackAdRawRow(input: {
     link_clicks: Math.round(linkClicks),
     outbound_clicks: 0,
     effective_status: factRow.adStatus,
+    destination_url: factRow.destinationUrl ?? null,
+    destination_url_raw: factRow.destinationUrlRaw ?? null,
+    destination_url_source: factRow.destinationUrlSource ?? null,
+    destination_url_confidence: factRow.destinationUrlConfidence ?? null,
+    cta_type: factRow.ctaType ?? null,
     landing_page_views: 0,
     add_to_cart: 0,
     initiate_checkout: 0,
@@ -387,6 +413,11 @@ export function coerceRawCreativeRow(value: unknown): RawCreativeRow | null {
     purchases: Number(apiRow.purchases ?? 0),
     impressions: Number(apiRow.impressions ?? 0),
     link_clicks: Number(apiRow.link_clicks ?? 0),
+    destination_url: apiRow.destination_url ?? null,
+    destination_url_raw: apiRow.destination_url_raw ?? null,
+    destination_url_source: apiRow.destination_url_source ?? null,
+    destination_url_confidence: apiRow.destination_url_confidence ?? null,
+    cta_type: apiRow.cta_type ?? null,
     landing_page_views: Number(apiRow.landing_page_views ?? 0),
     add_to_cart: Number(apiRow.add_to_cart ?? 0),
     initiate_checkout: Number(apiRow.initiate_checkout ?? 0),
@@ -439,6 +470,12 @@ export function hydrateWarehouseCreativeMetrics<T extends RawCreativeRow>(input:
     reach: input.factRow.reach,
     frequency: input.factRow.frequency ?? input.row.frequency ?? null,
     link_clicks: input.factRow.linkClicks ?? input.row.link_clicks,
+    destination_url: input.factRow.destinationUrl ?? input.row.destination_url ?? null,
+    destination_url_raw: input.factRow.destinationUrlRaw ?? input.row.destination_url_raw ?? null,
+    destination_url_source: input.factRow.destinationUrlSource ?? input.row.destination_url_source ?? null,
+    destination_url_confidence:
+      input.factRow.destinationUrlConfidence ?? input.row.destination_url_confidence ?? null,
+    cta_type: input.factRow.ctaType ?? input.row.cta_type ?? null,
   } satisfies RawCreativeRow;
 }
 
@@ -620,6 +657,7 @@ async function syncMetaCreativesAccountDay(input: {
   const rawRows = apiRows
     .map((row) => coerceRawCreativeRow(row))
     .filter((row): row is RawCreativeRow => Boolean(row));
+  await hydrateCreativeLandingUrls(rawRows, input.accessToken);
   const creativeUsageMap = buildCreativeUsageMap(rawRows);
   const creativeRows = groupRows(rawRows, "creative", creativeUsageMap);
   assertMetaCanonicalClicksSource({ targetField: "clicks", sourceField: "clicks" });
@@ -648,10 +686,24 @@ async function syncMetaCreativesAccountDay(input: {
     ctr: row.ctr_all,
     cpc: row.cpc_link,
     linkClicks: row.link_clicks,
+    destinationUrl: row.destination_url ?? null,
+    destinationUrlRaw: row.destination_url_raw ?? null,
+    destinationUrlSource: row.destination_url_source ?? null,
+    destinationUrlConfidence: row.destination_url_confidence ?? null,
+    ctaType: row.cta_type ?? null,
+    objectStoryId: row.object_story_id ?? null,
+    effectiveObjectStoryId: row.effective_object_story_id ?? null,
     sourceSnapshotId: null,
     sourceRunId: input.sourceRunId ?? null,
     metricSchemaVersion: META_CANONICAL_METRIC_SCHEMA_VERSION,
-    payloadJson: apiRows[index] ?? row,
+    payloadJson: {
+      ...(apiRows[index] ?? row),
+      destination_url: row.destination_url ?? null,
+      destination_url_raw: row.destination_url_raw ?? null,
+      destination_url_source: row.destination_url_source ?? null,
+      destination_url_confidence: row.destination_url_confidence ?? null,
+      cta_type: row.cta_type ?? null,
+    },
   }));
 
   const creativeDailyRows: MetaCreativeDailyRow[] = creativeRows.map((row) => {
@@ -673,7 +725,13 @@ async function syncMetaCreativesAccountDay(input: {
       headline: row.headline_variants?.[0] ?? null,
       primaryText: row.copy_text ?? row.copy_variants?.[0] ?? null,
       descriptionText: row.description_variants?.[0] ?? null,
-      destinationUrl: null,
+      destinationUrl: row.destination_url ?? null,
+      destinationUrlRaw: row.destination_url_raw ?? null,
+      destinationUrlSource: row.destination_url_source ?? null,
+      destinationUrlConfidence: row.destination_url_confidence ?? null,
+      ctaType: row.cta_type ?? null,
+      objectStoryId: row.object_story_id ?? null,
+      effectiveObjectStoryId: row.effective_object_story_id ?? null,
       thumbnailUrl: row.thumbnail_url ?? row.preview_url ?? null,
       assetType: row.creative_type ?? row.format ?? null,
       launchDate: row.launch_date,

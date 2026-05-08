@@ -10,6 +10,7 @@ interface PulseStripProps {
   kpiBand?: ReactNode;
   variant?: PulseStripVariant;
   id?: string;
+  sticky?: boolean;
 }
 
 export function PulseStrip({
@@ -20,11 +21,12 @@ export function PulseStrip({
   kpiBand,
   variant = "creative",
   id = variant === "meta" ? "pulse" : "account-pulse",
+  sticky = true,
 }: PulseStripProps) {
-  const rootClassName =
-    variant === "meta"
-      ? "sticky top-0 z-30 bg-white border-b border-slate-200"
-      : "sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200";
+  const rootClassName = [
+    sticky ? "sticky top-0 z-30" : "relative z-0",
+    variant === "meta" ? "bg-white border-b border-slate-200" : "bg-white/95 backdrop-blur border-b border-slate-200",
+  ].join(" ");
   const rowClassName =
     variant === "meta"
       ? "max-w-[1440px] mx-auto px-6 py-2.5 flex items-center gap-4 flex-wrap"

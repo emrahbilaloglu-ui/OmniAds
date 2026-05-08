@@ -269,6 +269,7 @@ export interface MetaAdSetData extends MetaMetricsData {
   previousBudgetCapturedAt?: string | null;
   isConfigMixed: boolean;
   isOptimizationGoalMixed?: boolean;
+  isCustomEventTypeMixed?: boolean;
   isBidStrategyMixed?: boolean;
   isBidValueMixed?: boolean;
   /** CTR (Link click-through rate) — inline_link_click_ctr from Meta API. Null for warehouse data. */

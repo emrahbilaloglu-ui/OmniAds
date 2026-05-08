@@ -1,7 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { metaAnomaly, metaLanePayload, metaPulse, metaRec } from "@/components/meta/redesign/test-fixtures";
+import { metaAnomaly, metaHealthy, metaLanePayload, metaPulse, metaRec } from "@/components/meta/redesign/test-fixtures";
 import { MetaPlatformPage } from "@/components/meta/redesign/MetaPlatformPage";
 
 const state = vi.hoisted(() => ({
@@ -39,6 +39,10 @@ vi.mock("@tanstack/react-query", () => ({
     return queryState(null);
   },
 }));
+
+function countText(html: string, text: string) {
+  return html.split(text).length - 1;
+}
 
 describe("MetaPlatformPage", () => {
   beforeEach(() => {
@@ -148,5 +152,188 @@ describe("MetaPlatformPage", () => {
     expect(html.indexOf('data-healthy-row="cmp_parent"')).toBeLessThan(
       html.indexOf('data-healthy-row="adset_child_a"'),
     );
+  });
+
+  it("shows uniform optimization and bid strategy only on the campaign row while keeping adset bid values", () => {
+    state.lanePayload = metaLanePayload({
+      healthy: [
+        metaHealthy({
+          id: "cmp_uniform",
+          level: "campaign",
+          name: "Uniform Campaign",
+          spend: 210,
+          customEventType: "PURCHASE",
+          bidStrategyType: "cost_cap",
+          bidStrategyLabel: "Cost Cap",
+          bidValue: 3000,
+          bidValueFormat: "currency",
+        }),
+        metaHealthy({
+          id: "adset_uniform_a",
+          level: "adset",
+          name: "Uniform Adset A",
+          campaignId: "cmp_uniform",
+          campaignName: "Uniform Campaign",
+          spend: 101,
+          customEventType: "PURCHASE",
+          bidStrategyType: "cost_cap",
+          bidStrategyLabel: "Cost Cap",
+          bidValue: 3000,
+          bidValueFormat: "currency",
+        }),
+        metaHealthy({
+          id: "adset_uniform_b",
+          level: "adset",
+          name: "Uniform Adset B",
+          campaignId: "cmp_uniform",
+          campaignName: "Uniform Campaign",
+          spend: 102,
+          customEventType: "PURCHASE",
+          bidStrategyType: "cost_cap",
+          bidStrategyLabel: "Cost Cap",
+          bidValue: 3000,
+          bidValueFormat: "currency",
+        }),
+      ],
+      counts: { actionNow: 1, watching: 1, healthy: 3 },
+    });
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+
+    expect(countText(html, ">Optimization</span>")).toBe(1);
+    expect(countText(html, ">Purchase</span>")).toBe(1);
+    expect(countText(html, ">Cost Cap</span>")).toBe(1);
+    expect(countText(html, ">$30</span>")).toBe(2);
+  });
+
+  it("marks mixed optimization at campaign level and shows each adset event", () => {
+    state.lanePayload = metaLanePayload({
+      healthy: [
+        metaHealthy({
+          id: "cmp_mixed_events",
+          level: "campaign",
+          name: "Mixed Event Campaign",
+          customEventType: null,
+          isCustomEventTypeMixed: true,
+          bidStrategyType: "lowest_cost",
+          bidStrategyLabel: "Lowest Cost",
+        }),
+        metaHealthy({
+          id: "adset_purchase",
+          level: "adset",
+          name: "Purchase Adset",
+          campaignId: "cmp_mixed_events",
+          campaignName: "Mixed Event Campaign",
+          customEventType: "PURCHASE",
+          bidStrategyType: "lowest_cost",
+          bidStrategyLabel: "Lowest Cost",
+        }),
+        metaHealthy({
+          id: "adset_atc",
+          level: "adset",
+          name: "ATC Adset",
+          campaignId: "cmp_mixed_events",
+          campaignName: "Mixed Event Campaign",
+          customEventType: "ADD_TO_CART",
+          bidStrategyType: "lowest_cost",
+          bidStrategyLabel: "Lowest Cost",
+        }),
+      ],
+      counts: { actionNow: 1, watching: 1, healthy: 3 },
+    });
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+
+    expect(countText(html, ">Optimization</span>")).toBe(3);
+    expect(html).toContain(">Mix</span>");
+    expect(html).toContain(">Purchase</span>");
+    expect(html).toContain(">Add to Cart</span>");
+  });
+
+  it("marks mixed bid strategy at campaign level and keeps adset strategy details", () => {
+    state.lanePayload = metaLanePayload({
+      healthy: [
+        metaHealthy({
+          id: "cmp_mixed_bid",
+          level: "campaign",
+          name: "Mixed Bid Campaign",
+          customEventType: "PURCHASE",
+          bidStrategyType: null,
+          bidStrategyLabel: null,
+          isBidStrategyMixed: true,
+        }),
+        metaHealthy({
+          id: "adset_cost_cap",
+          level: "adset",
+          name: "Cost Cap Adset",
+          campaignId: "cmp_mixed_bid",
+          campaignName: "Mixed Bid Campaign",
+          customEventType: "PURCHASE",
+          bidStrategyType: "cost_cap",
+          bidStrategyLabel: "Cost Cap",
+          bidValue: 3000,
+          bidValueFormat: "currency",
+        }),
+        metaHealthy({
+          id: "adset_bid_cap",
+          level: "adset",
+          name: "Bid Cap Adset",
+          campaignId: "cmp_mixed_bid",
+          campaignName: "Mixed Bid Campaign",
+          customEventType: "PURCHASE",
+          bidStrategyType: "bid_cap",
+          bidStrategyLabel: "Bid Cap",
+          bidValue: 2400,
+          bidValueFormat: "currency",
+        }),
+      ],
+      counts: { actionNow: 1, watching: 1, healthy: 3 },
+    });
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+
+    expect(countText(html, ">Optimization</span>")).toBe(1);
+    expect(html).toContain(">Mix</span>");
+    expect(html).toContain(">Cost Cap</span>");
+    expect(html).toContain(">Bid Cap</span>");
+    expect(html).toContain(">$30</span>");
+    expect(html).toContain(">$24</span>");
+  });
+
+  it("shows uniform optimization on synthetic campaign headers inferred from adsets", () => {
+    state.lanePayload = metaLanePayload({
+      healthy: [
+        metaHealthy({
+          id: "adset_atc_only",
+          level: "adset",
+          name: "25Video",
+          campaignId: "cmp_adtc",
+          campaignName: "ADTC",
+          spend: 541,
+          roas: 0.13,
+          customEventType: "ADD_TO_CART",
+          bidStrategyType: "lowest_cost",
+          bidStrategyLabel: "Lowest Cost",
+        }),
+      ],
+      counts: { actionNow: 1, watching: 1, healthy: 1 },
+    });
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="IwaStore" currency="USD" />,
+    );
+
+    expect(html).toContain('data-healthy-synthetic-campaign="cmp_adtc"');
+    expect(html).toContain(">ADTC</div>");
+    expect(html).toContain(">Add to Cart</span>");
+    expect(countText(html, ">Optimization</span>")).toBe(1);
+    expect(html).toContain(">Lowest Cost</span>");
+    expect(html).toContain(">1 adset</div>");
   });
 });

@@ -386,6 +386,7 @@ export function MetaPulse({ pulse, window, onWindowChange }: MetaPulseProps) {
   return (
     <PulseStrip
       variant="meta"
+      sticky={false}
       left={
         <div className="flex items-center gap-2" data-pulse-band="controls">
           <label className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[12px] text-slate-700">

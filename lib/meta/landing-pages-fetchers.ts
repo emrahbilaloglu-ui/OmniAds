@@ -4,7 +4,7 @@ import type { MetaAdRecord } from "@/lib/meta/creatives-types";
 
 export type MetaLandingPageAdRecord = Pick<MetaAdRecord, "id" | "name" | "creative">;
 
-export const META_LANDING_PAGE_FIELDSET_VERSION = "v1_minimal_url_fields";
+export const META_LANDING_PAGE_FIELDSET_VERSION = "v2_minimal_supported_url_fields";
 export const META_LANDING_PAGE_BLOCKED_FIELDS = [
   "catalog_id",
   "image_url",
@@ -87,7 +87,7 @@ export function getMetaLandingPageCreativeFields(): string {
     "object_story_id",
     "effective_object_story_id",
     "object_story_spec{link_data{link,call_to_action{type,value{link}},child_attachments{link}},video_data{call_to_action{type,value{link}}},photo_data{call_to_action{type,value{link}}},template_data}",
-    "asset_feed_spec{link_urls{website_url,display_url,url}}",
+    "asset_feed_spec{link_urls{website_url,display_url}}",
   ].join(",");
 
   for (const blockedField of META_LANDING_PAGE_BLOCKED_FIELDS) {
@@ -107,6 +107,7 @@ export async function fetchMetaLandingPageAdsMap(
 ): Promise<MetaLandingPageFetchResult> {
   const cacheKey = metaCacheKey([
     "meta-landing-pages-ads",
+    META_LANDING_PAGE_FIELDSET_VERSION,
     toAdAccountNodeId(accountId),
     hashForCache(accessToken),
   ]);

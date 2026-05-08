@@ -42,6 +42,7 @@ export interface MetaHealthyEntity {
   cpa: number | null;
   status: string | null;
   optimizationGoal?: string | null;
+  customEventType?: string | null;
   bidStrategyType?: string | null;
   bidStrategyLabel?: string | null;
   manualBidAmount?: number | null;
@@ -52,6 +53,7 @@ export interface MetaHealthyEntity {
   previousBidValueFormat?: "currency" | "roas" | null;
   previousBidValueCapturedAt?: string | null;
   isOptimizationGoalMixed?: boolean;
+  isCustomEventTypeMixed?: boolean;
   isBidStrategyMixed?: boolean;
   isBidValueMixed?: boolean;
 }

@@ -3,6 +3,7 @@ import {
   buildConfigSnapshotPayload,
   normalizeBidStrategy,
   normalizeOptimizationGoal,
+  stripIncompleteConstrainedBidFields,
   summarizeCampaignConfig,
 } from "@/lib/meta/configuration";
 
@@ -20,6 +21,34 @@ describe("meta configuration helpers", () => {
     expect(normalizeBidStrategy(null, 2500)).toEqual({
       type: "manual_bid",
       label: "Manual Bid",
+    });
+  });
+
+  it("strips incomplete constrained bid fields before durable storage", () => {
+    expect(
+      stripIncompleteConstrainedBidFields({
+        bidStrategyType: "cost_cap",
+        bidValue: null,
+        bidValueFormat: "currency",
+        isBidValueMixed: true,
+      }),
+    ).toEqual({
+      bidStrategyType: null,
+      bidValue: null,
+      bidValueFormat: null,
+      isBidValueMixed: false,
+    });
+
+    expect(
+      stripIncompleteConstrainedBidFields({
+        bidStrategyType: "lowest_cost",
+        bidValue: null,
+        bidValueFormat: null,
+      }),
+    ).toEqual({
+      bidStrategyType: "lowest_cost",
+      bidValue: null,
+      bidValueFormat: null,
     });
   });
 

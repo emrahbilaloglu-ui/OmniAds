@@ -65,6 +65,7 @@ import { META_CANONICAL_METRIC_SCHEMA_VERSION } from "@/lib/meta/canonical-metri
 import {
   deriveManualBidAmount,
   formatBidStrategyLabel,
+  stripIncompleteConstrainedBidFields,
 } from "@/lib/meta/configuration";
 
 const META_SOURCE_PRIORITY_SQL = `
@@ -8099,7 +8100,8 @@ async function appendMetaCampaignConfigHistoryRows(
   const sql = getDb();
   for (const chunk of chunkRows(rows, 150)) {
     const values: unknown[] = [];
-    const placeholders = chunk
+    const filtered = chunk
+      .map((row) => stripIncompleteConstrainedBidFields(row))
       .filter((row) =>
         row.objective != null ||
         row.optimizationGoal != null ||
@@ -8114,7 +8116,8 @@ async function appendMetaCampaignConfigHistoryRows(
         Boolean(row.isCustomEventTypeMixed) ||
         row.isBidStrategyMixed ||
         row.isBidValueMixed,
-      )
+      );
+    const placeholders = filtered
       .map((row, index) => {
         const offset = index * 24;
         const capturedAt = buildMetaHistoryCapturedAt(row);
@@ -8264,22 +8267,24 @@ async function appendMetaAdSetConfigHistoryRows(
   const sql = getDb();
   for (const chunk of chunkRows(rows, 150)) {
     const values: unknown[] = [];
-    const filtered = chunk.filter((row) =>
-      row.optimizationGoal != null ||
-      row.customEventType != null ||
-      row.pixelId != null ||
-      row.customConversionId != null ||
-      row.promotedObjectJson != null ||
-      row.bidStrategyType != null ||
-      row.bidValue != null ||
-      row.dailyBudget != null ||
-      row.lifetimeBudget != null ||
-      row.isBudgetMixed ||
-      row.isConfigMixed ||
-      row.isOptimizationGoalMixed ||
-      row.isBidStrategyMixed ||
-      row.isBidValueMixed,
-    );
+    const filtered = chunk
+      .map((row) => stripIncompleteConstrainedBidFields(row))
+      .filter((row) =>
+        row.optimizationGoal != null ||
+        row.customEventType != null ||
+        row.pixelId != null ||
+        row.customConversionId != null ||
+        row.promotedObjectJson != null ||
+        row.bidStrategyType != null ||
+        row.bidValue != null ||
+        row.dailyBudget != null ||
+        row.lifetimeBudget != null ||
+        row.isBudgetMixed ||
+        row.isConfigMixed ||
+        row.isOptimizationGoalMixed ||
+        row.isBidStrategyMixed ||
+        row.isBidValueMixed,
+      );
 
     const placeholders = filtered.map((row, index) => {
       const offset = index * 26;

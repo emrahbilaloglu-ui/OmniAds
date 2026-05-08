@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, GitCompare, Plus, RefreshCw, Rocket, Target, TrendingUp } from "lucide-react";
+import { AlertTriangle, GitCompare, Plus, RefreshCw, Rocket, SlidersHorizontal, Target, TrendingUp } from "lucide-react";
 import {
   BulkToolbar,
   CompareDrawer,
@@ -162,6 +162,11 @@ interface HealthyCampaignGroup {
   adsets: MetaHealthyEntity[];
 }
 
+interface HealthyConfigSummary {
+  isMixed: boolean;
+  value: string | null;
+}
+
 function healthyCampaignKey(row: MetaHealthyEntity) {
   if (row.level === "campaign") return row.campaignId ?? row.id;
   if (row.campaignId) return row.campaignId;
@@ -201,7 +206,88 @@ function groupHealthyEntities(rows: MetaHealthyEntity[]) {
   return [...groups.values()];
 }
 
-function SyntheticHealthyCampaignHeader({ group }: { group: HealthyCampaignGroup }) {
+function formatHealthyConfigLabel(value: string | null | undefined) {
+  if (!value) return null;
+  return value
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .split(/\s+/)
+    .map((word, index) => {
+      if (index > 0 && ["and", "or", "of", "to", "with"].includes(word)) return word;
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(" ");
+}
+
+function rowOptimizationDisplayValue(row: MetaHealthyEntity) {
+  return formatHealthyConfigLabel(row.customEventType) ?? formatHealthyConfigLabel(row.optimizationGoal);
+}
+
+function rowOptimizationKey(row: MetaHealthyEntity) {
+  if (row.isCustomEventTypeMixed || row.isOptimizationGoalMixed) return "__mixed__";
+  return (row.customEventType ?? row.optimizationGoal ?? "").trim().toLowerCase() || "__missing__";
+}
+
+function rowBidStrategyDisplayValue(row: MetaHealthyEntity) {
+  return row.bidStrategyLabel ?? formatHealthyConfigLabel(row.bidStrategyType);
+}
+
+function rowBidStrategyKey(row: MetaHealthyEntity) {
+  if (row.isBidStrategyMixed) return "__mixed__";
+  return (row.bidStrategyType ?? row.bidStrategyLabel ?? "").trim().toLowerCase() || "__missing__";
+}
+
+function summarizeGroupConfig(
+  adsets: MetaHealthyEntity[],
+  keyForRow: (row: MetaHealthyEntity) => string,
+  labelForRow: (row: MetaHealthyEntity) => string | null | undefined,
+): HealthyConfigSummary {
+  if (adsets.length === 0) return { isMixed: false, value: null };
+  const keys = new Set(adsets.map(keyForRow));
+  if (keys.size !== 1 || keys.has("__mixed__")) return { isMixed: true, value: "Mix" };
+  return { isMixed: false, value: labelForRow(adsets[0]) ?? null };
+}
+
+function SyntheticConfigChip({
+  label,
+  value,
+  tone = "slate",
+}: {
+  label: string;
+  value: string | null;
+  tone?: "slate" | "violet";
+}) {
+  if (!value) return null;
+  return (
+    <span
+      title={`${label}: ${value}`}
+      className={cn(
+        "inline-flex min-w-0 max-w-[210px] items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10.5px]",
+        tone === "violet"
+          ? "border-violet-200 bg-violet-50 text-violet-700"
+          : "border-slate-200 bg-slate-50 text-slate-600",
+      )}
+    >
+      {tone === "violet" ? (
+        <Target className="inline-block shrink-0" size={10} aria-hidden="true" />
+      ) : (
+        <SlidersHorizontal className="inline-block shrink-0" size={10} aria-hidden="true" />
+      )}
+      <span className="shrink-0 text-slate-400">{label}</span>
+      <span className="truncate font-medium">{value}</span>
+    </span>
+  );
+}
+
+function SyntheticHealthyCampaignHeader({
+  group,
+  optimizationSummary,
+  bidStrategySummary,
+}: {
+  group: HealthyCampaignGroup;
+  optimizationSummary: HealthyConfigSummary;
+  bidStrategySummary: HealthyConfigSummary;
+}) {
   return (
     <div
       className="flex items-center gap-3 rounded-lg border border-dashed border-slate-200 bg-white px-3 py-2"
@@ -213,7 +299,11 @@ function SyntheticHealthyCampaignHeader({ group }: { group: HealthyCampaignGroup
         <div className="truncate text-[12.5px] font-medium text-slate-900">{group.campaignName}</div>
         <div className="truncate text-[11px] text-slate-500">Campaign context inferred from adset snapshot</div>
       </div>
-      <div className="text-[11px] text-slate-500">{group.adsets.length} adsets</div>
+      <div className="hidden min-w-0 shrink-0 items-center justify-end gap-1.5 xl:flex">
+        <SyntheticConfigChip label="Optimization" value={optimizationSummary.value} tone="violet" />
+        <SyntheticConfigChip label="Bid" value={bidStrategySummary.value} />
+      </div>
+      <div className="text-[11px] text-slate-500">{group.adsets.length} {group.adsets.length === 1 ? "adset" : "adsets"}</div>
     </div>
   );
 }
@@ -221,34 +311,60 @@ function SyntheticHealthyCampaignHeader({ group }: { group: HealthyCampaignGroup
 function MetaHealthyHierarchy({ groups }: { groups: HealthyCampaignGroup[] }) {
   return (
     <>
-      {groups.map((group) => (
-        <div
-          key={group.campaignKey}
-          className="rounded-xl border border-slate-200 bg-slate-50/60 p-2"
-          data-healthy-campaign-group={group.campaignKey}
-        >
-          {group.campaign ? (
-            <MetaHealthyRow row={group.campaign} />
-          ) : (
-            <SyntheticHealthyCampaignHeader group={group} />
-          )}
-          {group.adsets.length > 0 ? (
-            <div
-              className="ml-5 mt-2 grid gap-2 border-l border-slate-200 pl-4"
-              data-healthy-adsets-for-campaign={group.campaignKey}
-            >
-              {group.adsets.map((row) => (
-                <MetaHealthyRow
-                  key={`${row.level}-${row.id}`}
-                  row={row}
-                  depth="child"
-                  hideCampaignName={row.campaignName === group.campaignName}
-                />
-              ))}
-            </div>
-          ) : null}
-        </div>
-      ))}
+      {groups.map((group) => {
+        const optimizationSummary = summarizeGroupConfig(
+          group.adsets,
+          rowOptimizationKey,
+          rowOptimizationDisplayValue,
+        );
+        const bidStrategySummary = summarizeGroupConfig(
+          group.adsets,
+          rowBidStrategyKey,
+          rowBidStrategyDisplayValue,
+        );
+        const hasAdsets = group.adsets.length > 0;
+
+        return (
+          <div
+            key={group.campaignKey}
+            className="rounded-xl border border-slate-200 bg-slate-50/60 p-2"
+            data-healthy-campaign-group={group.campaignKey}
+          >
+            {group.campaign ? (
+              <MetaHealthyRow
+                row={group.campaign}
+                optimizationValueOverride={hasAdsets ? optimizationSummary.value : undefined}
+                bidStrategyValueOverride={hasAdsets ? bidStrategySummary.value : undefined}
+                showBidValue={false}
+                showPreviousBid={false}
+              />
+            ) : (
+              <SyntheticHealthyCampaignHeader
+                group={group}
+                optimizationSummary={optimizationSummary}
+                bidStrategySummary={bidStrategySummary}
+              />
+            )}
+            {group.adsets.length > 0 ? (
+              <div
+                className="ml-5 mt-2 grid gap-2 border-l border-slate-200 pl-4"
+                data-healthy-adsets-for-campaign={group.campaignKey}
+              >
+                {group.adsets.map((row) => (
+                  <MetaHealthyRow
+                    key={`${row.level}-${row.id}`}
+                    row={row}
+                    depth="child"
+                    hideCampaignName={row.campaignName === group.campaignName}
+                    hideOptimization={!optimizationSummary.isMixed}
+                    hideBidStrategy={!bidStrategySummary.isMixed}
+                  />
+                ))}
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
     </>
   );
 }

@@ -130,6 +130,8 @@ describe("meta request model store", () => {
     });
 
     expect(queryText).toContain("LEFT JOIN LATERAL");
+    expect(queryText).toContain("latest_bid AS");
+    expect(queryText).toContain("AND bid_value IS NOT NULL");
     expect(queryText).not.toContain("ORDER BY campaign_id ASC");
     expect(rows.get("cmp-1")).toMatchObject({
       previousManualBidAmount: 10,

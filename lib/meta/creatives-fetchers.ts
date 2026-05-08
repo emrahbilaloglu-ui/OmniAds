@@ -66,7 +66,8 @@ export function metaCacheKey(parts: Array<string | number | boolean | null | und
     .join(":");
 }
 
-const META_BATCH_ADS_FIELDSET_VERSION = "v5";
+const META_BATCH_ADS_FIELDSET_VERSION = "v7";
+const META_CREATIVE_DETAILS_FIELDSET_VERSION = "v5";
 const META_CREATIVE_INSIGHTS_FIELDSET_VERSION = "v3";
 const META_CREATIVE_INSIGHTS_MAX_PAGES = 20;
 const META_CREATIVE_INSIGHTS_RICH_AD_ID_CHUNK_SIZE = 200;
@@ -127,7 +128,9 @@ export function getCreativeMediaFields(): string {
     "object_type",
     "video_id",
     "object_story_spec{link_data{link,message,name,description,picture,call_to_action{type,value{link}},child_attachments{link,picture}},video_data{video_id,message,title,call_to_action{type,value{link}}},photo_data{message,caption,call_to_action{type,value{link}}},template_data}",
-    "asset_feed_spec{bodies{text},titles{text},descriptions{text},videos{video_id},link_urls{website_url,display_url,url}}",
+    "object_story_id",
+    "effective_object_story_id",
+    "asset_feed_spec{bodies{text},titles{text},descriptions{text},videos{video_id},link_urls{website_url,display_url}}",
   ].join(",");
 }
 
@@ -138,7 +141,9 @@ export function getCreativeSummaryFields(): string {
     "object_type",
     "video_id",
     "object_story_spec{link_data{child_attachments{link,picture}},video_data{video_id},template_data}",
-    "asset_feed_spec{images{hash},videos{video_id},bodies{text},titles{text},descriptions{text},link_urls{website_url,display_url,url}}",
+    "object_story_id",
+    "effective_object_story_id",
+    "asset_feed_spec{images{hash},videos{video_id},bodies{text},titles{text},descriptions{text},link_urls{website_url,display_url}}",
   ].join(",");
 }
 
@@ -146,11 +151,11 @@ export function getCreativeDetailFields(): string {
   return [
     "id",
     "name",
-    "object_type",
-    "video_id",
     "object_story_spec{link_data{link,message,name,description,picture,call_to_action{type,value{link}},child_attachments{link,picture}},video_data{video_id,message,title,call_to_action{type,value{link}}},photo_data{message,caption,call_to_action{type,value{link}}},template_data}",
+    "object_story_id",
+    "effective_object_story_id",
     // Keep this set conservative for adcreative IDs endpoint stability.
-    "asset_feed_spec{bodies{text},titles{text},descriptions{text},videos{video_id},link_urls{website_url,display_url,url}}",
+    "asset_feed_spec{bodies{text},titles{text},descriptions{text},videos{video_id},link_urls{website_url,display_url}}",
   ].join(",");
 }
 
@@ -161,7 +166,9 @@ export function getNestedCreativeMediaFields(): string {
     "object_type",
     "video_id",
     "object_story_spec{link_data{link,message,name,description,picture,call_to_action{type,value{link}},child_attachments{link,picture}},video_data{video_id,message,title,call_to_action{type,value{link}}},photo_data{message,caption,call_to_action{type,value{link}}},template_data}",
-    "asset_feed_spec{bodies{text},titles{text},descriptions{text},videos{video_id},link_urls{website_url,display_url,url}}",
+    "object_story_id",
+    "effective_object_story_id",
+    "asset_feed_spec{bodies{text},titles{text},descriptions{text},videos{video_id},link_urls{website_url,display_url}}",
   ].join(",");
 }
 
@@ -172,7 +179,9 @@ export function getNestedCreativeSummaryFields(): string {
     "object_type",
     "video_id",
     "object_story_spec{link_data{child_attachments{link,picture}},video_data{video_id},template_data}",
-    "asset_feed_spec{images{hash},videos{video_id},bodies{text},titles{text},descriptions{text},link_urls{website_url,display_url,url}}",
+    "object_story_id",
+    "effective_object_story_id",
+    "asset_feed_spec{images{hash},videos{video_id},bodies{text},titles{text},descriptions{text},link_urls{website_url,display_url}}",
   ].join(",");
 }
 
@@ -601,7 +610,12 @@ export async function fetchCreativeDetailsMap(
   const safeFields = getCreativeDetailFields();
   const advancedFields = getCreativeDetailAdvancedFields();
   return readThroughCache({
-    key: metaCacheKey(["meta-creative-details", hashForCache(accessToken), hashForCache(uniqueIds.join(","))]),
+    key: metaCacheKey([
+      "meta-creative-details",
+      META_CREATIVE_DETAILS_FIELDSET_VERSION,
+      hashForCache(accessToken),
+      hashForCache(uniqueIds.join(",")),
+    ]),
     ttlMs: 15 * 60_000,
     loader: async () => {
       const chunkSize = 40;

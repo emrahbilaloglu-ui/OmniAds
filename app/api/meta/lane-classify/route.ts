@@ -21,6 +21,7 @@ interface HealthyMetaRow {
   cpa: number | null;
   status: string | null;
   optimizationGoal?: string | null;
+  customEventType?: string | null;
   bidStrategyType?: string | null;
   bidStrategyLabel?: string | null;
   manualBidAmount?: number | null;
@@ -31,6 +32,7 @@ interface HealthyMetaRow {
   previousBidValueFormat?: "currency" | "roas" | null;
   previousBidValueCapturedAt?: string | null;
   isOptimizationGoalMixed?: boolean;
+  isCustomEventTypeMixed?: boolean;
   isBidStrategyMixed?: boolean;
   isBidValueMixed?: boolean;
 }
@@ -130,6 +132,7 @@ function healthyCampaignRows(input: {
       cpa: row.cpa == null ? null : toNumber(row.cpa),
       status: row.status,
       optimizationGoal: row.optimizationGoal,
+      customEventType: row.customEventType,
       bidStrategyType: row.bidStrategyType,
       bidStrategyLabel: row.bidStrategyLabel,
       manualBidAmount: row.manualBidAmount,
@@ -140,6 +143,7 @@ function healthyCampaignRows(input: {
       previousBidValueFormat: row.previousBidValueFormat,
       previousBidValueCapturedAt: row.previousBidValueCapturedAt,
       isOptimizationGoalMixed: row.isOptimizationGoalMixed,
+      isCustomEventTypeMixed: row.isCustomEventTypeMixed,
       isBidStrategyMixed: row.isBidStrategyMixed,
       isBidValueMixed: row.isBidValueMixed,
     }));
@@ -166,6 +170,7 @@ function healthyAdsetRows(input: {
       cpa: row.cpa == null ? null : toNumber(row.cpa),
       status: row.status,
       optimizationGoal: row.optimizationGoal,
+      customEventType: row.customEventType,
       bidStrategyType: row.bidStrategyType,
       bidStrategyLabel: row.bidStrategyLabel,
       manualBidAmount: row.manualBidAmount,
@@ -176,6 +181,7 @@ function healthyAdsetRows(input: {
       previousBidValueFormat: row.previousBidValueFormat,
       previousBidValueCapturedAt: row.previousBidValueCapturedAt,
       isOptimizationGoalMixed: row.isOptimizationGoalMixed,
+      isCustomEventTypeMixed: row.isCustomEventTypeMixed,
       isBidStrategyMixed: row.isBidStrategyMixed,
       isBidValueMixed: row.isBidValueMixed,
     }));

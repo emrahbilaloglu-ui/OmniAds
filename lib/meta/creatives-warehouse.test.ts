@@ -132,6 +132,13 @@ describe("meta creatives warehouse", () => {
         buildProjectionRow({
           id: "ad-1",
           creative_id: "shared-creative",
+          object_story_id: "123_456",
+          effective_object_story_id: "123_789",
+          destination_url: "https://iwastore.com/products/lp",
+          destination_url_raw: "https://iwastore.com/products/lp?utm_source=meta",
+          destination_url_source: "creative_link_data",
+          destination_url_confidence: "high",
+          cta_type: "SHOP_NOW",
           preview_url: "https://example.com/ad-1-preview.jpg",
           thumbnail_url: "https://example.com/ad-1-thumb.jpg",
         }),
@@ -176,12 +183,34 @@ describe("meta creatives warehouse", () => {
         }),
       ]),
     );
+    const adRows = vi.mocked(warehouse.upsertMetaAdDailyRows).mock.calls[0]?.[0] ?? [];
+    expect(adRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          adId: "ad-1",
+          destinationUrl: "https://iwastore.com/products/lp",
+          destinationUrlRaw: "https://iwastore.com/products/lp?utm_source=meta",
+          destinationUrlSource: "creative_link_data",
+          destinationUrlConfidence: "high",
+          ctaType: "SHOP_NOW",
+          objectStoryId: "123_456",
+          effectiveObjectStoryId: "123_789",
+        }),
+      ]),
+    );
     const creativeRows =
       vi.mocked(warehouse.upsertMetaCreativeDailyRows).mock.calls[0]?.[0] ?? [];
     expect(creativeRows).toHaveLength(1);
     expect(creativeRows[0]).toEqual(
       expect.objectContaining({
         creativeId: "shared-creative",
+        destinationUrl: "https://iwastore.com/products/lp",
+        destinationUrlRaw: "https://iwastore.com/products/lp?utm_source=meta",
+        destinationUrlSource: "creative_link_data",
+        destinationUrlConfidence: "high",
+        ctaType: "SHOP_NOW",
+        objectStoryId: "123_456",
+        effectiveObjectStoryId: "123_789",
       }),
     );
   });

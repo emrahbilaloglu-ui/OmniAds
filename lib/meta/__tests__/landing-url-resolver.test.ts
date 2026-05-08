@@ -214,5 +214,7 @@ describe("getMetaLandingPageCreativeFields", () => {
     for (const blockedField of META_LANDING_PAGE_BLOCKED_FIELDS) {
       expect(fieldSet.includes(blockedField)).toBe(false);
     }
+    expect(fieldSet).not.toContain("link_urls{website_url,display_url,url}");
+    expect(fieldSet).toContain("link_urls{website_url,display_url}");
   });
 });

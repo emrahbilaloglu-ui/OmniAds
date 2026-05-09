@@ -282,7 +282,7 @@ describe("resolveMetaIntegrationProgress", () => {
     });
   });
 
-  it("localizes recent-window progress in English", () => {
+  it("localizes default extended progress in English without pseudo window counts", () => {
     const model = resolveMetaIntegrationProgress(buildStatus(), "en");
 
     expect(model?.stages.map((stage) => stage.title)).toEqual([
@@ -314,7 +314,7 @@ describe("resolveMetaIntegrationProgress", () => {
       detail: "Ads and creatives continue backfilling in the background.",
       evidence: expect.stringContaining("Pending breakdowns.age"),
     });
-    expect(model?.stages[3]?.evidence).toContain("110/365 days");
+    expect(model?.stages[3]?.evidence).not.toContain("110/365 days");
     expect(model?.stages[3]?.evidence).toContain("Oldest stored date:");
     expect(model?.stages[3]?.evidence).not.toContain("Ready through");
   });

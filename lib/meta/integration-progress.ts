@@ -152,8 +152,8 @@ function localizeStageLabel(
         : "breakdowns preparing";
     case "recent_extended_preparing":
       return language === "tr"
-        ? "yakın yüzeyler hazırlanıyor"
-        : "recent surfaces preparing";
+        ? "genişletilmiş hazırlanıyor"
+        : "extended preparing";
     case "historical_extended_preparing":
       return language === "tr" ? "geçmiş tamamlanıyor" : "history continuing";
     case "extended_waiting":
@@ -546,8 +546,8 @@ function getExtendedDetail(
         : "Breakdowns, ads, and creatives are ready.";
     case "recent_extended_preparing":
       return language === "tr"
-        ? "Yakın pencere için reklamlar ve kreatifler hâlâ hazırlanıyor."
-        : "Ads and creatives for the recent window are still preparing.";
+        ? "Reklamlar, kreatifler veya breakdownlar hâlâ hazırlanıyor."
+        : "Ads, creatives, or breakdowns are still preparing.";
     case "historical_extended_preparing":
       return language === "tr"
         ? "Reklamlar ve kreatifler arka planda geçmişi tamamlamayı sürdürüyor."

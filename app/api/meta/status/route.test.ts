@@ -41,6 +41,7 @@ vi.mock("@/lib/meta/warehouse", () => ({
   getMetaCreativeDailyCoverage: vi.fn(),
   getMetaSyncPhaseTimingSummaries: vi.fn(),
   getMetaDeadLetterRecoverySummary: vi.fn(),
+  getMetaBreakdownDailyCoverageByEndpoint: vi.fn(),
   getMetaQueueComposition: vi.fn(),
   getMetaQueueHealth: vi.fn(),
   getMetaRawSnapshotCoverageByEndpoint: vi.fn(),
@@ -340,6 +341,9 @@ describe("GET /api/meta/status", () => {
           { completed_days: 365, ready_through_date: "2026-03-30" },
         ],
       ]) as never
+    );
+    vi.mocked(warehouse.getMetaBreakdownDailyCoverageByEndpoint).mockImplementation(
+      (input) => warehouse.getMetaRawSnapshotCoverageByEndpoint(input) as never,
     );
     vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue(null as never);
     vi.mocked(warehouse.getMetaQueueComposition).mockResolvedValue(null as never);
@@ -1130,7 +1134,7 @@ describe("GET /api/meta/status", () => {
     });
   });
 
-  it("keeps no-date page readiness ready when recent breakdown coverage is complete but historical extended history still lags", async () => {
+  it("keeps no-date page readiness ready when default breakdown coverage is complete but historical extended history still lags", async () => {
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
       id: "int_meta",
       business_id: "biz",
@@ -1151,11 +1155,11 @@ describe("GET /api/meta/status", () => {
     });
     vi.mocked(warehouse.getMetaRawSnapshotCoverageByEndpoint).mockResolvedValue(
       new Map([
-        ["breakdown_age", { completed_days: 20, ready_through_date: "2026-04-12" }],
-        ["breakdown_country", { completed_days: 20, ready_through_date: "2026-04-12" }],
+        ["breakdown_age", { completed_days: 90, ready_through_date: "2026-04-12" }],
+        ["breakdown_country", { completed_days: 90, ready_through_date: "2026-04-12" }],
         [
           "breakdown_publisher_platform,platform_position,impression_device",
-          { completed_days: 20, ready_through_date: "2026-04-12" },
+          { completed_days: 90, ready_through_date: "2026-04-12" },
         ],
       ]) as never,
     );
@@ -1183,9 +1187,9 @@ describe("GET /api/meta/status", () => {
     expect(payload.state).toBe("ready");
     expect(payload.latestSync?.phaseLabel ?? null).toBeNull();
     expect(payload.warehouse?.coverage?.breakdownsBySurface).toMatchObject({
-      age: { completedDays: 14, totalDays: 14, isComplete: true },
-      location: { completedDays: 14, totalDays: 14, isComplete: true },
-      placement: { completedDays: 14, totalDays: 14, isComplete: true },
+      age: { completedDays: 90, totalDays: 90, isComplete: true },
+      location: { completedDays: 90, totalDays: 90, isComplete: true },
+      placement: { completedDays: 90, totalDays: 90, isComplete: true },
     });
     expect(payload.historicalExtendedReady).toBe(false);
     expect(payload.integrationSummary).toMatchObject({
@@ -1199,6 +1203,92 @@ describe("GET /api/meta/status", () => {
     ).toMatchObject({
       state: "ready",
       code: "extended_ready",
+    });
+  });
+
+  it("uses persisted breakdown coverage for no-date readiness when raw snapshot coverage lags", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(warehouse.getMetaRawSnapshotCoverageByEndpoint).mockResolvedValue(
+      new Map([
+        ["breakdown_age", { completed_days: 9, ready_through_date: "2026-04-12" }],
+        ["breakdown_country", { completed_days: 9, ready_through_date: "2026-04-12" }],
+        [
+          "breakdown_publisher_platform,platform_position,impression_device",
+          { completed_days: 9, ready_through_date: "2026-04-12" },
+        ],
+      ]) as never,
+    );
+    vi.mocked(warehouse.getMetaBreakdownDailyCoverageByEndpoint).mockResolvedValue(
+      new Map([
+        [
+          "breakdown_age",
+          {
+            completed_days: 90,
+            first_completed_date: "2026-01-13",
+            ready_through_date: "2026-04-12",
+          },
+        ],
+        [
+          "breakdown_country",
+          {
+            completed_days: 90,
+            first_completed_date: "2026-01-13",
+            ready_through_date: "2026-04-12",
+          },
+        ],
+        [
+          "breakdown_publisher_platform,platform_position,impression_device",
+          {
+            completed_days: 90,
+            first_completed_date: "2026-01-13",
+            ready_through_date: "2026-04-12",
+          },
+        ],
+      ]) as never,
+    );
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/status?businessId=biz"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.extendedCompleteness).toMatchObject({
+      state: "ready",
+      complete: true,
+      percent: 100,
+      missingSurfaces: [],
+    });
+    expect(payload.warehouse?.coverage?.breakdownsBySurface).toMatchObject({
+      age: { completedDays: 90, totalDays: 90, isComplete: true },
+      location: { completedDays: 90, totalDays: 90, isComplete: true },
+      placement: { completedDays: 90, totalDays: 90, isComplete: true },
+    });
+    expect(
+      payload.integrationSummary.stages.find(
+        (stage: { key: string }) => stage.key === "extended_surfaces",
+      ),
+    ).toMatchObject({
+      state: "ready",
+      code: "extended_ready",
+      percent: null,
     });
   });
 
@@ -1295,11 +1385,11 @@ describe("GET /api/meta/status", () => {
     );
     vi.mocked(warehouse.getMetaRawSnapshotCoverageByEndpoint).mockResolvedValue(
       new Map([
-        ["breakdown_age", { completed_days: 20, ready_through_date: "2026-04-12" }],
-        ["breakdown_country", { completed_days: 20, ready_through_date: "2026-04-12" }],
+        ["breakdown_age", { completed_days: 90, ready_through_date: "2026-04-12" }],
+        ["breakdown_country", { completed_days: 90, ready_through_date: "2026-04-12" }],
         [
           "breakdown_publisher_platform,platform_position,impression_device",
-          { completed_days: 20, ready_through_date: "2026-04-12" },
+          { completed_days: 90, ready_through_date: "2026-04-12" },
         ],
       ]) as never,
     );

@@ -11,6 +11,7 @@ import { META_RECOMMENDATION_ENGINE_VERSION } from "@/lib/meta/recommendations";
 export const dynamic = "force-dynamic";
 
 type PulseWindow = "7d" | "14d" | "28d" | "90d" | "custom";
+type RoasTargetSource = "commercial_truth" | "account_median" | "none";
 
 function parseWindow(value: string | null): PulseWindow {
   if (value === "7d" || value === "14d" || value === "90d" || value === "custom") {
@@ -54,13 +55,66 @@ function totals(rows: Array<{ spend?: number | null; revenue?: number | null; pu
   };
 }
 
-function targetRoas(rows: Array<{ roas?: number | null }>) {
-  const values = rows
-    .map((row) => toNumber(row.roas))
-    .filter((value) => value > 0)
+function positiveNumberOrNull(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function median(values: number[]) {
+  const sorted = values
+    .filter((value) => Number.isFinite(value) && value > 0)
     .sort((left, right) => left - right);
-  if (values.length === 0) return 2;
-  return values[Math.floor(values.length / 2)] ?? 2;
+  if (sorted.length === 0) return null;
+  return sorted[Math.floor(sorted.length / 2)] ?? null;
+}
+
+async function readCommercialTruthTargetRoas(businessId: string) {
+  const sql = getDb();
+  const [row] = (await sql`
+    SELECT target_roas
+    FROM business_target_packs
+    WHERE business_id = ${businessId}
+    LIMIT 1
+  `) as Array<{ target_roas: number | string | null }>;
+  return positiveNumberOrNull(row?.target_roas);
+}
+
+async function readAccountMedianRoas(businessId: string) {
+  const sql = getDb();
+  const rows = (await sql`
+    WITH latest_account_rows AS (
+      SELECT DISTINCT ON (scope_id)
+        scope_id,
+        p50
+      FROM meta_decision_calibration_daily
+      WHERE business_id = ${businessId}
+        AND scope_type = 'account'
+        AND metric_name = 'roas_28d'
+      ORDER BY scope_id, snapshot_date DESC
+    )
+    SELECT p50
+    FROM latest_account_rows
+  `) as Array<{ p50: number | string | null }>;
+  return median(rows.map((row) => Number(row.p50)));
+}
+
+async function resolveBusinessTargetRoas(businessId: string): Promise<{
+  target: number | null;
+  median: number | null;
+  target_source: RoasTargetSource;
+}> {
+  const [target, accountMedian] = await Promise.all([
+    readCommercialTruthTargetRoas(businessId).catch(() => null),
+    readAccountMedianRoas(businessId).catch(() => null),
+  ]);
+
+  if (target != null) {
+    return { target, median: accountMedian, target_source: "commercial_truth" };
+  }
+  if (accountMedian != null) {
+    return { target: null, median: accountMedian, target_source: "account_median" };
+  }
+  return { target: null, median: null, target_source: "none" };
 }
 
 async function readEngineMetadata(businessId: string) {
@@ -121,7 +175,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const [current, previous, d7, d14, d28, engineMetadata, trackingHealth] =
+  const [current, previous, d7, d14, d28, engineMetadata, trackingHealth, roasBenchmark] =
     await Promise.all([
       getMetaCampaignsForRange({ businessId, startDate, endDate }),
       getMetaCampaignsForRange({
@@ -152,6 +206,7 @@ export async function GET(request: NextRequest) {
         status: "unknown" as const,
         detail: "Tracking health is unavailable.",
       })),
+      resolveBusinessTargetRoas(businessId),
     ]);
 
   const currentTotals = totals(current.rows ?? []);
@@ -165,7 +220,7 @@ export async function GET(request: NextRequest) {
   const d7Totals = totals(d7.rows ?? []);
   const d14Totals = totals(d14.rows ?? []);
   const d28Totals = totals(d28.rows ?? []);
-  const target = targetRoas(current.rows ?? []);
+  const targetForMode = roasBenchmark.target ?? roasBenchmark.median ?? currentTotals.roas ?? 1;
   const constrainedBidShare =
     (current.rows ?? []).length > 0
       ? (current.rows ?? []).filter((row) => {
@@ -176,7 +231,7 @@ export async function GET(request: NextRequest) {
   const operatingMode = classifyMetaOperatingMode({
     current: currentTotals,
     previous: previousTotals,
-    targetRoas: target,
+    targetRoas: targetForMode,
     constrainedBidShare,
   });
   const seasonalRegime = classifyMetaSeasonalRegime({
@@ -202,7 +257,9 @@ export async function GET(request: NextRequest) {
         d7: d7Totals.roas,
         d14: d14Totals.roas,
         d28: d28Totals.roas,
-        target,
+        target: roasBenchmark.target,
+        median: roasBenchmark.median,
+        target_source: roasBenchmark.target_source,
       },
       spend: { current: currentTotals.spend, prev: previousTotals.spend },
       revenue: { current: currentTotals.revenue, prev: previousTotals.revenue },

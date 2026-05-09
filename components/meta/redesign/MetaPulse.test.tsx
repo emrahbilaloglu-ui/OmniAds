@@ -40,7 +40,14 @@ describe("MetaPulse", () => {
 
   it("tones multi-window ROAS by breakeven and target", () => {
     const html = renderPulse({
-      roas: { d7: 0.71, d14: 1.23, d28: 1.92, target: 1.83 },
+      roas: {
+        d7: 0.71,
+        d14: 1.23,
+        d28: 1.92,
+        target: 1.83,
+        median: 2.4,
+        target_source: "commercial_truth",
+      },
     });
 
     expect(html).toContain('data-roas-window="7d"');
@@ -94,13 +101,59 @@ describe("MetaPulse", () => {
   });
 
   it("renders ROAS vs target as an explicit sentence with ratio", () => {
-    const html = renderPulse({ roas: { d7: 0.71, d14: 1.23, d28: 1.62, target: 1.83 } });
+    const html = renderPulse({
+      roas: {
+        d7: 0.71,
+        d14: 1.23,
+        d28: 1.62,
+        target: 1.83,
+        median: 2.4,
+        target_source: "commercial_truth",
+      },
+    });
 
     expect(html).toContain("1.62×");
     expect(html).toContain("of 1.83× target");
     expect(html).toContain("· 88%");
     expect(html).toContain("below target");
     expect(html).not.toContain("1.62× / 1.83×");
+  });
+
+  it("renders account median fallback neutrally without a below-target badge", () => {
+    const html = renderPulse({
+      roas: {
+        d7: 0.71,
+        d14: 1.23,
+        d28: 3.83,
+        target: null,
+        median: 4.55,
+        target_source: "account_median",
+      },
+    });
+
+    expect(html).toContain("3.83×");
+    expect(html).toContain("of 4.55× account median");
+    expect(html).toContain("· 84%");
+    expect(html).toContain("text-slate-900");
+    expect(html).not.toContain("below target");
+  });
+
+  it("renders no benchmark available when neither target nor median exists", () => {
+    const html = renderPulse({
+      roas: {
+        d7: 1.8,
+        d14: 1.9,
+        d28: 2.1,
+        target: null,
+        median: null,
+        target_source: "none",
+      },
+    });
+
+    expect(html).toContain("2.10×");
+    expect(html).toContain("no benchmark available");
+    expect(html).not.toContain("below target");
+    expect(html).not.toContain("of null");
   });
 
   it("renders sparkline only when ROAS history is present", () => {

@@ -425,6 +425,78 @@ describe("buildAdminSyncHealth", () => {
     expect(payload.metaBusinesses?.[0]?.effectiveMode).toBe("extended_recovery");
   });
 
+  it("separates terminal Meta account-action dead letters from replayable ones", () => {
+    const payload = buildAdminSyncHealth({
+      jobs: [],
+      cooldowns: [],
+      metaHealth: [
+        {
+          business_id: "biz-meta-checkpoint",
+          business_name: "Tiles Workshop",
+          queue_depth: 0,
+          leased_partitions: 0,
+          retryable_failed_partitions: 0,
+          stale_lease_partitions: 0,
+          dead_letter_partitions: 1,
+          state_row_count: 2,
+          current_day_reference: "2026-05-07",
+          oldest_queued_partition: null,
+          latest_partition_activity_at: "2026-05-07T09:00:00.000Z",
+          latest_checkpoint_scope: "account_daily",
+          latest_checkpoint_phase: "finalize",
+          latest_checkpoint_updated_at: "2026-05-07T09:00:00.000Z",
+          latest_progress_heartbeat_at: "2026-05-07T09:00:00.000Z",
+          last_successful_page_index: 1,
+          checkpoint_failures: 1,
+          today_account_rows: 0,
+          today_adset_rows: 0,
+          account_completed_days: 120,
+          adset_completed_days: 120,
+          creative_completed_days: 90,
+          ad_completed_days: 90,
+        },
+      ],
+      metaDeadLetterSummaries: {
+        "biz-meta-checkpoint": {
+          total: 1,
+          replayableTransient: 0,
+          terminalActionRequired: 1,
+          unknown: 0,
+          latest: [
+            {
+              id: "partition-1",
+              businessId: "biz-meta-checkpoint",
+              lane: "maintenance",
+              scope: "account_daily",
+              source: "finalize_day",
+              partitionDate: "2026-05-07",
+              lastError: "log in to www.facebook.com",
+              errorClass: "account_checkpoint",
+              recoveryKind: "terminal_action_required",
+              actionRequired: true,
+              reasonCode: "meta_account_checkpoint",
+            },
+          ],
+        },
+      },
+    });
+
+    expect(payload.metaBusinesses?.[0]).toMatchObject({
+      deadLetterPartitions: 1,
+      replayableDeadLetterPartitions: 0,
+      terminalActionRequiredDeadLetterPartitions: 1,
+    });
+    expect(payload.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          provider: "meta",
+          reportType: "account_action_required",
+          detail: expect.stringContaining("Facebook/Meta login or reconnect"),
+        }),
+      ]),
+    );
+  });
+
   it("suppresses stale reclaim, stale-checkpoint, and current-day-missing Meta issues when live summaries are healthy", () => {
     const staleCheckpoint = new Date(Date.now() - 30 * 60_000).toISOString();
     const freshActivity = new Date().toISOString();

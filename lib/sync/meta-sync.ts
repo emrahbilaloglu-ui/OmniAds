@@ -93,6 +93,10 @@ import {
   type ProviderProgressEvidence,
   type ProviderProgressEvidenceStateRow,
 } from "@/lib/sync/provider-status-truth";
+import {
+  classifyMetaSyncFailure,
+  shouldDeadLetterMetaFailure,
+} from "@/lib/sync/meta-error-classification";
 import type { RunnerLeaseGuard } from "@/lib/sync/worker-runtime";
 import { recordSyncReclaimEvents } from "@/lib/sync/worker-health";
 import { getDb } from "@/lib/db";
@@ -1566,49 +1570,7 @@ function classifyMetaError(error: unknown) {
         };
     }
   }
-  const message = error instanceof Error ? error.message : String(error);
-  const lower = message.toLowerCase();
-  if (
-    lower.includes("rate limit") ||
-    lower.includes("too many calls") ||
-    lower.includes("quota") ||
-    lower.includes("user request limit reached")
-  ) {
-    return { errorClass: "quota", terminal: false, retryDelayMinutes: 10 };
-  }
-  if (
-    lower.includes("invalid oauth") ||
-    lower.includes("access token") ||
-    lower.includes("session has expired")
-  ) {
-    return {
-      errorClass: "invalid_token",
-      terminal: true,
-      retryDelayMinutes: 0,
-    };
-  }
-  if (
-    lower.includes("permission") ||
-    lower.includes("not authorized") ||
-    lower.includes("does not have") ||
-    lower.includes("unsupported get request")
-  ) {
-    return { errorClass: "permission", terminal: true, retryDelayMinutes: 0 };
-  }
-  if (
-    lower.includes("network") ||
-    lower.includes("timeout") ||
-    lower.includes("timed out") ||
-    lower.includes("abort") ||
-    lower.includes("aborted") ||
-    lower.includes("fetch failed")
-  ) {
-    return { errorClass: "transient", terminal: false, retryDelayMinutes: 3 };
-  }
-  if (lower.includes("invalid parameter") || lower.includes("malformed")) {
-    return { errorClass: "payload", terminal: true, retryDelayMinutes: 0 };
-  }
-  return { errorClass: "transient", terminal: false, retryDelayMinutes: 5 };
+  return classifyMetaSyncFailure({ error });
 }
 
 function computeRetryDelayMinutes(
@@ -4028,9 +3990,12 @@ async function processMetaPartition(input: {
   } catch (error) {
     const classified = classifyMetaError(error);
     const message = error instanceof Error ? error.message : String(error);
-    const shouldDeadLetter =
-      classified.terminal ||
-      input.partition.attemptCount + 1 >= META_PARTITION_MAX_ATTEMPTS;
+    const shouldDeadLetter = shouldDeadLetterMetaFailure({
+      errorClass: classified.errorClass,
+      terminal: classified.terminal,
+      attemptCount: input.partition.attemptCount,
+      maxAttempts: META_PARTITION_MAX_ATTEMPTS,
+    });
     try {
       const completionHeartbeat = await heartbeatMetaPartitionBeforeCompletion({
         partitionId,
@@ -5112,7 +5077,10 @@ export async function replayMetaDeadLettersAndResume(input: {
   businessId: string;
   scope?: MetaWarehouseScope | null;
 }) {
-  const replayed = await replayMetaDeadLetterPartitions(input);
+  const replayed = await replayMetaDeadLetterPartitions({
+    ...input,
+    recoveryKinds: ["replayable_transient"],
+  });
   scheduleMetaBackgroundSync({ businessId: input.businessId, delayMs: 0 });
   return replayed;
 }

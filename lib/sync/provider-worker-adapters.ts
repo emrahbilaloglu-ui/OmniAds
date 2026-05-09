@@ -33,6 +33,7 @@ import {
 } from "@/lib/meta/warehouse";
 import type {
   MetaSyncCheckpointRecord,
+  MetaSyncPartitionSource,
   MetaSyncPartitionRecord,
   MetaWarehouseScope,
 } from "@/lib/meta/warehouse-types";
@@ -98,6 +99,19 @@ type WorkerLifecyclePartition = ProviderSyncPartitionIdentity & {
 };
 
 const META_ADAPTER_CORE_SCOPES: MetaWarehouseScope[] = ["account_daily", "adset_daily"];
+const META_AUTO_HEAL_DEAD_LETTER_SOURCES: MetaSyncPartitionSource[] = [
+  "finalize_day",
+  "priority_window",
+  "repair_recent_day",
+  "today_observe",
+  "request_runtime",
+  "manual_refresh",
+  "recent",
+  "recent_recovery",
+  "historical",
+  "historical_recovery",
+  "initial_connect",
+];
 const GOOGLE_ADS_ADAPTER_CORE_SCOPES: GoogleAdsWarehouseScope[] = [
   "account_daily",
   "campaign_daily",
@@ -500,23 +514,37 @@ export const metaWorkerAdapter: ProviderWorkerAdapter = {
   async runAutoHeal(businessId: string) {
     const result = await runMetaRepairCycle(businessId, {
       enqueueScheduledWork: false,
-      metaDeadLetterSources: [
-        "historical",
-        "historical_recovery",
-        "initial_connect",
-        "request_runtime",
-      ],
+      metaDeadLetterSources: META_AUTO_HEAL_DEAD_LETTER_SOURCES,
+      metaDeadLetterRecoveryKinds: ["replayable_transient"],
     });
+    const shouldConsumeAfterRepair =
+      (result.repair.replayed ?? 0) > 0 ||
+      (result.repair.requeued ?? 0) > 0 ||
+      (result.repair.reclaimed ?? 0) > 0;
+    const consumeAfterRepair = shouldConsumeAfterRepair
+      ? await consumeMetaQueuedWork(businessId, {
+          runtimeWorkerId: `meta-autoheal:${businessId}`,
+        }).catch((error: unknown) => ({
+          error: error instanceof Error ? error.message : String(error),
+        }))
+      : null;
     const autoRepair = await runAutoSyncRepairPass({
       providerScope: "meta",
       source: "worker",
       businessId,
       consumeQueuedMetaWork: true,
     }).catch(() => null);
-    return mergeAutoRepairResult(
+    const merged = mergeAutoRepairResult(
       result.repair,
       autoRepair ? [autoRepair] : [],
     );
+    return {
+      ...merged,
+      meta: {
+        ...(merged.meta ?? {}),
+        consumeAfterRepair,
+      },
+    };
   },
 };
 

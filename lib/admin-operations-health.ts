@@ -11,9 +11,11 @@ import {
 } from "@/lib/admin-db-diagnostics";
 import {
   getMetaAuthoritativeBusinessOpsSnapshot,
+  getMetaDeadLetterRecoverySummary,
   getMetaReclaimClassificationSummary,
   listMetaSyncPhaseTimingSummariesByBusiness,
   getMetaWarehouseIntegrityIncidents,
+  type MetaDeadLetterRecoverySummary,
 } from "@/lib/meta/warehouse";
 import {
   getGoogleAdsReclaimClassificationSummary,
@@ -266,6 +268,10 @@ export interface AdminSyncHealthPayload {
     retryableFailedPartitions: number;
     staleLeasePartitions: number;
     deadLetterPartitions: number;
+    replayableDeadLetterPartitions?: number;
+    terminalActionRequiredDeadLetterPartitions?: number;
+    unknownDeadLetterPartitions?: number;
+    deadLetterRecovery?: MetaDeadLetterRecoverySummary | null;
     stateRowCount: number;
     todayAccountRows: number;
     todayAdsetRows: number;
@@ -896,6 +902,7 @@ export function buildAdminSyncHealth(input: {
   metaReclaimSummaries?: Record<string, AdminReclaimSummary>;
   metaIntegritySummaries?: Record<string, AdminIntegritySummary>;
   metaD1FinalizeNonTerminalCounts?: Record<string, number>;
+  metaDeadLetterSummaries?: Record<string, MetaDeadLetterRecoverySummary>;
   workerHealth?: Awaited<ReturnType<typeof getSyncWorkerHealthSummary>>;
   webDbDiagnostics?: DbRuntimeDiagnostics | null;
   runtimeContract?: RuntimeContract | null;
@@ -1440,6 +1447,16 @@ export function buildAdminSyncHealth(input: {
     const retryableFailedPartitions = Number(row.retryable_failed_partitions ?? 0);
     const staleLeasePartitions = Number(row.stale_lease_partitions ?? 0);
     const deadLetterPartitions = Number(row.dead_letter_partitions ?? 0);
+    const deadLetterRecovery = input.metaDeadLetterSummaries?.[row.business_id] ?? {
+      total: deadLetterPartitions,
+      replayableTransient: deadLetterPartitions,
+      terminalActionRequired: 0,
+      unknown: 0,
+      latest: [],
+    };
+    const replayableDeadLetterPartitions = deadLetterRecovery.replayableTransient;
+    const terminalActionRequiredDeadLetterPartitions = deadLetterRecovery.terminalActionRequired;
+    const unknownDeadLetterPartitions = deadLetterRecovery.unknown;
     const stateRowCount = Number(row.state_row_count ?? 0);
     const todayAccountRows = Number(row.today_account_rows ?? 0);
     const todayAdsetRows = Number(row.today_adset_rows ?? 0);
@@ -1525,7 +1542,12 @@ export function buildAdminSyncHealth(input: {
       hasRepairableBacklog: retryableFailedPartitions > 0,
       staleRunPressure: Number(row.stale_run_count_24h ?? 0),
       progressEvidence: metaProgressEvidence,
-      blockedReasonCodes: deadLetterPartitions > 0 ? ["required_dead_letter_partitions"] : [],
+      blockedReasonCodes:
+        terminalActionRequiredDeadLetterPartitions > 0
+          ? ["account_action_required"]
+          : deadLetterPartitions > 0
+            ? ["required_dead_letter_partitions"]
+            : [],
       historicalBacklogDepth: queueDepth,
       workerHealthy: metaWorkerHealthy,
     });
@@ -1559,6 +1581,10 @@ export function buildAdminSyncHealth(input: {
       retryableFailedPartitions,
       staleLeasePartitions,
       deadLetterPartitions,
+      replayableDeadLetterPartitions,
+      terminalActionRequiredDeadLetterPartitions,
+      unknownDeadLetterPartitions,
+      deadLetterRecovery,
       stateRowCount,
       todayAccountRows,
       todayAdsetRows,
@@ -1676,14 +1702,24 @@ export function buildAdminSyncHealth(input: {
 
     if (deadLetterPartitions > 0) {
       impactedBusinesses.add(row.business_id);
-      issueTypes.push("Meta dead-letter partitions");
+      issueTypes.push(
+        terminalActionRequiredDeadLetterPartitions > 0
+          ? "Meta account action required"
+          : "Meta dead-letter partitions",
+      );
       issues.push({
         businessId: row.business_id,
         businessName: row.business_name,
         provider: "meta",
-        reportType: "queue_dead_letter",
+        reportType:
+          terminalActionRequiredDeadLetterPartitions > 0
+            ? "account_action_required"
+            : "queue_dead_letter",
         status: "failed",
-        detail: `${deadLetterPartitions} Meta partition dead-letter durumunda.`,
+        detail:
+          terminalActionRequiredDeadLetterPartitions > 0
+            ? `${terminalActionRequiredDeadLetterPartitions} Meta partition requires Facebook/Meta login or reconnect. replayable=${replayableDeadLetterPartitions}, unknown=${unknownDeadLetterPartitions}.`
+            : `${deadLetterPartitions} Meta partition dead-letter durumunda. replayable=${replayableDeadLetterPartitions}, unknown=${unknownDeadLetterPartitions}.`,
         triggeredAt: row.latest_partition_activity_at,
         completedAt: row.oldest_queued_partition,
       });
@@ -3115,6 +3151,7 @@ export async function getAdminOperationsHealth() {
     metaReclaimSummaries,
     metaIntegritySummaries,
     metaPhaseTimingSummariesByBusiness,
+    metaDeadLetterSummaries,
   ] =
     await Promise.all([
       Promise.all(
@@ -3203,6 +3240,21 @@ export async function getAdminOperationsHealth() {
         businessIds: metaHealth.map((row) => row.business_id),
         windowHours: metaPhaseTimingWindowHours,
       }).catch(() => ({})),
+      Promise.all(
+        metaHealth.map(async (row) => {
+          const summary = await getMetaDeadLetterRecoverySummary({
+            businessId: row.business_id,
+          }).catch(() => null);
+          return [row.business_id, summary] as const;
+        }),
+      ).then((entries) =>
+        Object.fromEntries(
+          entries.filter(
+            (entry): entry is readonly [string, MetaDeadLetterRecoverySummary] =>
+              Boolean(entry[1]),
+          ),
+        ),
+      ),
     ]);
   const googleRetentionRuntime = getGoogleAdsRetentionRuntimeStatus();
   const metaRetentionRuntime = getMetaRetentionRuntimeStatus();
@@ -3242,6 +3294,7 @@ export async function getAdminOperationsHealth() {
     metaReclaimSummaries,
     metaIntegritySummaries,
     metaD1FinalizeNonTerminalCounts,
+    metaDeadLetterSummaries,
     workerHealth,
     webDbDiagnostics,
     runtimeContract,

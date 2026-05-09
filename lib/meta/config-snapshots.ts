@@ -83,24 +83,27 @@ export async function readLatestMetaConfigSnapshots(input: {
       return new Map();
     }
     const sql = getDb();
-    const rows = (await sql`
-      WITH ranked AS (
+    const rows = await sql.query<{ entity_id: string; payload: MetaConfigSnapshotPayload }>(
+      `
+        WITH requested_entities AS (
+          SELECT unnest($3::text[]) AS entity_id
+        )
         SELECT
-          entity_id,
-          payload,
-          ROW_NUMBER() OVER (
-            PARTITION BY entity_id
-            ORDER BY captured_at DESC
-          ) AS row_num
-        FROM meta_config_snapshots
-        WHERE business_id = ${input.businessId}
-          AND entity_level = ${input.entityLevel}
-          AND entity_id = ANY(${entityIds}::text[])
-      )
-      SELECT entity_id, payload
-      FROM ranked
-      WHERE row_num = 1
-    `) as unknown as Array<{ entity_id: string; payload: MetaConfigSnapshotPayload }>;
+          requested_entities.entity_id,
+          latest.payload
+        FROM requested_entities
+        JOIN LATERAL (
+          SELECT payload
+          FROM meta_config_snapshots
+          WHERE business_id = $1
+            AND entity_level = $2
+            AND entity_id = requested_entities.entity_id
+          ORDER BY captured_at DESC
+          LIMIT 1
+        ) latest ON true
+      `,
+      [input.businessId, input.entityLevel, entityIds],
+    );
 
     return new Map(
       rows.map((row) => [
@@ -134,30 +137,34 @@ export async function readPreviousMetaConfigSnapshots(input: {
       return new Map();
     }
     const sql = getDb();
-    const rows = (await sql`
-      WITH informative AS (
+    const rows = await sql.query<{ entity_id: string; payload: MetaConfigSnapshotPayload }>(
+      `
+        WITH requested_entities AS (
+          SELECT unnest($3::text[]) AS entity_id
+        )
         SELECT
-          entity_id,
-          payload,
-          ROW_NUMBER() OVER (
-            PARTITION BY entity_id
-            ORDER BY captured_at DESC
-          ) AS row_num
-        FROM meta_config_snapshots
-        WHERE business_id = ${input.businessId}
-          AND entity_level = ${input.entityLevel}
-          AND entity_id = ANY(${entityIds}::text[])
-          AND (
-            payload->>'bidValue' IS NOT NULL
-            OR payload->>'bidStrategyType' IS NOT NULL
-            OR payload->>'manualBidAmount' IS NOT NULL
-            OR payload->>'bidStrategyLabel' IS NOT NULL
-          )
-      )
-      SELECT entity_id, payload
-      FROM informative
-      WHERE row_num = 2
-    `) as unknown as Array<{ entity_id: string; payload: MetaConfigSnapshotPayload }>;
+          requested_entities.entity_id,
+          previous.payload
+        FROM requested_entities
+        JOIN LATERAL (
+          SELECT payload
+          FROM meta_config_snapshots
+          WHERE business_id = $1
+            AND entity_level = $2
+            AND entity_id = requested_entities.entity_id
+            AND (
+              payload->>'bidValue' IS NOT NULL
+              OR payload->>'bidStrategyType' IS NOT NULL
+              OR payload->>'manualBidAmount' IS NOT NULL
+              OR payload->>'bidStrategyLabel' IS NOT NULL
+            )
+          ORDER BY captured_at DESC
+          OFFSET 1
+          LIMIT 1
+        ) previous ON true
+      `,
+      [input.businessId, input.entityLevel, entityIds],
+    );
 
     return new Map(
       rows.map((row) => [

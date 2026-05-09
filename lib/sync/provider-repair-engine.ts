@@ -27,10 +27,12 @@ import {
   type ProviderAutoHealResult,
 } from "@/lib/sync/provider-status-truth";
 import { logRuntimeInfo, logRuntimeWarn } from "@/lib/runtime-logging";
+import type { MetaDeadLetterRecoveryKind } from "@/lib/sync/meta-error-classification";
 
 export interface ProviderRepairCycleOptions {
   enqueueScheduledWork?: boolean;
   metaDeadLetterSources?: string[] | null;
+  metaDeadLetterRecoveryKinds?: MetaDeadLetterRecoveryKind[] | null;
   queueWarehouseRepairs?: boolean;
 }
 
@@ -665,6 +667,9 @@ export async function runMetaRepairCycle(
       metaWarehouse.replayMetaDeadLetterPartitions({
         businessId,
         sources: options?.metaDeadLetterSources ?? null,
+        recoveryKinds: options?.metaDeadLetterRecoveryKinds ?? [
+          "replayable_transient",
+        ],
       }),
     onError: () => null,
   });
@@ -820,14 +825,27 @@ export async function runMetaRepairCycle(
   const enqueueResult = enqueueScheduledWork
     ? await enqueueMetaScheduledWork(businessId)
     : null;
+  const terminalActionRequiredDeadLetters =
+    replayedDeadLetters?.terminalActionRequiredCount ?? 0;
+  const unknownDeadLetters = replayedDeadLetters?.unknownMatchedCount ?? 0;
+  const replayableDeadLetters =
+    replayedDeadLetters?.replayableMatchedCount ??
+    ((queueHealthBeforeEnqueue?.deadLetterPartitions ?? 0) > 0
+      ? replayedDeadLetters?.matchedCount ?? 0
+      : 0);
+  const replayableDeadLettersRemain =
+    replayableDeadLetters > 0 && (replayedDeadLetters?.changedCount ?? 0) <= 0;
   const blocked =
     cleanupError != null ||
     (replayedDeadLetters?.manualTruthDefectCount ?? 0) > 0 ||
+    terminalActionRequiredDeadLetters > 0 ||
+    unknownDeadLetters > 0 ||
     repeatedCanonicalDriftIncidents.length > 0 ||
     recentAuthoritativeWindowSummary.blockedDays > 0 ||
     persistentIntegrityMismatch ||
     ((queueHealthBeforeEnqueue?.deadLetterPartitions ?? 0) > 0 &&
-      (replayedDeadLetters?.changedCount ?? 0) <= 0) ||
+      replayedDeadLetters == null) ||
+    replayableDeadLettersRemain ||
     ((queueHealthBeforeEnqueue?.retryableFailedPartitions ?? 0) > 0 && requeuedFailed.length <= 0);
 
   const blockingReasons = compactBlockingReasons([
@@ -842,6 +860,20 @@ export async function runMetaRepairCycle(
       ? buildBlockingReason(
           "manual_truth_defect",
           `${replayedDeadLetters?.manualTruthDefectCount ?? 0} Meta partition(s) require manual truth repair after finalized validation failures.`,
+          { repairable: false }
+        )
+      : null,
+    terminalActionRequiredDeadLetters > 0
+      ? buildBlockingReason(
+          "account_action_required",
+          `${terminalActionRequiredDeadLetters} Meta partition(s) require Meta/Facebook login or reconnect before replay.`,
+          { repairable: false }
+        )
+      : null,
+    unknownDeadLetters > 0
+      ? buildBlockingReason(
+          "unknown_dead_letter_partitions",
+          `${unknownDeadLetters} Meta dead-letter partition(s) have unclassified failures and need operator review.`,
           { repairable: false }
         )
       : null,
@@ -867,10 +899,17 @@ export async function runMetaRepairCycle(
         )
       : null,
     (queueHealthBeforeEnqueue?.deadLetterPartitions ?? 0) > 0 &&
-    (replayedDeadLetters?.changedCount ?? 0) <= 0
+    replayedDeadLetters == null
       ? buildBlockingReason(
           "required_dead_letter_partitions",
-          `${queueHealthBeforeEnqueue?.deadLetterPartitions ?? 0} Meta partition(s) remain dead-lettered after repair.`,
+          `${queueHealthBeforeEnqueue?.deadLetterPartitions ?? 0} Meta partition(s) remain dead-lettered because replay status could not be determined.`,
+          { repairable: true }
+        )
+      : null,
+    replayableDeadLettersRemain
+      ? buildBlockingReason(
+          "required_dead_letter_partitions",
+          `${replayableDeadLetters} replayable Meta partition(s) remain dead-lettered after repair.`,
           { repairable: true }
         )
       : null,
@@ -885,8 +924,8 @@ export async function runMetaRepairCycle(
   const repairableActions = compactRepairableActions([
     buildRepairableAction(
       "replay_dead_letters",
-      "Replay dead-lettered Meta partitions.",
-      { available: (queueHealthBeforeEnqueue?.deadLetterPartitions ?? 0) > 0 }
+      "Replay classified transient Meta dead-letter partitions.",
+      { available: replayableDeadLetters > 0 }
     ),
     buildRepairableAction(
       "retry_failed_partitions",

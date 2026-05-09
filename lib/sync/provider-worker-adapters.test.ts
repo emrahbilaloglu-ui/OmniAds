@@ -289,6 +289,12 @@ describe("provider-worker-adapters", () => {
       releaseGate: null,
       repairPlan: null,
     });
+    consumeMetaQueuedWork.mockResolvedValue({
+      businessId: "biz-1",
+      attempted: 1,
+      succeeded: 1,
+      failed: 0,
+    });
 
     const { metaWorkerAdapter } = await import("@/lib/sync/provider-worker-adapters");
     const repair = await metaWorkerAdapter.runAutoHeal?.("biz-1");
@@ -296,11 +302,22 @@ describe("provider-worker-adapters", () => {
     expect(runMetaRepairCycle).toHaveBeenCalledWith("biz-1", {
       enqueueScheduledWork: false,
       metaDeadLetterSources: [
+        "finalize_day",
+        "priority_window",
+        "repair_recent_day",
+        "today_observe",
+        "request_runtime",
+        "manual_refresh",
+        "recent",
+        "recent_recovery",
         "historical",
         "historical_recovery",
         "initial_connect",
-        "request_runtime",
       ],
+      metaDeadLetterRecoveryKinds: ["replayable_transient"],
+    });
+    expect(consumeMetaQueuedWork).toHaveBeenCalledWith("biz-1", {
+      runtimeWorkerId: "meta-autoheal:biz-1",
     });
     expect(runAutoSyncRepairPass).toHaveBeenCalledWith({
       providerScope: "meta",
@@ -313,6 +330,12 @@ describe("provider-worker-adapters", () => {
         reclaimed: 1,
         replayed: 2,
         requeued: 3,
+        meta: expect.objectContaining({
+          consumeAfterRepair: expect.objectContaining({
+            attempted: 1,
+            succeeded: 1,
+          }),
+        }),
       })
     );
   });

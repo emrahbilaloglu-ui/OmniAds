@@ -26,6 +26,7 @@ import {
   getMetaSyncPhaseTimingSummaries,
   getMetaCreativeDailyCoverage,
   getMetaCreativeMediaPreviewCoverage,
+  getMetaDeadLetterRecoverySummary,
   getMetaAuthoritativeDayVerification,
   getMetaAuthoritativeBusinessOpsSnapshot,
   getMetaQueueComposition,
@@ -522,7 +523,7 @@ export async function GET(request: NextRequest) {
     dayCountInclusive(recentWindowStart, initialBackfillEnd)
   );
 
-  const [accountCoverage, campaignCoverage, adsetCoverage, adDailyCoverage, creativeCoverage, creativePreviewCoverage, breakdownCoverageByEndpoint, queueHealth, queueComposition, checkpointHealth, recentAccountCoverage, recentCampaignCoverage, recentAdsetCoverage, recentCreativeCoverage, recentAdCoverage, ...stateRows] =
+  const [accountCoverage, campaignCoverage, adsetCoverage, adDailyCoverage, creativeCoverage, creativePreviewCoverage, breakdownCoverageByEndpoint, queueHealth, queueComposition, deadLetterRecoverySummary, checkpointHealth, recentAccountCoverage, recentCampaignCoverage, recentAdsetCoverage, recentCreativeCoverage, recentAdCoverage, ...stateRows] =
       await Promise.all([
           getMetaAccountDailyCoverage({
             businessId: businessId!,
@@ -569,6 +570,7 @@ export async function GET(request: NextRequest) {
           }).catch(() => null),
           getMetaQueueHealth({ businessId: businessId! }).catch(() => null),
           getMetaQueueComposition({ businessId: businessId! }).catch(() => null),
+          getMetaDeadLetterRecoverySummary({ businessId: businessId! }).catch(() => null),
           getMetaCheckpointHealth({ businessId: businessId! }).catch(() => null),
           getMetaAccountDailyCoverage({
             businessId: businessId!,
@@ -1715,6 +1717,16 @@ export async function GET(request: NextRequest) {
     !selectedRangeRequested &&
     currentCoreUsable &&
     recentExtendedReady;
+  const deadLetterRecovery = deadLetterRecoverySummary ?? {
+    total: queueHealth?.deadLetterPartitions ?? 0,
+    replayableTransient: queueHealth?.deadLetterPartitions ?? 0,
+    terminalActionRequired: 0,
+    unknown: 0,
+    latest: [],
+  };
+  const terminalActionRequiredDeadLetters = deadLetterRecovery.terminalActionRequired;
+  const replayableDeadLetters = deadLetterRecovery.replayableTransient;
+  const unknownDeadLetters = deadLetterRecovery.unknown;
   const state: MetaStatusResponse["state"] = !connected
     ? "not_connected"
     : accountIds.length === 0
@@ -1796,11 +1808,25 @@ export async function GET(request: NextRequest) {
           { repairable: selectedRangeVerificationState !== "blocked" }
         )
       : null,
-    (queueHealth?.deadLetterPartitions ?? 0) > 0
+    terminalActionRequiredDeadLetters > 0
+      ? buildBlockingReason(
+          "account_action_required",
+          `${terminalActionRequiredDeadLetters} Meta partition(s) require account login or reconnect before sync can continue.`,
+          { repairable: false }
+        )
+      : null,
+    replayableDeadLetters > 0
       ? buildBlockingReason(
           "required_dead_letter_partitions",
-          `${queueHealth?.deadLetterPartitions ?? 0} Meta partition(s) are dead-lettered.`,
+          `${replayableDeadLetters} Meta partition(s) are dead-lettered and eligible for automatic replay.`,
           { repairable: true }
+        )
+      : null,
+    unknownDeadLetters > 0
+      ? buildBlockingReason(
+          "unknown_dead_letter_partitions",
+          `${unknownDeadLetters} Meta partition(s) are dead-lettered with an unclassified failure and need operator review.`,
+          { repairable: false }
         )
       : null,
     (queueHealth?.retryableFailedPartitions ?? 0) > 0
@@ -1842,10 +1868,10 @@ export async function GET(request: NextRequest) {
           "Confirm stale Meta leases show no progress before cleanup or reclaim."
         )
       : null,
-    (queueHealth?.deadLetterPartitions ?? 0) > 0
+    replayableDeadLetters > 0
       ? buildRepairableAction(
           "replay_dead_letters",
-          "Replay Meta dead-letter partitions back into the queue."
+          "Replay classified transient Meta dead-letter partitions back into the queue."
         )
       : null,
     (queueHealth?.retryableFailedPartitions ?? 0) > 0
@@ -2325,6 +2351,7 @@ export async function GET(request: NextRequest) {
             blockingReasons: metaBlockingReasons,
             repairableActions: metaRepairableActions,
             requiredCoverage: metaRequiredCoverage,
+            deadLetterRecovery,
             stallFingerprints: metaStallFingerprints,
             providerWorker: {
               workerId: workerHealth.ownerWorkerId ?? null,

@@ -1430,6 +1430,9 @@ describe("meta warehouse ownership safety", () => {
     expect(coverageQuery).toContain("meta_sync_checkpoints");
     expect(coverageQuery).toContain("meta_raw_snapshots");
     expect(coverageQuery).toContain("snapshot.status = 'fetched'");
+    expect(coverageQuery).toContain("snapshot.partition_id IS NULL");
+    expect(coverageQuery).toContain("snapshot.checkpoint_id IS NULL");
+    expect(coverageQuery).toContain("snapshot.run_id IS NULL");
   });
 
   it("returns cooldown and repeated-failure guard data for authoritative slices", async () => {

@@ -47,7 +47,7 @@ describe("MetaAnalysisStatusCard", () => {
           presentationMode: "fallback_context",
           presentationModeLabel: "Fallback context",
           message: "Showing snapshot-backed recommendation context.",
-          detailReasons: ["legacy_decision_os_archived_phase_4_1"],
+          detailReasons: ["meta_engine_v1_snapshot"],
           analyzedRangeLabel: "2026-04-01 to 2026-04-21",
           lastAnalyzedAtIso: "2026-04-21T10:00:00.000Z",
         })}
@@ -60,7 +60,7 @@ describe("MetaAnalysisStatusCard", () => {
     expect(html).toContain("Last successful analysis at 2026-04-21 10:00 UTC.");
     expect(html).toContain("Analyzed for 2026-04-01 to 2026-04-21.");
     expect(html).not.toContain("Decision OS last analyzed");
-    expect(html).toContain("legacy_decision_os_archived_phase_4_1");
+    expect(html).toContain("meta_engine_v1_snapshot");
   });
 
   it("renders safe recommendation errors without exposing raw errors", () => {

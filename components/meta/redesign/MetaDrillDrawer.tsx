@@ -186,7 +186,10 @@ export function MetaDrillDrawer({
                 <div className="text-[12px] font-semibold uppercase tracking-wider text-rose-700">Diagnostic</div>
                 <p className="mt-2 text-[13px] leading-relaxed text-slate-700">{item.anomaly.detail}</p>
                 <div className="mt-3 grid gap-2">
-                  {item.anomaly.diagnostics.map((diagnostic) => (
+                  {(item.anomaly.diagnosticLadder && item.anomaly.diagnosticLadder.length > 0
+                    ? item.anomaly.diagnosticLadder.map((step) => `${step.step}. ${step.label}: ${step.detail}`)
+                    : item.anomaly.diagnostics
+                  ).map((diagnostic) => (
                     <div key={diagnostic} className="rounded-md border border-rose-100 bg-white px-3 py-2 text-[12.5px] text-slate-700">
                       {diagnostic}
                     </div>

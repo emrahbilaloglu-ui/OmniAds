@@ -15,8 +15,12 @@ describe("MetaActionCard", () => {
   });
 
   it("renders anomaly cards in diagnostic mode", () => {
-    const html = renderToStaticMarkup(<MetaActionCard anomaly={metaAnomaly()} />);
+    const html = renderToStaticMarkup(<MetaActionCard anomaly={metaAnomaly({
+      diagnosticLadder: [{ step: 1, label: "Tracking", detail: "Check events first." }],
+    })} />);
     expect(html).toContain("Policy delivery block");
     expect(html).toContain("Open diagnostic");
+    expect(html).toContain("Tracking");
+    expect(html).toContain("Check events first.");
   });
 });

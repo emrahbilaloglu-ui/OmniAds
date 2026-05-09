@@ -155,6 +155,31 @@ describe("meta anomalies", () => {
     expect(stable.some((item) => item.type === "roas_drop_sudden")).toBe(false);
   });
 
+  it("adds an ordered diagnostic ladder to detected anomalies", async () => {
+    vi.mocked(db.getDb).mockReturnValue(
+      makeSqlMock({
+        campaignRows: campaignRows({
+          spendByDay: () => 100,
+          revenueByDay: (age) => (age <= 6 ? 100 : 400),
+        }),
+      }),
+    );
+
+    const anomalies = await detectAnomaliesForBusiness({
+      businessId: "biz_1",
+      snapshotDate: "2026-05-06",
+    });
+    const anomaly = anomalies.find((item) => item.type === "roas_drop_sudden");
+
+    expect(anomaly?.diagnosticLadder?.map((step) => step.label)).toEqual([
+      "Tracking",
+      "Fatigue",
+      "Recent edits",
+      "Auction",
+      "Seasonality",
+    ]);
+  });
+
   it("detects delivery stalls only for active adsets", async () => {
     vi.mocked(db.getDb).mockReturnValue(
       makeSqlMock({
@@ -300,7 +325,7 @@ describe("meta anomalies", () => {
             scope_type: "adset",
             scope_id: "adset_1",
             severity: "high",
-            evidence: { anomaly: { scopeLabel: "Adset 1" } },
+            evidence: { anomaly: { scopeLabel: "Adset 1", diagnosticLadder: [{ step: 1, label: "Tracking", detail: "Check events." }] } },
             recommended_action: "Policy delivery block",
             reasoning: "Rejected ad.",
             diagnostics: ["Ad 1: REJECTED"],
@@ -322,6 +347,7 @@ describe("meta anomalies", () => {
       id: "anom_1",
       scopeLabel: "Adset 1",
       diagnostics: ["Ad 1: REJECTED"],
+      diagnosticLadder: [{ step: 1, label: "Tracking", detail: "Check events." }],
     });
   });
 });

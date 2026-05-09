@@ -160,6 +160,20 @@ export function MetaActionCard({
             </div>
             <h4 className="mt-2 text-[14px] font-semibold leading-snug text-slate-900">{anomaly.title}</h4>
             <p className="mt-1 text-[12.5px] leading-snug text-slate-600">{anomaly.detail}</p>
+            {anomaly.diagnosticLadder && anomaly.diagnosticLadder.length > 0 ? (
+              <ol className="mt-3 grid gap-1.5">
+                {anomaly.diagnosticLadder.slice(0, 3).map((step) => (
+                  <li key={`${anomaly.id}-${step.step}`} className="flex items-start gap-2 text-[11.5px] text-slate-600">
+                    <span className="mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-rose-100 text-[9px] font-semibold text-rose-700">
+                      {step.step}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="font-semibold text-slate-700">{step.label}</span>: {step.detail}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            ) : null}
             <div className="mt-3 flex items-center gap-2">
               <button
                 type="button"

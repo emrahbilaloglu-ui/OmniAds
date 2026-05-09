@@ -9,6 +9,10 @@ import {
 import { refreshOverviewSummaryMaterializationFromMetaAccountRows } from "@/lib/overview-summary-materializer";
 import { logRuntimeInfo } from "@/lib/runtime-logging";
 import { recordSyncReclaimEvents } from "@/lib/sync/worker-health";
+import {
+  classifyMetaSyncFailure,
+  type MetaDeadLetterRecoveryKind,
+} from "@/lib/sync/meta-error-classification";
 import type {
   ProviderReclaimDecision,
   ProviderReclaimDisposition,
@@ -6821,6 +6825,9 @@ export interface MetaRecoveryActionResult {
   matchedCount: number;
   changedCount: number;
   skippedActiveLeaseCount: number;
+  replayableMatchedCount: number;
+  terminalActionRequiredCount: number;
+  unknownMatchedCount: number;
   manualTruthDefectCount: number;
   manualTruthDefectPartitions: Array<{
     id: string;
@@ -6828,38 +6835,116 @@ export interface MetaRecoveryActionResult {
     partitionDate: string;
     lastError: string | null;
   }>;
+  actionRequiredPartitions: Array<{
+    id: string;
+    scope: string;
+    source: string | null;
+    partitionDate: string;
+    lastError: string | null;
+    errorClass: string | null;
+    reasonCode: string;
+  }>;
+}
+
+type MetaDeadLetterCandidateRow = {
+  id: string;
+  lane: string;
+  scope: string;
+  source: string | null;
+  partition_date: string | Date;
+  last_error: string | null;
+  error_class: string | null;
+  error_message: string | null;
+};
+
+export interface MetaDeadLetterRecoverySummary {
+  total: number;
+  replayableTransient: number;
+  terminalActionRequired: number;
+  unknown: number;
+  latest: Array<{
+    id: string;
+    businessId: string;
+    lane: string;
+    scope: string;
+    source: string | null;
+    partitionDate: string;
+    lastError: string | null;
+    errorClass: string | null;
+    recoveryKind: MetaDeadLetterRecoveryKind;
+    actionRequired: boolean;
+    reasonCode: string;
+  }>;
+}
+
+function classifyMetaDeadLetterCandidate(row: Pick<MetaDeadLetterCandidateRow, "last_error" | "error_class" | "error_message">) {
+  return classifyMetaSyncFailure({
+    errorClass: row.error_class,
+    message: row.last_error ?? row.error_message ?? null,
+  });
+}
+
+function normalizeMetaRecoveryKinds(kinds: MetaDeadLetterRecoveryKind[] | null | undefined) {
+  return kinds && kinds.length > 0
+    ? new Set<MetaDeadLetterRecoveryKind>(kinds)
+    : new Set<MetaDeadLetterRecoveryKind>([
+        "replayable_transient",
+        "unknown",
+      ]);
 }
 
 export async function replayMetaDeadLetterPartitions(input: {
   businessId: string;
   scope?: MetaWarehouseScope | null;
   sources?: string[] | null;
+  recoveryKinds?: MetaDeadLetterRecoveryKind[] | null;
 }): Promise<MetaRecoveryActionResult> {
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const matchedRows = await sql`
-    SELECT id, scope, partition_date, last_error
-    FROM meta_sync_partitions
-    WHERE business_id = ${input.businessId}
-      AND status = 'dead_letter'
-      AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
-      AND (${input.sources ?? null}::text[] IS NULL OR source = ANY(${input.sources ?? null}::text[]))
-  ` as Array<{
-    id: string;
-    scope: string;
-    partition_date: string | Date;
-    last_error: string | null;
-  }>;
-  const skippedActiveLeaseRows = await sql`
-    SELECT id
-    FROM meta_sync_partitions
-    WHERE business_id = ${input.businessId}
-      AND status = 'dead_letter'
-      AND COALESCE(lease_expires_at, now() - interval '1 second') > now()
-      AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
-      AND (${input.sources ?? null}::text[] IS NULL OR source = ANY(${input.sources ?? null}::text[]))
-  ` as Array<{ id: string }>;
-  const rows = await sql`
+    SELECT
+      partition.id,
+      partition.lane,
+      partition.scope,
+      partition.source,
+      partition.partition_date,
+      partition.last_error,
+      latest_run.error_class,
+      latest_run.error_message
+    FROM meta_sync_partitions partition
+    LEFT JOIN LATERAL (
+      SELECT run.error_class, run.error_message
+      FROM meta_sync_runs run
+      WHERE run.partition_id = partition.id
+      ORDER BY run.updated_at DESC
+      LIMIT 1
+    ) latest_run ON true
+    WHERE partition.business_id = ${input.businessId}
+      AND partition.status = 'dead_letter'
+      AND (${input.scope ?? null}::text IS NULL OR partition.scope = ${input.scope ?? null})
+      AND (${input.sources ?? null}::text[] IS NULL OR partition.source = ANY(${input.sources ?? null}::text[]))
+  ` as MetaDeadLetterCandidateRow[];
+  const allowedKinds = normalizeMetaRecoveryKinds(input.recoveryKinds);
+  const classifiedRows = matchedRows.map((row) => ({
+    row,
+    classification: classifyMetaDeadLetterCandidate(row),
+  }));
+  const eligibleRows = classifiedRows
+    .filter(({ classification }) => allowedKinds.has(classification.recoveryKind))
+    .map(({ row }) => row);
+  const eligibleIds = eligibleRows.map((row) => row.id);
+  const skippedActiveLeaseRows = eligibleIds.length > 0
+    ? await sql`
+        SELECT id
+        FROM meta_sync_partitions
+        WHERE id = ANY(${eligibleIds}::uuid[])
+          AND business_id = ${input.businessId}
+          AND status = 'dead_letter'
+          AND COALESCE(lease_expires_at, now() - interval '1 second') > now()
+      ` as Array<{ id: string }>
+    : [];
+  const rows = eligibleIds.length > 0
+    ? await sql`
     UPDATE meta_sync_partitions
     SET
       status = 'queued',
@@ -6872,13 +6957,13 @@ export async function replayMetaDeadLetterPartitions(input: {
       END,
       last_error = NULL,
       updated_at = now()
-    WHERE business_id = ${input.businessId}
+    WHERE id = ANY(${eligibleIds}::uuid[])
+      AND business_id = ${input.businessId}
       AND status = 'dead_letter'
       AND COALESCE(lease_expires_at, now() - interval '1 second') <= now()
-      AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
-      AND (${input.sources ?? null}::text[] IS NULL OR source = ANY(${input.sources ?? null}::text[]))
     RETURNING id, lane, scope, partition_date
-  ` as Array<Record<string, unknown>>;
+      ` as Array<Record<string, unknown>>
+    : [];
   const partitions = rows.map((row) => ({
     id: String(row.id),
     lane: String(row.lane),
@@ -6898,13 +6983,22 @@ export async function replayMetaDeadLetterPartitions(input: {
     outcome:
       partitions.length > 0
         ? "replayed"
-        : matchedRows.length > 0
+        : skippedActiveLeaseRows.length > 0
           ? "skipped_active_lease"
           : "no_matching_partitions",
     partitions,
     matchedCount: matchedRows.length,
     changedCount: partitions.length,
     skippedActiveLeaseCount: skippedActiveLeaseRows.length,
+    replayableMatchedCount: classifiedRows.filter(
+      ({ classification }) => classification.recoveryKind === "replayable_transient"
+    ).length,
+    terminalActionRequiredCount: classifiedRows.filter(
+      ({ classification }) => classification.recoveryKind === "terminal_action_required"
+    ).length,
+    unknownMatchedCount: classifiedRows.filter(
+      ({ classification }) => classification.recoveryKind === "unknown"
+    ).length,
     manualTruthDefectCount: matchedRows.filter((row) =>
       /finalized truth validation failed/i.test(String(row.last_error ?? ""))
     ).length,
@@ -6918,6 +7012,76 @@ export async function replayMetaDeadLetterPartitions(input: {
         partitionDate: normalizeDate(row.partition_date),
         lastError: row.last_error,
       })),
+    actionRequiredPartitions: classifiedRows
+      .filter(({ classification }) => classification.recoveryKind === "terminal_action_required")
+      .map(({ row, classification }) => ({
+        id: row.id,
+        scope: row.scope,
+        source: row.source,
+        partitionDate: normalizeDate(row.partition_date),
+        lastError: row.last_error,
+        errorClass: row.error_class,
+        reasonCode: classification.reasonCode,
+      })),
+  };
+}
+
+export async function getMetaDeadLetterRecoverySummary(input: {
+  businessId: string;
+  limit?: number;
+}): Promise<MetaDeadLetterRecoverySummary> {
+  await assertMetaMutationTablesReady("meta_warehouse");
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      partition.id,
+      partition.business_id,
+      partition.lane,
+      partition.scope,
+      partition.source,
+      partition.partition_date,
+      partition.last_error,
+      latest_run.error_class,
+      latest_run.error_message
+    FROM meta_sync_partitions partition
+    LEFT JOIN LATERAL (
+      SELECT run.error_class, run.error_message
+      FROM meta_sync_runs run
+      WHERE run.partition_id = partition.id
+      ORDER BY run.updated_at DESC
+      LIMIT 1
+    ) latest_run ON true
+    WHERE partition.business_id = ${input.businessId}
+      AND partition.status = 'dead_letter'
+    ORDER BY partition.updated_at DESC
+  ` as Array<MetaDeadLetterCandidateRow & { business_id: string }>;
+
+  const classifiedRows = rows.map((row) => ({
+    row,
+    classification: classifyMetaDeadLetterCandidate(row),
+  }));
+  const latest = classifiedRows.slice(0, Math.max(1, Math.min(input.limit ?? 20, 100))).map(({ row, classification }) => {
+    return {
+      id: row.id,
+      businessId: row.business_id,
+      lane: row.lane,
+      scope: row.scope,
+      source: row.source,
+      partitionDate: normalizeDate(row.partition_date),
+      lastError: row.last_error,
+      errorClass: row.error_class,
+      recoveryKind: classification.recoveryKind,
+      actionRequired: classification.actionRequired,
+      reasonCode: classification.reasonCode,
+    };
+  });
+
+  return {
+    total: classifiedRows.length,
+    replayableTransient: classifiedRows.filter(({ classification }) => classification.recoveryKind === "replayable_transient").length,
+    terminalActionRequired: classifiedRows.filter(({ classification }) => classification.recoveryKind === "terminal_action_required").length,
+    unknown: classifiedRows.filter(({ classification }) => classification.recoveryKind === "unknown").length,
+    latest,
   };
 }
 
@@ -8706,11 +8870,109 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
   }
 }
 
+function coalesceText(current: string | null | undefined, next: string | null | undefined) {
+  return current ?? next ?? null;
+}
+
+function coalesceNumber(current: number | null | undefined, next: number | null | undefined) {
+  return current ?? next ?? null;
+}
+
+function pickEarliestDateLike(current: string | null | undefined, next: string | null | undefined) {
+  if (!current) return next ?? null;
+  if (!next) return current;
+  const currentTime = Date.parse(current);
+  const nextTime = Date.parse(next);
+  if (!Number.isFinite(currentTime)) return next;
+  if (!Number.isFinite(nextTime)) return current;
+  return nextTime < currentTime ? next : current;
+}
+
+function recomputeCreativeDailyDerivedMetrics(row: MetaCreativeDailyRow) {
+  row.frequency = row.reach > 0 ? row.impressions / row.reach : row.frequency;
+  row.roas = row.spend > 0 ? row.revenue / row.spend : 0;
+  row.cpa = row.conversions > 0 ? row.spend / row.conversions : null;
+  row.ctr = row.impressions > 0 ? (row.clicks / row.impressions) * 100 : null;
+  row.cpc = row.clicks > 0 ? row.spend / row.clicks : null;
+  return row;
+}
+
+function mergeMetaCreativeDailyRowsForUpsert(rows: MetaCreativeDailyRow[]) {
+  const mergedRows = new Map<string, MetaCreativeDailyRow>();
+  for (const row of rows) {
+    const key = [
+      row.businessId,
+      row.providerAccountId,
+      normalizeDate(row.date),
+      row.creativeId,
+    ].join("\u0000");
+    const existing = mergedRows.get(key);
+    if (!existing) {
+      mergedRows.set(key, { ...row, date: normalizeDate(row.date) });
+      continue;
+    }
+
+    existing.campaignId = coalesceText(existing.campaignId, row.campaignId);
+    existing.adsetId = coalesceText(existing.adsetId, row.adsetId);
+    existing.adId = coalesceText(existing.adId, row.adId);
+    existing.creativeName = coalesceText(existing.creativeName, row.creativeName);
+    existing.headline = coalesceText(existing.headline, row.headline);
+    existing.primaryText = coalesceText(existing.primaryText, row.primaryText);
+    existing.descriptionText = coalesceText(existing.descriptionText, row.descriptionText);
+    existing.destinationUrl = coalesceText(existing.destinationUrl, row.destinationUrl);
+    existing.destinationUrlRaw = coalesceText(existing.destinationUrlRaw, row.destinationUrlRaw);
+    existing.destinationUrlSource = coalesceText(existing.destinationUrlSource, row.destinationUrlSource);
+    existing.destinationUrlConfidence = coalesceText(existing.destinationUrlConfidence, row.destinationUrlConfidence);
+    existing.ctaType = coalesceText(existing.ctaType, row.ctaType);
+    existing.objectStoryId = coalesceText(existing.objectStoryId, row.objectStoryId);
+    existing.effectiveObjectStoryId = coalesceText(existing.effectiveObjectStoryId, row.effectiveObjectStoryId);
+    existing.thumbnailUrl = coalesceText(existing.thumbnailUrl, row.thumbnailUrl);
+    existing.assetType = coalesceText(existing.assetType, row.assetType);
+    existing.accountTimezone = existing.accountTimezone || row.accountTimezone;
+    existing.accountCurrency = existing.accountCurrency || row.accountCurrency;
+    existing.spend += row.spend;
+    existing.impressions += row.impressions;
+    existing.clicks += row.clicks;
+    existing.reach += row.reach;
+    existing.conversions += row.conversions;
+    existing.revenue += row.revenue;
+    existing.linkClicks = (existing.linkClicks ?? 0) + (row.linkClicks ?? 0);
+    existing.outboundClicks = (existing.outboundClicks ?? 0) + (row.outboundClicks ?? 0);
+    existing.sourceSnapshotId = coalesceText(existing.sourceSnapshotId, row.sourceSnapshotId);
+    existing.sourceRunId = coalesceText(existing.sourceRunId, row.sourceRunId);
+    existing.metricSchemaVersion = existing.metricSchemaVersion ?? row.metricSchemaVersion;
+    existing.launchDate = pickEarliestDateLike(existing.launchDate, row.launchDate);
+    existing.firstSeenAt = pickEarliestDateLike(existing.firstSeenAt, row.firstSeenAt);
+    existing.firstSpendAt = pickEarliestDateLike(existing.firstSpendAt, row.firstSpendAt);
+    existing.effectiveStatus = coalesceText(existing.effectiveStatus, row.effectiveStatus);
+    existing.objective = coalesceText(existing.objective, row.objective);
+    existing.attributionSetting = coalesceText(existing.attributionSetting, row.attributionSetting);
+    existing.qualityRanking = coalesceText(existing.qualityRanking, row.qualityRanking);
+    existing.engagementRateRanking = coalesceText(existing.engagementRateRanking, row.engagementRateRanking);
+    existing.conversionRateRanking = coalesceText(existing.conversionRateRanking, row.conversionRateRanking);
+    existing.bidStrategy = coalesceText(existing.bidStrategy, row.bidStrategy);
+    existing.optimizationGoal = coalesceText(existing.optimizationGoal, row.optimizationGoal);
+    existing.campaignDailyBudget = coalesceNumber(existing.campaignDailyBudget, row.campaignDailyBudget);
+    existing.adsetDailyBudget = coalesceNumber(existing.adsetDailyBudget, row.adsetDailyBudget);
+    existing.campaignLifetimeBudget = coalesceNumber(existing.campaignLifetimeBudget, row.campaignLifetimeBudget);
+    existing.adsetLifetimeBudget = coalesceNumber(existing.adsetLifetimeBudget, row.adsetLifetimeBudget);
+    existing.creativeDeliveryType = coalesceText(existing.creativeDeliveryType, row.creativeDeliveryType);
+    existing.creativeVisualFormat = coalesceText(existing.creativeVisualFormat, row.creativeVisualFormat);
+    existing.creativePrimaryType = coalesceText(existing.creativePrimaryType, row.creativePrimaryType);
+    existing.creativeSecondaryType = coalesceText(existing.creativeSecondaryType, row.creativeSecondaryType);
+    existing.imageHash = coalesceText(existing.imageHash, row.imageHash);
+    existing.payloadJson = existing.payloadJson ?? row.payloadJson;
+    recomputeCreativeDailyDerivedMetrics(existing);
+  }
+  return [...mergedRows.values()];
+}
+
 export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) {
   if (rows.length === 0) return;
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
-  for (const chunk of chunkRows(rows, 150)) {
+  const rowsForUpsert = mergeMetaCreativeDailyRowsForUpsert(rows);
+  for (const chunk of chunkRows(rowsForUpsert, 150)) {
     const referenceContext = await resolveMetaChunkReferenceContext(
       chunk.map((row) => ({
         businessId: row.businessId,
@@ -8767,7 +9029,7 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
           row.cpa ?? null,
           row.ctr,
           row.cpc,
-          row.linkClicks ?? null,
+          row.linkClicks ?? 0,
           row.outboundClicks ?? 0,
           row.sourceSnapshotId,
           row.sourceRunId ?? null,

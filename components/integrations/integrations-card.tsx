@@ -73,6 +73,9 @@ export function IntegrationsCard({
   const isReady = view.status === "ready";
   const isDegraded = view.status === "degraded";
   const isActionRequired = view.status === "action_required";
+  const syncActionRequired =
+    provider === "meta" && metaSyncStatus?.state === "action_required";
+  const visualStatus = syncActionRequired ? "action_required" : view.status;
   const isShopify = provider === "shopify";
   const logoSrc = getProviderLogo(provider);
   const syncPill =
@@ -97,7 +100,9 @@ export function IntegrationsCard({
       className={cn(
         "group flex h-full flex-col rounded-xl border bg-card/95 p-3 shadow-sm transition-all duration-200",
         "hover:-translate-y-0.5 hover:shadow-md",
-        isReady || isDegraded
+        syncActionRequired
+          ? "border-amber-200/80 bg-gradient-to-br from-card via-card to-amber-50/50"
+          : isReady || isDegraded
           ? "border-emerald-200/70 bg-gradient-to-br from-card via-card to-emerald-50/50"
           : isLoading || isNeedsAssignment
             ? "border-sky-200/80 bg-gradient-to-br from-card via-card to-sky-50/50"
@@ -122,7 +127,7 @@ export function IntegrationsCard({
             </p>
           </div>
         </div>
-        <StatusBadge status={view.status} />
+        <StatusBadge status={visualStatus} />
       </div>
 
       <div className="mt-3 grid gap-x-3 gap-y-2 sm:grid-cols-2">
@@ -169,6 +174,12 @@ export function IntegrationsCard({
       {isNeedsAssignment ? (
         <p className="mt-2 rounded-lg border border-sky-300/30 bg-sky-50 px-2.5 py-2 text-[11px] leading-4 text-sky-800">
           {view.assignedSummary}
+        </p>
+      ) : null}
+
+      {syncActionRequired && view.status !== "action_required" ? (
+        <p className="mt-2 rounded-lg border border-amber-300/40 bg-amber-50 px-2.5 py-2 text-[11px] leading-4 text-amber-800">
+          Meta sync needs attention while the account connection remains active.
         </p>
       ) : null}
 
@@ -265,7 +276,7 @@ function StatusBadge({ status }: { status: ProviderViewState["status"] }) {
     return <Badge className="border border-sky-200 bg-sky-50 text-[10px] text-sky-700">Needs setup</Badge>;
   }
   if (status === "action_required") {
-    return <Badge className="border border-amber-200 bg-amber-50 text-[10px] text-amber-800">Needs setup</Badge>;
+    return <Badge className="border border-amber-200 bg-amber-50 text-[10px] text-amber-800">Action required</Badge>;
   }
   return <Badge className="border border-border bg-muted text-[10px] text-muted-foreground">Not connected</Badge>;
 }

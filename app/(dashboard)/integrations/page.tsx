@@ -560,7 +560,10 @@ export default function IntegrationsPage() {
           language === "tr"
             ? `Geçmiş veri hazır. Son senkron ${finishedAt ?? status.latestSync.finishedAt} tarihinde tamamlandı.`
             : `Historical data is ready. The last sync finished ${finishedAt ?? status.latestSync.finishedAt}.`;
-      } else if (status && status.state !== "action_required") {
+      } else if (status?.state === "action_required") {
+        syncNotice = getMetaStatusNotice(status, language);
+        syncNoticeTone = "error";
+      } else if (status) {
         syncNotice = getMetaStatusNotice(status, language);
       }
     } else if (provider === "google") {

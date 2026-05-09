@@ -494,6 +494,7 @@ export async function executeSyncRepairAction(
         const replayed = await replayMetaDeadLetterPartitions({
           businessId: input.businessId,
           sources: null,
+          recoveryKinds: ["replayable_transient"],
         });
         const scheduled = await enqueueMetaScheduledWork(input.businessId);
         const consume = input.consumeQueuedMetaWork

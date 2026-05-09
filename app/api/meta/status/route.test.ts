@@ -40,6 +40,7 @@ vi.mock("@/lib/meta/warehouse", () => ({
   getMetaCheckpointHealth: vi.fn(),
   getMetaCreativeDailyCoverage: vi.fn(),
   getMetaSyncPhaseTimingSummaries: vi.fn(),
+  getMetaDeadLetterRecoverySummary: vi.fn(),
   getMetaQueueComposition: vi.fn(),
   getMetaQueueHealth: vi.fn(),
   getMetaRawSnapshotCoverageByEndpoint: vi.fn(),
@@ -342,6 +343,13 @@ describe("GET /api/meta/status", () => {
     );
     vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue(null as never);
     vi.mocked(warehouse.getMetaQueueComposition).mockResolvedValue(null as never);
+    vi.mocked(warehouse.getMetaDeadLetterRecoverySummary).mockResolvedValue({
+      total: 0,
+      replayableTransient: 0,
+      terminalActionRequired: 0,
+      unknown: 0,
+      latest: [],
+    } as never);
     vi.mocked(warehouse.getMetaCheckpointHealth).mockResolvedValue(null as never);
     vi.mocked(warehouse.getMetaSyncPhaseTimingSummaries).mockResolvedValue([] as never);
     vi.mocked(warehouse.getMetaSyncJobHealth).mockResolvedValue(null as never);
@@ -1427,6 +1435,96 @@ describe("GET /api/meta/status", () => {
         lastCompletedAt: "2026-04-13T11:58:00.000Z",
         lastReadyThroughAdvancedAt: "2026-04-13T11:58:00.000Z",
       },
+    });
+  });
+
+  it("surfaces terminal Meta checkpoint dead letters as action-required without replay action", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(workerHealth.getProviderWorkerHealthState).mockResolvedValue({
+      workerHealthy: true,
+      heartbeatAgeMs: 15_000,
+      runnerLeaseActive: false,
+      ownerWorkerId: "worker-1",
+      consumeStage: "idle",
+    } as never);
+    vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 0,
+      leasedPartitions: 0,
+      retryableFailedPartitions: 0,
+      deadLetterPartitions: 1,
+      latestCoreActivityAt: null,
+      latestExtendedActivityAt: null,
+      latestMaintenanceActivityAt: "2026-05-07T09:00:00.000Z",
+      oldestQueuedPartition: null,
+      historicalCoreQueueDepth: 0,
+      historicalCoreLeasedPartitions: 0,
+      extendedRecentQueueDepth: 0,
+      extendedRecentLeasedPartitions: 0,
+      extendedHistoricalQueueDepth: 0,
+      extendedHistoricalLeasedPartitions: 0,
+    } as never);
+    vi.mocked(warehouse.getMetaDeadLetterRecoverySummary).mockResolvedValue({
+      total: 1,
+      replayableTransient: 0,
+      terminalActionRequired: 1,
+      unknown: 0,
+      latest: [
+        {
+          id: "partition-1",
+          businessId: "biz",
+          lane: "maintenance",
+          scope: "account_daily",
+          source: "finalize_day",
+          partitionDate: "2026-05-07",
+          lastError: "log in to www.facebook.com",
+          errorClass: "account_checkpoint",
+          recoveryKind: "terminal_action_required",
+          actionRequired: true,
+          reasonCode: "meta_account_checkpoint",
+        },
+      ],
+    } as never);
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/status?businessId=biz"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.state).toBe("action_required");
+    expect(payload.operations.blockingReasons).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "account_action_required",
+          repairable: false,
+        }),
+      ]),
+    );
+    expect(payload.operations.repairableActions ?? []).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "replay_dead_letters" }),
+      ]),
+    );
+    expect(payload.operations.deadLetterRecovery).toMatchObject({
+      terminalActionRequired: 1,
+      replayableTransient: 0,
     });
   });
 

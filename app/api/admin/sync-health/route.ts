@@ -139,6 +139,7 @@ export async function POST(request: NextRequest) {
         const result = await replayMetaDeadLetterPartitions({
           businessId: body.businessId,
           scope,
+          recoveryKinds: ["replayable_transient"],
         });
         const scheduled = await enqueueMetaScheduledWork(body.businessId);
         const authoritative = await getMetaAuthoritativeBusinessOpsSnapshot({

@@ -876,6 +876,177 @@ describe("meta warehouse ownership safety", () => {
     expect((creativeDailyCall?.[1] as unknown[])[97]).toBe(0);
   });
 
+  it("deduplicates creative daily rows with the same warehouse key before upsert", async () => {
+    const queries: string[] = [];
+    const queryMock = vi.fn(async (query: string, _values?: unknown[]) => {
+      queries.push(query);
+      return [];
+    });
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [];
+    });
+    Object.assign(sql, {
+      query: queryMock,
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await upsertMetaCreativeDailyRows([
+      {
+        businessId: "biz-1",
+        providerAccountId: "acct-1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adId: "ad-1",
+        creativeId: "creative-1",
+        creativeName: "Creative 1",
+        headline: "Headline 1",
+        primaryText: "Body 1",
+        destinationUrl: null,
+        thumbnailUrl: null,
+        assetType: "image",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 10,
+        impressions: 100,
+        clicks: 5,
+        reach: 50,
+        frequency: 2,
+        conversions: 1,
+        revenue: 20,
+        roas: 2,
+        cpa: 10,
+        ctr: 5,
+        cpc: 2,
+        linkClicks: 4,
+        outboundClicks: 3,
+        sourceSnapshotId: "snapshot-1",
+        payloadJson: { creativeId: "creative-1" },
+      },
+      {
+        businessId: "biz-1",
+        providerAccountId: "acct-1",
+        date: "2026-04-03T12:00:00.000Z",
+        campaignId: "cmp-1",
+        adsetId: "adset-2",
+        adId: "ad-2",
+        creativeId: "creative-1",
+        creativeName: "Creative 1",
+        headline: "Headline 1",
+        primaryText: "Body 1",
+        destinationUrl: "https://example.com/lp",
+        destinationUrlRaw: "https://example.com/lp?utm_source=meta",
+        destinationUrlSource: "creative_link_data",
+        destinationUrlConfidence: "high",
+        ctaType: "SHOP_NOW",
+        objectStoryId: "123_111",
+        effectiveObjectStoryId: "123_456",
+        thumbnailUrl: "https://example.com/thumb.png",
+        assetType: "image",
+        launchDate: "2026-04-01",
+        firstSeenAt: "2026-04-01T10:00:00.000Z",
+        firstSpendAt: "2026-04-03T01:00:00.000Z",
+        effectiveStatus: "ACTIVE",
+        objective: "OUTCOME_SALES",
+        attributionSetting: "7d_click",
+        qualityRanking: "AVERAGE",
+        engagementRateRanking: "ABOVE_AVERAGE",
+        conversionRateRanking: "BELOW_AVERAGE",
+        bidStrategy: "LOWEST_COST_WITHOUT_CAP",
+        optimizationGoal: "OFFSITE_CONVERSIONS",
+        campaignDailyBudget: 100,
+        adsetDailyBudget: 50,
+        campaignLifetimeBudget: 1000,
+        adsetLifetimeBudget: 500,
+        creativeDeliveryType: "standard",
+        creativeVisualFormat: "image",
+        creativePrimaryType: "image",
+        creativeSecondaryType: "static",
+        imageHash: "hash-1",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 5,
+        impressions: 50,
+        clicks: 10,
+        reach: 25,
+        frequency: 2,
+        conversions: 2,
+        revenue: 25,
+        roas: 5,
+        cpa: 2.5,
+        ctr: 20,
+        cpc: 0.5,
+        linkClicks: 8,
+        outboundClicks: 7,
+        sourceSnapshotId: "snapshot-2",
+        sourceRunId: "run-2",
+        payloadJson: { creativeId: "creative-1", adId: "ad-2" },
+      },
+    ]);
+
+    const creativeDailyCall = queryMock.mock.calls.find(([query]) =>
+      String(query).includes("INSERT INTO meta_creative_daily"),
+    );
+    expect(creativeDailyCall).toBeDefined();
+    const queryText = String(creativeDailyCall?.[0]);
+    const values = creativeDailyCall?.[1] as unknown[];
+
+    expect(queryText).toContain("VALUES ($1,$2,$3");
+    expect(queryText).not.toContain("), ($62,$63,$64");
+    expect(values).toHaveLength(61);
+    const columnMatch = queryText.match(
+      /INSERT INTO meta_creative_daily \(([\s\S]*?)\)\s*VALUES/,
+    );
+    expect(columnMatch).toBeTruthy();
+    const columns = columnMatch![1]
+      .split(",")
+      .map((column) => column.trim())
+      .filter(Boolean);
+    const valueFor = (columnName: string) =>
+      values[columns.indexOf(columnName)];
+
+    expect(valueFor("destination_url")).toBe("https://example.com/lp");
+    expect(valueFor("destination_url_raw")).toBe("https://example.com/lp?utm_source=meta");
+    expect(valueFor("destination_url_source")).toBe("creative_link_data");
+    expect(valueFor("destination_url_confidence")).toBe("high");
+    expect(valueFor("cta_type")).toBe("SHOP_NOW");
+    expect(valueFor("object_story_id")).toBe("123_111");
+    expect(valueFor("effective_object_story_id")).toBe("123_456");
+    expect(valueFor("spend")).toBe(15);
+    expect(valueFor("impressions")).toBe(150);
+    expect(valueFor("clicks")).toBe(15);
+    expect(valueFor("reach")).toBe(75);
+    expect(valueFor("conversions")).toBe(3);
+    expect(valueFor("revenue")).toBe(45);
+    expect(valueFor("roas")).toBe(3);
+    expect(valueFor("cpa")).toBe(5);
+    expect(valueFor("ctr")).toBe(10);
+    expect(valueFor("cpc")).toBe(1);
+    expect(valueFor("link_clicks")).toBe(12);
+    expect(valueFor("outbound_clicks")).toBe(10);
+    expect(valueFor("launch_date")).toBe("2026-04-01");
+    expect(valueFor("first_seen_at")).toBe("2026-04-01T10:00:00.000Z");
+    expect(valueFor("first_spend_at")).toBe("2026-04-03T01:00:00.000Z");
+    expect(valueFor("effective_status")).toBe("ACTIVE");
+    expect(valueFor("objective")).toBe("OUTCOME_SALES");
+    expect(valueFor("attribution_setting")).toBe("7d_click");
+    expect(valueFor("quality_ranking")).toBe("AVERAGE");
+    expect(valueFor("engagement_rate_ranking")).toBe("ABOVE_AVERAGE");
+    expect(valueFor("conversion_rate_ranking")).toBe("BELOW_AVERAGE");
+    expect(valueFor("bid_strategy")).toBe("LOWEST_COST_WITHOUT_CAP");
+    expect(valueFor("optimization_goal")).toBe("OFFSITE_CONVERSIONS");
+    expect(valueFor("campaign_daily_budget")).toBe(100);
+    expect(valueFor("adset_daily_budget")).toBe(50);
+    expect(valueFor("campaign_lifetime_budget")).toBe(1000);
+    expect(valueFor("adset_lifetime_budget")).toBe(500);
+    expect(valueFor("creative_delivery_type")).toBe("standard");
+    expect(valueFor("creative_visual_format")).toBe("image");
+    expect(valueFor("creative_primary_type")).toBe("image");
+    expect(valueFor("creative_secondary_type")).toBe("static");
+    expect(valueFor("image_hash")).toBe("hash-1");
+  });
+
   it("batches meta ad daily upserts instead of writing one row per query", async () => {
     const queries: string[] = [];
     const queryMock = vi.fn(async (query: string) => {
@@ -1656,6 +1827,20 @@ describe("meta warehouse ownership safety", () => {
     const queries: string[] = [];
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       queries.push(strings.join(" "));
+      if (queries.length === 1) {
+        return [
+          {
+            id: "partition-1",
+            lane: "extended",
+            scope: "ad_daily",
+            source: "historical_recovery",
+            partition_date: "2026-05-01",
+            last_error: "Database query timed out after 30000ms",
+            error_class: "transient",
+            error_message: null,
+          },
+        ];
+      }
       return [];
     });
     vi.mocked(db.getDb).mockReturnValue(sql as never);
@@ -1687,6 +1872,40 @@ describe("meta warehouse ownership safety", () => {
     expect(result.matchedCount).toBe(1);
     expect(result.changedCount).toBe(0);
     expect(result.skippedActiveLeaseCount).toBe(1);
+  });
+
+  it("excludes terminal Meta checkpoint dead letters from replay", async () => {
+    const sql = vi.fn().mockResolvedValueOnce([
+      {
+        id: "partition-checkpoint",
+        lane: "maintenance",
+        scope: "account_daily",
+        source: "finalize_day",
+        partition_date: "2026-05-07",
+        last_error:
+          "You cannot access the app till you log in to www.facebook.com and follow the instructions given.",
+        error_class: "transient",
+        error_message: null,
+      },
+    ]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await replayMetaDeadLetterPartitions({
+      businessId: "biz-1",
+      recoveryKinds: ["replayable_transient"],
+    });
+
+    expect(result.outcome).toBe("no_matching_partitions");
+    expect(result.changedCount).toBe(0);
+    expect(result.terminalActionRequiredCount).toBe(1);
+    expect(result.replayableMatchedCount).toBe(0);
+    expect(result.actionRequiredPartitions).toEqual([
+      expect.objectContaining({
+        id: "partition-checkpoint",
+        reasonCode: "meta_account_checkpoint",
+      }),
+    ]);
+    expect(sql).toHaveBeenCalledTimes(1);
   });
 
   it("keeps recently progressing partitions leased during cleanup", async () => {

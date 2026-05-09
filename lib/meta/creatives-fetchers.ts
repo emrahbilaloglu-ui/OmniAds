@@ -370,7 +370,7 @@ export async function fetchAdImageUrlMap(
   for (let i = 0; i < uniqueHashes.length; i += chunkSize) {
     const chunk = uniqueHashes.slice(i, i + chunkSize);
     const url = new URL(`https://graph.facebook.com/v25.0/${toAdAccountNodeId(accountId)}/adimages`);
-    url.searchParams.set("fields", "hash,url,url_128,url_256,permalink_url");
+    url.searchParams.set("fields", "hash,url,url_128,permalink_url");
     url.searchParams.set("hashes", JSON.stringify(chunk));
     url.searchParams.set("access_token", accessToken);
 

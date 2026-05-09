@@ -360,6 +360,49 @@ describe("IntegrationsCard", () => {
     expect(html).toContain("Bu workspace için Meta hesabı atanmış.");
   });
 
+  it("does not show the Meta provider badge as connected when sync is action-required", () => {
+    const baseStatus = buildStatus();
+    const actionRequiredStatus: MetaStatusResponse = {
+      ...baseStatus,
+      state: "action_required",
+      latestSync: {
+        ...baseStatus.latestSync,
+        lastError: "Meta account checkpoint requires login.",
+      },
+      operations: {
+        ...baseStatus.operations,
+        blockingReasons: [
+          {
+            code: "account_action_required",
+            message: "Meta account login is required.",
+            repairable: false,
+          },
+        ],
+      } as never,
+    };
+
+    const html = renderToStaticMarkup(
+      <IntegrationsCard
+        provider="meta"
+        language="en"
+        description="Connect Ads Manager to import campaigns, ad sets, and spend."
+        view={baseView}
+        metaSyncStatus={actionRequiredStatus}
+        metaSyncLoading={false}
+        onConnect={() => undefined}
+        onReconnect={() => undefined}
+        onRetry={() => undefined}
+        onCancel={() => undefined}
+        onDisconnect={() => undefined}
+        onOpenAssignments={() => undefined}
+      />
+    );
+
+    expect(html).toContain("Action required");
+    expect(html).toContain("Meta sync needs attention");
+    expect(html).not.toContain('text-emerald-700">Connected</span>');
+  });
+
   it("renders the compact Google progress block without surfacing stale sync attention when the control plane is closed", () => {
     const html = renderToStaticMarkup(
       <IntegrationsCard

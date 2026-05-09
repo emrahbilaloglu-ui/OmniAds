@@ -315,6 +315,70 @@ describe("processMetaLifecyclePartition lease epoch", () => {
     });
   });
 
+  it("keeps quota failures retryable instead of permanent dead-lettering at max attempts", async () => {
+    vi.mocked(apiMeta.syncMetaAccountCoreWarehouseDay).mockRejectedValueOnce(
+      new Error("Application request limit reached")
+    );
+
+    const processed = await processMetaLifecyclePartition({
+      partition: {
+        id: "partition-quota",
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        lane: "maintenance",
+        scope: "account_daily",
+        partitionDate: "2026-04-03",
+        attemptCount: 99,
+        leaseEpoch: 7,
+        source: "finalize_day",
+      },
+      workerId: "worker-1",
+    });
+
+    expect(processed).toBe(false);
+    expect(warehouse.completeMetaPartitionAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        partitionId: "partition-quota",
+        partitionStatus: "failed",
+        runStatus: "failed",
+        errorClass: "quota",
+        retryDelayMinutes: 60,
+      })
+    );
+  });
+
+  it("dead-letters Meta checkpoint/login failures because backend replay cannot solve them", async () => {
+    vi.mocked(apiMeta.syncMetaAccountCoreWarehouseDay).mockRejectedValueOnce(
+      new Error("You cannot access the app till you log in to www.facebook.com and follow the instructions given.")
+    );
+
+    const processed = await processMetaLifecyclePartition({
+      partition: {
+        id: "partition-checkpoint",
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        lane: "maintenance",
+        scope: "account_daily",
+        partitionDate: "2026-04-03",
+        attemptCount: 0,
+        leaseEpoch: 7,
+        source: "finalize_day",
+      },
+      workerId: "worker-1",
+    });
+
+    expect(processed).toBe(false);
+    expect(warehouse.completeMetaPartitionAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        partitionId: "partition-checkpoint",
+        partitionStatus: "dead_letter",
+        runStatus: "failed",
+        errorClass: "account_checkpoint",
+        retryDelayMinutes: undefined,
+      })
+    );
+  });
+
   it("threads leaseEpoch through run creation, core sync, breakdown sync, and completion", async () => {
     const processed = await processMetaLifecyclePartition({
       partition: {

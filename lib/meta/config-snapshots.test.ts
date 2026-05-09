@@ -1,18 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const sql = vi.fn();
+const query = vi.fn();
+Object.assign(sql, { query });
 
 vi.mock("@/lib/db", () => ({
-  getDb: vi.fn(() => sql),
+  getDb: vi.fn(),
 }));
 
 vi.mock("@/lib/db-schema-readiness", () => ({
-  assertDbSchemaReady: vi.fn().mockResolvedValue(undefined),
-  getDbSchemaReadiness: vi.fn().mockResolvedValue({
-    ready: true,
-    missingTables: [],
-    checkedAt: "2026-04-17T00:00:00.000Z",
-  }),
+  assertDbSchemaReady: vi.fn(),
+  getDbSchemaReadiness: vi.fn(),
 }));
 
 vi.mock("@/lib/provider-account-reference-store", () => ({
@@ -28,16 +26,27 @@ vi.mock("@/lib/provider-account-reference-store", () => ({
   }),
 }));
 
-const { appendMetaConfigSnapshots } = await import("@/lib/meta/config-snapshots");
+const db = await import("@/lib/db");
+const schemaReadiness = await import("@/lib/db-schema-readiness");
+const configSnapshots = await import("@/lib/meta/config-snapshots");
 
 describe("meta config snapshots", () => {
   beforeEach(() => {
-    vi.resetAllMocks();
+    vi.clearAllMocks();
     sql.mockResolvedValue([]);
+    query.mockResolvedValue([]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+    const readyResult = {
+      ready: true,
+      missingTables: [],
+      checkedAt: "2026-05-09T00:00:00.000Z",
+    };
+    vi.mocked(schemaReadiness.assertDbSchemaReady).mockResolvedValue(readyResult);
+    vi.mocked(schemaReadiness.getDbSchemaReadiness).mockResolvedValue(readyResult);
   });
 
   it("writes canonical business and provider refs", async () => {
-    await appendMetaConfigSnapshots([
+    await configSnapshots.appendMetaConfigSnapshots([
       {
         businessId: "biz-1",
         accountId: "act_1",
@@ -56,10 +65,67 @@ describe("meta config snapshots", () => {
       },
     ]);
 
-    const query = String(sql.mock.calls[0]?.[0]?.join(" ") ?? "");
-    expect(query).toContain("business_ref_id");
-    expect(query).toContain("provider_account_ref_id");
-    expect(query).toContain("business_ref_id uuid");
-    expect(query).toContain("provider_account_ref_id uuid");
+    const queryText = String(sql.mock.calls[0]?.[0]?.join(" ") ?? "");
+    expect(queryText).toContain("business_ref_id");
+    expect(queryText).toContain("provider_account_ref_id");
+    expect(queryText).toContain("business_ref_id uuid");
+    expect(queryText).toContain("provider_account_ref_id uuid");
+  });
+
+  it("reads latest snapshots with per-entity index lookups instead of a global window sort", async () => {
+    let queryText = "";
+    let queryParams: unknown[] = [];
+    query.mockImplementation(async (text: string, params?: unknown[]) => {
+      queryText = text;
+      queryParams = params ?? [];
+      return [
+        {
+          entity_id: "cmp-1",
+          payload: { bidStrategyType: "lowest_cost_without_cap" },
+        },
+      ];
+    });
+
+    const rows = await configSnapshots.readLatestMetaConfigSnapshots({
+      businessId: "biz-1",
+      entityLevel: "campaign",
+      entityIds: ["cmp-1", "cmp-1"],
+    });
+
+    expect(queryText).toContain("JOIN LATERAL");
+    expect(queryText).toContain("LIMIT 1");
+    expect(queryText).not.toContain("ROW_NUMBER()");
+    expect(queryParams).toEqual(["biz-1", "campaign", ["cmp-1"]]);
+    expect(rows.get("cmp-1")).toMatchObject({
+      bidStrategyType: "lowest_cost_without_cap",
+    });
+  });
+
+  it("reads previous informative snapshots with a bounded per-entity lookup", async () => {
+    let queryText = "";
+    query.mockImplementation(async (text: string) => {
+      queryText = text;
+      return [
+        {
+          entity_id: "adset-1",
+          payload: { bidValue: 2.5, bidValueFormat: "roas" },
+        },
+      ];
+    });
+
+    const rows = await configSnapshots.readPreviousMetaConfigSnapshots({
+      businessId: "biz-1",
+      entityLevel: "adset",
+      entityIds: ["adset-1"],
+    });
+
+    expect(queryText).toContain("JOIN LATERAL");
+    expect(queryText).toContain("OFFSET 1");
+    expect(queryText).toContain("LIMIT 1");
+    expect(queryText).not.toContain("ROW_NUMBER()");
+    expect(rows.get("adset-1")).toMatchObject({
+      bidValue: 2.5,
+      bidValueFormat: "roas",
+    });
   });
 });

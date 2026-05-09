@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   batchFetchAdsByIds,
+  fetchAdImageUrlMap,
   fetchAdCreativeBasicsByAdIds,
   fetchAccountInsights,
   fetchCreativeDetailsMap,
@@ -84,6 +85,43 @@ describe("fetchAccountInsights", () => {
         attribution_setting: "1d_view_7d_click",
       },
     ]);
+  });
+});
+
+describe("fetchAdImageUrlMap", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("uses only Graph-supported adimages fields and maps resolved URLs by hash", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [{ hash: "ABC123", url: "https://example.com/image.jpg" }],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchAdImageUrlMap("act_1", [" ABC123 ", "ABC123"], "token-adimages-test");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    const fields = requestUrl.searchParams.get("fields") ?? "";
+
+    expect(fields).toContain("hash");
+    expect(fields).toContain("url");
+    expect(fields).toContain("url_128");
+    expect(fields).toContain("permalink_url");
+    expect(fields).not.toContain("url_256");
+    expect(requestUrl.searchParams.get("hashes")).toBe(JSON.stringify(["ABC123"]));
+    expect(result.get("ABC123")).toBe("https://example.com/image.jpg");
+    expect(result.get("abc123")).toBe("https://example.com/image.jpg");
   });
 });
 

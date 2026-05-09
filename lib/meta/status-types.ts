@@ -499,6 +499,28 @@ export interface MetaStatusResponse {
     progressEvidence?: ProviderProgressEvidence | null;
     blockingReasons?: ProviderBlockingReason[];
     repairableActions?: ProviderRepairableAction[];
+    deadLetterRecovery?: {
+      total: number;
+      replayableTransient: number;
+      terminalActionRequired: number;
+      unknown: number;
+      latest: Array<{
+        id: string;
+        businessId: string;
+        lane: string;
+        scope: string;
+        source: string | null;
+        partitionDate: string;
+        lastError: string | null;
+        errorClass: string | null;
+        recoveryKind:
+          | "replayable_transient"
+          | "terminal_action_required"
+          | "unknown";
+        actionRequired: boolean;
+        reasonCode: string;
+      }>;
+    };
     requiredCoverage?: ProviderRequiredCoverage | null;
     secondaryReadiness?: ProviderSecondaryReadiness[];
     stallFingerprints?: ProviderStallFingerprint[];

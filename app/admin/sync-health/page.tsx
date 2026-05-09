@@ -295,6 +295,28 @@ interface SyncHealthPayload {
     leasedPartitions: number;
     retryableFailedPartitions: number;
     deadLetterPartitions: number;
+    replayableDeadLetterPartitions?: number;
+    terminalActionRequiredDeadLetterPartitions?: number;
+    unknownDeadLetterPartitions?: number;
+    deadLetterRecovery?: {
+      total: number;
+      replayableTransient: number;
+      terminalActionRequired: number;
+      unknown: number;
+      latest: Array<{
+        id: string;
+        businessId: string;
+        lane: string;
+        scope: string;
+        source: string | null;
+        partitionDate: string;
+        lastError: string | null;
+        errorClass: string | null;
+        recoveryKind: "replayable_transient" | "terminal_action_required" | "unknown";
+        actionRequired: boolean;
+        reasonCode: string;
+      }>;
+    } | null;
     staleLeasePartitions: number;
     stateRowCount: number;
     todayAccountRows: number;
@@ -1543,6 +1565,12 @@ export default function AdminSyncHealthPage() {
           <div className="divide-y divide-gray-100">
             {metaBusinesses.map((business) => {
               const isBusy = actionState.businessId === business.businessId;
+              const replayableDeadLetters = business.replayableDeadLetterPartitions ?? 0;
+              const terminalActionRequiredDeadLetters =
+                business.terminalActionRequiredDeadLetterPartitions ?? 0;
+              const unknownDeadLetters = business.unknownDeadLetterPartitions ?? 0;
+              const canReplayMetaDeadLetters =
+                replayableDeadLetters > 0 && terminalActionRequiredDeadLetters === 0;
               return (
                 <div key={business.businessId} className="px-5 py-4">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -1565,9 +1593,17 @@ export default function AdminSyncHealthPage() {
                         <MetricPill label="Leased" value={business.leasedPartitions} />
                         <MetricPill label="Retryable failed" value={business.retryableFailedPartitions} />
                         <MetricPill label="Dead letter" value={business.deadLetterPartitions} />
+                        <MetricPill label="Replayable dead" value={replayableDeadLetters} />
+                        <MetricPill label="Action required" value={terminalActionRequiredDeadLetters} />
+                        <MetricPill label="Unknown dead" value={unknownDeadLetters} />
                         <MetricPill label="Stale lease" value={business.staleLeasePartitions} />
                         <MetricPill label="State rows" value={business.stateRowCount} />
                       </div>
+                      {terminalActionRequiredDeadLetters > 0 ? (
+                        <p className="mt-2 text-xs text-amber-700">
+                          Meta account action required. Reconnect or complete the Facebook login checkpoint before replaying this business.
+                        </p>
+                      ) : null}
                       <div className="mt-3 flex flex-wrap gap-2">
                         <MetricPill label="Today account" value={business.todayAccountRows} />
                         <MetricPill label="Today adset" value={business.todayAdsetRows} />
@@ -1636,7 +1672,16 @@ export default function AdminSyncHealthPage() {
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <ActionButton label="Cleanup" busy={isBusy && actionState.action === "cleanup"} onClick={() => runProviderAction(business.businessId, "meta", "cleanup")} />
-                      <ActionButton label="Replay Dead Letter" busy={isBusy && actionState.action === "replay_dead_letter"} onClick={() => runProviderAction(business.businessId, "meta", "replay_dead_letter")} />
+                      <ActionButton
+                        label={
+                          terminalActionRequiredDeadLetters > 0
+                            ? "Meta Login Required"
+                            : "Replay Transient Dead Letter"
+                        }
+                        busy={isBusy && actionState.action === "replay_dead_letter"}
+                        disabled={!canReplayMetaDeadLetters}
+                        onClick={() => runProviderAction(business.businessId, "meta", "replay_dead_letter")}
+                      />
                       <ActionButton label="Reschedule" busy={isBusy && actionState.action === "reschedule"} onClick={() => runProviderAction(business.businessId, "meta", "reschedule")} />
                       <ActionButton label="Refresh State" busy={isBusy && actionState.action === "refresh_state"} onClick={() => runProviderAction(business.businessId, "meta", "refresh_state")} />
                       <ActionButton label="Repair Cycle" busy={isBusy && actionState.action === "repair_cycle"} onClick={() => runProviderAction(business.businessId, "meta", "repair_cycle")} />
@@ -1812,18 +1857,20 @@ function MetricCard({
 function ActionButton({
   label,
   busy,
+  disabled = false,
   onClick,
 }: {
   label: string;
   busy: boolean;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={busy}
-      className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-wait disabled:opacity-60"
+      disabled={busy || disabled}
+      className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
     >
       {busy ? "Working..." : label}
     </button>

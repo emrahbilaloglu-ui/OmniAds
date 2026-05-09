@@ -70,7 +70,7 @@ export function ActionNowCard({
   const conf = confidenceClass(confidence);
   const label = asDecisionLabel(card.label);
   const name = cardName(card);
-  const badges = card.badges ?? [];
+  const badges = Array.isArray(card.badges) ? card.badges : [];
   const actionCardId = cardId(card);
   const scopeId = getCreativeScopeId(card);
   const cutAction = isCutPrimaryAction(card);

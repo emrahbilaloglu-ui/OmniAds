@@ -55,6 +55,7 @@ export function WatchingCard({
   const name = cardName(card);
   const watchingCardId = cardId(card);
   const scopeId = getCreativeScopeId(card);
+  const badges = Array.isArray(card.badges) ? card.badges : [];
 
   return (
     <div
@@ -83,7 +84,7 @@ export function WatchingCard({
               {card.brand || "Brand"}
             </span>
             <DecisionLabelChip label={label} size="sm" />
-            {(card.badges ?? []).map((badge) => (
+            {badges.map((badge) => (
               <BadgeChip key={String(badge)} label={badge} />
             ))}
             <ConfidencePill confidence={confidence} size="sm" />

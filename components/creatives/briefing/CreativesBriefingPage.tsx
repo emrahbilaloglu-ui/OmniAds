@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Component,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ErrorInfo,
+  type ReactNode,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import {
@@ -99,6 +107,49 @@ interface BulkCutModalState {
 interface CompareDrawerState {
   open: boolean;
   cards: BriefingCreativeCard[];
+}
+
+interface SectionErrorBoundaryProps {
+  title: string;
+  resetKey: string;
+  children: ReactNode;
+}
+
+class SectionErrorBoundary extends Component<
+  SectionErrorBoundaryProps,
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidUpdate(previousProps: SectionErrorBoundaryProps) {
+    if (previousProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false });
+    }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("[creatives-briefing-section-error]", {
+      title: this.props.title,
+      message: error.message,
+      componentStack: info.componentStack,
+    });
+  }
+
+  render() {
+    if (!this.state.hasError) return this.props.children;
+    return (
+      <section className="mt-8 rounded-2xl border border-amber-200 bg-amber-50/70 px-5 py-4 text-[12.5px] text-amber-950">
+        <div className="font-semibold">{this.props.title}</div>
+        <div className="mt-1 text-amber-900/80">
+          This section received an unexpected creative data shape. The rest of the briefing remains available.
+        </div>
+      </section>
+    );
+  }
 }
 
 export const CLOSED_LAUNCHPAD_OVERLAY_STATE: LaunchpadOverlayState = {
@@ -220,20 +271,52 @@ function formatTodayLabel() {
 }
 
 function isCardRollup(card: BriefingCreativeCard) {
-  return (card.placementList?.length ?? 0) > 1;
+  return Array.isArray(card.placementList) && card.placementList.length > 1;
 }
 
-function normalizeActionItems(items: BriefingActionItem[]): NormalizedActionItem[] {
-  return items.map((item, index) => {
-    if (isCrossPlacementRollup(item)) {
+function safeArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? value.filter((item): item is T => Boolean(item && typeof item === "object")) : [];
+}
+
+export function normalizeSpendHistory(value: unknown): number[] | null {
+  if (!Array.isArray(value)) return null;
+  const normalized = value
+    .map((item) => (typeof item === "number" ? item : typeof item === "string" ? Number(item) : Number.NaN))
+    .filter((item) => Number.isFinite(item));
+  return normalized.length > 0 ? normalized : null;
+}
+
+export function normalizeCreativesBriefingPayload(
+  payload: CreativesBriefingResponse | null | undefined,
+): CreativesBriefingResponse | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const pulse = payload.pulse && typeof payload.pulse === "object" && !Array.isArray(payload.pulse)
+    ? {
+        ...payload.pulse,
+        spendHistory: normalizeSpendHistory(payload.pulse.spendHistory),
+      }
+    : null;
+
+  return {
+    ...payload,
+    actionNow: safeArray<BriefingActionItem>(payload.actionNow),
+    watching: safeArray<BriefingCreativeCard>(payload.watching),
+    healthy: safeArray<BriefingCreativeCard>(payload.healthy),
+    pulse,
+  };
+}
+
+function normalizeActionItems(items: unknown): NormalizedActionItem[] {
+  return safeArray<BriefingActionItem>(items).flatMap<NormalizedActionItem>((item, index) => {
+    if (isCrossPlacementRollup(item) && item.primaryRec && typeof item.primaryRec === "object") {
       const key = item.id || item.primaryRec.id || `rollup-${index}`;
-      return { key, type: "rollup", rollup: item };
+      return [{ key, type: "rollup", rollup: item }];
     }
 
     const card = item as BriefingCreativeCard;
     if (isCardRollup(card)) {
-      const placementList = card.placementList ?? [];
-      return {
+      const placementList = Array.isArray(card.placementList) ? card.placementList : [];
+      return [{
         key: cardId(card),
         type: "rollup",
         rollup: {
@@ -242,10 +325,10 @@ function normalizeActionItems(items: BriefingActionItem[]): NormalizedActionItem
           placementList,
           mixed: card.mixed,
         },
-      };
+      }];
     }
 
-    return { key: cardId(card), type: "card", card };
+    return [{ key: cardId(card), type: "card", card }];
   });
 }
 
@@ -438,16 +521,20 @@ export function CreativesBriefingPage() {
   );
 
   const briefingData = briefingQuery.data;
+  const normalizedBriefingData = useMemo(
+    () => normalizeCreativesBriefingPayload(briefingData),
+    [briefingData],
+  );
   const actionItems = useMemo(
-    () => normalizeActionItems(briefingData?.actionNow ?? []),
-    [briefingData?.actionNow],
+    () => normalizeActionItems(normalizedBriefingData?.actionNow ?? []),
+    [normalizedBriefingData?.actionNow],
   );
   const visibleActionItems = useMemo(
     () => filterRemovedActionItems(actionItems, removedActionIds),
     [actionItems, removedActionIds],
   );
-  const watchingItems = briefingData?.watching ?? [];
-  const healthyItems = briefingData?.healthy ?? [];
+  const watchingItems = normalizedBriefingData?.watching ?? [];
+  const healthyItems = normalizedBriefingData?.healthy ?? [];
   const actionIds = useMemo(() => visibleActionItems.map(actionItemId), [visibleActionItems]);
   const watchingIds = useMemo(() => watchingItems.map(cardId), [watchingItems]);
   const healthyIds = useMemo(() => healthyItems.map(cardId), [healthyItems]);
@@ -469,22 +556,23 @@ export function CreativesBriefingPage() {
   );
 
   const trackingAnomalyActive = Boolean(
-    briefingData?.trackingAnomalyActive ||
-      briefingData?.trackingBlocked ||
-      briefingData?.pulse?.trackingAnomalyActive ||
+    normalizedBriefingData?.trackingAnomalyActive ||
+      normalizedBriefingData?.trackingBlocked ||
+      normalizedBriefingData?.pulse?.trackingAnomalyActive ||
       metaStatusQuery.data?.degradedServing,
   );
-  const matureCount = briefingData?.pulse?.matureCount ?? healthyItems.length;
-  const isInitialLoading = briefingQuery.isLoading && !briefingData;
+  const matureCount = normalizedBriefingData?.pulse?.matureCount ?? healthyItems.length;
+  const isInitialLoading = briefingQuery.isLoading && !normalizedBriefingData;
   const briefingError = briefingQuery.error instanceof Error ? briefingQuery.error.message : null;
-  const deferredCount = deferState.deferredCount || briefingData?.deferredCount || 0;
+  const deferredCount = deferState.deferredCount || normalizedBriefingData?.deferredCount || 0;
   const trackingBlockerDetail =
-    briefingData?.trackingDetail ||
-    briefingData?.trackingAnomalyDetail ||
-    briefingData?.pulse?.trackingDetail ||
-    briefingData?.pulse?.trackingAnomalyDetail ||
+    normalizedBriefingData?.trackingDetail ||
+    normalizedBriefingData?.trackingAnomalyDetail ||
+    normalizedBriefingData?.pulse?.trackingDetail ||
+    normalizedBriefingData?.pulse?.trackingAnomalyDetail ||
     undefined;
-  const assetLibraryRows = assetLibraryQuery.data ?? [];
+  const assetLibraryRows = Array.isArray(assetLibraryQuery.data) ? assetLibraryQuery.data : [];
+  const assetLibraryError = assetLibraryQuery.error instanceof Error ? assetLibraryQuery.error.message : null;
   const launchpadOverlayItem = launchpadOverlayState.card
     ? buildLaunchpadOverlayItem(launchpadOverlayState.card)
     : null;
@@ -704,10 +792,10 @@ export function CreativesBriefingPage() {
         center={
           <PulseCenter
             spendToday={todaySummaryQuery.data?.totals?.spend}
-            spendTarget={briefingData?.pulse?.spendTarget}
-            spendHistory={briefingData?.pulse?.spendHistory}
+            spendTarget={normalizedBriefingData?.pulse?.spendTarget}
+            spendHistory={normalizedBriefingData?.pulse?.spendHistory}
             roas7d={sevenDaySummaryQuery.data?.totals?.roas}
-            roasTarget={briefingData?.pulse?.rolling7dRoasTarget}
+            roasTarget={normalizedBriefingData?.pulse?.rolling7dRoasTarget}
             matureCount={matureCount}
           />
         }
@@ -715,8 +803,8 @@ export function CreativesBriefingPage() {
           <PulseRight
             metaStatus={metaStatusQuery.data}
             trackingAnomalyActive={trackingAnomalyActive}
-            engineVersion={briefingData?.pulse?.engineVersion}
-            calibratedAgo={briefingData?.pulse?.calibratedAgo}
+            engineVersion={normalizedBriefingData?.pulse?.engineVersion}
+            calibratedAgo={normalizedBriefingData?.pulse?.calibratedAgo}
           />
         }
         jumpNav={<PulseJumpNav />}
@@ -912,20 +1000,32 @@ export function CreativesBriefingPage() {
 
         <span className="sr-only">{actionSelectedIds.length} action selections prepared for Phase 3.4</span>
         <span className="sr-only">{watchingIds.length + healthyIds.length} non-action lane rows loaded</span>
-        <AssetLibrarySection
-          rows={assetLibraryRows}
-          defaultCurrency={activeBusiness?.currency ?? null}
-          selectedMetricIds={libraryMetricIds}
-          onSelectedMetricIdsChange={setLibraryMetricIds}
-          selectedRowIds={librarySelectedRowIds}
-          highlightedRowId={libraryHighlightedRowId}
-          onToggleRow={handleToggleLibraryRow}
-          onToggleAll={handleToggleAllLibraryRows}
-          onOpenRow={setLibraryHighlightedRowId}
-          onSortedRowsChange={(rows: MetaCreativeRow[]) => {
-            if (!libraryHighlightedRowId && rows[0]) setLibraryHighlightedRowId(rows[0].id);
-          }}
-        />
+        <SectionErrorBoundary
+          title="Asset Library is temporarily unavailable."
+          resetKey={`${businessId}:${libraryStart}:${todayIso}:${assetLibraryRows.length}`}
+        >
+          {assetLibraryError ? (
+            <div className="mt-8 rounded-2xl border border-amber-200 bg-amber-50/70 px-5 py-4 text-[12.5px] text-amber-950">
+              <div className="font-semibold">Asset Library could not load.</div>
+              <div className="mt-1 text-amber-900/80">{assetLibraryError}</div>
+            </div>
+          ) : (
+            <AssetLibrarySection
+              rows={assetLibraryRows}
+              defaultCurrency={activeBusiness?.currency ?? null}
+              selectedMetricIds={libraryMetricIds}
+              onSelectedMetricIdsChange={setLibraryMetricIds}
+              selectedRowIds={librarySelectedRowIds}
+              highlightedRowId={libraryHighlightedRowId}
+              onToggleRow={handleToggleLibraryRow}
+              onToggleAll={handleToggleAllLibraryRows}
+              onOpenRow={setLibraryHighlightedRowId}
+              onSortedRowsChange={(rows: MetaCreativeRow[]) => {
+                if (!libraryHighlightedRowId && rows[0]) setLibraryHighlightedRowId(rows[0].id);
+              }}
+            />
+          )}
+        </SectionErrorBoundary>
       </section>
       <LaunchpadOverlay
         open={launchpadOverlayState.open && Boolean(launchpadOverlayItem)}
@@ -1034,7 +1134,9 @@ function PulseCenter({
   const spend = numberOrZero(spendToday);
   const target = numberOrZero(spendTarget) || spend || 1;
   const spendPct = Math.round((spend / target) * 100);
-  const sparkValues = spendHistory && spendHistory.length > 0 ? spendHistory.concat([spend]) : [0, spend * 0.62, spend * 0.78, spend];
+  const sparkValues = Array.isArray(spendHistory) && spendHistory.length > 0
+    ? spendHistory.concat([spend])
+    : [0, spend * 0.62, spend * 0.78, spend];
   const roas = numberOrZero(roas7d);
   const targetRoas = numberOrZero(roasTarget) || roas || 1;
   const roasDelta = Math.round(((roas - targetRoas) / targetRoas) * 100);

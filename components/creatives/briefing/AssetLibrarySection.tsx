@@ -107,7 +107,7 @@ export function filterAssetLibraryRows(
   filters: AssetLibraryFilters,
 ) {
   const search = filters.search.trim().toLowerCase();
-  return rows.filter((row) => {
+  return safeRows(rows).filter((row) => {
     const extended = row as AssetLibraryRow;
     if (filters.status === "active" && extended.effectiveStatus !== "ACTIVE") return false;
     if (filters.status === "closed_30d" && extended.effectiveStatus === "ACTIVE") return false;
@@ -123,13 +123,13 @@ export function sortAssetLibraryRows(
   rows: MetaCreativeRow[],
   sort: AssetLibrarySort,
 ) {
-  const sorted = [...rows];
+  const sorted = [...safeRows(rows)];
   sorted.sort((a, b) => {
-    if (sort === "roas_desc") return b.roas - a.roas;
-    if (sort === "roas_asc") return a.roas - b.roas;
-    if (sort === "name_asc") return a.name.localeCompare(b.name);
-    if (sort === "launch_desc") return new Date(b.launchDate).getTime() - new Date(a.launchDate).getTime();
-    return b.spend - a.spend;
+    if (sort === "roas_desc") return safeNumber(b.roas) - safeNumber(a.roas);
+    if (sort === "roas_asc") return safeNumber(a.roas) - safeNumber(b.roas);
+    if (sort === "name_asc") return safeText(a.name).localeCompare(safeText(b.name));
+    if (sort === "launch_desc") return safeTime(b.launchDate) - safeTime(a.launchDate);
+    return safeNumber(b.spend) - safeNumber(a.spend);
   });
   return sorted;
 }
@@ -327,6 +327,36 @@ function rowEngineLabel(row: AssetLibraryRow) {
   return row.engineLabel ?? row.decisionLabel ?? row.briefingLabel ?? null;
 }
 
+function safeRows(rows: unknown): MetaCreativeRow[] {
+  return Array.isArray(rows) ? rows.filter((row): row is MetaCreativeRow => Boolean(row && typeof row === "object")) : [];
+}
+
+function safeText(value: unknown) {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return "";
+}
+
+function safeNumber(value: unknown) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+function safeTime(value: unknown) {
+  const parsed = Date.parse(safeText(value));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function safeStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(safeText).filter(Boolean);
+  const text = safeText(value);
+  return text ? [text] : [];
+}
+
 function rowMatchesFormat(row: AssetLibraryRow, format: AssetLibraryFormatFilter) {
   if (format === "catalog") return row.isCatalog;
   if (format === "carousel") return row.creativeVisualFormat === "carousel";
@@ -334,7 +364,11 @@ function rowMatchesFormat(row: AssetLibraryRow, format: AssetLibraryFormatFilter
 }
 
 function rowMatchesBadge(row: AssetLibraryRow, badge: AssetLibraryBadgeFilter) {
-  const badges = [...(row.engineBadges ?? []), ...(row.badges ?? []), ...(row.tags ?? [])]
+  const badges = [
+    ...safeStringArray(row.engineBadges),
+    ...safeStringArray(row.badges),
+    ...safeStringArray(row.tags),
+  ]
     .map((item) => item.toLowerCase().replace(/\s+/g, "_"));
   return badges.includes(badge);
 }
@@ -345,6 +379,6 @@ function rowMatchesSearch(row: AssetLibraryRow, search: string) {
     row.campaignName,
     row.adSetName,
     row.accountName,
-    ...(row.tags ?? []),
-  ].some((value) => value?.toLowerCase().includes(search));
+    ...safeStringArray(row.tags),
+  ].some((value) => safeText(value).toLowerCase().includes(search));
 }

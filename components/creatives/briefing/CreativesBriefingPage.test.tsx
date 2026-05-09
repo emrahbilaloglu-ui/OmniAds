@@ -259,6 +259,28 @@ describe("CreativesBriefingPage", () => {
     expect(html).toContain("data-tracking-blocker");
   });
 
+  it("keeps the page available when optional briefing arrays are malformed", () => {
+    mockState.briefingData = {
+      ...makeBriefingData(),
+      actionNow: "not-an-array",
+      watching: null,
+      healthy: { bad: true },
+      pulse: {
+        ...makeBriefingData().pulse,
+        spendHistory: "not-an-array",
+        trackingAnomalyActive: false,
+      },
+      trackingAnomalyActive: false,
+    } as any;
+
+    const html = renderToStaticMarkup(<CreativesBriefingPage />);
+
+    expect(html).toContain("Creatives");
+    expect(html).toContain("Nothing for you to do right now.");
+    expect(html).toContain("Asset Library");
+    expect(html).not.toContain("This page is temporarily unavailable");
+  });
+
   it("does not convert placement-count-only cards into empty rollups", () => {
     mockState.briefingData = {
       ...makeBriefingData(),

@@ -131,6 +131,41 @@ describe("AssetLibrarySection", () => {
     expect(sortAssetLibraryRows(rows, "roas_asc").map((item) => item.id)).toEqual(["cut", "video", "scale"]);
   });
 
+  it("tolerates malformed runtime row fields from live Meta data", () => {
+    const malformed = row({
+      id: "malformed",
+      name: null as never,
+      tags: ["Fatigue", null, { label: "ignored" }] as never,
+      engineBadges: [null, "Below breakeven"] as never,
+      spend: "20" as never,
+      roas: "4" as never,
+      launchDate: null as never,
+    });
+
+    expect(() =>
+      filterAssetLibraryRows([malformed], {
+        status: "all",
+        formats: [],
+        labels: [],
+        badges: ["fatigue"],
+        search: "",
+        sort: "spend_desc",
+      }),
+    ).not.toThrow();
+    expect(
+      filterAssetLibraryRows([malformed], {
+        status: "all",
+        formats: [],
+        labels: [],
+        badges: ["fatigue"],
+        search: "",
+        sort: "spend_desc",
+      }).map((item) => item.id),
+    ).toEqual(["malformed"]);
+    expect(sortAssetLibraryRows([malformed], "name_asc")).toHaveLength(1);
+    expect(sortAssetLibraryRows([malformed], "launch_desc")).toHaveLength(1);
+  });
+
   it("exposes count summary and view persistence key", () => {
     expect(assetLibraryCountSummary(2, 8)).toBe("Showing 2 of 2 (filtered from 8)");
     expect(ASSET_LIBRARY_VIEW_STORAGE_KEY).toBe("creatives-briefing-asset-library-view");

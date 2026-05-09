@@ -300,13 +300,50 @@ function parseLaunchDate(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function safeTableText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return "";
+}
+
+function safeTableStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(safeTableText).filter(Boolean);
+  const text = safeTableText(value);
+  return text ? [text] : [];
+}
+
+function safeTablePreview(value: unknown, isCatalog: unknown): MetaCreativeRow["preview"] {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const source = value as Partial<MetaCreativeRow["preview"]>;
+    const renderMode = source.render_mode === "video" || source.render_mode === "image"
+      ? source.render_mode
+      : "unavailable";
+    return {
+      render_mode: renderMode,
+      image_url: safeTableText(source.image_url) || null,
+      video_url: safeTableText(source.video_url) || null,
+      poster_url: safeTableText(source.poster_url) || null,
+      source: source.source ?? null,
+      is_catalog: typeof source.is_catalog === "boolean" ? source.is_catalog : Boolean(isCatalog),
+    };
+  }
+  return {
+    render_mode: "unavailable",
+    image_url: null,
+    video_url: null,
+    poster_url: null,
+    source: null,
+    is_catalog: Boolean(isCatalog),
+  };
+}
+
 function scaleMetricToScore(value: number, target: number): number {
   if (!Number.isFinite(value) || target <= 0) return 0;
   return clamp((value / target) * 100, 0, 100);
 }
 
 function hasAiTagValue(row: MetaCreativeRow, key: TagKey, value?: string): boolean {
-  const values = row.aiTags?.[key] ?? [];
+  const values = safeTableStringArray(row.aiTags?.[key]);
   if (!value) return values.length > 0;
   return values.some((entry) => entry.toLowerCase() === value.toLowerCase());
 }
@@ -854,15 +891,15 @@ export function CreativesTableSection({
       const activeSortKey = sortState.key;
       if (!activeSortKey) return 0;
       if (activeSortKey === "name") {
-        return a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true }) * directionFactor;
+        return safeTableText(a.name).localeCompare(safeTableText(b.name), undefined, { sensitivity: "base", numeric: true }) * directionFactor;
       }
       if (activeSortKey === "launchDate") {
         return (parseLaunchDate(a.launchDate) - parseLaunchDate(b.launchDate)) * directionFactor;
       }
       if (activeSortKey.startsWith("aiTag:")) {
         const aiTagKey = activeSortKey.replace("aiTag:", "") as TagKey;
-        const aValue = (a.aiTags?.[aiTagKey] ?? []).join(", ");
-        const bValue = (b.aiTags?.[aiTagKey] ?? []).join(", ");
+        const aValue = safeTableStringArray(a.aiTags?.[aiTagKey]).join(", ");
+        const bValue = safeTableStringArray(b.aiTags?.[aiTagKey]).join(", ");
         return aValue.localeCompare(bValue, undefined, { sensitivity: "base", numeric: true }) * directionFactor;
       }
       const column = TABLE_COLUMN_MAP[activeSortKey as TableColumnKey];
@@ -878,7 +915,7 @@ export function CreativesTableSection({
   useEffect(() => {
     onSortedRowsChange?.(sortedRows);
   }, [onSortedRowsChange, sortedRows]);
-  const allSelected = sortedRows.length > 0 && sortedRows.every((row) => selectedRowIdSet.has(row.id));
+  const allSelected = sortedRows.length > 0 && sortedRows.every((row) => selectedRowIdSet.has(safeTableText(row.id)));
 
   const totalResults = sortedRows.length;
   const pageCount = Math.max(1, Math.ceil(totalResults / tablePreset.resultsPerPage));
@@ -1683,12 +1720,14 @@ export function CreativesTableSection({
                 <td colSpan={tableColumnCount} style={{ height: topSpacerHeight }} />
               </tr>
             )}
-            {visiblePagedRows.map((row) => (
+            {visiblePagedRows.map((row) => {
+              const rowId = safeTableText(row.id) || safeTableText(row.creativeId) || "creative";
+              return (
 	              <CreativeTableRow
-	                key={row.id}
+	                key={rowId}
 	                row={row}
-	                isSelected={selectedRowIdSet.has(row.id)}
-                highlighted={highlightedRowId === row.id}
+	                isSelected={selectedRowIdSet.has(rowId)}
+                highlighted={highlightedRowId === rowId}
                 defaultCurrency={defaultCurrency}
                 tablePreset={tablePreset}
                 selectedAiTagColumns={selectedAiTagColumns}
@@ -1701,7 +1740,8 @@ export function CreativesTableSection({
                 onOpenRow={onOpenRow}
                 onOpenBreakdownRow={onOpenBreakdownRow}
               />
-            ))}
+              );
+            })}
             {bottomSpacerHeight > 0 && (
               <tr aria-hidden="true">
                 <td colSpan={tableColumnCount} style={{ height: bottomSpacerHeight }} />
@@ -1856,12 +1896,15 @@ const CreativeTableRow = memo(function CreativeTableRow({
   );
   const assetState = getCreativeStaticPreviewState(row, "table");
   const resolvedRowCurrency = resolveCreativeCurrency(row.currency, defaultCurrency);
+  const rowId = safeTableText(row.id) || safeTableText(row.creativeId) || "creative";
+  const rowName = safeTableText(row.name) || "Untitled creative";
+  const rowPreview = safeTablePreview(row.preview, row.isCatalog);
 
   return (
     <tr
-      id={`creative-row-${row.id}`}
-      data-testid={`creative-row-${row.id}`}
-      onClick={() => onOpenRow(row.id)}
+      id={`creative-row-${rowId}`}
+      data-testid={`creative-row-${rowId}`}
+      onClick={() => onOpenRow(rowId)}
       className={cn("group cursor-pointer", highlighted && "bg-emerald-500/10")}
     >
       <td className="sticky left-0 z-10 border-b border-r bg-background px-2.5 py-1.5">
@@ -1869,15 +1912,15 @@ const CreativeTableRow = memo(function CreativeTableRow({
           <input
             type="checkbox"
             checked={isSelected}
-            onChange={() => onToggleRow(row.id)}
+            onChange={() => onToggleRow(rowId)}
             onClick={(event) => event.stopPropagation()}
             className="shrink-0"
           />
 
           <CreativeRenderSurface
-            id={row.id}
-            name={row.name}
-            preview={row.preview}
+            id={rowId}
+            name={rowName}
+            preview={rowPreview}
             size="thumb"
             mode="asset"
             assetState={assetState}
@@ -1886,7 +1929,7 @@ const CreativeTableRow = memo(function CreativeTableRow({
           />
 
           <div className="min-w-0 flex-1" title={buildPlacementTooltip(row)}>
-            <p className="truncate text-[10px] font-medium leading-tight">{row.name}</p>
+            <p className="truncate text-[10px] font-medium leading-tight">{rowName}</p>
             {row.campaignName ? (
               <p className="mt-0.5 truncate text-[9px] text-muted-foreground/80">
                 {row.campaignName}
@@ -1899,10 +1942,10 @@ const CreativeTableRow = memo(function CreativeTableRow({
                 onClick={(event) => {
                   event.stopPropagation();
                   if (onOpenBreakdownRow) {
-                    onOpenBreakdownRow(row.id);
+                    onOpenBreakdownRow(rowId);
                     return;
                   }
-                  onOpenRow(row.id);
+                  onOpenRow(rowId);
                 }}
                 className="ml-2 rounded px-1 py-0.5 opacity-0 underline-offset-2 transition-opacity hover:underline group-hover:opacity-70"
               >
@@ -1928,8 +1971,8 @@ const CreativeTableRow = memo(function CreativeTableRow({
       )}
 
       {selectedAiTagColumns.map((tagKey) => (
-        <td key={`${row.id}_ai_tag_${tagKey}`} className="border-b px-2.5 py-1">
-          <AiTagPills values={row.aiTags?.[tagKey] ?? []} tagKey={tagKey} />
+        <td key={`${rowId}_ai_tag_${tagKey}`} className="border-b px-2.5 py-1">
+          <AiTagPills values={safeTableStringArray(row.aiTags?.[tagKey])} tagKey={tagKey} />
         </td>
       ))}
 
@@ -1952,7 +1995,7 @@ const CreativeTableRow = memo(function CreativeTableRow({
 
         return (
           <td
-            key={`${row.id}_${column.key}`}
+            key={`${rowId}_${column.key}`}
             className={cn(
               "border-b px-2.5 py-1.5 text-[10px] font-medium",
               evaluation.applicable === false && "text-muted-foreground",
@@ -2252,7 +2295,8 @@ function prettyTagLabel(key: TagKey): string {
 }
 
 function AiTagPills({ values, tagKey }: { values: string[]; tagKey: TagKey }) {
-  if (!values || values.length === 0) {
+  const safeValues = safeTableStringArray(values);
+  if (safeValues.length === 0) {
     return (
       <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-medium", getAiTagPillStyles(tagKey, "None").className)}>
         None
@@ -2262,7 +2306,7 @@ function AiTagPills({ values, tagKey }: { values: string[]; tagKey: TagKey }) {
 
   return (
     <div className="flex max-h-9 max-w-full flex-wrap items-start gap-1.5 overflow-hidden">
-      {values.slice(0, 3).map((value) => (
+      {safeValues.slice(0, 3).map((value) => (
         <span
           key={value}
           className={cn(
@@ -2274,7 +2318,7 @@ function AiTagPills({ values, tagKey }: { values: string[]; tagKey: TagKey }) {
           {value}
         </span>
       ))}
-      {values.length > 3 ? <span className="text-[11px] text-muted-foreground">+{values.length - 3}</span> : null}
+      {safeValues.length > 3 ? <span className="text-[11px] text-muted-foreground">+{safeValues.length - 3}</span> : null}
     </div>
   );
 }

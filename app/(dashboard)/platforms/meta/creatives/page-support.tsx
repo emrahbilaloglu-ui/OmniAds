@@ -1,5 +1,9 @@
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
-import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
+import {
+  META_AI_TAG_KEYS,
+  type MetaAiTags,
+  type MetaCreativeRow,
+} from "@/components/creatives/metricConfig";
 import type { DecisionEngineV3Response } from "@/lib/creative-decision-engine";
 import {
   calculateCreativeAverageOrderValue,
@@ -355,12 +359,88 @@ export function buildCreativeHistoryById(input: Partial<Record<CreativeHistoryWi
   return map;
 }
 
+function safeString(value: unknown, fallback = "") {
+  if (typeof value === "string") return value.trim() || fallback;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return fallback;
+}
+
+function nullableString(value: unknown) {
+  const text = safeString(value);
+  return text || null;
+}
+
+function safeNumber(value: unknown, fallback = 0) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : fallback;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+  return fallback;
+}
+
+function safeNullableNumber(value: unknown) {
+  const parsed = safeNumber(value, Number.NaN);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function safeBoolean(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") return true;
+    if (normalized === "false") return false;
+  }
+  if (typeof value === "number") return value === 1;
+  return false;
+}
+
+function safeStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => safeString(item)).filter(Boolean);
+  }
+  const text = safeString(value);
+  return text ? [text] : [];
+}
+
+function safeAiTags(value: unknown): MetaAiTags {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const source = value as Record<string, unknown>;
+  const next: MetaAiTags = {};
+  for (const key of META_AI_TAG_KEYS) {
+    const values = safeStringArray(source[key]);
+    if (values.length > 0) next[key] = values;
+  }
+  return next;
+}
+
+function safePreview(value: unknown, isCatalog: boolean): MetaCreativeRow["preview"] {
+  const source = value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+  const renderMode = source.render_mode === "video" || source.render_mode === "image"
+    ? source.render_mode
+    : "unavailable";
+  return {
+    render_mode: renderMode,
+    image_url: nullableString(source.image_url),
+    video_url: nullableString(source.video_url),
+    poster_url: nullableString(source.poster_url),
+    source: nullableString(source.source) as MetaCreativeRow["preview"]["source"],
+    is_catalog: safeBoolean(source.is_catalog) || isCatalog,
+  };
+}
+
 export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
   const taxonomySource = row.taxonomy_source ?? "legacy_fallback";
   const legacyCreativeType = row.creative_type ?? "feed";
   const legacyCreativeTypeLabel =
     row.creative_type_label ?? getLegacyCreativeTypeLabel(legacyCreativeType);
-  const safeNumber = (value: number | null | undefined) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
+  const isCatalog = safeBoolean(row.is_catalog);
+  const preview = safePreview(row.preview, isCatalog);
+  const id = safeString(row.id, safeString(row.creative_id, "creative"));
+  const creativeId = safeString(row.creative_id, id);
+  const name = safeString(row.name, safeString(row.copy_text, `Creative ${creativeId}`));
   const purchases = safeNumber(row.purchases);
   const impressions = safeNumber(row.impressions);
   const clicks = safeNumber(row.clicks);
@@ -371,50 +451,53 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
   const linkCtr = impressions > 0 ? (linkClicks / impressions) * 100 : 0;
 
   return {
-    id: row.id,
-    creativeId: row.creative_id,
-    realAdId: row.real_ad_id ?? null,
-    objectStoryId: row.object_story_id ?? null,
-    effectiveObjectStoryId: row.effective_object_story_id ?? null,
-    postId: row.post_id ?? null,
-    copyText: row.copy_text ?? null,
-    copyVariants: row.copy_variants ?? [],
-    headlineVariants: row.headline_variants ?? [],
-    descriptionVariants: row.description_variants ?? [],
-    name: row.name,
-    associatedAdsCount: row.associated_ads_count,
-    accountId: row.account_id ?? null,
-    accountName: row.account_name ?? null,
-    campaignId: row.campaign_id ?? null,
-    campaignName: row.campaign_name ?? null,
-    adSetId: row.adset_id ?? null,
-    adSetName: row.adset_name ?? null,
-    effectiveStatus: row.effective_status ?? null,
-    currency: row.currency ?? null,
-    format: row.format ?? "image",
+    id,
+    creativeId,
+    realAdId: nullableString(row.real_ad_id),
+    objectStoryId: nullableString(row.object_story_id),
+    effectiveObjectStoryId: nullableString(row.effective_object_story_id),
+    postId: nullableString(row.post_id),
+    copyText: nullableString(row.copy_text),
+    copyVariants: safeStringArray(row.copy_variants),
+    headlineVariants: safeStringArray(row.headline_variants),
+    descriptionVariants: safeStringArray(row.description_variants),
+    name,
+    associatedAdsCount: Math.max(1, Math.round(safeNumber(row.associated_ads_count, 1))),
+    accountId: nullableString(row.account_id),
+    accountName: nullableString(row.account_name),
+    campaignId: nullableString(row.campaign_id),
+    campaignName: nullableString(row.campaign_name),
+    adSetId: nullableString(row.adset_id),
+    adSetName: nullableString(row.adset_name),
+    effectiveStatus: nullableString(row.effective_status),
+    currency: nullableString(row.currency),
+    format: safeString(row.format, "image") as MetaCreativeRow["format"],
     creativeType: legacyCreativeType,
     creativeTypeLabel: legacyCreativeTypeLabel,
-    creativeDeliveryType: row.creative_delivery_type ?? "standard",
-    creativeVisualFormat: row.creative_visual_format ?? "image",
-    creativePrimaryType: row.creative_primary_type ?? "standard",
-    creativePrimaryLabel: row.creative_primary_label ?? null,
-    creativeSecondaryType: row.creative_secondary_type ?? null,
-    creativeSecondaryLabel: row.creative_secondary_label ?? null,
+    creativeDeliveryType: safeString(row.creative_delivery_type, "standard") as MetaCreativeRow["creativeDeliveryType"],
+    creativeVisualFormat: safeString(row.creative_visual_format, "image") as MetaCreativeRow["creativeVisualFormat"],
+    creativePrimaryType: safeString(row.creative_primary_type, "standard") as MetaCreativeRow["creativePrimaryType"],
+    creativePrimaryLabel: nullableString(row.creative_primary_label),
+    creativeSecondaryType: nullableString(row.creative_secondary_type) as MetaCreativeRow["creativeSecondaryType"],
+    creativeSecondaryLabel: nullableString(row.creative_secondary_label),
     taxonomyVersion: row.taxonomy_version,
     taxonomySource,
     taxonomyReconciledByVideoEvidence: row.taxonomy_reconciled_by_video_evidence ?? false,
-    thumbnailUrl: row.thumbnail_url,
-    previewUrl: row.preview_url,
-    imageUrl: row.image_url,
-    tableThumbnailUrl: row.table_thumbnail_url ?? row.thumbnail_url ?? null,
-    cardPreviewUrl: row.card_preview_url ?? row.image_url ?? row.thumbnail_url ?? row.preview_url ?? null,
-    previewManifest: row.preview_manifest ?? null,
-    isCatalog: row.is_catalog,
-    previewState: row.preview_state,
-    preview: row.preview,
-    launchDate: row.launch_date,
-    tags: row.tags ?? [],
-    aiTags: row.ai_tags ?? {},
+    thumbnailUrl: nullableString(row.thumbnail_url),
+    previewUrl: nullableString(row.preview_url),
+    imageUrl: nullableString(row.image_url),
+    tableThumbnailUrl: nullableString(row.table_thumbnail_url) ?? nullableString(row.thumbnail_url),
+    cardPreviewUrl: nullableString(row.card_preview_url) ?? nullableString(row.image_url) ?? nullableString(row.thumbnail_url) ?? nullableString(row.preview_url),
+    previewManifest:
+      row.preview_manifest && typeof row.preview_manifest === "object" && !Array.isArray(row.preview_manifest)
+        ? row.preview_manifest
+        : null,
+    isCatalog,
+    previewState: row.preview_state === "preview" || row.preview_state === "catalog" ? row.preview_state : "unavailable",
+    preview,
+    launchDate: safeString(row.launch_date),
+    tags: safeStringArray(row.tags),
+    aiTags: safeAiTags(row.ai_tags),
     spend: safeNumber(row.spend),
     purchaseValue: safeNumber(row.purchase_value),
     roas: safeNumber(row.roas),
@@ -426,7 +509,7 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     purchases,
     impressions,
     clicks,
-    frequency: row.frequency ?? null,
+    frequency: safeNullableNumber(row.frequency),
     linkClicks,
     landingPageViews: safeNumber(row.landing_page_views),
     addToCart,

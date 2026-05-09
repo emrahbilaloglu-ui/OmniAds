@@ -37,6 +37,7 @@ This directory archives the audit trail that led to the Meta Engine v1 close. Ro
 - `me7-fix-1-persona-consultations.md`
 - `me7-fix-2-FAILED.md`
 - `me7-fix-3-FAILED.md`
+- `me7-validation-recalibration-contract.md`
 - `me8-DONE.md`
 - `me9-FAILED.md`
 - `me9-persona-consultations.md`

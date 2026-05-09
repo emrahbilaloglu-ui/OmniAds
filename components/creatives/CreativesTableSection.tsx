@@ -579,6 +579,10 @@ const TABLE_COLUMN_MAP: Record<TableColumnKey, TableColumnDefinition> = TABLE_CO
   {} as Record<TableColumnKey, TableColumnDefinition>
 );
 
+function isTableColumnKey(value: unknown): value is TableColumnKey {
+  return typeof value === "string" && value in TABLE_COLUMN_MAP;
+}
+
 export function buildCreativeTableHeatBenchmark(rows: MetaCreativeRow[]) {
   const ctx: TableCalcContext = {
     totalSpend: rows.reduce((sum, row) => sum + row.spend, 0),
@@ -646,6 +650,42 @@ const AI_TAG_GROUPS: Array<{ label: string; items: Array<{ label: string; value:
   { label: "Messaging", items: [{ label: "Messaging Angle", value: "messagingAngle" }, { label: "Seasonality", value: "seasonality" }, { label: "Offer Type", value: "offerType" }] },
   { label: "Hook", items: [{ label: "Hook Tactic", value: "hookTactic" }, { label: "Headline Tactic", value: "headlineTactic" }] },
 ];
+
+function isAiTagKey(value: unknown): value is TagKey {
+  return typeof value === "string" && (AI_TAG_COLUMN_KEYS as readonly string[]).includes(value);
+}
+
+function sanitizeTableSortKey(value: unknown): TableSortState["key"] {
+  if (value === "name" || value === "launchDate") return value;
+  if (isTableColumnKey(value)) return value;
+  if (typeof value === "string" && value.startsWith("aiTag:")) {
+    const tagKey = value.slice("aiTag:".length);
+    return isAiTagKey(tagKey) ? (`aiTag:${tagKey}` as const) : null;
+  }
+  return null;
+}
+
+export function sanitizeCreativeTableSortState(value: unknown): TableSortState | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const source = value as { key?: unknown; direction?: unknown };
+  const key = sanitizeTableSortKey(source.key);
+  const direction =
+    source.direction === "asc" || source.direction === "desc" ? source.direction : null;
+  return key && direction ? { key, direction } : null;
+}
+
+export function sanitizeCreativeTableColumnWidths(value: unknown): Record<string, number> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.entries(value as Record<string, unknown>).reduce<Record<string, number>>(
+    (acc, [key, width]) => {
+      const parsed = Number(width);
+      if (!Number.isFinite(parsed) || parsed <= 0) return acc;
+      acc[key] = parsed;
+      return acc;
+    },
+    {},
+  );
+}
 
 const PRESET_NOTES = "Preset controls only this table. Top creative cards keep their own metric model.";
 const VIRTUAL_ROW_HEIGHT = 58;
@@ -896,7 +936,7 @@ export function CreativesTableSection({
       if (activeSortKey === "launchDate") {
         return (parseLaunchDate(a.launchDate) - parseLaunchDate(b.launchDate)) * directionFactor;
       }
-      if (activeSortKey.startsWith("aiTag:")) {
+      if (typeof activeSortKey === "string" && activeSortKey.startsWith("aiTag:")) {
         const aiTagKey = activeSortKey.replace("aiTag:", "") as TagKey;
         const aValue = safeTableStringArray(a.aiTags?.[aiTagKey]).join(", ");
         const bValue = safeTableStringArray(b.aiTags?.[aiTagKey]).join(", ");
@@ -1152,17 +1192,16 @@ export function CreativesTableSection({
       const raw = window.localStorage.getItem(TABLE_LAYOUT_STORAGE_KEY);
       if (!raw) return;
       const parsed = JSON.parse(raw) as {
-        columnWidths?: Record<string, number>;
-        sort?: TableSortState;
+        columnWidths?: unknown;
+        sort?: unknown;
       };
-      if (parsed.columnWidths && typeof parsed.columnWidths === "object") {
-        setColumnWidths((prev) => ({ ...prev, ...parsed.columnWidths }));
+      const safeWidths = sanitizeCreativeTableColumnWidths(parsed.columnWidths);
+      if (Object.keys(safeWidths).length > 0) {
+        setColumnWidths((prev) => ({ ...prev, ...safeWidths }));
       }
-      if (parsed.sort && typeof parsed.sort === "object" && parsed.sort.key && parsed.sort.direction) {
-        setSortState({
-          key: parsed.sort.key,
-          direction: parsed.sort.direction,
-        });
+      const safeSort = sanitizeCreativeTableSortState(parsed.sort);
+      if (safeSort) {
+        setSortState(safeSort);
       }
     } catch {
       // ignore invalid persisted table layout

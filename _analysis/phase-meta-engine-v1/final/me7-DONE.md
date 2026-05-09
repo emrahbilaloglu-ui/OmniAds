@@ -18,8 +18,8 @@ Three engineering gates remain release blockers. Two production-fit metrics are 
 
 | Metric | Current Value | Treatment |
 |---|---:|---|
-| Action density | 9.5% | Baseline, not gate |
-| Engine vs persona disagreement | 36% | Baseline, not gate |
+| Action density | 9.5% | Observability baseline under `me7-validation-recalibration-contract.md` |
+| Engine vs persona disagreement | 36% | Philosophy-gap baseline under `me7-validation-recalibration-contract.md` |
 
 Action density is intentionally documented as a production baseline rather than a pass/fail gate by the recalibrated release contract. The engine emits action recommendations only when account-history-grounded thresholds trigger. On stable-state mid-zone accounts, low action density is correct conservative behavior, not coverage gaming or engine silence.
 

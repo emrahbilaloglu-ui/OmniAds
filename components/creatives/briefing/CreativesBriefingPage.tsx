@@ -13,7 +13,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
-  Check,
   ChevronDown,
   ExternalLink,
   Layers,
@@ -167,6 +166,20 @@ const CLOSED_COMPARE_DRAWER_STATE: CompareDrawerState = {
   open: false,
   cards: [],
 };
+
+function relativeTime(value: string | null | undefined) {
+  if (!value) return null;
+  const parsed = new Date(value).getTime();
+  if (!Number.isFinite(parsed)) return null;
+  const diffSeconds = Math.max(0, Math.round((Date.now() - parsed) / 1000));
+  if (diffSeconds < 5) return "just now";
+  if (diffSeconds < 60) return `${diffSeconds}s ago`;
+  const diffMinutes = Math.round(diffSeconds / 60);
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  return `${Math.round(diffHours / 24)}d ago`;
+}
 
 export function openLaunchpadOverlayState(
   payload: LaunchpadOpenPayload,
@@ -1187,10 +1200,14 @@ function PulseRight({
 }) {
   const engineLive = !metaStatus || metaStatus.state === "ready" || metaStatus.state === "partial";
   const syncMinutes = getSyncMinutes(metaStatus);
+  const calibratedLabel = relativeTime(calibratedAgo) ?? "2d ago";
 
   return (
-    <div className="flex items-center gap-3 text-slate-500">
-      <button data-pulse="engine" className="flex items-center gap-1.5 hover:bg-slate-50 rounded-md px-1.5 py-1">
+    <div className="flex flex-wrap items-center gap-3 text-slate-500">
+      <button
+        data-pulse="engine"
+        className="flex flex-shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 whitespace-nowrap hover:bg-slate-50"
+      >
         <span
           className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider ${
             engineLive
@@ -1201,10 +1218,14 @@ function PulseRight({
           <span className={`w-1.5 h-1.5 rounded-full ${engineLive ? "bg-emerald-500" : "bg-amber-500"}`} />
           {engineLive ? "Live" : "Syncing"}
         </span>
-        <span className="text-slate-500">{engineVersion || "Engine v3"}</span>
-        <span className="text-slate-400">· calibrated {calibratedAgo || "2d ago"}</span>
+        <span className="max-w-[180px] truncate text-slate-500">{engineVersion || "Engine v3"}</span>
+        <span className="text-slate-400">· calibrated {calibratedLabel}</span>
       </button>
-      <button data-pulse="tracking" className="flex items-center gap-1.5 hover:bg-slate-50 rounded-md px-1.5 py-1" id="pulse-tracking">
+      <button
+        data-pulse="tracking"
+        className="flex flex-shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 whitespace-nowrap hover:bg-slate-50"
+        id="pulse-tracking"
+      >
         {trackingAnomalyActive ? (
           <AlertTriangle className="inline-block shrink-0 text-rose-600" size={13} aria-hidden="true" />
         ) : (
@@ -1214,13 +1235,7 @@ function PulseRight({
           {trackingAnomalyActive ? "Tracking anomaly active" : "Tracking healthy"}
         </span>
       </button>
-      <span className="inline-flex items-center gap-1">
-        <span className="text-slate-400">
-          <Check className="inline-block shrink-0" size={12} aria-hidden="true" />
-        </span>
-        Saved 2s ago
-      </span>
-      <span className="inline-flex items-center gap-1">
+      <span className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap">
         <span className="text-slate-400">
           <RefreshCw className="inline-block shrink-0" size={12} aria-hidden="true" />
         </span>

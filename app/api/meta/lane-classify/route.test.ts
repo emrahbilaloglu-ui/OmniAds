@@ -58,28 +58,39 @@ describe("GET /api/meta/lane-classify", () => {
     });
     vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
       status: "ok",
-      rows: [{
-        id: "cmp_healthy",
-        name: "Healthy ASC",
-        status: "ACTIVE",
-        spend: 500,
-        purchases: 12,
-        roas: 3,
-        cpa: 25,
-        optimizationGoal: "Purchase",
-        bidStrategyType: "cost_cap",
-        bidStrategyLabel: "Cost Cap",
-        manualBidAmount: 1200,
-        previousManualBidAmount: 1000,
-        bidValue: 1200,
-        bidValueFormat: "currency",
-        previousBidValue: 1000,
-        previousBidValueFormat: "currency",
-        previousBidValueCapturedAt: "2026-03-31T00:00:00.000Z",
-        isOptimizationGoalMixed: false,
-        isBidStrategyMixed: false,
-        isBidValueMixed: false,
-      }] as never,
+      rows: [
+        {
+          id: "cmp_1",
+          name: "ASC Prospecting",
+          status: "ACTIVE",
+          spend: 800,
+          purchases: 9,
+          roas: 2.8,
+          cpa: 31,
+        },
+        {
+          id: "cmp_healthy",
+          name: "Healthy ASC",
+          status: "ACTIVE",
+          spend: 500,
+          purchases: 12,
+          roas: 3,
+          cpa: 25,
+          optimizationGoal: "Purchase",
+          bidStrategyType: "cost_cap",
+          bidStrategyLabel: "Cost Cap",
+          manualBidAmount: 1200,
+          previousManualBidAmount: 1000,
+          bidValue: 1200,
+          bidValueFormat: "currency",
+          previousBidValue: 1000,
+          previousBidValueFormat: "currency",
+          previousBidValueCapturedAt: "2026-03-31T00:00:00.000Z",
+          isOptimizationGoalMixed: false,
+          isBidStrategyMixed: false,
+          isBidValueMixed: false,
+        },
+      ] as never,
       evidenceSource: "live",
     });
     vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
@@ -137,5 +148,77 @@ describe("GET /api/meta/lane-classify", () => {
       previousBidValueCapturedAt: "2026-04-01T00:00:00.000Z",
     });
     expect(payload.deferredIds).toEqual(["rec_deferred"]);
+    expect(payload.counts.archive).toBe(0);
+    expect(payload.statusFilter).toBe("active");
+  });
+
+  it("filters closed-entity recommendations by default and exposes them in archive", async () => {
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 2,
+      },
+      recommendations: [
+        metaRec({ id: "rec_active", campaignId: "cmp_1", confidenceScore: 0.82, decisionState: "act" }),
+        metaRec({ id: "rec_closed", campaignId: "cmp_paused", confidenceScore: 0.9, decisionState: "act" }),
+      ],
+    });
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        { id: "cmp_1", name: "Active ASC", status: "ACTIVE", spend: 100, purchases: 3, roas: 2.5, cpa: 33 },
+        { id: "cmp_paused", name: "Paused ASC", status: "PAUSED", spend: 700, purchases: 7, roas: 1.4, cpa: 100 },
+      ] as never,
+      evidenceSource: "live",
+    });
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d"));
+    const payload = await response.json();
+
+    expect(payload.actionNow.map((rec: { id: string }) => rec.id)).toEqual(["rec_active"]);
+    expect(payload.archive).toHaveLength(1);
+    expect(payload.archive[0]).toMatchObject({ id: "cmp_paused", status: "PAUSED", name: "Paused ASC" });
+  });
+
+  it("keeps WITH_ISSUES recommendations visible in Watching instead of Action Now", async () => {
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 1,
+      },
+      recommendations: [
+        metaRec({ id: "rec_issue", campaignId: "cmp_issue", confidenceScore: 0.95, decisionState: "act" }),
+      ],
+    });
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        { id: "cmp_issue", name: "Delivery Issue", status: "WITH_ISSUES", spend: 250, purchases: 2, roas: 1.2, cpa: 125 },
+      ] as never,
+      evidenceSource: "live",
+    });
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d"));
+    const payload = await response.json();
+
+    expect(payload.actionNow).toHaveLength(0);
+    expect(payload.watching.map((rec: { id: string }) => rec.id)).toContain("rec_issue");
+    expect(payload.archive).toHaveLength(0);
   });
 });

@@ -1,4 +1,5 @@
 import type { MetaAnomaly } from "@/lib/meta/anomalies";
+import type { BriefingStatusFilter } from "@/lib/meta/briefing-filter";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 
 export type MetaWindowKey = "7d" | "14d" | "28d" | "90d" | "custom";
@@ -6,6 +7,7 @@ export type MetaWindowKey = "7d" | "14d" | "28d" | "90d" | "custom";
 export interface MetaPulsePayload {
   businessId: string;
   window: MetaWindowKey;
+  statusFilter?: BriefingStatusFilter;
   startDate: string;
   endDate: string;
   pacing: {
@@ -65,17 +67,35 @@ export interface MetaHealthyEntity {
   isBidValueMixed?: boolean;
 }
 
+export interface MetaArchivedEntity {
+  id: string;
+  level: "campaign" | "adset";
+  name: string;
+  campaignId?: string | null;
+  campaignName?: string | null;
+  status: string;
+  statusLabel: string;
+  spend: number;
+  roas: number;
+  cpa: number | null;
+  purchases: number;
+  lastKnownWindow: string;
+  diagnosticNote: string | null;
+}
+
 export interface MetaLanePayload {
   businessId: string;
   startDate: string;
   endDate: string;
   sourceModel: string;
   snapshotDate: string | null;
+  statusFilter?: BriefingStatusFilter;
   actionNow: MetaRecommendation[];
   watching: MetaRecommendation[];
   healthy: MetaHealthyEntity[];
+  archive: MetaArchivedEntity[];
   deferredIds: string[];
-  counts: { actionNow: number; watching: number; healthy: number };
+  counts: { actionNow: number; watching: number; healthy: number; archive: number };
 }
 
 export type MetaDrillItem =

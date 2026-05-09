@@ -82,6 +82,7 @@ export function metaPulse(overrides: Partial<MetaPulsePayload> = {}): MetaPulseP
   return {
     businessId: "biz_1",
     window: "28d",
+    statusFilter: "active",
     startDate: "2026-04-10",
     endDate: "2026-05-07",
     pacing: { mtdSpend: 1200, mtdTarget: 2400, dayPace: 0.5 },
@@ -114,11 +115,13 @@ export function metaLanePayload(overrides: Partial<MetaLanePayload> = {}): MetaL
     endDate: "2026-05-07",
     sourceModel: "snapshot_persistent",
     snapshotDate: "2026-05-07",
+    statusFilter: "active",
     actionNow: [metaRec()],
     watching: [metaRec({ id: "rec_watch", decisionState: "watch", confidenceScore: 0.42 })],
     healthy: [metaHealthy()],
+    archive: [],
     deferredIds: [],
-    counts: { actionNow: 1, watching: 1, healthy: 1 },
+    counts: { actionNow: 1, watching: 1, healthy: 1, archive: 0 },
     ...overrides,
   };
 }

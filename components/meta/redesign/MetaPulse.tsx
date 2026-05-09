@@ -13,6 +13,11 @@ import {
 import { PulseStrip } from "@/components/common/briefing";
 import { DECISION_LABEL_PALETTE, TONE_CLASS } from "@/components/common/briefing/decision-label-palette";
 import type { MetaPulsePayload, MetaWindowKey } from "@/components/meta/redesign/types";
+import {
+  BRIEFING_STATUS_FILTER_LABELS,
+  BRIEFING_STATUS_FILTERS,
+  type BriefingStatusFilter,
+} from "@/lib/meta/briefing-filter";
 import { cn } from "@/lib/utils";
 import { formatCurrency, formatPercent, formatRoas, sparklinePath } from "@/lib/briefing/utils";
 
@@ -20,6 +25,8 @@ interface MetaPulseProps {
   pulse?: MetaPulsePayload | null;
   window: MetaWindowKey;
   onWindowChange: (window: MetaWindowKey) => void;
+  statusFilter: BriefingStatusFilter;
+  onStatusFilterChange: (filter: BriefingStatusFilter) => void;
 }
 
 type TextTone = "neutral" | "success" | "warning" | "danger" | "dangerStrong";
@@ -429,7 +436,13 @@ function Divider() {
   return <span className="h-5 w-px bg-slate-200" data-pulse-divider="true" aria-hidden="true" />;
 }
 
-export function MetaPulse({ pulse, window, onWindowChange }: MetaPulseProps) {
+export function MetaPulse({
+  pulse,
+  window,
+  onWindowChange,
+  statusFilter,
+  onStatusFilterChange,
+}: MetaPulseProps) {
   const selectedWindowLabel = window === "custom" ? "Custom" : window;
   const revenueDelta = pulse ? kpiDeltaValue(pulse.revenue.current, pulse.revenue.prev) : null;
   const cpaDelta = pulse ? kpiDeltaValue(pulse.cpa.current, pulse.cpa.prev) : null;
@@ -463,6 +476,30 @@ export function MetaPulse({ pulse, window, onWindowChange }: MetaPulseProps) {
               ))}
             </select>
           </label>
+          <div
+            className="inline-flex items-center rounded-md border border-slate-200 bg-white p-0.5"
+            data-meta-status-filter
+            role="group"
+            aria-label="Meta briefing status scope"
+          >
+            {BRIEFING_STATUS_FILTERS.map((item) => (
+              <button
+                key={item}
+                type="button"
+                className={cn(
+                  "rounded px-2 py-0.5 text-[11.5px] font-medium transition-colors",
+                  item === statusFilter
+                    ? "bg-slate-900 text-white"
+                    : "text-slate-500 hover:bg-slate-50 hover:text-slate-800",
+                )}
+                data-status-filter-option={item}
+                aria-pressed={item === statusFilter}
+                onClick={() => onStatusFilterChange(item)}
+              >
+                {BRIEFING_STATUS_FILTER_LABELS[item]}
+              </button>
+            ))}
+          </div>
         </div>
       }
       center={
@@ -496,6 +533,7 @@ export function MetaPulse({ pulse, window, onWindowChange }: MetaPulseProps) {
           <a href="#action-now" className="rounded-md px-2 py-1 text-slate-600 hover:bg-slate-50">Action Now</a>
           <a href="#watching" className="rounded-md px-2 py-1 text-slate-600 hover:bg-slate-50">Watching</a>
           <a href="#healthy" className="rounded-md px-2 py-1 text-slate-600 hover:bg-slate-50">Healthy</a>
+          <a href="#archive" className="rounded-md px-2 py-1 text-slate-600 hover:bg-slate-50">Archive</a>
         </>
       }
       kpiBand={

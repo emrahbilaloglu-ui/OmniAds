@@ -73,6 +73,7 @@ beforeEach(() => {
       {
         id: "row_1",
         creative_id: "mock-creative-001",
+        effective_status: "ACTIVE",
         real_ad_id: "ad_1",
         associated_ads_count: 1,
         account_id: "act_1",
@@ -152,6 +153,7 @@ describe("GET /api/creatives/briefing", () => {
     expect(Array.isArray(payload.watching)).toBe(true);
     expect(Array.isArray(payload.healthy)).toBe(true);
     expect(payload.pulse.engineVersion).toBeTruthy();
+    expect(payload.statusFilter).toBe("active");
     expect(JSON.stringify(payload)).not.toContain("buyerAction");
     expect(JSON.stringify(payload)).not.toContain("brief_variation");
     expect(requireBusinessAccess).toHaveBeenCalledWith({
@@ -171,6 +173,7 @@ describe("GET /api/creatives/briefing", () => {
 
     expect(response.status).toBe(200);
     expect(payload.status).toBe("disabled");
+    expect(payload.statusFilter).toBe("active");
     expect(payload.actionNow).toEqual([]);
     expect(payload.watching).toEqual([]);
     expect(payload.healthy).toEqual([]);
@@ -187,5 +190,82 @@ describe("GET /api/creatives/briefing", () => {
 
     expect(response.status).toBe(401);
     expect(resolveEngineV3Flags).not.toHaveBeenCalled();
+  });
+
+  it("filters paused creatives out of briefing lanes by default", async () => {
+    vi.mocked(getMetaCreativesApiPayload).mockResolvedValue({
+      status: "ok",
+      rows: [
+        {
+          id: "row_1",
+          creative_id: "mock-creative-001",
+          effective_status: "PAUSED",
+          real_ad_id: "ad_1",
+          associated_ads_count: 1,
+          account_id: "act_1",
+          account_name: "Meta Account",
+          campaign_id: "mock-campaign-001",
+          campaign_name: "Mock Campaign",
+          adset_id: "adset_1",
+          adset_name: "Mock Adset",
+          currency: "USD",
+          name: "Mock Creative",
+          launch_date: "2026-05-01",
+          preview_url: null,
+          preview_source: null,
+          thumbnail_url: null,
+          image_url: null,
+          is_catalog: false,
+          preview_state: "unavailable",
+          preview: { render_mode: "unavailable", image_url: null, video_url: null, poster_url: null, source: null, is_catalog: false },
+          tags: [],
+          ai_tags: {},
+          format: "image",
+          creative_type: "feed",
+          creative_type_label: "Feed",
+          creative_delivery_type: "standard",
+          creative_visual_format: "image",
+          creative_primary_type: "standard",
+          creative_primary_label: null,
+          creative_secondary_type: null,
+          creative_secondary_label: null,
+          spend: 500,
+          purchase_value: 1500,
+          roas: 3,
+          cpa: 62.5,
+          clicks: 100,
+          cpc_link: 1,
+          cpm: 10,
+          ctr_all: 1.2,
+          purchases: 8,
+          impressions: 50000,
+          link_clicks: 600,
+          landing_page_views: 480,
+          add_to_cart: 80,
+          initiate_checkout: 40,
+          thumbstop: 25,
+          click_to_atc: 13.33,
+          atc_to_purchase: 10,
+          leads: 0,
+          messages: 0,
+          video25: 18,
+          video50: 10,
+          video75: 6,
+          video100: 3,
+        },
+      ],
+      media_mode: "metadata",
+      media_hydrated: false,
+    });
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.actionNow).toEqual([]);
+    expect(payload.watching).toEqual([]);
+    expect(payload.healthy).toEqual([]);
   });
 });

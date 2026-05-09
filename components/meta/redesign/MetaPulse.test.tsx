@@ -7,7 +7,13 @@ import type { MetaPulsePayload } from "@/components/meta/redesign/types";
 
 function renderPulse(overrides: Partial<MetaPulsePayload> = {}) {
   return renderToStaticMarkup(
-    <MetaPulse pulse={metaPulse(overrides)} window="28d" onWindowChange={vi.fn()} />,
+    <MetaPulse
+      pulse={metaPulse(overrides)}
+      window="28d"
+      onWindowChange={vi.fn()}
+      statusFilter="active"
+      onStatusFilterChange={vi.fn()}
+    />,
   );
 }
 
@@ -203,9 +209,24 @@ describe("MetaPulse", () => {
     expect((html.match(/data-pulse-divider="true"/g) ?? []).length).toBe(2);
   });
 
+  it("renders the Meta status filter chip group with Active selected by default", () => {
+    const html = renderPulse();
+
+    expect(html).toContain("data-meta-status-filter");
+    expect(html).toContain('data-status-filter-option="active"');
+    expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain("Active + paused");
+  });
+
   it("renders loading state without fake unknown or saved pills", () => {
     const html = renderToStaticMarkup(
-      <MetaPulse pulse={null} window="28d" onWindowChange={vi.fn()} />,
+      <MetaPulse
+        pulse={null}
+        window="28d"
+        onWindowChange={vi.fn()}
+        statusFilter="active"
+        onStatusFilterChange={vi.fn()}
+      />,
     );
 
     expect(html).toContain("Loading campaigns");

@@ -6,6 +6,7 @@ import {
   classifyMetaOperatingMode,
   classifyMetaSeasonalRegime,
 } from "@/lib/meta/operating-mode";
+import { isInBriefing, parseBriefingStatusFilter } from "@/lib/meta/briefing-filter";
 import { META_RECOMMENDATION_ENGINE_VERSION } from "@/lib/meta/recommendations";
 
 export const dynamic = "force-dynamic";
@@ -155,6 +156,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const businessId = searchParams.get("businessId")?.trim() ?? "";
   const window = parseWindow(searchParams.get("window"));
+  const statusFilter = parseBriefingStatusFilter(searchParams.get("status_filter"));
   const endDate = searchParams.get("endDate")?.trim() || todayISO();
   const startDate =
     searchParams.get("startDate")?.trim() ||
@@ -209,24 +211,30 @@ export async function GET(request: NextRequest) {
       resolveBusinessTargetRoas(businessId),
     ]);
 
-  const currentTotals = totals(current.rows ?? []);
-  const previousTotals = totals(previous.rows ?? []);
+  const currentRows = (current.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
+  const previousRows = (previous.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
+  const d7Rows = (d7.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
+  const d14Rows = (d14.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
+  const d28Rows = (d28.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
+
+  const currentTotals = totals(currentRows);
+  const previousTotals = totals(previousRows);
   const currentDayOfMonth = Math.max(1, new Date(`${endDate}T00:00:00.000Z`).getUTCDate());
   const mtdTarget = Math.max(currentTotals.spend, (currentTotals.spend / currentDayOfMonth) * 30);
-  const matureCampaigns = (current.rows ?? []).filter(
+  const matureCampaigns = currentRows.filter(
     (row) => toNumber(row.spend) >= 250 || toNumber(row.purchases) >= 5,
   ).length;
-  const learningCampaigns = Math.max(0, (current.rows ?? []).length - matureCampaigns);
-  const d7Totals = totals(d7.rows ?? []);
-  const d14Totals = totals(d14.rows ?? []);
-  const d28Totals = totals(d28.rows ?? []);
+  const learningCampaigns = Math.max(0, currentRows.length - matureCampaigns);
+  const d7Totals = totals(d7Rows);
+  const d14Totals = totals(d14Rows);
+  const d28Totals = totals(d28Rows);
   const targetForMode = roasBenchmark.target ?? roasBenchmark.median ?? currentTotals.roas ?? 1;
   const constrainedBidShare =
-    (current.rows ?? []).length > 0
-      ? (current.rows ?? []).filter((row) => {
+    currentRows.length > 0
+      ? currentRows.filter((row) => {
         const strategy = String(row.bidStrategyType ?? row.bidStrategyLabel ?? "").toLowerCase();
         return strategy.includes("cost_cap") || strategy.includes("bid_cap") || strategy.includes("roas");
-      }).length / (current.rows ?? []).length
+      }).length / currentRows.length
       : 0;
   const operatingMode = classifyMetaOperatingMode({
     current: currentTotals,
@@ -246,6 +254,7 @@ export async function GET(request: NextRequest) {
     {
       businessId,
       window,
+      statusFilter,
       startDate,
       endDate,
       pacing: {

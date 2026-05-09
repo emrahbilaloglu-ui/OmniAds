@@ -2717,8 +2717,10 @@ export async function runMigrations(options?: {
           lookalike_pct DOUBLE PRECISION,
           audience_stage TEXT,
           creative_age_days INTEGER,
+          creative_age_days_max INTEGER,
           frequency_p80 DOUBLE PRECISION,
           ctr_decay_pct DOUBLE PRECISION,
+          days_since_significant_edit INTEGER,
           feed_disapproval_count INTEGER,
           feed_status TEXT,
           dedup_rate_pct DOUBLE PRECISION,
@@ -2736,6 +2738,10 @@ export async function runMigrations(options?: {
           ON meta_entity_decision_signals_daily (scope_type, scope_id, as_of_date DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_entity_decision_signals_quality
           ON meta_entity_decision_signals_daily (business_id, as_of_date DESC, quality_status)`.catch(() => {}),
+        sql`ALTER TABLE meta_entity_decision_signals_daily
+          ADD COLUMN IF NOT EXISTS creative_age_days_max INTEGER`.catch(() => {}),
+        sql`ALTER TABLE meta_entity_decision_signals_daily
+          ADD COLUMN IF NOT EXISTS days_since_significant_edit INTEGER`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_decision_calibration_daily (
           business_id   TEXT NOT NULL,
           scope_type    TEXT NOT NULL CHECK (scope_type IN ('account', 'campaign')),

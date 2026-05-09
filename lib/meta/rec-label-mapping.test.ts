@@ -39,7 +39,7 @@ describe("Meta rec label mapping", () => {
     expect(
       decisionLabelForMetaRec({
         kind: "state",
-        type: "entity_state",
+        type: "campaign_state",
         decisionState: "watch",
         recommendedAction: "No immediate operator action.",
       }),

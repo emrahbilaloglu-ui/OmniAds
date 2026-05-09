@@ -28,6 +28,8 @@ import {
   type MetaCampaignLaneSignal,
 } from "@/lib/meta/campaign-lanes";
 import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
+import { emitHighPriorityCampaignScenario } from "@/lib/meta/scenario-emitters/high-priority";
+import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
 
 export type MetaDecisionState = "act" | "test" | "watch";
 export type MetaRecommendationLens = "volume" | "profitability" | "structure";
@@ -36,6 +38,8 @@ export type MetaRecommendationConfidence = "high" | "medium" | "low";
 export type MetaRecommendationLevel = "account" | "campaign" | "adset";
 export type MetaRecommendationType =
   | "entity_state"
+  | "campaign_state"
+  | "adset_state"
   | "scenario_a1_math_floor_unmet"
   | "scenario_a2_learning_weak_structural"
   | "scenario_a3_learning_on_pace_wait"
@@ -2722,6 +2726,7 @@ export function buildMetaRecommendations(input: {
   creativeIntelligence?: MetaCreativeIntelligenceSummary | null;
   calibrationContext?: MetaCalibrationContext | null;
   calibrationContextByCampaignId?: Record<string, MetaCalibrationContext | null | undefined>;
+  entitySignalsByCampaignId?: Record<string, MetaEntityDecisionSignal | null | undefined>;
   language?: AppLanguage;
 }): MetaRecommendationsResponse {
   const language = input.language ?? "en";
@@ -2822,6 +2827,20 @@ export function buildMetaRecommendations(input: {
       input.calibrationContextByCampaignId?.[campaignWindow.selected.id] ??
       input.calibrationContext ??
       null;
+    const campaignRole = inferCampaignRole(campaignWindow.selected, {
+      campaigns: selectedRows,
+      laneSignals: taxonomyContext.laneSignals,
+    });
+    const bidRegime = inferBidRegime(null, campaignWindow.selected);
+    const scenario = emitHighPriorityCampaignScenario({
+      window: campaignWindow,
+      context: calibrationContext,
+      campaignRole,
+      bidRegime,
+      signals: input.entitySignalsByCampaignId?.[campaignWindow.selected.id] ?? null,
+    });
+    if (scenario) recommendations.push(scenario);
+
     const structure = maybeStructureRecommendation(campaignWindow);
     if (structure) recommendations.push(structure);
 
@@ -2867,7 +2886,7 @@ export function buildMetaRecommendations(input: {
     .filter((recommendation, index, list) =>
       list.findIndex((item) => item.id === recommendation.id) === index
     )
-    .slice(0, 8);
+    .slice(0, 250);
   const deduped = ensurePriorityRecommendationsIncluded(stampedRecommendations, dedupedBase);
 
   return localizeMetaRecommendationsResponse({

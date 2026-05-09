@@ -22,8 +22,8 @@ const readiness = await import("@/lib/db-schema-readiness");
 const snapshot = await import("@/lib/meta/snapshot");
 const activeBusinesses = await import("@/lib/sync/active-businesses");
 
-function makeSqlMock(snapshotBusinessCount: number) {
-  const tag = vi.fn(() => Promise.resolve([{ business_count: snapshotBusinessCount }])) as unknown as ReturnType<typeof db.getDb>;
+function makeSqlMock(rows: Array<{ business_id: string; has_campaign_rows: boolean; has_adset_rows: boolean }>) {
+  const tag = vi.fn(() => Promise.resolve(rows)) as unknown as ReturnType<typeof db.getDb>;
   tag.query = vi.fn();
   return tag;
 }
@@ -55,7 +55,9 @@ describe("runMetaSnapshotJobIfDue", () => {
   });
 
   it("does not treat calibration-only or partial snapshot coverage as already-run", async () => {
-    vi.mocked(db.getDb).mockReturnValue(makeSqlMock(1));
+    vi.mocked(db.getDb).mockReturnValue(makeSqlMock([
+      { business_id: "biz_1", has_campaign_rows: false, has_adset_rows: true },
+    ]));
 
     const result = await runMetaSnapshotJobIfDue(new Date("2026-05-08T03:10:00.000Z"));
 
@@ -63,12 +65,27 @@ describe("runMetaSnapshotJobIfDue", () => {
     expect(snapshot.runMetaSnapshotForAllBusinesses).toHaveBeenCalledWith("2026-05-08");
   });
 
-  it("skips only when all active businesses already have snapshot rows", async () => {
-    vi.mocked(db.getDb).mockReturnValue(makeSqlMock(2));
+  it("skips only when all active businesses already have campaign and adset snapshot rows", async () => {
+    vi.mocked(db.getDb).mockReturnValue(makeSqlMock([
+      { business_id: "biz_1", has_campaign_rows: true, has_adset_rows: true },
+      { business_id: "biz_2", has_campaign_rows: true, has_adset_rows: true },
+    ]));
 
     const result = await runMetaSnapshotJobIfDue(new Date("2026-05-08T03:10:00.000Z"));
 
     expect(result).toEqual({ skipped: true, reason: "already_ran", snapshotDate: "2026-05-08" });
     expect(snapshot.runMetaSnapshotForAllBusinesses).not.toHaveBeenCalled();
+  });
+
+  it("reruns when a business has adset rows but no campaign rows", async () => {
+    vi.mocked(db.getDb).mockReturnValue(makeSqlMock([
+      { business_id: "biz_1", has_campaign_rows: false, has_adset_rows: true },
+      { business_id: "biz_2", has_campaign_rows: true, has_adset_rows: true },
+    ]));
+
+    const result = await runMetaSnapshotJobIfDue(new Date("2026-05-08T03:10:00.000Z"));
+
+    expect(result.skipped).toBe(false);
+    expect(snapshot.runMetaSnapshotForAllBusinesses).toHaveBeenCalledWith("2026-05-08");
   });
 });

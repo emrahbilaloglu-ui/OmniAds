@@ -94,7 +94,7 @@ function stateRecommendation(input: {
     campaignName: input.level === "campaign" ? input.name : input.campaignName,
     adsetId: input.level === "adset" ? input.id : undefined,
     adsetName: input.level === "adset" ? input.name : undefined,
-    type: "entity_state",
+    type: input.level === "campaign" ? "campaign_state" : "adset_state",
     kind: "state",
     decisionLabel: label,
     stateReason: stateReason(input.state),

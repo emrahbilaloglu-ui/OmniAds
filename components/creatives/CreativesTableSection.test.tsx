@@ -327,4 +327,37 @@ describe("CreativesTableSection", () => {
     expect(html).toContain("Offer Type");
     expect(html).not.toContain("ROAS (return on ad spend)");
   });
+
+  it("renders creative-team preset when AI tags arrive as scalar values", () => {
+    const row = mapApiRowToUiRow(
+      buildApiRow({
+        name: null as never,
+        ai_tags: {
+          offerType: "Bundle",
+          hookTactic: "Before/After",
+        } as never,
+        preview: null as never,
+      }),
+    );
+
+    const html = renderToStaticMarkup(
+      <CreativesTableSection
+        rows={[row]}
+        creativeHistoryById={new Map()}
+        defaultCurrency="USD"
+        initialPresetName="Creative teams"
+        selectedMetricIds={["spend", "roas"]}
+        onSelectedMetricIdsChange={() => {}}
+        selectedRowIds={[]}
+        onToggleRow={() => {}}
+        onToggleAll={() => {}}
+        onOpenRow={() => {}}
+      />,
+    );
+
+    expect(html).toContain("Buy now");
+    expect(html).toContain("Bundle");
+    expect(html).toContain("Before/After");
+    expect(html).toContain("preview:Buy now");
+  });
 });

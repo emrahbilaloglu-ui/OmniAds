@@ -72,7 +72,7 @@ export function CrossPlacementCard({
 }: CrossPlacementCardProps) {
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [placementsExpanded, setPlacementsExpanded] = useState(true);
-  const placementList = rollup.placementList ?? [];
+  const placementList = Array.isArray(rollup.placementList) ? rollup.placementList : [];
   const mixed =
     Boolean(rollup.mixed) ||
     new Set(placementList.map((placement) => asDecisionLabel(placement.label))).size > 1;
@@ -93,6 +93,7 @@ export function CrossPlacementCard({
   const conf = confidenceClass(confidence);
   const label = asDecisionLabel(card.label);
   const name = cardName(card);
+  const badges = Array.isArray(card.badges) ? card.badges : [];
   const bestPlacement = card.bestPlacement || placementList[0]?.adset || placementList[0]?.adsetName || "Placement";
   const actionCardId = cardId(card);
   const scopeId = getCreativeScopeId(card);
@@ -153,7 +154,7 @@ export function CrossPlacementCard({
                 </span>
               ) : null}
               <DecisionLabelChip label={label} />
-              {(card.badges ?? []).map((badge) => (
+              {badges.map((badge) => (
                 <BadgeChip key={String(badge)} label={badge} />
               ))}
               <ConfidencePill confidence={confidence} />

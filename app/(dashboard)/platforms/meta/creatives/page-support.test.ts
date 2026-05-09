@@ -302,6 +302,38 @@ describe("mapApiRowToUiRow", () => {
     expect(row.creativeTypeLabel).toBe("Video");
   });
 
+  it("normalizes malformed live creative fields before the table renders them", () => {
+    const row = mapApiRowToUiRow(
+      buildApiRow({
+        id: 123 as never,
+        creative_id: null as never,
+        name: null as never,
+        tags: ["fatigue", null, 42] as never,
+        ai_tags: {
+          offerType: "Bundle",
+          hookTactic: ["Before/After", null],
+        } as never,
+        copy_variants: "Buy now" as never,
+        preview: null as never,
+        is_catalog: "false" as never,
+        spend: "120.5" as never,
+        frequency: "2.4" as never,
+      }),
+    );
+
+    expect(row.id).toBe("123");
+    expect(row.creativeId).toBe("123");
+    expect(row.name).toBe("Buy now");
+    expect(row.tags).toEqual(["fatigue", "42"]);
+    expect(row.aiTags.offerType).toEqual(["Bundle"]);
+    expect(row.aiTags.hookTactic).toEqual(["Before/After"]);
+    expect(row.copyVariants).toEqual(["Buy now"]);
+    expect(row.preview.render_mode).toBe("unavailable");
+    expect(row.isCatalog).toBe(false);
+    expect(row.spend).toBe(120.5);
+    expect(row.frequency).toBe(2.4);
+  });
+
   it("keeps click truth distinct across clicks, link CTR, add-to-cart, and purchase conversion", () => {
     const row = mapApiRowToUiRow(
       buildApiRow({

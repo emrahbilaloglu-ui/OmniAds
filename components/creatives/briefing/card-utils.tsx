@@ -54,19 +54,25 @@ export function asDecisionLabel(value: unknown, fallback: DecisionLabel = "out_o
 }
 
 export function cardId(card: Pick<BriefingCreativeCard, "id" | "creativeId">) {
-  return card.id || card.creativeId || "creative";
+  return safeCardText(card.id) || safeCardText(card.creativeId) || "creative";
 }
 
 export function cardName(card: Pick<BriefingCreativeCard, "name" | "creativeName">) {
-  return card.name || card.creativeName || "Untitled creative";
+  return safeCardText(card.name) || safeCardText(card.creativeName) || "Untitled creative";
 }
 
 export function cardCampaign(card: Pick<BriefingCreativeCard, "campaign" | "campaignName">) {
-  return card.campaign || card.campaignName || "Campaign";
+  return safeCardText(card.campaign) || safeCardText(card.campaignName) || "Campaign";
 }
 
 export function cardAdset(card: Pick<BriefingCreativeCard, "adset" | "adsetName">) {
-  return card.adset || card.adsetName || "Ad set";
+  return safeCardText(card.adset) || safeCardText(card.adsetName) || "Ad set";
+}
+
+function safeCardText(value: unknown) {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return "";
 }
 
 export function numberOrZero(value: number | null | undefined) {
@@ -132,7 +138,7 @@ export function Sparkline({
   width?: number;
   height?: number;
 }) {
-  const normalizedValues = values && values.length > 0 ? values : [0, 0];
+  const normalizedValues = Array.isArray(values) && values.length > 0 ? values : [0, 0];
 
   return (
     <svg

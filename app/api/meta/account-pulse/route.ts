@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
 import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
+import {
+  classifyMetaOperatingMode,
+  classifyMetaSeasonalRegime,
+} from "@/lib/meta/operating-mode";
 import { META_RECOMMENDATION_ENGINE_VERSION } from "@/lib/meta/recommendations";
 
 export const dynamic = "force-dynamic";
@@ -158,6 +162,30 @@ export async function GET(request: NextRequest) {
     (row) => toNumber(row.spend) >= 250 || toNumber(row.purchases) >= 5,
   ).length;
   const learningCampaigns = Math.max(0, (current.rows ?? []).length - matureCampaigns);
+  const d7Totals = totals(d7.rows ?? []);
+  const d14Totals = totals(d14.rows ?? []);
+  const d28Totals = totals(d28.rows ?? []);
+  const target = targetRoas(current.rows ?? []);
+  const constrainedBidShare =
+    (current.rows ?? []).length > 0
+      ? (current.rows ?? []).filter((row) => {
+        const strategy = String(row.bidStrategyType ?? row.bidStrategyLabel ?? "").toLowerCase();
+        return strategy.includes("cost_cap") || strategy.includes("bid_cap") || strategy.includes("roas");
+      }).length / (current.rows ?? []).length
+      : 0;
+  const operatingMode = classifyMetaOperatingMode({
+    current: currentTotals,
+    previous: previousTotals,
+    targetRoas: target,
+    constrainedBidShare,
+  });
+  const seasonalRegime = classifyMetaSeasonalRegime({
+    d7Roas: d7Totals.roas,
+    d14Roas: d14Totals.roas,
+    d28Roas: d28Totals.roas,
+    currentSpend: currentTotals.spend,
+    previousSpend: previousTotals.spend,
+  });
 
   return NextResponse.json(
     {
@@ -171,18 +199,18 @@ export async function GET(request: NextRequest) {
         dayPace: mtdTarget > 0 ? currentTotals.spend / mtdTarget : 0,
       },
       roas: {
-        d7: totals(d7.rows ?? []).roas,
-        d14: totals(d14.rows ?? []).roas,
-        d28: totals(d28.rows ?? []).roas,
-        target: targetRoas(current.rows ?? []),
+        d7: d7Totals.roas,
+        d14: d14Totals.roas,
+        d28: d28Totals.roas,
+        target,
       },
       spend: { current: currentTotals.spend, prev: previousTotals.spend },
       revenue: { current: currentTotals.revenue, prev: previousTotals.revenue },
       cpa: { current: currentTotals.cpa, prev: previousTotals.cpa },
       matureCampaigns,
       learningCampaigns,
-      operatingMode: currentTotals.roas >= targetRoas(current.rows ?? []) ? "Exploit" : "Stabilize",
-      seasonalRegime: "normalized",
+      operatingMode,
+      seasonalRegime,
       engineLastRun: engineMetadata.engineLastRun,
       engineVersion: engineMetadata.engineVersion,
       trackingHealth,

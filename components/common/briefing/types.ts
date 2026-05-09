@@ -17,6 +17,6 @@ export type DecisionLabel =
   | "review_adsets"
   | "out_of_scope";
 
-export type LaneKey = "action" | "watching" | "healthy" | "audience";
+export type LaneKey = "action" | "watching" | "healthy" | "archive" | "audience";
 
 export type ConfidenceTier = "high" | "mid" | "low";

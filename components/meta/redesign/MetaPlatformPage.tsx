@@ -32,7 +32,10 @@ import {
   scopeIdForRec,
   scopeNameForRec,
 } from "@/components/meta/redesign/meta-card-utils";
+import { formatCurrency, formatRoas } from "@/lib/briefing/utils";
+import { parseBriefingStatusFilter, type BriefingStatusFilter } from "@/lib/meta/briefing-filter";
 import type {
+  MetaArchivedEntity,
   MetaDrillItem,
   MetaHealthyEntity,
   MetaLanePayload,
@@ -82,13 +85,13 @@ async function readJson<T>(url: string): Promise<T> {
   return payload as T;
 }
 
-function fetchPulse(businessId: string, window: MetaWindowKey) {
-  const params = new URLSearchParams({ businessId, window });
+function fetchPulse(businessId: string, window: MetaWindowKey, statusFilter: BriefingStatusFilter) {
+  const params = new URLSearchParams({ businessId, window, status_filter: statusFilter });
   return readJson<MetaPulsePayload>(`/api/meta/account-pulse?${params.toString()}`);
 }
 
-function fetchLanes(businessId: string, window: MetaWindowKey) {
-  const params = new URLSearchParams({ businessId, window });
+function fetchLanes(businessId: string, window: MetaWindowKey, statusFilter: BriefingStatusFilter) {
+  const params = new URLSearchParams({ businessId, window, status_filter: statusFilter });
   return readJson<MetaLanePayload>(`/api/meta/lane-classify?${params.toString()}`);
 }
 
@@ -386,12 +389,80 @@ function EmptyActionState({ anomaliesCount }: { anomaliesCount: number }) {
   );
 }
 
+function archiveStatusClassName(status: string) {
+  const normalized = status.toUpperCase();
+  if (normalized === "PAUSED") return "border-amber-200 bg-amber-50 text-amber-700";
+  if (normalized === "ARCHIVED") return "border-slate-200 bg-slate-50 text-slate-600";
+  if (normalized === "DELETED") return "border-rose-200 bg-rose-50 text-rose-700";
+  return "border-slate-200 bg-white text-slate-500";
+}
+
+function MetaArchiveTable({ rows }: { rows: MetaArchivedEntity[] }) {
+  if (rows.length === 0) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-4 text-[12.5px] text-slate-500" data-meta-archive-empty>
+        No closed entities in this briefing scope.
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white" data-meta-archive>
+      <div className="grid grid-cols-[minmax(220px,1.8fr)_120px_110px_90px_90px] border-b border-slate-100 bg-slate-50 px-3 py-2 text-[10.5px] font-semibold uppercase tracking-wider text-slate-400">
+        <div>Entity</div>
+        <div>Status</div>
+        <div className="text-right">Spend</div>
+        <div className="text-right">ROAS</div>
+        <div className="text-right">CPA</div>
+      </div>
+      <div className="divide-y divide-slate-100">
+        {rows.slice(0, 30).map((row) => (
+          <div
+            key={`${row.level}-${row.id}`}
+            className="grid grid-cols-[minmax(220px,1.8fr)_120px_110px_90px_90px] items-center gap-2 px-3 py-2 text-[12px]"
+            data-meta-archive-row={`${row.level}-${row.id}`}
+          >
+            <div className="min-w-0">
+              <div className="truncate font-medium text-slate-900">{row.name}</div>
+              <div className="truncate text-[11px] text-slate-500">
+                {row.level === "campaign" ? "Campaign" : row.campaignName ? `Adset · ${row.campaignName}` : "Adset"}
+                {row.diagnosticNote ? ` · ${row.diagnosticNote}` : ""}
+              </div>
+            </div>
+            <div>
+              <span
+                className={cn(
+                  "inline-flex max-w-full items-center rounded-md border px-1.5 py-0.5 text-[10.5px] font-medium",
+                  archiveStatusClassName(row.status),
+                )}
+              >
+                <span className="truncate">{row.statusLabel}</span>
+              </span>
+            </div>
+            <div className="text-right font-mono tabular-nums text-slate-700">{formatCurrency(row.spend)}</div>
+            <div className="text-right font-mono tabular-nums text-slate-700">{formatRoas(row.roas)}</div>
+            <div className="text-right font-mono tabular-nums text-slate-700">
+              {row.cpa == null ? "—" : formatCurrency(row.cpa)}
+            </div>
+          </div>
+        ))}
+      </div>
+      {rows.length > 30 ? (
+        <div className="border-t border-slate-100 px-3 py-2 text-[11.5px] text-slate-500">
+          Showing 30 of {rows.length} closed entities.
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function MetaPlatformPage({ businessId, businessName, currency = "USD" }: MetaPlatformPageProps) {
   void currency;
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const selectedWindow = (searchParams.get("window") as MetaWindowKey | null) ?? "28d";
+  const selectedStatusFilter = parseBriefingStatusFilter(searchParams.get("status_filter"));
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [drillItem, setDrillItem] = useState<MetaDrillItem | null>(null);
@@ -404,14 +475,14 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   const [notice, setNotice] = useState<string | null>(null);
 
   const pulseQuery = useQuery({
-    queryKey: ["meta-account-pulse", businessId, selectedWindow],
+    queryKey: ["meta-account-pulse", businessId, selectedWindow, selectedStatusFilter],
     enabled: Boolean(businessId),
-    queryFn: () => fetchPulse(businessId, selectedWindow),
+    queryFn: () => fetchPulse(businessId, selectedWindow, selectedStatusFilter),
   });
   const laneQuery = useQuery({
-    queryKey: ["meta-lanes", businessId, selectedWindow],
+    queryKey: ["meta-lanes", businessId, selectedWindow, selectedStatusFilter],
     enabled: Boolean(businessId),
-    queryFn: () => fetchLanes(businessId, selectedWindow),
+    queryFn: () => fetchLanes(businessId, selectedWindow, selectedStatusFilter),
   });
   const anomalyQuery = useQuery({
     queryKey: ["meta-anomalies", businessId],
@@ -432,6 +503,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   const actionNow = laneQuery.data?.actionNow ?? [];
   const watching = laneQuery.data?.watching ?? [];
   const healthy = laneQuery.data?.healthy ?? [];
+  const archive = laneQuery.data?.archive ?? [];
   const anomalies = anomalyQuery.data?.anomalies ?? [];
   const healthyGroups = useMemo(() => groupHealthyEntities(healthy), [healthy]);
   const rollups = useMemo(() => groupAdsetRollups(actionNow), [actionNow]);
@@ -471,6 +543,16 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
       params.delete("window");
     } else {
       params.set("window", next);
+    }
+    router.replace(`/platforms/meta${params.toString() ? `?${params.toString()}` : ""}`);
+  };
+
+  const setStatusFilter = (next: BriefingStatusFilter) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === "active") {
+      params.delete("status_filter");
+    } else {
+      params.set("status_filter", next);
     }
     router.replace(`/platforms/meta${params.toString() ? `?${params.toString()}` : ""}`);
   };
@@ -629,7 +711,13 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900" data-testid="meta-platform-page">
-      <MetaPulse pulse={pulseQuery.data ?? null} window={selectedWindow} onWindowChange={setWindow} />
+      <MetaPulse
+        pulse={pulseQuery.data ?? null}
+        window={selectedWindow}
+        onWindowChange={setWindow}
+        statusFilter={selectedStatusFilter}
+        onStatusFilterChange={setStatusFilter}
+      />
 
       <main className="mx-auto max-w-[1440px] px-6 py-5">
         <div className="mb-4 flex items-center gap-3">
@@ -779,6 +867,19 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                   ) : null}
                 </div>
               ) : null}
+            </section>
+
+            <section id="archive" className="scroll-mt-40">
+              <LaneHeader
+                laneKey="archive"
+                title="Archive"
+                count={archive.length}
+                subtitle="closed entities, last-known performance only"
+                variant="meta"
+                collapsed={collapsed.archive}
+                onToggle={() => setCollapsed((current) => ({ ...current, archive: !current.archive }))}
+              />
+              {!collapsed.archive ? <MetaArchiveTable rows={archive} /> : null}
             </section>
 
             <section id="audience-builder" className="scroll-mt-40 opacity-80">

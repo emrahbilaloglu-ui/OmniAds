@@ -17,6 +17,8 @@ const {
   CreativesTableSection,
   buildCreativeTableHeatBenchmark,
   evaluateCreativeMetricPreviewHeat,
+  sanitizeCreativeTableColumnWidths,
+  sanitizeCreativeTableSortState,
 } = await import("@/components/creatives/CreativesTableSection");
 
 function buildApiRow(overrides: Partial<MetaCreativeApiRow> = {}): MetaCreativeApiRow {
@@ -359,5 +361,23 @@ describe("CreativesTableSection", () => {
     expect(html).toContain("Bundle");
     expect(html).toContain("Before/After");
     expect(html).toContain("preview:Buy now");
+  });
+
+  it("sanitizes persisted table layout before applying browser state", () => {
+    expect(sanitizeCreativeTableSortState({ key: ["spend"], direction: "desc" })).toBeNull();
+    expect(sanitizeCreativeTableSortState({ key: "legacy_missing_column", direction: "desc" })).toBeNull();
+    expect(sanitizeCreativeTableSortState({ key: "aiTag:unknownTag", direction: "asc" })).toBeNull();
+    expect(sanitizeCreativeTableSortState({ key: "aiTag:offerType", direction: "asc" })).toEqual({
+      key: "aiTag:offerType",
+      direction: "asc",
+    });
+    expect(sanitizeCreativeTableSortState({ key: "spend", direction: "desc" })).toEqual({
+      key: "spend",
+      direction: "desc",
+    });
+    expect(sanitizeCreativeTableColumnWidths({ spend: "148", roas: 96, broken: {}, zero: 0 })).toEqual({
+      spend: 148,
+      roas: 96,
+    });
   });
 });

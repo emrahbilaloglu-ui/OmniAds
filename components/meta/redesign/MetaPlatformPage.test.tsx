@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   routerReplace: vi.fn(),
   queryKeys: [] as unknown[][],
   lanePayload: null as any,
+  search: "window=28d",
 }));
 
 function queryState(data: unknown) {
@@ -22,7 +23,7 @@ function queryState(data: unknown) {
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: state.routerPush, replace: state.routerReplace }),
-  useSearchParams: () => new URLSearchParams("window=28d"),
+  useSearchParams: () => new URLSearchParams(state.search),
 }));
 
 vi.mock("@tanstack/react-query", () => ({
@@ -48,6 +49,7 @@ describe("MetaPlatformPage", () => {
   beforeEach(() => {
     state.queryKeys = [];
     state.lanePayload = null;
+    state.search = "window=28d";
     state.routerPush.mockClear();
     state.routerReplace.mockClear();
   });
@@ -61,9 +63,54 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain("Action Now");
     expect(html).toContain("Watching");
     expect(html).toContain("Healthy ASC");
+    expect(html).toContain("Archive");
     expect(html).toContain("Audience Builder");
     expect(html).toContain("data-meta-audience-builder");
     expect(state.queryKeys.map((key) => key[0])).toContain("meta-lanes");
+    expect(state.queryKeys).toContainEqual(["meta-account-pulse", "biz_1", "28d", "active"]);
+    expect(state.queryKeys).toContainEqual(["meta-lanes", "biz_1", "28d", "active"]);
+  });
+
+  it("threads the selected status filter into Pulse and lane queries", () => {
+    state.search = "window=28d&status_filter=all";
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+
+    expect(html).toContain('data-status-filter-option="all"');
+    expect(state.queryKeys).toContainEqual(["meta-account-pulse", "biz_1", "28d", "all"]);
+    expect(state.queryKeys).toContainEqual(["meta-lanes", "biz_1", "28d", "all"]);
+  });
+
+  it("renders closed entities in the archive surface without action cards", () => {
+    state.lanePayload = metaLanePayload({
+      archive: [
+        {
+          id: "cmp_paused",
+          level: "campaign",
+          name: "Paused ASC",
+          status: "PAUSED",
+          statusLabel: "Paused 12d",
+          spend: 640,
+          roas: 1.4,
+          cpa: 91,
+          purchases: 7,
+          lastKnownWindow: "28d",
+          diagnosticNote: null,
+        },
+      ],
+      counts: { actionNow: 1, watching: 1, healthy: 1, archive: 1 },
+    });
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+
+    expect(html).toContain("data-meta-archive");
+    expect(html).toContain("Paused ASC");
+    expect(html).toContain("Paused 12d");
+    expect(html).toContain("$640");
   });
 
   it("rolls mixed adset decisions up without duplicating individual cards", () => {
@@ -138,7 +185,7 @@ describe("MetaPlatformPage", () => {
           status: "ACTIVE",
         },
       ],
-      counts: { actionNow: 1, watching: 1, healthy: 3 },
+      counts: { actionNow: 1, watching: 1, healthy: 3, archive: 0 },
     });
 
     const html = renderToStaticMarkup(
@@ -195,7 +242,7 @@ describe("MetaPlatformPage", () => {
           bidValueFormat: "currency",
         }),
       ],
-      counts: { actionNow: 1, watching: 1, healthy: 3 },
+      counts: { actionNow: 1, watching: 1, healthy: 3, archive: 0 },
     });
 
     const html = renderToStaticMarkup(
@@ -241,7 +288,7 @@ describe("MetaPlatformPage", () => {
           bidStrategyLabel: "Lowest Cost",
         }),
       ],
-      counts: { actionNow: 1, watching: 1, healthy: 3 },
+      counts: { actionNow: 1, watching: 1, healthy: 3, archive: 0 },
     });
 
     const html = renderToStaticMarkup(
@@ -291,7 +338,7 @@ describe("MetaPlatformPage", () => {
           bidValueFormat: "currency",
         }),
       ],
-      counts: { actionNow: 1, watching: 1, healthy: 3 },
+      counts: { actionNow: 1, watching: 1, healthy: 3, archive: 0 },
     });
 
     const html = renderToStaticMarkup(
@@ -322,7 +369,7 @@ describe("MetaPlatformPage", () => {
           bidStrategyLabel: "Lowest Cost",
         }),
       ],
-      counts: { actionNow: 1, watching: 1, healthy: 1 },
+      counts: { actionNow: 1, watching: 1, healthy: 1, archive: 0 },
     });
 
     const html = renderToStaticMarkup(

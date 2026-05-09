@@ -80,6 +80,7 @@ describe("GET /api/meta/account-pulse", () => {
 
     expect(response.status).toBe(200);
     expect(payload.businessId).toBe("biz_1");
+    expect(payload.statusFilter).toBe("active");
     expect(payload.pacing.mtdSpend).toBe(1200);
     expect(payload.roas.d28).toBe(3);
     expect(payload.engineVersion).toBe("v3.6.0-meta-taxonomy");
@@ -118,6 +119,46 @@ describe("GET /api/meta/account-pulse", () => {
     expect(payload.roas.target).toBeNull();
     expect(payload.roas.median).toBeNull();
     expect(payload.roas.target_source).toBe("none");
+  });
+
+  it("excludes closed campaigns from Pulse KPIs by default", async () => {
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        campaign({ id: "active_cmp", status: "ACTIVE", spend: 300, revenue: 900, purchases: 5 }),
+        campaign({ id: "paused_cmp", status: "PAUSED", spend: 900, revenue: 1800, purchases: 9 }),
+      ] as never,
+      isPartial: false,
+      notReadyReason: null,
+      evidenceSource: "live",
+    });
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/account-pulse?businessId=biz_1&window=28d"));
+    const payload = await response.json();
+
+    expect(payload.pacing.mtdSpend).toBe(300);
+    expect(payload.revenue.current).toBe(900);
+    expect(payload.matureCampaigns).toBe(1);
+  });
+
+  it("includes closed campaigns when status_filter=all is requested", async () => {
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        campaign({ id: "active_cmp", status: "ACTIVE", spend: 100, revenue: 300, purchases: 3 }),
+        campaign({ id: "archived_cmp", status: "ARCHIVED", spend: 900, revenue: 1800, purchases: 9 }),
+      ] as never,
+      isPartial: false,
+      notReadyReason: null,
+      evidenceSource: "live",
+    });
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/account-pulse?businessId=biz_1&window=28d&status_filter=all"));
+    const payload = await response.json();
+
+    expect(payload.statusFilter).toBe("all");
+    expect(payload.pacing.mtdSpend).toBe(1000);
+    expect(payload.revenue.current).toBe(2100);
   });
 
   it("authorizes guest access", async () => {

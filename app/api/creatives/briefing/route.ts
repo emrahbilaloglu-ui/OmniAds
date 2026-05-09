@@ -13,6 +13,7 @@ import {
 import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
 import { resolveDataSource } from "@/app/api/creatives/decision-engine-v3/data-source";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
+import { isInBriefing, parseBriefingStatusFilter } from "@/lib/meta/briefing-filter";
 import { nDaysAgo, toISODate } from "@/lib/meta/creatives-row-mappers";
 import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import { readTriageState } from "@/lib/triage-events";
@@ -172,6 +173,7 @@ export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId")?.trim() ?? "";
   const asOf = request.nextUrl.searchParams.get("asOf")?.trim() || toISODate(new Date());
   const campaignId = request.nextUrl.searchParams.get("campaignId")?.trim() || undefined;
+  const statusFilter = parseBriefingStatusFilter(request.nextUrl.searchParams.get("status_filter"));
 
   if (!businessId) {
     return NextResponse.json(
@@ -193,6 +195,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       status: "disabled",
       reason: "engine_v3_disabled_for_business",
+      statusFilter,
       actionNow: [],
       watching: [],
       healthy: [],
@@ -202,7 +205,11 @@ export async function GET(request: NextRequest) {
         engineVersion: "disabled",
         trackingAnomalyActive: false,
       },
-    } satisfies CreativesBriefingResponse & { status: "disabled"; reason: string });
+    } satisfies CreativesBriefingResponse & {
+      status: "disabled";
+      reason: string;
+      statusFilter: typeof statusFilter;
+    });
   }
 
   const { instance: dataSource, label: dataSourceLabel } = resolveDataSource();
@@ -232,11 +239,34 @@ export async function GET(request: NextRequest) {
     asOf,
     creativeIds: creativeIds.length > 0 ? creativeIds : undefined,
   });
-  const scopedInputs = campaignId
+  const campaignScopedInputs = campaignId
     ? inputs.filter((input) => input.campaignId === campaignId)
     : inputs;
+  const allCreativeRowsById = buildRowMap(creativeRows);
+  const scopedInputs = campaignScopedInputs.filter((input) => {
+    const row = allCreativeRowsById.get(input.creativeId);
+    return isInBriefing(
+      {
+        status: row?.effective_status ?? input.effectiveStatus ?? null,
+        effective_status: row?.effective_status ?? null,
+        effectiveStatus: row?.effective_status ?? input.effectiveStatus ?? null,
+      },
+      statusFilter,
+    );
+  });
   const inputByCreativeId = new Map(scopedInputs.map((input) => [input.creativeId, input]));
-  const creativeRowsById = buildRowMap(creativeRows);
+  const creativeRowsById = buildRowMap(
+    creativeRows.filter((row) =>
+      isInBriefing(
+        {
+          status: row.effective_status ?? inputByCreativeId.get(row.creative_id)?.effectiveStatus ?? null,
+          effective_status: row.effective_status ?? null,
+          effectiveStatus: row.effective_status ?? inputByCreativeId.get(row.creative_id)?.effectiveStatus ?? null,
+        },
+        statusFilter,
+      ),
+    ),
+  );
   const deferredIds = new Set(
     triageState.rows
       .filter((row) => row.action === "deferred" && row.scopeType === "creative")
@@ -279,6 +309,7 @@ export async function GET(request: NextRequest) {
       actionNow: lanes.action,
       watching: lanes.watching,
       healthy: lanes.healthy,
+      statusFilter,
       deferredCount: triageState.deferredCount,
       pulse: {
         matureCount: lanes.healthy.length + lanes.action.length,

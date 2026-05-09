@@ -5,10 +5,21 @@ import { getMetaAdSetsForRange } from "@/lib/meta/adsets-source";
 import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
 import { readMetaDecisionSnapshotForRange } from "@/lib/meta/snapshot";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
+import {
+  briefingStatusForEntity,
+  briefingStatusLabel,
+  isArchiveOnlyEntity,
+  isInBriefing,
+  isWithIssuesEntity,
+  parseBriefingStatusFilter,
+  type BriefingStatusFilter,
+} from "@/lib/meta/briefing-filter";
 
 export const dynamic = "force-dynamic";
 
 type PulseWindow = "7d" | "14d" | "28d" | "90d" | "custom";
+type CampaignRow = Awaited<ReturnType<typeof getMetaCampaignsForRange>>["rows"][number];
+type AdsetRow = Awaited<ReturnType<typeof getMetaAdSetsForRange>>["rows"][number];
 
 interface HealthyMetaRow {
   id: string;
@@ -35,6 +46,22 @@ interface HealthyMetaRow {
   isCustomEventTypeMixed?: boolean;
   isBidStrategyMixed?: boolean;
   isBidValueMixed?: boolean;
+}
+
+interface ArchivedMetaRow {
+  id: string;
+  level: "campaign" | "adset";
+  name: string;
+  campaignId?: string | null;
+  campaignName?: string | null;
+  status: string;
+  statusLabel: string;
+  spend: number;
+  roas: number;
+  cpa: number | null;
+  purchases: number;
+  lastKnownWindow: string;
+  diagnosticNote: string | null;
 }
 
 function parseWindow(value: string | null): PulseWindow {
@@ -94,6 +121,38 @@ function isInsufficientSignal(rec: MetaRecommendation) {
   return (rec.confidenceScore ?? 0) < 0.55 || rec.decisionState === "watch";
 }
 
+function recScopeEntity(input: {
+  rec: MetaRecommendation;
+  campaignsById: Map<string, CampaignRow>;
+  adsetsById: Map<string, AdsetRow>;
+}) {
+  if (input.rec.level === "account") return null;
+  if (input.rec.adsetId) return input.adsetsById.get(input.rec.adsetId) ?? null;
+  if (input.rec.campaignId) return input.campaignsById.get(input.rec.campaignId) ?? null;
+  return null;
+}
+
+function isRecommendationInScope(input: {
+  rec: MetaRecommendation;
+  statusFilter: BriefingStatusFilter;
+  campaignsById: Map<string, CampaignRow>;
+  adsetsById: Map<string, AdsetRow>;
+}) {
+  if (input.rec.level === "account") return true;
+  const entity = recScopeEntity(input);
+  if (!entity) return input.statusFilter === "all";
+  return isWithIssuesEntity(entity) || isInBriefing(entity, input.statusFilter);
+}
+
+function isWithIssuesRec(input: {
+  rec: MetaRecommendation;
+  campaignsById: Map<string, CampaignRow>;
+  adsetsById: Map<string, AdsetRow>;
+}) {
+  const entity = recScopeEntity(input);
+  return entity ? isWithIssuesEntity(entity) : false;
+}
+
 async function readDeferredRecIds(businessId: string) {
   const sql = getDb();
   const rows = (await sql`
@@ -117,10 +176,11 @@ async function readDeferredRecIds(businessId: string) {
 function healthyCampaignRows(input: {
   rows: Awaited<ReturnType<typeof getMetaCampaignsForRange>>["rows"];
   recommendedScopeIds: Set<string>;
+  statusFilter: BriefingStatusFilter;
 }): HealthyMetaRow[] {
   return input.rows
     .filter((row) => !input.recommendedScopeIds.has(row.id))
-    .filter((row) => String(row.status ?? "").toUpperCase() === "ACTIVE")
+    .filter((row) => isInBriefing(row, input.statusFilter))
     .filter((row) => toNumber(row.spend) >= 100 || toNumber(row.purchases) >= 3)
     .slice(0, 12)
     .map((row) => ({
@@ -153,10 +213,11 @@ function healthyAdsetRows(input: {
   rows: Awaited<ReturnType<typeof getMetaAdSetsForRange>>["rows"];
   recommendedScopeIds: Set<string>;
   campaignNamesById?: Map<string, string>;
+  statusFilter: BriefingStatusFilter;
 }): HealthyMetaRow[] {
   return input.rows
     .filter((row) => !input.recommendedScopeIds.has(row.id))
-    .filter((row) => String(row.status ?? "").toUpperCase() === "ACTIVE")
+    .filter((row) => isInBriefing(row, input.statusFilter))
     .filter((row) => toNumber(row.spend) >= 75 || toNumber(row.purchases) >= 3)
     .slice(0, 12)
     .map((row) => ({
@@ -187,10 +248,64 @@ function healthyAdsetRows(input: {
     }));
 }
 
+function archiveCampaignRows(input: {
+  rows: CampaignRow[];
+  statusFilter: BriefingStatusFilter;
+  window: PulseWindow;
+}): ArchivedMetaRow[] {
+  return input.rows
+    .filter((row) => isArchiveOnlyEntity(row, input.statusFilter))
+    .map((row) => ({
+      id: row.id,
+      level: "campaign" as const,
+      name: row.name,
+      status: briefingStatusForEntity(row),
+      statusLabel: briefingStatusLabel(row),
+      spend: toNumber(row.spend),
+      roas: toNumber(row.roas),
+      cpa: row.cpa == null ? null : toNumber(row.cpa),
+      purchases: toNumber(row.purchases),
+      lastKnownWindow: input.window,
+      diagnosticNote:
+        briefingStatusForEntity(row) === "UNKNOWN"
+          ? "Status truth is incomplete; engine recommendations are suppressed."
+          : null,
+    }));
+}
+
+function archiveAdsetRows(input: {
+  rows: AdsetRow[];
+  statusFilter: BriefingStatusFilter;
+  window: PulseWindow;
+  campaignNamesById?: Map<string, string>;
+}): ArchivedMetaRow[] {
+  return input.rows
+    .filter((row) => isArchiveOnlyEntity(row, input.statusFilter))
+    .map((row) => ({
+      id: row.id,
+      level: "adset" as const,
+      name: row.name,
+      campaignId: row.campaignId,
+      campaignName: input.campaignNamesById?.get(row.campaignId) ?? null,
+      status: briefingStatusForEntity(row),
+      statusLabel: briefingStatusLabel(row),
+      spend: toNumber(row.spend),
+      roas: toNumber(row.roas),
+      cpa: row.cpa == null ? null : toNumber(row.cpa),
+      purchases: toNumber(row.purchases),
+      lastKnownWindow: input.window,
+      diagnosticNote:
+        briefingStatusForEntity(row) === "UNKNOWN"
+          ? "Status truth is incomplete; engine recommendations are suppressed."
+          : null,
+    }));
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const businessId = searchParams.get("businessId")?.trim() ?? "";
   const window = parseWindow(searchParams.get("window"));
+  const statusFilter = parseBriefingStatusFilter(searchParams.get("status_filter"));
   const endDate = searchParams.get("endDate")?.trim() || todayISO();
   const startDate =
     searchParams.get("startDate")?.trim() ||
@@ -228,30 +343,44 @@ export async function GET(request: NextRequest) {
     }),
   ]);
 
-  const recommendations = snapshot?.recommendations ?? [];
+  const campaignsById = new Map((campaigns.rows ?? []).map((row) => [row.id, row]));
+  const adsetsById = new Map((adsets.rows ?? []).map((row) => [row.id, row]));
+  const recommendations = (snapshot?.recommendations ?? []).filter((rec) =>
+    isRecommendationInScope({ rec, statusFilter, campaignsById, adsetsById }),
+  );
   const actionNow = recommendations.filter(
     (rec) =>
       (rec.confidenceScore ?? 0) >= 0.7 &&
       !isInLearning(rec) &&
+      !isWithIssuesRec({ rec, campaignsById, adsetsById }) &&
       !deferredIds.has(rec.id),
   );
   const watching = recommendations.filter(
     (rec) =>
       !actionNow.includes(rec) &&
-      (isInLearning(rec) || isRecentlyChanged(rec) || isInsufficientSignal(rec) || deferredIds.has(rec.id)),
+      (isWithIssuesRec({ rec, campaignsById, adsetsById }) ||
+        isInLearning(rec) ||
+        isRecentlyChanged(rec) ||
+        isInsufficientSignal(rec) ||
+        deferredIds.has(rec.id)),
   );
   const recommendedScopeIds = new Set(
     recommendations.flatMap((rec) => [rec.campaignId, rec.adsetId]).filter(Boolean) as string[],
   );
   const campaignNamesById = new Map((campaigns.rows ?? []).map((row) => [row.id, row.name]));
   const healthy = [
-    ...healthyCampaignRows({ rows: campaigns.rows ?? [], recommendedScopeIds }),
-    ...healthyAdsetRows({ rows: adsets.rows ?? [], recommendedScopeIds, campaignNamesById }),
+    ...healthyCampaignRows({ rows: campaigns.rows ?? [], recommendedScopeIds, statusFilter }),
+    ...healthyAdsetRows({ rows: adsets.rows ?? [], recommendedScopeIds, campaignNamesById, statusFilter }),
   ].slice(0, 18);
+  const archive = [
+    ...archiveCampaignRows({ rows: campaigns.rows ?? [], statusFilter, window }),
+    ...archiveAdsetRows({ rows: adsets.rows ?? [], statusFilter, window, campaignNamesById }),
+  ].sort((left, right) => right.spend - left.spend);
 
   return NextResponse.json(
     {
       businessId,
+      statusFilter,
       startDate,
       endDate,
       sourceModel: snapshot?.sourceModel ?? "snapshot_persistent",
@@ -259,11 +388,13 @@ export async function GET(request: NextRequest) {
       actionNow,
       watching,
       healthy,
+      archive,
       deferredIds: [...deferredIds],
       counts: {
         actionNow: actionNow.length,
         watching: watching.length,
         healthy: healthy.length,
+        archive: archive.length,
       },
     },
     { headers: { "Cache-Control": "no-store" } },

@@ -1388,7 +1388,7 @@ describe("meta warehouse ownership safety", () => {
     ).toBe(true);
   });
 
-  it("reads breakdown readiness from persisted warehouse and finalize checkpoints", async () => {
+  it("reads breakdown readiness from persisted warehouse, finalize checkpoints, and raw snapshots", async () => {
     const queries: string[] = [];
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
@@ -1428,7 +1428,8 @@ describe("meta warehouse ownership safety", () => {
     const coverageQuery = queries.find((query) => query.includes("WITH requested AS"));
     expect(coverageQuery).toContain("meta_breakdown_daily");
     expect(coverageQuery).toContain("meta_sync_checkpoints");
-    expect(coverageQuery).not.toContain("meta_raw_snapshots");
+    expect(coverageQuery).toContain("meta_raw_snapshots");
+    expect(coverageQuery).toContain("snapshot.status = 'fetched'");
   });
 
   it("returns cooldown and repeated-failure guard data for authoritative slices", async () => {

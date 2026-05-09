@@ -522,7 +522,7 @@ export async function GET(request: NextRequest) {
     dayCountInclusive(recentWindowStart, initialBackfillEnd)
   );
 
-  const [accountCoverage, campaignCoverage, adsetCoverage, adDailyCoverage, creativeCoverage, creativePreviewCoverage, breakdownCoverageByEndpoint, queueHealth, queueComposition, deadLetterRecoverySummary, checkpointHealth, recentAccountCoverage, recentCampaignCoverage, recentAdsetCoverage, recentCreativeCoverage, recentAdCoverage, ...stateRows] =
+  const [accountCoverage, campaignCoverage, adsetCoverage, adDailyCoverage, creativeCoverage, creativePreviewCoverage, breakdownCoverageByEndpoint, historicalBreakdownCoverageByEndpoint, queueHealth, queueComposition, deadLetterRecoverySummary, checkpointHealth, recentAccountCoverage, recentCampaignCoverage, recentAdsetCoverage, recentCreativeCoverage, recentAdCoverage, ...stateRows] =
       await Promise.all([
           getMetaAccountDailyCoverage({
             businessId: businessId!,
@@ -558,6 +558,13 @@ export async function GET(request: NextRequest) {
             businessId: businessId!,
             providerAccountId: null,
             startDate: creativeMediaPreviewStart,
+            endDate: initialBackfillEnd,
+          }).catch(() => null),
+          getMetaBreakdownDailyCoverageByEndpoint({
+            businessId: businessId!,
+            providerAccountId: null,
+            endpointNames: [...META_BREAKDOWN_ENDPOINTS],
+            startDate: recentWindowStart,
             endDate: initialBackfillEnd,
           }).catch(() => null),
           getMetaBreakdownDailyCoverageByEndpoint({
@@ -642,18 +649,18 @@ export async function GET(request: NextRequest) {
 
   const breakdownCoverageDays = Math.min(
     ...META_BREAKDOWN_ENDPOINTS.map(
-      (endpointName) => breakdownCoverageByEndpoint?.get(endpointName)?.completed_days ?? 0
+      (endpointName) => historicalBreakdownCoverageByEndpoint?.get(endpointName)?.completed_days ?? 0
     )
   );
   const breakdownReadyThroughDate =
     META_BREAKDOWN_ENDPOINTS.map(
-      (endpointName) => breakdownCoverageByEndpoint?.get(endpointName)?.ready_through_date ?? null
+      (endpointName) => historicalBreakdownCoverageByEndpoint?.get(endpointName)?.ready_through_date ?? null
     )
       .filter((value): value is string => Boolean(value))
       .sort((a, b) => a.localeCompare(b))[0] ?? null;
   const breakdownOldestStoredDate = latestDate(
     META_BREAKDOWN_ENDPOINTS.map(
-      (endpointName) => breakdownCoverageByEndpoint?.get(endpointName)?.first_completed_date ?? null
+      (endpointName) => historicalBreakdownCoverageByEndpoint?.get(endpointName)?.first_completed_date ?? null
     )
   );
 
@@ -1202,7 +1209,7 @@ export async function GET(request: NextRequest) {
   );
   const historicalBreakdownsBySurface = Object.fromEntries(
     META_BREAKDOWN_SURFACES.map((surface) => {
-      const coverage = breakdownCoverageByEndpoint?.get(surface.endpointName) ?? null;
+      const coverage = historicalBreakdownCoverageByEndpoint?.get(surface.endpointName) ?? null;
       const totalDays = historicalBreakdownTotalDays;
       const completedDays = Math.min(totalDays, coverage?.completed_days ?? 0);
       return [

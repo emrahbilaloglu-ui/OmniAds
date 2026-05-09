@@ -1292,6 +1292,87 @@ describe("GET /api/meta/status", () => {
     });
   });
 
+  it("does not mark no-date breakdown readiness ready from older historical-only coverage", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(warehouse.getMetaBreakdownDailyCoverageByEndpoint).mockImplementation(
+      async (input) =>
+        new Map([
+          [
+            "breakdown_age",
+            {
+              completed_days: input.startDate === "2026-01-13" ? 89 : 90,
+              first_completed_date: input.startDate,
+              ready_through_date:
+                input.startDate === "2026-01-13" ? "2026-04-11" : "2026-01-13",
+            },
+          ],
+          [
+            "breakdown_country",
+            {
+              completed_days: input.startDate === "2026-01-13" ? 89 : 90,
+              first_completed_date: input.startDate,
+              ready_through_date:
+                input.startDate === "2026-01-13" ? "2026-04-11" : "2026-01-13",
+            },
+          ],
+          [
+            "breakdown_publisher_platform,platform_position,impression_device",
+            {
+              completed_days: input.startDate === "2026-01-13" ? 89 : 90,
+              first_completed_date: input.startDate,
+              ready_through_date:
+                input.startDate === "2026-01-13" ? "2026-04-11" : "2026-01-13",
+            },
+          ],
+        ]) as never,
+    );
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/status?businessId=biz"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(warehouse.getMetaBreakdownDailyCoverageByEndpoint).toHaveBeenCalledWith(
+      expect.objectContaining({
+        startDate: "2026-01-13",
+        endDate: "2026-04-12",
+      }),
+    );
+    expect(warehouse.getMetaBreakdownDailyCoverageByEndpoint).toHaveBeenCalledWith(
+      expect.objectContaining({
+        startDate: "2025-04-13",
+        endDate: "2026-04-12",
+      }),
+    );
+    expect(payload.extendedCompleteness).toMatchObject({
+      state: "partial",
+      complete: false,
+    });
+    expect(payload.warehouse?.coverage?.breakdownsBySurface).toMatchObject({
+      age: { completedDays: 89, totalDays: 90, isComplete: false },
+      location: { completedDays: 89, totalDays: 90, isComplete: false },
+      placement: { completedDays: 89, totalDays: 90, isComplete: false },
+    });
+  });
+
   it("does not treat no-date status as selected-range preparation", async () => {
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
       id: "int_meta",

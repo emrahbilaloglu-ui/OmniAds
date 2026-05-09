@@ -23,6 +23,8 @@ import {
   type MetaEvidenceTrail,
 } from "@/lib/meta/evidence-trail";
 import { buildMetaAdsetRecommendations } from "@/lib/meta/adset-decisions";
+import { buildMetaEntityStateRows } from "@/lib/meta/engine-v1/state-rows";
+import { decisionLabelForMetaRec } from "@/lib/meta/rec-label-mapping";
 import {
   buildMetaRecommendations,
   META_RECOMMENDATION_ENGINE_VERSION,
@@ -78,6 +80,10 @@ type SnapshotDbRow = {
   evidence_trail?: unknown;
   campaign_role?: MetaCampaignRole | null;
   bid_regime?: MetaBidRegime | null;
+  decision_label?: MetaRecommendation["decisionLabel"] | null;
+  state_reason?: string | null;
+  calibration_scope?: unknown;
+  signal_quality?: unknown;
 };
 
 interface SnapshotPayloadRow {
@@ -105,6 +111,10 @@ interface SnapshotPayloadRow {
   evidence_trail?: MetaEvidenceTrail | Record<string, never>;
   campaign_role?: MetaCampaignRole | null;
   bid_regime?: MetaBidRegime | null;
+  decision_label?: MetaRecommendation["decisionLabel"] | null;
+  state_reason?: string | null;
+  calibration_scope?: Record<string, unknown>;
+  signal_quality?: Record<string, unknown>;
 }
 
 function parseISODate(value: string): Date {
@@ -190,6 +200,10 @@ function recommendationToSnapshotRow(
     evidence_trail: evidenceTrail ?? {},
     campaign_role: recommendation.campaignRole ?? null,
     bid_regime: recommendation.bidRegime ?? null,
+    decision_label: decisionLabelForMetaRec(recommendation),
+    state_reason: recommendation.stateReason ?? null,
+    calibration_scope: recommendation.calibrationScope ?? {},
+    signal_quality: recommendation.signalQuality ?? {},
   };
 }
 
@@ -235,6 +249,10 @@ function anomalyToSnapshotRow(
     evidence_trail: {},
     campaign_role: null,
     bid_regime: null,
+    decision_label: "diagnose",
+    state_reason: null,
+    calibration_scope: {},
+    signal_quality: {},
   };
 }
 
@@ -278,7 +296,11 @@ async function upsertSnapshotRows(input: {
             kind text,
             evidence_trail jsonb,
             campaign_role text,
-            bid_regime text
+            bid_regime text,
+            decision_label text,
+            state_reason text,
+            calibration_scope jsonb,
+            signal_quality jsonb
           )
         )
         INSERT INTO meta_decision_snapshots_daily (
@@ -301,7 +323,11 @@ async function upsertSnapshotRows(input: {
           kind,
           evidence_trail,
           campaign_role,
-          bid_regime
+          bid_regime,
+          decision_label,
+          state_reason,
+          calibration_scope,
+          signal_quality
         )
         SELECT
           scope_type,
@@ -323,7 +349,11 @@ async function upsertSnapshotRows(input: {
           kind,
           evidence_trail,
           campaign_role,
-          bid_regime
+          bid_regime,
+          decision_label,
+          state_reason,
+          calibration_scope,
+          signal_quality
         FROM payload
         ON CONFLICT (scope_type, scope_id, snapshot_date, rec_type)
         DO UPDATE SET
@@ -343,6 +373,10 @@ async function upsertSnapshotRows(input: {
           evidence_trail = EXCLUDED.evidence_trail,
           campaign_role = EXCLUDED.campaign_role,
           bid_regime = EXCLUDED.bid_regime,
+          decision_label = EXCLUDED.decision_label,
+          state_reason = EXCLUDED.state_reason,
+          calibration_scope = EXCLUDED.calibration_scope,
+          signal_quality = EXCLUDED.signal_quality,
           severity = NULL,
           diagnostics = '[]'::jsonb,
           detected_at = NULL,
@@ -622,8 +656,14 @@ async function buildSnapshotRecommendations(input: {
     calibrationContext: contexts.accountContext,
     calibrationContextByCampaignId: contexts.byCampaignId,
   });
+  const stateRows = buildMetaEntityStateRows({
+    campaigns,
+    adsets: adsetRows.rows ?? [],
+    calibrationContext: contexts.accountContext,
+    calibrationContextByCampaignId: contexts.byCampaignId,
+  });
 
-  return [...campaignRecommendations, ...adsetRecommendations];
+  return [...stateRows, ...campaignRecommendations, ...adsetRecommendations];
 }
 
 export async function runMetaSnapshotForBusiness(
@@ -780,6 +820,16 @@ function hydrateRecommendation(row: SnapshotDbRow): MetaRecommendation {
           : stored.evidenceTrail,
       campaignRole: row.campaign_role ?? stored.campaignRole,
       bidRegime: row.bid_regime ?? stored.bidRegime,
+      decisionLabel: row.decision_label ?? stored.decisionLabel,
+      stateReason: row.state_reason ?? stored.stateReason,
+      calibrationScope:
+        row.calibration_scope && typeof row.calibration_scope === "object"
+          ? (row.calibration_scope as Record<string, unknown>)
+          : stored.calibrationScope,
+      signalQuality:
+        row.signal_quality && typeof row.signal_quality === "object"
+          ? (row.signal_quality as Record<string, unknown>)
+          : stored.signalQuality,
     };
   }
 
@@ -812,6 +862,16 @@ function hydrateRecommendation(row: SnapshotDbRow): MetaRecommendation {
         : undefined,
     campaignRole: row.campaign_role ?? undefined,
     bidRegime: row.bid_regime ?? undefined,
+    decisionLabel: row.decision_label ?? undefined,
+    stateReason: row.state_reason ?? undefined,
+    calibrationScope:
+      row.calibration_scope && typeof row.calibration_scope === "object"
+        ? (row.calibration_scope as Record<string, unknown>)
+        : undefined,
+    signalQuality:
+      row.signal_quality && typeof row.signal_quality === "object"
+        ? (row.signal_quality as Record<string, unknown>)
+        : undefined,
   };
 }
 
@@ -889,6 +949,10 @@ export async function readMetaDecisionSnapshotForRange(input: {
       evidence_trail,
       campaign_role,
       bid_regime,
+      decision_label,
+      state_reason,
+      calibration_scope,
+      signal_quality,
       created_at::text AS created_at
     FROM meta_decision_snapshots_daily
     WHERE business_id = ${input.businessId}

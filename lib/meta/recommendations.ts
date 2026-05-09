@@ -35,6 +35,53 @@ export type MetaRecommendationPriority = "high" | "medium" | "low";
 export type MetaRecommendationConfidence = "high" | "medium" | "low";
 export type MetaRecommendationLevel = "account" | "campaign" | "adset";
 export type MetaRecommendationType =
+  | "entity_state"
+  | "scenario_a1_math_floor_unmet"
+  | "scenario_a2_learning_weak_structural"
+  | "scenario_a3_learning_on_pace_wait"
+  | "scenario_a4_learning_limited_persistent"
+  | "scenario_a5_post_learning_underperformer"
+  | "scenario_b1_capped_winner_bid_raise"
+  | "scenario_b2_lowest_cost_budget_scale"
+  | "scenario_b3_bid_cap_underperforming"
+  | "scenario_b4_min_roas_loosen"
+  | "scenario_b5_lowest_cost_volatility_switch"
+  | "scenario_b6_profit_first_bid_cap_keep"
+  | "scenario_c1_controlled_scale"
+  | "scenario_c2_recent_edit_cooldown"
+  | "scenario_c3_scale_sample_gate"
+  | "scenario_d1_lal_beats_broad_control"
+  | "scenario_d2_lal_wide_efficiency_loss"
+  | "scenario_d3_lal_compound_scale"
+  | "scenario_d4_audience_overlap_consolidate"
+  | "scenario_d5_funnel_mixed_split"
+  | "scenario_e1_frequency_fatigue"
+  | "scenario_e2_ctr_decay_refresh"
+  | "scenario_e3_frequency_p80_fatigue"
+  | "scenario_e4_creative_age_refresh"
+  | "scenario_f1_roas_drop_diagnostic"
+  | "scenario_f2_recent_data_confidence_cap"
+  | "scenario_f3_budget_change_cooldown"
+  | "scenario_f4_stable_winner_drop_context"
+  | "scenario_g1_upper_funnel_event"
+  | "scenario_g2_downshift_to_purchase"
+  | "scenario_g3_ab_test_bottom_funnel_verdict"
+  | "scenario_h1_dedup_tracking"
+  | "scenario_h2_meta_crm_ratio"
+  | "scenario_h3_ios_tracking_degradation"
+  | "scenario_h4_event_quota"
+  | "scenario_i1_abo_winner_budget_shift"
+  | "scenario_i2_abo_to_cbo"
+  | "scenario_i3_cbo_overcrowded"
+  | "scenario_i4_test_should_use_abo"
+  | "scenario_i5_cross_campaign_overlap"
+  | "scenario_j1_stable_winner_protected"
+  | "scenario_j2_fade_risk_diagnose"
+  | "scenario_j3_aggressive_scale_guard"
+  | "scenario_k1_mixed_config_rebuild"
+  | "scenario_k2_peak_scale_ceiling"
+  | "scenario_k3_post_peak_taper"
+  | "scenario_k4_catalog_feed_first"
   | "adset_scale_budget"
   | "adset_cut_spend"
   | "adset_watch_learning"
@@ -78,6 +125,26 @@ export interface MetaRecommendation {
   adsetId?: string;
   adsetName?: string;
   type: MetaRecommendationType;
+  kind?: "recommendation" | "anomaly" | "state";
+  decisionLabel?:
+    | "scale"
+    | "cut"
+    | "refresh"
+    | "keep"
+    | "test_more"
+    | "diagnose"
+    | "below_breakeven"
+    | "fatigue"
+    | "rebuild"
+    | "switch"
+    | "tune"
+    | "swap"
+    | "review_placements"
+    | "review_adsets"
+    | "out_of_scope";
+  stateReason?: string | null;
+  signalQuality?: Record<string, unknown>;
+  calibrationScope?: Record<string, unknown>;
   lens: MetaRecommendationLens;
   priority: MetaRecommendationPriority;
   confidence: MetaRecommendationConfidence;

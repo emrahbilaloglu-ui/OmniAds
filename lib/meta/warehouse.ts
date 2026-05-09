@@ -6906,6 +6906,9 @@ export async function getMetaBreakdownDailyCoverageByEndpoint(input: {
         WHERE snapshot.business_id = $4
           AND ($5::text IS NULL OR snapshot.provider_account_id = $5)
           AND snapshot.status = 'fetched'
+          AND snapshot.partition_id IS NULL
+          AND snapshot.checkpoint_id IS NULL
+          AND snapshot.run_id IS NULL
           AND snapshot.start_date::date BETWEEN $6::date AND $7::date
           AND snapshot.end_date::date BETWEEN $6::date AND $7::date
       )

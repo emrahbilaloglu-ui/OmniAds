@@ -191,6 +191,7 @@ function EngineStatusPill({ pulse }: { pulse: MetaPulsePayload }) {
   const ageDays = ageMs == null || !Number.isFinite(ageMs) ? null : ageMs / 86_400_000;
   const tone: ChipTone = ageDays == null ? "neutral" : ageDays <= 7 ? "success" : ageDays <= 14 ? "warning" : "danger";
   const status = ageDays == null ? "Syncing" : ageDays <= 7 ? "Live" : "Stale";
+  const versionLabel = pulse.engineVersion?.trim() ? pulse.engineVersion : "Meta engine";
 
   return (
     <PulseTooltip
@@ -199,7 +200,7 @@ function EngineStatusPill({ pulse }: { pulse: MetaPulsePayload }) {
     >
       <span className={chipClassName(tone)}>
         <ShieldCheck className="inline-block shrink-0" size={11} aria-hidden="true" />
-        Engine v3 · {status}
+        {versionLabel} · {status}
       </span>
     </PulseTooltip>
   );

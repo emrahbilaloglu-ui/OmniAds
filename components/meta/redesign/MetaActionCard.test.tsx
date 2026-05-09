@@ -11,7 +11,21 @@ describe("MetaActionCard", () => {
     expect(html).toContain("Prospecting Scale");
     expect(html).toContain("Lowest Cost");
     expect(html).toContain("82%");
+    expect(html).toContain("Calibration");
+    expect(html).toContain("account · 28d_history");
+    expect(html).toContain("Signals");
+    expect(html).toContain("ready · cap high");
     expect(html).toContain("What does Defer 24h do?");
+  });
+
+  it("renders operator response telemetry badges", () => {
+    const acted = renderToStaticMarkup(<MetaActionCard rec={metaRec()} responseState="acted" />);
+    expect(acted).toContain('data-operator-response="acted"');
+    expect(acted).toContain("Acted");
+
+    const ignored = renderToStaticMarkup(<MetaActionCard rec={metaRec()} responseState="ignored" />);
+    expect(ignored).toContain('data-operator-response="ignored"');
+    expect(ignored).toContain("Ignored");
   });
 
   it("renders anomaly cards in diagnostic mode", () => {

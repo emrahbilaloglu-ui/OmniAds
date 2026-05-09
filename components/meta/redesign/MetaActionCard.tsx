@@ -30,6 +30,7 @@ interface MetaActionCardProps {
   anomaly?: MetaAnomaly;
   selected?: boolean;
   deferred?: boolean;
+  responseState?: "acted" | "deferred" | "ignored" | null;
   evidenceWindow?: string;
   onSelect?: (id: string, selected: boolean) => void;
   onPrimary?: (rec: MetaRecommendation) => void;
@@ -78,6 +79,40 @@ function PrimaryIcon({ rec }: { rec: MetaRecommendation }) {
     return <Sliders className="inline-block shrink-0" size={13} aria-hidden="true" />;
   }
   return <ExternalLink className="inline-block shrink-0" size={13} aria-hidden="true" />;
+}
+
+function stringValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function calibrationScopeText(rec: MetaRecommendation) {
+  const scope = rec.calibrationScope;
+  if (!scope || typeof scope !== "object") return null;
+  const type = stringValue(scope.type) ?? stringValue(scope.scope_type) ?? stringValue(scope.level);
+  const source = stringValue(scope.source) ?? stringValue(scope.window);
+  if (type && source) return `${type} · ${source}`;
+  return type ?? source ?? null;
+}
+
+function signalQualityText(rec: MetaRecommendation) {
+  const quality = rec.signalQuality;
+  if (!quality || typeof quality !== "object") return null;
+  const status = stringValue(quality.quality_status) ?? stringValue(quality.status);
+  const cap = stringValue(quality.confidence_cap) ?? stringValue(quality.confidenceCap);
+  if (status && cap) return `${status} · cap ${cap}`;
+  return status ?? (cap ? `cap ${cap}` : null);
+}
+
+function responseStateTone(responseState: "acted" | "deferred" | "ignored") {
+  if (responseState === "acted") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (responseState === "deferred") return "border-amber-200 bg-amber-50 text-amber-800";
+  return "border-slate-200 bg-slate-50 text-slate-600";
+}
+
+function responseStateLabel(responseState: "acted" | "deferred" | "ignored") {
+  if (responseState === "acted") return "Acted";
+  if (responseState === "deferred") return "Deferred";
+  return "Ignored";
 }
 
 function TrendSnapshot({ rec }: { rec: MetaRecommendation }) {
@@ -135,6 +170,7 @@ export function MetaActionCard({
   anomaly,
   selected = false,
   deferred = false,
+  responseState = null,
   evidenceWindow = "28d",
   onSelect,
   onPrimary,
@@ -198,6 +234,9 @@ export function MetaActionCard({
   const confidence = confidencePercent(rec);
   const bidValue = proposedBidValue(rec);
   const scopeName = scopeNameForRec(rec);
+  const effectiveResponseState = responseState ?? (deferred ? "deferred" : null);
+  const calibration = calibrationScopeText(rec);
+  const signalQuality = signalQualityText(rec);
 
   return (
     <article
@@ -289,6 +328,39 @@ export function MetaActionCard({
               <Check className="inline-block shrink-0 text-emerald-600" size={12} aria-hidden="true" />
               {rec.engineVersion ?? "Meta engine"}
             </span>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10.5px]">
+            {effectiveResponseState ? (
+              <span
+                className={cn(
+                  "inline-flex items-center rounded-md border px-1.5 py-0.5 font-medium",
+                  responseStateTone(effectiveResponseState),
+                )}
+                data-operator-response={effectiveResponseState}
+              >
+                {responseStateLabel(effectiveResponseState)}
+              </span>
+            ) : null}
+            {calibration ? (
+              <span
+                className="inline-flex max-w-full items-center rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-slate-600"
+                title={`Calibration scope: ${calibration}`}
+                data-calibration-scope
+              >
+                <span className="shrink-0 text-slate-400">Calibration</span>
+                <span className="ml-1 truncate font-medium text-slate-700">{calibration}</span>
+              </span>
+            ) : null}
+            {signalQuality ? (
+              <span
+                className="inline-flex max-w-full items-center rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-slate-600"
+                title={`Signal quality: ${signalQuality}`}
+                data-signal-quality
+              >
+                <span className="shrink-0 text-slate-400">Signals</span>
+                <span className="ml-1 truncate font-medium text-slate-700">{signalQuality}</span>
+              </span>
+            ) : null}
           </div>
           <DeferChip id={scopeIdForRec(rec)} deferred={deferred} onUndo={() => onUndoDefer?.(rec)} />
           <EvidencePopover

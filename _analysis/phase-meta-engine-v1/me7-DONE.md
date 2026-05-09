@@ -4,7 +4,7 @@ Timestamp: 2026-05-08T21:05:31Z
 
 ## Sign-Off Result
 
-ME7 is signed off under the recalibrated validation contract requested after the ME9 corrective loop. This file is the explicit human/product decision that supersedes the earlier ME9 hard-stop instruction which said a human decision was required before lowering the action-density gate.
+ME7 is signed off under the recalibrated validation contract requested after the ME9 corrective loop. The controlling contract is `_analysis/phase-meta-engine-v1/me7-validation-recalibration-contract.md`, which supersedes the earlier ME9 hard-stop instruction that said a human decision was required before lowering the action-density gate.
 
 Three engineering gates remain release blockers. Two production-fit metrics are retained as observational baselines rather than release blockers.
 

@@ -88,6 +88,59 @@ function roasTargetTone(actual: number | null | undefined, target: number | null
   return { tone: "success", chipTone: "success", label: "above target", ratio };
 }
 
+function roasBenchmarkTone(roas: MetaPulsePayload["roas"] | null | undefined): {
+  tone: TextTone;
+  chipTone: ChipTone;
+  label: string;
+  ratio: number | null;
+  benchmark: number | null;
+  benchmarkLabel: "target" | "account median" | "benchmark";
+  showChip: boolean;
+} {
+  if (!roas) {
+    return {
+      tone: "neutral",
+      chipTone: "neutral",
+      label: "no target",
+      ratio: null,
+      benchmark: null,
+      benchmarkLabel: "benchmark",
+      showChip: false,
+    };
+  }
+
+  if (roas.target_source === "commercial_truth" && roas.target != null) {
+    return {
+      ...roasTargetTone(roas.d28, roas.target),
+      benchmark: roas.target,
+      benchmarkLabel: "target",
+      showChip: true,
+    };
+  }
+
+  if (roas.target_source === "account_median" && roas.median != null && roas.median > 0) {
+    return {
+      tone: "neutral",
+      chipTone: "neutral",
+      label: "account median",
+      ratio: roas.d28 / roas.median,
+      benchmark: roas.median,
+      benchmarkLabel: "account median",
+      showChip: false,
+    };
+  }
+
+  return {
+    tone: "neutral",
+    chipTone: "neutral",
+    label: "no benchmark",
+    ratio: null,
+    benchmark: null,
+    benchmarkLabel: "benchmark",
+    showChip: false,
+  };
+}
+
 function roasWindowTone(value: number | null | undefined, target: number | null | undefined): TextTone {
   if (value == null) return "neutral";
   if (value < 1) return "dangerStrong";
@@ -281,10 +334,10 @@ function RoasSparkline({
 }
 
 function MultiWindowRoas({ pulse }: { pulse?: MetaPulsePayload | null }) {
-  const target = pulse?.roas.target || 1.83;
   if (!pulse) {
     return <span className="font-mono text-slate-700">7d — / 14d — / 28d —</span>;
   }
+  const target = pulse.roas.target_source === "commercial_truth" ? pulse.roas.target : null;
 
   return (
     <span className="inline-flex items-center gap-2">
@@ -381,7 +434,7 @@ export function MetaPulse({ pulse, window, onWindowChange }: MetaPulseProps) {
   const revenueDelta = pulse ? kpiDeltaValue(pulse.revenue.current, pulse.revenue.prev) : null;
   const cpaDelta = pulse ? kpiDeltaValue(pulse.cpa.current, pulse.cpa.prev) : null;
   const spendDelta = pulse ? kpiDeltaValue(pulse.spend.current, pulse.spend.prev) : null;
-  const roasTone = pulse ? roasTargetTone(pulse.roas.d28, pulse.roas.target) : null;
+  const roasTone = pulse ? roasBenchmarkTone(pulse.roas) : null;
   const roasPercent = roasTone?.ratio == null ? null : Math.floor(roasTone.ratio * 100);
 
   return (
@@ -473,8 +526,14 @@ export function MetaPulse({ pulse, window, onWindowChange }: MetaPulseProps) {
                   <span className={cn("font-mono tabular-nums", VALUE_TONE_CLASSES[roasTone.tone])}>
                     {formatRoas(pulse.roas.d28)}
                   </span>
-                  <span className="text-[11px] font-normal text-slate-400">of {formatRoas(pulse.roas.target)} target</span>
-                  {roasPercent == null ? null : (
+                  {roasTone.benchmark == null ? (
+                    <span className="text-[11px] font-normal text-slate-400">no benchmark available</span>
+                  ) : (
+                    <span className="text-[11px] font-normal text-slate-400">
+                      of {formatRoas(roasTone.benchmark)} {roasTone.benchmarkLabel}
+                    </span>
+                  )}
+                  {roasTone.benchmark == null || roasPercent == null ? null : (
                     <span className={cn("font-mono tabular-nums", VALUE_TONE_CLASSES[roasTone.tone])}>
                       · {roasPercent}%
                     </span>
@@ -483,7 +542,7 @@ export function MetaPulse({ pulse, window, onWindowChange }: MetaPulseProps) {
               ) : "—"
             }
             chip={
-              roasTone ? (
+              roasTone?.showChip ? (
                 <span className={chipClassName(roasTone.chipTone)}>
                   <Info className="inline-block shrink-0" size={10} aria-hidden="true" />
                   {roasTone.label}

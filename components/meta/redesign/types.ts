@@ -15,7 +15,14 @@ export interface MetaPulsePayload {
     spendToday?: number;
     dailyTarget?: number;
   };
-  roas: { d7: number; d14: number; d28: number; target: number };
+  roas: {
+    d7: number;
+    d14: number;
+    d28: number;
+    target: number | null;
+    median: number | null;
+    target_source: "commercial_truth" | "account_median" | "none";
+  };
   roasHistory?: number[];
   spend: { current: number; prev: number };
   revenue: { current: number; prev: number };

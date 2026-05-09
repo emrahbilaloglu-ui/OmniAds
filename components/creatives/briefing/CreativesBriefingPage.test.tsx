@@ -176,7 +176,20 @@ describe("CreativesBriefingPage", () => {
   });
 
   it("renders pulse, action lane, and collapsed secondary lanes from briefing data", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-09T12:00:00.000Z"));
+    const briefing = makeBriefingData();
+    mockState.briefingData = {
+      ...briefing,
+      pulse: {
+        ...briefing.pulse,
+        engineVersion: "v3-2026-05-06-phase-8",
+        calibratedAgo: "2026-05-04T12:00:00.000Z",
+      },
+    };
+
     const html = renderToStaticMarkup(<CreativesBriefingPage />);
+    vi.useRealTimers();
 
     expect(html).toContain("account-pulse");
     expect(html).not.toContain('id="account-pulse" class="sticky top-0');
@@ -187,6 +200,11 @@ describe("CreativesBriefingPage", () => {
     );
     expect(html).toContain("Spend today");
     expect(html).toContain("Tracking anomaly active");
+    expect(html).not.toContain("2026-05-04T12:00:00");
+    expect(html).toContain("calibrated 5d ago");
+    expect(html).not.toContain("Saved 2s ago");
+    expect(html).toMatch(/data-pulse="engine"[^>]*class="[^"]*whitespace-nowrap/);
+    expect(html).toMatch(/data-pulse="tracking"[^>]*class="[^"]*whitespace-nowrap/);
     expect(html).toContain("Tracking anomaly detected — engine intelligence may be degraded. Resolve before acting on cuts.");
     expect(html).toContain("Decision briefing");
     expect(html).toContain("Action now");

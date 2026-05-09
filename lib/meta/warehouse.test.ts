@@ -40,6 +40,7 @@ const {
   getMetaAuthoritativeDayState,
   getMetaAuthoritativeRequiredSurfacesForDayAge,
   getMetaActivePublishedSliceVersion,
+  getMetaBreakdownDailyCoverageByEndpoint,
   getMetaPublishedVerificationSummary,
   upsertMetaAdDailyRows,
   getMetaAdSetDailyRange,
@@ -1385,6 +1386,49 @@ describe("meta warehouse ownership safety", () => {
     expect(
       queries.some((query) => query.includes("breakdown:publisher_platform,platform_position,impression_device")),
     ).toBe(true);
+  });
+
+  it("reads breakdown readiness from persisted warehouse and finalize checkpoints", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      queries.push(query);
+      if (query.includes("information_schema.columns")) {
+        return [{ present: true }];
+      }
+      return [];
+    });
+    Object.assign(sql, {
+      query: vi.fn(async (query: string) => {
+        queries.push(query);
+        return [
+          {
+            endpoint_name: "breakdown_age",
+            completed_days: 90,
+            first_completed_date: "2026-01-13",
+            ready_through_date: "2026-04-12",
+          },
+        ];
+      }),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const coverage = await getMetaBreakdownDailyCoverageByEndpoint({
+      businessId: "biz-1",
+      endpointNames: ["breakdown_age"],
+      startDate: "2026-01-13",
+      endDate: "2026-04-12",
+    });
+
+    expect(coverage.get("breakdown_age")).toEqual({
+      completed_days: 90,
+      first_completed_date: "2026-01-13",
+      ready_through_date: "2026-04-12",
+    });
+    const coverageQuery = queries.find((query) => query.includes("WITH requested AS"));
+    expect(coverageQuery).toContain("meta_breakdown_daily");
+    expect(coverageQuery).toContain("meta_sync_checkpoints");
+    expect(coverageQuery).not.toContain("meta_raw_snapshots");
   });
 
   it("returns cooldown and repeated-failure guard data for authoritative slices", async () => {

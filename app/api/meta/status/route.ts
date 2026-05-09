@@ -26,12 +26,12 @@ import {
   getMetaSyncPhaseTimingSummaries,
   getMetaCreativeDailyCoverage,
   getMetaCreativeMediaPreviewCoverage,
+  getMetaBreakdownDailyCoverageByEndpoint,
   getMetaDeadLetterRecoverySummary,
   getMetaAuthoritativeDayVerification,
   getMetaAuthoritativeBusinessOpsSnapshot,
   getMetaQueueComposition,
   getMetaQueueHealth,
-  getMetaRawSnapshotCoverageByEndpoint,
   getMetaSyncJobHealth,
   getMetaSyncState,
 } from "@/lib/meta/warehouse";
@@ -49,6 +49,7 @@ import {
 import {
   META_AUTHORITATIVE_HISTORY_DAYS,
   META_BREAKDOWN_AUTHORITATIVE_HISTORY_DAYS,
+  META_DECISION_ENGINE_SUPPORT_WINDOW_DAYS,
   isMetaRangeWithinAuthoritativeHistory,
   isMetaRangeWithinBreakdownHistory,
 } from "@/lib/meta/contract";
@@ -167,10 +168,8 @@ const META_STATE_SCOPES = [...META_RUNTIME_STATE_SCOPES] as const;
 const META_CORE_REQUIRED_SURFACES = [...META_PRODUCT_CORE_COVERAGE_SCOPES] as const;
 const META_SECONDARY_SURFACES = [...META_SECONDARY_REPORTING_SCOPES, "ad_daily"] as const;
 const META_DEEP_SURFACES = ["breakdowns"] as const;
-const META_RECENT_RECOVERY_DAYS = Math.max(
-  1,
-  Number(process.env.META_RECENT_RECOVERY_DAYS ?? 14) || 14
-);
+const META_STATUS_DEFAULT_READINESS_WINDOW_DAYS =
+  META_DECISION_ENGINE_SUPPORT_WINDOW_DAYS;
 const META_STATUS_CACHE_TTL_MS = Math.max(
   1_000,
   Number(process.env.META_STATUS_CACHE_TTL_MS ?? 5_000) || 5_000
@@ -514,12 +513,12 @@ export async function GET(request: NextRequest) {
   );
   const recentWindowStart = addDays(
     new Date(`${initialBackfillEnd}T00:00:00Z`),
-    -(Math.min(META_RECENT_RECOVERY_DAYS, historicalTotalDays) - 1)
+    -(Math.min(META_STATUS_DEFAULT_READINESS_WINDOW_DAYS, historicalTotalDays) - 1)
   )
     .toISOString()
     .slice(0, 10);
   const recentWindowTotalDays = Math.min(
-    META_RECENT_RECOVERY_DAYS,
+    META_STATUS_DEFAULT_READINESS_WINDOW_DAYS,
     dayCountInclusive(recentWindowStart, initialBackfillEnd)
   );
 
@@ -561,7 +560,7 @@ export async function GET(request: NextRequest) {
             startDate: creativeMediaPreviewStart,
             endDate: initialBackfillEnd,
           }).catch(() => null),
-          getMetaRawSnapshotCoverageByEndpoint({
+          getMetaBreakdownDailyCoverageByEndpoint({
             businessId: businessId!,
             providerAccountId: null,
             endpointNames: [...META_BREAKDOWN_ENDPOINTS],
@@ -745,7 +744,7 @@ export async function GET(request: NextRequest) {
     selectedStartDate &&
     selectedRangeTruthEndDate &&
     selectedStartDate <= selectedRangeTruthEndDate
-      ? await getMetaRawSnapshotCoverageByEndpoint({
+      ? await getMetaBreakdownDailyCoverageByEndpoint({
           businessId: businessId!,
           providerAccountId: null,
           endpointNames: [...META_BREAKDOWN_ENDPOINTS],

@@ -665,15 +665,7 @@ function buildExtendedStage(
       : null;
   const percent =
     recentWindowScope
-      ? status.extendedCompleteness?.complete
-        ? null
-        : useHistoricalExtendedProgress
-          ? extendedSurfaceMetrics.historicalPercent
-        : useRecentExtendedProgress
-          ? extendedSurfaceMetrics.recentPercent
-          : recentLag
-            ? extendedCompletenessPercent
-            : null
+      ? null
       : extendedCompletenessPercent != null
         ? extendedCompletenessPercent
         : historicalLag && extendedSurfaceMetrics.hasHistoricalBacklog
@@ -681,13 +673,7 @@ function buildExtendedStage(
           : null;
 
   const progressCompletedDays = recentWindowScope
-    ? status.extendedCompleteness?.complete
-      ? null
-      : useHistoricalExtendedProgress
-        ? extendedSurfaceMetrics.historicalCompleted
-        : useRecentExtendedProgress
-          ? extendedSurfaceMetrics.recentCompleted
-          : null
+    ? null
     : !status.extendedCompleteness?.complete
       ? breakdownMetrics?.completedDays ?? null
       : historicalLag && extendedSurfaceMetrics.hasHistoricalBacklog
@@ -695,13 +681,7 @@ function buildExtendedStage(
         : null;
 
   const progressTotalDays = recentWindowScope
-    ? status.extendedCompleteness?.complete
-      ? null
-      : useHistoricalExtendedProgress
-        ? extendedSurfaceMetrics.historicalTotal
-        : useRecentExtendedProgress
-          ? extendedSurfaceMetrics.recentTotal
-          : null
+    ? null
     : !status.extendedCompleteness?.complete
       ? breakdownMetrics?.totalDays ?? null
       : historicalLag && extendedSurfaceMetrics.hasHistoricalBacklog

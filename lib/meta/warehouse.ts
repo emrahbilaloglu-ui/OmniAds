@@ -352,6 +352,28 @@ const META_BREAKDOWN_CHECKPOINT_SCOPES = [
   "breakdown:publisher_platform,platform_position,impression_device",
 ] as const;
 
+const META_BREAKDOWN_ENDPOINT_COVERAGE_MAP = [
+  {
+    endpointName: "breakdown_age",
+    breakdownType: "age",
+    checkpointScope: "breakdown:age,gender",
+  },
+  {
+    endpointName: "breakdown_country",
+    breakdownType: "country",
+    checkpointScope: "breakdown:country",
+  },
+  {
+    endpointName: "breakdown_publisher_platform,platform_position,impression_device",
+    breakdownType: "placement",
+    checkpointScope: "breakdown:publisher_platform,platform_position,impression_device",
+  },
+] as const satisfies ReadonlyArray<{
+  endpointName: string;
+  breakdownType: MetaBreakdownType;
+  checkpointScope: (typeof META_BREAKDOWN_CHECKPOINT_SCOPES)[number];
+}>;
+
 const META_BREAKDOWN_CHECKPOINT_SCOPE_TO_TYPE_SQL = `
   CASE checkpoint.checkpoint_scope
     WHEN 'breakdown:age,gender' THEN 'age'
@@ -6802,6 +6824,103 @@ export async function getMetaRawSnapshotCoverageByEndpoint(input: {
       ready_through_date: null,
     });
   }
+  for (const row of rows) {
+    map.set(row.endpoint_name, {
+      completed_days: Number(row.completed_days ?? 0),
+      first_completed_date: row.first_completed_date ?? null,
+      ready_through_date: row.ready_through_date ?? null,
+    });
+  }
+  return map;
+}
+
+export async function getMetaBreakdownDailyCoverageByEndpoint(input: {
+  businessId: string;
+  endpointNames: string[];
+  providerAccountId?: string | null;
+  startDate: string;
+  endDate: string;
+}): Promise<Map<string, MetaRawSnapshotEndpointCoverage>> {
+  const requestedEndpoints = Array.from(new Set(input.endpointNames.filter(Boolean)));
+  const mappings = META_BREAKDOWN_ENDPOINT_COVERAGE_MAP.filter((mapping) =>
+    requestedEndpoints.includes(mapping.endpointName)
+  );
+  const map = new Map<string, MetaRawSnapshotEndpointCoverage>();
+  for (const endpointName of requestedEndpoints) {
+    map.set(endpointName, {
+      completed_days: 0,
+      first_completed_date: null,
+      ready_through_date: null,
+    });
+  }
+  if (mappings.length === 0) return map;
+
+  await assertMetaRequestReadTablesReady(
+    ["meta_breakdown_daily", "meta_sync_partitions", "meta_sync_checkpoints"],
+    "meta_breakdown_daily_endpoint_coverage",
+  );
+  const supportsTruthLifecycle = await hasMetaTruthLifecycleColumns();
+  const truthPredicate = supportsTruthLifecycle
+    ? "AND COALESCE(breakdown.truth_state, 'finalized') = 'finalized'"
+    : "";
+  const sql = getDb();
+  const rows = await sql.query(
+    `
+      WITH requested AS (
+        SELECT *
+        FROM unnest($1::text[], $2::text[], $3::text[])
+          AS requested(endpoint_name, breakdown_type, checkpoint_scope)
+      ),
+      coverage AS (
+        SELECT
+          requested.endpoint_name,
+          breakdown.date::date AS day
+        FROM requested
+        JOIN meta_breakdown_daily breakdown
+          ON breakdown.breakdown_type = requested.breakdown_type
+        WHERE breakdown.business_id = $4
+          AND ($5::text IS NULL OR breakdown.provider_account_id = $5)
+          AND breakdown.date::date BETWEEN $6::date AND $7::date
+          ${truthPredicate}
+        UNION
+        SELECT
+          requested.endpoint_name,
+          partition.partition_date::date AS day
+        FROM requested
+        JOIN meta_sync_partitions partition
+          ON partition.business_id = $4
+          AND ($5::text IS NULL OR partition.provider_account_id = $5)
+          AND partition.partition_date::date BETWEEN $6::date AND $7::date
+        JOIN meta_sync_checkpoints checkpoint
+          ON checkpoint.partition_id = partition.id
+          AND checkpoint.phase = 'finalize'
+          AND checkpoint.status = 'succeeded'
+          AND checkpoint.checkpoint_scope = requested.checkpoint_scope
+      )
+      SELECT
+        endpoint_name,
+        COUNT(DISTINCT day)::int AS completed_days,
+        MIN(day)::text AS first_completed_date,
+        MAX(day)::text AS ready_through_date
+      FROM coverage
+      GROUP BY endpoint_name
+    `,
+    [
+      mappings.map((mapping) => mapping.endpointName),
+      mappings.map((mapping) => mapping.breakdownType),
+      mappings.map((mapping) => mapping.checkpointScope),
+      input.businessId,
+      input.providerAccountId ?? null,
+      normalizeDate(input.startDate),
+      normalizeDate(input.endDate),
+    ],
+  ) as Array<{
+    endpoint_name: string;
+    completed_days: number;
+    first_completed_date: string | null;
+    ready_through_date: string | null;
+  }>;
+
   for (const row of rows) {
     map.set(row.endpoint_name, {
       completed_days: Number(row.completed_days ?? 0),

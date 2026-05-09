@@ -6856,7 +6856,7 @@ export async function getMetaBreakdownDailyCoverageByEndpoint(input: {
   if (mappings.length === 0) return map;
 
   await assertMetaRequestReadTablesReady(
-    ["meta_breakdown_daily", "meta_sync_partitions", "meta_sync_checkpoints"],
+    ["meta_breakdown_daily", "meta_sync_partitions", "meta_sync_checkpoints", "meta_raw_snapshots"],
     "meta_breakdown_daily_endpoint_coverage",
   );
   const supportsTruthLifecycle = await hasMetaTruthLifecycleColumns();
@@ -6896,6 +6896,18 @@ export async function getMetaBreakdownDailyCoverageByEndpoint(input: {
           AND checkpoint.phase = 'finalize'
           AND checkpoint.status = 'succeeded'
           AND checkpoint.checkpoint_scope = requested.checkpoint_scope
+        UNION
+        SELECT
+          requested.endpoint_name,
+          snapshot.start_date::date AS day
+        FROM requested
+        JOIN meta_raw_snapshots snapshot
+          ON snapshot.endpoint_name = requested.endpoint_name
+        WHERE snapshot.business_id = $4
+          AND ($5::text IS NULL OR snapshot.provider_account_id = $5)
+          AND snapshot.status = 'fetched'
+          AND snapshot.start_date::date BETWEEN $6::date AND $7::date
+          AND snapshot.end_date::date BETWEEN $6::date AND $7::date
       )
       SELECT
         endpoint_name,

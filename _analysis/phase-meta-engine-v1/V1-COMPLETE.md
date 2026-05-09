@@ -28,7 +28,7 @@ The pre-ME1 runner total was not preserved as a stable artifact. The final ME7/M
 
 | Criterion | Status | Evidence |
 |---|---:|---|
-| Production engine coverage >= 80% on campaigns and adsets | PASS | ME7 close records campaign and adset coverage capped at 100%. |
+| Production engine coverage >= 80% on campaigns and adsets | PASS | Denominator-based ME7 validation recorded campaign `103/101` and adset `184/177`, both capped at 100%. |
 | Decision label coupling: 0 known mismatch | PASS | `scale_for_profitability` defensive actions map to `tune`; anomalies map to `diagnose`; unknown-label scan is clean. |
 | 40/40 scenario rec types registered | PASS | ME7 close records 40/40 fixture firing, with 12 production-wired and 28 register-only. |
 | Operator response telemetry captures acted/deferred/ignored | PASS | `lib/meta/decision-responses.ts` and `/api/meta/recommendations/respond` support acted, deferred, undeferred, and ignored events; ME6 UI badges surface response state. |
@@ -40,7 +40,7 @@ The pre-ME1 runner total was not preserved as a stable artifact. The final ME7/M
 
 ## Documented Limitations
 
-- Action density is 9.5% on the current TheSwaf + IwaStore production data. This is account-state dependent and reflects the 12 production-wired emitters firing only when account-history-grounded thresholds trigger.
+- Action density is 9.5% on the current TheSwaf + IwaStore production data. This is account-state dependent and reflects the 12 production-wired emitters firing only when account-history-grounded thresholds trigger. The ME9 action-density helper's persisted-entity count is treated as density/data-shape observability, not as the denominator-based coverage gate.
 - Engine vs persona disagreement is 36%. The persona audit benchmark encodes operator bias signatures; v1 resolves those into calibrated conservative output.
 - Twenty-eight scenarios are registered and fixture-covered but not production-wired. Audience, catalog, portfolio, and tracking clusters remain engine v2 work.
 

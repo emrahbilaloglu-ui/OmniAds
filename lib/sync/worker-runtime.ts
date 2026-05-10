@@ -16,6 +16,7 @@ import { getDbRuntimeDiagnostics } from "@/lib/db";
 import { getProviderJobLockState } from "@/lib/sync/provider-job-lock";
 import { getSyncReleaseCanaryBusinessIds } from "@/lib/sync/runtime-contract";
 import { getLatestSyncGateRecords } from "@/lib/sync/release-gates";
+import { readConnectedGoogleAdsControlPlaneBusinesses } from "@/lib/google-ads/control-plane-runtime";
 
 function envNumber(name: string, fallback: number) {
   const raw = process.env[name];
@@ -99,39 +100,6 @@ export function prioritizeBusinessesForAdapter(
   });
 }
 
-type GoogleAdsControlPlaneRuntimeModule = {
-  readConnectedGoogleAdsControlPlaneBusinesses?: () => Promise<
-    Array<{
-      businessId: string;
-      businessName?: string | null;
-      backfillIncomplete?: boolean;
-      incompleteScopeCount?: number | null;
-      latestSuccessfulSyncAt?: string | null;
-    }>
-  >;
-  default?: GoogleAdsControlPlaneRuntimeModule;
-  "module.exports"?: GoogleAdsControlPlaneRuntimeModule;
-};
-
-export function resolveGoogleAdsControlPlaneBusinessReader(moduleValue: unknown) {
-  const candidates = [
-    moduleValue,
-    moduleValue && typeof moduleValue === "object"
-      ? (moduleValue as GoogleAdsControlPlaneRuntimeModule).default
-      : null,
-    moduleValue && typeof moduleValue === "object"
-      ? (moduleValue as GoogleAdsControlPlaneRuntimeModule)["module.exports"]
-      : null,
-  ];
-  for (const candidate of candidates) {
-    if (!candidate || typeof candidate !== "object") continue;
-    const reader = (candidate as GoogleAdsControlPlaneRuntimeModule)
-      .readConnectedGoogleAdsControlPlaneBusinesses;
-    if (typeof reader === "function") return reader;
-  }
-  return null;
-}
-
 async function resolveProviderScopedTickBusinesses(input: {
   providerScope: string;
   businesses: Array<{ id: string; name: string }>;
@@ -140,14 +108,8 @@ async function resolveProviderScopedTickBusinesses(input: {
     return input.businesses;
   }
 
-  const connectedGoogleBusinesses = await import(
-    "@/lib/google-ads/control-plane-runtime"
-  )
-    .then((module) => {
-      const reader = resolveGoogleAdsControlPlaneBusinessReader(module);
-      return reader ? reader() : null;
-    })
-    .catch(() => null);
+  const connectedGoogleBusinesses =
+    await readConnectedGoogleAdsControlPlaneBusinesses().catch(() => null);
   if (connectedGoogleBusinesses == null) {
     return input.businesses;
   }

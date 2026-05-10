@@ -4,7 +4,6 @@ import {
   createRunnerLeaseGuard,
   getPriorityBusinessIdsForAdapter,
   prioritizeBusinessesForAdapter,
-  resolveGoogleAdsControlPlaneBusinessReader,
   resolveTickBusinessesForAdapter,
   resolveConsumeBusinessFallbackDecision,
   runAdapterLifecycleTick,
@@ -26,14 +25,6 @@ const googleControlPlaneRuntimeMocks = vi.hoisted(() => ({
 vi.mock("@/lib/google-ads/control-plane-runtime", () => ({
   readConnectedGoogleAdsControlPlaneBusinesses:
     googleControlPlaneRuntimeMocks.readConnectedGoogleAdsControlPlaneBusinesses,
-  default: {
-    readConnectedGoogleAdsControlPlaneBusinesses:
-      googleControlPlaneRuntimeMocks.readConnectedGoogleAdsControlPlaneBusinesses,
-  },
-  "module.exports": {
-    readConnectedGoogleAdsControlPlaneBusinesses:
-      googleControlPlaneRuntimeMocks.readConnectedGoogleAdsControlPlaneBusinesses,
-  },
 }));
 
 const providerJobLock = await import("@/lib/sync/provider-job-lock");
@@ -321,34 +312,6 @@ describe("resolveTickBusinessesForAdapter", () => {
       { id: "biz-complete", name: "Complete" },
     ]);
     process.env.SYNC_RELEASE_CANARY_BUSINESSES = previousCanaries;
-  });
-});
-
-describe("resolveGoogleAdsControlPlaneBusinessReader", () => {
-  it("reads named, default, and CommonJS module export shapes", async () => {
-    const namedReader = vi.fn().mockResolvedValue([]);
-    const defaultReader = vi.fn().mockResolvedValue([]);
-    const commonJsReader = vi.fn().mockResolvedValue([]);
-
-    expect(
-      resolveGoogleAdsControlPlaneBusinessReader({
-        readConnectedGoogleAdsControlPlaneBusinesses: namedReader,
-      }),
-    ).toBe(namedReader);
-    expect(
-      resolveGoogleAdsControlPlaneBusinessReader({
-        default: {
-          readConnectedGoogleAdsControlPlaneBusinesses: defaultReader,
-        },
-      }),
-    ).toBe(defaultReader);
-    expect(
-      resolveGoogleAdsControlPlaneBusinessReader({
-        "module.exports": {
-          readConnectedGoogleAdsControlPlaneBusinesses: commonJsReader,
-        },
-      }),
-    ).toBe(commonJsReader);
   });
 });
 

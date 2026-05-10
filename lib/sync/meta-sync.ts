@@ -50,6 +50,7 @@ import {
   getMetaSyncState,
   leaseMetaSyncPartitions,
   markMetaPartitionRunning,
+  quarantineMetaTerminalActionRequiredPartitions,
   queueMetaSyncPartition,
   releaseMetaLeasedPartitionsForWorker,
   replayMetaDeadLetterPartitions,
@@ -4203,6 +4204,9 @@ export async function consumeMetaQueuedWork(
     },
     runProgressGraceMinutes: META_RUN_PROGRESS_GRACE_MINUTES,
   }).catch(() => null);
+  await quarantineMetaTerminalActionRequiredPartitions({ businessId }).catch(
+    () => null,
+  );
   await requeueMetaRetryableFailedPartitions({ businessId });
 
   const lockKey = `background:${businessId}`;

@@ -29,6 +29,7 @@ import {
   getMetaCheckpointHealth,
   getMetaSyncCheckpoint,
   leaseMetaSyncPartitions,
+  quarantineMetaTerminalActionRequiredPartitions,
   queueMetaSyncPartition,
   releaseMetaLeasedPartitionsForWorker,
   upsertMetaSyncCheckpoint,
@@ -310,6 +311,9 @@ async function leaseMetaPartitionsWithPlan(input: {
   limit: number;
   plan: ProviderLeasePlan | null | undefined;
 }) {
+  await quarantineMetaTerminalActionRequiredPartitions({
+    businessId: input.businessId,
+  }).catch(() => null);
   const plan = input.plan;
   if (!plan?.steps?.length) {
     return leaseMetaSyncPartitions({

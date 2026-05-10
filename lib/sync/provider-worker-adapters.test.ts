@@ -17,6 +17,7 @@ const getMetaSyncCheckpoint = vi.fn();
 const upsertMetaSyncCheckpoint = vi.fn();
 const processMetaLifecyclePartition = vi.fn();
 const leaseMetaSyncPartitions = vi.fn();
+const quarantineMetaTerminalActionRequiredPartitions = vi.fn();
 const queueMetaSyncPartition = vi.fn();
 const buildMetaWorkerLeasePlan = vi.fn();
 const consumeMetaQueuedWork = vi.fn();
@@ -78,6 +79,7 @@ vi.mock("@/lib/meta/warehouse", () => ({
   getMetaCheckpointHealth,
   getMetaSyncCheckpoint,
   leaseMetaSyncPartitions,
+  quarantineMetaTerminalActionRequiredPartitions,
   queueMetaSyncPartition,
   releaseMetaLeasedPartitionsForWorker,
   upsertMetaSyncCheckpoint,
@@ -144,6 +146,12 @@ describe("provider-worker-adapters", () => {
       normalized: [{ id: "act_1", name: "Account 1" }],
     });
     getMetaApiErrorMessage.mockReturnValue("Meta API error");
+    quarantineMetaTerminalActionRequiredPartitions.mockResolvedValue({
+      candidateCount: 0,
+      terminalMatchedCount: 0,
+      changedCount: 0,
+      partitions: [],
+    });
   });
 
   it("queues Google core partitions through the shared adapter plan contract", async () => {

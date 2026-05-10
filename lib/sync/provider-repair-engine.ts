@@ -38,6 +38,7 @@ export interface ProviderRepairCycleOptions {
 
 type MetaRepairStageName =
   | "runMetaRepairCycle.cleanup"
+  | "runMetaRepairCycle.quarantine_terminal_action_required"
   | "runMetaRepairCycle.replay_dead_letters"
   | "runMetaRepairCycle.requeue_retryable_failed"
   | "runMetaRepairCycle.recover_d1_finalize"
@@ -659,6 +660,17 @@ export async function runMetaRepairCycle(
       return null;
     },
   });
+  const quarantinedTerminal = await captureMetaRepairStage({
+    businessId,
+    stage: "runMetaRepairCycle.quarantine_terminal_action_required",
+    stageRecords: stageTimings,
+    run: () =>
+      metaWarehouse.quarantineMetaTerminalActionRequiredPartitions({
+        businessId,
+        sources: options?.metaDeadLetterSources ?? null,
+      }),
+    onError: () => null,
+  });
   const replayedDeadLetters = await captureMetaRepairStage({
     businessId,
     stage: "runMetaRepairCycle.replay_dead_letters",
@@ -826,7 +838,10 @@ export async function runMetaRepairCycle(
     ? await enqueueMetaScheduledWork(businessId)
     : null;
   const terminalActionRequiredDeadLetters =
-    replayedDeadLetters?.terminalActionRequiredCount ?? 0;
+    Math.max(
+      replayedDeadLetters?.terminalActionRequiredCount ?? 0,
+      quarantinedTerminal?.changedCount ?? 0,
+    );
   const unknownDeadLetters = replayedDeadLetters?.unknownMatchedCount ?? 0;
   const replayableDeadLetters =
     replayedDeadLetters?.replayableMatchedCount ??
@@ -982,6 +997,7 @@ export async function runMetaRepairCycle(
         cleanupSummary: cleanup,
         cleanupError,
         deadLetters: replayedDeadLetters,
+        quarantinedTerminalActionRequired: quarantinedTerminal,
         retryableFailed: requeuedFailed.length,
         integrityIncidentCount: integrityIncidents.length,
         integritySignature,

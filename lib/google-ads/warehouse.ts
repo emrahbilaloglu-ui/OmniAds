@@ -1454,6 +1454,7 @@ export async function leaseGoogleAdsSyncPartitions(input: {
   leaseMinutes?: number;
   sourceFilter?: "all" | "recent_only" | "historical_only";
   scopeFilter?: GoogleAdsWarehouseScope[];
+  excludedScopeFilter?: GoogleAdsWarehouseScope[];
   startDate?: string | null;
   endDate?: string | null;
 }) {
@@ -1493,6 +1494,10 @@ export async function leaseGoogleAdsSyncPartitions(input: {
           AND (
             COALESCE(array_length($7::text[], 1), 0) = 0
             OR scope = ANY($7::text[])
+          )
+          AND (
+            COALESCE(array_length($10::text[], 1), 0) = 0
+            OR NOT (scope = ANY($10::text[]))
           )
           AND (
             $6::text IS NULL
@@ -1572,6 +1577,7 @@ export async function leaseGoogleAdsSyncPartitions(input: {
       input.scopeFilter ?? [],
       input.startDate ? normalizeDate(input.startDate) : null,
       input.endDate ? normalizeDate(input.endDate) : null,
+      input.excludedScopeFilter ?? [],
     ],
   )) as Array<Record<string, unknown>>;
 
@@ -5320,6 +5326,35 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
       classification.recoveryKind === "unknown" &&
       !deadLetter.is_historical_quarantined,
   ).length;
+  const coreBlockingDeadLetterPartitions = classifiedDeadLetters.filter(
+    ({ row: deadLetter }) =>
+      !deadLetter.is_historical_quarantined &&
+      isGoogleAdsCoreReleaseScope(deadLetter.scope),
+  ).length;
+  const coreActionRequiredBlockingDeadLetterPartitions =
+    classifiedDeadLetters.filter(
+      ({ row: deadLetter, classification }) =>
+        classification.recoveryKind === "terminal_action_required" &&
+        !deadLetter.is_historical_quarantined &&
+        isGoogleAdsCoreReleaseScope(deadLetter.scope),
+    ).length;
+  const actionRequiredDeadLetterScopes = sortedGoogleAdsScopes(
+    classifiedDeadLetters
+      .filter(
+        ({ classification }) =>
+          classification.recoveryKind === "terminal_action_required",
+      )
+      .map(({ row: deadLetter }) => deadLetter.scope),
+  );
+  const actionRequiredBlockingDeadLetterScopes = sortedGoogleAdsScopes(
+    classifiedDeadLetters
+      .filter(
+        ({ row: deadLetter, classification }) =>
+          classification.recoveryKind === "terminal_action_required" &&
+          !deadLetter.is_historical_quarantined,
+      )
+      .map(({ row: deadLetter }) => deadLetter.scope),
+  );
   const row = rows[0] ?? {};
   return {
     queueDepth: toNumber(row.queue_depth),
@@ -5345,6 +5380,10 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
     ),
     actionRequiredDeadLetterPartitions,
     actionRequiredBlockingDeadLetterPartitions,
+    actionRequiredDeadLetterScopes,
+    actionRequiredBlockingDeadLetterScopes,
+    coreBlockingDeadLetterPartitions,
+    coreActionRequiredBlockingDeadLetterPartitions,
     replayableDeadLetterPartitions,
     replayableBlockingDeadLetterPartitions,
     unknownDeadLetterPartitions,
@@ -5577,6 +5616,27 @@ type GoogleAdsDeadLetterCandidateRow = {
 type GoogleAdsDeadLetterHealthRow = GoogleAdsDeadLetterCandidateRow & {
   is_historical_quarantined: boolean | null;
 };
+
+const GOOGLE_ADS_CORE_RELEASE_SCOPES = new Set<GoogleAdsWarehouseScope>([
+  "account_daily",
+  "campaign_daily",
+]);
+
+function isGoogleAdsCoreReleaseScope(scope: unknown) {
+  return GOOGLE_ADS_CORE_RELEASE_SCOPES.has(
+    String(scope ?? "") as GoogleAdsWarehouseScope,
+  );
+}
+
+function sortedGoogleAdsScopes(scopes: Iterable<unknown>) {
+  return Array.from(
+    new Set(
+      Array.from(scopes)
+        .map((scope) => String(scope ?? "").trim())
+        .filter(Boolean),
+    ),
+  ).sort() as GoogleAdsWarehouseScope[];
+}
 
 function classifyGoogleAdsDeadLetterCandidate(
   row: Pick<

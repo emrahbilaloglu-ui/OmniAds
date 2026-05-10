@@ -87,6 +87,7 @@ export interface ProviderLeasePlanStep {
   sources?: string[] | null;
   sourceFilter?: "all" | "recent_only" | "historical_only";
   scopeFilter?: string[];
+  excludedScopeFilter?: string[];
   startDate?: string | null;
   endDate?: string | null;
 }

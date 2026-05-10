@@ -337,6 +337,7 @@ type GoogleAdsLeaseStepLog = {
   lane: GoogleAdsSyncLane;
   sourceFilter?: "all" | "recent_only" | "historical_only";
   scopeFilter?: GoogleAdsWarehouseScope[];
+  excludedScopeFilter?: GoogleAdsWarehouseScope[];
   startDate?: string | null;
   endDate?: string | null;
   leasedCount: number;
@@ -1239,6 +1240,22 @@ export function buildGoogleAdsFallbackExtendedLeasePlan(input: {
   };
 }
 
+function getGoogleAdsActionRequiredLeaseExcludedScopes(
+  queueHealth: Awaited<ReturnType<typeof getGoogleAdsQueueHealth>> | null | undefined,
+) {
+  const scopes = [
+    ...(queueHealth?.actionRequiredBlockingDeadLetterScopes ?? []),
+    ...(queueHealth?.actionRequiredDeadLetterScopes ?? []),
+  ];
+  return Array.from(
+    new Set(
+      scopes
+        .map((scope) => String(scope ?? "").trim())
+        .filter(Boolean),
+    ),
+  ).sort() as GoogleAdsWarehouseScope[];
+}
+
 export function resolveGoogleAdsWorkerRequestedLimit(input: {
   leaseLimit: number;
   queueHealth?: Awaited<ReturnType<typeof getGoogleAdsQueueHealth>> | null;
@@ -1345,6 +1362,8 @@ export async function buildGoogleAdsWorkerLeasePlan(input: {
   const laneProgressEvidence = buildGoogleAdsLaneProgressEvidence({
     queueHealth,
   });
+  const actionRequiredExcludedScopes =
+    getGoogleAdsActionRequiredLeaseExcludedScopes(queueHealth);
   const primaryLeasePlan = buildGoogleAdsPrimaryLeasePlan({
     policy: effectivePolicy,
     queueHealth,
@@ -1377,6 +1396,7 @@ export async function buildGoogleAdsWorkerLeasePlan(input: {
       limit: GOOGLE_ADS_CORE_WORKER_LIMIT,
       startDate: historicalLeaseStartDate,
       endDate: fullSyncPriority.yesterday,
+      excludedScopeFilter: actionRequiredExcludedScopes,
     },
     {
       key: "historical_fairness",
@@ -1388,12 +1408,14 @@ export async function buildGoogleAdsWorkerLeasePlan(input: {
         : undefined,
       startDate: historicalLeaseStartDate,
       endDate: fullSyncPriority.yesterday,
+      excludedScopeFilter: actionRequiredExcludedScopes,
     },
     {
       key: "recent_repair",
       lane: "extended",
       limit: primaryLeasePlan.recentRepairLimit,
       sourceFilter: "recent_only" as const,
+      excludedScopeFilter: actionRequiredExcludedScopes,
     },
     {
       key: "full_sync_priority",
@@ -1403,11 +1425,13 @@ export async function buildGoogleAdsWorkerLeasePlan(input: {
       scopeFilter: fullSyncPriority.targetScopes,
       startDate: historicalLeaseStartDate,
       endDate: fullSyncPriority.yesterday,
+      excludedScopeFilter: actionRequiredExcludedScopes,
     },
     {
       key: "maintenance",
       lane: "maintenance",
       limit: maintenanceLeasePlan.maintenanceLimit,
+      excludedScopeFilter: actionRequiredExcludedScopes,
     },
   ].filter((step) => step.limit > 0);
   if (fallbackLeasePlan && fallbackLeasePlan.limit > 0) {
@@ -1420,6 +1444,7 @@ export async function buildGoogleAdsWorkerLeasePlan(input: {
       startDate: fallbackLeasePlan.startDate,
       endDate: fallbackLeasePlan.endDate,
       onlyIfNoLease: fallbackLeasePlan.onlyIfNoLease,
+      excludedScopeFilter: actionRequiredExcludedScopes,
     });
   }
 
@@ -6348,6 +6373,10 @@ export async function syncGoogleAdsReports(
     const queueHealthAfterRecentPlanning = await getGoogleAdsQueueHealth({
       businessId,
     }).catch(() => null);
+    const actionRequiredExcludedScopes =
+      getGoogleAdsActionRequiredLeaseExcludedScopes(
+        queueHealthAfterRecentPlanning ?? queueHealthAfterPlanning,
+      );
     const policyBeforeHistoricalRecovery = await getGoogleAdsIncidentPolicy({
       businessId,
       queueHealth: queueHealthAfterRecentPlanning,
@@ -6390,6 +6419,7 @@ export async function syncGoogleAdsReports(
       leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
       startDate: historicalLeaseStartDate,
       endDate: fullSyncPriority.yesterday,
+      excludedScopeFilter: actionRequiredExcludedScopes,
     }).catch(() => []);
     const queueHealthAfterCore = await getGoogleAdsQueueHealth({
       businessId,
@@ -6410,6 +6440,7 @@ export async function syncGoogleAdsReports(
       lane: "core",
       startDate: historicalLeaseStartDate,
       endDate: fullSyncPriority.yesterday,
+      excludedScopeFilter: actionRequiredExcludedScopes,
       leasedCount: partitions.length,
       queueHealth: queueHealthAfterCore,
       fullSyncPriorityRequired: fullSyncPriority.required,
@@ -6439,6 +6470,7 @@ export async function syncGoogleAdsReports(
               : undefined,
             startDate: historicalLeaseStartDate,
             endDate: fullSyncPriority.yesterday,
+            excludedScopeFilter: actionRequiredExcludedScopes,
           }).catch(() => [])
         : [];
     logGoogleAdsLeaseStepResult({
@@ -6452,6 +6484,7 @@ export async function syncGoogleAdsReports(
         : undefined,
       startDate: historicalLeaseStartDate,
       endDate: fullSyncPriority.yesterday,
+      excludedScopeFilter: actionRequiredExcludedScopes,
       leasedCount: historicalFairnessPartitions.length,
       queueHealth: queueHealthAfterCore,
       fullSyncPriorityRequired: fullSyncPriority.required,
@@ -6469,6 +6502,7 @@ export async function syncGoogleAdsReports(
             limit: primaryLeasePlan.recentRepairLimit,
             leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
             sourceFilter: "recent_only",
+            excludedScopeFilter: actionRequiredExcludedScopes,
           }).catch(() => [])
         : [];
     logGoogleAdsLeaseStepResult({
@@ -6477,6 +6511,7 @@ export async function syncGoogleAdsReports(
       limit: primaryLeasePlan.recentRepairLimit,
       lane: "extended",
       sourceFilter: "recent_only",
+      excludedScopeFilter: actionRequiredExcludedScopes,
       leasedCount: recentExtendedPartitions.length,
       queueHealth: queueHealthAfterCore,
       fullSyncPriorityRequired: fullSyncPriority.required,
@@ -6498,6 +6533,7 @@ export async function syncGoogleAdsReports(
             scopeFilter: fullSyncPriority.targetScopes,
             startDate: historicalLeaseStartDate,
             endDate: fullSyncPriority.yesterday,
+            excludedScopeFilter: actionRequiredExcludedScopes,
           }).catch(() => [])
         : [];
     logGoogleAdsLeaseStepResult({
@@ -6509,6 +6545,7 @@ export async function syncGoogleAdsReports(
       scopeFilter: fullSyncPriority.targetScopes,
       startDate: historicalLeaseStartDate,
       endDate: fullSyncPriority.yesterday,
+      excludedScopeFilter: actionRequiredExcludedScopes,
       leasedCount: fullSyncPriorityPartitions.length,
       queueHealth: queueHealthAfterCore,
       fullSyncPriorityRequired: fullSyncPriority.required,
@@ -6542,6 +6579,7 @@ export async function syncGoogleAdsReports(
             workerId,
             limit: maintenanceLeasePlan.maintenanceLimit,
             leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
+            excludedScopeFilter: actionRequiredExcludedScopes,
           }).catch(() => [])
         : [];
     logGoogleAdsLeaseStepResult({
@@ -6549,6 +6587,7 @@ export async function syncGoogleAdsReports(
       step: "maintenance",
       limit: maintenanceLeasePlan.maintenanceLimit,
       lane: "maintenance",
+      excludedScopeFilter: actionRequiredExcludedScopes,
       leasedCount: maintenancePartitions.length,
       queueHealth: queueHealthAfterRecentLease,
       fullSyncPriorityRequired: fullSyncPriority.required,
@@ -6592,6 +6631,7 @@ export async function syncGoogleAdsReports(
           scopeFilter: fallbackLeasePlan.scopeFilter,
           startDate: fallbackLeasePlan.startDate,
           endDate: fallbackLeasePlan.endDate,
+          excludedScopeFilter: actionRequiredExcludedScopes,
         }).catch(() => []);
         logGoogleAdsLeaseStepResult({
           businessId,
@@ -6602,6 +6642,7 @@ export async function syncGoogleAdsReports(
           scopeFilter: fallbackLeasePlan.scopeFilter,
           startDate: fallbackLeasePlan.startDate,
           endDate: fallbackLeasePlan.endDate,
+          excludedScopeFilter: actionRequiredExcludedScopes,
           leasedCount: partitions.length,
           queueHealth,
           fullSyncPriorityRequired: fullSyncPriority.required,
@@ -6728,6 +6769,7 @@ export async function syncGoogleAdsReports(
           (fullSyncPriority.required || burstSourceFilter !== "recent_only")
             ? fullSyncPriority.yesterday
             : null,
+        excludedScopeFilter: actionRequiredExcludedScopes,
       }).catch(() => []);
 
       attempted += extendedPartitions.length;

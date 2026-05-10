@@ -146,6 +146,49 @@ describe("resolveGoogleAdsControlPlaneSyncTruth", () => {
     });
   });
 
+  it("does not let a failed non-core surface hide core serving readiness", () => {
+    expect(
+      resolveGoogleAdsControlPlaneSyncTruth({
+        latestSyncStatus: "failed",
+        latestSyncScope: "product_daily",
+        queueDepth: 0,
+        deadLetterPartitions: 0,
+        nowMs: now,
+        scopeStates: [
+          {
+            businessId: "biz-1",
+            providerAccountId: "acct-1",
+            scope: "account_daily",
+            historicalTargetStart: "2026-04-01",
+            historicalTargetEnd: "2026-04-19",
+            effectiveTargetStart: "2026-04-13",
+            effectiveTargetEnd: "2026-04-19",
+            latestSuccessfulSyncAt: "2026-04-20T06:00:00.000Z",
+            completedDays: 7,
+            deadLetterCount: 0,
+          },
+          {
+            businessId: "biz-1",
+            providerAccountId: "acct-1",
+            scope: "campaign_daily",
+            historicalTargetStart: "2026-04-01",
+            historicalTargetEnd: "2026-04-19",
+            effectiveTargetStart: "2026-04-13",
+            effectiveTargetEnd: "2026-04-19",
+            latestSuccessfulSyncAt: "2026-04-20T06:00:00.000Z",
+            completedDays: 7,
+            deadLetterCount: 0,
+          },
+        ],
+      }),
+    ).toMatchObject({
+      effectiveLatestSyncStatus: null,
+      coreServingReady: true,
+      servingReady: true,
+      fullyReady: true,
+    });
+  });
+
   it("keeps queue-drained state unready when successful scope sync is stale", () => {
     expect(
       resolveGoogleAdsControlPlaneSyncTruth({

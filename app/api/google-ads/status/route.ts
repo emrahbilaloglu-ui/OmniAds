@@ -1911,15 +1911,27 @@ export async function GET(request: NextRequest) {
         });
   const googleControlPlaneSyncTruth = resolveGoogleAdsControlPlaneSyncTruth({
     latestSyncStatus: effectiveLatestSync?.status ? String(effectiveLatestSync.status) : null,
-    queueDepth: queueHealth?.queueDepth ?? 0,
-    deadLetterPartitions: queueHealth?.deadLetterPartitions ?? 0,
+    latestSyncScope:
+      typeof effectiveLatestSync?.scope === "string" ? effectiveLatestSync.scope : null,
+    queueDepth: queueHealth?.coreQueueDepth ?? 0,
+    deadLetterPartitions:
+      queueHealth?.coreBlockingDeadLetterPartitions ??
+      queueHealth?.blockingDeadLetterPartitions ??
+      queueHealth?.deadLetterPartitions ??
+      0,
     scopeStates: Object.values(statesByScope).flat(),
   });
   const googleStatusRouteTruthReady =
     googleControlPlaneSyncTruth.servingReady ||
     (coreUsable &&
-      (queueHealth?.deadLetterPartitions ?? 0) === 0 &&
-      effectiveLatestSync?.status !== "failed");
+      (queueHealth?.coreBlockingDeadLetterPartitions ??
+        queueHealth?.blockingDeadLetterPartitions ??
+        queueHealth?.deadLetterPartitions ??
+        0) === 0 &&
+      (effectiveLatestSync?.status !== "failed" ||
+        !["account_daily", "campaign_daily"].includes(
+          typeof effectiveLatestSync?.scope === "string" ? effectiveLatestSync.scope : "",
+        )));
   const googleReleaseReadinessCandidate =
     buildGoogleAdsReleaseReadinessCandidate({
       connected,
@@ -1927,10 +1939,14 @@ export async function GET(request: NextRequest) {
       activityState: googleActivityState,
       progressState: googleProgressState,
       workerOnline: workerSchedulingState?.healthy ?? null,
-      queueDepth: queueHealth?.queueDepth ?? 0,
-      leasedPartitions: queueHealth?.leasedPartitions ?? 0,
+      queueDepth: queueHealth?.coreQueueDepth ?? 0,
+      leasedPartitions: queueHealth?.coreLeasedPartitions ?? 0,
       retryableFailedPartitions: advisorRelevantFailedPartitions,
-      deadLetterPartitions: queueHealth?.deadLetterPartitions ?? 0,
+      deadLetterPartitions:
+        queueHealth?.coreBlockingDeadLetterPartitions ??
+        queueHealth?.blockingDeadLetterPartitions ??
+        queueHealth?.deadLetterPartitions ??
+        0,
       staleLeasePartitions: advisorRelevantUnhealthyLeases,
       syncTruthState: googleUnifiedTruth.syncTruthState,
       truthReady: googleStatusRouteTruthReady,

@@ -380,6 +380,29 @@ describe("google ads warehouse ownership safety", () => {
     );
   });
 
+  it("excludes terminal action-required scopes from automatic leasing", async () => {
+    const queries: string[] = [];
+    const params: unknown[][] = [];
+    const sql = Object.assign(vi.fn(), {
+      query: vi.fn(async (query: string, values: unknown[]) => {
+        queries.push(query);
+        params.push(values);
+        return [];
+      }),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await leaseGoogleAdsSyncPartitions({
+      businessId: "biz-1",
+      workerId: "worker-1",
+      limit: 1,
+      excludedScopeFilter: ["product_daily"],
+    });
+
+    expect(queries.join("\n")).toContain("OR NOT (scope = ANY($10::text[]))");
+    expect(params[0]?.at(9)).toEqual(["product_daily"]);
+  });
+
   it("extends the running lease using the requested lease minutes", async () => {
     const queries: string[] = [];
     const calls: unknown[][] = [];
@@ -1267,6 +1290,12 @@ describe("getGoogleAdsQueueHealth", () => {
 
     expect(result.actionRequiredDeadLetterPartitions).toBe(1);
     expect(result.actionRequiredBlockingDeadLetterPartitions).toBe(1);
+    expect(result.actionRequiredDeadLetterScopes).toEqual(["product_daily"]);
+    expect(result.actionRequiredBlockingDeadLetterScopes).toEqual([
+      "product_daily",
+    ]);
+    expect(result.coreBlockingDeadLetterPartitions).toBe(0);
+    expect(result.coreActionRequiredBlockingDeadLetterPartitions).toBe(0);
     expect(result.replayableDeadLetterPartitions).toBe(1);
     expect(result.replayableBlockingDeadLetterPartitions).toBe(1);
   });

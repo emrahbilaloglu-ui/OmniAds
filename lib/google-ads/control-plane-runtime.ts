@@ -13,6 +13,12 @@ const GOOGLE_ADS_CONTROL_PLANE_SCOPES = [
   "audience_daily",
 ] as const;
 
+const GOOGLE_ADS_CORE_RELEASE_SCOPES = new Set(["account_daily", "campaign_daily"]);
+
+function isGoogleAdsCoreReleaseScope(scope: unknown) {
+  return GOOGLE_ADS_CORE_RELEASE_SCOPES.has(String(scope ?? ""));
+}
+
 export type GoogleAdsControlPlaneBusiness = {
   businessId: string;
   businessName: string | null;
@@ -24,6 +30,7 @@ export type GoogleAdsControlPlaneBusiness = {
 
 export function resolveGoogleAdsControlPlaneSyncTruth(input: {
   latestSyncStatus?: string | null;
+  latestSyncScope?: string | null;
   queueDepth: number;
   deadLetterPartitions: number;
   scopeStates: GoogleAdsSyncStateRecord[];
@@ -50,14 +57,22 @@ export function resolveGoogleAdsControlPlaneSyncTruth(input: {
         Boolean(row.latestSuccessfulSyncAt),
     ),
   );
+  const latestFailedBlocksCore =
+    input.latestSyncStatus === "failed" &&
+    (input.latestSyncScope == null ||
+      isGoogleAdsCoreReleaseScope(input.latestSyncScope));
+  const releaseLatestSyncStatus =
+    input.latestSyncStatus === "failed" && !latestFailedBlocksCore
+      ? null
+      : input.latestSyncStatus;
   const effectiveLatestSyncStatus =
-    input.latestSyncStatus === "failed"
+    latestFailedBlocksCore
       ? "failed"
       : input.queueDepth === 0 &&
           input.deadLetterPartitions === 0 &&
           hasRecentSuccessfulScopeSync
         ? "succeeded"
-        : input.latestSyncStatus ?? null;
+        : releaseLatestSyncStatus ?? null;
 
   return {
     effectiveLatestSyncStatus,
@@ -195,11 +210,21 @@ export async function buildGoogleAdsReleaseGateCanaries(
       });
       const latestSyncStatus =
         latestSyncHealth?.status != null ? String(latestSyncHealth.status) : null;
+      const latestSyncScope =
+        typeof latestSyncHealth?.scope === "string"
+          ? latestSyncHealth.scope
+          : null;
+      const totalQueueDepth = queueHealth.queueDepth;
+      const releaseQueueDepth = queueHealth.coreQueueDepth;
+      const releaseLeasedPartitions = queueHealth.coreLeasedPartitions;
       const blockingDeadLetterPartitions =
-        queueHealth.blockingDeadLetterPartitions ?? queueHealth.deadLetterPartitions;
+        queueHealth.coreBlockingDeadLetterPartitions ??
+        queueHealth.blockingDeadLetterPartitions ??
+        queueHealth.deadLetterPartitions;
       const controlPlaneSyncTruth = resolveGoogleAdsControlPlaneSyncTruth({
         latestSyncStatus,
-        queueDepth: queueHealth.queueDepth,
+        latestSyncScope,
+        queueDepth: releaseQueueDepth,
         deadLetterPartitions: blockingDeadLetterPartitions,
         scopeStates: flattenedScopeStates,
       });
@@ -207,8 +232,8 @@ export async function buildGoogleAdsReleaseGateCanaries(
         blockingDeadLetterPartitions > 0 ||
         controlPlaneSyncTruth.effectiveLatestSyncStatus === "failed";
       const progressState = deriveProviderProgressState({
-        queueDepth: queueHealth.queueDepth,
-        leasedPartitions: queueHealth.leasedPartitions,
+        queueDepth: releaseQueueDepth,
+        leasedPartitions: releaseLeasedPartitions,
         checkpointLagMinutes:
           controlPlaneSyncTruth.hasRecentSuccessfulScopeSync
             ? null
@@ -221,13 +246,13 @@ export async function buildGoogleAdsReleaseGateCanaries(
       });
       const activityState = deriveProviderActivityState({
         progressState,
-        queueDepth: queueHealth.queueDepth,
-        leasedPartitions: queueHealth.leasedPartitions,
+        queueDepth: releaseQueueDepth,
+        leasedPartitions: releaseLeasedPartitions,
         blocked,
       });
       const stallFingerprints = deriveProviderStallFingerprints({
-        queueDepth: queueHealth.queueDepth,
-        leasedPartitions: queueHealth.leasedPartitions,
+        queueDepth: releaseQueueDepth,
+        leasedPartitions: releaseLeasedPartitions,
         checkpointLagMinutes: checkpointHealth?.checkpointLagMinutes ?? null,
         latestPartitionActivityAt: latestGoogleActivityAt,
         blocked,
@@ -246,8 +271,8 @@ export async function buildGoogleAdsReleaseGateCanaries(
         activityState,
         progressState,
         workerOnline: workerState?.healthy ?? null,
-        queueDepth: queueHealth.queueDepth,
-        leasedPartitions: queueHealth.leasedPartitions,
+        queueDepth: releaseQueueDepth,
+        leasedPartitions: releaseLeasedPartitions,
       });
       const candidate = buildGoogleAdsReleaseReadinessCandidate({
         connected: true,
@@ -255,8 +280,8 @@ export async function buildGoogleAdsReleaseGateCanaries(
         activityState,
         progressState,
         workerOnline: workerState?.healthy ?? null,
-        queueDepth: queueHealth.queueDepth,
-        leasedPartitions: queueHealth.leasedPartitions,
+        queueDepth: releaseQueueDepth,
+        leasedPartitions: releaseLeasedPartitions,
         retryableFailedPartitions: 0,
         deadLetterPartitions: blockingDeadLetterPartitions,
         staleLeasePartitions: 0,
@@ -273,12 +298,24 @@ export async function buildGoogleAdsReleaseGateCanaries(
         evidence: {
           ...(candidate?.evidence ?? {}),
           totalDeadLetterPartitions: queueHealth.deadLetterPartitions,
+          totalQueueDepth,
+          nonBlockingQueueDepth: Math.max(0, totalQueueDepth - releaseQueueDepth),
+          releaseBlockingQueueDepth: releaseQueueDepth,
+          coreQueueDepth: queueHealth.coreQueueDepth,
+          extendedQueueDepth: queueHealth.extendedQueueDepth,
+          maintenanceQueueDepth: queueHealth.maintenanceQueueDepth,
+          coreBlockingDeadLetterPartitions:
+            queueHealth.coreBlockingDeadLetterPartitions ?? 0,
           quarantinedHistoricalDeadLetterPartitions:
             queueHealth.quarantinedHistoricalDeadLetterPartitions ?? 0,
           actionRequiredDeadLetterPartitions:
             queueHealth.actionRequiredBlockingDeadLetterPartitions ?? 0,
           totalActionRequiredDeadLetterPartitions:
             queueHealth.actionRequiredDeadLetterPartitions ?? 0,
+          coreActionRequiredDeadLetterPartitions:
+            queueHealth.coreActionRequiredBlockingDeadLetterPartitions ?? 0,
+          actionRequiredDeadLetterScopes:
+            queueHealth.actionRequiredBlockingDeadLetterScopes ?? [],
           replayableDeadLetterPartitions:
             queueHealth.replayableBlockingDeadLetterPartitions ?? 0,
           unknownDeadLetterPartitions:

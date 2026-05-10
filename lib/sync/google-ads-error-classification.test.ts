@@ -50,6 +50,7 @@ describe("classifyGoogleAdsSyncFailure", () => {
       "invalid_grant: token has been expired or revoked",
       "UNAUTHENTICATED: login required",
       "PERMISSION_DENIED: user permission denied for customer hierarchy",
+      "google_ads_product_daily_fetch_failed: query=product_performance_legacy: message=provider_request_failed:permission:status_403",
       "CUSTOMER_NOT_ENABLED: account suspended",
     ]) {
       const classification = classifyGoogleAdsSyncFailure({ message });

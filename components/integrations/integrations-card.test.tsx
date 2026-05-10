@@ -360,6 +360,56 @@ describe("IntegrationsCard", () => {
     expect(html).toContain("Bu workspace için Meta hesabı atanmış.");
   });
 
+  it("shows creative preview readiness separately from extended surface readiness", () => {
+    const status: MetaStatusResponse = {
+      ...buildStatus(),
+      extendedCompleteness: {
+        state: "ready",
+        complete: true,
+        percent: 100,
+        reason: null,
+        summary: "Breakdowns are ready.",
+        missingSurfaces: [],
+        blockedSurfaces: [],
+        surfaces: {} as never,
+      },
+      recentExtendedReady: true,
+      operations: {
+        ...buildStatus().operations,
+        secondaryReadiness: [
+          {
+            key: "creatives_preview",
+            state: "building",
+            detail: "Creative previews ready: 3458/3582.",
+          },
+        ],
+      } as never,
+    };
+
+    const html = renderToStaticMarkup(
+      <IntegrationsCard
+        provider="meta"
+        language="en"
+        description="Connect Ads Manager to import campaigns, ad sets, and spend."
+        view={baseView}
+        metaSyncStatus={status}
+        metaSyncLoading={false}
+        onConnect={() => undefined}
+        onReconnect={() => undefined}
+        onRetry={() => undefined}
+        onCancel={() => undefined}
+        onDisconnect={() => undefined}
+        onOpenAssignments={() => undefined}
+      />
+    );
+
+    expect(html).toContain("Extended surfaces");
+    expect(html).toContain("extended ready");
+    expect(html).toContain("Creative previews");
+    expect(html).toContain("Creative previews ready: 3458/3582.");
+    expect(html).toContain("partial");
+  });
+
   it("does not show the Meta provider badge as connected when sync is action-required", () => {
     const baseStatus = buildStatus();
     const actionRequiredStatus: MetaStatusResponse = {

@@ -536,7 +536,7 @@ describe("buildMetaIntegrationSummary", () => {
     });
   });
 
-  it("does not mark recent extended surfaces ready when creative media previews lag", () => {
+  it("keeps recent extended surfaces ready when only creative media previews lag", () => {
     const summary = buildMetaIntegrationSummary(
       buildStatus({
         state: "syncing",
@@ -582,17 +582,13 @@ describe("buildMetaIntegrationSummary", () => {
             },
           },
         } as never,
-        recentExtendedReady: false,
+        recentExtendedReady: true,
       })
     );
 
     expect(summary.stages.find((stage) => stage.key === "extended_surfaces")).toMatchObject({
-      state: "working",
-      code: "recent_extended_preparing",
-      evidence: {
-        pendingSurfaceCount: 1,
-        pendingSurfaces: ["creative_media"],
-      },
+      state: "ready",
+      code: "extended_ready",
     });
   });
 

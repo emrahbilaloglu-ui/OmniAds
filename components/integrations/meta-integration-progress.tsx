@@ -3,7 +3,27 @@
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import { resolveMetaIntegrationProgress } from "@/lib/meta/integration-progress";
 import type { MetaUiLanguage } from "@/lib/meta/ui-status";
+import type { ProviderSecondaryReadiness } from "@/lib/sync/provider-status-truth";
 import { cn } from "@/lib/utils";
+
+function getSecondaryReadinessTitle(
+  item: ProviderSecondaryReadiness,
+  language: MetaUiLanguage
+) {
+  if (item.key === "creatives_preview") {
+    return language === "tr" ? "Kreatif önizlemeler" : "Creative previews";
+  }
+  return item.key.replace(/_/g, " ");
+}
+
+function getSecondaryReadinessLabel(
+  item: ProviderSecondaryReadiness,
+  language: MetaUiLanguage
+) {
+  if (item.state === "ready") return language === "tr" ? "hazır" : "ready";
+  if (item.state === "blocked") return language === "tr" ? "bloklu" : "blocked";
+  return language === "tr" ? "kısmi" : "partial";
+}
 
 export function MetaIntegrationProgress({
   status,
@@ -16,6 +36,8 @@ export function MetaIntegrationProgress({
 }) {
   const progress = resolveMetaIntegrationProgress(status, language);
   if (!progress) return null;
+  const secondaryReadiness =
+    status?.operations?.secondaryReadiness?.filter((item) => item.state !== "ready") ?? [];
 
   return (
     <div
@@ -71,6 +93,37 @@ export function MetaIntegrationProgress({
                 {stage.evidence}
               </p>
             ) : null}
+          </div>
+        ))}
+        {secondaryReadiness.map((item, index) => (
+          <div
+            key={`secondary-${item.key}`}
+            className={cn(
+              "space-y-1.5",
+              (progress.stages.length > 0 || index > 0) &&
+                "border-t border-slate-200/70 pt-2"
+            )}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  {getSecondaryReadinessTitle(item, language)}
+                </p>
+                <p className="mt-1 text-[11px] font-medium leading-4 text-foreground">
+                  {item.detail}
+                </p>
+              </div>
+              <span
+                className={cn(
+                  "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold capitalize",
+                  item.state === "blocked"
+                    ? "border-amber-200 bg-amber-50 text-amber-800"
+                    : "border-sky-200 bg-sky-50 text-sky-700"
+                )}
+              >
+                {getSecondaryReadinessLabel(item, language)}
+              </span>
+            </div>
           </div>
         ))}
       </div>

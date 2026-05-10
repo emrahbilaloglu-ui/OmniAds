@@ -5,11 +5,17 @@ import {
   type MetaCalibrationContext,
   type MetaRecommendation,
 } from "@/lib/meta/recommendations";
+import {
+  isPurchaseCohort,
+  resolveMetaFunnelCohort,
+  type MetaFunnelCohort,
+} from "@/lib/meta/funnel-cohort";
 
 export type MetaEntityStateLabel =
   | "keep"
   | "watch"
   | "out_of_scope"
+  | "non_sales_eligible"
   | "archived"
   | "no_action"
   | "stable_winner_protected";
@@ -30,40 +36,105 @@ function isPaused(status: string | null | undefined) {
   return String(status ?? "").toUpperCase() !== "ACTIVE";
 }
 
+function goalOrFallback(goal: string | null | undefined, fallback: string | null | undefined) {
+  return String(goal ?? "").trim() ? goal : fallback;
+}
+
 function fmtRoas(value: number) {
   return `${value.toFixed(2)}x`;
 }
 
-function stateForCampaign(campaign: MetaCampaignRow, context: MetaCalibrationContext | null): MetaEntityStateLabel {
-  if (!isSalesObjective(campaign.objective) && !isSalesObjective(campaign.optimizationGoal)) return "out_of_scope";
-  if (isPaused(campaign.status) && campaign.spend <= 0) return "archived";
-  const roas = context?.thresholds.metrics.roas_28d;
-  if (roas && campaign.purchases >= 8 && campaign.roas >= roas.p75) return "stable_winner_protected";
-  if (campaign.spend <= 0 || campaign.purchases < 3) return "watch";
-  return "no_action";
+interface MetaEntityStateResolution {
+  state: MetaEntityStateLabel;
+  cohort: MetaFunnelCohort;
 }
 
-function stateForAdset(adset: MetaAdSetData, campaign: MetaCampaignRow | null, context: MetaCalibrationContext | null): MetaEntityStateLabel {
-  if (!isSalesObjective(campaign?.objective) && !isSalesObjective(adset.optimizationGoal)) return "out_of_scope";
-  if (isPaused(adset.status) && adset.spend <= 0) return "archived";
+function stateForCampaign(
+  campaign: MetaCampaignRow,
+  context: MetaCalibrationContext | null,
+): MetaEntityStateResolution {
+  const cohort = resolveMetaFunnelCohort({
+    optimizationGoal: goalOrFallback(campaign.optimizationGoal, campaign.objective),
+    customEventType: campaign.customEventType,
+  });
+  if (!isPurchaseCohort(cohort)) {
+    if (
+      cohort === "unknown" &&
+      !isSalesObjective(campaign.objective) &&
+      !isSalesObjective(campaign.optimizationGoal)
+    ) {
+      return { state: "out_of_scope", cohort };
+    }
+    if (cohort === "unknown") {
+      if (isPaused(campaign.status) && campaign.spend <= 0) return { state: "archived", cohort };
+      return { state: "watch", cohort };
+    }
+    return { state: "non_sales_eligible", cohort };
+  }
+  if (isPaused(campaign.status) && campaign.spend <= 0) return { state: "archived", cohort };
   const roas = context?.thresholds.metrics.roas_28d;
-  if (roas && adset.purchases >= 8 && adset.roas >= roas.p75) return "stable_winner_protected";
-  if (adset.spend <= 0 || adset.purchases < 3) return "watch";
-  return "no_action";
+  if (roas && campaign.purchases >= 8 && campaign.roas >= roas.p75) {
+    return { state: "stable_winner_protected", cohort };
+  }
+  if (campaign.spend <= 0 || campaign.purchases < 3) return { state: "watch", cohort };
+  return { state: "no_action", cohort };
+}
+
+function stateForAdset(
+  adset: MetaAdSetData,
+  campaign: MetaCampaignRow | null,
+  context: MetaCalibrationContext | null,
+): MetaEntityStateResolution {
+  const cohort = resolveMetaFunnelCohort({
+    optimizationGoal: adset.optimizationGoal,
+    customEventType: adset.customEventType,
+  });
+  if (!isPurchaseCohort(cohort)) {
+    if (
+      cohort === "unknown" &&
+      !isSalesObjective(campaign?.objective) &&
+      !isSalesObjective(adset.optimizationGoal)
+    ) {
+      return { state: "out_of_scope", cohort };
+    }
+    if (cohort === "unknown") {
+      if (isPaused(adset.status) && adset.spend <= 0) return { state: "archived", cohort };
+      return { state: "watch", cohort };
+    }
+    return { state: "non_sales_eligible", cohort };
+  }
+  if (isPaused(adset.status) && adset.spend <= 0) return { state: "archived", cohort };
+  const roas = context?.thresholds.metrics.roas_28d;
+  if (roas && adset.purchases >= 8 && adset.roas >= roas.p75) {
+    return { state: "stable_winner_protected", cohort };
+  }
+  if (adset.spend <= 0 || adset.purchases < 3) return { state: "watch", cohort };
+  return { state: "no_action", cohort };
 }
 
 function decisionLabelForState(state: MetaEntityStateLabel): MetaRecommendation["decisionLabel"] {
-  if (state === "out_of_scope") return "out_of_scope";
+  if (state === "out_of_scope" || state === "non_sales_eligible") return "out_of_scope";
   if (state === "watch") return "diagnose";
   return "keep";
 }
 
-function stateReason(state: MetaEntityStateLabel) {
+function formatCohort(cohort: MetaFunnelCohort | null | undefined) {
+  return String(cohort ?? "unknown").replace(/_/g, " ");
+}
+
+function stateReason(
+  state: MetaEntityStateLabel,
+  cohort?: MetaFunnelCohort,
+  level?: "campaign" | "adset",
+) {
+  const subject = level === "campaign" ? "Campaign" : "Adset";
   switch (state) {
     case "stable_winner_protected":
       return "Mature entity is above the calibrated upper ROAS band; protect it from unnecessary changes.";
     case "out_of_scope":
       return "Entity is not a sales-action candidate; keep state coverage but exclude it from sales action density.";
+    case "non_sales_eligible":
+      return `${subject} is configured for ${formatCohort(cohort)} delivery; not evaluated in the purchase decision engine.`;
     case "archived":
       return "Paused or inactive entity has no current spend pressure; archive coverage only.";
     case "watch":
@@ -85,8 +156,10 @@ function stateRecommendation(input: {
   roas: number;
   purchases: number;
   context: MetaCalibrationContext | null;
+  cohort: MetaFunnelCohort;
 }): MetaRecommendation {
   const label = decisionLabelForState(input.state);
+  const reason = stateReason(input.state, input.cohort, input.level);
   return {
     id: `entity_state-${input.level}-${input.id}`,
     level: input.level,
@@ -97,7 +170,7 @@ function stateRecommendation(input: {
     type: input.level === "campaign" ? "campaign_state" : "adset_state",
     kind: "state",
     decisionLabel: label,
-    stateReason: stateReason(input.state),
+    stateReason: reason,
     lens: "structure",
     priority: "low",
     confidence: input.state === "stable_winner_protected" ? "medium" : "low",
@@ -106,17 +179,18 @@ function stateRecommendation(input: {
     decisionState: "watch",
     decision: input.state,
     title: `${input.name}: ${input.state.replace(/_/g, " ")}`,
-    why: stateReason(input.state),
+    why: reason,
     summary: `${input.name} is covered by Meta Engine v1 state evaluation at ${fmtRoas(input.roas)} ROAS on ${input.purchases} purchases.`,
     recommendedAction: label === "out_of_scope" ? "Keep out of sales action queue." : "No immediate operator action.",
     expectedImpact: "Maintains daily entity coverage without inflating action density.",
     evidence: [
       { label: "Entity state", value: input.state, tone: "neutral" },
+      { label: "Cohort", value: input.cohort, tone: "neutral" },
       { label: "ROAS", value: fmtRoas(input.roas), tone: "neutral" },
       { label: "Purchases", value: String(input.purchases), tone: "neutral" },
     ],
     timeframeContext: {
-      coreVerdict: stateReason(input.state),
+      coreVerdict: reason,
       selectedRangeOverlay: "State rows are coverage rows and are excluded from action-density wins.",
       historicalSupport: input.context?.scope
         ? `Calibration scope: ${input.context.scope.type}:${input.context.scope.id}.`
@@ -126,7 +200,7 @@ function stateRecommendation(input: {
     },
     targetValue: {
       entityState: input.state,
-      actionDensityEligible: !["out_of_scope", "archived"].includes(input.state),
+      actionDensityEligible: !["out_of_scope", "non_sales_eligible", "archived"].includes(input.state),
     },
     engineVersion: META_RECOMMENDATION_ENGINE_VERSION,
     calibrationScope: input.context?.scope ? { ...input.context.scope } : {},
@@ -140,30 +214,34 @@ export function buildMetaEntityStateRows(input: BuildMetaEntityStateRowsInput): 
 
   for (const campaign of input.campaigns) {
     const context = input.calibrationContextByCampaignId?.[campaign.id] ?? input.calibrationContext ?? null;
+    const state = stateForCampaign(campaign, context);
     rows.push(stateRecommendation({
       level: "campaign",
       id: campaign.id,
       name: campaign.name,
-      state: stateForCampaign(campaign, context),
+      state: state.state,
       roas: campaign.roas,
       purchases: campaign.purchases,
       context,
+      cohort: state.cohort,
     }));
   }
 
   for (const adset of input.adsets) {
     const campaign = campaignsById.get(adset.campaignId) ?? null;
     const context = input.calibrationContextByCampaignId?.[adset.campaignId] ?? input.calibrationContext ?? null;
+    const state = stateForAdset(adset, campaign, context);
     rows.push(stateRecommendation({
       level: "adset",
       id: adset.id,
       name: adset.name,
       campaignId: adset.campaignId,
       campaignName: campaign?.name,
-      state: stateForAdset(adset, campaign, context),
+      state: state.state,
       roas: adset.roas,
       purchases: adset.purchases,
       context,
+      cohort: state.cohort,
     }));
   }
 

@@ -1221,7 +1221,7 @@ describe("meta historical serving", () => {
     });
   });
 
-  it("returns adset current config from typed history instead of warehouse fact config", async () => {
+  it("keeps range adset goal while using typed history for current bid config", async () => {
     vi.mocked(warehouse.getMetaAdSetDailyRange).mockResolvedValue([
       {
         businessId: "biz-1",
@@ -1325,7 +1325,7 @@ describe("meta historical serving", () => {
           "adset-1",
           {
             campaignId: "cmp-1",
-            optimizationGoal: "Lead",
+            optimizationGoal: "Purchase",
             bidStrategyType: "cost_cap",
             bidStrategyLabel: "Cost Cap",
             manualBidAmount: 8,
@@ -1355,6 +1355,7 @@ describe("meta historical serving", () => {
       id: "adset-1",
       status: "PAUSED",
       optimizationGoal: "Lead",
+      isOptimizationGoalMixed: true,
       bidStrategyType: "cost_cap",
       manualBidAmount: 8,
       dailyBudget: 14,

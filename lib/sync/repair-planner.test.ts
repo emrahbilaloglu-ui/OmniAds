@@ -175,6 +175,40 @@ describe("sync repair planner", () => {
     expect(plan.recommendations[0]?.safetyClassification).toBe("safe_guarded");
   });
 
+  it("does not propose Google Ads replay when terminal account action is required", async () => {
+    const plan = await repairPlanner.evaluateAndPersistSyncRepairPlan({
+      persist: false,
+      providerScope: "google_ads",
+      releaseGate: {
+        ...baseReleaseGate,
+        evidence: {
+          canaries: [
+            {
+              businessId: "biz-1",
+              businessName: "TheSwaf",
+              pass: false,
+              blockerClass: "queue_blocked",
+              evidence: {
+                queueDepth: 4,
+                leasedPartitions: 0,
+                deadLetterPartitions: 1,
+                actionRequiredDeadLetterPartitions: 1,
+                replayableDeadLetterPartitions: 0,
+                staleLeasePartitions: 0,
+                truthReady: false,
+              },
+            },
+          ],
+        },
+      } as never,
+      runtimeRegistry: healthyRuntimeRegistry as never,
+    });
+
+    expect(plan.eligible).toBe(false);
+    expect(plan.blockedReason).toBe("account_action_required");
+    expect(plan.recommendations).toHaveLength(0);
+  });
+
   it("proposes stale_lease_reclaim when reclaim candidates are present", async () => {
     const plan = await repairPlanner.evaluateAndPersistSyncRepairPlan({
       persist: false,

@@ -5154,7 +5154,8 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
     "google_ads_queue_health",
   );
   const sql = getDb();
-  const rows = (await sql`
+  const [rows, deadLetterRows] = await Promise.all([
+    (sql`
     SELECT
       COUNT(*) FILTER (WHERE status = 'queued') AS queue_depth,
       COUNT(*) FILTER (WHERE status IN ('leased', 'running')) AS leased_partitions,
@@ -5251,7 +5252,74 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
       MAX(updated_at) FILTER (WHERE lane = 'maintenance') AS latest_maintenance_activity_at
     FROM google_ads_sync_partitions
     WHERE business_id = ${input.businessId}
-  `) as Array<Record<string, unknown>>;
+  `) as Promise<Array<Record<string, unknown>>>,
+    (sql`
+    SELECT
+      partition.id,
+      partition.lane,
+      partition.scope,
+      partition.source,
+      partition.partition_date,
+      partition.last_error,
+      latest_run.error_class,
+      latest_run.error_message,
+      (
+        partition.lane = 'extended'
+        AND (
+          partition.source IN ('historical', 'historical_recovery')
+          OR (
+            partition.source = 'core_success'
+            AND partition.partition_date < CURRENT_DATE - interval '13 days'
+          )
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM google_ads_sync_checkpoints checkpoint
+          WHERE checkpoint.partition_id = partition.id
+            AND checkpoint.poisoned_at IS NOT NULL
+        )
+      ) AS is_historical_quarantined
+    FROM google_ads_sync_partitions partition
+    LEFT JOIN LATERAL (
+      SELECT run.error_class, run.error_message
+      FROM google_ads_sync_runs run
+      WHERE run.partition_id = partition.id
+      ORDER BY run.updated_at DESC
+      LIMIT 1
+    ) latest_run ON true
+    WHERE partition.business_id = ${input.businessId}
+      AND partition.status = 'dead_letter'
+  `) as Promise<GoogleAdsDeadLetterHealthRow[]>,
+  ]);
+  const classifiedDeadLetters = deadLetterRows.map((deadLetter) => ({
+    row: deadLetter,
+    classification: classifyGoogleAdsDeadLetterCandidate(deadLetter),
+  }));
+  const actionRequiredDeadLetterPartitions = classifiedDeadLetters.filter(
+    ({ classification }) =>
+      classification.recoveryKind === "terminal_action_required",
+  ).length;
+  const actionRequiredBlockingDeadLetterPartitions = classifiedDeadLetters.filter(
+    ({ row: deadLetter, classification }) =>
+      classification.recoveryKind === "terminal_action_required" &&
+      !deadLetter.is_historical_quarantined,
+  ).length;
+  const replayableDeadLetterPartitions = classifiedDeadLetters.filter(
+    ({ classification }) => classification.recoveryKind === "replayable_transient",
+  ).length;
+  const replayableBlockingDeadLetterPartitions = classifiedDeadLetters.filter(
+    ({ row: deadLetter, classification }) =>
+      classification.recoveryKind === "replayable_transient" &&
+      !deadLetter.is_historical_quarantined,
+  ).length;
+  const unknownDeadLetterPartitions = classifiedDeadLetters.filter(
+    ({ classification }) => classification.recoveryKind === "unknown",
+  ).length;
+  const unknownBlockingDeadLetterPartitions = classifiedDeadLetters.filter(
+    ({ row: deadLetter, classification }) =>
+      classification.recoveryKind === "unknown" &&
+      !deadLetter.is_historical_quarantined,
+  ).length;
   const row = rows[0] ?? {};
   return {
     queueDepth: toNumber(row.queue_depth),
@@ -5275,6 +5343,12 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
     quarantinedHistoricalDeadLetterPartitions: toNumber(
       row.quarantined_historical_dead_letter_partitions,
     ),
+    actionRequiredDeadLetterPartitions,
+    actionRequiredBlockingDeadLetterPartitions,
+    replayableDeadLetterPartitions,
+    replayableBlockingDeadLetterPartitions,
+    unknownDeadLetterPartitions,
+    unknownBlockingDeadLetterPartitions,
     oldestQueuedPartition: row.oldest_queued_partition
       ? normalizeDate(row.oldest_queued_partition)
       : null,
@@ -5498,6 +5572,10 @@ type GoogleAdsDeadLetterCandidateRow = {
   last_error: string | null;
   error_class: string | null;
   error_message: string | null;
+};
+
+type GoogleAdsDeadLetterHealthRow = GoogleAdsDeadLetterCandidateRow & {
+  is_historical_quarantined: boolean | null;
 };
 
 function classifyGoogleAdsDeadLetterCandidate(

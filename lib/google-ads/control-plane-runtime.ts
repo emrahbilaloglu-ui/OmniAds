@@ -275,6 +275,14 @@ export async function buildGoogleAdsReleaseGateCanaries(
           totalDeadLetterPartitions: queueHealth.deadLetterPartitions,
           quarantinedHistoricalDeadLetterPartitions:
             queueHealth.quarantinedHistoricalDeadLetterPartitions ?? 0,
+          actionRequiredDeadLetterPartitions:
+            queueHealth.actionRequiredBlockingDeadLetterPartitions ?? 0,
+          totalActionRequiredDeadLetterPartitions:
+            queueHealth.actionRequiredDeadLetterPartitions ?? 0,
+          replayableDeadLetterPartitions:
+            queueHealth.replayableBlockingDeadLetterPartitions ?? 0,
+          unknownDeadLetterPartitions:
+            queueHealth.unknownBlockingDeadLetterPartitions ?? 0,
           latestSyncStatus: controlPlaneSyncTruth.effectiveLatestSyncStatus,
         },
       };

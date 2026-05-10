@@ -59,6 +59,9 @@ type ReleaseGateCanaryEvidence = {
     leasedPartitions?: number;
     retryableFailedPartitions?: number;
     deadLetterPartitions?: number;
+    actionRequiredDeadLetterPartitions?: number;
+    replayableDeadLetterPartitions?: number;
+    unknownDeadLetterPartitions?: number;
     staleLeasePartitions?: number;
     reclaimCandidateCount?: number;
     staleRunCount24h?: number;
@@ -127,6 +130,13 @@ function normalizeCanaryRows(releaseGate: SyncGateRecord | null): ReleaseGateCan
           leasedPartitions: toInt(evidence.leasedPartitions),
           retryableFailedPartitions: toInt(evidence.retryableFailedPartitions),
           deadLetterPartitions: toInt(evidence.deadLetterPartitions),
+          actionRequiredDeadLetterPartitions: toInt(
+            evidence.actionRequiredDeadLetterPartitions,
+          ),
+          replayableDeadLetterPartitions: toInt(
+            evidence.replayableDeadLetterPartitions,
+          ),
+          unknownDeadLetterPartitions: toInt(evidence.unknownDeadLetterPartitions),
           staleLeasePartitions: toInt(evidence.staleLeasePartitions),
           reclaimCandidateCount: toInt(evidence.reclaimCandidateCount),
           staleRunCount24h: toInt(evidence.staleRunCount24h),
@@ -156,6 +166,10 @@ function buildRecommendation(
     leasedPartitions: row.evidence.leasedPartitions ?? 0,
     retryableFailedPartitions: row.evidence.retryableFailedPartitions ?? 0,
     deadLetterPartitions: row.evidence.deadLetterPartitions ?? 0,
+    actionRequiredDeadLetterPartitions:
+      row.evidence.actionRequiredDeadLetterPartitions ?? 0,
+    replayableDeadLetterPartitions: row.evidence.replayableDeadLetterPartitions ?? 0,
+    unknownDeadLetterPartitions: row.evidence.unknownDeadLetterPartitions ?? 0,
     staleLeasePartitions: row.evidence.staleLeasePartitions ?? 0,
     reclaimCandidateCount: row.evidence.reclaimCandidateCount ?? 0,
     staleRunCount24h: row.evidence.staleRunCount24h ?? 0,
@@ -457,6 +471,13 @@ export async function evaluateAndPersistSyncRepairPlan(input?: {
           releaseGate: null,
         }));
   const releaseGate = input?.releaseGate ?? gateRecords.releaseGate;
+  const canaries = normalizeCanaryRows(releaseGate);
+  const hasGoogleAdsAccountActionRequired =
+    providerScope === "google_ads" &&
+    canaries.some(
+      (row) =>
+        !row.pass && (row.evidence.actionRequiredDeadLetterPartitions ?? 0) > 0,
+    );
   const blockedReason =
     !runtimeRegistry?.contractValid ||
     runtimeRegistry?.dbFingerprintMatch === false ||
@@ -468,10 +489,11 @@ export async function evaluateAndPersistSyncRepairPlan(input?: {
           ? "break_glass_active"
           : !releaseGate
             ? "release_gate_missing"
-            : null;
+            : hasGoogleAdsAccountActionRequired
+              ? "account_action_required"
+              : null;
   const eligible = blockedReason == null;
   const providerLabel = providerScope === "google_ads" ? "Google Ads" : "Meta";
-  const canaries = normalizeCanaryRows(releaseGate);
   const recommendations = eligible
     ? canaries
         .filter((row) => !row.pass)

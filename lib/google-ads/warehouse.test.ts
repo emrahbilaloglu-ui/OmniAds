@@ -1171,6 +1171,7 @@ describe("getGoogleAdsQueueHealth", () => {
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
       queries.push(query);
+      if (query.includes("latest_run.error_class")) return [];
       return [
         {
           queue_depth: 0,
@@ -1204,6 +1205,70 @@ describe("getGoogleAdsQueueHealth", () => {
     expect(result.quarantinedHistoricalDeadLetterPartitions).toBe(3);
     expect(queries[0]).toContain("poisoned_at IS NOT NULL");
     expect(queries[0]).toContain("blocking_dead_letter_partitions");
+  });
+
+  it("classifies terminal account-action dead letters separately from replayable dead letters", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("latest_run.error_class")) {
+        return [
+          {
+            id: "terminal-1",
+            lane: "extended",
+            scope: "product_daily",
+            source: "core_success",
+            partition_date: "2026-05-01",
+            last_error:
+              "google_ads_product_daily_fetch_failed: message=provider_request_failed:permission:status_403",
+            error_class: "transient",
+            error_message: null,
+            is_historical_quarantined: false,
+          },
+          {
+            id: "replayable-1",
+            lane: "extended",
+            scope: "asset_daily",
+            source: "recent_recovery",
+            partition_date: "2026-05-01",
+            last_error: "Google Ads request failed: 503 temporarily unavailable",
+            error_class: "transient",
+            error_message: null,
+            is_historical_quarantined: false,
+          },
+        ];
+      }
+      return [
+        {
+          queue_depth: 0,
+          leased_partitions: 0,
+          core_queue_depth: 0,
+          core_leased_partitions: 0,
+          extended_queue_depth: 0,
+          extended_leased_partitions: 0,
+          extended_recent_queue_depth: 0,
+          extended_recent_leased_partitions: 0,
+          extended_historical_queue_depth: 0,
+          extended_historical_leased_partitions: 0,
+          maintenance_queue_depth: 0,
+          maintenance_leased_partitions: 0,
+          dead_letter_partitions: 2,
+          blocking_dead_letter_partitions: 2,
+          quarantined_historical_dead_letter_partitions: 0,
+          oldest_queued_partition: null,
+          latest_core_activity_at: null,
+          latest_extended_activity_at: null,
+          latest_maintenance_activity_at: null,
+        },
+      ];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await getGoogleAdsQueueHealth({ businessId: "biz-1" });
+
+    expect(result.actionRequiredDeadLetterPartitions).toBe(1);
+    expect(result.actionRequiredBlockingDeadLetterPartitions).toBe(1);
+    expect(result.replayableDeadLetterPartitions).toBe(1);
+    expect(result.replayableBlockingDeadLetterPartitions).toBe(1);
   });
 });
 

@@ -4,6 +4,7 @@ import {
   createRunnerLeaseGuard,
   getPriorityBusinessIdsForAdapter,
   prioritizeBusinessesForAdapter,
+  resolveGoogleAdsControlPlaneBusinessReader,
   resolveTickBusinessesForAdapter,
   resolveConsumeBusinessFallbackDecision,
   runAdapterLifecycleTick,
@@ -18,22 +19,34 @@ vi.mock("@/lib/sync/release-gates", () => ({
   getLatestSyncGateRecords: vi.fn(),
 }));
 
-vi.mock("@/lib/google-ads/control-plane-runtime", () => ({
+const googleControlPlaneRuntimeMocks = vi.hoisted(() => ({
   readConnectedGoogleAdsControlPlaneBusinesses: vi.fn(),
+}));
+
+vi.mock("@/lib/google-ads/control-plane-runtime", () => ({
+  readConnectedGoogleAdsControlPlaneBusinesses:
+    googleControlPlaneRuntimeMocks.readConnectedGoogleAdsControlPlaneBusinesses,
+  default: {
+    readConnectedGoogleAdsControlPlaneBusinesses:
+      googleControlPlaneRuntimeMocks.readConnectedGoogleAdsControlPlaneBusinesses,
+  },
+  "module.exports": {
+    readConnectedGoogleAdsControlPlaneBusinesses:
+      googleControlPlaneRuntimeMocks.readConnectedGoogleAdsControlPlaneBusinesses,
+  },
 }));
 
 const providerJobLock = await import("@/lib/sync/provider-job-lock");
 const releaseGates = await import("@/lib/sync/release-gates");
-const googleControlPlaneRuntime = await import("@/lib/google-ads/control-plane-runtime");
 
 beforeEach(() => {
   vi.mocked(providerJobLock.getProviderJobLockState).mockReset();
   vi.mocked(releaseGates.getLatestSyncGateRecords).mockReset();
   vi.mocked(
-    googleControlPlaneRuntime.readConnectedGoogleAdsControlPlaneBusinesses,
+    googleControlPlaneRuntimeMocks.readConnectedGoogleAdsControlPlaneBusinesses,
   ).mockReset();
   vi.mocked(
-    googleControlPlaneRuntime.readConnectedGoogleAdsControlPlaneBusinesses,
+    googleControlPlaneRuntimeMocks.readConnectedGoogleAdsControlPlaneBusinesses,
   ).mockResolvedValue([]);
 });
 
@@ -176,7 +189,7 @@ describe("resolveTickBusinessesForAdapter", () => {
       },
     });
     vi.mocked(
-      googleControlPlaneRuntime.readConnectedGoogleAdsControlPlaneBusinesses,
+      googleControlPlaneRuntimeMocks.readConnectedGoogleAdsControlPlaneBusinesses,
     ).mockResolvedValue([
       {
         businessId: "biz-google",
@@ -231,7 +244,7 @@ describe("resolveTickBusinessesForAdapter", () => {
       },
     });
     vi.mocked(
-      googleControlPlaneRuntime.readConnectedGoogleAdsControlPlaneBusinesses,
+      googleControlPlaneRuntimeMocks.readConnectedGoogleAdsControlPlaneBusinesses,
     ).mockResolvedValue([
       {
         businessId: "biz-connected",
@@ -278,7 +291,7 @@ describe("resolveTickBusinessesForAdapter", () => {
       },
     });
     vi.mocked(
-      googleControlPlaneRuntime.readConnectedGoogleAdsControlPlaneBusinesses,
+      googleControlPlaneRuntimeMocks.readConnectedGoogleAdsControlPlaneBusinesses,
     ).mockResolvedValue([
       {
         businessId: "biz-complete",
@@ -308,6 +321,34 @@ describe("resolveTickBusinessesForAdapter", () => {
       { id: "biz-complete", name: "Complete" },
     ]);
     process.env.SYNC_RELEASE_CANARY_BUSINESSES = previousCanaries;
+  });
+});
+
+describe("resolveGoogleAdsControlPlaneBusinessReader", () => {
+  it("reads named, default, and CommonJS module export shapes", async () => {
+    const namedReader = vi.fn().mockResolvedValue([]);
+    const defaultReader = vi.fn().mockResolvedValue([]);
+    const commonJsReader = vi.fn().mockResolvedValue([]);
+
+    expect(
+      resolveGoogleAdsControlPlaneBusinessReader({
+        readConnectedGoogleAdsControlPlaneBusinesses: namedReader,
+      }),
+    ).toBe(namedReader);
+    expect(
+      resolveGoogleAdsControlPlaneBusinessReader({
+        default: {
+          readConnectedGoogleAdsControlPlaneBusinesses: defaultReader,
+        },
+      }),
+    ).toBe(defaultReader);
+    expect(
+      resolveGoogleAdsControlPlaneBusinessReader({
+        "module.exports": {
+          readConnectedGoogleAdsControlPlaneBusinesses: commonJsReader,
+        },
+      }),
+    ).toBe(commonJsReader);
   });
 });
 

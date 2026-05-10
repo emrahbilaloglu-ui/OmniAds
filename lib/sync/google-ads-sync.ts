@@ -1926,14 +1926,21 @@ async function cancelHistoricalExtendedBacklog(input: {
   }).catch(() => 0);
 }
 
-function normalizeGoogleAdsPartitionDateKey(value: unknown) {
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
+export function normalizeGoogleAdsPartitionDateKey(value: unknown) {
+  if (value instanceof Date) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, "0");
+    const day = String(value.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
   const text = String(value ?? "").trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
   const parsed = new Date(text);
-  return Number.isFinite(parsed.getTime())
-    ? parsed.toISOString().slice(0, 10)
-    : null;
+  if (!Number.isFinite(parsed.getTime())) return null;
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 export function getGoogleAdsCoveredCorePartitionDatesToCancel(input: {
@@ -2011,6 +2018,56 @@ async function cancelCoveredGoogleAdsCoreBacklog(input: { businessId: string }) 
   return cancelled;
 }
 
+type GoogleAdsPriorityStateRow = {
+  scope: string;
+  completed_days: number | string | null;
+};
+
+export function resolveGoogleAdsFullSyncPriorityFromStateRows(input: {
+  rows: GoogleAdsPriorityStateRow[];
+  totalDays: number;
+}) {
+  const byScope = new Map(
+    input.rows.map((row) => [String(row.scope), toNumber(row.completed_days)]),
+  );
+  const expectedScopes = [
+    ...GOOGLE_ADS_ADVISOR_PRIMARY_PRIORITY_SCOPES,
+    ...GOOGLE_ADS_ADVISOR_SUPPORTIVE_PRIORITY_SCOPES,
+  ];
+  if (expectedScopes.some((scope) => !byScope.has(scope))) return null;
+  const targetScopes = expectedScopes.filter(
+    (scope) => (byScope.get(scope) ?? 0) < input.totalDays,
+  );
+  return {
+    required: targetScopes.some((scope) =>
+      GOOGLE_ADS_ADVISOR_PRIMARY_PRIORITY_SCOPES.includes(scope),
+    ),
+    targetScopes,
+  };
+}
+
+async function getGoogleAdsFullSyncPriorityStateFromSyncState(input: {
+  businessId: string;
+  totalDays: number;
+}) {
+  const scopes = [
+    ...GOOGLE_ADS_ADVISOR_PRIMARY_PRIORITY_SCOPES,
+    ...GOOGLE_ADS_ADVISOR_SUPPORTIVE_PRIORITY_SCOPES,
+  ];
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT scope, MAX(completed_days)::int AS completed_days
+    FROM google_ads_sync_state
+    WHERE business_id = ${input.businessId}
+      AND scope = ANY(${scopes}::text[])
+    GROUP BY scope
+  `) as GoogleAdsPriorityStateRow[];
+  return resolveGoogleAdsFullSyncPriorityFromStateRows({
+    rows,
+    totalDays: input.totalDays,
+  });
+}
+
 export async function getGoogleAdsFullSyncPriorityState(input: {
   businessId: string;
 }) {
@@ -2018,6 +2075,18 @@ export async function getGoogleAdsFullSyncPriorityState(input: {
     input.businessId,
   );
   const totalDays = dayCountInclusive(historicalStart, yesterday);
+  const stateSummary = await getGoogleAdsFullSyncPriorityStateFromSyncState({
+    businessId: input.businessId,
+    totalDays,
+  }).catch(() => null);
+  if (stateSummary) {
+    return {
+      ...stateSummary,
+      totalDays,
+      historicalStart,
+      yesterday,
+    };
+  }
   const coverageRows = await Promise.all(
     [
       ...GOOGLE_ADS_ADVISOR_PRIMARY_PRIORITY_SCOPES,

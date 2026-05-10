@@ -31,6 +31,8 @@ import {
   resolveGoogleAdsCoveredD1FinalizeResolution,
   resolveGoogleAdsWorkerRequestedLimit,
   getGoogleAdsCoveredCorePartitionDatesToCancel,
+  normalizeGoogleAdsPartitionDateKey,
+  resolveGoogleAdsFullSyncPriorityFromStateRows,
 } from "@/lib/sync/google-ads-sync";
 
 afterEach(() => {
@@ -59,6 +61,12 @@ describe("hasGoogleAdsInProcessBackgroundWorkerIdentity", () => {
 });
 
 describe("getGoogleAdsCoveredCorePartitionDatesToCancel", () => {
+  it("normalizes database date values using local date fields instead of UTC shifts", () => {
+    expect(normalizeGoogleAdsPartitionDateKey(new Date(2026, 4, 2))).toBe(
+      "2026-05-02",
+    );
+  });
+
   it("returns only queued core dates already covered by canonical warehouse data", () => {
     expect(
       getGoogleAdsCoveredCorePartitionDatesToCancel({
@@ -66,6 +74,36 @@ describe("getGoogleAdsCoveredCorePartitionDatesToCancel", () => {
         coveredDates: ["2026-05-02", "2026-05-03"],
       }),
     ).toEqual(["2026-05-02"]);
+  });
+});
+
+describe("resolveGoogleAdsFullSyncPriorityFromStateRows", () => {
+  it("derives priority scopes from sync-state rows without scanning warehouse tables", () => {
+    expect(
+      resolveGoogleAdsFullSyncPriorityFromStateRows({
+        totalDays: 10,
+        rows: [
+          { scope: "search_term_daily", completed_days: 10 },
+          { scope: "product_daily", completed_days: 8 },
+          { scope: "asset_daily", completed_days: 2 },
+        ],
+      }),
+    ).toEqual({
+      required: true,
+      targetScopes: ["product_daily", "asset_daily"],
+    });
+  });
+
+  it("falls back when sync-state rows do not cover every priority scope", () => {
+    expect(
+      resolveGoogleAdsFullSyncPriorityFromStateRows({
+        totalDays: 10,
+        rows: [
+          { scope: "search_term_daily", completed_days: 10 },
+          { scope: "product_daily", completed_days: 10 },
+        ],
+      }),
+    ).toBeNull();
   });
 });
 

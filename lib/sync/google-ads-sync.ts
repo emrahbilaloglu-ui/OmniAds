@@ -1926,6 +1926,91 @@ async function cancelHistoricalExtendedBacklog(input: {
   }).catch(() => 0);
 }
 
+function normalizeGoogleAdsPartitionDateKey(value: unknown) {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  const text = String(value ?? "").trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  const parsed = new Date(text);
+  return Number.isFinite(parsed.getTime())
+    ? parsed.toISOString().slice(0, 10)
+    : null;
+}
+
+export function getGoogleAdsCoveredCorePartitionDatesToCancel(input: {
+  partitionDates: string[];
+  coveredDates: string[];
+}) {
+  const covered = new Set(input.coveredDates);
+  return Array.from(
+    new Set(input.partitionDates.filter((date) => covered.has(date))),
+  ).sort();
+}
+
+async function cancelCoveredGoogleAdsCoreBacklog(input: { businessId: string }) {
+  const accountIds = await getConnectedAssignedGoogleAccounts(input.businessId).catch(
+    () => [],
+  );
+  if (accountIds.length === 0) return 0;
+
+  const sql = getDb();
+  let cancelled = 0;
+  for (const providerAccountId of accountIds) {
+    for (const scope of [
+      "account_daily",
+      "campaign_daily",
+    ] as GoogleAdsWarehouseScope[]) {
+      const partitionRows = (await sql`
+        SELECT partition_date
+        FROM google_ads_sync_partitions
+        WHERE business_id = ${input.businessId}
+          AND provider_account_id = ${providerAccountId}
+          AND lane = 'core'
+          AND scope = ${scope}
+          AND status = 'queued'
+        ORDER BY partition_date ASC
+      `) as Array<{ partition_date: unknown }>;
+      const partitionDates = partitionRows
+        .map((row) => normalizeGoogleAdsPartitionDateKey(row.partition_date))
+        .filter((date): date is string => Boolean(date));
+      if (partitionDates.length === 0) continue;
+
+      const coveredDates = await getGoogleAdsCoveredDates({
+        businessId: input.businessId,
+        providerAccountId,
+        scope,
+        startDate: partitionDates[0] ?? partitionDates[partitionDates.length - 1],
+        endDate: partitionDates[partitionDates.length - 1] ?? partitionDates[0],
+      }).catch(() => []);
+      const datesToCancel = getGoogleAdsCoveredCorePartitionDatesToCancel({
+        partitionDates,
+        coveredDates,
+      });
+      if (datesToCancel.length === 0) continue;
+
+      const rows = (await sql`
+        UPDATE google_ads_sync_partitions
+        SET
+          status = 'cancelled',
+          lease_owner = NULL,
+          lease_expires_at = NULL,
+          next_retry_at = NULL,
+          finished_at = COALESCE(finished_at, now()),
+          last_error = COALESCE(last_error, 'covered core partition superseded by canonical warehouse coverage'),
+          updated_at = now()
+        WHERE business_id = ${input.businessId}
+          AND provider_account_id = ${providerAccountId}
+          AND lane = 'core'
+          AND scope = ${scope}
+          AND status = 'queued'
+          AND partition_date = ANY(${datesToCancel}::date[])
+        RETURNING id
+      `) as Array<{ id: string }>;
+      cancelled += rows.length;
+    }
+  }
+  return cancelled;
+}
+
 export async function getGoogleAdsFullSyncPriorityState(input: {
   businessId: string;
 }) {
@@ -6330,6 +6415,7 @@ export async function syncGoogleAdsReports(
       : undefined,
     allowPriorityHistorical: allowPriorityHistoricalReplay,
   }).catch(() => 0);
+  await cancelCoveredGoogleAdsCoreBacklog({ businessId }).catch(() => 0);
 
   const backgroundSyncKeys = getBackgroundSyncKeys();
   const lockKey = `background:${businessId}`;

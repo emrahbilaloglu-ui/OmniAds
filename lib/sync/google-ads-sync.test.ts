@@ -30,6 +30,7 @@ import {
   getGoogleAdsD1FinalizeScopesToQueue,
   resolveGoogleAdsCoveredD1FinalizeResolution,
   resolveGoogleAdsWorkerRequestedLimit,
+  getGoogleAdsCoveredCorePartitionDatesToCancel,
 } from "@/lib/sync/google-ads-sync";
 
 afterEach(() => {
@@ -54,6 +55,17 @@ describe("hasGoogleAdsInProcessBackgroundWorkerIdentity", () => {
         WORKER_INSTANCE_ID: "worker-1",
       } as unknown as NodeJS.ProcessEnv),
     ).toBe(true);
+  });
+});
+
+describe("getGoogleAdsCoveredCorePartitionDatesToCancel", () => {
+  it("returns only queued core dates already covered by canonical warehouse data", () => {
+    expect(
+      getGoogleAdsCoveredCorePartitionDatesToCancel({
+        partitionDates: ["2026-05-01", "2026-05-02", "2026-05-02"],
+        coveredDates: ["2026-05-02", "2026-05-03"],
+      }),
+    ).toEqual(["2026-05-02"]);
   });
 });
 

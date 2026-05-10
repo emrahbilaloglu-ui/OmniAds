@@ -1811,8 +1811,8 @@ function buildAdSetTableRow(input: {
     budgetLevel: latest?.dailyBudget != null || latest?.lifetimeBudget != null ? "adset" : null,
     dailyBudget: latest?.dailyBudget ?? null,
     lifetimeBudget: latest?.lifetimeBudget ?? null,
-    optimizationGoal: latest?.optimizationGoal ?? null,
-    customEventType: latest?.customEventType ?? null,
+    optimizationGoal: input.row.optimizationGoal ?? latest?.optimizationGoal ?? null,
+    customEventType: input.row.customEventType ?? latest?.customEventType ?? null,
     pixelId: latest?.pixelId ?? null,
     customConversionId: latest?.customConversionId ?? null,
     promotedObject: latest?.promotedObject ?? input.row.promotedObjectJson ?? null,
@@ -1830,8 +1830,13 @@ function buildAdSetTableRow(input: {
     previousLifetimeBudget: previous?.previousLifetimeBudget ?? null,
     previousBudgetCapturedAt: previous?.previousBudgetCapturedAt ?? null,
     isConfigMixed: Boolean(latest?.isConfigMixed),
-    isOptimizationGoalMixed: Boolean(latest?.isOptimizationGoalMixed),
-    isCustomEventTypeMixed: Boolean(latest?.isCustomEventTypeMixed),
+    isOptimizationGoalMixed:
+      input.row.isOptimizationGoalMixed || Boolean(latest?.isOptimizationGoalMixed),
+    isCustomEventTypeMixed:
+      Boolean(
+        (input.row as MetaAdSetDailyRow & { isCustomEventTypeMixed?: boolean | null })
+          .isCustomEventTypeMixed,
+      ) || Boolean(latest?.isCustomEventTypeMixed),
     isBidStrategyMixed: Boolean(latest?.isBidStrategyMixed),
     isBidValueMixed: Boolean(latest?.isBidValueMixed),
     spend: input.row.spend,
@@ -1906,6 +1911,12 @@ export async function getMetaWarehouseAdSets(input: {
     const impressions = dailyRows.reduce((sum, row) => sum + row.impressions, 0);
     const clicks = dailyRows.reduce((sum, row) => sum + row.clicks, 0);
     const reach = dailyRows.reduce((sum, row) => sum + row.reach, 0);
+    const optimizationGoals = new Set(
+      dailyRows.map((row) => row.optimizationGoal ?? "").filter(Boolean),
+    );
+    const customEventTypes = new Set(
+      dailyRows.map((row) => row.customEventType ?? "").filter(Boolean),
+    );
     return {
       ...latest,
       spend,
@@ -1919,6 +1930,13 @@ export async function getMetaWarehouseAdSets(input: {
       cpa: purchases > 0 ? r2(spend / purchases) : null,
       ctr: impressions > 0 ? r2((clicks / impressions) * 100) : null,
       cpc: clicks > 0 ? r2(spend / clicks) : null,
+      isOptimizationGoalMixed:
+        latest.isOptimizationGoalMixed || optimizationGoals.size > 1,
+      isCustomEventTypeMixed:
+        Boolean(
+          (latest as MetaAdSetDailyRow & { isCustomEventTypeMixed?: boolean | null })
+            .isCustomEventTypeMixed,
+        ) || customEventTypes.size > 1,
     };
   });
 

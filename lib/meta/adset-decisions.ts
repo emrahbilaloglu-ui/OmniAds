@@ -17,6 +17,10 @@ import { buildMetaCampaignLaneSignals } from "@/lib/meta/campaign-lanes";
 import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
 import { emitHighPriorityAdsetScenario } from "@/lib/meta/scenario-emitters/high-priority";
 import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
+import {
+  isPurchaseCohort,
+  resolveMetaFunnelCohort,
+} from "@/lib/meta/funnel-cohort";
 
 export interface BuildMetaAdsetRecommendationsInput {
   adsets: MetaAdSetData[];
@@ -76,6 +80,10 @@ function minRequiredSample(context: MetaCalibrationContext | null) {
 function adsetFrequency(adset: MetaAdSetData) {
   const value = (adset as MetaAdSetData & { frequency?: number | null }).frequency;
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function hasRangeAlignedCohortConfig(adset: MetaAdSetData) {
+  return !adset.isOptimizationGoalMixed && !adset.isCustomEventTypeMixed;
 }
 
 function confidence(input: {
@@ -160,6 +168,10 @@ export function buildMetaAdsetRecommendations(
   const recommendations: MetaRecommendation[] = [];
 
   for (const adset of activeAdsets) {
+    const cohort = resolveMetaFunnelCohort({
+      optimizationGoal: adset.optimizationGoal,
+      customEventType: adset.customEventType,
+    });
     const context = contextForAdset(input, adset);
     const campaign = campaignsById.get(adset.campaignId) ?? null;
     const taxonomyFields = {
@@ -192,70 +204,72 @@ export function buildMetaAdsetRecommendations(
     const severeLoser = adset.roas < roas.p10 && adset.spend > hardCutSpend(context);
     const currency = (adset as MetaAdSetData & { currency?: string | null }).currency ?? null;
 
-    if (
-      adset.purchases >= 8 &&
-      adset.roas >= scaleThreshold &&
-      (adset.cpa <= 0 || adset.cpa <= cpa.p75)
-    ) {
-      const confidenceResult = confidence({
-        context,
-        metricValue: adset.roas,
-        threshold: scaleThreshold,
-      });
-      recommendations.push(baseAdsetRecommendation({
-        adset,
-        ...taxonomyFields,
-        type: "adset_scale_budget",
-        lens: "volume",
-        priority: "high",
-        confidence: confidenceResult,
-        decisionState: confidenceResult.score >= 0.7 ? "act" : "test",
-        decision: "Scale this ad set carefully",
-        title: `${adset.name}: ad set can absorb more budget`,
-        why: "The ad set is above the calibrated ROAS line with enough purchase depth to justify a controlled scale test.",
-        summary: `${adset.name} is at ${fmtRoas(adset.roas)} ROAS on ${adset.purchases} purchases.`,
-        recommendedAction: "Increase ad set budget 10-15% and watch CPA, ROAS, and delivery for the next 48-72 hours.",
-        expectedImpact: "More conversion volume while keeping the scale move bounded.",
-        evidence: [
-          { label: "Ad set ROAS", value: fmtRoas(adset.roas), tone: "positive" },
-          { label: "ROAS p75", value: fmtRoas(roas.p75), tone: "neutral" },
-          { label: "Purchases", value: String(adset.purchases), tone: "positive" },
-        ],
-      }));
-      continue;
-    }
+    if (isPurchaseCohort(cohort) && hasRangeAlignedCohortConfig(adset)) {
+      if (
+        adset.purchases >= 8 &&
+        adset.roas >= scaleThreshold &&
+        (adset.cpa <= 0 || adset.cpa <= cpa.p75)
+      ) {
+        const confidenceResult = confidence({
+          context,
+          metricValue: adset.roas,
+          threshold: scaleThreshold,
+        });
+        recommendations.push(baseAdsetRecommendation({
+          adset,
+          ...taxonomyFields,
+          type: "adset_scale_budget",
+          lens: "volume",
+          priority: "high",
+          confidence: confidenceResult,
+          decisionState: confidenceResult.score >= 0.7 ? "act" : "test",
+          decision: "Scale this ad set carefully",
+          title: `${adset.name}: ad set can absorb more budget`,
+          why: "The ad set is above the calibrated ROAS line with enough purchase depth to justify a controlled scale test.",
+          summary: `${adset.name} is at ${fmtRoas(adset.roas)} ROAS on ${adset.purchases} purchases.`,
+          recommendedAction: "Increase ad set budget 10-15% and watch CPA, ROAS, and delivery for the next 48-72 hours.",
+          expectedImpact: "More conversion volume while keeping the scale move bounded.",
+          evidence: [
+            { label: "Ad set ROAS", value: fmtRoas(adset.roas), tone: "positive" },
+            { label: "ROAS p75", value: fmtRoas(roas.p75), tone: "neutral" },
+            { label: "Purchases", value: String(adset.purchases), tone: "positive" },
+          ],
+        }));
+        continue;
+      }
 
-    if (adset.spend >= hardCutSpend(context) && adset.roas < weakThreshold) {
-      const confidenceResult = confidence({
-        context,
-        metricValue: adset.roas,
-        threshold: weakThreshold,
-        severeLoser,
-      });
-      recommendations.push(baseAdsetRecommendation({
-        adset,
-        ...taxonomyFields,
-        type: "adset_cut_spend",
-        lens: "profitability",
-        priority: severeLoser ? "high" : "medium",
-        confidence: confidenceResult,
-        decisionState: severeLoser || confidenceResult.score >= 0.7 ? "act" : "test",
-        decision: "Cut or cap this ad set",
-        title: `${adset.name}: ad set is below the calibrated efficiency line`,
-        why: "The ad set is consuming meaningful spend while trailing calibrated ROAS expectations.",
-        summary: `${adset.name} has spent ${fmtCurrency(adset.spend, currency)} at ${fmtRoas(adset.roas)} ROAS.`,
-        recommendedAction: "Reduce budget pressure or pause the ad set, then reallocate spend toward stronger ad sets in the same campaign.",
-        expectedImpact: "Lower waste and cleaner campaign-level budget allocation.",
-        evidence: [
-          { label: "Ad set spend", value: fmtCurrency(adset.spend, currency), tone: "warning" },
-          { label: "Ad set ROAS", value: fmtRoas(adset.roas), tone: "warning" },
-          { label: "ROAS p25", value: fmtRoas(roas.p25), tone: "neutral" },
-          ...(severeLoser
-            ? [{ label: "Severe loser bypass", value: "active", tone: "warning" as const }]
-            : []),
-        ],
-      }));
-      continue;
+      if (adset.spend >= hardCutSpend(context) && adset.roas < weakThreshold) {
+        const confidenceResult = confidence({
+          context,
+          metricValue: adset.roas,
+          threshold: weakThreshold,
+          severeLoser,
+        });
+        recommendations.push(baseAdsetRecommendation({
+          adset,
+          ...taxonomyFields,
+          type: "adset_cut_spend",
+          lens: "profitability",
+          priority: severeLoser ? "high" : "medium",
+          confidence: confidenceResult,
+          decisionState: severeLoser || confidenceResult.score >= 0.7 ? "act" : "test",
+          decision: "Cut or cap this ad set",
+          title: `${adset.name}: ad set is below the calibrated efficiency line`,
+          why: "The ad set is consuming meaningful spend while trailing calibrated ROAS expectations.",
+          summary: `${adset.name} has spent ${fmtCurrency(adset.spend, currency)} at ${fmtRoas(adset.roas)} ROAS.`,
+          recommendedAction: "Reduce budget pressure or pause the ad set, then reallocate spend toward stronger ad sets in the same campaign.",
+          expectedImpact: "Lower waste and cleaner campaign-level budget allocation.",
+          evidence: [
+            { label: "Ad set spend", value: fmtCurrency(adset.spend, currency), tone: "warning" },
+            { label: "Ad set ROAS", value: fmtRoas(adset.roas), tone: "warning" },
+            { label: "ROAS p25", value: fmtRoas(roas.p25), tone: "neutral" },
+            ...(severeLoser
+              ? [{ label: "Severe loser bypass", value: "active", tone: "warning" as const }]
+              : []),
+          ],
+        }));
+        continue;
+      }
     }
 
     if (

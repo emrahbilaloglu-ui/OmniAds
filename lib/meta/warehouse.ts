@@ -830,7 +830,7 @@ export async function upsertMetaAuthoritativeDayState(
       last_finished_at = EXCLUDED.last_finished_at,
       last_autoheal_at = EXCLUDED.last_autoheal_at,
       autoheal_count = EXCLUDED.autoheal_count,
-      updated_at = now()
+      updated_at = EXCLUDED.updated_at
     RETURNING *
   ` as Array<{
     business_id: string;
@@ -3654,7 +3654,13 @@ export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
           'request_runtime',
           'historical_recovery'
         )
-          AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
+          AND (
+            meta_sync_partitions.status IN ('failed', 'cancelled')
+            OR (
+              meta_sync_partitions.status = 'succeeded'
+              AND EXCLUDED.source <> 'historical_recovery'
+            )
+          )
           THEN 'queued'
         ELSE meta_sync_partitions.status
       END,
@@ -3670,7 +3676,13 @@ export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
           'request_runtime',
           'historical_recovery'
         )
-          AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
+          AND (
+            meta_sync_partitions.status IN ('failed', 'cancelled')
+            OR (
+              meta_sync_partitions.status = 'succeeded'
+              AND EXCLUDED.source <> 'historical_recovery'
+            )
+          )
           THEN NULL
         ELSE meta_sync_partitions.lease_owner
       END,
@@ -3686,7 +3698,13 @@ export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
           'request_runtime',
           'historical_recovery'
         )
-          AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
+          AND (
+            meta_sync_partitions.status IN ('failed', 'cancelled')
+            OR (
+              meta_sync_partitions.status = 'succeeded'
+              AND EXCLUDED.source <> 'historical_recovery'
+            )
+          )
           THEN NULL
         ELSE meta_sync_partitions.lease_expires_at
       END,
@@ -3702,7 +3720,13 @@ export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
           'request_runtime',
           'historical_recovery'
         )
-          AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
+          AND (
+            meta_sync_partitions.status IN ('failed', 'cancelled')
+            OR (
+              meta_sync_partitions.status = 'succeeded'
+              AND EXCLUDED.source <> 'historical_recovery'
+            )
+          )
           THEN NULL
         ELSE meta_sync_partitions.last_error
       END,
@@ -3718,13 +3742,22 @@ export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
           'request_runtime',
           'historical_recovery'
         )
-          AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
+          AND (
+            meta_sync_partitions.status IN ('failed', 'cancelled')
+            OR (
+              meta_sync_partitions.status = 'succeeded'
+              AND EXCLUDED.source <> 'historical_recovery'
+            )
+          )
           THEN now()
         WHEN meta_sync_partitions.status IN ('succeeded', 'running', 'leased')
           THEN meta_sync_partitions.next_retry_at
         ELSE LEAST(COALESCE(meta_sync_partitions.next_retry_at, now()), COALESCE(EXCLUDED.next_retry_at, now()))
       END,
-      updated_at = now()
+      updated_at = CASE
+        WHEN meta_sync_partitions.status = 'dead_letter' THEN meta_sync_partitions.updated_at
+        ELSE now()
+      END
     RETURNING id, status
   ` as Array<{ id: string; status: MetaPartitionStatus }>;
   return rows[0] ?? null;
@@ -6377,6 +6410,14 @@ export async function getMetaIncompleteCoverageDates(input: {
         WHERE business_id = $3
           AND ($4::text IS NULL OR provider_account_id = $4)
           AND date::date BETWEEN $1::date AND $2::date
+        UNION
+        SELECT DISTINCT partition_date::date AS day
+        FROM meta_sync_partitions
+        WHERE business_id = $3
+          AND ($4::text IS NULL OR provider_account_id = $4)
+          AND scope = '${scope}'
+          AND status = 'succeeded'
+          AND partition_date BETWEEN $1::date AND $2::date
       )`;
     })
     .join(",\n");

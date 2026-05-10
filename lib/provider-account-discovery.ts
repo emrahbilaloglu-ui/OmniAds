@@ -107,6 +107,20 @@ export async function resolveProviderDiscoveryPayload(input: {
   });
 
   if (snapshot) {
+    if (snapshot.accounts.length === 0 && assignedIds.length > 0) {
+      return {
+        data: buildAssignedFallbackRows(assignedIds),
+        meta: snapshot.meta,
+        notice: snapshot.meta.refreshFailed
+          ? buildDiscoveryNotice({
+              snapshot,
+              degradedNotice: input.degradedNotice,
+              quotaNotice: input.quotaNotice,
+            })
+          : input.missingSnapshotNotice,
+      };
+    }
+
     return {
       data: mergeAssignments(snapshot.accounts, assignedIds),
       meta: snapshot.meta,

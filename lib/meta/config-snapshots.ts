@@ -182,10 +182,6 @@ export async function readPreviousMetaConfigSnapshots(input: {
   }
 }
 
-function valuesEqual(left: number | string | null | undefined, right: number | string | null | undefined) {
-  return (left ?? null) === (right ?? null);
-}
-
 function normalizeLegacySnapshotPayload(payload: MetaConfigSnapshotPayload): MetaConfigSnapshotPayload {
   const bidValue =
     payload.bidValueFormat === "roas"
@@ -200,21 +196,6 @@ function normalizeLegacySnapshotPayload(payload: MetaConfigSnapshotPayload): Met
       payload.manualBidAmount ??
       deriveManualBidAmount(bidValue, payload.bidValueFormat),
   };
-}
-
-function isInformativePayload(payload: MetaConfigSnapshotPayload) {
-  return (
-    payload.bidValue != null ||
-    payload.bidStrategyType != null ||
-    payload.manualBidAmount != null ||
-    payload.bidStrategyLabel != null ||
-    payload.dailyBudget != null ||
-    payload.lifetimeBudget != null
-  );
-}
-
-function hasBidValue(payload: MetaConfigSnapshotPayload) {
-  return payload.bidValue != null;
 }
 
 export async function readPreviousDifferentMetaConfigDiffs(input: {
@@ -234,81 +215,136 @@ export async function readPreviousDifferentMetaConfigDiffs(input: {
     }
     const sql = getDb();
     const rows = (await sql`
-      SELECT entity_id, captured_at, payload
-      FROM meta_config_snapshots
-      WHERE business_id = ${input.businessId}
-        AND entity_level = ${input.entityLevel}
-        AND entity_id = ANY(${entityIds}::text[])
-      ORDER BY entity_id ASC, captured_at DESC
+      WITH requested_entities AS (
+        SELECT unnest(${entityIds}::text[]) AS entity_id
+      ),
+      latest AS (
+        SELECT
+          requested_entities.entity_id,
+          current_row.captured_at,
+          current_row.created_at,
+          current_row.payload,
+          current_row.daily_budget,
+          current_row.lifetime_budget
+        FROM requested_entities
+        JOIN LATERAL (
+          SELECT
+            captured_at,
+            created_at,
+            payload,
+            payload->>'dailyBudget' AS daily_budget,
+            payload->>'lifetimeBudget' AS lifetime_budget
+          FROM meta_config_snapshots
+          WHERE business_id = ${input.businessId}
+            AND entity_level = ${input.entityLevel}
+            AND entity_id = requested_entities.entity_id
+            AND (
+              payload->>'bidValue' IS NOT NULL
+              OR payload->>'bidStrategyType' IS NOT NULL
+              OR payload->>'manualBidAmount' IS NOT NULL
+              OR payload->>'bidStrategyLabel' IS NOT NULL
+              OR payload->>'dailyBudget' IS NOT NULL
+              OR payload->>'lifetimeBudget' IS NOT NULL
+            )
+          ORDER BY captured_at DESC, created_at DESC
+          LIMIT 1
+        ) current_row ON true
+      ),
+      latest_bid AS (
+        SELECT
+          requested_entities.entity_id,
+          current_bid.captured_at,
+          current_bid.created_at,
+          current_bid.bid_value,
+          current_bid.bid_value_format
+        FROM requested_entities
+        LEFT JOIN LATERAL (
+          SELECT
+            captured_at,
+            created_at,
+            payload->>'bidValue' AS bid_value,
+            payload->>'bidValueFormat' AS bid_value_format
+          FROM meta_config_snapshots
+          WHERE business_id = ${input.businessId}
+            AND entity_level = ${input.entityLevel}
+            AND entity_id = requested_entities.entity_id
+            AND payload->>'bidValue' IS NOT NULL
+          ORDER BY captured_at DESC, created_at DESC
+          LIMIT 1
+        ) current_bid ON true
+      )
+      SELECT
+        latest.entity_id,
+        previous_bid.captured_at AS previous_bid_captured_at,
+        previous_bid.payload AS previous_bid_payload,
+        previous_budget.captured_at AS previous_budget_captured_at,
+        previous_budget.payload AS previous_budget_payload
+      FROM latest
+      LEFT JOIN latest_bid ON latest_bid.entity_id = latest.entity_id
+      LEFT JOIN LATERAL (
+        SELECT captured_at, payload
+        FROM meta_config_snapshots
+        WHERE business_id = ${input.businessId}
+          AND entity_level = ${input.entityLevel}
+          AND entity_id = latest.entity_id
+          AND latest_bid.bid_value IS NOT NULL
+          AND payload->>'bidValue' IS NOT NULL
+          AND (
+            payload->>'bidValue' IS DISTINCT FROM latest_bid.bid_value
+            OR payload->>'bidValueFormat' IS DISTINCT FROM latest_bid.bid_value_format
+          )
+          AND (
+            captured_at < latest_bid.captured_at
+            OR (captured_at = latest_bid.captured_at AND created_at < latest_bid.created_at)
+          )
+        ORDER BY captured_at DESC, created_at DESC
+        LIMIT 1
+      ) previous_bid ON true
+      LEFT JOIN LATERAL (
+        SELECT captured_at, payload
+        FROM meta_config_snapshots
+        WHERE business_id = ${input.businessId}
+          AND entity_level = ${input.entityLevel}
+          AND entity_id = latest.entity_id
+          AND (
+            payload->>'dailyBudget' IS DISTINCT FROM latest.daily_budget
+            OR payload->>'lifetimeBudget' IS DISTINCT FROM latest.lifetime_budget
+          )
+          AND (
+            captured_at < latest.captured_at
+            OR (captured_at = latest.captured_at AND created_at < latest.created_at)
+          )
+        ORDER BY captured_at DESC, created_at DESC
+        LIMIT 1
+      ) previous_budget ON true
     `) as unknown as Array<{
       entity_id: string;
-      captured_at: string;
-      payload: MetaConfigSnapshotPayload;
+      previous_bid_captured_at: string | null;
+      previous_bid_payload: MetaConfigSnapshotPayload | null;
+      previous_budget_captured_at: string | null;
+      previous_budget_payload: MetaConfigSnapshotPayload | null;
     }>;
 
-    const byEntity = new Map<string, Array<{ capturedAt: string; payload: MetaConfigSnapshotPayload }>>();
-    for (const row of rows) {
-      const payload = stripIncompleteConstrainedBidFields(
-        normalizeLegacySnapshotPayload(row.payload),
-      );
-      if (!isInformativePayload(payload)) continue;
-      const existing = byEntity.get(row.entity_id) ?? [];
-      existing.push({
-        capturedAt: row.captured_at,
-        payload,
-      });
-      byEntity.set(row.entity_id, existing);
-    }
-
     const result = new Map<string, MetaPreviousConfigDiff>();
-
-    for (const entityId of entityIds) {
-      const history = byEntity.get(entityId) ?? [];
-      const current = history[0]?.payload;
-      if (!current) continue;
-      const currentBidIndex = history.findIndex((row) => hasBidValue(row.payload));
-      const currentBid = currentBidIndex >= 0 ? history[currentBidIndex]?.payload : null;
-
-      let previousBid: { payload: MetaConfigSnapshotPayload; capturedAt: string } | null = null;
-      let previousBudget: { payload: MetaConfigSnapshotPayload; capturedAt: string } | null = null;
-
-      for (const row of currentBidIndex >= 0 ? history.slice(currentBidIndex + 1) : []) {
-        if (
-          previousBid == null &&
-          currentBid != null &&
-          hasBidValue(row.payload) &&
-          (
-            !valuesEqual(row.payload.bidValue, currentBid.bidValue) ||
-            !valuesEqual(row.payload.bidValueFormat, currentBid.bidValueFormat)
+    for (const row of rows) {
+      const previousBid = row.previous_bid_payload
+        ? stripIncompleteConstrainedBidFields(
+            normalizeLegacySnapshotPayload(row.previous_bid_payload),
           )
-        ) {
-          previousBid = row;
-        }
-        if (previousBid) break;
-      }
-
-      for (const row of history.slice(1)) {
-        if (
-          previousBudget == null &&
-          (
-            !valuesEqual(row.payload.dailyBudget, current.dailyBudget) ||
-            !valuesEqual(row.payload.lifetimeBudget, current.lifetimeBudget)
+        : null;
+      const previousBudget = row.previous_budget_payload
+        ? stripIncompleteConstrainedBidFields(
+            normalizeLegacySnapshotPayload(row.previous_budget_payload),
           )
-        ) {
-          previousBudget = row;
-        }
-
-        if (previousBid && previousBudget) break;
-      }
-
-      result.set(entityId, {
-        previousManualBidAmount: previousBid?.payload.manualBidAmount ?? null,
-        previousBidValue: previousBid?.payload.bidValue ?? null,
-        previousBidValueFormat: previousBid?.payload.bidValueFormat ?? null,
-        previousBidCapturedAt: previousBid?.capturedAt ?? null,
-        previousDailyBudget: previousBudget?.payload.dailyBudget ?? null,
-        previousLifetimeBudget: previousBudget?.payload.lifetimeBudget ?? null,
-        previousBudgetCapturedAt: previousBudget?.capturedAt ?? null,
+        : null;
+      result.set(row.entity_id, {
+        previousManualBidAmount: previousBid?.manualBidAmount ?? null,
+        previousBidValue: previousBid?.bidValue ?? null,
+        previousBidValueFormat: previousBid?.bidValueFormat ?? null,
+        previousBidCapturedAt: row.previous_bid_captured_at ?? null,
+        previousDailyBudget: previousBudget?.dailyBudget ?? null,
+        previousLifetimeBudget: previousBudget?.lifetimeBudget ?? null,
+        previousBudgetCapturedAt: row.previous_budget_captured_at ?? null,
       });
     }
 
@@ -408,22 +444,35 @@ export async function readMetaBidRegimeHistorySummaries(input: {
     });
     const sql = getDb();
     const rows = (await sql`
-      SELECT entity_id, payload
+      SELECT
+        entity_id,
+        payload->>'bidStrategyType' AS bid_strategy_type,
+        payload->>'bidStrategyLabel' AS bid_strategy_label,
+        COUNT(*)::int AS observation_count
       FROM meta_config_snapshots
       WHERE business_id = ${input.businessId}
         AND entity_level = ${input.entityLevel}
         AND entity_id = ANY(${entityIds}::text[])
-      ORDER BY entity_id ASC, captured_at DESC
+        AND (
+          payload->>'bidStrategyType' IS NOT NULL
+          OR payload->>'bidStrategyLabel' IS NOT NULL
+        )
+      GROUP BY entity_id, payload->>'bidStrategyType', payload->>'bidStrategyLabel'
     `) as unknown as Array<{
       entity_id: string;
-      payload: MetaConfigSnapshotPayload;
+      bid_strategy_type: string | null;
+      bid_strategy_label: string | null;
+      observation_count: number | string;
     }>;
 
-    const grouped = new Map<string, MetaConfigSnapshotPayload[]>();
+    const grouped = new Map<string, Array<{ count: number; type: string | null; label: string | null }>>();
     for (const row of rows) {
-      const payload = normalizeLegacySnapshotPayload(row.payload);
-      if (!payload.bidStrategyType && !payload.bidStrategyLabel) continue;
-      grouped.set(row.entity_id, [...(grouped.get(row.entity_id) ?? []), payload]);
+      const type = row.bid_strategy_type ?? null;
+      const label = row.bid_strategy_label ?? formatBidStrategyLabel(type);
+      const count = Number(row.observation_count ?? 0);
+      if (!type && !label) continue;
+      if (!Number.isFinite(count) || count <= 0) continue;
+      grouped.set(row.entity_id, [...(grouped.get(row.entity_id) ?? []), { count, type, label }]);
     }
 
     const result = new Map<string, MetaBidRegimeHistorySummary>();
@@ -431,26 +480,19 @@ export async function readMetaBidRegimeHistorySummaries(input: {
       const history = grouped.get(entityId) ?? [];
       if (history.length === 0) continue;
 
-      const counts = new Map<string, { count: number; type: string | null; label: string | null }>();
       let constrainedCount = 0;
       let openCount = 0;
+      let observationCount = 0;
 
-      for (const payload of history) {
-        const type = payload.bidStrategyType ?? null;
-        const label = payload.bidStrategyLabel ?? formatBidStrategyLabel(type);
-        const key = `${type ?? "null"}|${label ?? "null"}`;
-        const existing = counts.get(key) ?? { count: 0, type, label };
-        existing.count += 1;
-        counts.set(key, existing);
-
-        if (type === "lowest_cost") openCount += 1;
+      for (const { count, type } of history) {
+        observationCount += count;
+        if (type === "lowest_cost") openCount += count;
         if (type === "manual_bid" || type === "bid_cap" || type === "cost_cap" || type === "target_roas") {
-          constrainedCount += 1;
+          constrainedCount += count;
         }
       }
 
-      const dominant = [...counts.values()].sort((a, b) => b.count - a.count)[0];
-      const observationCount = history.length;
+      const dominant = history.sort((a, b) => b.count - a.count)[0];
       result.set(entityId, {
         dominantBidStrategyType: dominant?.type ?? null,
         dominantBidStrategyLabel: dominant?.label ?? null,

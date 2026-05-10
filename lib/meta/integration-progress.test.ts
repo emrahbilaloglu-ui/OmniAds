@@ -312,7 +312,7 @@ describe("resolveMetaIntegrationProgress", () => {
       state: "working",
       label: "history continuing",
       detail: "Ads and creatives continue backfilling in the background.",
-      evidence: expect.stringContaining("Pending breakdowns.age"),
+      evidence: expect.stringContaining("Pending age breakdown"),
     });
     expect(model?.stages[3]?.evidence).not.toContain("110/365 days");
     expect(model?.stages[3]?.evidence).toContain("Oldest stored date:");
@@ -376,7 +376,7 @@ describe("resolveMetaIntegrationProgress", () => {
     expect(model?.stages[3]).toMatchObject({
       label: "geçmiş tamamlanıyor",
       detail: "Reklamlar ve kreatifler arka planda geçmişi tamamlamayı sürdürüyor.",
-      evidence: expect.stringContaining("Bekleyen breakdowns.age"),
+      evidence: expect.stringContaining("Bekleyen yaş breakdownı"),
     });
   });
 });

@@ -168,8 +168,8 @@ describe("buildMetaIntegrationSummary", () => {
       code: "historical_extended_preparing",
       percent: null,
       evidence: {
-        pendingSurfaceCount: 1,
-        pendingSurfaces: ["breakdowns.age"],
+        pendingSurfaceCount: 3,
+        pendingSurfaces: ["breakdowns.age", "ad_daily", "creative_daily"],
         oldestStoredDate: "2025-12-18",
       },
     });
@@ -202,8 +202,8 @@ describe("buildMetaIntegrationSummary", () => {
       code: "historical_extended_preparing",
       percent: null,
       evidence: {
-        pendingSurfaceCount: 1,
-        pendingSurfaces: ["breakdowns.age"],
+        pendingSurfaceCount: 3,
+        pendingSurfaces: ["breakdowns.age", "ad_daily", "creative_daily"],
       },
     });
   });
@@ -230,8 +230,8 @@ describe("buildMetaIntegrationSummary", () => {
       code: "recent_extended_preparing",
       percent: null,
       evidence: {
-        pendingSurfaceCount: 1,
-        pendingSurfaces: ["breakdowns.age"],
+        pendingSurfaceCount: 3,
+        pendingSurfaces: ["breakdowns.age", "ad_daily", "creative_daily"],
       },
     });
   });
@@ -401,7 +401,7 @@ describe("buildMetaIntegrationSummary", () => {
           blockedSurfaces: [],
           surfaces: {} as never,
         },
-        recentExtendedReady: false,
+        recentExtendedReady: true,
         historicalExtendedReady: false,
         warehouse: {
           coverage: {
@@ -428,6 +428,170 @@ describe("buildMetaIntegrationSummary", () => {
       percent: null,
       evidence: {
         readyThroughDate: "2026-04-14",
+      },
+    });
+  });
+
+  it("does not use the recent breakdown window start as aggregate extended oldest evidence", () => {
+    const summary = buildMetaIntegrationSummary(
+      buildStatus({
+        state: "ready",
+        extendedCompleteness: {
+          state: "ready",
+          complete: true,
+          percent: 100,
+          reason: null,
+          summary: "Breakdowns are ready.",
+          missingSurfaces: [],
+          blockedSurfaces: [],
+          surfaces: {} as never,
+        },
+        recentExtendedReady: true,
+        warehouse: {
+          coverage: {
+            breakdownsBySurface: {
+              age: {
+                completedDays: 90,
+                totalDays: 90,
+                readyThroughDate: "2026-05-08",
+                oldestStoredDate: "2026-02-08",
+                isComplete: true,
+              },
+              location: {
+                completedDays: 90,
+                totalDays: 90,
+                readyThroughDate: "2026-05-08",
+                oldestStoredDate: "2026-02-08",
+                isComplete: true,
+              },
+              placement: {
+                completedDays: 90,
+                totalDays: 90,
+                readyThroughDate: "2026-05-08",
+                oldestStoredDate: "2026-02-08",
+                isComplete: true,
+              },
+            },
+          },
+        } as never,
+      })
+    );
+
+    expect(summary.stages.find((stage) => stage.key === "extended_surfaces")).toMatchObject({
+      state: "ready",
+      code: "extended_ready",
+      evidence: {
+        readyThroughDate: "2026-05-08",
+      },
+    });
+    expect(
+      summary.stages.find((stage) => stage.key === "extended_surfaces")?.evidence
+    ).not.toHaveProperty("oldestStoredDate");
+  });
+
+  it("does not mark recent extended surfaces ready when ads or creatives lag", () => {
+    const summary = buildMetaIntegrationSummary(
+      buildStatus({
+        state: "syncing",
+        extendedCompleteness: {
+          state: "ready",
+          complete: true,
+          percent: 100,
+          reason: null,
+          summary: "Breakdowns are ready.",
+          missingSurfaces: [],
+          blockedSurfaces: [],
+          surfaces: {} as never,
+        },
+        rangeCompletionBySurface: {
+          ...buildStatus().rangeCompletionBySurface!,
+          ad_daily: {
+            recentCompletedDays: 89,
+            recentTotalDays: 90,
+            historicalCompletedDays: 365,
+            historicalTotalDays: 365,
+            readyThroughDate: "2026-05-07",
+            oldestStoredDate: "2025-05-09",
+          },
+          creative_daily: {
+            recentCompletedDays: 90,
+            recentTotalDays: 90,
+            historicalCompletedDays: 455,
+            historicalTotalDays: 455,
+            readyThroughDate: "2026-05-08",
+            oldestStoredDate: "2025-02-08",
+          },
+        },
+        recentExtendedReady: false,
+      })
+    );
+
+    expect(summary.stages.find((stage) => stage.key === "extended_surfaces")).toMatchObject({
+      state: "working",
+      code: "recent_extended_preparing",
+      evidence: {
+        pendingSurfaceCount: 1,
+        pendingSurfaces: ["ad_daily"],
+      },
+    });
+  });
+
+  it("does not mark recent extended surfaces ready when creative media previews lag", () => {
+    const summary = buildMetaIntegrationSummary(
+      buildStatus({
+        state: "syncing",
+        extendedCompleteness: {
+          state: "ready",
+          complete: true,
+          percent: 100,
+          reason: null,
+          summary: "Breakdowns are ready.",
+          missingSurfaces: [],
+          blockedSurfaces: [],
+          surfaces: {} as never,
+        },
+        rangeCompletionBySurface: {
+          ...buildStatus().rangeCompletionBySurface!,
+          ad_daily: {
+            recentCompletedDays: 90,
+            recentTotalDays: 90,
+            historicalCompletedDays: 365,
+            historicalTotalDays: 365,
+            readyThroughDate: "2026-05-08",
+            oldestStoredDate: "2025-05-09",
+          },
+          creative_daily: {
+            recentCompletedDays: 90,
+            recentTotalDays: 90,
+            historicalCompletedDays: 455,
+            historicalTotalDays: 455,
+            readyThroughDate: "2026-05-08",
+            oldestStoredDate: "2025-02-08",
+          },
+        },
+        warehouse: {
+          coverage: {
+            creatives: {
+              completedDays: 455,
+              totalDays: 455,
+              readyThroughDate: "2026-05-08",
+              oldestStoredDate: "2025-02-08",
+              previewReadyRows: 3515,
+              totalRows: 3582,
+              previewReadyPercent: 98,
+            },
+          },
+        } as never,
+        recentExtendedReady: false,
+      })
+    );
+
+    expect(summary.stages.find((stage) => stage.key === "extended_surfaces")).toMatchObject({
+      state: "working",
+      code: "recent_extended_preparing",
+      evidence: {
+        pendingSurfaceCount: 1,
+        pendingSurfaces: ["creative_media"],
       },
     });
   });
@@ -624,8 +788,8 @@ describe("buildMetaIntegrationSummary", () => {
       code: "historical_extended_preparing",
       percent: null,
       evidence: {
-        pendingSurfaceCount: 1,
-        pendingSurfaces: ["breakdowns.age"],
+        pendingSurfaceCount: 3,
+        pendingSurfaces: ["breakdowns.age", "ad_daily", "creative_daily"],
         readyThroughDate: "2026-04-05",
       },
     });

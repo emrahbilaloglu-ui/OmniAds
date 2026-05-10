@@ -86,4 +86,33 @@ describe("provider discovery read path", () => {
     expect(providerSnapshots.requestProviderAccountSnapshotRefresh).not.toHaveBeenCalled();
     expect(providerSnapshots.forceProviderAccountSnapshotRefresh).not.toHaveBeenCalled();
   });
+
+  it("keeps assigned fallback rows when a persisted snapshot is empty or failed", async () => {
+    vi.mocked(providerSnapshots.readProviderAccountSnapshot).mockResolvedValue({
+      accounts: [],
+      meta: buildSnapshotMeta({
+        sourceHealth: "degraded_blocking",
+        refreshFailed: true,
+        failureClass: "auth",
+        lastError: "You cannot access the app till you log in to www.facebook.com.",
+        lastKnownGoodAvailable: false,
+        trustLevel: "blocking",
+        trustScore: 0,
+      }),
+    } as never);
+
+    const payload = await resolveProviderDiscoveryPayload({
+      businessId: "biz_1",
+      provider: "meta",
+      refreshRequested: false,
+      liveLoader: vi.fn().mockResolvedValue([]),
+      missingSnapshotNotice: "missing",
+      degradedNotice: "degraded",
+      unavailableNotice: "unavailable",
+    });
+
+    expect(payload.data).toEqual([{ id: "acct_1", name: "acct_1", assigned: true }]);
+    expect(payload.notice).toBe("degraded");
+    expect(payload.meta.failureClass).toBe("auth");
+  });
 });

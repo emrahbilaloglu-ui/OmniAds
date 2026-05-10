@@ -1715,10 +1715,23 @@ export async function GET(request: NextRequest) {
                 : "Breakdown data is still being prepared for the selected range."
             : "Breakdown data is still being prepared for Meta's default coverage window.");
 
+  const recentAdDailyReady =
+    recentWindowTotalDays > 0 &&
+    (recentAdCoverage?.completed_days ?? 0) >= recentWindowTotalDays;
+  const recentCreativeDailyReady =
+    recentWindowTotalDays > 0 &&
+    (recentCreativeCoverage?.completed_days ?? 0) >= recentWindowTotalDays;
+  const creativePreviewTotalRows = creativePreviewCoverage?.total_rows ?? 0;
+  const recentCreativePreviewReady =
+    creativePreviewTotalRows === 0 ||
+    (creativePreviewCoverage?.preview_ready_rows ?? 0) >= creativePreviewTotalRows;
   const recentExtendedReady =
     recentBreakdownsBySurface.age.isComplete &&
     recentBreakdownsBySurface.location.isComplete &&
-    recentBreakdownsBySurface.placement.isComplete;
+    recentBreakdownsBySurface.placement.isComplete &&
+    recentAdDailyReady &&
+    recentCreativeDailyReady &&
+    recentCreativePreviewReady;
   const defaultCoverageReady =
     !selectedRangeRequested &&
     currentCoreUsable &&

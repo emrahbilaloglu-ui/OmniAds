@@ -10,6 +10,8 @@ import type {
 } from "@/lib/sync/provider-status-truth";
 import { resolveMetaCredentials } from "@/lib/api/meta";
 import { getConnectedAssignedGoogleAccounts } from "@/lib/google-ads-gaql";
+import { getIntegration } from "@/lib/integrations";
+import { fetchMetaAdAccounts, getMetaApiErrorMessage } from "@/lib/meta-ad-accounts";
 import {
   getGoogleAdsCheckpointHealth,
   getGoogleAdsSyncCheckpoint,
@@ -52,6 +54,12 @@ import {
   runGoogleAdsRepairCycle,
   runMetaRepairCycle,
 } from "@/lib/sync/provider-repair-engine";
+import {
+  ProviderAccountSnapshotRefreshError,
+  readProviderAccountSnapshot,
+  resolveProviderAccountSnapshot,
+  scheduleProviderAccountSnapshotRefresh,
+} from "@/lib/provider-account-snapshots";
 import {
   mergeAutoRepairResult,
   runAutoSyncRepairPass,
@@ -99,6 +107,7 @@ type WorkerLifecyclePartition = ProviderSyncPartitionIdentity & {
 };
 
 const META_ADAPTER_CORE_SCOPES: MetaWarehouseScope[] = ["account_daily", "adset_daily"];
+const META_ACCOUNT_SNAPSHOT_FRESHNESS_MS = 6 * 60 * 60_000;
 const META_AUTO_HEAL_DEAD_LETTER_SOURCES: MetaSyncPartitionSource[] = [
   "finalize_day",
   "priority_window",
@@ -368,6 +377,129 @@ async function leaseGoogleAdsPartitionsWithPlan(input: {
   return leased;
 }
 
+function isFutureTimestamp(value: string | null | undefined) {
+  if (!value) return false;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) && time > Date.now();
+}
+
+async function loadMetaProviderAccountsForSnapshot(input: {
+  accessToken: string | null;
+  tokenExpiresAt: string | null;
+}) {
+  if (!input.accessToken) {
+    throw new Error("Meta access token is missing for this business integration.");
+  }
+  if (
+    input.tokenExpiresAt &&
+    new Date(input.tokenExpiresAt).getTime() <= Date.now()
+  ) {
+    throw new Error("Meta access token has expired. Please reconnect Meta integration.");
+  }
+
+  const metaResult = await fetchMetaAdAccounts(input.accessToken);
+  if (!metaResult.ok || metaResult.body?.error) {
+    throw new Error(getMetaApiErrorMessage(metaResult));
+  }
+  return metaResult.normalized.map((account) => ({
+    id: account.id,
+    name: account.name,
+    currency: account.currency ?? undefined,
+    timezone: account.timezone ?? undefined,
+    isManager: false,
+  }));
+}
+
+async function refreshMetaProviderAccountSnapshotIfNeeded(businessId: string) {
+  const integration = await getIntegration(businessId, "meta").catch(() => null);
+  if (!integration || integration.status !== "connected") {
+    return { outcome: "skipped_no_connected_integration" };
+  }
+
+  const liveLoader = () =>
+    loadMetaProviderAccountsForSnapshot({
+      accessToken: integration.access_token,
+      tokenExpiresAt: integration.token_expires_at,
+    });
+  const snapshot = await readProviderAccountSnapshot({
+    businessId,
+    provider: "meta",
+    freshnessMs: META_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
+  }).catch(() => null);
+
+  if (snapshot?.meta.refreshInProgress) {
+    return {
+      outcome: "skipped_refresh_in_progress",
+      fetchedAt: snapshot.meta.fetchedAt,
+    };
+  }
+
+  if (
+    snapshot?.meta.retryAfterAt &&
+    isFutureTimestamp(snapshot.meta.retryAfterAt)
+  ) {
+    return {
+      outcome: "skipped_cooldown",
+      retryAfterAt: snapshot.meta.retryAfterAt,
+      failureClass: snapshot.meta.failureClass,
+    };
+  }
+
+  if (!snapshot) {
+    try {
+      const refreshed = await resolveProviderAccountSnapshot({
+        businessId,
+        provider: "meta",
+        freshnessMs: META_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
+        reason: "worker_missing_account_snapshot",
+        liveLoader,
+      });
+      return {
+        outcome: "refreshed_missing_snapshot",
+        accountCount: refreshed.accounts.length,
+        fetchedAt: refreshed.meta.fetchedAt,
+      };
+    } catch (error: unknown) {
+      return {
+        outcome:
+          error instanceof ProviderAccountSnapshotRefreshError &&
+          error.dueToRecentFailure
+            ? "skipped_cooldown"
+            : "refresh_failed",
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  if (snapshot.accounts.length === 0 || snapshot.meta.stale) {
+    await scheduleProviderAccountSnapshotRefresh({
+      businessId,
+      provider: "meta",
+      freshnessMs: META_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
+      reason:
+        snapshot.accounts.length === 0
+          ? "worker_empty_account_snapshot"
+          : "worker_stale_account_snapshot",
+      skipIfFresh: snapshot.accounts.length > 0,
+      liveLoader,
+    }).catch(() => null);
+    return {
+      outcome:
+        snapshot.accounts.length === 0
+          ? "scheduled_empty_snapshot_refresh"
+          : "scheduled_stale_snapshot_refresh",
+      accountCount: snapshot.accounts.length,
+      fetchedAt: snapshot.meta.fetchedAt,
+    };
+  }
+
+  return {
+    outcome: "fresh",
+    accountCount: snapshot.accounts.length,
+    fetchedAt: snapshot.meta.fetchedAt,
+  };
+}
+
 export const metaWorkerAdapter: ProviderWorkerAdapter = {
   providerScope: "meta",
   async planPartitions(range) {
@@ -512,6 +644,13 @@ export const metaWorkerAdapter: ProviderWorkerAdapter = {
     return buildMetaWorkerLeasePlan(input);
   },
   async runAutoHeal(businessId: string) {
+    const providerAccountSnapshotRepair =
+      await refreshMetaProviderAccountSnapshotIfNeeded(businessId).catch(
+        (error: unknown) => ({
+          outcome: "refresh_failed",
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
     const result = await runMetaRepairCycle(businessId, {
       enqueueScheduledWork: false,
       metaDeadLetterSources: META_AUTO_HEAL_DEAD_LETTER_SOURCES,
@@ -543,6 +682,7 @@ export const metaWorkerAdapter: ProviderWorkerAdapter = {
       meta: {
         ...(merged.meta ?? {}),
         consumeAfterRepair,
+        providerAccountSnapshotRepair,
       },
     };
   },

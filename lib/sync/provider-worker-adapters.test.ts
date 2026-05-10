@@ -25,6 +25,21 @@ const runMetaRepairCycle = vi.fn();
 const runGoogleAdsRepairCycle = vi.fn();
 const runAutoSyncRepairPass = vi.fn();
 const mergeAutoRepairResult = vi.fn();
+const getIntegration = vi.fn();
+const fetchMetaAdAccounts = vi.fn();
+const getMetaApiErrorMessage = vi.fn();
+const readProviderAccountSnapshot = vi.fn();
+const resolveProviderAccountSnapshot = vi.fn();
+const scheduleProviderAccountSnapshotRefresh = vi.fn();
+
+class MockProviderAccountSnapshotRefreshError extends Error {
+  dueToRecentFailure: boolean;
+
+  constructor(input: { message: string; dueToRecentFailure?: boolean }) {
+    super(input.message);
+    this.dueToRecentFailure = input.dueToRecentFailure ?? false;
+  }
+}
 
 vi.mock("@/lib/google-ads-gaql", () => ({
   getConnectedAssignedGoogleAccounts,
@@ -41,6 +56,22 @@ vi.mock("@/lib/google-ads/warehouse", () => ({
 
 vi.mock("@/lib/api/meta", () => ({
   resolveMetaCredentials,
+}));
+
+vi.mock("@/lib/integrations", () => ({
+  getIntegration,
+}));
+
+vi.mock("@/lib/meta-ad-accounts", () => ({
+  fetchMetaAdAccounts,
+  getMetaApiErrorMessage,
+}));
+
+vi.mock("@/lib/provider-account-snapshots", () => ({
+  ProviderAccountSnapshotRefreshError: MockProviderAccountSnapshotRefreshError,
+  readProviderAccountSnapshot,
+  resolveProviderAccountSnapshot,
+  scheduleProviderAccountSnapshotRefresh,
 }));
 
 vi.mock("@/lib/meta/warehouse", () => ({
@@ -87,6 +118,32 @@ describe("provider-worker-adapters", () => {
         autoExecutions: results,
       },
     }));
+    getIntegration.mockResolvedValue({
+      status: "connected",
+      access_token: "token",
+      token_expires_at: "2026-06-01T00:00:00.000Z",
+    });
+    readProviderAccountSnapshot.mockResolvedValue({
+      accounts: [{ id: "act_1", name: "Account 1" }],
+      meta: {
+        fetchedAt: "2026-05-10T00:00:00.000Z",
+        stale: false,
+        refreshInProgress: false,
+        retryAfterAt: null,
+        failureClass: null,
+      },
+    });
+    resolveProviderAccountSnapshot.mockResolvedValue({
+      accounts: [{ id: "act_1", name: "Account 1" }],
+      meta: { fetchedAt: "2026-05-10T00:00:00.000Z" },
+    });
+    scheduleProviderAccountSnapshotRefresh.mockResolvedValue(null);
+    fetchMetaAdAccounts.mockResolvedValue({
+      ok: true,
+      body: null,
+      normalized: [{ id: "act_1", name: "Account 1" }],
+    });
+    getMetaApiErrorMessage.mockReturnValue("Meta API error");
   });
 
   it("queues Google core partitions through the shared adapter plan contract", async () => {
@@ -335,8 +392,53 @@ describe("provider-worker-adapters", () => {
             attempted: 1,
             succeeded: 1,
           }),
+          providerAccountSnapshotRepair: expect.objectContaining({
+            outcome: "fresh",
+            accountCount: 1,
+          }),
         }),
       })
+    );
+  });
+
+  it("refreshes a missing Meta account-list snapshot during worker auto-heal", async () => {
+    readProviderAccountSnapshot.mockResolvedValueOnce(null);
+    runMetaRepairCycle.mockResolvedValue({
+      repair: {
+        reclaimed: 0,
+        replayed: 0,
+        requeued: 0,
+        blocked: false,
+        blockingReasons: [],
+        repairableActions: [],
+      },
+    });
+    runAutoSyncRepairPass.mockResolvedValue({
+      execution: null,
+      recommendation: null,
+      skippedReason: "no_recommendation",
+      budgetState: null,
+      releaseGate: null,
+      repairPlan: null,
+    });
+
+    const { metaWorkerAdapter } = await import("@/lib/sync/provider-worker-adapters");
+    const repair = await metaWorkerAdapter.runAutoHeal?.("biz-1");
+
+    expect(resolveProviderAccountSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz-1",
+        provider: "meta",
+        reason: "worker_missing_account_snapshot",
+      }),
+    );
+    expect(repair?.meta).toEqual(
+      expect.objectContaining({
+        providerAccountSnapshotRepair: expect.objectContaining({
+          outcome: "refreshed_missing_snapshot",
+          accountCount: 1,
+        }),
+      }),
     );
   });
 

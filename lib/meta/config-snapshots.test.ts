@@ -128,4 +128,87 @@ describe("meta config snapshots", () => {
       bidValueFormat: "roas",
     });
   });
+
+  it("reads previous different config diffs without globally sorting snapshot history", async () => {
+    let queryText = "";
+    sql.mockImplementation(async (strings: TemplateStringsArray) => {
+      queryText = strings.join(" ");
+      return [
+        {
+          entity_id: "cmp-1",
+          previous_bid_captured_at: "2026-05-08T00:00:00.000Z",
+          previous_bid_payload: {
+            bidValue: 12,
+            bidValueFormat: "currency",
+            manualBidAmount: 12,
+          },
+          previous_budget_captured_at: "2026-05-07T00:00:00.000Z",
+          previous_budget_payload: {
+            dailyBudget: 100,
+            lifetimeBudget: null,
+          },
+        },
+      ];
+    });
+
+    const rows = await configSnapshots.readPreviousDifferentMetaConfigDiffs({
+      businessId: "biz-1",
+      entityLevel: "campaign",
+      entityIds: ["cmp-1", "cmp-1"],
+    });
+
+    expect(queryText).toContain("WITH requested_entities");
+    expect(queryText).toContain("LEFT JOIN LATERAL");
+    expect(queryText).toContain("previous_bid");
+    expect(queryText).toContain("previous_budget");
+    expect(queryText).toContain("LIMIT 1");
+    expect(queryText).not.toContain("ORDER BY entity_id ASC");
+    expect(rows.get("cmp-1")).toMatchObject({
+      previousManualBidAmount: 12,
+      previousBidValue: 12,
+      previousBidValueFormat: "currency",
+      previousBidCapturedAt: "2026-05-08T00:00:00.000Z",
+      previousDailyBudget: 100,
+      previousBudgetCapturedAt: "2026-05-07T00:00:00.000Z",
+    });
+  });
+
+  it("summarizes bid regime history in SQL without returning every payload row", async () => {
+    let queryText = "";
+    sql.mockImplementation(async (strings: TemplateStringsArray) => {
+      queryText = strings.join(" ");
+      return [
+        {
+          entity_id: "cmp-1",
+          bid_strategy_type: "lowest_cost",
+          bid_strategy_label: "Lowest cost",
+          observation_count: 3,
+        },
+        {
+          entity_id: "cmp-1",
+          bid_strategy_type: "bid_cap",
+          bid_strategy_label: "Bid cap",
+          observation_count: 1,
+        },
+      ];
+    });
+
+    const rows = await configSnapshots.readMetaBidRegimeHistorySummaries({
+      businessId: "biz-1",
+      entityLevel: "campaign",
+      entityIds: ["cmp-1"],
+    });
+
+    expect(queryText).toContain("COUNT(*)::int AS observation_count");
+    expect(queryText).toContain("GROUP BY entity_id, payload->>'bidStrategyType', payload->>'bidStrategyLabel'");
+    expect(queryText).not.toContain("ORDER BY");
+    expect(queryText).not.toContain("SELECT entity_id, payload");
+    expect(rows.get("cmp-1")).toMatchObject({
+      dominantBidStrategyType: "lowest_cost",
+      dominantBidStrategyLabel: "Lowest cost",
+      observationCount: 4,
+      constrainedShare: 0.25,
+      openShare: 0.75,
+    });
+  });
 });

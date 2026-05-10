@@ -1134,6 +1134,106 @@ describe("GET /api/meta/status", () => {
     });
   });
 
+  it("keeps recent-window extended status preparing when ads lag even if breakdowns are complete", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(warehouse.getMetaAdDailyCoverage)
+      .mockResolvedValueOnce({
+        completed_days: 365,
+        ready_through_date: "2026-04-12",
+      } as never)
+      .mockResolvedValueOnce({
+        completed_days: 89,
+        ready_through_date: "2026-04-11",
+      } as never);
+    vi.mocked(warehouse.getMetaCreativeDailyCoverage)
+      .mockResolvedValueOnce({
+        completed_days: 455,
+        ready_through_date: "2026-04-12",
+      } as never)
+      .mockResolvedValueOnce({
+        completed_days: 90,
+        ready_through_date: "2026-04-12",
+      } as never);
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/status?businessId=biz")
+    );
+    const payload = await response.json();
+    const extendedStage = payload.integrationSummary.stages.find(
+      (stage: { key: string }) => stage.key === "extended_surfaces"
+    );
+
+    expect(response.status).toBe(200);
+    expect(payload.recentExtendedReady).toBe(false);
+    expect(extendedStage).toMatchObject({
+      state: "working",
+      code: "recent_extended_preparing",
+      evidence: {
+        pendingSurfaces: ["ad_daily"],
+      },
+    });
+  });
+
+  it("keeps recent-window extended status preparing when creative media previews are incomplete", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(warehouse.getMetaCreativeMediaPreviewCoverage).mockResolvedValue({
+      total_rows: 10,
+      preview_ready_rows: 9,
+    } as never);
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/status?businessId=biz")
+    );
+    const payload = await response.json();
+    const extendedStage = payload.integrationSummary.stages.find(
+      (stage: { key: string }) => stage.key === "extended_surfaces"
+    );
+
+    expect(response.status).toBe(200);
+    expect(payload.recentExtendedReady).toBe(false);
+    expect(extendedStage).toMatchObject({
+      state: "working",
+      code: "recent_extended_preparing",
+      evidence: {
+        pendingSurfaces: ["creative_media"],
+      },
+    });
+  });
+
   it("keeps no-date page readiness ready when default breakdown coverage is complete but historical extended history still lags", async () => {
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
       id: "int_meta",

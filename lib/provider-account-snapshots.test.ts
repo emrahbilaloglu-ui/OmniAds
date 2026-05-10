@@ -119,4 +119,15 @@ describe("provider account snapshots", () => {
 
     expect(queries.join("\n")).toContain("DELETE FROM provider_account_snapshot_runs");
   });
+
+  it("classifies Meta checkpoint account-list refresh failures as auth", async () => {
+    const { classifyProviderSnapshotFailure } = await import("@/lib/provider-account-snapshots");
+
+    expect(
+      classifyProviderSnapshotFailure(
+        "You cannot access the app till you log in to www.facebook.com and follow the instructions given.",
+      ),
+    ).toBe("auth");
+    expect(classifyProviderSnapshotFailure("Facebook checkpoint required.")).toBe("auth");
+  });
 });

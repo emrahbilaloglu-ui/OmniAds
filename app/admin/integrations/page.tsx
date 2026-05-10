@@ -306,7 +306,7 @@ export default function AdminIntegrationsPage() {
                       {group.providers.map((provider) => `${providerLabel(provider.provider)} (${provider.affectedWorkspaces})`).join(", ")}
                     </p>
                     <p className="text-xs text-gray-400 mt-1">
-                      En eski sync: {formatDateTime(group.oldestFetchedAt)}
+                      En eski account snapshot: {formatDateTime(group.oldestFetchedAt)}
                       {" • "}
                       Son retry: {formatDateTime(group.latestRetryAfter)}
                     </p>
@@ -363,7 +363,7 @@ export default function AdminIntegrationsPage() {
                                 </p>
                               </div>
                               <div className="text-right text-xs text-gray-400">
-                                <p>Last sync: {formatDateTime(workspace.latestFetchedAt)}</p>
+                                <p>Account list snapshot: {formatDateTime(workspace.latestFetchedAt)}</p>
                                 <p className="mt-1">Retry after: {formatDateTime(workspace.nextRefreshAfter)}</p>
                               </div>
                             </div>
@@ -396,7 +396,7 @@ export default function AdminIntegrationsPage() {
                                   ) : null}
                                 </div>
                                 <div className="flex flex-wrap gap-3 mt-3 text-xs text-gray-400">
-                                  <span>Last sync: {formatDateTime(detail.fetchedAt)}</span>
+                                  <span>Account list snapshot: {formatDateTime(detail.fetchedAt)}</span>
                                   <span>Retry after: {formatDateTime(detail.nextRefreshAfter)}</span>
                                 </div>
                               </div>

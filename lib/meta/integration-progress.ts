@@ -239,8 +239,16 @@ function localizePendingSurface(code: string, language: MetaUiLanguage) {
       return language === "tr" ? "reklamlar" : "ads";
     case "creative_daily":
       return language === "tr" ? "kreatifler" : "creatives";
+    case "creative_media":
+      return language === "tr" ? "kreatif medya" : "creative media";
     case "breakdowns":
       return language === "tr" ? "breakdownlar" : "breakdowns";
+    case "breakdowns.age":
+      return language === "tr" ? "yaş breakdownı" : "age breakdown";
+    case "breakdowns.location":
+      return language === "tr" ? "lokasyon breakdownı" : "location breakdown";
+    case "breakdowns.placement":
+      return language === "tr" ? "placement breakdownı" : "placement breakdown";
     default:
       return code.replace(/_/g, " ");
   }

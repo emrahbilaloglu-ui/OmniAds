@@ -4,7 +4,7 @@ import { upsertIntegration } from "@/lib/integrations";
 import { requireBusinessAccess } from "@/lib/access";
 import { fetchMetaAdAccounts, getMetaApiErrorMessage } from "@/lib/meta-ad-accounts";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
-import { scheduleProviderAccountSnapshotRefresh } from "@/lib/provider-account-snapshots";
+import { forceProviderAccountSnapshotRefresh } from "@/lib/provider-account-snapshots";
 import { syncMetaInitial } from "@/lib/sync/meta-sync";
 
 async function exchangeMetaLongLivedToken(shortLivedToken: string) {
@@ -176,12 +176,11 @@ export async function GET(request: NextRequest) {
       scopes: META_CONFIG.scopes.join(" "),
     });
 
-    await scheduleProviderAccountSnapshotRefresh({
+    await forceProviderAccountSnapshotRefresh({
       businessId,
       provider: "meta",
       freshnessMs: 6 * 60 * 60_000,
       reason: "oauth_callback_refresh",
-      skipIfFresh: false,
       liveLoader: async () => {
         const metaResult = await fetchMetaAdAccounts(accessToken);
         if (!metaResult.ok || metaResult.body?.error) {

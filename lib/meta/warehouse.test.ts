@@ -48,11 +48,13 @@ const {
   getMetaCampaignDailyRange,
   getMetaCreativeMediaPreviewCoverage,
   getMetaDirtyRecentDates,
+  getMetaIncompleteCoverageDates,
   getMetaRecentAuthoritativeSliceGuard,
   leaseMetaSyncPartitions,
   markMetaPartitionRunning,
   persistMetaRawSnapshot,
   publishMetaAuthoritativeSliceVersion,
+  queueMetaSyncPartition,
   replaceMetaBreakdownDailySlice,
   upsertMetaBreakdownDailyRows,
   replayMetaDeadLetterPartitions,
@@ -570,6 +572,33 @@ describe("meta warehouse ownership safety", () => {
     expect(query).toContain("THEN partition_date");
     expect(query).toContain("WHEN source IN ('historical', 'historical_recovery', 'initial_connect')");
     expect(query).toContain("END DESC");
+  });
+
+  it("uses succeeded zero-row partitions as coverage evidence for incomplete-date scheduling", async () => {
+    let capturedQuery = "";
+    const sql = vi.fn();
+    Object.assign(sql, {
+      query: vi.fn(async (query: string) => {
+        capturedQuery = query;
+        return [];
+      }),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await getMetaIncompleteCoverageDates({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      startDate: "2026-05-01",
+      endDate: "2026-05-02",
+      scopes: ["creative_daily"],
+      limit: 10,
+    });
+
+    expect(capturedQuery).toContain("FROM meta_creative_daily");
+    expect(capturedQuery).toContain("UNION");
+    expect(capturedQuery).toContain("FROM meta_sync_partitions");
+    expect(capturedQuery).toContain("AND scope = 'creative_daily'");
+    expect(capturedQuery).toContain("AND status = 'succeeded'");
   });
 
   it("preserves existing non-null meta config truth when an incoming row is sparse", async () => {
@@ -1954,6 +1983,37 @@ describe("meta warehouse ownership safety", () => {
       }),
     ]);
     expect(sql).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let scheduled enqueue resurrect dead-letter partitions", async () => {
+    let capturedQuery = "";
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      capturedQuery = strings.join(" ");
+      return [{ id: "partition-dead-letter", status: "dead_letter" }];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await queueMetaSyncPartition({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      lane: "maintenance",
+      scope: "account_daily",
+      partitionDate: "2026-05-08",
+      status: "queued",
+      priority: 90,
+      source: "finalize_day",
+      attemptCount: 0,
+    });
+
+    expect(result?.status).toBe("dead_letter");
+    expect(capturedQuery).toContain("status IN ('failed', 'cancelled')");
+    expect(capturedQuery).toContain("AND EXCLUDED.source <> 'historical_recovery'");
+    expect(capturedQuery).not.toContain(
+      "status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')",
+    );
+    expect(capturedQuery).toContain(
+      "WHEN meta_sync_partitions.status = 'dead_letter' THEN meta_sync_partitions.updated_at",
+    );
   });
 
   it("keeps recently progressing partitions leased during cleanup", async () => {

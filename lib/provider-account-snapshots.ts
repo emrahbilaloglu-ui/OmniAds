@@ -300,6 +300,9 @@ export function classifyProviderSnapshotFailure(
     normalized.includes("access token") ||
     normalized.includes("authentication_error") ||
     normalized.includes("token has expired") ||
+    normalized.includes("cannot access the app") ||
+    normalized.includes("log in to www.facebook.com") ||
+    normalized.includes("checkpoint") ||
     normalized.includes("401")
   ) {
     return "auth";

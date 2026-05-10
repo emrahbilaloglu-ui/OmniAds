@@ -300,6 +300,39 @@ function getExtendedSurfaceMetrics(status: MetaIntegrationSummaryInput) {
   };
 }
 
+function getRecentAdsCreativePendingSurfaces(status: MetaIntegrationSummaryInput) {
+  const pending: string[] = [];
+  const ad = status.rangeCompletionBySurface?.ad_daily;
+  const creative = status.rangeCompletionBySurface?.creative_daily;
+  const creativePreview = status.warehouse?.coverage?.creatives;
+
+  if (
+    ad &&
+    ad.recentTotalDays > 0 &&
+    ad.recentCompletedDays < ad.recentTotalDays
+  ) {
+    pending.push("ad_daily");
+  }
+
+  if (
+    creative &&
+    creative.recentTotalDays > 0 &&
+    creative.recentCompletedDays < creative.recentTotalDays
+  ) {
+    pending.push("creative_daily");
+  }
+
+  if (
+    creativePreview &&
+    (creativePreview.totalRows ?? 0) > 0 &&
+    (creativePreview.previewReadyRows ?? 0) < (creativePreview.totalRows ?? 0)
+  ) {
+    pending.push("creative_media");
+  }
+
+  return pending;
+}
+
 function areRecentExtendedQueuesIdle(status: MetaIntegrationSummaryInput) {
   const recentQueueDepth = status.jobHealth?.extendedRecentQueueDepth;
   const recentLeasedPartitions = status.jobHealth?.extendedRecentLeasedPartitions;
@@ -621,21 +654,27 @@ function buildExtendedStage(
   const nonRecentRangeReady =
     !recentWindowScope && status.extendedCompleteness?.complete === true;
   const recentWindowReadyByRange =
-    recentWindowScope && status.recentExtendedReady !== false;
-  const historicalLag = status.historicalExtendedReady === false;
-  const recentWindowReady =
+    recentWindowScope && status.recentExtendedReady === true;
+  const legacyRecentWindowReady =
     recentWindowScope &&
-    (status.extendedCompleteness?.complete === true || recentWindowReadyByRange);
+    status.recentExtendedReady == null &&
+    status.extendedCompleteness?.complete === true;
+  const historicalLag = status.historicalExtendedReady === false;
+  const recentWindowReady = recentWindowReadyByRange || legacyRecentWindowReady;
   const recentLag = status.recentExtendedReady === false;
+  const recentAdsCreativePendingSurfaces = recentWindowScope
+    ? getRecentAdsCreativePendingSurfaces(status)
+    : [];
   const pendingSurfaces = Array.from(
     new Set(
       recentWindowReady || nonRecentRangeReady
         ? []
-        : (status.extendedCompleteness?.missingSurfaces?.length ?? 0) > 0
-          ? status.extendedCompleteness?.missingSurfaces ?? []
-          : recentWindowScope
-            ? []
-            : status.warehouse?.coverage?.pendingSurfaces ?? []
+        : [
+            ...(status.extendedCompleteness?.missingSurfaces ?? []),
+            ...(recentWindowScope
+              ? recentAdsCreativePendingSurfaces
+              : status.warehouse?.coverage?.pendingSurfaces ?? []),
+          ]
     )
   );
   const pendingSurfaceCount = pendingSurfaces.length;
@@ -745,9 +784,6 @@ function buildExtendedStage(
         readyThroughDate:
           breakdownMetrics?.readyThroughDate ??
           extendedSurfaceMetrics.readyThroughDate,
-        oldestStoredDate:
-          breakdownMetrics?.oldestStoredDate ??
-          extendedSurfaceMetrics.oldestStoredDate,
       }),
     };
   }

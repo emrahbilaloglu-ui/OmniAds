@@ -281,6 +281,7 @@ export async function buildGoogleAdsReleaseGateCanaries(
         progressState,
         workerOnline: workerState?.healthy ?? null,
         queueDepth: releaseQueueDepth,
+        totalQueueDepth,
         leasedPartitions: releaseLeasedPartitions,
         retryableFailedPartitions: 0,
         deadLetterPartitions: blockingDeadLetterPartitions,

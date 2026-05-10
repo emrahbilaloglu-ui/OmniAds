@@ -20,6 +20,7 @@ export interface GoogleAdsReleaseCandidateInput {
   progressState: ProviderProgressState;
   workerOnline: boolean | null;
   queueDepth: number;
+  totalQueueDepth?: number;
   leasedPartitions: number;
   retryableFailedPartitions: number;
   deadLetterPartitions: number;
@@ -36,7 +37,7 @@ export function buildGoogleAdsReleaseReadinessCandidate(
     return null;
   }
 
-  return classifyProviderReleaseTruth({
+  const candidate = classifyProviderReleaseTruth({
     activityState: input.activityState,
     progressState: input.progressState,
     workerOnline: input.workerOnline,
@@ -51,6 +52,15 @@ export function buildGoogleAdsReleaseReadinessCandidate(
     priorityTruthState: input.syncTruthState === "ready" ? "ready" : input.syncTruthState,
     stallFingerprints: input.stallFingerprints,
   });
+  if (input.totalQueueDepth == null) return candidate;
+  return {
+    ...candidate,
+    evidence: {
+      ...candidate.evidence,
+      queueDepth: input.totalQueueDepth,
+      releaseBlockingQueueDepth: input.queueDepth,
+    },
+  };
 }
 
 export interface GoogleAdsReleaseGateCanary {

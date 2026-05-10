@@ -1940,6 +1940,7 @@ export async function GET(request: NextRequest) {
       progressState: googleProgressState,
       workerOnline: workerSchedulingState?.healthy ?? null,
       queueDepth: queueHealth?.coreQueueDepth ?? 0,
+      totalQueueDepth: queueHealth?.queueDepth ?? 0,
       leasedPartitions: queueHealth?.coreLeasedPartitions ?? 0,
       retryableFailedPartitions: advisorRelevantFailedPartitions,
       deadLetterPartitions:

@@ -51,6 +51,7 @@ describe("classifyGoogleAdsSyncFailure", () => {
       "UNAUTHENTICATED: login required",
       "PERMISSION_DENIED: user permission denied for customer hierarchy",
       "google_ads_product_daily_fetch_failed: query=product_performance_legacy: message=provider_request_failed:permission:status_403",
+      "google_ads_scope_action_required: product_daily sync is paused because this Google Ads account recently returned a terminal access failure",
       "CUSTOMER_NOT_ENABLED: account suspended",
     ]) {
       const classification = classifyGoogleAdsSyncFailure({ message });

@@ -1499,6 +1499,55 @@ export async function leaseGoogleAdsSyncPartitions(input: {
             COALESCE(array_length($10::text[], 1), 0) = 0
             OR NOT (scope = ANY($10::text[]))
           )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM google_ads_sync_partitions action_partition
+            LEFT JOIN LATERAL (
+              SELECT run.error_class, run.error_message
+              FROM google_ads_sync_runs run
+              WHERE run.partition_id = action_partition.id
+              ORDER BY run.updated_at DESC
+              LIMIT 1
+            ) latest_action_run ON true
+            WHERE action_partition.business_id = google_ads_sync_partitions.business_id
+              AND action_partition.provider_account_id = google_ads_sync_partitions.provider_account_id
+              AND action_partition.scope = google_ads_sync_partitions.scope
+              AND action_partition.status = 'dead_letter'
+              AND action_partition.updated_at >= now() - interval '6 hours'
+              AND (
+                COALESCE(latest_action_run.error_class, '') IN (
+                  'account_action_required',
+                  'auth_action_required',
+                  'permission_action_required',
+                  'provider_action_required'
+                )
+                OR concat_ws(
+                  ' ',
+                  action_partition.last_error,
+                  latest_action_run.error_message,
+                  latest_action_run.error_class
+                ) ILIKE ANY (ARRAY[
+                  '%invalid_grant%',
+                  '%token has been expired or revoked%',
+                  '%refresh token%',
+                  '%login required%',
+                  '%reauth%',
+                  '%UNAUTHENTICATED%',
+                  '%AUTHENTICATION_ERROR%',
+                  '%PERMISSION_DENIED%',
+                  '%permission denied%',
+                  '%does not have permission%',
+                  '%provider_request_failed:permission%',
+                  '%permission:status_403%',
+                  '%customer_not_enabled%',
+                  '%customer not enabled%',
+                  '%customer not found%',
+                  '%account suspended%',
+                  '%account cancelled%',
+                  '%account canceled%'
+                ])
+              )
+          )
           AND (
             $6::text IS NULL
             OR $6::text = 'all'
@@ -5621,6 +5670,7 @@ const GOOGLE_ADS_CORE_RELEASE_SCOPES = new Set<GoogleAdsWarehouseScope>([
   "account_daily",
   "campaign_daily",
 ]);
+const GOOGLE_ADS_ACTION_REQUIRED_SCOPE_RETRY_COOLDOWN_HOURS = 6;
 
 function isGoogleAdsCoreReleaseScope(scope: unknown) {
   return GOOGLE_ADS_CORE_RELEASE_SCOPES.has(
@@ -5648,6 +5698,43 @@ function classifyGoogleAdsDeadLetterCandidate(
     errorClass: row.error_class,
     message: row.last_error ?? row.error_message ?? null,
   });
+}
+
+export async function hasRecentGoogleAdsTerminalActionRequiredDeadLetter(input: {
+  businessId: string;
+  providerAccountId: string;
+  scope: GoogleAdsWarehouseScope;
+  cooldownHours?: number;
+}) {
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT
+      partition.last_error,
+      latest_run.error_class,
+      latest_run.error_message
+    FROM google_ads_sync_partitions partition
+    LEFT JOIN LATERAL (
+      SELECT run.error_class, run.error_message
+      FROM google_ads_sync_runs run
+      WHERE run.partition_id = partition.id
+      ORDER BY run.updated_at DESC
+      LIMIT 1
+    ) latest_run ON true
+    WHERE partition.business_id = ${input.businessId}
+      AND partition.provider_account_id = ${input.providerAccountId}
+      AND partition.scope = ${input.scope}
+      AND partition.status = 'dead_letter'
+      AND partition.updated_at >= now() - (${input.cooldownHours ?? GOOGLE_ADS_ACTION_REQUIRED_SCOPE_RETRY_COOLDOWN_HOURS} || ' hours')::interval
+    ORDER BY partition.updated_at DESC
+    LIMIT 20
+  `) as GoogleAdsDeadLetterCandidateRow[];
+
+  return rows.some(
+    (row) =>
+      classifyGoogleAdsDeadLetterCandidate(row).recoveryKind ===
+      "terminal_action_required",
+  );
 }
 
 function normalizeGoogleAdsRecoveryKinds(

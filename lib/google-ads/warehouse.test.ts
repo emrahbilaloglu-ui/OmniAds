@@ -80,6 +80,7 @@ const {
   getGoogleAdsPartitionHealth,
   getGoogleAdsQueueHealth,
   getGoogleAdsWarehouseIntegrityIncidents,
+  hasRecentGoogleAdsTerminalActionRequiredDeadLetter,
   heartbeatGoogleAdsPartitionLease,
   leaseGoogleAdsSyncPartitions,
   markGoogleAdsPartitionRunning,
@@ -400,7 +401,56 @@ describe("google ads warehouse ownership safety", () => {
     });
 
     expect(queries.join("\n")).toContain("OR NOT (scope = ANY($10::text[]))");
+    expect(queries.join("\n")).toContain("action_partition.status = 'dead_letter'");
+    expect(queries.join("\n")).toContain("action_partition.updated_at >= now() - interval '6 hours'");
+    expect(queries.join("\n")).toContain("latest_action_run.error_class");
     expect(params[0]?.at(9)).toEqual(["product_daily"]);
+  });
+
+  it("detects recent terminal action-required dead letters for a scope", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [
+        {
+          last_error:
+            "google_ads_product_daily_fetch_failed: apiStatus=PERMISSION_DENIED: message=The caller does not have permission",
+          error_class: "account_action_required",
+          error_message:
+            "PERMISSION_DENIED: The caller does not have permission",
+        },
+      ];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await hasRecentGoogleAdsTerminalActionRequiredDeadLetter({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      scope: "product_daily",
+    });
+
+    expect(result).toBe(true);
+    expect(queries.join("\n")).toContain("partition.status = 'dead_letter'");
+    expect(queries.join("\n")).toContain("partition.updated_at >= now() -");
+  });
+
+  it("does not treat retryable dead letters as terminal scope action required", async () => {
+    const sql = vi.fn(async () => [
+      {
+        last_error: "RESOURCE_EXHAUSTED quota exceeded",
+        error_class: "quota",
+        error_message: "RESOURCE_EXHAUSTED quota exceeded",
+      },
+    ]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await expect(
+      hasRecentGoogleAdsTerminalActionRequiredDeadLetter({
+        businessId: "biz-1",
+        providerAccountId: "acct-1",
+        scope: "product_daily",
+      }),
+    ).resolves.toBe(false);
   });
 
   it("extends the running lease using the requested lease minutes", async () => {

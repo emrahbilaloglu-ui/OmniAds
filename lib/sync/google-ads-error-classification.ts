@@ -37,7 +37,9 @@ export function classifyGoogleAdsSyncFailure(input: {
     providedClass === "invalid_grant" ||
     providedClass === "unauthenticated" ||
     providedClass === "authentication_error" ||
+    providedClass === "scope_action_required" ||
     hasAny(lower, [
+      "google_ads_scope_action_required",
       "invalid_grant",
       "token has been expired or revoked",
       "refresh token",

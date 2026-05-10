@@ -70,6 +70,7 @@ import {
   getGoogleAdsPartitionDates,
   getGoogleAdsQueueHealth,
   getGoogleAdsWarehouseIntegrityIncidents,
+  hasRecentGoogleAdsTerminalActionRequiredDeadLetter,
   getLatestGoogleAdsCheckpointForPartition,
   getLatestRunningGoogleAdsSyncRunIdForPartition,
   getGoogleAdsSyncState,
@@ -259,6 +260,15 @@ class GoogleAdsRetryableSyncError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "GoogleAdsRetryableSyncError";
+  }
+}
+
+class GoogleAdsScopeActionRequiredError extends Error {
+  constructor(input: { scope: GoogleAdsWarehouseScope }) {
+    super(
+      `google_ads_scope_action_required: ${input.scope} sync is paused because this Google Ads account recently returned a terminal access failure for the same surface.`,
+    );
+    this.name = "GoogleAdsScopeActionRequiredError";
   }
 }
 const GOOGLE_ADS_CIRCUIT_BREAKER_BASE_MINUTES = envNumber(
@@ -5143,6 +5153,22 @@ function classifyGoogleAdsSyncError(error: unknown) {
   return classifyGoogleAdsSyncFailure({ error, message });
 }
 
+function isAmbiguousGoogleAdsFetchFailureForActionRequiredScope(message: string) {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("google ads query failed without a captured error") ||
+    lower.includes("google ads query failed without captured error")
+  );
+}
+
+function buildGoogleAdsScopeActionRequiredClassification() {
+  return classifyGoogleAdsSyncFailure({
+    errorClass: "scope_action_required",
+    message:
+      "google_ads_scope_action_required: same account and scope has a recent terminal Google Ads access failure",
+  });
+}
+
 function isGoogleAdsCampaignCoreLimitError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return message.startsWith(`${GOOGLE_ADS_CAMPAIGN_CORE_LIMIT_ERROR_CODE}:`);
@@ -5300,6 +5326,18 @@ async function processGoogleAdsPartition(input: {
 
   const startedAt = Date.now();
   try {
+    const scopeAlreadyActionRequired =
+      await hasRecentGoogleAdsTerminalActionRequiredDeadLetter({
+        businessId: input.partition.businessId,
+        providerAccountId: input.partition.providerAccountId,
+        scope: input.partition.scope,
+      }).catch(() => false);
+    if (scopeAlreadyActionRequired) {
+      throw new GoogleAdsScopeActionRequiredError({
+        scope: input.partition.scope,
+      });
+    }
+
     const scopes =
       input.partition.lane === "core" || input.partition.lane === "maintenance"
         ? (["account_daily", "campaign_daily"] as GoogleAdsWarehouseScope[])
@@ -5675,7 +5713,21 @@ async function processGoogleAdsPartition(input: {
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const failureClassification = classifyGoogleAdsSyncError(error);
+    let failureClassification = classifyGoogleAdsSyncError(error);
+    if (
+      !failureClassification.actionRequired &&
+      isAmbiguousGoogleAdsFetchFailureForActionRequiredScope(message)
+    ) {
+      const scopeAlreadyActionRequired =
+        await hasRecentGoogleAdsTerminalActionRequiredDeadLetter({
+          businessId: input.partition.businessId,
+          providerAccountId: input.partition.providerAccountId,
+          scope: input.partition.scope,
+        }).catch(() => false);
+      if (scopeAlreadyActionRequired) {
+        failureClassification = buildGoogleAdsScopeActionRequiredClassification();
+      }
+    }
     const errorClass = failureClassification.errorClass;
     const hardCapExceeded = isGoogleAdsCampaignCoreLimitError(error);
     if (errorClass === "quota") {

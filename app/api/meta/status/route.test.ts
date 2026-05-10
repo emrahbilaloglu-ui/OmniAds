@@ -1191,7 +1191,7 @@ describe("GET /api/meta/status", () => {
     });
   });
 
-  it("keeps recent-window extended status preparing when creative media previews are incomplete", async () => {
+  it("keeps recent-window extended status ready when only creative media previews are incomplete", async () => {
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
       id: "int_meta",
       business_id: "biz",
@@ -1210,6 +1210,15 @@ describe("GET /api/meta/status", () => {
       created_at: "",
       updated_at: "",
     });
+    vi.mocked(warehouse.getMetaCreativeDailyCoverage)
+      .mockResolvedValueOnce({
+        completed_days: 455,
+        ready_through_date: "2026-04-12",
+      } as never)
+      .mockResolvedValueOnce({
+        completed_days: 90,
+        ready_through_date: "2026-04-12",
+      } as never);
     vi.mocked(warehouse.getMetaCreativeMediaPreviewCoverage).mockResolvedValue({
       total_rows: 10,
       preview_ready_rows: 9,
@@ -1224,13 +1233,15 @@ describe("GET /api/meta/status", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(payload.recentExtendedReady).toBe(false);
+    expect(payload.recentExtendedReady).toBe(true);
     expect(extendedStage).toMatchObject({
-      state: "working",
-      code: "recent_extended_preparing",
-      evidence: {
-        pendingSurfaces: ["creative_media"],
-      },
+      state: "ready",
+      code: "extended_ready",
+    });
+    expect(payload.warehouse.coverage.creatives).toMatchObject({
+      previewReadyRows: 9,
+      totalRows: 10,
+      previewReadyPercent: 90,
     });
   });
 

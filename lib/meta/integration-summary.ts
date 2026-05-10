@@ -304,7 +304,6 @@ function getRecentAdsCreativePendingSurfaces(status: MetaIntegrationSummaryInput
   const pending: string[] = [];
   const ad = status.rangeCompletionBySurface?.ad_daily;
   const creative = status.rangeCompletionBySurface?.creative_daily;
-  const creativePreview = status.warehouse?.coverage?.creatives;
 
   if (
     ad &&
@@ -320,14 +319,6 @@ function getRecentAdsCreativePendingSurfaces(status: MetaIntegrationSummaryInput
     creative.recentCompletedDays < creative.recentTotalDays
   ) {
     pending.push("creative_daily");
-  }
-
-  if (
-    creativePreview &&
-    (creativePreview.totalRows ?? 0) > 0 &&
-    (creativePreview.previewReadyRows ?? 0) < (creativePreview.totalRows ?? 0)
-  ) {
-    pending.push("creative_media");
   }
 
   return pending;

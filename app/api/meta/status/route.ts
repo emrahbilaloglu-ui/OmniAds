@@ -1721,17 +1721,12 @@ export async function GET(request: NextRequest) {
   const recentCreativeDailyReady =
     recentWindowTotalDays > 0 &&
     (recentCreativeCoverage?.completed_days ?? 0) >= recentWindowTotalDays;
-  const creativePreviewTotalRows = creativePreviewCoverage?.total_rows ?? 0;
-  const recentCreativePreviewReady =
-    creativePreviewTotalRows === 0 ||
-    (creativePreviewCoverage?.preview_ready_rows ?? 0) >= creativePreviewTotalRows;
   const recentExtendedReady =
     recentBreakdownsBySurface.age.isComplete &&
     recentBreakdownsBySurface.location.isComplete &&
     recentBreakdownsBySurface.placement.isComplete &&
     recentAdDailyReady &&
-    recentCreativeDailyReady &&
-    recentCreativePreviewReady;
+    recentCreativeDailyReady;
   const defaultCoverageReady =
     !selectedRangeRequested &&
     currentCoreUsable &&

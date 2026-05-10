@@ -27,6 +27,9 @@ const runGoogleAdsRepairCycle = vi.fn();
 const runAutoSyncRepairPass = vi.fn();
 const mergeAutoRepairResult = vi.fn();
 const getIntegration = vi.fn();
+const upsertIntegration = vi.fn();
+const fetchGoogleAdsAccounts = vi.fn();
+const refreshGoogleAccessToken = vi.fn();
 const fetchMetaAdAccounts = vi.fn();
 const getMetaApiErrorMessage = vi.fn();
 const readProviderAccountSnapshot = vi.fn();
@@ -61,6 +64,12 @@ vi.mock("@/lib/api/meta", () => ({
 
 vi.mock("@/lib/integrations", () => ({
   getIntegration,
+  upsertIntegration,
+}));
+
+vi.mock("@/lib/google-ads-accounts", () => ({
+  fetchGoogleAdsAccounts,
+  refreshGoogleAccessToken,
 }));
 
 vi.mock("@/lib/meta-ad-accounts", () => ({
@@ -123,7 +132,26 @@ describe("provider-worker-adapters", () => {
     getIntegration.mockResolvedValue({
       status: "connected",
       access_token: "token",
+      refresh_token: "refresh-token",
       token_expires_at: "2026-06-01T00:00:00.000Z",
+      scopes: "https://www.googleapis.com/auth/adwords",
+    });
+    upsertIntegration.mockResolvedValue({});
+    fetchGoogleAdsAccounts.mockResolvedValue({
+      ok: true,
+      customers: [
+        {
+          id: "123-456-7890",
+          name: "Google Account",
+          currency: "USD",
+          timezone: "UTC",
+          isManager: false,
+        },
+      ],
+    });
+    refreshGoogleAccessToken.mockResolvedValue({
+      accessToken: "fresh-token",
+      expiresIn: 3600,
     });
     readProviderAccountSnapshot.mockResolvedValue({
       accounts: [{ id: "act_1", name: "Account 1" }],
@@ -469,12 +497,22 @@ describe("provider-worker-adapters", () => {
       releaseGate: null,
       repairPlan: null,
     });
+    syncGoogleAdsReports.mockResolvedValue({
+      businessId: "biz-1",
+      attempted: 1,
+      succeeded: 1,
+      failed: 0,
+    });
 
     const { googleAdsWorkerAdapter } = await import("@/lib/sync/provider-worker-adapters");
     const repair = await googleAdsWorkerAdapter.runAutoHeal?.("biz-1");
 
     expect(runGoogleAdsRepairCycle).toHaveBeenCalledWith("biz-1", {
       enqueueScheduledWork: false,
+      googleDeadLetterRecoveryKinds: ["replayable_transient"],
+    });
+    expect(syncGoogleAdsReports).toHaveBeenCalledWith("biz-1", {
+      runtimeWorkerId: "google-ads-autoheal:biz-1",
     });
     expect(runAutoSyncRepairPass).toHaveBeenCalledWith({
       providerScope: "google_ads",
@@ -485,6 +523,96 @@ describe("provider-worker-adapters", () => {
       expect.objectContaining({
         replayed: 1,
         requeued: 2,
+        meta: expect.objectContaining({
+          consumeAfterRepair: expect.objectContaining({
+            attempted: 1,
+            succeeded: 1,
+          }),
+          providerAccountSnapshotRepair: expect.objectContaining({
+            outcome: "fresh",
+            accountCount: 1,
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("does not consume Google queued work when auto-heal found nothing to repair", async () => {
+    runGoogleAdsRepairCycle.mockResolvedValue({
+      repair: {
+        reclaimed: 0,
+        replayed: 0,
+        requeued: 0,
+        blocked: false,
+        blockingReasons: [],
+        repairableActions: [],
+        meta: {
+          queuedWarehouseRepairs: 0,
+          queuedRecentGapRepairs: 0,
+        },
+      },
+    });
+    runAutoSyncRepairPass.mockResolvedValue({
+      execution: null,
+      recommendation: null,
+      skippedReason: "no_recommendation",
+      budgetState: null,
+      releaseGate: null,
+      repairPlan: null,
+    });
+
+    const { googleAdsWorkerAdapter } = await import("@/lib/sync/provider-worker-adapters");
+    const repair = await googleAdsWorkerAdapter.runAutoHeal?.("biz-1");
+
+    expect(syncGoogleAdsReports).not.toHaveBeenCalled();
+    expect(repair?.meta).toEqual(
+      expect.objectContaining({
+        consumeAfterRepair: null,
+      }),
+    );
+  });
+
+  it("refreshes a missing Google account-list snapshot during worker auto-heal", async () => {
+    readProviderAccountSnapshot.mockResolvedValueOnce(null);
+    resolveProviderAccountSnapshot.mockResolvedValueOnce({
+      accounts: [{ id: "123-456-7890", name: "Google Account" }],
+      meta: { fetchedAt: "2026-05-10T00:00:00.000Z" },
+    });
+    runGoogleAdsRepairCycle.mockResolvedValue({
+      repair: {
+        reclaimed: 0,
+        replayed: 0,
+        requeued: 0,
+        blocked: false,
+        blockingReasons: [],
+        repairableActions: [],
+      },
+    });
+    runAutoSyncRepairPass.mockResolvedValue({
+      execution: null,
+      recommendation: null,
+      skippedReason: "no_recommendation",
+      budgetState: null,
+      releaseGate: null,
+      repairPlan: null,
+    });
+
+    const { googleAdsWorkerAdapter } = await import("@/lib/sync/provider-worker-adapters");
+    const repair = await googleAdsWorkerAdapter.runAutoHeal?.("biz-1");
+
+    expect(resolveProviderAccountSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz-1",
+        provider: "google",
+        reason: "worker_missing_account_snapshot",
+      }),
+    );
+    expect(repair?.meta).toEqual(
+      expect.objectContaining({
+        providerAccountSnapshotRepair: expect.objectContaining({
+          outcome: "refreshed_missing_snapshot",
+          accountCount: 1,
+        }),
       }),
     );
   });

@@ -479,7 +479,25 @@ describe("google ads warehouse ownership safety", () => {
   it("keeps active leased dead-letter partitions out of replay", async () => {
     const queries: string[] = [];
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
-      queries.push(strings.join(" "));
+      const query = strings.join(" ");
+      queries.push(query);
+      if (
+        query.includes("FROM google_ads_sync_partitions partition") &&
+        query.includes("latest_run")
+      ) {
+        return [
+          {
+            id: "11111111-1111-1111-1111-111111111111",
+            lane: "core",
+            scope: "campaign_daily",
+            source: "historical",
+            partition_date: "2026-05-01",
+            last_error: "RESOURCE_EXHAUSTED quota exceeded",
+            error_class: "quota",
+            error_message: "RESOURCE_EXHAUSTED quota exceeded",
+          },
+        ];
+      }
       return [];
     });
     vi.mocked(db.getDb).mockReturnValue(sql as never);
@@ -509,8 +527,19 @@ describe("google ads warehouse ownership safety", () => {
   it("returns skipped_active_lease when only actively leased partitions match replay", async () => {
     const sql = vi
       .fn()
-      .mockResolvedValueOnce([{ id: "partition-1" }])
-      .mockResolvedValueOnce([{ id: "partition-1" }])
+      .mockResolvedValueOnce([
+        {
+          id: "11111111-1111-1111-1111-111111111111",
+          lane: "core",
+          scope: "campaign_daily",
+          source: "historical",
+          partition_date: "2026-05-01",
+          last_error: "RESOURCE_EXHAUSTED quota exceeded",
+          error_class: "quota",
+          error_message: "RESOURCE_EXHAUSTED quota exceeded",
+        },
+      ])
+      .mockResolvedValueOnce([{ id: "11111111-1111-1111-1111-111111111111" }])
       .mockResolvedValueOnce([]);
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 
@@ -523,6 +552,43 @@ describe("google ads warehouse ownership safety", () => {
     expect(result.matchedCount).toBe(1);
     expect(result.changedCount).toBe(0);
     expect(result.skippedActiveLeaseCount).toBe(1);
+  });
+
+  it("skips terminal Google Ads action-required dead letters during automatic replay", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      queries.push(query);
+      return [
+        {
+          id: "11111111-1111-1111-1111-111111111111",
+          lane: "core",
+          scope: "campaign_daily",
+          source: "historical",
+          partition_date: "2026-05-01",
+          last_error: "invalid_grant: token has been expired or revoked",
+          error_class: "account_action_required",
+          error_message: "invalid_grant: token has been expired or revoked",
+        },
+      ];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await replayGoogleAdsDeadLetterPartitions({
+      businessId: "biz-1",
+      scope: "campaign_daily",
+    });
+
+    expect(result.matchedCount).toBe(1);
+    expect(result.changedCount).toBe(0);
+    expect(result.terminalActionRequiredCount).toBe(1);
+    expect(result.actionRequiredPartitions?.[0]).toEqual(
+      expect.objectContaining({
+        id: "11111111-1111-1111-1111-111111111111",
+        reasonCode: "google_ads_auth_action_required",
+      }),
+    );
+    expect(queries.some((query) => query.includes("UPDATE google_ads_sync_partitions"))).toBe(false);
   });
 
   it("keeps recently progressing partitions leased during cleanup", async () => {

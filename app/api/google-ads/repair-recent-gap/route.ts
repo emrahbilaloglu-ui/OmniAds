@@ -234,6 +234,7 @@ export async function POST(request: NextRequest) {
       scope: chosenGap.scope,
       startDate: date,
       endDate: date,
+      recoveryKinds: ["replayable_transient", "unknown"],
     }).catch(() => ({ partitions: [] }));
     replayedDeadLetterRows.push(...replayedPoisonedRows.partitions);
     replayedDeadLetterRows.push(...replayedRows.partitions);

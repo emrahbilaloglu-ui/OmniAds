@@ -48,6 +48,10 @@ import {
   type ProviderProgressEvidenceStateRow,
 } from "@/lib/sync/provider-status-truth";
 import {
+  classifyGoogleAdsSyncFailure,
+  shouldDeadLetterGoogleAdsFailure,
+} from "@/lib/sync/google-ads-error-classification";
+import {
   buildGoogleAdsRawSnapshotHash,
   backfillGoogleAdsRunningCheckpointsForTerminalPartition,
   backfillGoogleAdsRunningRunsForTerminalPartition,
@@ -5098,15 +5102,20 @@ async function syncGoogleAdsAccountDay(input: {
 }
 
 function classifyGoogleAdsSyncError(error: unknown) {
-  if (error instanceof GoogleAdsRetryableSyncError) return "transient";
   const message = error instanceof Error ? error.message : String(error);
-  if (isGoogleAdsCampaignCoreLimitError(error)) return "application";
-  if (/RESOURCE_EXHAUSTED|quota|rate limit|429/i.test(message)) return "quota";
-  if (
-    /timeout|ECONNRESET|ENOTFOUND|server_login_retry|partial pkt/i.test(message)
-  )
-    return "transient";
-  return "application";
+  if (error instanceof GoogleAdsRetryableSyncError) {
+    return classifyGoogleAdsSyncFailure({
+      errorClass: "transient",
+      message,
+    });
+  }
+  if (isGoogleAdsCampaignCoreLimitError(error)) {
+    return classifyGoogleAdsSyncFailure({
+      errorClass: "application",
+      message,
+    });
+  }
+  return classifyGoogleAdsSyncFailure({ error, message });
 }
 
 function isGoogleAdsCampaignCoreLimitError(error: unknown) {
@@ -5641,7 +5650,8 @@ async function processGoogleAdsPartition(input: {
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const errorClass = classifyGoogleAdsSyncError(error);
+    const failureClassification = classifyGoogleAdsSyncError(error);
+    const errorClass = failureClassification.errorClass;
     const hardCapExceeded = isGoogleAdsCampaignCoreLimitError(error);
     if (errorClass === "quota") {
       if (
@@ -5669,11 +5679,16 @@ async function processGoogleAdsPartition(input: {
       partitionId,
       checkpointScope: input.partition.scope,
     }).catch(() => null);
-    const poisonCandidate = nextAttempt >= 3;
     const shouldDeadLetter =
       hardCapExceeded ||
-      poisonCandidate ||
-      nextAttempt >= GOOGLE_ADS_PARTITION_MAX_ATTEMPTS;
+      shouldDeadLetterGoogleAdsFailure({
+        errorClass,
+        terminal: failureClassification.terminal,
+        attemptCount: input.partition.attemptCount,
+        maxAttempts: GOOGLE_ADS_PARTITION_MAX_ATTEMPTS,
+      });
+    const shouldPoisonCheckpoint =
+      shouldDeadLetter && !failureClassification.actionRequired;
     const status = shouldDeadLetter ? "dead_letter" : "failed";
     await upsertGoogleAdsCheckpointOrThrow({
       partitionId,
@@ -5696,13 +5711,13 @@ async function processGoogleAdsPartition(input: {
       progressHeartbeatAt: new Date().toISOString(),
       leaseOwner: input.workerId,
       leaseEpoch: input.partition.leaseEpoch ?? null,
-      poisonedAt: shouldDeadLetter ? new Date().toISOString() : null,
-      poisonReason: shouldDeadLetter
+      poisonedAt: shouldPoisonCheckpoint ? new Date().toISOString() : null,
+      poisonReason: shouldPoisonCheckpoint
         ? hardCapExceeded
           ? message
           : `Repeated failure on checkpoint page ${activeCheckpoint?.pageIndex ?? 0}: ${message}`
         : null,
-      replayReasonCode: shouldDeadLetter
+      replayReasonCode: shouldPoisonCheckpoint
         ? "quarantine_release"
         : resolveGoogleReplayReasonCode({
             checkpointStatus: activeCheckpoint?.status ?? "failed",
@@ -5721,7 +5736,7 @@ async function processGoogleAdsPartition(input: {
       startedAt: activeCheckpoint?.startedAt ?? null,
       finishedAt: new Date().toISOString(),
     }).catch(() => null);
-    if (shouldDeadLetter) {
+    if (shouldPoisonCheckpoint) {
       await recordSyncReclaimEvents({
         providerScope: "google_ads",
         businessId: input.partition.businessId,

@@ -1063,6 +1063,78 @@ describe("provider repair engine", () => {
     );
   });
 
+  it("blocks Google auto repair on terminal account action-required dead letters", async () => {
+    const googleAdsWarehouse = await import("@/lib/google-ads/warehouse");
+    vi.mocked(googleAdsWarehouse.cleanupGoogleAdsPartitionOrchestration).mockResolvedValue({
+      stalePartitionCount: 0,
+      staleRunCount: 0,
+      poisonCandidateCount: 0,
+    } as never);
+    vi.mocked(googleAdsWarehouse.replayGoogleAdsDeadLetterPartitions).mockResolvedValue({
+      outcome: "no_matching_partitions",
+      partitions: [],
+      matchedCount: 1,
+      changedCount: 0,
+      skippedActiveLeaseCount: 0,
+      replayableMatchedCount: 0,
+      terminalActionRequiredCount: 1,
+      unknownMatchedCount: 0,
+      actionRequiredPartitions: [
+        {
+          id: "partition-auth",
+          scope: "campaign_daily",
+          source: "historical",
+          partitionDate: "2026-05-01",
+          lastError: "invalid_grant: token has been expired or revoked",
+          errorClass: "account_action_required",
+          reasonCode: "google_ads_auth_action_required",
+        },
+      ],
+    } as never);
+    vi.mocked(googleAdsWarehouse.forceReplayGoogleAdsPoisonedPartitions).mockResolvedValue({
+      outcome: "no_matching_partitions",
+      partitions: [],
+      matchedCount: 0,
+      changedCount: 0,
+      skippedActiveLeaseCount: 0,
+    } as never);
+    vi.mocked(googleAdsWarehouse.getGoogleAdsQueueHealth).mockResolvedValue({
+      queueDepth: 0,
+      leasedPartitions: 0,
+      deadLetterPartitions: 1,
+    } as never);
+    vi.mocked(googleAdsWarehouse.getGoogleAdsCheckpointHealth).mockResolvedValue({
+      latestCheckpointScope: null,
+      latestCheckpointPhase: null,
+      latestCheckpointStatus: null,
+      latestCheckpointUpdatedAt: null,
+      checkpointLagMinutes: null,
+      lastSuccessfulPageIndex: null,
+      resumeCapable: false,
+      checkpointFailures: 0,
+    } as never);
+    vi.mocked(googleAdsWarehouse.getGoogleAdsWarehouseIntegrityIncidents).mockResolvedValue([] as never);
+
+    const { runGoogleAdsRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+    const result = await runGoogleAdsRepairCycle("biz-1", {
+      enqueueScheduledWork: false,
+    });
+
+    expect(googleAdsWarehouse.replayGoogleAdsDeadLetterPartitions).toHaveBeenCalledWith({
+      businessId: "biz-1",
+      recoveryKinds: ["replayable_transient"],
+    });
+    expect(result.repair.blocked).toBe(true);
+    expect(result.repair.blockingReasons).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "account_action_required",
+          repairable: false,
+        }),
+      ]),
+    );
+  });
+
   it("quarantines queued Meta checkpoint partitions and blocks replay as account action required", async () => {
     const metaWarehouse = await import("@/lib/meta/warehouse");
     vi.mocked(metaWarehouse.cleanupMetaPartitionOrchestration).mockResolvedValue({

@@ -39,6 +39,7 @@ async function main() {
         : null,
     startDate,
     endDate,
+    recoveryKinds: ["replayable_transient", "unknown"],
   });
 
   console.log(

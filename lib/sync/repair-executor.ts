@@ -567,6 +567,7 @@ export async function executeSyncRepairAction(
       const replayed = await replayGoogleAdsDeadLetterPartitions({
         businessId: input.businessId,
         scope: null,
+        recoveryKinds: ["replayable_transient"],
       });
       const scheduled = await enqueueGoogleAdsScheduledWork(input.businessId);
       return {

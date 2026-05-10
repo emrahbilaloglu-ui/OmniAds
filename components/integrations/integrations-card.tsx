@@ -74,7 +74,8 @@ export function IntegrationsCard({
   const isDegraded = view.status === "degraded";
   const isActionRequired = view.status === "action_required";
   const syncActionRequired =
-    provider === "meta" && metaSyncStatus?.state === "action_required";
+    (provider === "meta" && metaSyncStatus?.state === "action_required") ||
+    (provider === "google" && googleSyncStatus?.state === "action_required");
   const visualStatus = syncActionRequired ? "action_required" : view.status;
   const isShopify = provider === "shopify";
   const logoSrc = getProviderLogo(provider);
@@ -179,7 +180,7 @@ export function IntegrationsCard({
 
       {syncActionRequired && view.status !== "action_required" ? (
         <p className="mt-2 rounded-lg border border-amber-300/40 bg-amber-50 px-2.5 py-2 text-[11px] leading-4 text-amber-800">
-          Meta sync needs attention while the account connection remains active.
+          {providerLabel} sync needs attention while the account connection remains active.
         </p>
       ) : null}
 

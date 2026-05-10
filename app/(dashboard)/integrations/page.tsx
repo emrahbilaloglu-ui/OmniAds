@@ -572,7 +572,13 @@ export default function IntegrationsPage() {
       googleSyncLoading = googleAdsStatusQuery.isLoading && !status;
       googleSyncStatus = status ?? null;
 
-      if (sourceHealth === "healthy_cached") {
+      if (status?.state === "action_required") {
+        syncNotice =
+          status.operations?.blockingReasons?.[0]?.detail ??
+          status.latestSync?.lastError ??
+          "Google Ads sync needs attention before required data can be refreshed.";
+        syncNoticeTone = "error";
+      } else if (sourceHealth === "healthy_cached") {
         syncNotice =
           domain?.discovery.notice ??
           "Cached accounts available while the latest refresh finishes.";
@@ -581,10 +587,7 @@ export default function IntegrationsPage() {
         syncNotice =
           domain?.discovery.notice ?? "Account list may be stale.";
         syncNoticeTone = "warning";
-      } else if (
-        status?.domainReadiness?.summary &&
-        status.state !== "action_required"
-      ) {
+      } else if (status?.domainReadiness?.summary) {
         syncNotice = status.domainReadiness.summary;
       }
     } else if (provider === "shopify") {

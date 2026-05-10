@@ -28,11 +28,13 @@ import {
 } from "@/lib/sync/provider-status-truth";
 import { logRuntimeInfo, logRuntimeWarn } from "@/lib/runtime-logging";
 import type { MetaDeadLetterRecoveryKind } from "@/lib/sync/meta-error-classification";
+import type { GoogleAdsDeadLetterRecoveryKind } from "@/lib/sync/google-ads-error-classification";
 
 export interface ProviderRepairCycleOptions {
   enqueueScheduledWork?: boolean;
   metaDeadLetterSources?: string[] | null;
   metaDeadLetterRecoveryKinds?: MetaDeadLetterRecoveryKind[] | null;
+  googleDeadLetterRecoveryKinds?: GoogleAdsDeadLetterRecoveryKind[] | null;
   queueWarehouseRepairs?: boolean;
 }
 
@@ -434,10 +436,18 @@ export async function runGoogleAdsRepairCycle(
     .cleanupGoogleAdsPartitionOrchestration({ businessId })
     .catch(() => null);
   const replayedDeadLetters = await googleAdsWarehouse
-    .replayGoogleAdsDeadLetterPartitions({ businessId })
+    .replayGoogleAdsDeadLetterPartitions({
+      businessId,
+      recoveryKinds: options?.googleDeadLetterRecoveryKinds ?? [
+        "replayable_transient",
+      ],
+    })
     .catch(() => null);
   const replayedPoisoned = await googleAdsWarehouse
-    .forceReplayGoogleAdsPoisonedPartitions({ businessId })
+    .forceReplayGoogleAdsPoisonedPartitions({
+      businessId,
+      recoveryKinds: ["replayable_transient"],
+    })
     .catch(() => null);
   const integrityEndDate = new Date().toISOString().slice(0, 10);
   const integrityStartDate = addUtcDays(integrityEndDate, -45);
@@ -533,19 +543,33 @@ export async function runGoogleAdsRepairCycle(
   const enqueueResult = enqueueScheduledWork
     ? await enqueueGoogleAdsScheduledWork(businessId)
     : null;
+  const deadLetterPartitionsBefore =
+    queueHealthBeforeEnqueue?.deadLetterPartitions ?? 0;
+  const deadLetterReplayChanged =
+    (replayedDeadLetters?.changedCount ?? 0) +
+    (replayedPoisoned?.changedCount ?? 0);
+  const terminalActionRequiredDeadLetters =
+    replayedDeadLetters?.terminalActionRequiredCount ?? 0;
   const blocked =
-    ((queueHealthBeforeEnqueue?.deadLetterPartitions ?? 0) > 0 &&
-      (replayedDeadLetters?.changedCount ?? 0) + (replayedPoisoned?.changedCount ?? 0) <= 0) ||
+    (deadLetterPartitionsBefore > 0 && deadLetterReplayChanged <= 0) ||
     (checkpointHealth?.checkpointFailures ?? 0) > 0 ||
     advisorRecentGapRepairs.repairs.length > 0 ||
     persistentIntegrityMismatch;
 
   const blockingReasons = compactBlockingReasons([
-    (queueHealthBeforeEnqueue?.deadLetterPartitions ?? 0) > 0 &&
-    (replayedDeadLetters?.changedCount ?? 0) + (replayedPoisoned?.changedCount ?? 0) <= 0
+    terminalActionRequiredDeadLetters > 0
+      ? buildBlockingReason(
+          "account_action_required",
+          `${terminalActionRequiredDeadLetters} Google Ads partition(s) require Google account, OAuth, or customer-access action. Auto replay is intentionally disabled for these rows.`,
+          { repairable: false },
+        )
+      : null,
+    deadLetterPartitionsBefore > 0 &&
+    deadLetterReplayChanged <= 0 &&
+    terminalActionRequiredDeadLetters === 0
       ? buildBlockingReason(
           "required_dead_letter_partitions",
-          `${queueHealthBeforeEnqueue?.deadLetterPartitions ?? 0} Google Ads partition(s) remain dead-lettered after repair.`,
+          `${deadLetterPartitionsBefore} Google Ads partition(s) remain dead-lettered after repair. replayable=${replayedDeadLetters?.replayableMatchedCount ?? 0}, unknown=${replayedDeadLetters?.unknownMatchedCount ?? 0}.`,
           { repairable: true }
         )
       : null,

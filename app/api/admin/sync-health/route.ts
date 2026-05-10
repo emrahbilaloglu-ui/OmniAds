@@ -220,6 +220,7 @@ export async function POST(request: NextRequest) {
       const result = await replayGoogleAdsDeadLetterPartitions({
         businessId: body.businessId,
         scope,
+        recoveryKinds: ["replayable_transient", "unknown"],
       });
       const scheduled = await enqueueGoogleAdsScheduledWork(body.businessId);
       await logRecovery("completed", {

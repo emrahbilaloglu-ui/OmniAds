@@ -38,6 +38,10 @@ import {
 import { mergeGoogleAdsSyncStateWrite } from "@/lib/google-ads/sync-state-write";
 import { computeCheckpointLagMinutes } from "@/lib/provider-readiness";
 import {
+  classifyGoogleAdsSyncFailure,
+  type GoogleAdsDeadLetterRecoveryKind,
+} from "@/lib/sync/google-ads-error-classification";
+import {
   readGoogleAdsAdDimensions,
   readGoogleAdsAdGroupDimensions,
   readGoogleAdsAssetGroupDimensions,
@@ -5471,6 +5475,49 @@ export interface GoogleAdsRecoveryActionResult {
   matchedCount: number;
   changedCount: number;
   skippedActiveLeaseCount: number;
+  replayableMatchedCount?: number;
+  terminalActionRequiredCount?: number;
+  unknownMatchedCount?: number;
+  actionRequiredPartitions?: Array<{
+    id: string;
+    scope: string;
+    source: string | null;
+    partitionDate: string;
+    lastError: string | null;
+    errorClass: string | null;
+    reasonCode: string;
+  }>;
+}
+
+type GoogleAdsDeadLetterCandidateRow = {
+  id: string;
+  lane: string;
+  scope: string;
+  source: string | null;
+  partition_date: string | Date;
+  last_error: string | null;
+  error_class: string | null;
+  error_message: string | null;
+};
+
+function classifyGoogleAdsDeadLetterCandidate(
+  row: Pick<
+    GoogleAdsDeadLetterCandidateRow,
+    "last_error" | "error_class" | "error_message"
+  >,
+) {
+  return classifyGoogleAdsSyncFailure({
+    errorClass: row.error_class,
+    message: row.last_error ?? row.error_message ?? null,
+  });
+}
+
+function normalizeGoogleAdsRecoveryKinds(
+  kinds: GoogleAdsDeadLetterRecoveryKind[] | null | undefined,
+) {
+  return kinds && kinds.length > 0
+    ? new Set<GoogleAdsDeadLetterRecoveryKind>(kinds)
+    : new Set<GoogleAdsDeadLetterRecoveryKind>(["replayable_transient"]);
 }
 
 export async function replayGoogleAdsDeadLetterPartitions(input: {
@@ -5478,29 +5525,55 @@ export async function replayGoogleAdsDeadLetterPartitions(input: {
   scope?: GoogleAdsWarehouseScope | null;
   startDate?: string | null;
   endDate?: string | null;
+  recoveryKinds?: GoogleAdsDeadLetterRecoveryKind[] | null;
 }): Promise<GoogleAdsRecoveryActionResult> {
   await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const matchedRows = (await sql`
+    SELECT
+      partition.id,
+      partition.lane,
+      partition.scope,
+      partition.source,
+      partition.partition_date,
+      partition.last_error,
+      latest_run.error_class,
+      latest_run.error_message
+    FROM google_ads_sync_partitions partition
+    LEFT JOIN LATERAL (
+      SELECT run.error_class, run.error_message
+      FROM google_ads_sync_runs run
+      WHERE run.partition_id = partition.id
+      ORDER BY run.updated_at DESC
+      LIMIT 1
+    ) latest_run ON true
+    WHERE partition.business_id = ${input.businessId}
+      AND partition.status = 'dead_letter'
+      AND (${input.scope ?? null}::text IS NULL OR partition.scope = ${input.scope ?? null})
+      AND (${input.startDate ?? null}::date IS NULL OR partition.partition_date >= ${input.startDate ?? null}::date)
+      AND (${input.endDate ?? null}::date IS NULL OR partition.partition_date <= ${input.endDate ?? null}::date)
+  `) as GoogleAdsDeadLetterCandidateRow[];
+  const allowedKinds = normalizeGoogleAdsRecoveryKinds(input.recoveryKinds);
+  const classifiedRows = matchedRows.map((row) => ({
+    row,
+    classification: classifyGoogleAdsDeadLetterCandidate(row),
+  }));
+  const eligibleRows = classifiedRows
+    .filter(({ classification }) => allowedKinds.has(classification.recoveryKind))
+    .map(({ row }) => row);
+  const eligibleIds = eligibleRows.map((row) => row.id);
+  const skippedActiveLeaseRows = eligibleIds.length > 0
+    ? ((await sql`
     SELECT id
     FROM google_ads_sync_partitions
-    WHERE business_id = ${input.businessId}
-      AND status = 'dead_letter'
-      AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
-      AND (${input.startDate ?? null}::date IS NULL OR partition_date >= ${input.startDate ?? null}::date)
-      AND (${input.endDate ?? null}::date IS NULL OR partition_date <= ${input.endDate ?? null}::date)
-  `) as Array<{ id: string }>;
-  const skippedActiveLeaseRows = (await sql`
-    SELECT id
-    FROM google_ads_sync_partitions
-    WHERE business_id = ${input.businessId}
+    WHERE id = ANY(${eligibleIds}::uuid[])
+      AND business_id = ${input.businessId}
       AND status = 'dead_letter'
       AND COALESCE(lease_expires_at, now() - interval '1 second') > now()
-      AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
-      AND (${input.startDate ?? null}::date IS NULL OR partition_date >= ${input.startDate ?? null}::date)
-      AND (${input.endDate ?? null}::date IS NULL OR partition_date <= ${input.endDate ?? null}::date)
-  `) as Array<{ id: string }>;
-  const rows = (await sql`
+  `) as Array<{ id: string }>)
+    : [];
+  const rows = eligibleIds.length > 0
+    ? ((await sql`
     UPDATE google_ads_sync_partitions
     SET
       status = 'queued',
@@ -5509,14 +5582,13 @@ export async function replayGoogleAdsDeadLetterPartitions(input: {
       next_retry_at = NULL,
       last_error = NULL,
       updated_at = now()
-    WHERE business_id = ${input.businessId}
+    WHERE id = ANY(${eligibleIds}::uuid[])
+      AND business_id = ${input.businessId}
       AND status = 'dead_letter'
       AND COALESCE(lease_expires_at, now() - interval '1 second') <= now()
-      AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
-      AND (${input.startDate ?? null}::date IS NULL OR partition_date >= ${input.startDate ?? null}::date)
-      AND (${input.endDate ?? null}::date IS NULL OR partition_date <= ${input.endDate ?? null}::date)
     RETURNING id, lane, scope, partition_date
-  `) as Array<Record<string, unknown>>;
+  `) as Array<Record<string, unknown>>)
+    : [];
   const partitions = rows.map((row) => ({
     id: String(row.id),
     lane: String(row.lane),
@@ -5536,13 +5608,38 @@ export async function replayGoogleAdsDeadLetterPartitions(input: {
     outcome:
       partitions.length > 0
         ? "replayed"
-        : matchedRows.length > 0
+        : skippedActiveLeaseRows.length > 0
           ? "skipped_active_lease"
           : "no_matching_partitions",
     partitions,
     matchedCount: matchedRows.length,
     changedCount: partitions.length,
     skippedActiveLeaseCount: skippedActiveLeaseRows.length,
+    replayableMatchedCount: classifiedRows.filter(
+      ({ classification }) =>
+        classification.recoveryKind === "replayable_transient",
+    ).length,
+    terminalActionRequiredCount: classifiedRows.filter(
+      ({ classification }) =>
+        classification.recoveryKind === "terminal_action_required",
+    ).length,
+    unknownMatchedCount: classifiedRows.filter(
+      ({ classification }) => classification.recoveryKind === "unknown",
+    ).length,
+    actionRequiredPartitions: classifiedRows
+      .filter(
+        ({ classification }) =>
+          classification.recoveryKind === "terminal_action_required",
+      )
+      .map(({ row, classification }) => ({
+        id: row.id,
+        scope: row.scope,
+        source: row.source,
+        partitionDate: normalizeDate(row.partition_date),
+        lastError: row.last_error,
+        errorClass: row.error_class,
+        reasonCode: classification.reasonCode,
+      })),
   };
 }
 
@@ -5640,33 +5737,61 @@ export async function forceReplayGoogleAdsPoisonedPartitions(input: {
   scope?: GoogleAdsWarehouseScope | null;
   startDate?: string | null;
   endDate?: string | null;
+  recoveryKinds?: GoogleAdsDeadLetterRecoveryKind[] | null;
 }): Promise<GoogleAdsRecoveryActionResult> {
   await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const matchedRows = (await sql`
-    SELECT partition.id
+    SELECT
+      partition.id,
+      partition.lane,
+      partition.scope,
+      partition.source,
+      partition.partition_date,
+      partition.last_error,
+      latest_run.error_class,
+      COALESCE(latest_run.error_message, checkpoint.poison_reason) AS error_message
     FROM google_ads_sync_partitions partition
     JOIN google_ads_sync_checkpoints checkpoint ON checkpoint.partition_id = partition.id
+    LEFT JOIN LATERAL (
+      SELECT run.error_class, run.error_message
+      FROM google_ads_sync_runs run
+      WHERE run.partition_id = partition.id
+      ORDER BY run.updated_at DESC
+      LIMIT 1
+    ) latest_run ON true
     WHERE partition.business_id = ${input.businessId}
       AND partition.status = 'dead_letter'
       AND checkpoint.poisoned_at IS NOT NULL
       AND (${input.scope ?? null}::text IS NULL OR partition.scope = ${input.scope ?? null})
       AND (${input.startDate ?? null}::date IS NULL OR partition.partition_date >= ${input.startDate ?? null}::date)
       AND (${input.endDate ?? null}::date IS NULL OR partition.partition_date <= ${input.endDate ?? null}::date)
-  `) as Array<{ id: string }>;
-  const skippedActiveLeaseRows = (await sql`
+  `) as GoogleAdsDeadLetterCandidateRow[];
+  const allowedKinds = normalizeGoogleAdsRecoveryKinds(
+    input.recoveryKinds ?? ["replayable_transient", "unknown"],
+  );
+  const classifiedRows = matchedRows.map((row) => ({
+    row,
+    classification: classifyGoogleAdsDeadLetterCandidate(row),
+  }));
+  const eligibleRows = classifiedRows
+    .filter(({ classification }) => allowedKinds.has(classification.recoveryKind))
+    .map(({ row }) => row);
+  const eligibleIds = eligibleRows.map((row) => row.id);
+  const skippedActiveLeaseRows = eligibleIds.length > 0
+    ? ((await sql`
     SELECT partition.id
     FROM google_ads_sync_partitions partition
     JOIN google_ads_sync_checkpoints checkpoint ON checkpoint.partition_id = partition.id
-    WHERE partition.business_id = ${input.businessId}
+    WHERE partition.id = ANY(${eligibleIds}::uuid[])
+      AND partition.business_id = ${input.businessId}
       AND partition.status = 'dead_letter'
       AND checkpoint.poisoned_at IS NOT NULL
       AND COALESCE(partition.lease_expires_at, now() - interval '1 second') > now()
-      AND (${input.scope ?? null}::text IS NULL OR partition.scope = ${input.scope ?? null})
-      AND (${input.startDate ?? null}::date IS NULL OR partition.partition_date >= ${input.startDate ?? null}::date)
-      AND (${input.endDate ?? null}::date IS NULL OR partition.partition_date <= ${input.endDate ?? null}::date)
-  `) as Array<{ id: string }>;
-  const partitions = (await sql`
+  `) as Array<{ id: string }>)
+    : [];
+  const partitions = eligibleIds.length > 0
+    ? ((await sql`
     WITH released_checkpoints AS (
       UPDATE google_ads_sync_checkpoints checkpoint
       SET
@@ -5677,13 +5802,11 @@ export async function forceReplayGoogleAdsPoisonedPartitions(input: {
         updated_at = now()
       FROM google_ads_sync_partitions partition
       WHERE checkpoint.partition_id = partition.id
+        AND partition.id = ANY(${eligibleIds}::uuid[])
         AND partition.business_id = ${input.businessId}
         AND partition.status = 'dead_letter'
         AND COALESCE(partition.lease_expires_at, now() - interval '1 second') <= now()
         AND checkpoint.poisoned_at IS NOT NULL
-        AND (${input.scope ?? null}::text IS NULL OR partition.scope = ${input.scope ?? null})
-        AND (${input.startDate ?? null}::date IS NULL OR partition.partition_date >= ${input.startDate ?? null}::date)
-        AND (${input.endDate ?? null}::date IS NULL OR partition.partition_date <= ${input.endDate ?? null}::date)
       RETURNING checkpoint.partition_id
     )
     UPDATE google_ads_sync_partitions partition
@@ -5700,7 +5823,8 @@ export async function forceReplayGoogleAdsPoisonedPartitions(input: {
       updated_at = now()
     WHERE partition.id IN (SELECT partition_id FROM released_checkpoints)
     RETURNING partition.id, partition.lane, partition.scope, partition.partition_date
-  `) as Array<Record<string, unknown>>;
+  `) as Array<Record<string, unknown>>)
+    : [];
 
   const changedPartitions = partitions.map((row) => ({
     id: String(row.id),
@@ -5722,13 +5846,38 @@ export async function forceReplayGoogleAdsPoisonedPartitions(input: {
     outcome:
       changedPartitions.length > 0
         ? "manual_replay_queued"
-        : matchedRows.length > 0
+        : skippedActiveLeaseRows.length > 0
           ? "skipped_active_lease"
           : "no_matching_partitions",
     partitions: changedPartitions,
     matchedCount: matchedRows.length,
     changedCount: changedPartitions.length,
     skippedActiveLeaseCount: skippedActiveLeaseRows.length,
+    replayableMatchedCount: classifiedRows.filter(
+      ({ classification }) =>
+        classification.recoveryKind === "replayable_transient",
+    ).length,
+    terminalActionRequiredCount: classifiedRows.filter(
+      ({ classification }) =>
+        classification.recoveryKind === "terminal_action_required",
+    ).length,
+    unknownMatchedCount: classifiedRows.filter(
+      ({ classification }) => classification.recoveryKind === "unknown",
+    ).length,
+    actionRequiredPartitions: classifiedRows
+      .filter(
+        ({ classification }) =>
+          classification.recoveryKind === "terminal_action_required",
+      )
+      .map(({ row, classification }) => ({
+        id: row.id,
+        scope: row.scope,
+        source: row.source,
+        partitionDate: normalizeDate(row.partition_date),
+        lastError: row.last_error,
+        errorClass: row.error_class,
+        reasonCode: classification.reasonCode,
+      })),
   };
 }
 

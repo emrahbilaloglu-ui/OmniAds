@@ -10,7 +10,8 @@ import type {
 } from "@/lib/sync/provider-status-truth";
 import { resolveMetaCredentials } from "@/lib/api/meta";
 import { getConnectedAssignedGoogleAccounts } from "@/lib/google-ads-gaql";
-import { getIntegration } from "@/lib/integrations";
+import { fetchGoogleAdsAccounts, refreshGoogleAccessToken } from "@/lib/google-ads-accounts";
+import { getIntegration, upsertIntegration } from "@/lib/integrations";
 import { fetchMetaAdAccounts, getMetaApiErrorMessage } from "@/lib/meta-ad-accounts";
 import {
   getGoogleAdsCheckpointHealth,
@@ -126,6 +127,7 @@ const GOOGLE_ADS_ADAPTER_CORE_SCOPES: GoogleAdsWarehouseScope[] = [
   "account_daily",
   "campaign_daily",
 ];
+const GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS = 6 * 60 * 60_000;
 
 function enumerateDays(startDate: string, endDate: string) {
   const start = new Date(`${startDate}T00:00:00.000Z`);
@@ -504,6 +506,158 @@ async function refreshMetaProviderAccountSnapshotIfNeeded(businessId: string) {
   };
 }
 
+async function loadGoogleProviderAccountsForSnapshot(input: {
+  businessId: string;
+  accessToken: string | null;
+  refreshToken: string | null;
+  tokenExpiresAt: string | null;
+  scopes: string | null;
+}) {
+  const hasAdsScope = Boolean(
+    input.scopes?.split(/\s+/).includes("https://www.googleapis.com/auth/adwords"),
+  );
+  if (!hasAdsScope) {
+    throw new Error(
+      "This Google connection is missing the Google Ads scope. Reconnect Google Ads and approve Google Ads access.",
+    );
+  }
+
+  let accessToken = input.accessToken;
+  if (!accessToken) {
+    throw new Error("Google integration has no valid access token.");
+  }
+
+  if (input.tokenExpiresAt) {
+    const isExpired = new Date(input.tokenExpiresAt).getTime() <= Date.now();
+    if (isExpired && input.refreshToken) {
+      const refreshed = await refreshGoogleAccessToken(input.refreshToken);
+      accessToken = refreshed.accessToken;
+      await upsertIntegration({
+        businessId: input.businessId,
+        provider: "google",
+        status: "connected",
+        accessToken: refreshed.accessToken,
+        tokenExpiresAt: new Date(Date.now() + refreshed.expiresIn * 1000),
+      });
+    } else if (isExpired) {
+      throw new Error(
+        "Google access token has expired and no refresh token is available. Please reconnect.",
+      );
+    }
+  }
+
+  const result = await fetchGoogleAdsAccounts(accessToken, {
+    scopePresent: hasAdsScope,
+  });
+  if (!result.ok) {
+    throw new Error(
+      result.error ?? "Could not discover accessible Google Ads accounts.",
+    );
+  }
+
+  return result.customers.map((customer) => ({
+    id: customer.id,
+    name: customer.name,
+    currency: customer.currency ?? undefined,
+    timezone: customer.timezone ?? undefined,
+    isManager: customer.isManager,
+  }));
+}
+
+async function refreshGoogleProviderAccountSnapshotIfNeeded(businessId: string) {
+  const integration = await getIntegration(businessId, "google").catch(() => null);
+  if (!integration || integration.status !== "connected") {
+    return { outcome: "skipped_no_connected_integration" };
+  }
+
+  const liveLoader = () =>
+    loadGoogleProviderAccountsForSnapshot({
+      businessId,
+      accessToken: integration.access_token,
+      refreshToken: integration.refresh_token,
+      tokenExpiresAt: integration.token_expires_at,
+      scopes: integration.scopes,
+    });
+  const snapshot = await readProviderAccountSnapshot({
+    businessId,
+    provider: "google",
+    freshnessMs: GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
+  }).catch(() => null);
+
+  if (snapshot?.meta.refreshInProgress) {
+    return {
+      outcome: "skipped_refresh_in_progress",
+      fetchedAt: snapshot.meta.fetchedAt,
+    };
+  }
+
+  if (
+    snapshot?.meta.retryAfterAt &&
+    isFutureTimestamp(snapshot.meta.retryAfterAt)
+  ) {
+    return {
+      outcome: "skipped_cooldown",
+      retryAfterAt: snapshot.meta.retryAfterAt,
+      failureClass: snapshot.meta.failureClass,
+    };
+  }
+
+  if (!snapshot) {
+    try {
+      const refreshed = await resolveProviderAccountSnapshot({
+        businessId,
+        provider: "google",
+        freshnessMs: GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
+        reason: "worker_missing_account_snapshot",
+        liveLoader,
+      });
+      return {
+        outcome: "refreshed_missing_snapshot",
+        accountCount: refreshed.accounts.length,
+        fetchedAt: refreshed.meta.fetchedAt,
+      };
+    } catch (error: unknown) {
+      return {
+        outcome:
+          error instanceof ProviderAccountSnapshotRefreshError &&
+          error.dueToRecentFailure
+            ? "skipped_cooldown"
+            : "refresh_failed",
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  if (snapshot.accounts.length === 0 || snapshot.meta.stale) {
+    await scheduleProviderAccountSnapshotRefresh({
+      businessId,
+      provider: "google",
+      freshnessMs: GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
+      reason:
+        snapshot.accounts.length === 0
+          ? "worker_empty_account_snapshot"
+          : "worker_stale_account_snapshot",
+      skipIfFresh: snapshot.accounts.length > 0,
+      liveLoader,
+    }).catch(() => null);
+    return {
+      outcome:
+        snapshot.accounts.length === 0
+          ? "scheduled_empty_snapshot_refresh"
+          : "scheduled_stale_snapshot_refresh",
+      accountCount: snapshot.accounts.length,
+      fetchedAt: snapshot.meta.fetchedAt,
+      failureClass: snapshot.meta.failureClass,
+    };
+  }
+
+  return {
+    outcome: "fresh",
+    accountCount: snapshot.accounts.length,
+    fetchedAt: snapshot.meta.fetchedAt,
+  };
+}
+
 export const metaWorkerAdapter: ProviderWorkerAdapter = {
   providerScope: "meta",
   async planPartitions(range) {
@@ -838,18 +992,50 @@ export const googleAdsWorkerAdapter: ProviderWorkerAdapter = {
     return buildGoogleAdsWorkerLeasePlan(input);
   },
   async runAutoHeal(businessId: string) {
+    const providerAccountSnapshotRepair =
+      await refreshGoogleProviderAccountSnapshotIfNeeded(businessId).catch(
+        (error: unknown) => ({
+          outcome: "refresh_failed",
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
     const result = await runGoogleAdsRepairCycle(businessId, {
       enqueueScheduledWork: false,
+      googleDeadLetterRecoveryKinds: ["replayable_transient"],
     });
+    const repairMeta = (result.repair.meta ?? {}) as Record<string, unknown>;
+    const queuedWarehouseRepairs = Number(repairMeta.queuedWarehouseRepairs ?? 0);
+    const queuedRecentGapRepairs = Number(repairMeta.queuedRecentGapRepairs ?? 0);
+    const shouldConsumeAfterRepair =
+      (result.repair.replayed ?? 0) > 0 ||
+      (result.repair.requeued ?? 0) > 0 ||
+      (result.repair.reclaimed ?? 0) > 0 ||
+      queuedWarehouseRepairs > 0 ||
+      queuedRecentGapRepairs > 0;
+    const consumeAfterRepair = shouldConsumeAfterRepair
+      ? await syncGoogleAdsReports(businessId, {
+          runtimeWorkerId: `google-ads-autoheal:${businessId}`,
+        }).catch((error: unknown) => ({
+          error: error instanceof Error ? error.message : String(error),
+        }))
+      : null;
     const autoRepair = await runAutoSyncRepairPass({
       providerScope: "google_ads",
       source: "worker",
       businessId,
     }).catch(() => null);
-    return mergeAutoRepairResult(
+    const merged = mergeAutoRepairResult(
       result.repair,
       autoRepair ? [autoRepair] : [],
     );
+    return {
+      ...merged,
+      meta: {
+        ...(merged.meta ?? {}),
+        consumeAfterRepair,
+        providerAccountSnapshotRepair,
+      },
+    };
   },
 };
 

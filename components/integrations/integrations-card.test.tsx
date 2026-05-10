@@ -122,9 +122,11 @@ function buildStatus(): MetaStatusResponse {
   };
 }
 
-function buildGoogleStatus(): GoogleAdsStatusResponse {
+function buildGoogleStatus(
+  overrides: Partial<GoogleAdsStatusResponse> = {},
+): GoogleAdsStatusResponse {
   return {
-    state: "action_required",
+    state: "ready",
     connected: true,
     assignedAccountIds: ["acc_1"],
     blockerClass: "none",
@@ -186,7 +188,7 @@ function buildGoogleStatus(): GoogleAdsStatusResponse {
       globalExtendedExecutionEnabled: false,
       quotaPressure: 0,
       breakerState: "closed",
-      progressState: "blocked",
+      progressState: "ready",
       blockingReasons: [],
       repairableActions: [],
       stallFingerprints: [],
@@ -248,6 +250,7 @@ function buildGoogleStatus(): GoogleAdsStatusResponse {
       leasedPartitions: 0,
       deadLetterPartitions: 0,
     },
+    ...overrides,
   };
 }
 
@@ -488,6 +491,58 @@ describe("IntegrationsCard", () => {
     expect(html).toContain("Active");
     expect(html).not.toContain("Attention / recovery");
     expect(html).not.toContain("attention needed");
+  });
+
+  it("does not show the Google provider badge as connected when sync is action-required", () => {
+    const actionRequiredStatus = buildGoogleStatus({
+      state: "action_required",
+      operations: {
+        currentMode: "safe_mode",
+        globalExtendedExecutionEnabled: false,
+        quotaPressure: 0,
+        breakerState: "closed",
+        progressState: "blocked",
+        blockingReasons: [
+          {
+            code: "account_action_required",
+            message: "Google Ads account access requires reconnect.",
+            repairable: false,
+          },
+        ],
+        repairableActions: [],
+        stallFingerprints: [],
+        activityState: "blocked",
+      } as never,
+      latestSync: {
+        status: "failed",
+        lastError: "Google Ads account access requires reconnect.",
+      },
+    });
+    const html = renderToStaticMarkup(
+      <IntegrationsCard
+        provider="google"
+        language="en"
+        description="Link Google Ads to track performance and sync account data."
+        view={{
+          ...baseView,
+          provider: "google",
+          detailValue: "Healthy",
+          accountValue: "1 assigned",
+        }}
+        googleSyncStatus={actionRequiredStatus}
+        googleSyncLoading={false}
+        onConnect={() => undefined}
+        onReconnect={() => undefined}
+        onRetry={() => undefined}
+        onCancel={() => undefined}
+        onDisconnect={() => undefined}
+        onOpenAssignments={() => undefined}
+      />
+    );
+
+    expect(html).toContain("Action required");
+    expect(html).toContain("Google sync needs attention");
+    expect(html).not.toContain('text-emerald-700">Connected</span>');
   });
 
   it("renders a compact Shopify status block without the Meta/Google staged breakdown", () => {

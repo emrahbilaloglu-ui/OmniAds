@@ -196,6 +196,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
                 name: "Campaign 1",
                 effective_status: "ACTIVE",
                 status: "ACTIVE",
+                buying_type: "AUCTION",
                 daily_budget: "25",
                 bid_strategy: "LOWEST_COST_WITH_BID_CAP",
                 bid_amount: "7.5",
@@ -235,6 +236,15 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           accountId: "act_1",
           entityLevel: "campaign",
           entityId: "cmp-1",
+        }),
+      ]),
+    );
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("buying_type"))).toBe(true);
+    expect(warehouse.upsertMetaCampaignDailyRows).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          campaignId: "cmp-1",
+          buyingType: "AUCTION",
         }),
       ]),
     );

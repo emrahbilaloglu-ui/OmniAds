@@ -215,6 +215,7 @@ export interface MetaCampaignData extends MetaMetricsData {
   name: string;
   status: string; // "ACTIVE" | "PAUSED" | "ARCHIVED" | "UNKNOWN"
   objective?: string | null;
+  buyingType?: string | null;
   budgetLevel?: "campaign" | "adset" | null;
   optimizationGoal: string | null;
   customEventType?: string | null;
@@ -309,6 +310,7 @@ interface RawCampaign {
   status?: string;
   effective_status?: string;
   objective?: string;
+  buying_type?: string;
   daily_budget?: string;
   lifetime_budget?: string;
   bid_strategy?: string;
@@ -317,6 +319,9 @@ interface RawCampaign {
     roas_average_floor?: string;
   };
 }
+
+const META_CAMPAIGN_CONFIG_FIELDS =
+  "id,name,objective,effective_status,status,buying_type,daily_budget,lifetime_budget,bid_strategy,bid_amount,bid_constraints{roas_average_floor}";
 
 interface RawAdSetInsight {
   adset_id?: string;
@@ -768,6 +773,10 @@ function buildMetaCampaignDailyConfigRow(input: {
       objective:
         input.campaignRow.objective ??
         input.latestCampaignSnapshot?.objective ??
+        null,
+      buyingType:
+        input.campaignRow.buyingType ??
+        input.campaignConfig?.buying_type ??
         null,
     },
     {
@@ -2086,7 +2095,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
               campaignConfigs.get(campaignId)?.objective ??
               latestCampaignSnapshots.get(campaignId)?.objective ??
               null,
-            buyingType: null,
+            buyingType: campaignConfigs.get(campaignId)?.buying_type ?? null,
             optimizationGoal: null,
             bidStrategyType: null,
             bidStrategyLabel: null,
@@ -3950,10 +3959,7 @@ export async function fetchMetaCampaignConfigs(
   accessToken: string
 ): Promise<Map<string, RawCampaign>> {
   const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/campaigns`);
-  url.searchParams.set(
-    "fields",
-    "id,name,objective,effective_status,status,daily_budget,lifetime_budget,bid_strategy,bid_amount,bid_constraints{roas_average_floor}"
-  );
+  url.searchParams.set("fields", META_CAMPAIGN_CONFIG_FIELDS);
   url.searchParams.set("limit", "500");
   url.searchParams.set("access_token", accessToken);
 
@@ -3969,8 +3975,7 @@ export async function fetchMetaCampaignConfigs(
       payload: jsonRows,
       status: "fetched",
       requestContext: {
-        fields:
-          "id,name,objective,effective_status,status,daily_budget,lifetime_budget,bid_strategy,bid_amount,bid_constraints{roas_average_floor}",
+        fields: META_CAMPAIGN_CONFIG_FIELDS,
       },
     });
     return new Map(jsonRows.map((campaign) => [campaign.id, campaign]));
@@ -3985,8 +3990,7 @@ export async function fetchMetaCampaignConfigs(
       payload: [],
       status: "failed",
       requestContext: {
-        fields:
-          "id,name,objective,effective_status,status,daily_budget,lifetime_budget,bid_strategy,bid_amount,bid_constraints{roas_average_floor}",
+        fields: META_CAMPAIGN_CONFIG_FIELDS,
       },
     });
     return new Map();
@@ -4203,6 +4207,7 @@ export async function getCampaigns(
               name: insight.campaign_name ?? "Unknown Campaign",
               status: statusMap.get(campaignId) ?? "UNKNOWN",
               objective: campaignConfig?.objective ?? null,
+              buyingType: campaignConfig?.buying_type ?? null,
               budgetLevel: null,
               optimizationGoal: null,
               bidStrategyType: config.bidStrategyType,
@@ -4255,7 +4260,7 @@ export async function getCampaigns(
                 campaignNameHistorical: row.name,
                 campaignStatus: row.status,
                 objective: row.objective ?? null,
-                buyingType: null,
+                buyingType: row.buyingType ?? null,
                 optimizationGoal: row.optimizationGoal ?? null,
                 bidStrategyType: row.bidStrategyType ?? null,
                 bidStrategyLabel: row.bidStrategyLabel ?? null,

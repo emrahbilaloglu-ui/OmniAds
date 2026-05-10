@@ -6498,11 +6498,24 @@ export async function requeueMetaRetryableFailedPartitions(input: {
   const sql = getDb();
   const rows = await sql`
     WITH candidates AS (
-      SELECT id
-      FROM meta_sync_partitions
-      WHERE business_id = ${input.businessId}
-        AND status = 'failed'
-        AND COALESCE(next_retry_at, now()) <= now()
+      SELECT partition.id
+      FROM meta_sync_partitions partition
+      LEFT JOIN LATERAL (
+        SELECT run.error_class, run.error_message
+        FROM meta_sync_runs run
+        WHERE run.partition_id = partition.id
+        ORDER BY run.updated_at DESC
+        LIMIT 1
+      ) latest_run ON true
+      WHERE partition.business_id = ${input.businessId}
+        AND partition.status = 'failed'
+        AND COALESCE(partition.next_retry_at, now()) <= now()
+        AND NOT (
+          LOWER(COALESCE(latest_run.error_class, '')) = 'account_checkpoint'
+          OR LOWER(COALESCE(partition.last_error, latest_run.error_message, '')) LIKE '%cannot access the app%'
+          OR LOWER(COALESCE(partition.last_error, latest_run.error_message, '')) LIKE '%log in to www.facebook.com%'
+          OR LOWER(COALESCE(partition.last_error, latest_run.error_message, '')) LIKE '%checkpoint%'
+        )
       ORDER BY
         CASE source
           WHEN 'finalize_day' THEN 725
@@ -6523,7 +6536,7 @@ export async function requeueMetaRetryableFailedPartitions(input: {
         partition_date DESC,
         updated_at ASC
       LIMIT ${Math.max(1, input.limit ?? 500)}
-      FOR UPDATE SKIP LOCKED
+      FOR UPDATE OF partition SKIP LOCKED
     )
     UPDATE meta_sync_partitions partition
     SET
@@ -7057,6 +7070,123 @@ function classifyMetaDeadLetterCandidate(row: Pick<MetaDeadLetterCandidateRow, "
     errorClass: row.error_class,
     message: row.last_error ?? row.error_message ?? null,
   });
+}
+
+export interface MetaTerminalActionRequiredQuarantineResult {
+  candidateCount: number;
+  terminalMatchedCount: number;
+  changedCount: number;
+  partitions: Array<{
+    id: string;
+    lane: string;
+    scope: string;
+    source: string | null;
+    partitionDate: string;
+    reasonCode: string;
+  }>;
+}
+
+export async function quarantineMetaTerminalActionRequiredPartitions(input: {
+  businessId: string;
+  scope?: MetaWarehouseScope | null;
+  sources?: string[] | null;
+  limit?: number;
+}): Promise<MetaTerminalActionRequiredQuarantineResult> {
+  await assertMetaMutationTablesReady("meta_warehouse");
+  const sql = getDb();
+  const candidateRows = await sql`
+    SELECT
+      partition.id,
+      partition.lane,
+      partition.scope,
+      partition.source,
+      partition.partition_date,
+      partition.last_error,
+      latest_run.error_class,
+      latest_run.error_message
+    FROM meta_sync_partitions partition
+    LEFT JOIN LATERAL (
+      SELECT run.error_class, run.error_message
+      FROM meta_sync_runs run
+      WHERE run.partition_id = partition.id
+      ORDER BY run.updated_at DESC
+      LIMIT 1
+    ) latest_run ON true
+    WHERE partition.business_id = ${input.businessId}
+      AND partition.status IN ('queued', 'failed')
+      AND COALESCE(partition.lease_expires_at, now() - interval '1 second') <= now()
+      AND (${input.scope ?? null}::text IS NULL OR partition.scope = ${input.scope ?? null})
+      AND (${input.sources ?? null}::text[] IS NULL OR partition.source = ANY(${input.sources ?? null}::text[]))
+    ORDER BY partition.updated_at ASC
+    LIMIT ${Math.max(1, Math.min(input.limit ?? 500, 1000))}
+  ` as MetaDeadLetterCandidateRow[];
+  const classifiedRows = candidateRows.map((row) => ({
+    row,
+    classification: classifyMetaDeadLetterCandidate(row),
+  }));
+  const terminalRows = classifiedRows.filter(
+    ({ classification }) =>
+      classification.recoveryKind === "terminal_action_required",
+  );
+  const terminalIds = terminalRows.map(({ row }) => row.id);
+  const terminalMessages = terminalRows.map(({ row, classification }) =>
+    row.last_error ??
+    row.error_message ??
+    classification.reasonCode ??
+    "Meta account checkpoint/login action required.",
+  );
+  const terminalClasses = terminalRows.map(({ classification }) =>
+    classification.errorClass,
+  );
+  const updatedRows = terminalIds.length > 0
+    ? await sql`
+        WITH terminal(id, error_message, error_class) AS (
+          SELECT * FROM unnest(
+            ${terminalIds}::uuid[],
+            ${terminalMessages}::text[],
+            ${terminalClasses}::text[]
+          )
+        )
+        UPDATE meta_sync_partitions partition
+        SET
+          status = 'dead_letter',
+          lease_owner = NULL,
+          lease_expires_at = NULL,
+          next_retry_at = NULL,
+          last_error = COALESCE(
+            NULLIF(terminal.error_message, ''),
+            NULLIF(partition.last_error, ''),
+            'Meta account checkpoint/login action required.'
+          ),
+          finished_at = COALESCE(partition.finished_at, now()),
+          updated_at = now()
+        FROM terminal
+        WHERE partition.id = terminal.id
+          AND partition.business_id = ${input.businessId}
+          AND partition.status IN ('queued', 'failed')
+          AND COALESCE(partition.lease_expires_at, now() - interval '1 second') <= now()
+        RETURNING
+          partition.id,
+          partition.lane,
+          partition.scope,
+          partition.source,
+          partition.partition_date,
+          terminal.error_class
+      ` as Array<Record<string, unknown>>
+    : [];
+  return {
+    candidateCount: candidateRows.length,
+    terminalMatchedCount: terminalRows.length,
+    changedCount: updatedRows.length,
+    partitions: updatedRows.map((row) => ({
+      id: String(row.id),
+      lane: String(row.lane),
+      scope: String(row.scope),
+      source: row.source == null ? null : String(row.source),
+      partitionDate: normalizeDate(row.partition_date),
+      reasonCode: "meta_account_checkpoint",
+    })),
+  };
 }
 
 function normalizeMetaRecoveryKinds(kinds: MetaDeadLetterRecoveryKind[] | null | undefined) {

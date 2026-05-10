@@ -32,6 +32,7 @@ vi.mock("@/lib/meta/warehouse", () => ({
   getMetaAuthoritativeDayVerification: vi.fn(),
   reconcileMetaAuthoritativeDayStateFromVerification: vi.fn(),
   upsertMetaAuthoritativeDayState: vi.fn(),
+  quarantineMetaTerminalActionRequiredPartitions: vi.fn(),
   replayMetaDeadLetterPartitions: vi.fn(),
   requeueMetaRetryableFailedPartitions: vi.fn(),
   getMetaQueueHealth: vi.fn(),
@@ -1058,6 +1059,93 @@ describe("provider repair engine", () => {
     expect(result.repair.meta).toEqual(
       expect.objectContaining({
         integrityAttemptCount: 2,
+      }),
+    );
+  });
+
+  it("quarantines queued Meta checkpoint partitions and blocks replay as account action required", async () => {
+    const metaWarehouse = await import("@/lib/meta/warehouse");
+    vi.mocked(metaWarehouse.cleanupMetaPartitionOrchestration).mockResolvedValue({
+      candidateCount: 0,
+      stalePartitionCount: 0,
+      aliveSlowCount: 0,
+      reconciledRunCount: 0,
+      staleRunCount: 0,
+      staleLegacyCount: 0,
+      reclaimReasons: {},
+      preservedByReason: {},
+    } as never);
+    vi.mocked(metaWarehouse.quarantineMetaTerminalActionRequiredPartitions).mockResolvedValue({
+      candidateCount: 1,
+      terminalMatchedCount: 1,
+      changedCount: 1,
+      partitions: [
+        {
+          id: "partition-checkpoint",
+          lane: "maintenance",
+          scope: "account_daily",
+          source: "finalize_day",
+          partitionDate: "2026-05-09",
+          reasonCode: "meta_account_checkpoint",
+        },
+      ],
+    } as never);
+    vi.mocked(metaWarehouse.replayMetaDeadLetterPartitions).mockResolvedValue({
+      outcome: "no_matching_partitions",
+      partitions: [],
+      matchedCount: 1,
+      changedCount: 0,
+      skippedActiveLeaseCount: 0,
+      replayableMatchedCount: 0,
+      terminalActionRequiredCount: 1,
+      unknownMatchedCount: 0,
+      manualTruthDefectCount: 0,
+      manualTruthDefectPartitions: [],
+      actionRequiredPartitions: [
+        {
+          id: "partition-checkpoint",
+          scope: "account_daily",
+          source: "finalize_day",
+          partitionDate: "2026-05-09",
+          lastError: "You cannot access the app till you log in to www.facebook.com and follow the instructions given.",
+          errorClass: "account_checkpoint",
+          reasonCode: "meta_account_checkpoint",
+        },
+      ],
+    } as never);
+    vi.mocked(metaWarehouse.requeueMetaRetryableFailedPartitions).mockResolvedValue([] as never);
+    vi.mocked(metaWarehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 0,
+      leasedPartitions: 0,
+      deadLetterPartitions: 1,
+      retryableFailedPartitions: 0,
+    } as never);
+    vi.mocked(metaWarehouse.getMetaWarehouseIntegrityIncidents).mockResolvedValue([] as never);
+    vi.mocked(metaWarehouse.getMetaCanonicalDriftIncidents).mockResolvedValue([] as never);
+
+    const { runMetaRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+    const result = await runMetaRepairCycle("biz-1", { enqueueScheduledWork: false });
+
+    expect(result.repair.blocked).toBe(true);
+    expect(result.repair.blockingReasons).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "account_action_required",
+          repairable: false,
+        }),
+      ]),
+    );
+    expect(result.repair.meta).toEqual(
+      expect.objectContaining({
+        quarantinedTerminalActionRequired: expect.objectContaining({
+          changedCount: 1,
+        }),
+        stageTimings: expect.arrayContaining([
+          expect.objectContaining({
+            stage: "runMetaRepairCycle.quarantine_terminal_action_required",
+            ok: true,
+          }),
+        ]),
       }),
     );
   });

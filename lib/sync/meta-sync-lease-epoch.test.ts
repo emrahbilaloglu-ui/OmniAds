@@ -48,6 +48,12 @@ vi.mock("@/lib/meta/warehouse", async () => {
     getMetaSyncState: vi.fn(),
     leaseMetaSyncPartitions: vi.fn(),
     markMetaPartitionRunning: vi.fn(),
+    quarantineMetaTerminalActionRequiredPartitions: vi.fn().mockResolvedValue({
+      candidateCount: 0,
+      terminalMatchedCount: 0,
+      changedCount: 0,
+      partitions: [],
+    }),
     queueMetaSyncPartition: vi.fn(),
     reconcileMetaAuthoritativeDayStateFromVerification: vi.fn(),
     replayMetaDeadLetterPartitions: vi.fn(),

@@ -54,7 +54,9 @@ const {
   markMetaPartitionRunning,
   persistMetaRawSnapshot,
   publishMetaAuthoritativeSliceVersion,
+  quarantineMetaTerminalActionRequiredPartitions,
   queueMetaSyncPartition,
+  requeueMetaRetryableFailedPartitions,
   replaceMetaBreakdownDailySlice,
   upsertMetaBreakdownDailyRows,
   replayMetaDeadLetterPartitions,
@@ -1983,6 +1985,94 @@ describe("meta warehouse ownership safety", () => {
       }),
     ]);
     expect(sql).toHaveBeenCalledTimes(1);
+  });
+
+  it("quarantines queued Meta checkpoint partitions as action-required dead letters", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      queries.push(query);
+      if (query.includes("FROM meta_sync_partitions partition")) {
+        return [
+          {
+            id: "partition-checkpoint",
+            lane: "maintenance",
+            scope: "account_daily",
+            source: "finalize_day",
+            partition_date: "2026-05-07",
+            last_error: null,
+            error_class: "transient",
+            error_message:
+              "You cannot access the app till you log in to www.facebook.com and follow the instructions given.",
+          },
+          {
+            id: "partition-timeout",
+            lane: "maintenance",
+            scope: "account_daily",
+            source: "finalize_day",
+            partition_date: "2026-05-08",
+            last_error: null,
+            error_class: "database_timeout",
+            error_message: "Database query timed out after 30000ms",
+          },
+        ];
+      }
+      if (query.includes("UPDATE meta_sync_partitions partition")) {
+        return [
+          {
+            id: "partition-checkpoint",
+            lane: "maintenance",
+            scope: "account_daily",
+            source: "finalize_day",
+            partition_date: "2026-05-07",
+            error_class: "account_checkpoint",
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await quarantineMetaTerminalActionRequiredPartitions({
+      businessId: "biz-1",
+    });
+
+    expect(result).toMatchObject({
+      candidateCount: 2,
+      terminalMatchedCount: 1,
+      changedCount: 1,
+      partitions: [
+        expect.objectContaining({
+          id: "partition-checkpoint",
+          scope: "account_daily",
+          source: "finalize_day",
+          partitionDate: "2026-05-07",
+          reasonCode: "meta_account_checkpoint",
+        }),
+      ],
+    });
+    expect(queries.some((query) => query.includes("partition.status IN ('queued', 'failed')"))).toBe(true);
+    expect(queries.some((query) => query.includes("status = 'dead_letter'"))).toBe(true);
+    expect(queries.some((query) => query.includes("next_retry_at = NULL"))).toBe(true);
+  });
+
+  it("does not requeue failed Meta checkpoint/login partitions as retryable work", async () => {
+    let capturedQuery = "";
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      capturedQuery = strings.join(" ");
+      return [{ id: "partition-timeout" }];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await requeueMetaRetryableFailedPartitions({
+      businessId: "biz-1",
+    });
+
+    expect(result).toEqual(["partition-timeout"]);
+    expect(capturedQuery).toContain("partition.status = 'failed'");
+    expect(capturedQuery).toContain("LOWER(COALESCE(latest_run.error_class, '')) = 'account_checkpoint'");
+    expect(capturedQuery).toContain("log in to www.facebook.com");
+    expect(capturedQuery).toContain("FOR UPDATE OF partition SKIP LOCKED");
   });
 
   it("does not let scheduled enqueue resurrect dead-letter partitions", async () => {

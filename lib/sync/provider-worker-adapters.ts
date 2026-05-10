@@ -44,6 +44,7 @@ import type {
 import type { ProviderReadinessLevel } from "@/lib/provider-readiness";
 import {
   buildGoogleAdsWorkerLeasePlan,
+  cancelCoveredGoogleAdsCoreBacklog,
   processGoogleAdsLifecyclePartition,
   syncGoogleAdsReports,
 } from "@/lib/sync/google-ads-sync";
@@ -989,6 +990,9 @@ export const googleAdsWorkerAdapter: ProviderWorkerAdapter = {
     });
   },
   async buildLeasePlan(input) {
+    await cancelCoveredGoogleAdsCoreBacklog({
+      businessId: input.businessId,
+    }).catch(() => 0);
     return buildGoogleAdsWorkerLeasePlan(input);
   },
   async runAutoHeal(businessId: string) {

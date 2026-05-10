@@ -1953,7 +1953,9 @@ export function getGoogleAdsCoveredCorePartitionDatesToCancel(input: {
   ).sort();
 }
 
-async function cancelCoveredGoogleAdsCoreBacklog(input: { businessId: string }) {
+export async function cancelCoveredGoogleAdsCoreBacklog(input: {
+  businessId: string;
+}) {
   const accountIds = await getConnectedAssignedGoogleAccounts(input.businessId).catch(
     () => [],
   );

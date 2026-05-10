@@ -8,6 +8,7 @@ const getGoogleAdsCheckpointHealth = vi.fn();
 const getConnectedAssignedGoogleAccounts = vi.fn();
 const processGoogleAdsLifecyclePartition = vi.fn();
 const buildGoogleAdsWorkerLeasePlan = vi.fn();
+const cancelCoveredGoogleAdsCoreBacklog = vi.fn();
 const syncGoogleAdsReports = vi.fn();
 const releaseGoogleAdsLeasedPartitionsForWorker = vi.fn();
 
@@ -98,6 +99,7 @@ vi.mock("@/lib/sync/google-ads-sync", () => ({
   syncGoogleAdsReports,
   processGoogleAdsLifecyclePartition,
   buildGoogleAdsWorkerLeasePlan,
+  cancelCoveredGoogleAdsCoreBacklog,
 }));
 
 vi.mock("@/lib/sync/meta-sync", () => ({
@@ -641,6 +643,30 @@ describe("provider-worker-adapters", () => {
     expect(syncGoogleAdsReports).toHaveBeenCalledWith("biz-1", {
       runtimeWorkerId: "worker-1",
     });
+  });
+
+  it("cancels covered Google core backlog before building lifecycle lease plans", async () => {
+    cancelCoveredGoogleAdsCoreBacklog.mockResolvedValue(1);
+    buildGoogleAdsWorkerLeasePlan.mockResolvedValue({
+      kind: "google_ads_policy_lease_plan",
+      requestedLimit: 1,
+      steps: [],
+    });
+
+    const { googleAdsWorkerAdapter } = await import("@/lib/sync/provider-worker-adapters");
+    const plan = await googleAdsWorkerAdapter.buildLeasePlan?.({
+      businessId: "biz-1",
+      leaseLimit: 2,
+    });
+
+    expect(cancelCoveredGoogleAdsCoreBacklog).toHaveBeenCalledWith({
+      businessId: "biz-1",
+    });
+    expect(buildGoogleAdsWorkerLeasePlan).toHaveBeenCalledWith({
+      businessId: "biz-1",
+      leaseLimit: 2,
+    });
+    expect(plan).toMatchObject({ kind: "google_ads_policy_lease_plan" });
   });
 
   it("releases leftover Meta leased partitions for the current runtime worker", async () => {

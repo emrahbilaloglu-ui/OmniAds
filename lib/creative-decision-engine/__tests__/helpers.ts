@@ -21,6 +21,7 @@ export function makeCreativeInput(
     businessId: "biz-1",
     campaignId: "campaign-1",
     objective: "OUTCOME_SALES",
+    effectiveCohort: "purchase",
     spend: 500,
     purchases: 8,
     purchaseValue: 1500,
@@ -58,6 +59,12 @@ export function makeCreativeInput(
     creativeFormat: "video",
     ...overrides,
   };
+}
+
+export function withCohort(
+  cohort: CreativeInput["effectiveCohort"],
+): Partial<CreativeInput> {
+  return { effectiveCohort: cohort };
 }
 
 export function makeAccountCalibration(

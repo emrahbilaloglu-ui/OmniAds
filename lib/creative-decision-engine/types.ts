@@ -5,6 +5,7 @@
  * built in parallel.
  */
 
+import type { MetaFunnelCohort } from "@/lib/meta/funnel-cohort";
 import type { EngineV3Flags } from "./feature-flags";
 import type { OperatorResponseResult } from "./operator-response-detection";
 
@@ -209,6 +210,11 @@ export interface CreativeInput {
 
   // Scope
   objective: CampaignObjective | null;
+  /**
+   * Spend-weighted dominant funnel cohort across underlying adsets in the
+   * rollup window. Null if no adset spend is available.
+   */
+  effectiveCohort?: MetaFunnelCohort | null;
 
   // Cumulative metrics (28d window, conventional)
   spend: number;

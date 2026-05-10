@@ -1,5 +1,9 @@
 import { getDb } from "@/lib/db";
 import {
+  resolveMetaFunnelCohort,
+  type MetaFunnelCohort,
+} from "@/lib/meta/funnel-cohort";
+import {
   buildDataLayerHealth,
   composeDataHealth,
   freshDataLayerHealth,
@@ -163,6 +167,7 @@ export class MockDataSource implements CreativeDecisionDataSource {
       businessId: input.businessId,
       campaignId: "mock-campaign-001",
       objective: "OUTCOME_SALES",
+      effectiveCohort: "purchase",
       spend: 500,
       purchases: 8,
       purchaseValue: 1500,
@@ -478,6 +483,16 @@ const FUNNEL_STAGES = new Set<FunnelStage>([
   "insufficient_signal",
 ]);
 
+const META_FUNNEL_COHORTS = new Set<MetaFunnelCohort>([
+  "purchase",
+  "mid_funnel",
+  "lead",
+  "traffic",
+  "upper_funnel",
+  "engagement",
+  "unknown",
+]);
+
 const OPERATOR_RESPONSE_TYPES = new Set<OperatorResponseType>([
   "scaled",
   "scaled_natural_saturation",
@@ -492,6 +507,7 @@ const OPERATOR_RESPONSE_TYPES = new Set<OperatorResponseType>([
 type CreativeHydrationRow = Record<string, unknown> & {
   creative_id: unknown;
   creative_name: unknown;
+  effective_cohort_inputs: unknown;
   spend: unknown;
   purchases: unknown;
   purchase_value: unknown;
@@ -644,6 +660,7 @@ type LifecycleTableHydrationRow = Record<string, unknown> & {
   creative_name: unknown;
   campaign_id: unknown;
   objective: unknown;
+  effective_cohort_inputs: unknown;
   spend: unknown;
   purchases: unknown;
   purchase_value: unknown;
@@ -814,6 +831,41 @@ cumulative AS (
     AND d.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
   GROUP BY d.creative_id
 ),
+cohort_sources AS (
+  -- SQL collects spend-weighted adset goal inputs; TypeScript applies the shared cohort resolver.
+  SELECT
+    d.creative_id,
+    COALESCE(a.optimization_goal, d.optimization_goal) AS optimization_goal,
+    a.custom_event_type AS custom_event_type,
+    SUM(d.spend) AS spend
+  FROM meta_creative_daily d
+  INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
+  LEFT JOIN meta_adset_daily a
+    ON a.business_ref_id = d.business_ref_id
+   AND a.provider_account_id = d.provider_account_id
+   AND a.date = d.date
+   AND a.adset_id = d.adset_id
+  WHERE d.business_ref_id = $1::uuid
+    AND d.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
+    AND d.spend > 0
+  GROUP BY
+    d.creative_id,
+    COALESCE(a.optimization_goal, d.optimization_goal),
+    a.custom_event_type
+),
+cohort_inputs AS (
+  SELECT
+    creative_id,
+    jsonb_agg(
+      jsonb_build_object(
+        'spend', spend,
+        'optimizationGoal', optimization_goal,
+        'customEventType', custom_event_type
+      )
+    ) AS effective_cohort_inputs
+  FROM cohort_sources
+  GROUP BY creative_id
+),
 recent AS (
   SELECT
     d.creative_id,
@@ -969,6 +1021,7 @@ SELECT
   r.roas AS recent_roas,
   m.effective_status,
   m.objective,
+  ci.effective_cohort_inputs,
   m.campaign_id,
   m.creative_name,
   m.policy_reason,
@@ -1018,6 +1071,7 @@ SELECT
 FROM cumulative c
 LEFT JOIN recent r USING (creative_id)
 LEFT JOIN latest_meta m USING (creative_id)
+LEFT JOIN cohort_inputs ci USING (creative_id)
 LEFT JOIN last_spend ls USING (creative_id)
 LEFT JOIN target_pack tp ON true
 LEFT JOIN historical h USING (creative_id)
@@ -1318,6 +1372,41 @@ latest_meta AS (
     AND d.date <= $2::date
   ORDER BY d.creative_id, d.date DESC, d.updated_at DESC
 ),
+cohort_sources AS (
+  -- SQL collects spend-weighted adset goal inputs; TypeScript applies the shared cohort resolver.
+  SELECT
+    d.creative_id,
+    COALESCE(a.optimization_goal, d.optimization_goal) AS optimization_goal,
+    a.custom_event_type AS custom_event_type,
+    SUM(d.spend) AS spend
+  FROM meta_creative_daily d
+  INNER JOIN lifecycle_rows l ON l.creative_id = d.creative_id
+  LEFT JOIN meta_adset_daily a
+    ON a.business_ref_id = d.business_ref_id
+   AND a.provider_account_id = d.provider_account_id
+   AND a.date = d.date
+   AND a.adset_id = d.adset_id
+  WHERE d.business_ref_id = $1::uuid
+    AND d.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
+    AND d.spend > 0
+  GROUP BY
+    d.creative_id,
+    COALESCE(a.optimization_goal, d.optimization_goal),
+    a.custom_event_type
+),
+cohort_inputs AS (
+  SELECT
+    creative_id,
+    jsonb_agg(
+      jsonb_build_object(
+        'spend', spend,
+        'optimizationGoal', optimization_goal,
+        'customEventType', custom_event_type
+      )
+    ) AS effective_cohort_inputs
+  FROM cohort_sources
+  GROUP BY creative_id
+),
 target_pack AS (
   SELECT target_roas, break_even_roas
   FROM business_target_packs
@@ -1330,6 +1419,7 @@ SELECT
   latest_meta.creative_name,
   l.campaign_id,
   l.objective,
+  ci.effective_cohort_inputs,
   l.spend_28d AS spend,
   l.purchases_28d AS purchases,
   l.purchase_value_28d AS purchase_value,
@@ -1380,6 +1470,7 @@ SELECT
   target_pack.break_even_roas
 FROM lifecycle_rows l
 LEFT JOIN latest_meta USING (creative_id)
+LEFT JOIN cohort_inputs ci USING (creative_id)
 LEFT JOIN target_pack ON true
 ORDER BY l.spend_28d DESC NULLS LAST, l.creative_id ASC
 `;
@@ -1497,6 +1588,82 @@ function toStringOrNull(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+function toMetaFunnelCohort(value: unknown): MetaFunnelCohort | null {
+  const text = toStringOrNull(value);
+  return text !== null && META_FUNNEL_COHORTS.has(text as MetaFunnelCohort)
+    ? (text as MetaFunnelCohort)
+    : null;
+}
+
+export function resolveEffectiveCreativeCohort(
+  rows: Array<{
+    spend: number | null | undefined;
+    optimizationGoal?: string | null;
+    customEventType?: string | null;
+  }>,
+): MetaFunnelCohort | null {
+  const spendByCohort = new Map<MetaFunnelCohort, number>();
+  let totalSpend = 0;
+
+  for (const row of rows) {
+    const spend = row.spend ?? 0;
+    if (!Number.isFinite(spend) || spend <= 0) continue;
+
+    const cohort = resolveMetaFunnelCohort({
+      optimizationGoal: row.optimizationGoal,
+      customEventType: row.customEventType,
+    });
+    totalSpend += spend;
+    spendByCohort.set(cohort, (spendByCohort.get(cohort) ?? 0) + spend);
+  }
+
+  if (totalSpend <= 0 || spendByCohort.size === 0) return null;
+
+  let leader: MetaFunnelCohort = "unknown";
+  let leaderSpend = 0;
+  for (const [cohort, spend] of spendByCohort) {
+    if (spend > leaderSpend) {
+      leader = cohort;
+      leaderSpend = spend;
+    }
+  }
+
+  return leaderSpend / totalSpend < 0.6 ? "unknown" : leader;
+}
+
+function toEffectiveCreativeCohort(value: unknown): MetaFunnelCohort | null {
+  const directCohort = toMetaFunnelCohort(value);
+  if (directCohort !== null) return directCohort;
+
+  let parsed = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(parsed)) return null;
+
+  const rows = parsed.flatMap((item) => {
+    if (item === null || typeof item !== "object") return [];
+    const record = item as Record<string, unknown>;
+    return [
+      {
+        spend: toNumberOrNull(record.spend),
+        optimizationGoal: toStringOrNull(
+          record.optimizationGoal ?? record.optimization_goal,
+        ),
+        customEventType: toStringOrNull(
+          record.customEventType ?? record.custom_event_type,
+        ),
+      },
+    ];
+  });
+
+  return resolveEffectiveCreativeCohort(rows);
 }
 
 function toEngineRiskPreset(value: unknown): EngineRiskPreset | null {
@@ -1804,6 +1971,9 @@ function mapCreativeHydrationRow(input: {
     businessId: input.businessId,
     campaignId: toStringOrNull(input.row.campaign_id),
     objective: toCampaignObjective(input.row.objective),
+    effectiveCohort: toEffectiveCreativeCohort(
+      input.row.effective_cohort_inputs,
+    ),
     spend,
     purchases,
     purchaseValue: toNumberOrNull(input.row.purchase_value),
@@ -1874,6 +2044,9 @@ function mapLifecycleHydrationRow(input: {
     businessId: input.businessId,
     campaignId: toStringOrNull(input.row.campaign_id),
     objective: toCampaignObjective(input.row.objective),
+    effectiveCohort: toEffectiveCreativeCohort(
+      input.row.effective_cohort_inputs,
+    ),
     spend: toNumberOrNull(input.row.spend) ?? 0,
     purchases: toNumberOrNull(input.row.purchases) ?? 0,
     purchaseValue: toNumberOrNull(input.row.purchase_value),

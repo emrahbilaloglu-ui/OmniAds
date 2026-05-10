@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { MockDataSource, WarehouseDataSource } from "..";
+import {
+  MockDataSource,
+  resolveEffectiveCreativeCohort,
+  WarehouseDataSource,
+} from "..";
 
 describe("creative-decision-engine v3 - data source", () => {
   describe("MockDataSource", () => {
@@ -15,6 +19,7 @@ describe("creative-decision-engine v3 - data source", () => {
       expect(input!.creativeId).toBe("c-1");
       expect(input!.creativeName).toBe("Mock — c-1");
       expect(input!.objective).toBe("OUTCOME_SALES");
+      expect(input!.effectiveCohort).toBe("purchase");
       expect(input).toMatchObject({
         lifecyclePosition: "plateau",
         daysSincePeak: 5,
@@ -67,6 +72,60 @@ describe("creative-decision-engine v3 - data source", () => {
       const warehouse = new WarehouseDataSource();
 
       expect(warehouse).toBeInstanceOf(WarehouseDataSource);
+    });
+  });
+
+  describe("resolveEffectiveCreativeCohort", () => {
+    it("returns purchase when purchase adsets dominate spend", () => {
+      expect(
+        resolveEffectiveCreativeCohort([
+          {
+            spend: 800,
+            optimizationGoal: "OFFSITE_CONVERSIONS",
+            customEventType: "PURCHASE",
+          },
+          {
+            spend: 100,
+            optimizationGoal: "THRUPLAY",
+            customEventType: null,
+          },
+        ]),
+      ).toBe("purchase");
+    });
+
+    it("returns unknown when no cohort has at least 60% spend share", () => {
+      expect(
+        resolveEffectiveCreativeCohort([
+          {
+            spend: 400,
+            optimizationGoal: "OFFSITE_CONVERSIONS",
+            customEventType: "PURCHASE",
+          },
+          {
+            spend: 400,
+            optimizationGoal: "THRUPLAY",
+            customEventType: null,
+          },
+          {
+            spend: 300,
+            optimizationGoal: "OFFSITE_CONVERSIONS",
+            customEventType: "ADD_TO_CART",
+          },
+        ]),
+      ).toBe("unknown");
+    });
+
+    it("returns null when there is no adset spend", () => {
+      expect(
+        resolveEffectiveCreativeCohort([
+          {
+            spend: 0,
+            optimizationGoal: "OFFSITE_CONVERSIONS",
+            customEventType: "PURCHASE",
+          },
+        ]),
+      ).toBeNull();
+      expect(resolveEffectiveCreativeCohort([])).toBeNull();
     });
   });
 });

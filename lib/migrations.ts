@@ -5960,6 +5960,16 @@ export async function runMigrations(options?: {
         ).catch(() => {}),
       ]);
 
+      const googleAdsProductDimensionsHasRows = await doesTableHaveRows(
+        sql,
+        "google_ads_product_dimensions",
+      );
+      if (googleAdsProductDimensionsHasRows) {
+        logStartupEvent("migration_dimension_backfill_skipped_existing_rows", {
+          tableName: "google_ads_product_dimensions",
+        });
+      }
+
       await runMigrationBatchSequentially([
         sql.query(
           `
@@ -6353,8 +6363,11 @@ export async function runMigrations(options?: {
               updated_at = now()
           `,
         ).catch(() => {}),
-        sql.query(
-          `
+        ...(googleAdsProductDimensionsHasRows
+          ? []
+          : [
+              sql.query(
+                `
             WITH bounds AS (
               SELECT
                 business_id,
@@ -6431,8 +6444,9 @@ export async function runMigrations(options?: {
               last_seen_at = GREATEST(COALESCE(google_ads_product_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
               source_updated_at = GREATEST(COALESCE(google_ads_product_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
               updated_at = now()
-          `,
-        ).catch(() => {}),
+                `,
+              ).catch(() => {}),
+            ]),
         sql.query(
           `
             INSERT INTO google_ads_campaign_state_history (

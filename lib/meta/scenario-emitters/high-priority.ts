@@ -163,6 +163,7 @@ function baseCampaignRec(input: {
   targetValue?: unknown;
   campaignRole?: MetaCampaignRole;
   bidRegime?: MetaBidRegime;
+  cohort: MetaFunnelCohort;
   signals?: MetaEntityDecisionSignal | null;
 }): MetaRecommendation {
   return {
@@ -196,6 +197,7 @@ function baseCampaignRec(input: {
     engineVersion: META_RECOMMENDATION_ENGINE_VERSION,
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    cohort: input.cohort,
     calibrationScope: input.confidenceScore.reason ? { reason: input.confidenceScore.reason } : {},
     signalQuality: signalQuality(input.signals, input.confidenceScore.label),
   };
@@ -218,6 +220,7 @@ function baseAdsetRec(input: {
   targetValue?: unknown;
   campaignRole?: MetaCampaignRole;
   bidRegime?: MetaBidRegime;
+  cohort: MetaFunnelCohort;
   signals?: MetaEntityDecisionSignal | null;
 }): MetaRecommendation {
   return {
@@ -253,6 +256,7 @@ function baseAdsetRec(input: {
     engineVersion: META_RECOMMENDATION_ENGINE_VERSION,
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    cohort: input.cohort,
     calibrationScope: input.confidenceScore.reason ? { reason: input.confidenceScore.reason } : {},
     signalQuality: signalQuality(input.signals, input.confidenceScore.label),
   };
@@ -287,6 +291,7 @@ export function maybeC1ControlledScale(input: CampaignScenarioInput): MetaRecomm
     targetValue: { budget: { current: budget, proposed: r2(budget * 1.15), range: { low: r2(budget * 1.1), high: r2(budget * 1.25) } } },
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    cohort: input.cohort,
     signals: input.signals,
   });
 }
@@ -322,6 +327,7 @@ export function maybeB1CappedBidRaise(input: CampaignScenarioInput): MetaRecomme
     targetValue: { bid: targetBand(bid, 0.1) },
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    cohort: input.cohort,
     signals: input.signals,
   });
 }
@@ -353,6 +359,7 @@ export function maybeJ1StableWinnerProtected(input: CampaignScenarioInput): Meta
     targetValue: { state: "stable_winner_protected" },
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    cohort: input.cohort,
     signals: input.signals,
   });
 }
@@ -383,6 +390,7 @@ export function maybeA2StructuralRebuild(input: CampaignScenarioInput): MetaReco
     ],
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    cohort: input.cohort,
     signals: input.signals,
   });
 }
@@ -414,6 +422,7 @@ export function maybeF1SuddenRoasDrop(input: CampaignScenarioInput): MetaRecomme
     targetValue: { diagnostics: ["tracking", "fatigue", "recent_edits", "auction", "seasonality"] },
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    cohort: input.cohort,
     signals: input.signals,
   });
 }
@@ -446,6 +455,7 @@ export function maybeF4StableWinnerFade(input: CampaignScenarioInput): MetaRecom
     ],
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    cohort: input.cohort,
     signals: input.signals,
   });
 }
@@ -478,6 +488,7 @@ export function maybeE1FatigueAdset(input: AdsetScenarioInput): MetaRecommendati
     ],
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    cohort: input.cohort,
     signals: input.signals,
   });
 }
@@ -510,6 +521,7 @@ export function maybeE2CtrDecay(input: CampaignScenarioInput): MetaRecommendatio
     targetValue: { ctr_decay_pct: r2(signalDecayPct) },
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    cohort: input.cohort,
     signals: input.signals,
   });
 }
@@ -551,6 +563,7 @@ export function maybeK1MixedConfig(input: CampaignScenarioInput): MetaRecommenda
     ],
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    cohort: input.cohort,
     signals: input.signals,
   });
 }
@@ -579,6 +592,7 @@ export function maybeI4TestShouldUseAbo(input: CampaignScenarioInput): MetaRecom
     ],
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    cohort: input.cohort,
     signals: input.signals,
   });
 }
@@ -612,6 +626,7 @@ export function maybeA1MathFloor(input: CampaignScenarioInput): MetaRecommendati
     targetValue: { current_event: row.optimizationGoal, proposed_event: "ADD_TO_CART_OR_INITIATE_CHECKOUT" },
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    cohort: input.cohort,
     signals: input.signals,
   });
 }

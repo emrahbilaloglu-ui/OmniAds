@@ -44,6 +44,7 @@ export function metaRec(overrides: Partial<MetaRecommendation> = {}): MetaRecomm
     },
     campaignRole: "prospecting_scale",
     bidRegime: "lowest_cost",
+    cohort: "purchase",
     ...overrides,
   };
 }

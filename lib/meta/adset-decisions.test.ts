@@ -103,7 +103,9 @@ describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
       ],
     });
 
-    expect(recs.some((rec) => rec.type === "adset_scale_budget")).toBe(true);
+    const scaleRec = recs.find((rec) => rec.type === "adset_scale_budget");
+    expect(scaleRec).toBeTruthy();
+    expect(scaleRec?.cohort).toBe("purchase");
   });
 
   it("does not scale a purchase adset when the selected range has mixed goal config", () => {

@@ -205,6 +205,7 @@ function stateRecommendation(input: {
     engineVersion: META_RECOMMENDATION_ENGINE_VERSION,
     calibrationScope: input.context?.scope ? { ...input.context.scope } : {},
     signalQuality: { quality_status: "missing", confidence_cap: "low_without_signal_table" },
+    cohort: input.cohort,
   };
 }
 

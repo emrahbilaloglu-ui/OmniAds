@@ -30,7 +30,7 @@ import {
 import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
 import { emitHighPriorityCampaignScenario } from "@/lib/meta/scenario-emitters/high-priority";
 import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
-import { resolveMetaFunnelCohort } from "@/lib/meta/funnel-cohort";
+import { resolveMetaFunnelCohort, type MetaFunnelCohort } from "@/lib/meta/funnel-cohort";
 
 export type MetaDecisionState = "act" | "test" | "watch";
 export type MetaRecommendationLens = "volume" | "profitability" | "structure";
@@ -185,6 +185,7 @@ export interface MetaRecommendation {
   evidenceTrail?: MetaEvidenceTrail;
   campaignRole?: MetaCampaignRole;
   bidRegime?: MetaBidRegime;
+  cohort?: MetaFunnelCohort | null;
 }
 
 export interface MetaDecisionSummary {
@@ -882,6 +883,12 @@ function enrichRecommendationTaxonomy(
     bidRegime:
       recommendation.bidRegime ??
       inferBidRegime(null, campaign),
+    cohort:
+      recommendation.cohort ??
+      resolveMetaFunnelCohort({
+        optimizationGoal: campaign.optimizationGoal,
+        customEventType: campaign.customEventType,
+      }),
   };
 }
 

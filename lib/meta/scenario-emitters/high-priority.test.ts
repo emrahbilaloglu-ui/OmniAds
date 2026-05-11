@@ -222,6 +222,7 @@ describe("high priority Meta scenario emitters", () => {
     const rec = build();
     expect(rec).toBeTruthy();
     expect(rec?.kind).toBe("recommendation");
+    expect(rec?.cohort).toBe(purchaseCohort);
     expect(rec?.targetValue === undefined || JSON.parse(JSON.stringify(rec.targetValue))).toBeTruthy();
   });
 
@@ -234,6 +235,7 @@ describe("high priority Meta scenario emitters", () => {
       signals: signal({ scopeType: "adset", scopeId: "adset_1", frequencyP80: 3 }),
     });
     expect(rec?.type).toBe("scenario_e1_frequency_fatigue");
+    expect(rec?.cohort).toBe(purchaseCohort);
     expect(rec?.targetValue === undefined || JSON.parse(JSON.stringify(rec.targetValue))).toBeTruthy();
   });
 
@@ -329,6 +331,7 @@ describe("high priority Meta scenario emitters", () => {
       signals: signal({ ctrDecayPct: -22 }),
     });
     expect(rec?.type).toBe("scenario_e2_ctr_decay_refresh");
+    expect(rec?.cohort).toBe("upper_funnel");
   });
 
   it("allows campaign controlled scale in purchase cohort", () => {
@@ -349,6 +352,7 @@ describe("high priority Meta scenario emitters", () => {
       signals: signal({ scopeType: "adset", scopeId: "adset_1", frequencyP80: 3 }),
     });
     expect(rec?.type).toBe("scenario_e1_frequency_fatigue");
+    expect(rec?.cohort).toBe("mid_funnel");
   });
 
   it("allows adset fatigue in upper-funnel cohort", () => {
@@ -360,6 +364,7 @@ describe("high priority Meta scenario emitters", () => {
       signals: signal({ scopeType: "adset", scopeId: "adset_1", frequencyP80: 3 }),
     });
     expect(rec?.type).toBe("scenario_e1_frequency_fatigue");
+    expect(rec?.cohort).toBe("upper_funnel");
   });
 
   it("applies precedence with rebuild before controlled scale", () => {

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  buildProviderRoundRobinBusinessBatches,
   buildProviderHeartbeatWorkerId,
   createRunnerLeaseGuard,
   getPriorityBusinessIdsForAdapter,
@@ -315,14 +316,104 @@ describe("resolveTickBusinessesForAdapter", () => {
   });
 });
 
+describe("buildProviderRoundRobinBusinessBatches", () => {
+  it("interleaves provider batches so one provider cannot drain the whole tick first", () => {
+    const meta = { providerScope: "meta" } as const;
+    const google = { providerScope: "google_ads" } as const;
+
+    const batches = buildProviderRoundRobinBusinessBatches<
+      typeof meta | typeof google
+    >([
+      {
+        adapter: meta,
+        businesses: [
+          { id: "meta-1", name: "Meta 1" },
+          { id: "meta-2", name: "Meta 2" },
+          { id: "meta-3", name: "Meta 3" },
+        ],
+        effectiveConcurrency: 1,
+      },
+      {
+        adapter: google,
+        businesses: [
+          { id: "google-1", name: "Google 1" },
+          { id: "google-2", name: "Google 2" },
+        ],
+        effectiveConcurrency: 1,
+      },
+    ]);
+
+    expect(
+      batches.map(
+        (batch) =>
+          `${batch.adapter.providerScope}:${batch.businesses
+            .map((business) => business.id)
+            .join(",")}`,
+      ),
+    ).toEqual([
+      "meta:meta-1",
+      "google_ads:google-1",
+      "meta:meta-2",
+      "google_ads:google-2",
+      "meta:meta-3",
+    ]);
+  });
+
+  it("preserves each provider's concurrency chunks while interleaving providers", () => {
+    const meta = { providerScope: "meta" } as const;
+    const google = { providerScope: "google_ads" } as const;
+
+    const batches = buildProviderRoundRobinBusinessBatches<
+      typeof meta | typeof google
+    >([
+      {
+        adapter: meta,
+        businesses: [
+          { id: "meta-1", name: "Meta 1" },
+          { id: "meta-2", name: "Meta 2" },
+          { id: "meta-3", name: "Meta 3" },
+        ],
+        effectiveConcurrency: 2,
+      },
+      {
+        adapter: google,
+        businesses: [
+          { id: "google-1", name: "Google 1" },
+          { id: "google-2", name: "Google 2" },
+          { id: "google-3", name: "Google 3" },
+        ],
+        effectiveConcurrency: 2,
+      },
+    ]);
+
+    expect(
+      batches.map(
+        (batch) =>
+          `${batch.adapter.providerScope}:${batch.businesses
+            .map((business) => business.id)
+            .join(",")}`,
+      ),
+    ).toEqual([
+      "meta:meta-1,meta-2",
+      "google_ads:google-1,google-2",
+      "meta:meta-3",
+      "google_ads:google-3",
+    ]);
+  });
+});
+
 describe("buildProviderHeartbeatWorkerId", () => {
   it("keeps the base worker id for all-scope heartbeats", () => {
     expect(buildProviderHeartbeatWorkerId("worker-1", "all")).toBe("worker-1");
   });
 
   it("suffixes provider-specific heartbeats", () => {
-    expect(buildProviderHeartbeatWorkerId("worker-1", "meta")).toBe("worker-1:meta");
-    expect(buildProviderHeartbeatWorkerId("worker-1", "google_ads")).toBe("worker-1:google_ads");
+    expect(buildProviderHeartbeatWorkerId("worker-1", "meta")).toBe(
+      "worker-1:meta",
+    );
+    expect(buildProviderHeartbeatWorkerId("worker-1", "google_ads")).toBe(
+      "worker-1:google_ads",
+    );
   });
 });
 
@@ -458,7 +549,7 @@ describe("resolveAdapterLifecycleSnapshot", () => {
         checkpointHealth: expect.objectContaining({
           latestCheckpointScope: "campaign_daily",
         }),
-      })
+      }),
     );
   });
 });
@@ -466,7 +557,9 @@ describe("resolveAdapterLifecycleSnapshot", () => {
 describe("runAdapterLifecycleTick", () => {
   it("drives the shared lifecycle methods when a partition is leased", async () => {
     const calls: string[] = [];
-    const leasePartitions = async (input: { plan?: { kind: string } | null }) => {
+    const leasePartitions = async (input: {
+      plan?: { kind: string } | null;
+    }) => {
       calls.push(`lease:${input.plan?.kind ?? "none"}`);
       return [
         {

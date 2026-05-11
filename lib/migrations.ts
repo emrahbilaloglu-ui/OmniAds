@@ -6019,6 +6019,38 @@ export async function runMigrations(options?: {
         });
       }
 
+      const [
+        metaCampaignDimensionsHasRows,
+        metaAdsetDimensionsHasRows,
+        metaAdDimensionsHasRows,
+        metaCreativeDimensionsHasRows,
+      ] = await Promise.all([
+        doesTableHaveRows(sql, "meta_campaign_dimensions"),
+        doesTableHaveRows(sql, "meta_adset_dimensions"),
+        doesTableHaveRows(sql, "meta_ad_dimensions"),
+        doesTableHaveRows(sql, "meta_creative_dimensions"),
+      ]);
+      if (metaCampaignDimensionsHasRows) {
+        logStartupEvent("migration_dimension_backfill_skipped_existing_rows", {
+          tableName: "meta_campaign_dimensions",
+        });
+      }
+      if (metaAdsetDimensionsHasRows) {
+        logStartupEvent("migration_dimension_backfill_skipped_existing_rows", {
+          tableName: "meta_adset_dimensions",
+        });
+      }
+      if (metaAdDimensionsHasRows) {
+        logStartupEvent("migration_dimension_backfill_skipped_existing_rows", {
+          tableName: "meta_ad_dimensions",
+        });
+      }
+      if (metaCreativeDimensionsHasRows) {
+        logStartupEvent("migration_dimension_backfill_skipped_existing_rows", {
+          tableName: "meta_creative_dimensions",
+        });
+      }
+
       await runMigrationBatchSequentially([
         sql.query(
           `
@@ -6615,7 +6647,10 @@ export async function runMigrations(options?: {
         ).catch(() => {}),
         sql.query(
           `
-            WITH bounds AS (
+            WITH should_backfill AS (
+              SELECT NOT EXISTS (SELECT 1 FROM meta_campaign_dimensions LIMIT 1) AS enabled
+            ),
+            bounds AS (
               SELECT
                 business_id,
                 provider_account_id,
@@ -6624,6 +6659,7 @@ export async function runMigrations(options?: {
                 MAX(date)::timestamptz AS last_seen_at
               FROM meta_campaign_daily
               WHERE campaign_id IS NOT NULL
+                AND (SELECT enabled FROM should_backfill)
               GROUP BY business_id, provider_account_id, campaign_id
             ),
             latest AS (
@@ -6640,6 +6676,7 @@ export async function runMigrations(options?: {
                 updated_at
               FROM meta_campaign_daily
               WHERE campaign_id IS NOT NULL
+                AND (SELECT enabled FROM should_backfill)
               ORDER BY business_id, provider_account_id, campaign_id, date DESC, updated_at DESC
             )
             INSERT INTO meta_campaign_dimensions (
@@ -6691,7 +6728,10 @@ export async function runMigrations(options?: {
         ).catch(() => {}),
         sql.query(
           `
-            WITH bounds AS (
+            WITH should_backfill AS (
+              SELECT NOT EXISTS (SELECT 1 FROM meta_adset_dimensions LIMIT 1) AS enabled
+            ),
+            bounds AS (
               SELECT
                 business_id,
                 provider_account_id,
@@ -6700,6 +6740,7 @@ export async function runMigrations(options?: {
                 MAX(date)::timestamptz AS last_seen_at
               FROM meta_adset_daily
               WHERE adset_id IS NOT NULL
+                AND (SELECT enabled FROM should_backfill)
               GROUP BY business_id, provider_account_id, adset_id
             ),
             latest AS (
@@ -6716,6 +6757,7 @@ export async function runMigrations(options?: {
                 updated_at
               FROM meta_adset_daily
               WHERE adset_id IS NOT NULL
+                AND (SELECT enabled FROM should_backfill)
               ORDER BY business_id, provider_account_id, adset_id, date DESC, updated_at DESC
             )
             INSERT INTO meta_adset_dimensions (
@@ -6767,7 +6809,10 @@ export async function runMigrations(options?: {
         ).catch(() => {}),
         sql.query(
           `
-            WITH bounds AS (
+            WITH should_backfill AS (
+              SELECT NOT EXISTS (SELECT 1 FROM meta_ad_dimensions LIMIT 1) AS enabled
+            ),
+            bounds AS (
               SELECT
                 business_id,
                 provider_account_id,
@@ -6776,6 +6821,7 @@ export async function runMigrations(options?: {
                 MAX(date)::timestamptz AS last_seen_at
               FROM meta_ad_daily
               WHERE ad_id IS NOT NULL
+                AND (SELECT enabled FROM should_backfill)
               GROUP BY business_id, provider_account_id, ad_id
             ),
             latest AS (
@@ -6794,6 +6840,7 @@ export async function runMigrations(options?: {
                 updated_at
               FROM meta_ad_daily
               WHERE ad_id IS NOT NULL
+                AND (SELECT enabled FROM should_backfill)
               ORDER BY business_id, provider_account_id, ad_id, date DESC, updated_at DESC
             )
             INSERT INTO meta_ad_dimensions (
@@ -6854,7 +6901,10 @@ export async function runMigrations(options?: {
         ).catch(() => {}),
         sql.query(
           `
-            WITH bounds AS (
+            WITH should_backfill AS (
+              SELECT NOT EXISTS (SELECT 1 FROM meta_creative_dimensions LIMIT 1) AS enabled
+            ),
+            bounds AS (
               SELECT
                 business_id,
                 provider_account_id,
@@ -6863,6 +6913,7 @@ export async function runMigrations(options?: {
                 MAX(date)::timestamptz AS last_seen_at
               FROM meta_creative_daily
               WHERE creative_id IS NOT NULL
+                AND (SELECT enabled FROM should_backfill)
               GROUP BY business_id, provider_account_id, creative_id
             ),
             latest AS (
@@ -6885,6 +6936,7 @@ export async function runMigrations(options?: {
                 updated_at
               FROM meta_creative_daily
               WHERE creative_id IS NOT NULL
+                AND (SELECT enabled FROM should_backfill)
               ORDER BY business_id, provider_account_id, creative_id, date DESC, updated_at DESC
             )
             INSERT INTO meta_creative_dimensions (

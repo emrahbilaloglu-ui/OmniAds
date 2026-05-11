@@ -329,4 +329,52 @@ describe("runMigrations", () => {
       { tableName: "google_ads_product_dimensions" },
     );
   });
+
+  it("guards Meta dimension backfills behind destination-table emptiness checks", async () => {
+    const queries: string[] = [];
+    const sql = Object.assign(
+      vi.fn(async (strings: TemplateStringsArray) => {
+        queries.push(strings.join(" "));
+        return [];
+      }),
+      {
+        query: vi.fn(async (query: string) => {
+          queries.push(query);
+          if (
+            query.includes("SELECT EXISTS (SELECT 1 FROM meta_campaign_dimensions LIMIT 1)") ||
+            query.includes("SELECT EXISTS (SELECT 1 FROM meta_adset_dimensions LIMIT 1)") ||
+            query.includes("SELECT EXISTS (SELECT 1 FROM meta_ad_dimensions LIMIT 1)") ||
+            query.includes("SELECT EXISTS (SELECT 1 FROM meta_creative_dimensions LIMIT 1)")
+          ) {
+            return [{ exists: true }];
+          }
+          return [];
+        }),
+      },
+    );
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+    vi.mocked(db.getDbWithTimeout).mockReturnValue(sql as never);
+
+    const migrations = await import("@/lib/migrations");
+    await migrations.runMigrations({
+      force: true,
+      reason: "meta-dimension-guard-test",
+    });
+
+    const joinedQueries = queries.join("\n");
+    for (const tableName of [
+      "meta_campaign_dimensions",
+      "meta_adset_dimensions",
+      "meta_ad_dimensions",
+      "meta_creative_dimensions",
+    ]) {
+      expect(joinedQueries).toContain(
+        `SELECT NOT EXISTS (SELECT 1 FROM ${tableName} LIMIT 1) AS enabled`,
+      );
+      expect(startupDiagnostics.logStartupEvent).toHaveBeenCalledWith(
+        "migration_dimension_backfill_skipped_existing_rows",
+        { tableName },
+      );
+    }
+  });
 });

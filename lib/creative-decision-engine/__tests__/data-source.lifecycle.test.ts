@@ -17,12 +17,27 @@ function freshTimestamp() {
   return new Date().toISOString();
 }
 
-function lifecycleRow(creativeId: string, spend = 123) {
+function purchaseCohortInputs(spend: number) {
+  return [
+    {
+      spend,
+      optimizationGoal: "OFFSITE_CONVERSIONS",
+      customEventType: "PURCHASE",
+    },
+  ];
+}
+
+function lifecycleRow(
+  creativeId: string,
+  spend = 123,
+  effectiveCohortInputs: unknown = purchaseCohortInputs(spend),
+) {
   return {
     creative_id: creativeId,
     creative_name: `Lifecycle ${creativeId}`,
     campaign_id: "campaign_1",
     objective: "OUTCOME_SALES",
+    effective_cohort_inputs: effectiveCohortInputs,
     spend,
     purchases: 3,
     purchase_value: 300,
@@ -70,12 +85,17 @@ function lifecycleRow(creativeId: string, spend = 123) {
   };
 }
 
-function runtimeRow(creativeId: string, spend = 45) {
+function runtimeRow(
+  creativeId: string,
+  spend = 45,
+  effectiveCohortInputs: unknown = purchaseCohortInputs(spend),
+) {
   return {
     creative_id: creativeId,
     creative_name: `Runtime ${creativeId}`,
     campaign_id: "campaign_2",
     objective: "OUTCOME_SALES",
+    effective_cohort_inputs: effectiveCohortInputs,
     spend,
     purchases: 1,
     purchase_value: 90,
@@ -122,6 +142,7 @@ describe("WarehouseDataSource lifecycle hydration", () => {
     });
 
     expect(inputs.map((input) => input.creativeId)).toEqual(["creative-a"]);
+    expect(inputs[0]?.effectiveCohort).toBe("purchase");
     expect(query).toHaveBeenCalledTimes(1);
     expect(query.mock.calls[0]?.[0]).toContain("l.engine_version = $5");
     expect(query.mock.calls[0]?.[1]).toEqual([
@@ -158,6 +179,104 @@ describe("WarehouseDataSource lifecycle hydration", () => {
     ]);
     expect(inputs[0]?.lifecyclePosition).toBe("plateau");
     expect(inputs[1]?.lifecyclePosition).toBeNull();
+    expect(inputs.map((input) => input.effectiveCohort)).toEqual([
+      "purchase",
+      "purchase",
+    ]);
     expect(query).toHaveBeenCalledTimes(2);
+  });
+
+  it("hydrates purchase effective cohort when purchase adsets dominate spend", async () => {
+    query.mockImplementation(async (queryText: string) => {
+      if (queryText.includes("FROM engine_v3_creative_lifecycle_daily l")) {
+        return [];
+      }
+      if (queryText.includes("FROM meta_creative_daily")) {
+        return [
+          runtimeRow("creative-cohort", 900, [
+            {
+              spend: 800,
+              optimizationGoal: "OFFSITE_CONVERSIONS",
+              customEventType: "PURCHASE",
+            },
+            {
+              spend: 100,
+              optimizationGoal: "THRUPLAY",
+              customEventType: null,
+            },
+          ]),
+        ];
+      }
+      return [];
+    });
+
+    const warehouse = new WarehouseDataSource();
+    const input = await warehouse.getCreativeInput({
+      creativeId: "creative-cohort",
+      businessId: BUSINESS_ID,
+      asOf: AS_OF,
+    });
+
+    expect(input?.effectiveCohort).toBe("purchase");
+  });
+
+  it("hydrates unknown effective cohort when no cohort has 60% spend share", async () => {
+    query.mockImplementation(async (queryText: string) => {
+      if (queryText.includes("FROM engine_v3_creative_lifecycle_daily l")) {
+        return [];
+      }
+      if (queryText.includes("FROM meta_creative_daily")) {
+        return [
+          runtimeRow("creative-mixed", 1100, [
+            {
+              spend: 400,
+              optimizationGoal: "OFFSITE_CONVERSIONS",
+              customEventType: "PURCHASE",
+            },
+            {
+              spend: 400,
+              optimizationGoal: "THRUPLAY",
+              customEventType: null,
+            },
+            {
+              spend: 300,
+              optimizationGoal: "OFFSITE_CONVERSIONS",
+              customEventType: "ADD_TO_CART",
+            },
+          ]),
+        ];
+      }
+      return [];
+    });
+
+    const warehouse = new WarehouseDataSource();
+    const input = await warehouse.getCreativeInput({
+      creativeId: "creative-mixed",
+      businessId: BUSINESS_ID,
+      asOf: AS_OF,
+    });
+
+    expect(input?.effectiveCohort).toBe("unknown");
+  });
+
+  it("hydrates null effective cohort when no adset spend is available", async () => {
+    query.mockImplementation(async (queryText: string) => {
+      if (queryText.includes("FROM engine_v3_creative_lifecycle_daily l")) {
+        return [];
+      }
+      if (queryText.includes("FROM meta_creative_daily")) {
+        return [runtimeRow("creative-no-adset-spend", 0, null)];
+      }
+      return [];
+    });
+
+    const warehouse = new WarehouseDataSource();
+    const input = await warehouse.getCreativeInput({
+      creativeId: "creative-no-adset-spend",
+      businessId: BUSINESS_ID,
+      asOf: AS_OF,
+    });
+
+    expect(input?.effectiveCohort).toBeNull();
   });
 });

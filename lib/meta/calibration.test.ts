@@ -19,8 +19,10 @@ function makeSqlMock(input: {
   matureCount?: (values: unknown[]) => number;
 }) {
   const queryCalls: Array<{ text: string; params?: unknown[] }> = [];
+  const tagCalls: string[] = [];
   const tag = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join("?");
+    tagCalls.push(text);
     if (text.includes("GROUP BY provider_account_id, campaign_id, adset_id")) {
       return Promise.resolve(input.metricRows ?? []);
     }
@@ -36,7 +38,7 @@ function makeSqlMock(input: {
     queryCalls.push({ text, params });
     return Promise.resolve([]);
   });
-  return { tag, queryCalls };
+  return { tag, queryCalls, tagCalls };
 }
 
 function metricRow(input: {
@@ -167,6 +169,31 @@ describe("meta calibration", () => {
     expect(result.sampleRowsAfterCohortFilter).toBe(4);
     expect(roasRow?.sample_size).toBe(4);
     expect(roasRow?.p50).toBe(2.5);
+  });
+
+  it("groups calibration rows by goal and event before cohort filtering", async () => {
+    const rows = [
+      metricRow({ campaignId: "cmp_1", adsetId: "mixed_1", optimizationGoal: "OFFSITE_CONVERSIONS", customEventType: "PURCHASE", spend: 100, revenue: 300, conversions: 3 }),
+      metricRow({ campaignId: "cmp_1", adsetId: "mixed_1", optimizationGoal: "OFFSITE_CONVERSIONS", customEventType: "ADD_TO_CART", spend: 100, revenue: 0, conversions: 10 }),
+    ];
+    const sql = makeSqlMock({ metricRows: rows });
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+
+    const result = await runMetaCalibrationForBusiness("biz_1", "2026-05-06");
+    const aggregateSql = sql.tagCalls.find((text) =>
+      text.includes("FROM meta_adset_daily") && text.includes("GROUP BY provider_account_id")
+    );
+    const roasRow = insertedPayload(sql).find((row) =>
+      row.scope_type === "account" && row.scope_id === "act_1" && row.metric_name === "roas_28d"
+    );
+
+    expect(aggregateSql).toContain("GROUP BY provider_account_id, campaign_id, adset_id, optimization_goal, custom_event_type");
+    expect(aggregateSql).not.toContain("MAX(optimization_goal)");
+    expect(aggregateSql).not.toContain("MAX(custom_event_type)");
+    expect(result.sampleRowsTotal).toBe(2);
+    expect(result.sampleRowsAfterCohortFilter).toBe(1);
+    expect(roasRow?.sample_size).toBe(1);
+    expect(roasRow?.p50).toBe(3);
   });
 
   it("writes zero calibration rows when the account has no purchase adsets", async () => {

@@ -56,6 +56,9 @@ export interface BriefingCreativeCard {
   ctr?: number | null;
   cpa?: number | null;
   purchases?: number | null;
+  impressions?: number | null;
+  linkClicks?: number | null;
+  addToCart?: number | null;
   frequency?: number | null;
   fatigue?: boolean | null;
   sparkline?: number[] | null;

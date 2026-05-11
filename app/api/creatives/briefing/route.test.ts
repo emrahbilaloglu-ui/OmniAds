@@ -152,6 +152,12 @@ describe("GET /api/creatives/briefing", () => {
     expect(Array.isArray(payload.actionNow)).toBe(true);
     expect(Array.isArray(payload.watching)).toBe(true);
     expect(Array.isArray(payload.healthy)).toBe(true);
+    const cards = [...payload.actionNow, ...payload.watching, ...payload.healthy];
+    expect(cards[0]).toMatchObject({
+      impressions: 50000,
+      linkClicks: 600,
+      addToCart: 80,
+    });
     expect(payload.pulse.engineVersion).toBeTruthy();
     expect(payload.statusFilter).toBe("active");
     expect(JSON.stringify(payload)).not.toContain("buyerAction");

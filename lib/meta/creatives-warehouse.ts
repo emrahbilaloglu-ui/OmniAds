@@ -39,6 +39,7 @@ import {
 import {
   readMetaAdDimensions,
   readMetaCreativeDimensions,
+  type MetaAdDimensionRecord,
 } from "@/lib/meta/request-model-store";
 import type { MetaAdDailyRow, MetaCreativeDailyRow, MetaCreativeMediaRow } from "@/lib/meta/warehouse-types";
 import { getCreativeMediaRetentionStart } from "@/lib/meta/history";
@@ -136,6 +137,10 @@ function buildFallbackAdRawRow(input: {
   const cpcLink = factRow.cpc ?? (linkClicks > 0 ? spend / linkClicks : 0);
   const cpm = impressions > 0 ? (spend / impressions) * 1000 : 0;
   const ctr = factRow.ctr ?? (impressions > 0 ? (linkClicks / impressions) * 100 : 0);
+  const outboundClicks = factRow.outboundClicks ?? 0;
+  const landingPageViews = factRow.landingPageViews ?? 0;
+  const addToCart = factRow.addToCart ?? 0;
+  const initiateCheckout = factRow.initiateCheckout ?? 0;
 
   return {
     id: factRow.adId,
@@ -195,21 +200,21 @@ function buildFallbackAdRawRow(input: {
     reach: Math.round(factRow.reach),
     frequency: factRow.frequency ?? null,
     link_clicks: Math.round(linkClicks),
-    outbound_clicks: 0,
+    outbound_clicks: Math.round(outboundClicks),
     effective_status: factRow.adStatus,
     destination_url: factRow.destinationUrl ?? null,
     destination_url_raw: factRow.destinationUrlRaw ?? null,
     destination_url_source: factRow.destinationUrlSource ?? null,
     destination_url_confidence: factRow.destinationUrlConfidence ?? null,
     cta_type: factRow.ctaType ?? null,
-    landing_page_views: 0,
-    add_to_cart: 0,
-    initiate_checkout: 0,
+    landing_page_views: Math.round(landingPageViews),
+    add_to_cart: Math.round(addToCart),
+    initiate_checkout: Math.round(initiateCheckout),
     leads: 0,
     messages: 0,
     thumbstop: 0,
-    click_to_atc: 0,
-    atc_to_purchase: 0,
+    click_to_atc: linkClicks > 0 ? round2((addToCart / linkClicks) * 100) : 0,
+    atc_to_purchase: addToCart > 0 ? round2((factRow.conversions / addToCart) * 100) : 0,
     video25: 0,
     video50: 0,
     video75: 0,
@@ -438,6 +443,9 @@ export function hydrateWarehouseCreativeMetrics<T extends RawCreativeRow>(input:
   row: T;
   factRow: MetaAdDailyRow | MetaCreativeDailyRow;
 }) {
+  const resolvedLinkClicks = input.factRow.linkClicks ?? input.row.link_clicks;
+  const resolvedAddToCart = input.factRow.addToCart ?? input.row.add_to_cart;
+
   return {
     ...input.row,
     account_id: input.factRow.providerAccountId ?? input.row.account_id,
@@ -469,14 +477,119 @@ export function hydrateWarehouseCreativeMetrics<T extends RawCreativeRow>(input:
     impressions: input.factRow.impressions,
     reach: input.factRow.reach,
     frequency: input.factRow.frequency ?? input.row.frequency ?? null,
-    link_clicks: input.factRow.linkClicks ?? input.row.link_clicks,
+    link_clicks: resolvedLinkClicks,
     destination_url: input.factRow.destinationUrl ?? input.row.destination_url ?? null,
     destination_url_raw: input.factRow.destinationUrlRaw ?? input.row.destination_url_raw ?? null,
     destination_url_source: input.factRow.destinationUrlSource ?? input.row.destination_url_source ?? null,
     destination_url_confidence:
       input.factRow.destinationUrlConfidence ?? input.row.destination_url_confidence ?? null,
     cta_type: input.factRow.ctaType ?? input.row.cta_type ?? null,
+    outbound_clicks: input.factRow.outboundClicks ?? input.row.outbound_clicks,
+    landing_page_views: input.factRow.landingPageViews ?? input.row.landing_page_views,
+    add_to_cart: resolvedAddToCart,
+    initiate_checkout: input.factRow.initiateCheckout ?? input.row.initiate_checkout,
+    click_to_atc:
+      resolvedLinkClicks > 0
+        ? round2((resolvedAddToCart / resolvedLinkClicks) * 100)
+        : input.row.click_to_atc,
+    atc_to_purchase:
+      resolvedAddToCart > 0
+        ? round2((input.factRow.conversions / resolvedAddToCart) * 100)
+        : input.row.atc_to_purchase,
   } satisfies RawCreativeRow;
+}
+
+function adFactKey(row: Pick<MetaAdDailyRow, "providerAccountId" | "date" | "adId">) {
+  return `${row.providerAccountId}|${row.date}|${row.adId}`;
+}
+
+function creativeFactKey(row: Pick<MetaCreativeDailyRow, "providerAccountId" | "date" | "creativeId">) {
+  return `${row.providerAccountId}|${row.date}|${row.creativeId}`;
+}
+
+function resolveAdCreativeId(row: MetaAdDailyRow, dimension: MetaAdDimensionRecord | undefined) {
+  return (
+    dimension?.creativeId ??
+    coerceRawCreativeRow(dimension?.projectionJson)?.creative_id ??
+    null
+  );
+}
+
+function overlayAdFunnelFallback(
+  row: MetaAdDailyRow,
+  fallback: MetaCreativeDailyRow | undefined,
+): MetaAdDailyRow {
+  if (!fallback) return row;
+  const linkClicks =
+    (row.linkClicks ?? 0) > 0 ? row.linkClicks : fallback.linkClicks;
+  return {
+    ...row,
+    linkClicks,
+    outboundClicks:
+      (row.outboundClicks ?? 0) > 0 ? row.outboundClicks : fallback.outboundClicks,
+    landingPageViews:
+      (row.landingPageViews ?? 0) > 0 ? row.landingPageViews : fallback.landingPageViews,
+    addToCart:
+      (row.addToCart ?? 0) > 0 ? row.addToCart : fallback.addToCart,
+    initiateCheckout:
+      (row.initiateCheckout ?? 0) > 0 ? row.initiateCheckout : fallback.initiateCheckout,
+    ctr:
+      (row.ctr ?? 0) > 0 || !linkClicks || row.impressions <= 0
+        ? row.ctr
+        : (linkClicks / row.impressions) * 100,
+    cpc:
+      (row.cpc ?? 0) > 0 || !linkClicks
+        ? row.cpc
+        : row.spend / linkClicks,
+  };
+}
+
+async function readUniqueAdFunnelFallbacks(input: {
+  businessId: string;
+  start: string;
+  end: string;
+  providerAccountIds: string[];
+  adRows: MetaAdDailyRow[];
+  adDimensions: Map<string, MetaAdDimensionRecord>;
+}) {
+  const sparseRows = input.adRows.filter(
+    (row) =>
+      (row.linkClicks ?? 0) <= 0 ||
+      (row.landingPageViews ?? 0) <= 0 ||
+      (row.addToCart ?? 0) <= 0 ||
+      (row.initiateCheckout ?? 0) <= 0,
+  );
+  if (sparseRows.length === 0) return new Map<string, MetaCreativeDailyRow>();
+
+  const sparseAdKeys = new Set(sparseRows.map((row) => adFactKey(row)));
+  const creativeKeyByAdKey = new Map<string, string>();
+  const creativeKeyCounts = new Map<string, number>();
+  for (const adRow of input.adRows) {
+    const creativeId = resolveAdCreativeId(adRow, input.adDimensions.get(adRow.adId));
+    if (!creativeId) continue;
+    const creativeKey = `${adRow.providerAccountId}|${adRow.date}|${creativeId}`;
+    const adKey = adFactKey(adRow);
+    if (sparseAdKeys.has(adKey)) creativeKeyByAdKey.set(adKey, creativeKey);
+    creativeKeyCounts.set(creativeKey, (creativeKeyCounts.get(creativeKey) ?? 0) + 1);
+  }
+  if (creativeKeyByAdKey.size === 0) return new Map<string, MetaCreativeDailyRow>();
+
+  const creativeRows = await getMetaCreativeDailyRange({
+    businessId: input.businessId,
+    startDate: input.start,
+    endDate: input.end,
+    providerAccountIds: input.providerAccountIds,
+  }).catch(() => [] as MetaCreativeDailyRow[]);
+  const creativeRowsByKey = new Map(
+    creativeRows.map((row) => [creativeFactKey(row), row]),
+  );
+  const fallbackByAdKey = new Map<string, MetaCreativeDailyRow>();
+  for (const [adKey, creativeKey] of creativeKeyByAdKey.entries()) {
+    if ((creativeKeyCounts.get(creativeKey) ?? 0) !== 1) continue;
+    const fallback = creativeRowsByKey.get(creativeKey);
+    if (fallback) fallbackByAdKey.set(adKey, fallback);
+  }
+  return fallbackByAdKey;
 }
 
 function buildPreviewCoverage(rows: MetaCreativeApiRow[]) {
@@ -686,6 +799,10 @@ async function syncMetaCreativesAccountDay(input: {
     ctr: row.ctr_all,
     cpc: row.cpc_link,
     linkClicks: row.link_clicks,
+    outboundClicks: row.outbound_clicks,
+    landingPageViews: row.landing_page_views,
+    addToCart: row.add_to_cart,
+    initiateCheckout: row.initiate_checkout,
     destinationUrl: row.destination_url ?? null,
     destinationUrlRaw: row.destination_url_raw ?? null,
     destinationUrlSource: row.destination_url_source ?? null,
@@ -738,6 +855,9 @@ async function syncMetaCreativesAccountDay(input: {
       firstSeenAt: row.launch_date ? `${row.launch_date}T00:00:00.000Z` : null,
       firstSpendAt: row.spend > 0 ? `${input.day}T00:00:00.000Z` : null,
       outboundClicks: row.outbound_clicks ?? null,
+      landingPageViews: row.landing_page_views,
+      addToCart: row.add_to_cart,
+      initiateCheckout: row.initiate_checkout,
       effectiveStatus: row.effective_status ?? null,
       objective: row.objective ?? null,
       attributionSetting: row.attribution_setting ?? null,
@@ -952,6 +1072,17 @@ export async function getMetaCreativesWarehousePayload(input: {
           ?.map((row) => row.adId)
           .filter((value): value is string => Boolean(value)) ?? [],
       });
+  const adFunnelFallbacks =
+    !useCreativeWarehouse && adSourceRows?.length
+      ? await readUniqueAdFunnelFallbacks({
+          businessId: input.businessId,
+          start: input.start,
+          end: input.end,
+          providerAccountIds: assignedAccountIds,
+          adRows: adSourceRows,
+          adDimensions: dimensionRows as Map<string, MetaAdDimensionRecord>,
+        })
+      : new Map<string, MetaCreativeDailyRow>();
   const mediaByCreativeKey = new Map<string, MetaCreativeMediaRow>();
   const mediaByAdKey = new Map<string, MetaCreativeMediaRow>();
   if (input.mediaMode === "full" && sourceRows.length) {
@@ -983,9 +1114,16 @@ export async function getMetaCreativesWarehousePayload(input: {
     }
   }
   const rawRows: RawCreativeRow[] = sourceRows.reduce<RawCreativeRow[]>((acc, row) => {
+      const factRow =
+        !useCreativeWarehouse
+          ? overlayAdFunnelFallback(
+              row as MetaAdDailyRow,
+              adFunnelFallbacks.get(adFactKey(row as MetaAdDailyRow)),
+            )
+          : row;
       const dimensionRow = useCreativeWarehouse
-        ? dimensionRows.get((row as MetaCreativeDailyRow).creativeId)
-        : dimensionRows.get((row as MetaAdDailyRow).adId);
+        ? dimensionRows.get((factRow as MetaCreativeDailyRow).creativeId)
+        : dimensionRows.get((factRow as MetaAdDailyRow).adId);
       const projectionRow =
         coerceRawCreativeRow(dimensionRow?.projectionJson) ??
         (!useCreativeWarehouse
@@ -1005,15 +1143,15 @@ export async function getMetaCreativesWarehousePayload(input: {
           ) ?? null;
       const hydratedRow = hydrateWarehouseCreativeMetrics({
           row: overlayCreativeMedia(projectionRow, mediaRow),
-          factRow: row,
+          factRow,
         });
       acc.push(
         input.groupBy === "ad" && !useCreativeWarehouse
           ? {
               ...hydratedRow,
               name:
-                (row as MetaAdDailyRow).adNameCurrent ??
-                (row as MetaAdDailyRow).adNameHistorical ??
+                (factRow as MetaAdDailyRow).adNameCurrent ??
+                (factRow as MetaAdDailyRow).adNameHistorical ??
                 hydratedRow.name,
             }
           : hydratedRow,

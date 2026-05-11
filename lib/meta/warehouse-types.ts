@@ -257,6 +257,10 @@ export interface MetaAdDailyRow extends MetaWarehouseBaseRow {
   adNameHistorical: string | null;
   adStatus: string | null;
   linkClicks?: number | null;
+  outboundClicks?: number | null;
+  landingPageViews?: number | null;
+  addToCart?: number | null;
+  initiateCheckout?: number | null;
   destinationUrl?: string | null;
   destinationUrlRaw?: string | null;
   destinationUrlSource?: string | null;
@@ -307,6 +311,9 @@ export interface MetaCreativeDailyRow extends MetaWarehouseBaseRow {
   creativeSecondaryType?: string | null;
   imageHash?: string | null;
   linkClicks?: number | null;
+  landingPageViews?: number | null;
+  addToCart?: number | null;
+  initiateCheckout?: number | null;
   payloadJson?: unknown;
 }
 

@@ -47,6 +47,12 @@ export default [
     },
   },
   {
+    files: ["components/creatives/**/*.{js,jsx,ts,tsx}"],
+    rules: {
+      "react-hooks/rules-of-hooks": "error",
+    },
+  },
+  {
     files: ["lib/archive/**/*.{js,jsx,mjs,ts,tsx,mts}"],
     rules: {
       "no-restricted-imports": "off",

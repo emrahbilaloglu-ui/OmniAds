@@ -334,14 +334,31 @@ function TrailItem({
   );
 }
 
+function wholeNumberOrZero(value: number | null | undefined) {
+  return Math.max(0, Math.round(numberOrZero(value)));
+}
+
+function funnelBarPct(value: number, denominator: number) {
+  if (value <= 0 || denominator <= 0) return 0;
+  return Math.min(100, Math.max(2, (value / denominator) * 100));
+}
+
 function FunnelBody({ card }: { card: BriefingCreativeCard }) {
-  const ctr = numberOrZero(card.ctr);
-  const purchases = numberOrZero(card.purchases);
+  const impressions = wholeNumberOrZero(card.impressions);
+  const linkClicks = wholeNumberOrZero(card.linkClicks);
+  const addToCart = wholeNumberOrZero(card.addToCart);
+  const purchases = wholeNumberOrZero(card.purchases);
+  const denominator = impressions > 0 ? impressions : Math.max(linkClicks, addToCart, purchases);
+
+  if (denominator <= 0) {
+    return <p className="text-[12px] text-slate-500">Funnel counts unavailable.</p>;
+  }
+
   const stages = [
-    { name: "Impressions", value: 124300, pct: 100 },
-    { name: "Link clicks", value: Math.round(124300 * ctr / 100), pct: ctr || 1 },
-    { name: "Add to cart", value: Math.round((purchases || 1) * 4.2), pct: 0.4 },
-    { name: "Purchases", value: purchases, pct: 0.1 },
+    { name: "Impressions", value: impressions, pct: funnelBarPct(impressions, denominator) },
+    { name: "Link clicks", value: linkClicks, pct: funnelBarPct(linkClicks, denominator) },
+    { name: "Add to cart", value: addToCart, pct: funnelBarPct(addToCart, denominator) },
+    { name: "Purchases", value: purchases, pct: funnelBarPct(purchases, denominator) },
   ];
 
   return (

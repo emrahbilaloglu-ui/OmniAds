@@ -122,6 +122,7 @@ describe("meta creatives warehouse", () => {
     vi.mocked(creativeFetchers.fetchAssignedAccountIds).mockResolvedValue(["act_1"]);
     vi.mocked(requestModelStore.readMetaCreativeDimensions).mockResolvedValue(new Map());
     vi.mocked(requestModelStore.readMetaAdDimensions).mockResolvedValue(new Map());
+    vi.mocked(warehouse.getMetaCreativeDailyRange).mockResolvedValue([] as never);
     vi.mocked(warehouse.getMetaCreativeMediaRange).mockResolvedValue([] as never);
     vi.mocked(cleanup.pruneMetaCreativeMediaOutsideRetention).mockResolvedValue(undefined as never);
   });
@@ -242,10 +243,16 @@ describe("meta creatives warehouse", () => {
         ctr: 4,
         cpc: 6.25,
         linkClicks: 3,
+        landingPageViews: 3,
+        addToCart: 2,
+        initiateCheckout: 1,
         sourceSnapshotId: null,
         payloadJson: buildProjectionRow({
           name: "Ignored Daily Payload",
           copy_text: "Ignored Daily Copy",
+          landing_page_views: 999,
+          add_to_cart: 999,
+          initiate_checkout: 999,
         }),
       },
     ] as never);
@@ -281,6 +288,11 @@ describe("meta creatives warehouse", () => {
       copy_text: "Dimension Copy",
       spend: 25,
       purchase_value: 50,
+      landing_page_views: 3,
+      add_to_cart: 2,
+      initiate_checkout: 1,
+      click_to_atc: 66.67,
+      atc_to_purchase: 100,
     });
   });
 
@@ -564,12 +576,19 @@ describe("meta creatives warehouse", () => {
         ctr: 3.75,
         cpc: 4,
         linkClicks: 2,
+        outboundClicks: 2,
+        landingPageViews: 2,
+        addToCart: 1,
+        initiateCheckout: 1,
         sourceSnapshotId: null,
         truthState: "finalized",
         truthVersion: 1,
         payloadJson: buildProjectionRow({
           name: "Ignored Ad Payload",
           copy_text: "Ignored Ad Copy",
+          landing_page_views: 999,
+          add_to_cart: 999,
+          initiate_checkout: 999,
         }),
       },
     ] as never);
@@ -604,6 +623,120 @@ describe("meta creatives warehouse", () => {
       copy_text: "Dimension Ad Copy",
       spend: 12,
       purchase_value: 24,
+      outbound_clicks: 2,
+      landing_page_views: 2,
+      add_to_cart: 1,
+      initiate_checkout: 1,
+      click_to_atc: 50,
+      atc_to_purchase: 100,
+    });
+  });
+
+  it("backfills sparse ad-name funnel metrics from a unique creative daily row", async () => {
+    vi.mocked(warehouse.getMetaAdDailyRange).mockResolvedValue([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adId: "ad-1",
+        adNameCurrent: "Ad 1",
+        adNameHistorical: "Ad 1",
+        adStatus: "ACTIVE",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 12,
+        impressions: 80,
+        clicks: 3,
+        reach: 80,
+        frequency: null,
+        conversions: 1,
+        revenue: 24,
+        roas: 2,
+        cpa: 12,
+        ctr: 0,
+        cpc: 0,
+        linkClicks: 0,
+        landingPageViews: 0,
+        addToCart: 0,
+        initiateCheckout: 0,
+        sourceSnapshotId: null,
+        truthState: "finalized",
+        truthVersion: 1,
+        payloadJson: {},
+      },
+    ] as never);
+    vi.mocked(warehouse.getMetaCreativeDailyRange).mockResolvedValue([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adId: "ad-1",
+        creativeId: "crt-1",
+        creativeName: "Creative 1",
+        headline: null,
+        primaryText: null,
+        destinationUrl: null,
+        thumbnailUrl: null,
+        assetType: "image",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 12,
+        impressions: 80,
+        clicks: 3,
+        conversions: 1,
+        revenue: 24,
+        roas: 2,
+        cpa: 12,
+        ctr: 3.75,
+        cpc: 4,
+        linkClicks: 18,
+        landingPageViews: 10,
+        addToCart: 2,
+        initiateCheckout: 1,
+        sourceSnapshotId: null,
+        payloadJson: {},
+      },
+    ] as never);
+    vi.mocked(requestModelStore.readMetaAdDimensions).mockResolvedValue(
+      new Map([
+        [
+          "ad-1",
+          {
+            creativeId: "crt-1",
+            projectionJson: buildProjectionRow({
+              id: "ad-1",
+              creative_id: "crt-1",
+              name: "Dimension Ad",
+            }),
+          },
+        ],
+      ]) as never,
+    );
+
+    const payload = await getMetaCreativesWarehousePayload({
+      businessId: "biz-1",
+      start: "2026-04-03",
+      end: "2026-04-03",
+      groupBy: "adName",
+      format: "all",
+      sort: "spend",
+      mediaMode: "metadata",
+    });
+
+    expect(payload.rows[0]).toMatchObject({
+      id: "ad-1",
+      link_clicks: 18,
+      landing_page_views: 10,
+      add_to_cart: 2,
+      initiate_checkout: 1,
+      ctr_all: 22.5,
+      cpc_link: 0.67,
+      click_to_atc: 11.11,
+      atc_to_purchase: 50,
     });
   });
 

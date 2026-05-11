@@ -378,20 +378,6 @@ function AssetImage({
     });
   }, [current, exhausted, id, name, size, sourceIndex, useProxy]);
 
-  if (!current || exhausted) {
-    if (process.env.NODE_ENV !== "production") {
-      console.warn("[creative-render][placeholder]", {
-        id: id ?? null,
-        name,
-        reason: !current ? "no-current-source" : "exhausted",
-        sourceIndex,
-        sourcesCount: sources.length,
-        exhausted,
-      });
-    }
-    return <PreviewFallback frameClass={frameClass} name={name} />;
-  }
-
   useEffect(() => {
     if (!current) {
       setDisplaySource((prev) => (prev === null ? prev : null));
@@ -471,6 +457,8 @@ function AssetImage({
   const imgSrc = displaySource?.src ?? currentDisplaySrc ?? current?.src ?? null;
 
   const handleError = () => {
+    if (!current) return;
+
     if (displaySource && !displaySource.source.startsWith("fallback_")) {
       setDisplaySource(
         current
@@ -531,6 +519,20 @@ function AssetImage({
     }
     setExhausted(true);
   };
+
+  if (!current || exhausted) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[creative-render][placeholder]", {
+        id: id ?? null,
+        name,
+        reason: !current ? "no-current-source" : "exhausted",
+        sourceIndex,
+        sourcesCount: sources.length,
+        exhausted,
+      });
+    }
+    return <PreviewFallback frameClass={frameClass} name={name} />;
+  }
 
   if (assetState === "pending" && !imgSrc) {
     return <PreviewPendingState frameClass={frameClass} label={pendingLabel ?? "Waiting for Meta"} />;

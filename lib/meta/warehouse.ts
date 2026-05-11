@@ -174,6 +174,11 @@ function toNullableNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function payloadMetricNumber(payload: unknown, key: string) {
+  if (!payload || typeof payload !== "object") return null;
+  return toNullableNumber((payload as Record<string, unknown>)[key]);
+}
+
 const META_CREATIVE_MEDIA_PAYLOAD_KEYS = new Set([
   "preview_url",
   "thumbnail_url",
@@ -11245,6 +11250,10 @@ export async function getMetaAdDailyRange(input: {
     ctr: row.ctr == null ? null : Number(row.ctr),
     cpc: row.cpc == null ? null : Number(row.cpc),
     linkClicks: row.link_clicks == null ? null : Number(row.link_clicks),
+    outboundClicks: payloadMetricNumber(row.payload_json, "outbound_clicks"),
+    landingPageViews: payloadMetricNumber(row.payload_json, "landing_page_views"),
+    addToCart: payloadMetricNumber(row.payload_json, "add_to_cart"),
+    initiateCheckout: payloadMetricNumber(row.payload_json, "initiate_checkout"),
     sourceSnapshotId: row.source_snapshot_id,
     truthState:
       row.truth_state == null
@@ -11448,6 +11457,9 @@ export async function getMetaCreativeDailyRange(input: {
     cpc: row.cpc == null ? null : Number(row.cpc),
     linkClicks: row.link_clicks == null ? null : Number(row.link_clicks),
     outboundClicks: row.outbound_clicks == null ? null : Number(row.outbound_clicks),
+    landingPageViews: payloadMetricNumber(row.payload_json, "landing_page_views"),
+    addToCart: payloadMetricNumber(row.payload_json, "add_to_cart"),
+    initiateCheckout: payloadMetricNumber(row.payload_json, "initiate_checkout"),
     sourceSnapshotId: row.source_snapshot_id,
     sourceRunId: row.source_run_id,
     metricSchemaVersion:

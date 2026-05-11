@@ -30,6 +30,7 @@ import {
 import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
 import { emitHighPriorityCampaignScenario } from "@/lib/meta/scenario-emitters/high-priority";
 import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
+import { resolveMetaFunnelCohort } from "@/lib/meta/funnel-cohort";
 
 export type MetaDecisionState = "act" | "test" | "watch";
 export type MetaRecommendationLens = "volume" | "profitability" | "structure";
@@ -2835,6 +2836,10 @@ export function buildMetaRecommendations(input: {
     const scenario = emitHighPriorityCampaignScenario({
       window: campaignWindow,
       context: calibrationContext,
+      cohort: resolveMetaFunnelCohort({
+        optimizationGoal: campaignWindow.selected.optimizationGoal,
+        customEventType: campaignWindow.selected.customEventType,
+      }),
       campaignRole,
       bidRegime,
       signals: input.entitySignalsByCampaignId?.[campaignWindow.selected.id] ?? null,

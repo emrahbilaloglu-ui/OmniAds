@@ -4,6 +4,7 @@ import type { MetaAdSetData } from "@/lib/api/meta";
 import type { MetaCalibrationContext } from "@/lib/meta/recommendations";
 import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
 import {
+  emitHighPriorityAdsetScenario,
   emitHighPriorityCampaignScenario,
   maybeA1MathFloor,
   maybeA2StructuralRebuild,
@@ -36,6 +37,8 @@ const context: MetaCalibrationContext = {
   scope: { type: "account", id: "biz_1", snapshotDate: "2026-05-08" },
   reason: undefined,
 };
+
+const purchaseCohort = "purchase" as const;
 
 function campaign(overrides: Partial<MetaCampaignRow> = {}): MetaCampaignRow {
   return {
@@ -204,17 +207,17 @@ function signal(overrides: Partial<MetaEntityDecisionSignal> = {}): MetaEntityDe
 
 describe("high priority Meta scenario emitters", () => {
   it.each([
-    ["C1", () => maybeC1ControlledScale({ window: windowFor(campaign({ roas: 3.4, purchases: 20 })), context })],
-    ["B1", () => maybeB1CappedBidRaise({ window: windowFor(campaign({ bidStrategyType: "cost_cap", bidValue: 5000, roas: 2.4, dailyBudget: 500, spend: 1000 })), context })],
-    ["J1", () => maybeJ1StableWinnerProtected({ window: windowFor(campaign({ roas: 3.4, purchases: 20 })), context })],
-    ["A2", () => maybeA2StructuralRebuild({ window: windowFor(campaign({ roas: 0.7, spend: 500, purchases: 2 })), context, signals: signal() })],
-    ["F1", () => maybeF1SuddenRoasDrop({ window: windowFor(campaign({ roas: 2.4 }), { last7: campaign({ roas: 1, spend: 500 }) }), context })],
-    ["F4", () => maybeF4StableWinnerFade({ window: windowFor(campaign({ roas: 2, ctr: 1 }), { last30: campaign({ roas: 2 }), last90: campaign({ roas: 3, ctr: 2 }) }), context })],
-    ["E2", () => maybeE2CtrDecay({ window: windowFor(campaign({ ctr: 1 }), { last7: campaign({ ctr: 1, spend: 800 }), last14: campaign({ ctr: 1.4 }) }), context, signals: signal({ ctrDecayPct: -22 }) })],
-    ["E4", () => maybeE4CreativeAge({ window: windowFor(campaign({ ctr: 1 }), { last7: campaign({ ctr: 1, spend: 800 }), last14: campaign({ ctr: 1.4 }) }), context, signals: signal({ ctrDecayPct: -22, creativeAgeDaysMax: 30 }) })],
-    ["K1", () => maybeK1MixedConfig({ window: windowFor(campaign({ isBudgetMixed: true })), context })],
-    ["I4", () => maybeI4TestShouldUseAbo({ window: windowFor(campaign({ name: "Creative Test Campaign", budgetLevel: "campaign" })), context, campaignRole: "prospecting_test" })],
-    ["A1", () => maybeA1MathFloor({ window: windowFor(campaign({ dailyBudget: 100, roas: 1.5 })), context, signals: signal({ learningState: "LEARNING" }) })],
+    ["C1", () => maybeC1ControlledScale({ window: windowFor(campaign({ roas: 3.4, purchases: 20 })), context, cohort: purchaseCohort })],
+    ["B1", () => maybeB1CappedBidRaise({ window: windowFor(campaign({ bidStrategyType: "cost_cap", bidValue: 5000, roas: 2.4, dailyBudget: 500, spend: 1000 })), context, cohort: purchaseCohort })],
+    ["J1", () => maybeJ1StableWinnerProtected({ window: windowFor(campaign({ roas: 3.4, purchases: 20 })), context, cohort: purchaseCohort })],
+    ["A2", () => maybeA2StructuralRebuild({ window: windowFor(campaign({ roas: 0.7, spend: 500, purchases: 2 })), context, cohort: purchaseCohort, signals: signal() })],
+    ["F1", () => maybeF1SuddenRoasDrop({ window: windowFor(campaign({ roas: 2.4 }), { last7: campaign({ roas: 1, spend: 500 }) }), context, cohort: purchaseCohort })],
+    ["F4", () => maybeF4StableWinnerFade({ window: windowFor(campaign({ roas: 2, ctr: 1 }), { last30: campaign({ roas: 2 }), last90: campaign({ roas: 3, ctr: 2 }) }), context, cohort: purchaseCohort })],
+    ["E2", () => maybeE2CtrDecay({ window: windowFor(campaign({ ctr: 1 }), { last7: campaign({ ctr: 1, spend: 800 }), last14: campaign({ ctr: 1.4 }) }), context, cohort: purchaseCohort, signals: signal({ ctrDecayPct: -22 }) })],
+    ["E4", () => maybeE4CreativeAge({ window: windowFor(campaign({ ctr: 1 }), { last7: campaign({ ctr: 1, spend: 800 }), last14: campaign({ ctr: 1.4 }) }), context, cohort: purchaseCohort, signals: signal({ ctrDecayPct: -22, creativeAgeDaysMax: 30 }) })],
+    ["K1", () => maybeK1MixedConfig({ window: windowFor(campaign({ isBudgetMixed: true })), context, cohort: purchaseCohort })],
+    ["I4", () => maybeI4TestShouldUseAbo({ window: windowFor(campaign({ name: "Creative Test Campaign", budgetLevel: "campaign" })), context, cohort: purchaseCohort, campaignRole: "prospecting_test" })],
+    ["A1", () => maybeA1MathFloor({ window: windowFor(campaign({ dailyBudget: 100, roas: 1.5 })), context, cohort: purchaseCohort, signals: signal({ learningState: "LEARNING" }) })],
   ])("fires %s on a positive account-history fixture", (_id, build) => {
     const rec = build();
     expect(rec).toBeTruthy();
@@ -223,7 +226,13 @@ describe("high priority Meta scenario emitters", () => {
   });
 
   it("fires E1 fatigue on an adset account-history fixture", () => {
-    const rec = maybeE1FatigueAdset({ adset: adset(), campaign: campaign(), context, signals: signal({ scopeType: "adset", scopeId: "adset_1", frequencyP80: 3 }) });
+    const rec = maybeE1FatigueAdset({
+      adset: adset(),
+      campaign: campaign(),
+      context,
+      cohort: purchaseCohort,
+      signals: signal({ scopeType: "adset", scopeId: "adset_1", frequencyP80: 3 }),
+    });
     expect(rec?.type).toBe("scenario_e1_frequency_fatigue");
     expect(rec?.targetValue === undefined || JSON.parse(JSON.stringify(rec.targetValue))).toBeTruthy();
   });
@@ -235,6 +244,7 @@ describe("high priority Meta scenario emitters", () => {
         last14: campaign({ ctr: 1.4 }),
       }),
       context,
+      cohort: purchaseCohort,
       signals: signal({ ctrDecayPct: null }),
     });
     expect(rec).toBeNull();
@@ -244,6 +254,7 @@ describe("high priority Meta scenario emitters", () => {
     const rec = maybeC1ControlledScale({
       window: windowFor(campaign({ roas: 3.4, purchases: 20 })),
       context,
+      cohort: purchaseCohort,
       signals: signal({ daysSinceSignificantEdit: 2, lastSignificantEditAt: "2026-05-06T00:00:00.000Z" }),
     });
     expect(rec).toBeNull();
@@ -253,13 +264,18 @@ describe("high priority Meta scenario emitters", () => {
     const rec = maybeA1MathFloor({
       window: windowFor(campaign({ dailyBudget: 100, roas: 1.5 })),
       context,
+      cohort: purchaseCohort,
       signals: signal({ learningState: null }),
     });
     expect(rec).toBeNull();
   });
 
   it("does not fire controlled scale below account p75", () => {
-    const rec = maybeC1ControlledScale({ window: windowFor(campaign({ roas: 2.5, purchases: 20 })), context });
+    const rec = maybeC1ControlledScale({
+      window: windowFor(campaign({ roas: 2.5, purchases: 20 })),
+      context,
+      cohort: purchaseCohort,
+    });
     expect(rec).toBeNull();
   });
 
@@ -274,14 +290,83 @@ describe("high priority Meta scenario emitters", () => {
         },
       },
     };
-    const rec = maybeC1ControlledScale({ window: windowFor(campaign({ roas: 3.4, purchases: 20 })), context: thinContext });
+    const rec = maybeC1ControlledScale({
+      window: windowFor(campaign({ roas: 3.4, purchases: 20 })),
+      context: thinContext,
+      cohort: purchaseCohort,
+    });
     expect(rec).toBeNull();
+  });
+
+  it("gates campaign controlled scale outside purchase cohort", () => {
+    const rec = emitHighPriorityCampaignScenario({
+      window: windowFor(campaign({ roas: 3.4, purchases: 20 })),
+      context,
+      cohort: "upper_funnel",
+    });
+    expect(rec).toBeNull();
+  });
+
+  it("gates campaign sudden ROAS drop outside purchase cohort", () => {
+    const rec = emitHighPriorityCampaignScenario({
+      window: windowFor(campaign({ roas: 2.4 }), {
+        last7: campaign({ roas: 1, spend: 500 }),
+      }),
+      context,
+      cohort: "mid_funnel",
+    });
+    expect(rec).toBeNull();
+  });
+
+  it("allows campaign CTR decay refresh outside purchase cohort", () => {
+    const rec = emitHighPriorityCampaignScenario({
+      window: windowFor(campaign({ ctr: 1 }), {
+        last7: campaign({ ctr: 1, spend: 800 }),
+        last14: campaign({ ctr: 1.4 }),
+      }),
+      context,
+      cohort: "upper_funnel",
+      signals: signal({ ctrDecayPct: -22 }),
+    });
+    expect(rec?.type).toBe("scenario_e2_ctr_decay_refresh");
+  });
+
+  it("allows campaign controlled scale in purchase cohort", () => {
+    const rec = emitHighPriorityCampaignScenario({
+      window: windowFor(campaign({ roas: 3.4, purchases: 20 })),
+      context,
+      cohort: purchaseCohort,
+    });
+    expect(rec?.type).toBe("scenario_c1_controlled_scale");
+  });
+
+  it("allows adset fatigue in mid-funnel cohort", () => {
+    const rec = emitHighPriorityAdsetScenario({
+      adset: adset(),
+      campaign: campaign(),
+      context,
+      cohort: "mid_funnel",
+      signals: signal({ scopeType: "adset", scopeId: "adset_1", frequencyP80: 3 }),
+    });
+    expect(rec?.type).toBe("scenario_e1_frequency_fatigue");
+  });
+
+  it("allows adset fatigue in upper-funnel cohort", () => {
+    const rec = emitHighPriorityAdsetScenario({
+      adset: adset(),
+      campaign: campaign(),
+      context,
+      cohort: "upper_funnel",
+      signals: signal({ scopeType: "adset", scopeId: "adset_1", frequencyP80: 3 }),
+    });
+    expect(rec?.type).toBe("scenario_e1_frequency_fatigue");
   });
 
   it("applies precedence with rebuild before controlled scale", () => {
     const rec = emitHighPriorityCampaignScenario({
       window: windowFor(campaign({ roas: 3.4, purchases: 20, isBudgetMixed: true })),
       context,
+      cohort: purchaseCohort,
     });
     expect(rec?.type).toBe("scenario_k1_mixed_config_rebuild");
   });

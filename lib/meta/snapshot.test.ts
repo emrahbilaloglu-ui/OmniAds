@@ -126,6 +126,8 @@ describe("meta snapshot job", () => {
       rowsWritten: 6,
       accountScopes: 1,
       campaignScopes: 1,
+      sampleRowsTotal: 6,
+      sampleRowsAfterCohortFilter: 6,
     });
     vi.mocked(calibration.getMetaCalibrationScope).mockResolvedValue({
       thresholds: {
@@ -223,6 +225,8 @@ describe("meta snapshot job", () => {
         rowsWritten: 6,
         accountScopes: 1,
         campaignScopes: 1,
+        sampleRowsTotal: 6,
+        sampleRowsAfterCohortFilter: 6,
       };
     });
     vi.mocked(campaignSource.getMetaCampaignsForRange).mockImplementation(async () => {
@@ -253,6 +257,8 @@ describe("meta snapshot job", () => {
         rowsWritten: 6,
         accountScopes: 1,
         campaignScopes: 1,
+        sampleRowsTotal: 6,
+        sampleRowsAfterCohortFilter: 6,
       };
     });
 

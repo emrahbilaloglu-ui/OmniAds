@@ -1,4 +1,5 @@
 import { getDb, runDbTransaction } from "@/lib/db";
+import { resolveMetaFunnelCohort } from "@/lib/meta/funnel-cohort";
 
 export const MIN_CAMPAIGN_CALIBRATION_SAMPLE = 8;
 export const MIN_ACCOUNT_CALIBRATION_SAMPLE = 1;
@@ -54,12 +55,16 @@ export interface RunMetaCalibrationResult {
   rowsWritten: number;
   accountScopes: number;
   campaignScopes: number;
+  sampleRowsTotal: number;
+  sampleRowsAfterCohortFilter: number;
 }
 
 interface AggregatedAdsetMetricRow {
   account_id: string;
   campaign_id: string | null;
   adset_id: string;
+  optimization_goal: string | null;
+  custom_event_type: string | null;
   spend_28d: unknown;
   revenue_28d: unknown;
   conversions_28d: unknown;
@@ -251,6 +256,35 @@ function metricValuesForSample(row: AggregatedAdsetMetricRow): ComputedMetricSam
   };
 }
 
+function mergeMetricRowsByAdset(rows: AggregatedAdsetMetricRow[]): AggregatedAdsetMetricRow[] {
+  const merged = new Map<string, AggregatedAdsetMetricRow>();
+  const numericFields = [
+    "spend_28d",
+    "revenue_28d",
+    "conversions_28d",
+    "impressions_28d",
+    "clicks_28d",
+    "spend_14d",
+    "impressions_14d",
+    "reach_14d",
+  ] as const;
+
+  for (const row of rows) {
+    const key = `${row.account_id}\u0000${row.campaign_id ?? ""}\u0000${row.adset_id}`;
+    const existing = merged.get(key);
+    if (!existing) {
+      merged.set(key, { ...row });
+      continue;
+    }
+
+    for (const field of numericFields) {
+      existing[field] = toNumber(existing[field]) + toNumber(row[field]);
+    }
+  }
+
+  return [...merged.values()];
+}
+
 function pushMetricRows(input: {
   payload: CalibrationPayloadRow[];
   businessId: string;
@@ -292,6 +326,8 @@ async function readAggregatedAdsetMetricRows(
       provider_account_id AS account_id,
       campaign_id,
       adset_id,
+      optimization_goal,
+      custom_event_type,
       SUM(spend) FILTER (WHERE date >= (${snapshotDate}::date - INTERVAL '27 days')) AS spend_28d,
       SUM(revenue) FILTER (WHERE date >= (${snapshotDate}::date - INTERVAL '27 days')) AS revenue_28d,
       SUM(conversions) FILTER (WHERE date >= (${snapshotDate}::date - INTERVAL '27 days')) AS conversions_28d,
@@ -304,7 +340,7 @@ async function readAggregatedAdsetMetricRows(
     WHERE business_id = ${businessId}
       AND date BETWEEN (${snapshotDate}::date - INTERVAL '27 days') AND ${snapshotDate}::date
       AND COALESCE(truth_state, 'finalized') IN ('finalized', 'finalized_verified')
-    GROUP BY provider_account_id, campaign_id, adset_id
+    GROUP BY provider_account_id, campaign_id, adset_id, optimization_goal, custom_event_type
   `) as AggregatedAdsetMetricRow[];
 }
 
@@ -380,7 +416,13 @@ export async function runMetaCalibrationForBusiness(
 ): Promise<RunMetaCalibrationResult> {
   const normalizedSnapshotDate = normalizeDate(snapshotDate);
   const rawRows = await readAggregatedAdsetMetricRows(businessId, normalizedSnapshotDate);
-  const samples = rawRows.map(metricValuesForSample);
+  const purchaseRows = mergeMetricRowsByAdset(rawRows.filter((row) =>
+    resolveMetaFunnelCohort({
+      optimizationGoal: row.optimization_goal,
+      customEventType: row.custom_event_type,
+    }) === "purchase",
+  ));
+  const samples = purchaseRows.map(metricValuesForSample);
   const payload: CalibrationPayloadRow[] = [];
 
   const accountGroups = new Map<string, ComputedMetricSample[]>();
@@ -437,6 +479,8 @@ export async function runMetaCalibrationForBusiness(
     rowsWritten: payload.length,
     accountScopes: new Set(payload.filter((row) => row.scope_type === "account").map((row) => row.scope_id)).size,
     campaignScopes: new Set(payload.filter((row) => row.scope_type === "campaign").map((row) => row.scope_id)).size,
+    sampleRowsTotal: rawRows.length,
+    sampleRowsAfterCohortFilter: purchaseRows.length,
   };
 }
 

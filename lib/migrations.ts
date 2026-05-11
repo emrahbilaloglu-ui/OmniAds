@@ -196,6 +196,17 @@ async function doesTableHaveRows(
   return rows[0]?.exists === true;
 }
 
+async function doesProviderAccountSeedExist(
+  sql: ReturnType<typeof createMigrationDb>,
+  provider: "google" | "meta" | "shopify",
+): Promise<boolean> {
+  const rows = (await sql.query<{ exists: boolean }>(
+    "SELECT EXISTS (SELECT 1 FROM provider_accounts WHERE provider = $1 LIMIT 1) AS exists",
+    [provider],
+  )) as Array<{ exists?: boolean }>;
+  return rows[0]?.exists === true;
+}
+
 function buildProviderAccountSeedUnionQuery(
   tableNames: readonly string[],
   columnName: string,
@@ -5070,9 +5081,38 @@ export async function runMigrations(options?: {
         ),
       ]);
 
+      const [
+        metaProviderAccountsSeeded,
+        googleProviderAccountsSeeded,
+        shopifyProviderAccountsSeeded,
+      ] = await Promise.all([
+        doesProviderAccountSeedExist(sql, "meta"),
+        doesProviderAccountSeedExist(sql, "google"),
+        doesProviderAccountSeedExist(sql, "shopify"),
+      ]);
+
+      if (metaProviderAccountsSeeded) {
+        logStartupEvent("migration_provider_account_seed_skipped_existing_rows", {
+          provider: "meta",
+        });
+      }
+      if (googleProviderAccountsSeeded) {
+        logStartupEvent("migration_provider_account_seed_skipped_existing_rows", {
+          provider: "google",
+        });
+      }
+      if (shopifyProviderAccountsSeeded) {
+        logStartupEvent("migration_provider_account_seed_skipped_existing_rows", {
+          provider: "shopify",
+        });
+      }
+
       await runMigrationBatchSequentially([
-        sql.query(
-          `
+        ...(metaProviderAccountsSeeded
+          ? []
+          : [
+              sql.query(
+                `
             INSERT INTO provider_accounts (
               provider,
               external_account_id,
@@ -5092,10 +5132,14 @@ export async function runMigrations(options?: {
             WHERE seed.external_account_id IS NOT NULL
             ON CONFLICT (provider, external_account_id) DO UPDATE SET
               updated_at = EXCLUDED.updated_at
-          `,
-        ).catch(() => {}),
-        sql.query(
-          `
+                `,
+              ).catch(() => {}),
+            ]),
+        ...(googleProviderAccountsSeeded
+          ? []
+          : [
+              sql.query(
+                `
             INSERT INTO provider_accounts (
               provider,
               external_account_id,
@@ -5115,10 +5159,14 @@ export async function runMigrations(options?: {
             WHERE seed.external_account_id IS NOT NULL
             ON CONFLICT (provider, external_account_id) DO UPDATE SET
               updated_at = EXCLUDED.updated_at
-          `,
-        ).catch(() => {}),
-        sql.query(
-          `
+                `,
+              ).catch(() => {}),
+            ]),
+        ...(shopifyProviderAccountsSeeded
+          ? []
+          : [
+              sql.query(
+                `
             INSERT INTO provider_accounts (
               provider,
               external_account_id,
@@ -5136,8 +5184,9 @@ export async function runMigrations(options?: {
             WHERE seed.external_account_id IS NOT NULL
             ON CONFLICT (provider, external_account_id) DO UPDATE SET
               updated_at = EXCLUDED.updated_at
-          `,
-        ).catch(() => {}),
+                `,
+              ).catch(() => {}),
+            ]),
         ...CANONICAL_BUSINESS_REF_TABLES.map((tableName) =>
           sql.query(
             `

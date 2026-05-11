@@ -237,4 +237,96 @@ describe("runMigrations", () => {
       { tableName: "meta_adset_config_history" },
     );
   });
+
+  it("skips provider account seed scans when provider accounts already exist", async () => {
+    const queries: string[] = [];
+    const sql = Object.assign(
+      vi.fn(async (strings: TemplateStringsArray) => {
+        queries.push(strings.join(" "));
+        return [];
+      }),
+      {
+        query: vi.fn(async (query: string) => {
+          queries.push(query);
+          if (
+            query.includes(
+              "SELECT EXISTS (SELECT 1 FROM provider_accounts WHERE provider = $1 LIMIT 1)",
+            )
+          ) {
+            return [{ exists: true }];
+          }
+          return [];
+        }),
+      },
+    );
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+    vi.mocked(db.getDbWithTimeout).mockReturnValue(sql as never);
+
+    const migrations = await import("@/lib/migrations");
+    await migrations.runMigrations({
+      force: true,
+      reason: "provider-seed-guard-test",
+    });
+
+    const providerSeedQueries = queries.filter(
+      (query) =>
+        query.includes("INSERT INTO provider_accounts") &&
+        query.includes("seed.external_account_id"),
+    );
+    expect(providerSeedQueries).toHaveLength(0);
+    expect(startupDiagnostics.logStartupEvent).toHaveBeenCalledWith(
+      "migration_provider_account_seed_skipped_existing_rows",
+      { provider: "meta" },
+    );
+    expect(startupDiagnostics.logStartupEvent).toHaveBeenCalledWith(
+      "migration_provider_account_seed_skipped_existing_rows",
+      { provider: "google" },
+    );
+    expect(startupDiagnostics.logStartupEvent).toHaveBeenCalledWith(
+      "migration_provider_account_seed_skipped_existing_rows",
+      { provider: "shopify" },
+    );
+  });
+
+  it("skips Google Ads product dimension backfill when product dimensions already exist", async () => {
+    const queries: string[] = [];
+    const sql = Object.assign(
+      vi.fn(async (strings: TemplateStringsArray) => {
+        queries.push(strings.join(" "));
+        return [];
+      }),
+      {
+        query: vi.fn(async (query: string) => {
+          queries.push(query);
+          if (
+            query.includes(
+              "SELECT EXISTS (SELECT 1 FROM google_ads_product_dimensions LIMIT 1)",
+            )
+          ) {
+            return [{ exists: true }];
+          }
+          return [];
+        }),
+      },
+    );
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+    vi.mocked(db.getDbWithTimeout).mockReturnValue(sql as never);
+
+    const migrations = await import("@/lib/migrations");
+    await migrations.runMigrations({
+      force: true,
+      reason: "google-product-dimension-guard-test",
+    });
+
+    const productBackfillQueries = queries.filter(
+      (query) =>
+        query.includes("INSERT INTO google_ads_product_dimensions") &&
+        query.includes("FROM google_ads_product_daily"),
+    );
+    expect(productBackfillQueries).toHaveLength(0);
+    expect(startupDiagnostics.logStartupEvent).toHaveBeenCalledWith(
+      "migration_dimension_backfill_skipped_existing_rows",
+      { tableName: "google_ads_product_dimensions" },
+    );
+  });
 });

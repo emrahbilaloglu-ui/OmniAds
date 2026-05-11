@@ -50,8 +50,10 @@ vi.mock("@/lib/provider-account-snapshots", () => ({
 
 vi.mock("@/lib/google-ads/warehouse", () => ({
   cleanupGoogleAdsPartitionOrchestration: vi.fn(),
+  quarantineGoogleAdsTerminalActionRequiredPartitions: vi.fn(),
   replayGoogleAdsDeadLetterPartitions: vi.fn(),
   forceReplayGoogleAdsPoisonedPartitions: vi.fn(),
+  requeueGoogleAdsRetryableFailedPartitions: vi.fn(),
   getGoogleAdsQueueHealth: vi.fn(),
   getGoogleAdsCheckpointHealth: vi.fn(),
   getGoogleAdsWarehouseIntegrityIncidents: vi.fn(),
@@ -72,7 +74,7 @@ vi.mock("@/lib/migrations", () => ({
 }));
 
 describe("provider repair engine", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-13T12:00:00Z"));
     vi.resetAllMocks();
@@ -94,6 +96,18 @@ describe("provider repair engine", () => {
     refreshMetaSyncStateForBusiness.mockResolvedValue(undefined);
     refreshGoogleAdsSyncStateForBusiness.mockResolvedValue(undefined);
     syncGoogleAdsRange.mockResolvedValue(undefined);
+    const googleAdsWarehouse = await import("@/lib/google-ads/warehouse");
+    vi.mocked(
+      googleAdsWarehouse.quarantineGoogleAdsTerminalActionRequiredPartitions,
+    ).mockResolvedValue({
+      candidateCount: 0,
+      terminalMatchedCount: 0,
+      changedCount: 0,
+      partitions: [],
+    } as never);
+    vi.mocked(
+      googleAdsWarehouse.requeueGoogleAdsRetryableFailedPartitions,
+    ).mockResolvedValue([] as never);
     getProviderAccountAssignments.mockResolvedValue(null);
     readProviderAccountSnapshot.mockResolvedValue(null);
     getProviderPlatformDateBoundaries.mockResolvedValue([

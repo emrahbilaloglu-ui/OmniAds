@@ -1441,6 +1441,44 @@ export async function queueGoogleAdsSyncPartition(
         ELSE LEAST(COALESCE(google_ads_sync_partitions.next_retry_at, now()), COALESCE(EXCLUDED.next_retry_at, now()))
       END,
       updated_at = now()
+    WHERE NOT (
+      google_ads_sync_partitions.status = 'dead_letter'
+      AND (
+        COALESCE(google_ads_sync_partitions.last_error, '') ILIKE ANY (ARRAY[
+          '%google_ads_scope_action_required%',
+          '%invalid_grant%',
+          '%token has been expired or revoked%',
+          '%refresh token%',
+          '%login required%',
+          '%reauth%',
+          '%UNAUTHENTICATED%',
+          '%AUTHENTICATION_ERROR%',
+          '%PERMISSION_DENIED%',
+          '%permission denied%',
+          '%does not have permission%',
+          '%provider_request_failed:permission%',
+          '%permission:status_403%',
+          '%customer_not_enabled%',
+          '%customer not enabled%',
+          '%customer not found%',
+          '%account suspended%',
+          '%account cancelled%',
+          '%account canceled%'
+        ])
+        OR EXISTS (
+          SELECT 1
+          FROM google_ads_sync_runs terminal_run
+          WHERE terminal_run.partition_id = google_ads_sync_partitions.id
+            AND terminal_run.error_class IN (
+              'account_action_required',
+              'auth_action_required',
+              'permission_action_required',
+              'provider_action_required',
+              'scope_action_required'
+            )
+        )
+      )
+    )
     RETURNING id, status
   `) as Array<{ id: string; status: GoogleAdsPartitionStatus }>;
   return rows[0] ?? null;
@@ -5264,6 +5302,10 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
       ) AS extended_historical_leased_partitions,
       COUNT(*) FILTER (WHERE lane = 'maintenance' AND status = 'queued') AS maintenance_queue_depth,
       COUNT(*) FILTER (WHERE lane = 'maintenance' AND status IN ('leased', 'running')) AS maintenance_leased_partitions,
+      COUNT(*) FILTER (
+        WHERE status = 'failed'
+          AND COALESCE(next_retry_at, now()) <= now()
+      ) AS retryable_failed_partitions,
       COUNT(*) FILTER (WHERE status = 'dead_letter') AS dead_letter_partitions,
       COUNT(*) FILTER (
         WHERE status = 'dead_letter'
@@ -5422,6 +5464,7 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
     ),
     maintenanceQueueDepth: toNumber(row.maintenance_queue_depth),
     maintenanceLeasedPartitions: toNumber(row.maintenance_leased_partitions),
+    retryableFailedPartitions: toNumber(row.retryable_failed_partitions),
     deadLetterPartitions: toNumber(row.dead_letter_partitions),
     blockingDeadLetterPartitions: toNumber(row.blocking_dead_letter_partitions),
     quarantinedHistoricalDeadLetterPartitions: toNumber(
@@ -5666,6 +5709,20 @@ type GoogleAdsDeadLetterHealthRow = GoogleAdsDeadLetterCandidateRow & {
   is_historical_quarantined: boolean | null;
 };
 
+export interface GoogleAdsTerminalActionRequiredQuarantineResult {
+  candidateCount: number;
+  terminalMatchedCount: number;
+  changedCount: number;
+  partitions: Array<{
+    id: string;
+    lane: string;
+    scope: string;
+    source: string | null;
+    partitionDate: string;
+    reasonCode: string;
+  }>;
+}
+
 const GOOGLE_ADS_CORE_RELEASE_SCOPES = new Set<GoogleAdsWarehouseScope>([
   "account_daily",
   "campaign_daily",
@@ -5735,6 +5792,216 @@ export async function hasRecentGoogleAdsTerminalActionRequiredDeadLetter(input: 
       classifyGoogleAdsDeadLetterCandidate(row).recoveryKind ===
       "terminal_action_required",
   );
+}
+
+export async function quarantineGoogleAdsTerminalActionRequiredPartitions(input: {
+  businessId: string;
+  scope?: GoogleAdsWarehouseScope | null;
+  limit?: number;
+}): Promise<GoogleAdsTerminalActionRequiredQuarantineResult> {
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
+  const sql = getDb();
+  const candidateRows = (await sql`
+    SELECT
+      partition.id,
+      partition.lane,
+      partition.scope,
+      partition.source,
+      partition.partition_date,
+      partition.last_error,
+      latest_run.error_class,
+      latest_run.error_message
+    FROM google_ads_sync_partitions partition
+    LEFT JOIN LATERAL (
+      SELECT run.error_class, run.error_message
+      FROM google_ads_sync_runs run
+      WHERE run.partition_id = partition.id
+      ORDER BY run.updated_at DESC
+      LIMIT 1
+    ) latest_run ON true
+    WHERE partition.business_id = ${input.businessId}
+      AND partition.status IN ('queued', 'failed')
+      AND COALESCE(partition.lease_expires_at, now() - interval '1 second') <= now()
+      AND (${input.scope ?? null}::text IS NULL OR partition.scope = ${input.scope ?? null})
+      AND (
+        COALESCE(latest_run.error_class, '') IN (
+          'account_action_required',
+          'auth_action_required',
+          'permission_action_required',
+          'provider_action_required',
+          'scope_action_required'
+        )
+        OR concat_ws(
+          ' ',
+          partition.last_error,
+          latest_run.error_message,
+          latest_run.error_class
+        ) ILIKE ANY (ARRAY[
+          '%google_ads_scope_action_required%',
+          '%invalid_grant%',
+          '%token has been expired or revoked%',
+          '%refresh token%',
+          '%login required%',
+          '%reauth%',
+          '%UNAUTHENTICATED%',
+          '%AUTHENTICATION_ERROR%',
+          '%PERMISSION_DENIED%',
+          '%permission denied%',
+          '%does not have permission%',
+          '%provider_request_failed:permission%',
+          '%permission:status_403%',
+          '%customer_not_enabled%',
+          '%customer not enabled%',
+          '%customer not found%',
+          '%account suspended%',
+          '%account cancelled%',
+          '%account canceled%'
+        ])
+      )
+    ORDER BY partition.updated_at ASC
+    LIMIT ${Math.max(1, Math.min(input.limit ?? 500, 1000))}
+  `) as GoogleAdsDeadLetterCandidateRow[];
+  const classifiedRows = candidateRows.map((row) => ({
+    row,
+    classification: classifyGoogleAdsDeadLetterCandidate(row),
+  }));
+  const terminalRows = classifiedRows.filter(
+    ({ classification }) =>
+      classification.recoveryKind === "terminal_action_required",
+  );
+  const terminalIds = terminalRows.map(({ row }) => row.id);
+  const terminalMessages = terminalRows.map(({ row, classification }) =>
+    row.last_error ??
+    row.error_message ??
+    classification.reasonCode ??
+    "Google Ads account, OAuth, or customer-access action required.",
+  );
+  const terminalClasses = terminalRows.map(
+    ({ classification }) => classification.errorClass,
+  );
+  const updatedRows =
+    terminalIds.length > 0
+      ? ((await sql`
+        WITH terminal(id, error_message, error_class) AS (
+          SELECT * FROM unnest(
+            ${terminalIds}::uuid[],
+            ${terminalMessages}::text[],
+            ${terminalClasses}::text[]
+          )
+        )
+        UPDATE google_ads_sync_partitions partition
+        SET
+          status = 'dead_letter',
+          lease_owner = NULL,
+          lease_expires_at = NULL,
+          next_retry_at = NULL,
+          last_error = COALESCE(
+            NULLIF(terminal.error_message, ''),
+            NULLIF(partition.last_error, ''),
+            'Google Ads account, OAuth, or customer-access action required.'
+          ),
+          finished_at = COALESCE(partition.finished_at, now()),
+          updated_at = now()
+        FROM terminal
+        WHERE partition.id = terminal.id
+          AND partition.business_id = ${input.businessId}
+          AND partition.status IN ('queued', 'failed')
+          AND COALESCE(partition.lease_expires_at, now() - interval '1 second') <= now()
+        RETURNING
+          partition.id,
+          partition.lane,
+          partition.scope,
+          partition.source,
+          partition.partition_date,
+          terminal.error_class
+      `) as Array<Record<string, unknown>>)
+      : [];
+  return {
+    candidateCount: candidateRows.length,
+    terminalMatchedCount: terminalRows.length,
+    changedCount: updatedRows.length,
+    partitions: updatedRows.map((row) => ({
+      id: String(row.id),
+      lane: String(row.lane),
+      scope: String(row.scope),
+      source: row.source == null ? null : String(row.source),
+      partitionDate: normalizeDate(row.partition_date),
+      reasonCode: classifyGoogleAdsSyncFailure({
+        errorClass: row.error_class == null ? null : String(row.error_class),
+      }).reasonCode,
+    })),
+  };
+}
+
+export async function requeueGoogleAdsRetryableFailedPartitions(input: {
+  businessId: string;
+  limit?: number;
+}) {
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
+  const sql = getDb();
+  const candidateRows = (await sql`
+    SELECT
+      partition.id,
+      partition.lane,
+      partition.scope,
+      partition.source,
+      partition.partition_date,
+      partition.last_error,
+      latest_run.error_class,
+      latest_run.error_message
+    FROM google_ads_sync_partitions partition
+    LEFT JOIN LATERAL (
+      SELECT run.error_class, run.error_message
+      FROM google_ads_sync_runs run
+      WHERE run.partition_id = partition.id
+      ORDER BY run.updated_at DESC
+      LIMIT 1
+    ) latest_run ON true
+    WHERE partition.business_id = ${input.businessId}
+      AND partition.status = 'failed'
+      AND COALESCE(partition.next_retry_at, now()) <= now()
+      AND COALESCE(partition.lease_expires_at, now() - interval '1 second') <= now()
+    ORDER BY
+      CASE partition.source
+        WHEN 'selected_range' THEN 800
+        WHEN 'finalize_day' THEN 725
+        WHEN 'today' THEN 650
+        WHEN 'recent' THEN 600
+        WHEN 'recent_recovery' THEN 550
+        WHEN 'core_success' THEN 500
+        WHEN 'historical_recovery' THEN 200
+        WHEN 'historical' THEN 150
+        ELSE 100
+      END DESC,
+      partition.partition_date DESC,
+      partition.updated_at ASC
+    LIMIT ${Math.max(1, Math.min(input.limit ?? 500, 1000))}
+  `) as GoogleAdsDeadLetterCandidateRow[];
+  const retryableIds = candidateRows
+    .filter(
+      (row) =>
+        classifyGoogleAdsDeadLetterCandidate(row).recoveryKind ===
+        "replayable_transient",
+    )
+    .map((row) => row.id);
+  const rows =
+    retryableIds.length > 0
+      ? ((await sql`
+        UPDATE google_ads_sync_partitions partition
+        SET
+          status = 'queued',
+          lease_owner = NULL,
+          lease_expires_at = NULL,
+          next_retry_at = now(),
+          updated_at = now()
+        WHERE partition.id = ANY(${retryableIds}::uuid[])
+          AND partition.business_id = ${input.businessId}
+          AND partition.status = 'failed'
+          AND COALESCE(partition.lease_expires_at, now() - interval '1 second') <= now()
+        RETURNING partition.id
+      `) as Array<{ id: string }>)
+      : [];
+  return rows.map((row) => row.id);
 }
 
 function normalizeGoogleAdsRecoveryKinds(

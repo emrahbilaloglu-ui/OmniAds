@@ -85,7 +85,9 @@ const {
   leaseGoogleAdsSyncPartitions,
   markGoogleAdsPartitionRunning,
   persistGoogleAdsRawSnapshot,
+  quarantineGoogleAdsTerminalActionRequiredPartitions,
   replayGoogleAdsDeadLetterPartitions,
+  requeueGoogleAdsRetryableFailedPartitions,
   readGoogleAdsAggregatedRange,
   readGoogleAdsDailyRange,
   releaseGoogleAdsLeasedPartitionsForWorker,
@@ -451,6 +453,141 @@ describe("google ads warehouse ownership safety", () => {
         scope: "product_daily",
       }),
     ).resolves.toBe(false);
+  });
+
+  it("does not let scheduled enqueue resurrect terminal Google Ads action-required dead letters", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await queueGoogleAdsSyncPartition({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      lane: "extended",
+      scope: "product_daily",
+      partitionDate: "2026-04-01",
+      status: "queued",
+      priority: 1,
+      source: "core_success",
+      attemptCount: 0,
+    });
+
+    const query = queries.join("\n");
+    expect(result).toBeNull();
+    expect(query).toContain("WHERE NOT (");
+    expect(query).toContain("google_ads_sync_partitions.status = 'dead_letter'");
+    expect(query).toContain("google_ads_scope_action_required");
+    expect(query).toContain("terminal_run.error_class IN");
+  });
+
+  it("quarantines queued Google Ads terminal action-required partitions", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      queries.push(query);
+      if (query.includes("UPDATE google_ads_sync_partitions partition")) {
+        return [
+          {
+            id: "partition-permission",
+            lane: "extended",
+            scope: "product_daily",
+            source: "core_success",
+            partition_date: "2026-04-01",
+            error_class: "account_action_required",
+          },
+        ];
+      }
+      return [
+        {
+          id: "partition-permission",
+          lane: "extended",
+          scope: "product_daily",
+          source: "core_success",
+          partition_date: "2026-04-01",
+          last_error: null,
+          error_class: "account_action_required",
+          error_message:
+            "google_ads_product_daily_fetch_failed: query=product_performance_legacy: message=provider_request_failed:permission:status_403",
+        },
+        {
+          id: "partition-quota",
+          lane: "extended",
+          scope: "product_daily",
+          source: "core_success",
+          partition_date: "2026-04-02",
+          last_error: "RESOURCE_EXHAUSTED quota exceeded",
+          error_class: "quota",
+          error_message: "RESOURCE_EXHAUSTED quota exceeded",
+        },
+      ];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await quarantineGoogleAdsTerminalActionRequiredPartitions({
+      businessId: "biz-1",
+    });
+
+    expect(result).toMatchObject({
+      candidateCount: 2,
+      terminalMatchedCount: 1,
+      changedCount: 1,
+      partitions: [
+        expect.objectContaining({
+          id: "partition-permission",
+          scope: "product_daily",
+          source: "core_success",
+        }),
+      ],
+    });
+    expect(queries.some((query) => query.includes("partition.status IN ('queued', 'failed')"))).toBe(true);
+    expect(queries.some((query) => query.includes("status = 'dead_letter'"))).toBe(true);
+    expect(queries.some((query) => query.includes("next_retry_at = NULL"))).toBe(true);
+  });
+
+  it("requeues retryable failed Google Ads partitions without requeuing terminal action-required rows", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      queries.push(query);
+      if (query.includes("UPDATE google_ads_sync_partitions partition")) {
+        return [{ id: "partition-timeout" }];
+      }
+      return [
+        {
+          id: "partition-timeout",
+          lane: "extended",
+          scope: "product_daily",
+          source: "core_success",
+          partition_date: "2026-04-01",
+          last_error: "database query timed out",
+          error_class: "database_timeout",
+          error_message: "database query timed out",
+        },
+        {
+          id: "partition-permission",
+          lane: "extended",
+          scope: "product_daily",
+          source: "core_success",
+          partition_date: "2026-04-02",
+          last_error: "PERMISSION_DENIED: The caller does not have permission",
+          error_class: "account_action_required",
+          error_message: "PERMISSION_DENIED: The caller does not have permission",
+        },
+      ];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await requeueGoogleAdsRetryableFailedPartitions({
+      businessId: "biz-1",
+    });
+
+    expect(result).toEqual(["partition-timeout"]);
+    expect(queries.some((query) => query.includes("partition.status = 'failed'"))).toBe(true);
+    expect(queries.some((query) => query.includes("status = 'queued'"))).toBe(true);
+    expect(queries.some((query) => query.includes("next_retry_at = now()"))).toBe(true);
   });
 
   it("extends the running lease using the requested lease minutes", async () => {

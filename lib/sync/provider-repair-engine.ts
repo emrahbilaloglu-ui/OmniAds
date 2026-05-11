@@ -435,6 +435,9 @@ export async function runGoogleAdsRepairCycle(
   const cleanup = await googleAdsWarehouse
     .cleanupGoogleAdsPartitionOrchestration({ businessId })
     .catch(() => null);
+  const quarantinedTerminal = await googleAdsWarehouse
+    .quarantineGoogleAdsTerminalActionRequiredPartitions({ businessId })
+    .catch(() => null);
   const replayedDeadLetters = await googleAdsWarehouse
     .replayGoogleAdsDeadLetterPartitions({
       businessId,
@@ -449,6 +452,9 @@ export async function runGoogleAdsRepairCycle(
       recoveryKinds: ["replayable_transient"],
     })
     .catch(() => null);
+  const requeuedFailed = await googleAdsWarehouse
+    .requeueGoogleAdsRetryableFailedPartitions({ businessId })
+    .catch(() => []);
   const integrityEndDate = new Date().toISOString().slice(0, 10);
   const integrityStartDate = addUtcDays(integrityEndDate, -45);
   const integrityIncidentsBefore = await googleAdsWarehouse
@@ -549,9 +555,15 @@ export async function runGoogleAdsRepairCycle(
     (replayedDeadLetters?.changedCount ?? 0) +
     (replayedPoisoned?.changedCount ?? 0);
   const terminalActionRequiredDeadLetters =
-    replayedDeadLetters?.terminalActionRequiredCount ?? 0;
+    Math.max(
+      replayedDeadLetters?.terminalActionRequiredCount ?? 0,
+      quarantinedTerminal?.changedCount ?? 0,
+    );
   const blocked =
+    terminalActionRequiredDeadLetters > 0 ||
     (deadLetterPartitionsBefore > 0 && deadLetterReplayChanged <= 0) ||
+    ((queueHealthBeforeEnqueue?.retryableFailedPartitions ?? 0) > 0 &&
+      requeuedFailed.length <= 0) ||
     (checkpointHealth?.checkpointFailures ?? 0) > 0 ||
     advisorRecentGapRepairs.repairs.length > 0 ||
     persistentIntegrityMismatch;
@@ -571,6 +583,14 @@ export async function runGoogleAdsRepairCycle(
           "required_dead_letter_partitions",
           `${deadLetterPartitionsBefore} Google Ads partition(s) remain dead-lettered after repair. replayable=${replayedDeadLetters?.replayableMatchedCount ?? 0}, unknown=${replayedDeadLetters?.unknownMatchedCount ?? 0}.`,
           { repairable: true }
+        )
+      : null,
+    (queueHealthBeforeEnqueue?.retryableFailedPartitions ?? 0) > 0 &&
+    requeuedFailed.length <= 0
+      ? buildBlockingReason(
+          "retryable_failed_partitions",
+          `${queueHealthBeforeEnqueue?.retryableFailedPartitions ?? 0} Google Ads failed partition(s) still need retry.`,
+          { repairable: true },
         )
       : null,
     (checkpointHealth?.checkpointFailures ?? 0) > 0
@@ -609,6 +629,11 @@ export async function runGoogleAdsRepairCycle(
       { available: (checkpointHealth?.checkpointFailures ?? 0) > 0 }
     ),
     buildRepairableAction(
+      "retry_failed_partitions",
+      "Requeue retryable Google Ads failed partitions.",
+      { available: (queueHealthBeforeEnqueue?.retryableFailedPartitions ?? 0) > 0 }
+    ),
+    buildRepairableAction(
       "repair_integrity_windows",
       "Repair Google Ads account/campaign integrity windows.",
       { available: integrityRepairRanges.length > 0 }
@@ -625,13 +650,17 @@ export async function runGoogleAdsRepairCycle(
     repair: {
       reclaimed: cleanup?.stalePartitionCount ?? 0,
       replayed: (replayedDeadLetters?.changedCount ?? 0) + (replayedPoisoned?.changedCount ?? 0),
-      requeued: Number((enqueueResult as { queuedCore?: number } | null)?.queuedCore ?? 0),
+      requeued:
+        requeuedFailed.length +
+        Number((enqueueResult as { queuedCore?: number } | null)?.queuedCore ?? 0),
       blocked,
       blockingReasons,
       repairableActions,
       meta: {
         deadLetters: replayedDeadLetters,
+        quarantinedTerminalActionRequired: quarantinedTerminal,
         poisonedReplay: replayedPoisoned,
+        retryableFailed: requeuedFailed.length,
         integrityIncidentCount: integrityIncidentsBefore.length,
         integrityRepairRanges,
         queuedWarehouseRepairs: queuedWarehouseRepairs.filter(Boolean).length,

@@ -15,6 +15,7 @@ import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import { formatCurrency, sparklinePath } from "@/lib/briefing/utils";
 import { MetaBidRegimeChip } from "@/components/meta/redesign/MetaBidRegimeChip";
 import { MetaCampaignRoleChip } from "@/components/meta/redesign/MetaCampaignRoleChip";
+import { MetaCohortChip } from "@/components/meta/redesign/MetaCohortChip";
 import { buildMetaEvidenceSections } from "@/components/meta/redesign/MetaEvidenceAccordion";
 import { MetaScopeChip } from "@/components/meta/redesign/MetaScopeChip";
 import {
@@ -265,6 +266,7 @@ export function MetaActionCard({
             <DecisionLabelChip label={label} surface="meta" size="sm" />
             {rec.level === "campaign" && rec.campaignRole ? <MetaCampaignRoleChip role={rec.campaignRole} /> : null}
             {rec.bidRegime ? <MetaBidRegimeChip regime={rec.bidRegime} /> : null}
+            <MetaCohortChip cohort={rec.cohort} />
             <ConfidencePill confidence={confidence} size="sm" className="ml-auto" />
           </div>
 

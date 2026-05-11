@@ -20,6 +20,7 @@ import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
 import {
   isPurchaseCohort,
   resolveMetaFunnelCohort,
+  type MetaFunnelCohort,
 } from "@/lib/meta/funnel-cohort";
 
 export interface BuildMetaAdsetRecommendationsInput {
@@ -120,6 +121,7 @@ function baseAdsetRecommendation(input: {
   campaignName?: string;
   campaignRole?: MetaCampaignRole;
   bidRegime?: MetaBidRegime;
+  cohort: MetaFunnelCohort;
 }): MetaRecommendation {
   return {
     id: `${input.type}-${input.adset.id}`,
@@ -152,6 +154,7 @@ function baseAdsetRecommendation(input: {
     engineVersion: META_RECOMMENDATION_ENGINE_VERSION,
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
+    cohort: input.cohort,
   };
 }
 
@@ -218,6 +221,7 @@ export function buildMetaAdsetRecommendations(
         });
         recommendations.push(baseAdsetRecommendation({
           adset,
+          cohort,
           ...taxonomyFields,
           type: "adset_scale_budget",
           lens: "volume",
@@ -248,6 +252,7 @@ export function buildMetaAdsetRecommendations(
         });
         recommendations.push(baseAdsetRecommendation({
           adset,
+          cohort,
           ...taxonomyFields,
           type: "adset_cut_spend",
           lens: "profitability",
@@ -286,6 +291,7 @@ export function buildMetaAdsetRecommendations(
       });
       recommendations.push(baseAdsetRecommendation({
         adset,
+        cohort,
         ...taxonomyFields,
         type: "adset_watch_learning",
         lens: "structure",

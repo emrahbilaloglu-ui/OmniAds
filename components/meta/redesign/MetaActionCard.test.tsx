@@ -37,4 +37,20 @@ describe("MetaActionCard", () => {
     expect(html).toContain("Tracking");
     expect(html).toContain("Check events first.");
   });
+
+  it("renders non-purchase cohort chips on recommendation cards", () => {
+    const html = renderToStaticMarkup(<MetaActionCard rec={metaRec({ cohort: "upper_funnel" })} />);
+    expect(html).toContain("Upper-funnel");
+    expect(html).toContain('data-cohort-chip="upper_funnel"');
+  });
+
+  it("does not render cohort chip for purchase recommendations", () => {
+    const html = renderToStaticMarkup(<MetaActionCard rec={metaRec({ cohort: "purchase" })} />);
+    expect(html).not.toContain("data-cohort-chip");
+  });
+
+  it("does not render cohort chip when cohort is missing", () => {
+    const html = renderToStaticMarkup(<MetaActionCard rec={metaRec({ cohort: undefined })} />);
+    expect(html).not.toContain("data-cohort-chip");
+  });
 });

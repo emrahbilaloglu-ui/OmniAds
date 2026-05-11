@@ -151,6 +151,7 @@ describe("Meta Engine v1 state rows funnel cohort labels", () => {
     });
 
     expect(row?.decision).toBe("non_sales_eligible");
+    expect(row?.cohort).toBe("upper_funnel");
     expect(row?.decisionLabel).toBe("out_of_scope");
     expect(row?.evidence).toContainEqual({ label: "Cohort", value: "upper_funnel", tone: "neutral" });
   });
@@ -164,6 +165,7 @@ describe("Meta Engine v1 state rows funnel cohort labels", () => {
     });
 
     expect(row?.decision).toBe("non_sales_eligible");
+    expect(row?.cohort).toBe("mid_funnel");
     expect(row?.evidence).toContainEqual({ label: "Cohort", value: "mid_funnel", tone: "neutral" });
   });
 

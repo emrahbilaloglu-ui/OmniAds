@@ -83,6 +83,15 @@ describe("pruneSyncLifecycleData", () => {
       }),
     );
     expect(sql).toHaveBeenCalledTimes(10);
+    const queries = sql.mock.calls.map(([strings]) => (strings as TemplateStringsArray).join(""));
+    expect(queries[0]).toContain("FROM google_ads_raw_snapshots snapshot");
+    expect(queries[0]).toContain("WHERE EXISTS");
+    expect(queries[0]).toContain("FROM google_ads_sync_partitions partition");
+    expect(queries[0]).not.toContain("JOIN google_ads_sync_partitions partition");
+    expect(queries[2]).toContain("FROM meta_raw_snapshots snapshot");
+    expect(queries[2]).toContain("WHERE EXISTS");
+    expect(queries[2]).toContain("FROM meta_sync_partitions partition");
+    expect(queries[2]).not.toContain("JOIN meta_sync_partitions partition");
     expect(releaseSyncRunnerLease).toHaveBeenCalledTimes(1);
   });
 });

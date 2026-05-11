@@ -121,9 +121,12 @@ export async function pruneSyncLifecycleData(input?: {
           WITH candidates AS (
             SELECT snapshot.id
             FROM google_ads_raw_snapshots snapshot
-            JOIN google_ads_sync_partitions partition
-              ON partition.id = snapshot.partition_id
-            WHERE partition.status = ANY(${TERMINAL_PARTITION_STATUSES}::text[])
+            WHERE EXISTS (
+                SELECT 1
+                FROM google_ads_sync_partitions partition
+                WHERE partition.id = snapshot.partition_id
+                  AND partition.status = ANY(${TERMINAL_PARTITION_STATUSES}::text[])
+              )
               AND snapshot.fetched_at < now() - (${String(rawRetentionDays)} || ' days')::interval
             ORDER BY snapshot.fetched_at ASC, snapshot.id ASC
             LIMIT ${batchSize}
@@ -146,9 +149,12 @@ export async function pruneSyncLifecycleData(input?: {
           WITH candidates AS (
             SELECT snapshot.id
             FROM meta_raw_snapshots snapshot
-            JOIN meta_sync_partitions partition
-              ON partition.id = snapshot.partition_id
-            WHERE partition.status = ANY(${TERMINAL_PARTITION_STATUSES}::text[])
+            WHERE EXISTS (
+                SELECT 1
+                FROM meta_sync_partitions partition
+                WHERE partition.id = snapshot.partition_id
+                  AND partition.status = ANY(${TERMINAL_PARTITION_STATUSES}::text[])
+              )
               AND snapshot.fetched_at < now() - (${String(rawRetentionDays)} || ' days')::interval
             ORDER BY snapshot.fetched_at ASC, snapshot.id ASC
             LIMIT ${batchSize}

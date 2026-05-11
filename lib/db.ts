@@ -287,6 +287,36 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation: strin
   ]);
 }
 
+export function buildStatementTimeoutSql(timeoutMs: number) {
+  const safeTimeoutMs = Math.max(1, Math.floor(Number.isFinite(timeoutMs) ? timeoutMs : 1));
+  return `SET statement_timeout = ${safeTimeoutMs}`;
+}
+
+async function executePoolQueryWithStatementTimeout<TRow extends DbRow = DbRow>(
+  pool: Pool,
+  queryText: string,
+  params: unknown[],
+  timeoutMs: number,
+) {
+  const client = await pool.connect();
+  let statementTimeoutApplied = false;
+  let releaseError: Error | undefined;
+  try {
+    await client.query(buildStatementTimeoutSql(timeoutMs));
+    statementTimeoutApplied = true;
+    return await client.query<TRow>(queryText, params.map(normalizeQueryValue));
+  } finally {
+    if (statementTimeoutApplied) {
+      try {
+        await client.query("RESET statement_timeout");
+      } catch (error) {
+        releaseError = error instanceof Error ? error : new Error(String(error));
+      }
+    }
+    client.release(releaseError);
+  }
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -334,6 +364,7 @@ function isConnectionDbError(error: unknown) {
     message.includes("server conn crashed") ||
     message.includes("terminating connection") ||
     message.includes("Connection terminated unexpectedly") ||
+    message.includes("timeout exceeded when trying to connect") ||
     message.includes("timeout expired")
   );
 }
@@ -571,11 +602,19 @@ function createWrappedDbExecutor(
     for (let attempt = 0; attempt <= maxAttempts; attempt += 1) {
       observePoolSnapshot(pool, metrics, settings.poolMax);
       try {
-        const result = await withTimeout(
-          queryable.query<TRow>(queryText, params.map(normalizeQueryValue)),
-          defaultTimeoutMs,
-          "Database query",
-        );
+        const result =
+          pool != null && Object.is(queryable, pool)
+            ? await executePoolQueryWithStatementTimeout<TRow>(
+                pool,
+                queryText,
+                params,
+                defaultTimeoutMs,
+              )
+            : await withTimeout(
+                queryable.query<TRow>(queryText, params.map(normalizeQueryValue)),
+                defaultTimeoutMs,
+                "Database query",
+              );
         metrics.successCount += 1;
         metrics.lastSuccessfulQueryAt = nowIso();
         observePoolSnapshot(pool, metrics, settings.poolMax);

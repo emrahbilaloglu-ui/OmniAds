@@ -2489,6 +2489,8 @@ export async function runMigrations(options?: {
         sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshots_account ON meta_raw_snapshots (provider_account_id, fetched_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshots_window ON meta_raw_snapshots (business_id, provider_account_id, start_date, end_date)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshots_endpoint ON meta_raw_snapshots (endpoint_name, fetched_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_raw_snapshots_retention
+          ON meta_raw_snapshots (fetched_at ASC, id ASC, partition_id)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshots_partition_endpoint
           ON meta_raw_snapshots (partition_id, endpoint_name, page_index)`.catch(() => {}),
         sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS partition_id UUID REFERENCES meta_sync_partitions(id) ON DELETE CASCADE`.catch(() => {}),
@@ -3738,6 +3740,8 @@ export async function runMigrations(options?: {
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_account ON google_ads_raw_snapshots (provider_account_id, fetched_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_window ON google_ads_raw_snapshots (business_id, provider_account_id, start_date, end_date)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_endpoint ON google_ads_raw_snapshots (endpoint_name, fetched_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_google_ads_raw_snapshots_retention
+          ON google_ads_raw_snapshots (fetched_at ASC, id ASC, partition_id)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_partition_endpoint
           ON google_ads_raw_snapshots (partition_id, endpoint_name, page_index)`.catch(() => {}),
         sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS partition_id UUID REFERENCES google_ads_sync_partitions(id) ON DELETE CASCADE`.catch(() => {}),

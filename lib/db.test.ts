@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   buildParameterizedQuery,
+  buildStatementTimeoutSql,
   getDbRuntimeDiagnostics,
   resetDbClientCache,
   resolveDbPoolMax,
@@ -213,5 +214,13 @@ describe("buildParameterizedQuery", () => {
       text: "SELECT * FROM users WHERE avatar IS NOT DISTINCT FROM $1",
       values: [null],
     });
+  });
+});
+
+describe("buildStatementTimeoutSql", () => {
+  it("uses a sanitized millisecond integer for server-side query cancellation", () => {
+    expect(buildStatementTimeoutSql(30_000.9)).toBe("SET statement_timeout = 30000");
+    expect(buildStatementTimeoutSql(0)).toBe("SET statement_timeout = 1");
+    expect(buildStatementTimeoutSql(Number.NaN)).toBe("SET statement_timeout = 1");
   });
 });

@@ -375,6 +375,8 @@ async function leaseGoogleAdsPartitionsWithPlan(input: {
       limit: stepLimit,
       sourceFilter: step.sourceFilter ?? "all",
       scopeFilter: (step.scopeFilter as GoogleAdsWarehouseScope[] | undefined) ?? undefined,
+      excludedScopeFilter:
+        (step.excludedScopeFilter as GoogleAdsWarehouseScope[] | undefined) ?? undefined,
       startDate: step.startDate ?? null,
       endDate: step.endDate ?? null,
     });

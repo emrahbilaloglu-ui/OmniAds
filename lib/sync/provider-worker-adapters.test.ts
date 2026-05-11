@@ -277,6 +277,7 @@ describe("provider-worker-adapters", () => {
             lane: "extended",
             limit: 1,
             sourceFilter: "historical_only",
+            excludedScopeFilter: ["product_daily"],
           },
         ],
       },
@@ -287,6 +288,7 @@ describe("provider-worker-adapters", () => {
       expect.objectContaining({
         lane: "extended",
         sourceFilter: "historical_only",
+        excludedScopeFilter: ["product_daily"],
       })
     );
     expect(leased).toHaveLength(1);

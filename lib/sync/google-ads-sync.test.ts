@@ -33,6 +33,7 @@ import {
   getGoogleAdsCoveredCorePartitionDatesToCancel,
   normalizeGoogleAdsPartitionDateKey,
   resolveGoogleAdsFullSyncPriorityFromStateRows,
+  getGoogleAdsRecent90FrontierScopes,
 } from "@/lib/sync/google-ads-sync";
 
 afterEach(() => {
@@ -692,6 +693,20 @@ describe("decideGoogleAdsHistoricalFrontier", () => {
         recent90Complete: true,
       }),
     ).toBe("2024-01-01");
+  });
+});
+
+describe("getGoogleAdsRecent90FrontierScopes", () => {
+  it("uses core and self-healing advisor surfaces instead of every extended support surface", () => {
+    expect(getGoogleAdsRecent90FrontierScopes()).toEqual([
+      "account_daily",
+      "campaign_daily",
+      "search_term_daily",
+      "product_daily",
+      "asset_daily",
+    ]);
+    expect(getGoogleAdsRecent90FrontierScopes()).not.toContain("ad_daily");
+    expect(getGoogleAdsRecent90FrontierScopes()).not.toContain("ad_group_daily");
   });
 });
 

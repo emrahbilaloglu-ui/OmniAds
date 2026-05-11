@@ -874,11 +874,13 @@ const GOOGLE_ADS_STATE_SCOPES: GoogleAdsWarehouseScope[] = [
   "audience_daily",
 ];
 
-const GOOGLE_ADS_RECENT_90_FRONTIER_SCOPES: GoogleAdsWarehouseScope[] = [
-  "account_daily",
-  "campaign_daily",
-  ...GOOGLE_ADS_EXTENDED_SCOPES,
-];
+export function getGoogleAdsRecent90FrontierScopes(): GoogleAdsWarehouseScope[] {
+  return [
+    "account_daily",
+    "campaign_daily",
+    ...GOOGLE_ADS_RECENT_SELF_HEAL_SCOPES,
+  ];
+}
 
 function buildGoogleAdsSyntheticEvidenceState(
   activityAt: string | null | undefined,
@@ -3773,7 +3775,7 @@ export async function getGoogleAdsRecent90CompletionState(input: {
     recent90Start > historicalStart ? recent90Start : historicalStart;
   const totalDays = dayCountInclusive(frontierStart, yesterday);
   const coverageRows = await Promise.all(
-    GOOGLE_ADS_RECENT_90_FRONTIER_SCOPES.map(async (scope) => ({
+    getGoogleAdsRecent90FrontierScopes().map(async (scope) => ({
       scope,
       coverage: await getGoogleAdsDailyCoverage({
         scope,

@@ -191,6 +191,7 @@ export function buildMetaAdsetRecommendations(
       adset,
       campaign,
       context,
+      cohort,
       ...taxonomyFields,
       signals: input.entitySignalsByAdsetId?.[adset.id] ?? null,
     });

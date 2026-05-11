@@ -43,6 +43,8 @@ function metricRow(input: {
   accountId?: string;
   campaignId: string;
   adsetId: string;
+  optimizationGoal?: string | null;
+  customEventType?: string | null;
   spend: number;
   revenue: number;
   conversions: number;
@@ -54,6 +56,8 @@ function metricRow(input: {
     account_id: input.accountId ?? "act_1",
     campaign_id: input.campaignId,
     adset_id: input.adsetId,
+    optimization_goal: input.optimizationGoal ?? "PURCHASE",
+    custom_event_type: input.customEventType ?? null,
     spend_28d: input.spend,
     revenue_28d: input.revenue,
     conversions_28d: input.conversions,
@@ -63,6 +67,16 @@ function metricRow(input: {
     impressions_14d: (input.impressions ?? 1000) / 2,
     reach_14d: input.reach ?? 400,
   };
+}
+
+function insertedPayload(sql: ReturnType<typeof makeSqlMock>) {
+  return JSON.parse(String(sql.queryCalls[0]?.params?.[0] ?? "[]")) as Array<{
+    scope_type: string;
+    scope_id: string;
+    metric_name: string;
+    p50: number;
+    sample_size: number;
+  }>;
 }
 
 function calibrationMetricRow(scopeType: "account" | "campaign", scopeId: string) {
@@ -121,17 +135,76 @@ describe("meta calibration", () => {
     vi.mocked(db.getDb).mockReturnValue(sql.tag);
 
     const result = await runMetaCalibrationForBusiness("biz_1", "2026-05-06");
-    const payload = JSON.parse(String(sql.queryCalls[0]?.params?.[0])) as Array<{
-      scope_type: string;
-      scope_id: string;
-      metric_name: string;
-    }>;
+    const payload = insertedPayload(sql);
 
     expect(result.accountScopes).toBe(1);
     expect(result.campaignScopes).toBe(1);
+    expect(result.sampleRowsTotal).toBe(rows.length);
+    expect(result.sampleRowsAfterCohortFilter).toBe(rows.length);
     expect(payload.some((row) => row.scope_type === "account" && row.scope_id === "act_1")).toBe(true);
     expect(payload.some((row) => row.scope_type === "campaign" && row.scope_id === "cmp_ready")).toBe(true);
     expect(payload.some((row) => row.scope_type === "campaign" && row.scope_id === "cmp_thin")).toBe(false);
+  });
+
+  it("calibrates ROAS percentiles from purchase adsets only", async () => {
+    const rows = [
+      metricRow({ campaignId: "cmp_1", adsetId: "purchase_1", spend: 100, revenue: 150, conversions: 2 }),
+      metricRow({ campaignId: "cmp_1", adsetId: "purchase_2", spend: 100, revenue: 200, conversions: 3 }),
+      metricRow({ campaignId: "cmp_1", adsetId: "purchase_3", spend: 100, revenue: 300, conversions: 4 }),
+      metricRow({ campaignId: "cmp_1", adsetId: "purchase_4", spend: 100, revenue: 400, conversions: 5 }),
+      metricRow({ campaignId: "cmp_2", adsetId: "thruplay_1", optimizationGoal: "THRUPLAY", spend: 100, revenue: 0, conversions: 0 }),
+      metricRow({ campaignId: "cmp_2", adsetId: "thruplay_2", optimizationGoal: "THRUPLAY", spend: 100, revenue: 0, conversions: 0 }),
+    ];
+    const sql = makeSqlMock({ metricRows: rows });
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+
+    const result = await runMetaCalibrationForBusiness("biz_1", "2026-05-06");
+    const roasRow = insertedPayload(sql).find((row) =>
+      row.scope_type === "account" && row.scope_id === "act_1" && row.metric_name === "roas_28d"
+    );
+
+    expect(result.sampleRowsTotal).toBe(6);
+    expect(result.sampleRowsAfterCohortFilter).toBe(4);
+    expect(roasRow?.sample_size).toBe(4);
+    expect(roasRow?.p50).toBe(2.5);
+  });
+
+  it("writes zero calibration rows when the account has no purchase adsets", async () => {
+    const rows = [
+      metricRow({ campaignId: "cmp_1", adsetId: "thruplay_1", optimizationGoal: "THRUPLAY", spend: 100, revenue: 0, conversions: 0 }),
+      metricRow({ campaignId: "cmp_1", adsetId: "thruplay_2", optimizationGoal: "THRUPLAY", spend: 100, revenue: 0, conversions: 0 }),
+    ];
+    const sql = makeSqlMock({ metricRows: rows });
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+
+    const result = await runMetaCalibrationForBusiness("biz_1", "2026-05-06");
+
+    expect(result.rowsWritten).toBe(0);
+    expect(result.accountScopes).toBe(0);
+    expect(result.campaignScopes).toBe(0);
+    expect(result.sampleRowsTotal).toBe(2);
+    expect(result.sampleRowsAfterCohortFilter).toBe(0);
+    expect(sql.queryCalls).toHaveLength(0);
+  });
+
+  it("excludes ADD_TO_CART custom-event adsets even under a sales optimization goal", async () => {
+    const rows = [
+      metricRow({ campaignId: "cmp_1", adsetId: "purchase_1", optimizationGoal: "OFFSITE_CONVERSIONS", customEventType: "PURCHASE", spend: 100, revenue: 300, conversions: 3 }),
+      metricRow({ campaignId: "cmp_1", adsetId: "atc_1", optimizationGoal: "OFFSITE_CONVERSIONS", customEventType: "ADD_TO_CART", spend: 100, revenue: 100, conversions: 10 }),
+    ];
+    const sql = makeSqlMock({ metricRows: rows });
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+
+    const result = await runMetaCalibrationForBusiness("biz_1", "2026-05-06");
+    const roasRow = insertedPayload(sql).find((row) =>
+      row.scope_type === "account" && row.scope_id === "act_1" && row.metric_name === "roas_28d"
+    );
+
+    expect(result.sampleRowsTotal).toBe(2);
+    expect(result.sampleRowsAfterCohortFilter).toBe(1);
+    expect(result.sampleRowsAfterCohortFilter).toBeLessThan(result.sampleRowsTotal);
+    expect(roasRow?.sample_size).toBe(1);
+    expect(roasRow?.p50).toBe(3);
   });
 
   it("returns campaign fallback reasons and account-missing legacy fallback", async () => {

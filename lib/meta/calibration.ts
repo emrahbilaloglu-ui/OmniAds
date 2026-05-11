@@ -1,4 +1,5 @@
 import { getDb, runDbTransaction } from "@/lib/db";
+import { resolveMetaFunnelCohort } from "@/lib/meta/funnel-cohort";
 
 export const MIN_CAMPAIGN_CALIBRATION_SAMPLE = 8;
 export const MIN_ACCOUNT_CALIBRATION_SAMPLE = 1;
@@ -54,12 +55,16 @@ export interface RunMetaCalibrationResult {
   rowsWritten: number;
   accountScopes: number;
   campaignScopes: number;
+  sampleRowsTotal: number;
+  sampleRowsAfterCohortFilter: number;
 }
 
 interface AggregatedAdsetMetricRow {
   account_id: string;
   campaign_id: string | null;
   adset_id: string;
+  optimization_goal: string | null;
+  custom_event_type: string | null;
   spend_28d: unknown;
   revenue_28d: unknown;
   conversions_28d: unknown;
@@ -292,6 +297,8 @@ async function readAggregatedAdsetMetricRows(
       provider_account_id AS account_id,
       campaign_id,
       adset_id,
+      MAX(optimization_goal) AS optimization_goal,
+      MAX(custom_event_type) AS custom_event_type,
       SUM(spend) FILTER (WHERE date >= (${snapshotDate}::date - INTERVAL '27 days')) AS spend_28d,
       SUM(revenue) FILTER (WHERE date >= (${snapshotDate}::date - INTERVAL '27 days')) AS revenue_28d,
       SUM(conversions) FILTER (WHERE date >= (${snapshotDate}::date - INTERVAL '27 days')) AS conversions_28d,
@@ -380,7 +387,13 @@ export async function runMetaCalibrationForBusiness(
 ): Promise<RunMetaCalibrationResult> {
   const normalizedSnapshotDate = normalizeDate(snapshotDate);
   const rawRows = await readAggregatedAdsetMetricRows(businessId, normalizedSnapshotDate);
-  const samples = rawRows.map(metricValuesForSample);
+  const purchaseRows = rawRows.filter((row) =>
+    resolveMetaFunnelCohort({
+      optimizationGoal: row.optimization_goal,
+      customEventType: row.custom_event_type,
+    }) === "purchase",
+  );
+  const samples = purchaseRows.map(metricValuesForSample);
   const payload: CalibrationPayloadRow[] = [];
 
   const accountGroups = new Map<string, ComputedMetricSample[]>();
@@ -437,6 +450,8 @@ export async function runMetaCalibrationForBusiness(
     rowsWritten: payload.length,
     accountScopes: new Set(payload.filter((row) => row.scope_type === "account").map((row) => row.scope_id)).size,
     campaignScopes: new Set(payload.filter((row) => row.scope_type === "campaign").map((row) => row.scope_id)).size,
+    sampleRowsTotal: rawRows.length,
+    sampleRowsAfterCohortFilter: purchaseRows.length,
   };
 }
 

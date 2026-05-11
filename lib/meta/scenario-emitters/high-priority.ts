@@ -9,6 +9,16 @@ import {
 import { LEGACY_META_CALIBRATION_THRESHOLDS } from "@/lib/meta/calibration";
 import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
 import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
+import type { MetaFunnelCohort } from "@/lib/meta/funnel-cohort";
+import { META_ENGINE_V1_SCENARIOS } from "@/lib/meta/engine-v1/scenarios";
+
+const SCENARIO_SCOPE_BY_REC_TYPE = new Map(
+  META_ENGINE_V1_SCENARIOS.map((scenario) => [scenario.recType, scenario.cohortScope] as const),
+);
+
+function scenarioScopeByRecType(recType: MetaRecommendation["type"]): "purchase_only" | "any" {
+  return SCENARIO_SCOPE_BY_REC_TYPE.get(recType) ?? "any";
+}
 
 export interface CampaignScenarioWindow {
   selected: MetaCampaignRow;
@@ -22,6 +32,7 @@ export interface CampaignScenarioWindow {
 export interface CampaignScenarioInput {
   window: CampaignScenarioWindow;
   context: MetaCalibrationContext | null;
+  cohort: MetaFunnelCohort;
   campaignRole?: MetaCampaignRole;
   bidRegime?: MetaBidRegime;
   signals?: MetaEntityDecisionSignal | null;
@@ -31,6 +42,7 @@ export interface AdsetScenarioInput {
   adset: MetaAdSetData;
   campaign?: MetaCampaignRow | null;
   context: MetaCalibrationContext | null;
+  cohort: MetaFunnelCohort;
   campaignRole?: MetaCampaignRole;
   bidRegime?: MetaBidRegime;
   signals?: MetaEntityDecisionSignal | null;
@@ -621,7 +633,11 @@ const CAMPAIGN_PRECEDENCE = [
 export function emitHighPriorityCampaignScenario(input: CampaignScenarioInput): MetaRecommendation | null {
   for (const emitter of CAMPAIGN_PRECEDENCE) {
     const rec = emitter(input);
-    if (rec) return rec;
+    if (!rec) continue;
+    if (scenarioScopeByRecType(rec.type) === "purchase_only" && input.cohort !== "purchase") {
+      continue;
+    }
+    return rec;
   }
   return null;
 }
@@ -633,7 +649,11 @@ const ADSET_PRECEDENCE = [
 export function emitHighPriorityAdsetScenario(input: AdsetScenarioInput): MetaRecommendation | null {
   for (const emitter of ADSET_PRECEDENCE) {
     const rec = emitter(input);
-    if (rec) return rec;
+    if (!rec) continue;
+    if (scenarioScopeByRecType(rec.type) === "purchase_only" && input.cohort !== "purchase") {
+      continue;
+    }
+    return rec;
   }
   return null;
 }

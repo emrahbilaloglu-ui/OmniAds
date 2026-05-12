@@ -586,7 +586,7 @@ export function CreativesBriefingPage() {
   }, [toast]);
 
   const handleToggleLane = useCallback((laneKey: LaneKey) => {
-    if (laneKey === "audience" || laneKey === "archive") return;
+    if (laneKey !== "action" && laneKey !== "watching" && laneKey !== "healthy") return;
     setCollapsed((current) => ({ ...current, [laneKey]: !current[laneKey] }));
   }, []);
 

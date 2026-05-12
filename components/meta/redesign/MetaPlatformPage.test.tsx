@@ -45,6 +45,12 @@ function countText(html: string, text: string) {
   return html.split(text).length - 1;
 }
 
+function sectionHtml(html: string, id: string, nextId: string) {
+  const start = html.indexOf(`id="${id}"`);
+  const end = html.indexOf(`id="${nextId}"`);
+  return html.slice(start, end === -1 ? undefined : end);
+}
+
 describe("MetaPlatformPage", () => {
   beforeEach(() => {
     state.queryKeys = [];
@@ -63,6 +69,8 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain("Action Now");
     expect(html).toContain("Watching");
     expect(html).toContain("Healthy ASC");
+    expect(html).toContain('id="non-sales"');
+    expect(html).toContain("Out of Sales Scope");
     expect(html).toContain("Archive");
     expect(html).toContain("Audience Builder");
     expect(html).toContain("data-meta-audience-builder");
@@ -100,7 +108,7 @@ describe("MetaPlatformPage", () => {
           diagnosticNote: null,
         },
       ],
-      counts: { actionNow: 1, watching: 1, healthy: 1, archive: 1 },
+      counts: { actionNow: 1, watching: 1, healthy: 1, nonSales: 0, archive: 1 },
     });
 
     const html = renderToStaticMarkup(
@@ -111,6 +119,66 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain("Paused ASC");
     expect(html).toContain("Paused 12d");
     expect(html).toContain("$640");
+  });
+
+  it("renders the Out of Sales Scope lane when nonSales entries are present", () => {
+    state.lanePayload = metaLanePayload({
+      nonSales: [
+        metaRec({
+          id: "rec_upper",
+          campaignId: "cmp_upper",
+          campaignName: "Video Views",
+          cohort: "upper_funnel",
+        }),
+      ],
+      counts: { actionNow: 1, watching: 1, healthy: 1, nonSales: 1, archive: 0 },
+    });
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+    const nonSalesSection = sectionHtml(html, "non-sales", "archive");
+
+    expect(nonSalesSection).toContain('id="non-sales"');
+    expect(nonSalesSection).toContain("Out of Sales Scope");
+    expect(nonSalesSection).toContain("Video Views");
+  });
+
+  it("renders an empty Out of Sales Scope lane with a zero count", () => {
+    state.lanePayload = metaLanePayload({
+      nonSales: [],
+      counts: { actionNow: 1, watching: 1, healthy: 1, nonSales: 0, archive: 0 },
+    });
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+    const nonSalesSection = sectionHtml(html, "non-sales", "archive");
+
+    expect(nonSalesSection).toContain("Out of Sales Scope");
+    expect(nonSalesSection).toContain(">0</span>");
+    expect(nonSalesSection).toContain("No non-purchase entities in the current window.");
+  });
+
+  it("renders the cohort chip inside the Out of Sales Scope lane", () => {
+    state.lanePayload = metaLanePayload({
+      nonSales: [
+        metaRec({
+          id: "rec_upper",
+          campaignId: "cmp_upper",
+          campaignName: "Video Views",
+          cohort: "upper_funnel",
+        }),
+      ],
+      counts: { actionNow: 1, watching: 1, healthy: 1, nonSales: 1, archive: 0 },
+    });
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+    const nonSalesSection = sectionHtml(html, "non-sales", "archive");
+
+    expect(nonSalesSection).toContain('data-cohort-chip="upper_funnel"');
   });
 
   it("rolls mixed adset decisions up without duplicating individual cards", () => {
@@ -185,7 +253,7 @@ describe("MetaPlatformPage", () => {
           status: "ACTIVE",
         },
       ],
-      counts: { actionNow: 1, watching: 1, healthy: 3, archive: 0 },
+      counts: { actionNow: 1, watching: 1, healthy: 3, nonSales: 0, archive: 0 },
     });
 
     const html = renderToStaticMarkup(
@@ -242,7 +310,7 @@ describe("MetaPlatformPage", () => {
           bidValueFormat: "currency",
         }),
       ],
-      counts: { actionNow: 1, watching: 1, healthy: 3, archive: 0 },
+      counts: { actionNow: 1, watching: 1, healthy: 3, nonSales: 0, archive: 0 },
     });
 
     const html = renderToStaticMarkup(
@@ -288,7 +356,7 @@ describe("MetaPlatformPage", () => {
           bidStrategyLabel: "Lowest Cost",
         }),
       ],
-      counts: { actionNow: 1, watching: 1, healthy: 3, archive: 0 },
+      counts: { actionNow: 1, watching: 1, healthy: 3, nonSales: 0, archive: 0 },
     });
 
     const html = renderToStaticMarkup(
@@ -338,7 +406,7 @@ describe("MetaPlatformPage", () => {
           bidValueFormat: "currency",
         }),
       ],
-      counts: { actionNow: 1, watching: 1, healthy: 3, archive: 0 },
+      counts: { actionNow: 1, watching: 1, healthy: 3, nonSales: 0, archive: 0 },
     });
 
     const html = renderToStaticMarkup(
@@ -369,7 +437,7 @@ describe("MetaPlatformPage", () => {
           bidStrategyLabel: "Lowest Cost",
         }),
       ],
-      counts: { actionNow: 1, watching: 1, healthy: 1, archive: 0 },
+      counts: { actionNow: 1, watching: 1, healthy: 1, nonSales: 0, archive: 0 },
     });
 
     const html = renderToStaticMarkup(

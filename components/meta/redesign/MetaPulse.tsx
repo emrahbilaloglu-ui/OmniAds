@@ -533,6 +533,7 @@ export function MetaPulse({
           <a href="#action-now" className="rounded-md px-2 py-1 text-slate-600 hover:bg-slate-50">Action Now</a>
           <a href="#watching" className="rounded-md px-2 py-1 text-slate-600 hover:bg-slate-50">Watching</a>
           <a href="#healthy" className="rounded-md px-2 py-1 text-slate-600 hover:bg-slate-50">Healthy</a>
+          <a href="#non-sales" className="rounded-md px-2 py-1 text-slate-600 hover:bg-slate-50">Out of Scope</a>
           <a href="#archive" className="rounded-md px-2 py-1 text-slate-600 hover:bg-slate-50">Archive</a>
         </>
       }

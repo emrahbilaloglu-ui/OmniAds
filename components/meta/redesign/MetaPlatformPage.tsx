@@ -464,7 +464,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   const queryClient = useQueryClient();
   const selectedWindow = (searchParams.get("window") as MetaWindowKey | null) ?? "28d";
   const selectedStatusFilter = parseBriefingStatusFilter(searchParams.get("status_filter"));
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ nonSales: true });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [drillItem, setDrillItem] = useState<MetaDrillItem | null>(null);
   const [overlay, setOverlay] = useState<OverlayState>(EMPTY_OVERLAY);
@@ -504,6 +504,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   const actionNow = laneQuery.data?.actionNow ?? [];
   const watching = laneQuery.data?.watching ?? [];
   const healthy = laneQuery.data?.healthy ?? [];
+  const nonSales = laneQuery.data?.nonSales ?? [];
   const archive = laneQuery.data?.archive ?? [];
   const anomalies = anomalyQuery.data?.anomalies ?? [];
   const healthyGroups = useMemo(() => groupHealthyEntities(healthy), [healthy]);
@@ -516,7 +517,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
     () => actionNow.filter((rec) => !rollupRecIds.has(rec.id)),
     [actionNow, rollupRecIds],
   );
-  const allRecs = useMemo(() => [...actionNow, ...watching], [actionNow, watching]);
+  const allRecs = useMemo(() => [...actionNow, ...watching, ...nonSales], [actionNow, watching, nonSales]);
   const adsetRecsByCampaign = useMemo(() => {
     const next = new Map<string, MetaRecommendation[]>();
     for (const rec of allRecs) {
@@ -870,6 +871,40 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                   ) : null}
                 </div>
               ) : null}
+            </section>
+
+            <section id="non-sales" className="scroll-mt-40">
+              <LaneHeader
+                laneKey="nonSales"
+                title="Out of Sales Scope"
+                count={nonSales.length}
+                subtitle="Non-purchase adsets and campaigns (cohort-segregated)"
+                variant="meta"
+                collapsed={collapsed.nonSales}
+                onToggle={() => setCollapsed((current) => ({ ...current, nonSales: !current.nonSales }))}
+              />
+              <div hidden={collapsed.nonSales} className="grid gap-3">
+                {nonSales.map((rec) => (
+                  <MetaActionCard
+                    key={rec.id}
+                    rec={rec}
+                    selected={selectedIds.has(rec.id)}
+                    deferred={isDeferred(rec)}
+                    responseState={responseStateForRec(rec)}
+                    evidenceWindow={selectedWindow}
+                    onSelect={selectRec}
+                    onPrimary={handlePrimary}
+                    onOpenDrill={(item) => openDrillForRec(item as MetaRecommendation)}
+                    onDefer={deferRec}
+                    onUndoDefer={undeferRec}
+                  />
+                ))}
+                {nonSales.length === 0 ? (
+                  <p className="px-1 py-1 text-[12.5px] text-slate-500">
+                    No non-purchase entities in the current window.
+                  </p>
+                ) : null}
+              </div>
             </section>
 
             <section id="archive" className="scroll-mt-40">

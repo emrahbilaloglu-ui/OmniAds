@@ -120,9 +120,10 @@ export function metaLanePayload(overrides: Partial<MetaLanePayload> = {}): MetaL
     actionNow: [metaRec()],
     watching: [metaRec({ id: "rec_watch", decisionState: "watch", confidenceScore: 0.42 })],
     healthy: [metaHealthy()],
+    nonSales: [],
     archive: [],
     deferredIds: [],
-    counts: { actionNow: 1, watching: 1, healthy: 1, archive: 0 },
+    counts: { actionNow: 1, watching: 1, healthy: 1, nonSales: 0, archive: 0 },
     ...overrides,
   };
 }

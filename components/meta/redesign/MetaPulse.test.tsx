@@ -209,6 +209,13 @@ describe("MetaPulse", () => {
     expect((html.match(/data-pulse-divider="true"/g) ?? []).length).toBe(2);
   });
 
+  it("renders the Out of Scope jump link", () => {
+    const html = renderPulse();
+
+    expect(html).toContain('href="#non-sales"');
+    expect(html).toContain("Out of Scope");
+  });
+
   it("renders the Meta status filter chip group with Active selected by default", () => {
     const html = renderPulse();
 

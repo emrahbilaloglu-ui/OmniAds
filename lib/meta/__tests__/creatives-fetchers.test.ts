@@ -72,6 +72,8 @@ describe("fetchAccountInsights", () => {
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
+    const baseRequestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(baseRequestUrl.searchParams.get("fields")).toContain("video_thruplay_watched_actions");
     expect(String(fetchMock.mock.calls[1]?.[0])).toBe("https://graph.facebook.com/v25.0/next-page");
     const richRequestUrl = new URL(String(fetchMock.mock.calls[2]?.[0]));
     expect(richRequestUrl.searchParams.get("fields")).toContain("quality_ranking");

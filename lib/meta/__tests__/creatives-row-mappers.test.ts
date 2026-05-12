@@ -5,9 +5,11 @@ import {
   nDaysAgo,
   groupRows,
   sortRows,
+  hasRetainedZeroSpendActivity,
   hasSuspiciousMissingCatalogRevenueMetrics,
   hasSuspiciousMissingFunnelMetrics,
   mergeCreativeData,
+  toRawRow,
 } from "@/lib/meta/creatives-row-mappers";
 import type { RawCreativeRow } from "@/lib/meta/creatives-types";
 
@@ -46,6 +48,9 @@ function makeRow(overrides: Partial<RawCreativeRow> = {}): RawCreativeRow {
     clicks: 260,
     link_clicks: 200,
     landing_page_views: 180,
+    thruplay_actions: 0,
+    view_content: 0,
+    post_engagement: 0,
     add_to_cart: 20,
     initiate_checkout: 10,
     purchases: 5,
@@ -90,6 +95,25 @@ function makeRow(overrides: Partial<RawCreativeRow> = {}): RawCreativeRow {
     ai_tags: {},
     ...overrides,
   };
+}
+
+function mapInsight(overrides: Parameters<typeof toRawRow>[0]) {
+  return toRawRow(
+    {
+      ad_id: "ad_1",
+      ad_name: "Test Ad",
+      spend: "1",
+      clicks: "0",
+      impressions: "0",
+      reach: "0",
+      date_start: "2026-05-13",
+      ...overrides,
+    },
+    undefined,
+    { id: "act_123", name: "Test Account", currency: "USD" },
+    new Map(),
+    new Map(),
+  );
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -147,6 +171,78 @@ describe("hasSuspiciousMissingFunnelMetrics", () => {
       makeRow({ id: `row_${i}`, link_clicks: 100, purchases: 3, landing_page_views: 0, initiate_checkout: 0 })
     );
     expect(hasSuspiciousMissingFunnelMetrics(rows)).toBe(false);
+  });
+});
+
+describe("toRawRow funnel metrics", () => {
+  it("maps video_thruplay_watched_actions into thruplay_actions", () => {
+    const row = mapInsight({ video_thruplay_watched_actions: [{ action_type: "video_view", value: "42" }] });
+
+    expect(row?.thruplay_actions).toBe(42);
+  });
+
+  it("defaults missing video_thruplay_watched_actions to zero", () => {
+    const row = mapInsight({});
+
+    expect(row?.thruplay_actions).toBe(0);
+  });
+
+  it("maps view_content actions into view_content", () => {
+    const row = mapInsight({ actions: [{ action_type: "view_content", value: "17" }] });
+
+    expect(row?.view_content).toBe(17);
+  });
+
+  it("maps pixel view_content aliases into view_content", () => {
+    const row = mapInsight({ actions: [{ action_type: "offsite_conversion.fb_pixel_view_content", value: "9" }] });
+
+    expect(row?.view_content).toBe(9);
+  });
+
+  it("maps post_engagement actions into post_engagement", () => {
+    const row = mapInsight({ actions: [{ action_type: "post_engagement", value: "55" }] });
+
+    expect(row?.post_engagement).toBe(55);
+  });
+
+  it("defaults missing ThruPlay, view_content, and post_engagement signals to zero", () => {
+    const row = mapInsight({ actions: [] });
+
+    expect(row?.thruplay_actions).toBe(0);
+    expect(row?.view_content).toBe(0);
+    expect(row?.post_engagement).toBe(0);
+  });
+
+  it("retains zero-spend rows when only ThruPlay activity is present", () => {
+    expect(
+      hasRetainedZeroSpendActivity({
+        impressions: 0,
+        reach: 0,
+        clicks: 0,
+        effectiveLinkClicks: 0,
+        outboundClicks: 0,
+        purchases: 0,
+        purchaseValue: 0,
+        landingPageViews: 0,
+        thruplayActions: 42,
+        viewContent: 0,
+        postEngagement: 0,
+        addToCart: 0,
+        initiateCheckout: 0,
+        allActionTotal: 0,
+        video3sViews: 0,
+        video25Views: 0,
+        video50Views: 0,
+        video75Views: 0,
+        video100Views: 0,
+      }),
+    ).toBe(true);
+
+    const row = mapInsight({
+      spend: "0",
+      video_thruplay_watched_actions: [{ action_type: "video_view", value: "42" }],
+    });
+    expect(row?.thruplay_actions).toBe(42);
   });
 });
 
@@ -215,6 +311,32 @@ describe("groupRows", () => {
     expect(result).toHaveLength(1);
     expect(result[0].impressions).toBe(8000);
     expect(result[0].purchases).toBe(5);
+  });
+
+  it("sums ThruPlay, view_content, and post_engagement across grouped rows", () => {
+    const rows = [
+      makeRow({
+        id: "a1",
+        name: "Ad X",
+        format: "image",
+        thruplay_actions: 40,
+        view_content: 10,
+        post_engagement: 25,
+      }),
+      makeRow({
+        id: "a2",
+        name: "Ad X",
+        format: "image",
+        thruplay_actions: 2,
+        view_content: 7,
+        post_engagement: 30,
+      }),
+    ];
+    const result = groupRows(rows, "creative", new Map());
+
+    expect(result[0].thruplay_actions).toBe(42);
+    expect(result[0].view_content).toBe(17);
+    expect(result[0].post_engagement).toBe(55);
   });
 
   it("keeps canonical clicks separate from link_clicks when grouping", () => {

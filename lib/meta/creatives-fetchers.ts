@@ -92,6 +92,7 @@ const META_CREATIVE_INSIGHTS_BASE_FIELDS = [
   "action_values",
   "purchase_roas",
   "video_play_actions",
+  "video_thruplay_watched_actions",
   "video_p25_watched_actions",
   "video_p50_watched_actions",
   "video_p75_watched_actions",

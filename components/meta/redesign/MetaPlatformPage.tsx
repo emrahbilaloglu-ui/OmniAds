@@ -25,6 +25,7 @@ import { MetaHealthyRow } from "@/components/meta/redesign/MetaHealthyRow";
 import { MetaLaunchpadOverlay } from "@/components/meta/redesign/MetaLaunchpadOverlay";
 import { MetaPulse } from "@/components/meta/redesign/MetaPulse";
 import { MetaScopeChip } from "@/components/meta/redesign/MetaScopeChip";
+import { MetaUpperFunnelInformationalCard } from "@/components/meta/redesign/MetaUpperFunnelInformationalCard";
 import { MetaWatchingCard } from "@/components/meta/redesign/MetaWatchingCard";
 import {
   decisionLabelForRec,
@@ -884,20 +885,28 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                 onToggle={() => setCollapsed((current) => ({ ...current, nonSales: !current.nonSales }))}
               />
               <div hidden={collapsed.nonSales} className="grid gap-3">
-                {nonSales.map((rec) => (
-                  <MetaActionCard
-                    key={rec.id}
-                    rec={rec}
-                    selected={selectedIds.has(rec.id)}
-                    deferred={isDeferred(rec)}
-                    responseState={responseStateForRec(rec)}
-                    evidenceWindow={selectedWindow}
-                    onPrimary={handlePrimary}
-                    onOpenDrill={(item) => openDrillForRec(item as MetaRecommendation)}
-                    onDefer={deferRec}
-                    onUndoDefer={undeferRec}
-                  />
-                ))}
+                {nonSales.map((rec) =>
+                  rec.cohort === "upper_funnel" ? (
+                    <MetaUpperFunnelInformationalCard
+                      key={rec.id}
+                      rec={rec}
+                      onOpenDrill={(item) => setDrillItem({ mode: "informational", rec: item })}
+                    />
+                  ) : (
+                    <MetaActionCard
+                      key={rec.id}
+                      rec={rec}
+                      selected={selectedIds.has(rec.id)}
+                      deferred={isDeferred(rec)}
+                      responseState={responseStateForRec(rec)}
+                      evidenceWindow={selectedWindow}
+                      onPrimary={handlePrimary}
+                      onOpenDrill={(item) => openDrillForRec(item as MetaRecommendation)}
+                      onDefer={deferRec}
+                      onUndoDefer={undeferRec}
+                    />
+                  ),
+                )}
                 {nonSales.length === 0 ? (
                   <p className="px-1 py-1 text-[12.5px] text-slate-500">
                     No non-purchase entities in the current window.

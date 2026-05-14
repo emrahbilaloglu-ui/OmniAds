@@ -394,6 +394,93 @@ describe("GET /api/meta/lane-classify", () => {
     expect(payload.counts.nonSales).toBe(payload.nonSales.length);
   });
 
+  it("includes upper-funnel brand metrics on nonSales state rows", async () => {
+    vi.mocked(db.getDb).mockReturnValue(
+      vi.fn(async (strings: TemplateStringsArray) => {
+        const query = String(strings[0] ?? "");
+        if (query.includes("meta_decision_calibration_daily")) {
+          return [{ p50: "1.5", sample_size: "8" }];
+        }
+        return [];
+      }) as never,
+    );
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 0,
+      },
+      recommendations: [],
+    });
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        {
+          id: "cmp_upper",
+          name: "Video Views",
+          status: "ACTIVE",
+          spend: 700,
+          purchases: 0,
+          roas: 0,
+          cpa: null,
+          optimizationGoal: "THRUPLAY",
+        },
+      ] as never,
+      evidenceSource: "live",
+    });
+    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        {
+          id: "adset_upper",
+          name: "ThruPlay Broad",
+          campaignId: "cmp_upper",
+          status: "ACTIVE",
+          spend: 84,
+          purchases: 0,
+          roas: 0,
+          cpa: null,
+          cpm: 12,
+          impressions: 1000,
+          reach: 600,
+          frequency: 1.7,
+          optimizationGoal: "THRUPLAY",
+          thruplayActions: 42,
+          videoViews3s: 100,
+        },
+      ] as never,
+      evidenceSource: "live",
+    });
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d"));
+    const payload = await response.json();
+
+    const adsetRow = payload.nonSales.find((rec: { adsetId?: string }) => rec.adsetId === "adset_upper");
+
+    expect(adsetRow).toMatchObject({
+      adsetId: "adset_upper",
+      adsetName: "ThruPlay Broad",
+      cohort: "upper_funnel",
+      targetValue: {
+        spend: 84,
+        impressions: 1000,
+        reach: 600,
+        frequency: 1.7,
+        cpm: 12,
+        thruplayActions: 42,
+        videoViews3s: 100,
+        costPerThruplayP50: 1.5,
+      },
+    });
+  });
+
   it("keeps healthy purchase campaign rows in healthy", async () => {
     vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
       status: "ok",

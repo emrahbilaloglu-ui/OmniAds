@@ -40,6 +40,7 @@ const {
   getMetaAuthoritativeDayState,
   getMetaAuthoritativeRequiredSurfacesForDayAge,
   getMetaActivePublishedSliceVersion,
+  getMetaAdDailyRange,
   getMetaBreakdownDailyCoverageByEndpoint,
   getMetaPublishedVerificationSummary,
   upsertMetaAdDailyRows,
@@ -115,6 +116,68 @@ describe("meta warehouse ownership safety", () => {
     });
 
     expect(capturedQuery).toContain("COALESCE(truth_state, 'finalized') IN ('finalized', 'finalized_verified')");
+  });
+
+  it("hydrates upper-funnel video metrics from stored ad action payloads", async () => {
+    const sql = vi.fn(async () => [
+      {
+        business_id: "biz-1",
+        provider_account_id: "act_1",
+        date: "2026-05-14",
+        campaign_id: "cmp_1",
+        adset_id: "adset_1",
+        ad_id: "ad_1",
+        ad_name_current: "Upper funnel ad",
+        ad_name_historical: "Upper funnel ad",
+        ad_status: "ACTIVE",
+        destination_url: null,
+        destination_url_raw: null,
+        destination_url_source: null,
+        destination_url_confidence: null,
+        cta_type: null,
+        object_story_id: null,
+        effective_object_story_id: null,
+        account_timezone: "UTC",
+        account_currency: "USD",
+        spend: 30,
+        impressions: 1000,
+        clicks: 50,
+        reach: 900,
+        frequency: 1.1,
+        conversions: 0,
+        revenue: 0,
+        roas: 0,
+        cpa: null,
+        ctr: 5,
+        cpc: 0.6,
+        link_clicks: 40,
+        source_snapshot_id: "snapshot-1",
+        truth_state: "finalized_verified",
+        truth_version: 2,
+        finalized_at: "2026-05-15T00:00:00.000Z",
+        validation_status: "passed",
+        source_run_id: "run-1",
+        metric_schema_version: 1,
+        payload_json: {
+          actions: [
+            { action_type: "video_thruplay_watched", value: "12" },
+            { action_type: "video_view", value: "34" },
+          ],
+        },
+        created_at: "2026-05-15T00:00:00.000Z",
+        updated_at: "2026-05-15T00:00:00.000Z",
+      },
+    ]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const rows = await getMetaAdDailyRange({
+      businessId: "biz-1",
+      startDate: "2026-05-14",
+      endDate: "2026-05-14",
+    });
+
+    expect(rows[0]?.thruplayActions).toBe(12);
+    expect(rows[0]?.videoViews3s).toBe(34);
   });
 
   it("builds a normalized authoritative day-state lookup key and required surface buckets", () => {

@@ -34,4 +34,32 @@ describe("MetaDrillDrawer", () => {
     expect(html).toContain("Diagnostic");
     expect(html).toContain("Ad 1: REJECTED");
   });
+
+  it("renders informational upper-funnel KPIs without decision panels", () => {
+    const rec = metaRec({
+      id: "rec_upper",
+      level: "adset",
+      adsetName: "ThruPlay Broad",
+      cohort: "upper_funnel",
+      targetValue: {
+        spend: 84,
+        impressions: 1000,
+        thruplayActions: 42,
+        videoViews3s: 100,
+        frequency: 1.7,
+      },
+    });
+
+    const html = renderToStaticMarkup(
+      <MetaDrillDrawer item={{ mode: "informational", rec }} window="28d" onWindowChange={vi.fn()} onClose={vi.fn()} />,
+    );
+
+    expect(html).toContain("Brand KPIs");
+    expect(html).toContain("Cost / ThruPlay");
+    expect(html).toContain("ThruPlay rate");
+    expect(html).toContain("Hook rate (3s)");
+    expect(html).not.toContain("Engine reasoning");
+    expect(html).not.toContain("Launchpad bridge");
+    expect(html).not.toContain("data-meta-drill-kpis");
+  });
 });

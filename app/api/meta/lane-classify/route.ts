@@ -131,6 +131,89 @@ function formatRoasValue(value: unknown) {
   return `${toNumber(value).toFixed(2)}x`;
 }
 
+function nullableNumber(value: unknown) {
+  if (value == null) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function upperFunnelMetricsFromRow(
+  row: CampaignRow | AdsetRow | null | undefined,
+  costPerThruplayP50: number | null,
+) {
+  return {
+    spend: nullableNumber(row?.spend),
+    impressions: nullableNumber(row?.impressions),
+    reach: nullableNumber((row as { reach?: unknown } | null | undefined)?.reach),
+    frequency: nullableNumber((row as { frequency?: unknown } | null | undefined)?.frequency),
+    cpm: nullableNumber(row?.cpm),
+    thruplayActions: nullableNumber((row as { thruplayActions?: unknown } | null | undefined)?.thruplayActions),
+    videoViews3s: nullableNumber((row as { videoViews3s?: unknown } | null | undefined)?.videoViews3s),
+    costPerThruplayP50,
+  };
+}
+
+function upperFunnelStateMetricsFromRow(
+  row: CampaignRow | AdsetRow | null | undefined,
+  costPerThruplayP50: number | null,
+) {
+  const metrics = upperFunnelMetricsFromRow(row, costPerThruplayP50);
+  return {
+    impressions: metrics.impressions,
+    reach: metrics.reach,
+    frequency: metrics.frequency,
+    cpm: metrics.cpm,
+    thruplayActions: metrics.thruplayActions,
+    videoViews3s: metrics.videoViews3s,
+    costPerThruplayP50: metrics.costPerThruplayP50,
+  };
+}
+
+function targetValueRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? { ...(value as Record<string, unknown>) }
+    : {};
+}
+
+function enrichUpperFunnelRecommendation(input: {
+  rec: MetaRecommendation;
+  campaignsById: Map<string, CampaignRow>;
+  adsetsById: Map<string, AdsetRow>;
+  costPerThruplayP50: number | null;
+}): MetaRecommendation {
+  if (input.rec.cohort !== "upper_funnel") return input.rec;
+  const row =
+    input.rec.level === "adset" && input.rec.adsetId
+      ? input.adsetsById.get(input.rec.adsetId)
+      : input.rec.campaignId
+        ? input.campaignsById.get(input.rec.campaignId)
+        : null;
+  return {
+    ...input.rec,
+    targetValue: {
+      ...targetValueRecord(input.rec.targetValue),
+      ...upperFunnelMetricsFromRow(row, input.costPerThruplayP50),
+    },
+  };
+}
+
+async function readUpperFunnelCostPerThruplayP50(businessId: string) {
+  const sql = getDb();
+  const [row] = (await sql`
+    SELECT p50, sample_size
+    FROM meta_decision_calibration_daily
+    WHERE business_id = ${businessId}
+      AND scope_type = 'account'
+      AND metric_name = 'cost_per_thruplay_28d'
+      AND cohort = 'upper_funnel'
+    ORDER BY snapshot_date DESC
+    LIMIT 1
+  `) as Array<{ p50: number | string | null; sample_size: number | string | null }>;
+  const sampleSize = toNumber(row?.sample_size);
+  const p50 = nullableNumber(row?.p50);
+  return p50 != null && p50 > 0 && sampleSize >= 8 ? p50 : null;
+}
+
 function nonSalesStateRecommendation(input: {
   id: string;
   level: "campaign" | "adset";
@@ -144,6 +227,13 @@ function nonSalesStateRecommendation(input: {
   status: string | null;
   statusLabel: string;
   cohort: MetaFunnelCohort;
+  impressions?: number | null;
+  reach?: number | null;
+  frequency?: number | null;
+  cpm?: number | null;
+  thruplayActions?: number | null;
+  videoViews3s?: number | null;
+  costPerThruplayP50?: number | null;
 }): MetaRecommendation {
   const levelLabel = input.level === "campaign" ? "Campaign" : "Adset";
   const cohortLabel = formatCohort(input.cohort);
@@ -192,6 +282,13 @@ function nonSalesStateRecommendation(input: {
       status: input.status,
       cpa: input.cpa,
       spend: input.spend,
+      impressions: input.impressions ?? null,
+      reach: input.reach ?? null,
+      frequency: input.frequency ?? null,
+      cpm: input.cpm ?? null,
+      thruplayActions: input.thruplayActions ?? null,
+      videoViews3s: input.videoViews3s ?? null,
+      costPerThruplayP50: input.costPerThruplayP50 ?? null,
     },
     engineVersion: META_RECOMMENDATION_ENGINE_VERSION,
     signalQuality: { quality_status: "out_of_sales_scope", confidence_cap: "low" },
@@ -416,6 +513,7 @@ function nonSalesCampaignRows(input: {
   rows: CampaignRow[];
   recommendedScopeIds: Set<string>;
   statusFilter: BriefingStatusFilter;
+  costPerThruplayP50: number | null;
 }): MetaRecommendation[] {
   return input.rows
     .map((row) => ({ row, cohort: cohortForCampaignRow(row) }))
@@ -434,6 +532,7 @@ function nonSalesCampaignRows(input: {
         status: briefingStatusForEntity(row),
         statusLabel: briefingStatusLabel(row),
         cohort,
+        ...upperFunnelStateMetricsFromRow(row, input.costPerThruplayP50),
       }),
     );
 }
@@ -443,6 +542,7 @@ function nonSalesAdsetRows(input: {
   recommendedScopeIds: Set<string>;
   campaignNamesById?: Map<string, string>;
   statusFilter: BriefingStatusFilter;
+  costPerThruplayP50: number | null;
 }): MetaRecommendation[] {
   return input.rows
     .map((row) => ({ row, cohort: cohortForAdsetRow(row) }))
@@ -463,6 +563,7 @@ function nonSalesAdsetRows(input: {
         status: briefingStatusForEntity(row),
         statusLabel: briefingStatusLabel(row),
         cohort,
+        ...upperFunnelStateMetricsFromRow(row, input.costPerThruplayP50),
       }),
     );
 }
@@ -490,7 +591,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const [snapshot, deferredIds, campaigns, adsets] = await Promise.all([
+  const [snapshot, deferredIds, campaigns, adsets, upperFunnelCostPerThruplayP50] = await Promise.all([
     readMetaDecisionSnapshotForRange({ businessId, startDate, endDate }),
     readDeferredRecIds(businessId).catch(() => new Set<string>()),
     getMetaCampaignsForRange({
@@ -507,6 +608,7 @@ export async function GET(request: NextRequest) {
       includePrev: true,
       includePrevBudget: false,
     }),
+    readUpperFunnelCostPerThruplayP50(businessId).catch(() => null),
   ]);
 
   const campaignsById = new Map((campaigns.rows ?? []).map((row) => [row.id, row]));
@@ -515,7 +617,16 @@ export async function GET(request: NextRequest) {
     isRecommendationInScope({ rec, statusFilter, campaignsById, adsetsById }),
   );
   const purchaseScopedRecs = recommendations.filter((rec) => isPurchaseScopedCohort(rec.cohort));
-  const nonSalesRecs = recommendations.filter((rec) => isNonSalesCohort(rec.cohort));
+  const nonSalesRecs = recommendations
+    .filter((rec) => isNonSalesCohort(rec.cohort))
+    .map((rec) =>
+      enrichUpperFunnelRecommendation({
+        rec,
+        campaignsById,
+        adsetsById,
+        costPerThruplayP50: upperFunnelCostPerThruplayP50,
+      }),
+    );
   const actionNow = purchaseScopedRecs.filter(
     (rec) =>
       (rec.confidenceScore ?? 0) >= 0.7 &&
@@ -542,8 +653,19 @@ export async function GET(request: NextRequest) {
   ].slice(0, 18);
   const nonSales = [
     ...nonSalesRecs,
-    ...nonSalesCampaignRows({ rows: campaigns.rows ?? [], recommendedScopeIds, statusFilter }),
-    ...nonSalesAdsetRows({ rows: adsets.rows ?? [], recommendedScopeIds, campaignNamesById, statusFilter }),
+    ...nonSalesCampaignRows({
+      rows: campaigns.rows ?? [],
+      recommendedScopeIds,
+      statusFilter,
+      costPerThruplayP50: upperFunnelCostPerThruplayP50,
+    }),
+    ...nonSalesAdsetRows({
+      rows: adsets.rows ?? [],
+      recommendedScopeIds,
+      campaignNamesById,
+      statusFilter,
+      costPerThruplayP50: upperFunnelCostPerThruplayP50,
+    }),
   ].slice(0, 30);
   const archive = [
     ...archiveCampaignRows({ rows: campaigns.rows ?? [], statusFilter, window }),

@@ -276,6 +276,7 @@ export interface MetaAdSetData extends MetaMetricsData {
   /** CTR (Link click-through rate) — inline_link_click_ctr from Meta API. Null for warehouse data. */
   inlineLinkClickCtr?: number | null;
   linkClicks?: number | null;
+  landingPageViews?: number | null;
   addToCart?: number | null;
   initiateCheckout?: number | null;
   viewContent?: number | null;

@@ -71,6 +71,23 @@ const leadContext: MetaCalibrationContext = {
   cohort: "lead",
 };
 
+const trafficContext: MetaCalibrationContext = {
+  thresholds: {
+    source: "calibrated",
+    hardCutSpend: 200,
+    minRequiredSample: 8,
+    metrics: {
+      ...LEGACY_META_CALIBRATION_THRESHOLDS.metrics,
+      cost_per_link_click_28d: { p10: 0.2, p25: 0.6, p50: 1.2, p75: 1.6, p90: 2.2, sampleSize: 20 },
+      cost_per_lpv_28d: { p10: 1, p25: 1.5, p50: 2, p75: 3, p90: 5, sampleSize: 20 },
+      ctr_28d: { p10: 0.5, p25: 1, p50: 3, p75: 4, p90: 5.5, sampleSize: 20 },
+      freq_14d: { p10: 1, p25: 1.3, p50: 2, p75: 3, p90: 4, sampleSize: 20 },
+    },
+  },
+  scope: { type: "campaign", id: "cmp-1", snapshotDate: "2026-05-14", cohort: "traffic" },
+  cohort: "traffic",
+};
+
 describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
   it("does not cut a THRUPLAY adset with high spend and zero purchases", () => {
     const recs = buildMetaAdsetRecommendations({
@@ -250,5 +267,51 @@ describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
     const rec = recs.find((candidate) => candidate.type === "scenario_l1_lead_efficient_scale");
     expect(rec?.decisionLabel).toBe("scale");
     expect(rec?.cohort).toBe("lead");
+  });
+
+  it("emits the traffic weighted score recommendation after lead checks miss", () => {
+    const recs = buildMetaAdsetRecommendations({
+      adsets: [
+        adset({
+          optimizationGoal: "LINK_CLICKS",
+          customEventType: null,
+          spend: 20,
+          linkClicks: 200,
+          landingPageViews: 0,
+          purchases: 0,
+          revenue: 0,
+          roas: 0,
+          ctr: 5.5,
+          frequency: 1.5,
+        }),
+      ],
+      calibrationContextByAdsetId: {
+        "adset-1": trafficContext,
+      },
+      entitySignalsByAdsetId: {
+        "adset-1": {
+          businessId: "biz_1",
+          providerAccountId: "act_1",
+          scopeType: "adset",
+          scopeId: "adset-1",
+          asOfDate: "2026-05-14",
+          learningState: "OPTIMAL_LEARNING_DONE",
+          daysAtLearningState: null,
+          lastSignificantEditAt: null,
+          daysSinceSignificantEdit: null,
+          recentChangeCooldownUntil: null,
+          creativeAgeDays: 20,
+          creativeAgeDaysMax: 20,
+          frequencyP80: null,
+          ctrDecayPct: null,
+          sourceJson: { age_days: 20 },
+          qualityStatus: "ready",
+        },
+      },
+    });
+
+    const rec = recs.find((candidate) => candidate.type === "scenario_t1_traffic_efficient_scale");
+    expect(rec?.decisionLabel).toBe("scale");
+    expect(rec?.cohort).toBe("traffic");
   });
 });

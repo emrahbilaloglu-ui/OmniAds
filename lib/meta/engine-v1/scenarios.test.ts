@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { META_ENGINE_V1_SCENARIOS, scenarioDefinitionById } from "@/lib/meta/engine-v1/scenarios";
 
 describe("Meta Engine v1 scenario registry", () => {
-  it("covers every scenario-library id from A1 through L4", () => {
+  it("covers every scenario-library id from A1 through T4", () => {
     const ids = META_ENGINE_V1_SCENARIOS.map((scenario) => scenario.id);
 
-    expect(ids).toHaveLength(54);
+    expect(ids).toHaveLength(58);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toEqual([
       "A1", "A2", "A3", "A4", "A5",
@@ -21,6 +21,7 @@ describe("Meta Engine v1 scenario registry", () => {
       "K1", "K2", "K3", "K4",
       "M1", "M2", "M3", "M4",
       "L1", "L2", "L3", "L4",
+      "T1", "T2", "T3", "T4",
     ]);
   });
 

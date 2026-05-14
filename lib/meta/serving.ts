@@ -354,6 +354,7 @@ export interface MetaWarehouseAdSetTableRow {
   frequency: number | null;
   clicks: number;
   linkClicks?: number | null;
+  landingPageViews?: number | null;
   addToCart?: number | null;
   initiateCheckout?: number | null;
   viewContent?: number | null;
@@ -375,6 +376,7 @@ export interface MetaWarehouseBreakdownsResponse {
 
 interface MetaAdSetFunnelEventTotals {
   linkClicks: number;
+  landingPageViews: number;
   addToCart: number;
   initiateCheckout: number;
   viewContent: number;
@@ -1868,6 +1870,7 @@ function buildAdSetTableRow(input: {
     frequency: input.row.frequency,
     clicks: input.row.clicks,
     linkClicks: funnelEvents?.linkClicks ?? null,
+    landingPageViews: funnelEvents?.landingPageViews ?? null,
     addToCart: funnelEvents?.addToCart ?? null,
     initiateCheckout: funnelEvents?.initiateCheckout ?? null,
     viewContent: funnelEvents?.viewContent ?? null,
@@ -1882,12 +1885,14 @@ function addToAdsetFunnelTotals(
   if (!row.adsetId) return;
   const current = totals.get(row.adsetId) ?? {
     linkClicks: 0,
+    landingPageViews: 0,
     addToCart: 0,
     initiateCheckout: 0,
     viewContent: 0,
     leads: 0,
   };
   current.linkClicks += Number(row.linkClicks ?? 0);
+  current.landingPageViews += Number(row.landingPageViews ?? 0);
   current.addToCart += Number(row.addToCart ?? 0);
   current.initiateCheckout += Number(row.initiateCheckout ?? 0);
   current.viewContent += Number(row.viewContent ?? 0);

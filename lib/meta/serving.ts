@@ -357,6 +357,7 @@ export interface MetaWarehouseAdSetTableRow {
   addToCart?: number | null;
   initiateCheckout?: number | null;
   viewContent?: number | null;
+  leads?: number | null;
 }
 
 export interface MetaWarehouseBreakdownsResponse {
@@ -377,6 +378,7 @@ interface MetaAdSetFunnelEventTotals {
   addToCart: number;
   initiateCheckout: number;
   viewContent: number;
+  leads: number;
 }
 
 export interface MetaWarehouseCountryBreakdownsResponse {
@@ -1869,6 +1871,7 @@ function buildAdSetTableRow(input: {
     addToCart: funnelEvents?.addToCart ?? null,
     initiateCheckout: funnelEvents?.initiateCheckout ?? null,
     viewContent: funnelEvents?.viewContent ?? null,
+    leads: funnelEvents?.leads ?? null,
   };
 }
 
@@ -1882,11 +1885,13 @@ function addToAdsetFunnelTotals(
     addToCart: 0,
     initiateCheckout: 0,
     viewContent: 0,
+    leads: 0,
   };
   current.linkClicks += Number(row.linkClicks ?? 0);
   current.addToCart += Number(row.addToCart ?? 0);
   current.initiateCheckout += Number(row.initiateCheckout ?? 0);
   current.viewContent += Number(row.viewContent ?? 0);
+  current.leads += Number(row.leads ?? 0);
   totals.set(row.adsetId, current);
 }
 

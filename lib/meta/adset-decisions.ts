@@ -22,6 +22,7 @@ import {
   resolveMetaFunnelCohort,
   type MetaFunnelCohort,
 } from "@/lib/meta/funnel-cohort";
+import { emitLeadAdsetScenario } from "@/lib/meta/scenario-emitters/lead";
 import { emitMidFunnelAdsetScenario } from "@/lib/meta/scenario-emitters/mid-funnel";
 
 export interface BuildMetaAdsetRecommendationsInput {
@@ -217,6 +218,21 @@ export function buildMetaAdsetRecommendations(
       });
       if (midFunnelScenario) {
         recommendations.push(midFunnelScenario);
+        continue;
+      }
+    }
+
+    if (cohort === "lead") {
+      const leadScenario = emitLeadAdsetScenario({
+        adset,
+        campaign,
+        context,
+        cohort,
+        ...taxonomyFields,
+        signals: input.entitySignalsByAdsetId?.[adset.id] ?? null,
+      });
+      if (leadScenario) {
+        recommendations.push(leadScenario);
         continue;
       }
     }

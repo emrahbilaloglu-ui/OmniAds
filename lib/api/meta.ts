@@ -279,6 +279,7 @@ export interface MetaAdSetData extends MetaMetricsData {
   addToCart?: number | null;
   initiateCheckout?: number | null;
   viewContent?: number | null;
+  leads?: number | null;
   reach?: number | null;
   frequency?: number | null;
 }

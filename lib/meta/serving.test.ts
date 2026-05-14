@@ -293,6 +293,7 @@ describe("meta historical serving", () => {
         addToCart: 9,
         initiateCheckout: 4,
         viewContent: 15,
+        leads: 3,
       },
       {
         businessId: "biz-1",
@@ -321,6 +322,7 @@ describe("meta historical serving", () => {
         addToCart: 6,
         initiateCheckout: 2,
         viewContent: 10,
+        leads: 2,
       },
     ] as never);
 
@@ -337,6 +339,7 @@ describe("meta historical serving", () => {
       addToCart: 15,
       initiateCheckout: 6,
       viewContent: 25,
+      leads: 5,
     });
   });
 

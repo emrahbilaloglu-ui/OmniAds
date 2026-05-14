@@ -318,6 +318,12 @@ describe("high priority Meta scenario emitters", () => {
     expect(scenarioScopeAllowsCohort("mid_funnel_only", "upper_funnel")).toBe(false);
   });
 
+  it("honors lead_only scenario scope", () => {
+    expect(scenarioScopeAllowsCohort("lead_only", "lead")).toBe(true);
+    expect(scenarioScopeAllowsCohort("lead_only", "purchase")).toBe(false);
+    expect(scenarioScopeAllowsCohort("lead_only", "mid_funnel")).toBe(false);
+  });
+
   it("keeps purchase_only scenario scope unchanged", () => {
     expect(scenarioScopeAllowsCohort("purchase_only", "purchase")).toBe(true);
     expect(scenarioScopeAllowsCohort("purchase_only", "mid_funnel")).toBe(false);

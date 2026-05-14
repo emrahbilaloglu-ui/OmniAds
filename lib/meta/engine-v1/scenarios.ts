@@ -12,11 +12,13 @@ export type MetaEngineScenarioId =
   | "I1" | "I2" | "I3" | "I4" | "I5"
   | "J1" | "J2" | "J3"
   | "K1" | "K2" | "K3" | "K4"
-  | "M1" | "M2" | "M3" | "M4";
+  | "M1" | "M2" | "M3" | "M4"
+  | "L1" | "L2" | "L3" | "L4";
 
 export type MetaEngineScenarioCohortScope =
   | "purchase_only"
   | "mid_funnel_only"
+  | "lead_only"
   | "any";
 
 export interface MetaEngineScenarioDefinition {
@@ -80,6 +82,10 @@ export const META_ENGINE_V1_SCENARIOS: MetaEngineScenarioDefinition[] = [
   { id: "M2", recType: "scenario_m2_mid_funnel_steady_keep", cohortScope: "mid_funnel_only", requiredSignals: ["cost_per_atc", "atc_rate", "atc_to_purchase_rate"], missingSignalFallback: "state_watch" },
   { id: "M3", recType: "scenario_m3_mid_funnel_inefficient_cut", cohortScope: "mid_funnel_only", requiredSignals: ["cost_per_atc", "atc_rate", "atc_to_purchase_rate", "spend"], missingSignalFallback: "state_watch" },
   { id: "M4", recType: "scenario_m4_mid_funnel_refresh", cohortScope: "mid_funnel_only", requiredSignals: ["cost_per_atc", "frequency", "ctr"], missingSignalFallback: "state_watch" },
+  { id: "L1", recType: "scenario_l1_lead_efficient_scale", cohortScope: "lead_only", requiredSignals: ["cost_per_lead", "leads", "age_days", "spend"], missingSignalFallback: "state_watch" },
+  { id: "L2", recType: "scenario_l2_lead_steady_keep", cohortScope: "lead_only", requiredSignals: ["cost_per_lead", "leads"], missingSignalFallback: "state_watch" },
+  { id: "L3", recType: "scenario_l3_lead_inefficient_cut", cohortScope: "lead_only", requiredSignals: ["cost_per_lead", "leads", "spend"], missingSignalFallback: "state_watch" },
+  { id: "L4", recType: "scenario_l4_lead_refresh", cohortScope: "lead_only", requiredSignals: ["cost_per_lead", "frequency", "ctr"], missingSignalFallback: "state_watch" },
 ];
 
 export function scenarioDefinitionById(id: MetaEngineScenarioId) {

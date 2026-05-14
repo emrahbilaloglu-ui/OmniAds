@@ -8,6 +8,8 @@ import {
   selectedCardsForCards,
   filterRemovedActionItems,
   filterSelectedIdsForLane,
+  getAssetLibraryEmptyMessage,
+  getCreativeDataSetupNotice,
   launchpadHrefFromOverlayState,
   openLaunchpadOverlayState,
 } from "@/components/creatives/briefing/CreativesBriefingPage";
@@ -16,6 +18,8 @@ const mockState = vi.hoisted(() => ({
   queryKeys: [] as unknown[][],
   routerPush: vi.fn(),
   briefingData: {} as any,
+  assetLibraryData: [] as any,
+  metaStatusData: null as any,
   appStore: {
     selectedBusinessId: "biz_1",
     businesses: [
@@ -57,7 +61,7 @@ vi.mock("@tanstack/react-query", () => ({
     }
     if (key === "creatives-briefing-meta-status") {
       return baseQueryState({
-        data: {
+        data: mockState.metaStatusData ?? {
           state: "ready",
           connected: true,
           assignedAccountIds: ["act_1"],
@@ -66,7 +70,7 @@ vi.mock("@tanstack/react-query", () => ({
       });
     }
     if (key === "creatives-briefing-asset-library") {
-      return baseQueryState({ data: [] });
+      return baseQueryState({ data: mockState.assetLibraryData });
     }
     if (key === "triage-state") {
       return baseQueryState({
@@ -173,6 +177,8 @@ describe("CreativesBriefingPage", () => {
     mockState.queryKeys = [];
     mockState.routerPush.mockReset();
     mockState.briefingData = makeBriefingData();
+    mockState.assetLibraryData = [];
+    mockState.metaStatusData = null;
   });
 
   it("renders pulse, action lane, and collapsed secondary lanes from briefing data", () => {
@@ -253,10 +259,45 @@ describe("CreativesBriefingPage", () => {
     const html = renderToStaticMarkup(<CreativesBriefingPage />);
 
     expect(html).toContain("Nothing for you to do right now.");
-    expect(html).toContain("18 mature creatives · 1 watching · Next engine pass: ~2h");
+    expect(html).toContain("18 mature creatives · 1 watching · Data is loaded in the lanes below");
+    expect(html).toContain("Expand Watching below");
     expect(html).toContain("Launch a new test");
     expect(html).not.toContain("Scale Hero");
     expect(html).not.toContain("data-tracking-blocker");
+  });
+
+  it("renders a setup notice instead of a silent empty page when no Meta ad account is assigned", () => {
+    mockState.metaStatusData = {
+      state: "connected_no_assignment",
+      connected: true,
+      assignedAccountIds: [],
+      latestSync: null,
+    };
+    mockState.assetLibraryData = {
+      status: "no_accounts_assigned",
+      message: null,
+      rows: [],
+    };
+    mockState.briefingData = {
+      ...makeBriefingData(),
+      actionNow: [],
+      watching: [],
+      healthy: [],
+      trackingAnomalyActive: false,
+      pulse: {
+        ...makeBriefingData().pulse,
+        matureCount: 0,
+        trackingAnomalyActive: false,
+      },
+    };
+
+    const html = renderToStaticMarkup(<CreativesBriefingPage />);
+
+    expect(html).toContain("Meta ad account assignment is missing.");
+    expect(html).toContain("no Meta ad account is assigned");
+    expect(html).toContain("No Meta ad account is assigned to this workspace.");
+    expect(html).not.toContain("Nothing for you to do right now.");
+    expect(html).not.toContain("Launch a new test");
   });
 
   it("does not render the good-day empty state during a tracking anomaly", () => {
@@ -391,5 +432,17 @@ describe("CreativesBriefingPage", () => {
       "/platforms/meta/launchpad?creativeIds=cr_action&mode=promote&fromBriefing=true",
     );
     expect(launchpadHrefFromOverlayState(CLOSED_LAUNCHPAD_OVERLAY_STATE)).toBeNull();
+  });
+
+  it("maps creative data setup and library empty states from backend status", () => {
+    expect(
+      getCreativeDataSetupNotice({
+        metaStatus: { state: "connected_no_assignment", connected: true, assignedAccountIds: [] } as any,
+        assetLibraryStatus: null,
+      })?.title,
+    ).toBe("Meta ad account assignment is missing.");
+    expect(getAssetLibraryEmptyMessage({ status: "no_access_token", message: null })).toBe(
+      "Meta connection is missing an access token. Reconnect Meta to load creative data.",
+    );
   });
 });

@@ -131,6 +131,26 @@ describe("AssetLibrarySection", () => {
     expect(sortAssetLibraryRows(rows, "roas_asc").map((item) => item.id)).toEqual(["cut", "video", "scale"]);
   });
 
+  it("renders a clear empty message when no Asset Library rows are available", () => {
+    const html = renderToStaticMarkup(
+      <AssetLibrarySection
+        rows={[]}
+        emptyMessage="No Meta ad account is assigned to this workspace."
+        defaultCurrency="USD"
+        selectedMetricIds={["spend", "roas"]}
+        onSelectedMetricIdsChange={() => undefined}
+        selectedRowIds={[]}
+        onToggleRow={() => undefined}
+        onToggleAll={() => undefined}
+        onOpenRow={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("0 visible · 0 total");
+    expect(html).toContain("No Meta ad account is assigned to this workspace.");
+    expect(html).not.toContain("data-mocked-creatives-table");
+  });
+
   it("tolerates malformed runtime row fields from live Meta data", () => {
     const malformed = row({
       id: "malformed",

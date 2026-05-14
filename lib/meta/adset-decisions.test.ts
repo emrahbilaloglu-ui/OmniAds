@@ -88,6 +88,22 @@ const trafficContext: MetaCalibrationContext = {
   cohort: "traffic",
 };
 
+const engagementContext: MetaCalibrationContext = {
+  thresholds: {
+    source: "calibrated",
+    hardCutSpend: 200,
+    minRequiredSample: 8,
+    metrics: {
+      ...LEGACY_META_CALIBRATION_THRESHOLDS.metrics,
+      cost_per_engagement_28d: { p10: 0.2, p25: 0.6, p50: 1.2, p75: 1.6, p90: 2.2, sampleSize: 20 },
+      engagement_rate_28d: { p10: 0.5, p25: 1, p50: 3, p75: 4, p90: 5.5, sampleSize: 20 },
+      freq_14d: { p10: 1, p25: 1.3, p50: 2, p75: 3, p90: 4, sampleSize: 20 },
+    },
+  },
+  scope: { type: "campaign", id: "cmp-1", snapshotDate: "2026-05-14", cohort: "engagement" },
+  cohort: "engagement",
+};
+
 describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
   it("does not cut a THRUPLAY adset with high spend and zero purchases", () => {
     const recs = buildMetaAdsetRecommendations({
@@ -313,5 +329,51 @@ describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
     const rec = recs.find((candidate) => candidate.type === "scenario_t1_traffic_efficient_scale");
     expect(rec?.decisionLabel).toBe("scale");
     expect(rec?.cohort).toBe("traffic");
+  });
+
+  it("emits the engagement weighted score recommendation after traffic checks miss", () => {
+    const recs = buildMetaAdsetRecommendations({
+      adsets: [
+        adset({
+          optimizationGoal: "POST_ENGAGEMENT",
+          customEventType: null,
+          spend: 20,
+          postEngagement: 200,
+          purchases: 0,
+          revenue: 0,
+          roas: 0,
+          ctr: 2,
+          impressions: 3000,
+          frequency: 1.5,
+        }),
+      ],
+      calibrationContextByAdsetId: {
+        "adset-1": engagementContext,
+      },
+      entitySignalsByAdsetId: {
+        "adset-1": {
+          businessId: "biz_1",
+          providerAccountId: "act_1",
+          scopeType: "adset",
+          scopeId: "adset-1",
+          asOfDate: "2026-05-14",
+          learningState: "OPTIMAL_LEARNING_DONE",
+          daysAtLearningState: null,
+          lastSignificantEditAt: null,
+          daysSinceSignificantEdit: null,
+          recentChangeCooldownUntil: null,
+          creativeAgeDays: 20,
+          creativeAgeDaysMax: 20,
+          frequencyP80: null,
+          ctrDecayPct: null,
+          sourceJson: { age_days: 20 },
+          qualityStatus: "ready",
+        },
+      },
+    });
+
+    const rec = recs.find((candidate) => candidate.type === "scenario_eg1_engagement_efficient_scale");
+    expect(rec?.decisionLabel).toBe("scale");
+    expect(rec?.cohort).toBe("engagement");
   });
 });

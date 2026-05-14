@@ -22,6 +22,7 @@ import {
   resolveMetaFunnelCohort,
   type MetaFunnelCohort,
 } from "@/lib/meta/funnel-cohort";
+import { emitEngagementAdsetScenario } from "@/lib/meta/scenario-emitters/engagement";
 import { emitLeadAdsetScenario } from "@/lib/meta/scenario-emitters/lead";
 import { emitMidFunnelAdsetScenario } from "@/lib/meta/scenario-emitters/mid-funnel";
 import { emitTrafficAdsetScenario } from "@/lib/meta/scenario-emitters/traffic";
@@ -249,6 +250,21 @@ export function buildMetaAdsetRecommendations(
       });
       if (trafficScenario) {
         recommendations.push(trafficScenario);
+        continue;
+      }
+    }
+
+    if (cohort === "engagement") {
+      const engagementScenario = emitEngagementAdsetScenario({
+        adset,
+        campaign,
+        context,
+        cohort,
+        ...taxonomyFields,
+        signals: input.entitySignalsByAdsetId?.[adset.id] ?? null,
+      });
+      if (engagementScenario) {
+        recommendations.push(engagementScenario);
         continue;
       }
     }

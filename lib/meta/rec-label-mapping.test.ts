@@ -59,6 +59,10 @@ describe("Meta rec label mapping", () => {
     ["scenario_t2_traffic_steady_keep", "keep", "Hold"],
     ["scenario_t3_traffic_inefficient_cut", "cut", "Pause adset"],
     ["scenario_t4_traffic_refresh", "refresh", "Refresh creative"],
+    ["scenario_eg1_engagement_efficient_scale", "scale", "Scale budget"],
+    ["scenario_eg2_engagement_steady_keep", "keep", "Hold"],
+    ["scenario_eg3_engagement_inefficient_cut", "cut", "Pause adset"],
+    ["scenario_eg4_engagement_refresh", "refresh", "Refresh creative"],
   ] as const)("maps %s to its decision and primary action labels", (type, decisionLabel, primaryLabel) => {
     const input = {
       type,

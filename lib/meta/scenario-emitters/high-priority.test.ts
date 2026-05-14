@@ -19,6 +19,7 @@ import {
   maybeI4TestShouldUseAbo,
   maybeJ1StableWinnerProtected,
   maybeK1MixedConfig,
+  scenarioScopeAllowsCohort,
 } from "@/lib/meta/scenario-emitters/high-priority";
 
 const context: MetaCalibrationContext = {
@@ -309,6 +310,17 @@ describe("high priority Meta scenario emitters", () => {
       cohort: "upper_funnel",
     });
     expect(rec).toBeNull();
+  });
+
+  it("honors mid_funnel_only scenario scope", () => {
+    expect(scenarioScopeAllowsCohort("mid_funnel_only", "mid_funnel")).toBe(true);
+    expect(scenarioScopeAllowsCohort("mid_funnel_only", "purchase")).toBe(false);
+    expect(scenarioScopeAllowsCohort("mid_funnel_only", "upper_funnel")).toBe(false);
+  });
+
+  it("keeps purchase_only scenario scope unchanged", () => {
+    expect(scenarioScopeAllowsCohort("purchase_only", "purchase")).toBe(true);
+    expect(scenarioScopeAllowsCohort("purchase_only", "mid_funnel")).toBe(false);
   });
 
   it("gates campaign sudden ROAS drop outside purchase cohort", () => {

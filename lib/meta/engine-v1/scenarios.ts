@@ -11,12 +11,18 @@ export type MetaEngineScenarioId =
   | "H1" | "H2" | "H3" | "H4"
   | "I1" | "I2" | "I3" | "I4" | "I5"
   | "J1" | "J2" | "J3"
-  | "K1" | "K2" | "K3" | "K4";
+  | "K1" | "K2" | "K3" | "K4"
+  | "M1" | "M2" | "M3" | "M4";
+
+export type MetaEngineScenarioCohortScope =
+  | "purchase_only"
+  | "mid_funnel_only"
+  | "any";
 
 export interface MetaEngineScenarioDefinition {
   id: MetaEngineScenarioId;
   recType: MetaRecommendation["type"];
-  cohortScope: "purchase_only" | "any";
+  cohortScope: MetaEngineScenarioCohortScope;
   requiredSignals: string[];
   missingSignalFallback: "state_watch" | "diagnose_low_confidence" | "unsupported_state";
 }
@@ -70,6 +76,10 @@ export const META_ENGINE_V1_SCENARIOS: MetaEngineScenarioDefinition[] = [
   { id: "K2", recType: "scenario_k2_peak_scale_ceiling", cohortScope: "any", requiredSignals: ["seasonal_regime", "winner_state"], missingSignalFallback: "state_watch" },
   { id: "K3", recType: "scenario_k3_post_peak_taper", cohortScope: "any", requiredSignals: ["seasonal_regime", "cpm_trend", "frequency_trend"], missingSignalFallback: "state_watch" },
   { id: "K4", recType: "scenario_k4_catalog_feed_first", cohortScope: "any", requiredSignals: ["catalog_role", "feed_disapproval_count", "feed_status"], missingSignalFallback: "unsupported_state" },
+  { id: "M1", recType: "scenario_m1_mid_funnel_efficient_scale", cohortScope: "mid_funnel_only", requiredSignals: ["cost_per_atc", "atc_rate", "atc_to_purchase_rate", "age_days", "spend"], missingSignalFallback: "state_watch" },
+  { id: "M2", recType: "scenario_m2_mid_funnel_steady_keep", cohortScope: "mid_funnel_only", requiredSignals: ["cost_per_atc", "atc_rate", "atc_to_purchase_rate"], missingSignalFallback: "state_watch" },
+  { id: "M3", recType: "scenario_m3_mid_funnel_inefficient_cut", cohortScope: "mid_funnel_only", requiredSignals: ["cost_per_atc", "atc_rate", "atc_to_purchase_rate", "spend"], missingSignalFallback: "state_watch" },
+  { id: "M4", recType: "scenario_m4_mid_funnel_refresh", cohortScope: "mid_funnel_only", requiredSignals: ["cost_per_atc", "frequency", "ctr"], missingSignalFallback: "state_watch" },
 ];
 
 export function scenarioDefinitionById(id: MetaEngineScenarioId) {

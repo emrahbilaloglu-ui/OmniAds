@@ -42,7 +42,10 @@ export function decisionLabelForMetaRec(input: MetaRecLabelInput): DecisionLabel
     case "winner_promotion_flow":
     case "scenario_b2_lowest_cost_budget_scale":
     case "scenario_c1_controlled_scale":
+    case "scenario_m1_mid_funnel_efficient_scale":
       return "scale";
+    case "scenario_m3_mid_funnel_inefficient_cut":
+      return "cut";
     case "rebuild_with_constraints":
     case "campaign_structure":
     case "scaling_structure_fit":
@@ -98,6 +101,7 @@ export function decisionLabelForMetaRec(input: MetaRecLabelInput): DecisionLabel
     case "scenario_e2_ctr_decay_refresh":
     case "scenario_e3_frequency_p80_fatigue":
     case "scenario_e4_creative_age_refresh":
+    case "scenario_m4_mid_funnel_refresh":
       return "refresh";
     case "scenario_d4_audience_overlap_consolidate":
     case "scenario_i1_abo_winner_budget_shift":
@@ -105,6 +109,7 @@ export function decisionLabelForMetaRec(input: MetaRecLabelInput): DecisionLabel
       return "tune";
     case "scenario_b6_profit_first_bid_cap_keep":
     case "scenario_j1_stable_winner_protected":
+    case "scenario_m2_mid_funnel_steady_keep":
     case "entity_state":
     case "campaign_state":
     case "adset_state":
@@ -150,6 +155,10 @@ export function primaryLabelForMetaRec(input: MetaRecLabelInput) {
   if (mode === "apply_bid") return "Apply bid cap";
   if (input.type === "adset_cut_spend") return "Pause adset";
   if (input.type === "adset_scale_budget") return "Scale budget";
+  if (input.type === "scenario_m1_mid_funnel_efficient_scale") return "Scale budget";
+  if (input.type === "scenario_m2_mid_funnel_steady_keep") return "Hold";
+  if (input.type === "scenario_m3_mid_funnel_inefficient_cut") return "Pause adset";
+  if (input.type === "scenario_m4_mid_funnel_refresh") return "Refresh creative";
   if (input.type === "bid_strategy_fit") return input.lens === "profitability" ? "Test Cost Cap" : "Review bid strategy";
   if (input.type === "historical_bid_regime_fit") return "Switch strategy";
   if (input.type === "bid_band_from_history") return "Apply bid band";

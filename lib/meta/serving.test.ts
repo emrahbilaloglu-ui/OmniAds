@@ -29,6 +29,7 @@ vi.mock("@/lib/meta/warehouse", () => ({
   getMetaAdSetDailyCoverage: vi.fn(),
   getMetaAccountDailyCoverage: vi.fn(),
   getMetaAccountDailyRange: vi.fn(),
+  getMetaAdDailyRange: vi.fn(),
   getMetaAdSetDailyRange: vi.fn(),
   getMetaBreakdownDailyRange: vi.fn(),
   getMetaCampaignDailyCoverage: vi.fn(),
@@ -78,6 +79,7 @@ describe("meta historical serving", () => {
     vi.mocked(apiMeta.fetchMetaCampaignConfigs).mockResolvedValue(new Map() as never);
     vi.mocked(apiMeta.fetchMetaAdSetConfigs).mockResolvedValue(new Map() as never);
     vi.mocked(warehouse.getMetaPublishedVerificationSummary).mockResolvedValue(null as never);
+    vi.mocked(warehouse.getMetaAdDailyRange).mockResolvedValue([]);
   });
 
   it("keeps campaign table rows when optional enrichment queries fail", async () => {
@@ -220,6 +222,122 @@ describe("meta historical serving", () => {
       previousDailyBudget: null,
     });
     warn.mockRestore();
+  });
+
+  it("hydrates ad set funnel event totals from ad daily payload rows", async () => {
+    vi.mocked(warehouse.getMetaAdSetDailyRange).mockResolvedValue([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adsetNameCurrent: "Adset 1",
+        adsetNameHistorical: "Adset 1",
+        adsetStatus: "ACTIVE",
+        optimizationGoal: "OFFSITE_CONVERSIONS",
+        customEventType: "ADD_TO_CART",
+        bidStrategyType: null,
+        bidStrategyLabel: null,
+        manualBidAmount: null,
+        bidValue: null,
+        bidValueFormat: null,
+        dailyBudget: null,
+        lifetimeBudget: null,
+        isBudgetMixed: false,
+        isConfigMixed: false,
+        isOptimizationGoalMixed: false,
+        isBidStrategyMixed: false,
+        isBidValueMixed: false,
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 100,
+        impressions: 1000,
+        clicks: 80,
+        reach: 900,
+        frequency: 1.11,
+        conversions: 2,
+        revenue: 120,
+        roas: 1.2,
+        cpa: 50,
+        ctr: 8,
+        cpc: 1.25,
+        sourceSnapshotId: null,
+      },
+    ] as never);
+    vi.mocked(warehouse.getMetaAdDailyRange).mockResolvedValue([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adId: "ad-1",
+        adNameCurrent: "Ad 1",
+        adNameHistorical: "Ad 1",
+        adStatus: "ACTIVE",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 60,
+        impressions: 600,
+        clicks: 50,
+        reach: 550,
+        frequency: 1.09,
+        conversions: 1,
+        revenue: 80,
+        roas: 1.33,
+        cpa: 60,
+        ctr: 8.33,
+        cpc: 1.2,
+        linkClicks: 40,
+        addToCart: 9,
+        initiateCheckout: 4,
+        viewContent: 15,
+      },
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adId: "ad-2",
+        adNameCurrent: "Ad 2",
+        adNameHistorical: "Ad 2",
+        adStatus: "ACTIVE",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 40,
+        impressions: 400,
+        clicks: 30,
+        reach: 350,
+        frequency: 1.14,
+        conversions: 1,
+        revenue: 40,
+        roas: 1,
+        cpa: 40,
+        ctr: 7.5,
+        cpc: 1.33,
+        linkClicks: 25,
+        addToCart: 6,
+        initiateCheckout: 2,
+        viewContent: 10,
+      },
+    ] as never);
+
+    const rows = await getMetaWarehouseAdSets({
+      businessId: "biz-1",
+      startDate: "2026-04-03",
+      endDate: "2026-04-03",
+      campaignId: "cmp-1",
+    });
+
+    expect(rows[0]).toMatchObject({
+      id: "adset-1",
+      linkClicks: 65,
+      addToCart: 15,
+      initiateCheckout: 6,
+      viewContent: 25,
+    });
   });
 
   it("returns campaign current config from typed history instead of warehouse fact config", async () => {

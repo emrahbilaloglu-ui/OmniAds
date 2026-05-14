@@ -32,6 +32,7 @@ interface AssetLibraryFilters {
 
 interface AssetLibrarySectionProps {
   rows: MetaCreativeRow[];
+  emptyMessage?: string | null;
   creativeHistoryById?: Map<string, CreativeHistoricalWindows>;
   defaultCurrency: string | null;
   selectedMetricIds: string[];
@@ -136,6 +137,7 @@ export function sortAssetLibraryRows(
 
 export function AssetLibrarySection({
   rows,
+  emptyMessage,
   creativeHistoryById,
   defaultCurrency,
   selectedMetricIds,
@@ -274,19 +276,27 @@ export function AssetLibrarySection({
         </div>
 
         <div data-asset-library-body data-view={viewMode}>
-          <CreativesTableSection
-            rows={filteredRows}
-            creativeHistoryById={creativeHistoryById}
-            defaultCurrency={defaultCurrency}
-            selectedMetricIds={selectedMetricIds}
-            onSelectedMetricIdsChange={onSelectedMetricIdsChange}
-            selectedRowIds={selectedRowIds}
-            highlightedRowId={highlightedRowId}
-            onToggleRow={onToggleRow}
-            onToggleAll={onToggleAll}
-            onOpenRow={onOpenRow}
-            onSortedRowsChange={onSortedRowsChange}
-          />
+          {filteredRows.length === 0 ? (
+            <div className="px-4 py-6 text-[12.5px] text-slate-500">
+              {rows.length === 0
+                ? emptyMessage ?? "No Meta creative rows were found for the selected window."
+                : "No creatives match the current Asset Library filters."}
+            </div>
+          ) : (
+            <CreativesTableSection
+              rows={filteredRows}
+              creativeHistoryById={creativeHistoryById}
+              defaultCurrency={defaultCurrency}
+              selectedMetricIds={selectedMetricIds}
+              onSelectedMetricIdsChange={onSelectedMetricIdsChange}
+              selectedRowIds={selectedRowIds}
+              highlightedRowId={highlightedRowId}
+              onToggleRow={onToggleRow}
+              onToggleAll={onToggleAll}
+              onOpenRow={onOpenRow}
+              onSortedRowsChange={onSortedRowsChange}
+            />
+          )}
         </div>
 
         {filtersActive ? (

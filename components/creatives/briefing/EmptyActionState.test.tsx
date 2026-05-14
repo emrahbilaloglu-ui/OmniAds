@@ -17,8 +17,9 @@ describe("EmptyActionState", () => {
     );
 
     expect(html).toContain("Nothing for you to do right now.");
-    expect(html).toContain("18 mature creatives · 4 watching · Next engine pass: ~2h");
+    expect(html).toContain("18 mature creatives · 4 watching · Data is loaded in the lanes below");
     expect(html).toContain("Triage clear");
+    expect(html).toContain("Expand Watching below");
     expect(html).toContain("Launch a new test");
     expect(html).toContain("data-empty-action-state");
   });

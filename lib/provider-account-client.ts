@@ -64,6 +64,22 @@ function getClientRequestKey(provider: IntegrationProvider, businessId: string, 
   return `${provider}:${businessId}:${refresh ? "refresh" : "read"}`;
 }
 
+function normalizeProviderAccountSnapshot(payload: ProviderAccountsPayload | null): ProviderAccountSnapshot {
+  const rows = Array.isArray(payload?.data) ? payload.data : [];
+  return {
+    accounts: rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      currency: row.currency,
+      timezone: row.timezone,
+      isManager: row.isManager,
+    })),
+    assignedAccountIds: rows.filter((row) => row.assigned === true).map((row) => row.id),
+    meta: payload?.meta ?? null,
+    notice: payload?.notice ?? null,
+  };
+}
+
 export class ProviderAccountSnapshotMissingError extends Error {
   constructor(message: string) {
     super(message);
@@ -134,19 +150,7 @@ export async function fetchProviderAccountSnapshot(
     }
 
     failures.delete(failureKey);
-    const rows = Array.isArray(payload?.data) ? payload.data : [];
-    return {
-      accounts: rows.map((row) => ({
-        id: row.id,
-        name: row.name,
-        currency: row.currency,
-        timezone: row.timezone,
-        isManager: row.isManager,
-      })),
-      assignedAccountIds: rows.filter((row) => row.assigned === true).map((row) => row.id),
-      meta: payload?.meta ?? null,
-      notice: payload?.notice ?? null,
-    };
+    return normalizeProviderAccountSnapshot(payload);
   })().finally(() => {
     requests.delete(requestKey);
   });
@@ -159,6 +163,22 @@ export async function warmProviderAccountSnapshot(
   provider: IntegrationProvider,
   businessId: string,
 ) {
+  if (provider === "meta") {
+    const path = getProviderAccountsFetchPath(provider, businessId);
+    if (!path) return { accounts: [], assignedAccountIds: [], meta: null, notice: null };
+
+    const response = await fetch(path, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    const payload = (await response.json().catch(() => null)) as ProviderAccountsPayload | null;
+    if (!response.ok) {
+      throw new Error(payload?.message ?? `Could not refresh ${provider} account assignments.`);
+    }
+    return normalizeProviderAccountSnapshot(payload);
+  }
+
   return fetchProviderAccountSnapshot(provider, businessId, { refresh: true });
 }
 

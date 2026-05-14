@@ -85,6 +85,17 @@ import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 
 type LaneCollapseState = Record<Extract<LaneKey, "action" | "watching" | "healthy">, boolean>;
 
+interface AssetLibraryPayload {
+  rows: MetaCreativeRow[];
+  status?: string | null;
+  message?: string | null;
+}
+
+interface CreativeDataNotice {
+  title: string;
+  body: string;
+}
+
 interface NormalizedActionItem {
   key: string;
   type: "card" | "rollup";
@@ -149,6 +160,20 @@ class SectionErrorBoundary extends Component<
       </section>
     );
   }
+}
+
+function CreativeDataSetupNotice({ notice }: { notice: CreativeDataNotice }) {
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-4 py-3 mb-4 flex items-start gap-3">
+      <AlertTriangle className="text-amber-600 mt-0.5 inline-block shrink-0" size={18} aria-hidden="true" />
+      <div className="flex-1 min-w-0">
+        <div className="text-[13px] font-semibold text-amber-950 leading-snug">
+          {notice.title}
+        </div>
+        <div className="text-[12px] text-amber-900/80 mt-0.5">{notice.body}</div>
+      </div>
+    </div>
+  );
 }
 
 export const CLOSED_LAUNCHPAD_OVERLAY_STATE: LaunchpadOverlayState = {
@@ -239,7 +264,7 @@ async function fetchAssetLibraryRows(input: {
   businessId: string;
   startDate: string;
   endDate: string;
-}) {
+}): Promise<AssetLibraryPayload> {
   const response = await fetchMetaCreatives({
     businessId: input.businessId,
     start: input.startDate,
@@ -249,7 +274,11 @@ async function fetchAssetLibraryRows(input: {
     sort: "spend",
     mediaMode: "full",
   });
-  return response.rows.map(mapApiRowToUiRow);
+  return {
+    rows: response.rows.map(mapApiRowToUiRow),
+    status: response.status ?? "ok",
+    message: response.message ?? null,
+  };
 }
 
 function getTodayIsoForTimeZone(timeZone: string) {
@@ -317,6 +346,57 @@ export function normalizeCreativesBriefingPayload(
     healthy: safeArray<BriefingCreativeCard>(payload.healthy),
     pulse,
   };
+}
+
+export function getCreativeDataSetupNotice(input: {
+  metaStatus?: MetaStatusResponse | null;
+  assetLibraryStatus?: string | null;
+}): CreativeDataNotice | null {
+  const { metaStatus, assetLibraryStatus } = input;
+  const assignedAccountCount = metaStatus?.assignedAccountIds?.length;
+
+  if (
+    metaStatus?.state === "connected_no_assignment" ||
+    assetLibraryStatus === "no_accounts_assigned" ||
+    (metaStatus?.connected === true && assignedAccountCount === 0)
+  ) {
+    return {
+      title: "Meta ad account assignment is missing.",
+      body: "Meta is connected for this workspace, but no Meta ad account is assigned. Assign an ad account to load creative briefing and Asset Library data.",
+    };
+  }
+
+  if (metaStatus?.state === "not_connected" || metaStatus?.connected === false || assetLibraryStatus === "no_connection") {
+    return {
+      title: "Meta is not connected.",
+      body: "Connect Meta for this workspace before creative briefing and Asset Library data can load.",
+    };
+  }
+
+  if (assetLibraryStatus === "no_access_token") {
+    return {
+      title: "Meta needs to be reconnected.",
+      body: "The Meta connection is missing an access token. Reconnect Meta to load creative data.",
+    };
+  }
+
+  return null;
+}
+
+export function getAssetLibraryEmptyMessage(input: {
+  status?: string | null;
+  message?: string | null;
+}) {
+  if (input.status === "no_accounts_assigned") {
+    return "No Meta ad account is assigned to this workspace. Assign a Meta account to load creative data.";
+  }
+  if (input.status === "no_connection") {
+    return "Meta is not connected for this workspace.";
+  }
+  if (input.status === "no_access_token") {
+    return "Meta connection is missing an access token. Reconnect Meta to load creative data.";
+  }
+  return input.message || "No Meta creative rows were found for the selected window.";
 }
 
 function normalizeActionItems(items: unknown): NormalizedActionItem[] {
@@ -584,8 +664,27 @@ export function CreativesBriefingPage() {
     normalizedBriefingData?.pulse?.trackingDetail ||
     normalizedBriefingData?.pulse?.trackingAnomalyDetail ||
     undefined;
-  const assetLibraryRows = Array.isArray(assetLibraryQuery.data) ? assetLibraryQuery.data : [];
+  const assetLibraryPayload = assetLibraryQuery.data;
+  const assetLibraryRows = Array.isArray(assetLibraryPayload)
+    ? assetLibraryPayload
+    : Array.isArray(assetLibraryPayload?.rows)
+      ? assetLibraryPayload.rows
+      : [];
+  const assetLibraryStatus = Array.isArray(assetLibraryPayload)
+    ? null
+    : assetLibraryPayload?.status ?? null;
+  const assetLibraryMessage = Array.isArray(assetLibraryPayload)
+    ? null
+    : assetLibraryPayload?.message ?? null;
   const assetLibraryError = assetLibraryQuery.error instanceof Error ? assetLibraryQuery.error.message : null;
+  const creativeDataSetupNotice = getCreativeDataSetupNotice({
+    metaStatus: metaStatusQuery.data,
+    assetLibraryStatus,
+  });
+  const assetLibraryEmptyMessage = getAssetLibraryEmptyMessage({
+    status: assetLibraryStatus,
+    message: assetLibraryMessage,
+  });
   const launchpadOverlayItem = launchpadOverlayState.card
     ? buildLaunchpadOverlayItem(launchpadOverlayState.card)
     : null;
@@ -846,6 +945,10 @@ export function CreativesBriefingPage() {
           detail={trackingBlockerDetail}
         />
 
+        {creativeDataSetupNotice ? (
+          <CreativeDataSetupNotice notice={creativeDataSetupNotice} />
+        ) : null}
+
         {briefingError ? (
           <div className="rounded-lg border border-rose-200 bg-rose-50/60 px-4 py-3 mb-4 flex items-start gap-3">
             <AlertTriangle className="text-rose-600 mt-0.5 inline-block shrink-0" size={18} aria-hidden="true" />
@@ -886,7 +989,11 @@ export function CreativesBriefingPage() {
           {collapsed.action ? null : (
             <div className="space-y-3">
               {isInitialLoading ? <LaneSkeleton /> : null}
-              {!isInitialLoading && !briefingError && visibleActionItems.length === 0 && !trackingAnomalyActive ? (
+              {!isInitialLoading &&
+              !briefingError &&
+              visibleActionItems.length === 0 &&
+              !trackingAnomalyActive &&
+              !creativeDataSetupNotice ? (
                 <EmptyActionState
                   matureCount={matureCount}
                   watchingCount={watchingItems.length}
@@ -1025,6 +1132,7 @@ export function CreativesBriefingPage() {
           ) : (
             <AssetLibrarySection
               rows={assetLibraryRows}
+              emptyMessage={assetLibraryEmptyMessage}
               defaultCurrency={activeBusiness?.currency ?? null}
               selectedMetricIds={libraryMetricIds}
               onSelectedMetricIdsChange={setLibraryMetricIds}

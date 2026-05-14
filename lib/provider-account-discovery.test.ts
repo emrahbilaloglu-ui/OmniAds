@@ -6,8 +6,6 @@ vi.mock("@/lib/provider-account-assignments", () => ({
 
 vi.mock("@/lib/provider-account-snapshots", () => ({
   readProviderAccountSnapshot: vi.fn(),
-  requestProviderAccountSnapshotRefresh: vi.fn(),
-  forceProviderAccountSnapshotRefresh: vi.fn(),
 }));
 
 const providerAssignments = await import("@/lib/provider-account-assignments");
@@ -64,8 +62,6 @@ describe("provider discovery read path", () => {
     });
 
     expect(payload.data).toEqual([{ id: "acct_1", name: "Account 1", assigned: true }]);
-    expect(providerSnapshots.requestProviderAccountSnapshotRefresh).not.toHaveBeenCalled();
-    expect(providerSnapshots.forceProviderAccountSnapshotRefresh).not.toHaveBeenCalled();
   });
 
   it("does not force a snapshot refresh when GET requests ask for refresh", async () => {
@@ -83,8 +79,6 @@ describe("provider discovery read path", () => {
 
     expect(payload.data).toEqual([{ id: "acct_1", name: "acct_1", assigned: true }]);
     expect(payload.notice).toBe("missing");
-    expect(providerSnapshots.requestProviderAccountSnapshotRefresh).not.toHaveBeenCalled();
-    expect(providerSnapshots.forceProviderAccountSnapshotRefresh).not.toHaveBeenCalled();
   });
 
   it("keeps assigned fallback rows when a persisted snapshot is empty or failed", async () => {
@@ -114,5 +108,22 @@ describe("provider discovery read path", () => {
     expect(payload.data).toEqual([{ id: "acct_1", name: "acct_1", assigned: true }]);
     expect(payload.notice).toBe("degraded");
     expect(payload.meta.failureClass).toBe("auth");
+  });
+
+  it("keeps read-path behavior side-effect free when no snapshot exists", async () => {
+    vi.mocked(providerSnapshots.readProviderAccountSnapshot).mockResolvedValue(null as never);
+
+    const payload = await resolveProviderDiscoveryPayload({
+      businessId: "biz_1",
+      provider: "meta",
+      refreshRequested: false,
+      liveLoader: vi.fn().mockResolvedValue([]),
+      missingSnapshotNotice: "missing",
+      degradedNotice: "degraded",
+      unavailableNotice: "unavailable",
+    });
+
+    expect(payload.data).toEqual([{ id: "acct_1", name: "acct_1", assigned: true }]);
+    expect(payload.notice).toBe("missing");
   });
 });

@@ -2761,14 +2761,26 @@ export async function runMigrations(options?: {
           scope_id      TEXT NOT NULL,
           snapshot_date DATE NOT NULL,
           metric_name   TEXT NOT NULL,
+          cohort        TEXT NOT NULL DEFAULT 'purchase',
           p10           NUMERIC NOT NULL,
           p25           NUMERIC NOT NULL,
           p50           NUMERIC NOT NULL,
           p75           NUMERIC NOT NULL,
           p90           NUMERIC NOT NULL,
           sample_size   INTEGER NOT NULL,
-          PRIMARY KEY (business_id, scope_type, scope_id, snapshot_date, metric_name)
+          PRIMARY KEY (business_id, scope_type, scope_id, snapshot_date, metric_name, cohort)
         )`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_calibration_daily
+          ADD COLUMN IF NOT EXISTS cohort TEXT NOT NULL DEFAULT 'purchase'`.catch(() => {}),
+        sql`UPDATE meta_decision_calibration_daily
+          SET cohort = 'purchase'
+          WHERE cohort IS NULL`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_calibration_daily
+          DROP CONSTRAINT IF EXISTS meta_decision_calibration_daily_pkey`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_calibration_daily
+          ADD PRIMARY KEY (business_id, scope_type, scope_id, snapshot_date, metric_name, cohort)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_calibration_cohort_scope
+          ON meta_decision_calibration_daily (business_id, scope_type, scope_id, snapshot_date, cohort)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_decision_responses (
           rec_id         TEXT NOT NULL,
           business_id    TEXT NOT NULL,

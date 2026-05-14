@@ -380,4 +380,47 @@ describe("runMigrations", () => {
       );
     }
   });
+
+  it("adds cohort-scoped Meta calibration migrations idempotently", async () => {
+    const queries: string[] = [];
+    const sql = Object.assign(
+      vi.fn(async (strings: TemplateStringsArray) => {
+        queries.push(strings.join(" "));
+        return [];
+      }),
+      {
+        query: vi.fn(async (query: string) => {
+          queries.push(query);
+          return [];
+        }),
+      },
+    );
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+    vi.mocked(db.getDbWithTimeout).mockReturnValue(sql as never);
+
+    const migrations = await import("@/lib/migrations");
+    await migrations.runMigrations({
+      force: true,
+      reason: "meta-calibration-cohort-test",
+    });
+    await migrations.runMigrations({
+      force: true,
+      reason: "meta-calibration-cohort-test-rerun",
+    });
+
+    const joinedQueries = queries.join("\n");
+    expect(joinedQueries).toContain("cohort        TEXT NOT NULL DEFAULT 'purchase'");
+    expect(joinedQueries).toContain(
+      "ADD COLUMN IF NOT EXISTS cohort TEXT NOT NULL DEFAULT 'purchase'",
+    );
+    expect(joinedQueries).toContain("SET cohort = 'purchase'");
+    expect(joinedQueries).toContain("WHERE cohort IS NULL");
+    expect(joinedQueries).toContain(
+      "DROP CONSTRAINT IF EXISTS meta_decision_calibration_daily_pkey",
+    );
+    expect(joinedQueries).toContain(
+      "ADD PRIMARY KEY (business_id, scope_type, scope_id, snapshot_date, metric_name, cohort)",
+    );
+    expect(joinedQueries).toContain("idx_meta_calibration_cohort_scope");
+  });
 });

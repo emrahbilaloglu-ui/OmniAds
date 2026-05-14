@@ -228,6 +228,7 @@ export interface MetaCalibrationContext {
   thresholds: MetaCalibrationThresholds;
   scope?: MetaCalibrationScopeResult["scope"];
   reason?: MetaCalibrationScopeResult["reason"];
+  cohort?: MetaFunnelCohort;
 }
 
 export interface MetaStatisticalConfidenceInput {

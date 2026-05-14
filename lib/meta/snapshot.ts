@@ -39,6 +39,7 @@ import {
   type MetaRecommendationPriority,
   type MetaRecommendationsResponse,
 } from "@/lib/meta/recommendations";
+import { resolveMetaFunnelCohort } from "@/lib/meta/funnel-cohort";
 import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
 
 export interface RunMetaSnapshotResult {
@@ -551,15 +552,21 @@ async function buildCalibrationContexts(input: {
 }) {
   const byCampaignId: Record<string, MetaCalibrationContext> = {};
   for (const campaign of input.campaigns) {
+    const cohort = resolveMetaFunnelCohort({
+      optimizationGoal: campaign.optimizationGoal,
+      customEventType: campaign.customEventType,
+    });
     const scope = await getMetaCalibrationScope(input.businessId, {
       campaignId: campaign.id,
       accountId: campaign.accountId,
       snapshotDate: input.snapshotDate,
+      cohort,
     });
     byCampaignId[campaign.id] = {
       thresholds: scope.thresholds,
       scope: scope.scope,
       reason: scope.reason,
+      cohort,
     };
   }
   const firstCampaign = input.campaigns[0];

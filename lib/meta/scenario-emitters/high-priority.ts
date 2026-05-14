@@ -10,14 +10,26 @@ import { LEGACY_META_CALIBRATION_THRESHOLDS } from "@/lib/meta/calibration";
 import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
 import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
 import type { MetaFunnelCohort } from "@/lib/meta/funnel-cohort";
-import { META_ENGINE_V1_SCENARIOS } from "@/lib/meta/engine-v1/scenarios";
+import {
+  META_ENGINE_V1_SCENARIOS,
+  type MetaEngineScenarioCohortScope,
+} from "@/lib/meta/engine-v1/scenarios";
 
 const SCENARIO_SCOPE_BY_REC_TYPE = new Map(
   META_ENGINE_V1_SCENARIOS.map((scenario) => [scenario.recType, scenario.cohortScope] as const),
 );
 
-function scenarioScopeByRecType(recType: MetaRecommendation["type"]): "purchase_only" | "any" {
+function scenarioScopeByRecType(recType: MetaRecommendation["type"]): MetaEngineScenarioCohortScope {
   return SCENARIO_SCOPE_BY_REC_TYPE.get(recType) ?? "any";
+}
+
+export function scenarioScopeAllowsCohort(
+  scope: MetaEngineScenarioCohortScope,
+  cohort: MetaFunnelCohort,
+) {
+  if (scope === "purchase_only") return cohort === "purchase";
+  if (scope === "mid_funnel_only") return cohort === "mid_funnel";
+  return true;
 }
 
 export interface CampaignScenarioWindow {
@@ -649,7 +661,7 @@ export function emitHighPriorityCampaignScenario(input: CampaignScenarioInput): 
   for (const emitter of CAMPAIGN_PRECEDENCE) {
     const rec = emitter(input);
     if (!rec) continue;
-    if (scenarioScopeByRecType(rec.type) === "purchase_only" && input.cohort !== "purchase") {
+    if (!scenarioScopeAllowsCohort(scenarioScopeByRecType(rec.type), input.cohort)) {
       continue;
     }
     return rec;
@@ -665,7 +677,7 @@ export function emitHighPriorityAdsetScenario(input: AdsetScenarioInput): MetaRe
   for (const emitter of ADSET_PRECEDENCE) {
     const rec = emitter(input);
     if (!rec) continue;
-    if (scenarioScopeByRecType(rec.type) === "purchase_only" && input.cohort !== "purchase") {
+    if (!scenarioScopeAllowsCohort(scenarioScopeByRecType(rec.type), input.cohort)) {
       continue;
     }
     return rec;

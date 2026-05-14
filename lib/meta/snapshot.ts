@@ -1,5 +1,6 @@
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
+import type { MetaAdSetData } from "@/lib/api/meta";
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { getActiveBusinesses } from "@/lib/sync/active-businesses";
@@ -576,6 +577,42 @@ async function buildCalibrationContexts(input: {
   return { accountContext, byCampaignId };
 }
 
+async function buildAdsetCalibrationContexts(input: {
+  businessId: string;
+  snapshotDate: string;
+  adsets: MetaAdSetData[];
+}) {
+  const byAdsetId: Record<string, MetaCalibrationContext> = {};
+  const cache = new Map<string, MetaCalibrationContext>();
+  for (const adset of input.adsets) {
+    const cohort = resolveMetaFunnelCohort({
+      optimizationGoal: adset.optimizationGoal,
+      customEventType: adset.customEventType,
+    });
+    const cacheKey = `${adset.accountId ?? ""}:${adset.campaignId}:${cohort}`;
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      byAdsetId[adset.id] = cached;
+      continue;
+    }
+    const scope = await getMetaCalibrationScope(input.businessId, {
+      campaignId: adset.campaignId,
+      accountId: adset.accountId ?? "",
+      snapshotDate: input.snapshotDate,
+      cohort,
+    });
+    const context: MetaCalibrationContext = {
+      thresholds: scope.thresholds,
+      scope: scope.scope,
+      reason: scope.reason,
+      cohort,
+    };
+    cache.set(cacheKey, context);
+    byAdsetId[adset.id] = context;
+  }
+  return byAdsetId;
+}
+
 async function buildSnapshotRecommendations(input: {
   businessId: string;
   snapshotDate: string;
@@ -694,11 +731,17 @@ async function buildSnapshotRecommendations(input: {
     endDate,
     campaignIds: campaigns.map((campaign) => campaign.id),
   });
+  const adsetCalibrationContextByAdsetId = await buildAdsetCalibrationContexts({
+    businessId: input.businessId,
+    snapshotDate: endDate,
+    adsets: adsetRows.rows ?? [],
+  });
   const adsetRecommendations = buildMetaAdsetRecommendations({
     adsets: adsetRows.rows ?? [],
     campaigns,
     calibrationContext: contexts.accountContext,
     calibrationContextByCampaignId: contexts.byCampaignId,
+    calibrationContextByAdsetId: adsetCalibrationContextByAdsetId,
     entitySignalsByAdsetId,
   });
   const stateRows = buildMetaEntityStateRows({

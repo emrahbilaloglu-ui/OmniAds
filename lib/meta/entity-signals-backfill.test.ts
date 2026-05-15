@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  computeMonthlyPacing,
   computeCtrDecayPct7dVs14d,
   computeFrequencyP80,
+  computeTrackingQualityStatus,
   findLastSignificantEditAt,
   inferLearningState,
 } from "@/lib/meta/entity-signals-backfill";
@@ -125,5 +127,54 @@ describe("Meta entity signal backfill computations", () => {
     expect(inferLearningState({ ageDays: 3, purchases7d: 2 })).toBe("LEARNING");
     expect(inferLearningState({ ageDays: 20, purchases7d: 2 })).toBe("LEARNING_LIMITED");
     expect(inferLearningState({ ageDays: 20, purchases7d: 50 })).toBe("OPTIMAL_LEARNING_DONE");
+  });
+
+  it("flags click-to-LPV tracking quality only with a dense click sample", () => {
+    expect(computeTrackingQualityStatus({ linkClicks: 499, landingPageViews: 0 }).status).toBe(
+      "insufficient_click_sample",
+    );
+    expect(computeTrackingQualityStatus({ linkClicks: 500, landingPageViews: 100 }).status).toBe(
+      "lpv_drop_suspected",
+    );
+    expect(computeTrackingQualityStatus({ linkClicks: 500, landingPageViews: 250 }).status).toBe(
+      "click_to_lpv_observed",
+    );
+  });
+
+  it("computes monthly budget pacing from MTD spend and daily budget", () => {
+    const rows = Array.from({ length: 15 }, (_, index) =>
+      daily({
+        date: `2026-05-${String(index + 1).padStart(2, "0")}`,
+        spend: 100,
+      }),
+    );
+    const pacing = computeMonthlyPacing({
+      rows,
+      asOfDate: "2026-05-15",
+      dailyBudget: 100,
+      lifetimeBudget: null,
+    });
+
+    expect(pacing.status).toBe("on_track");
+    expect(pacing.monthly_budget).toBe(3100);
+    expect(pacing.mtd_spend).toBe(1500);
+  });
+
+  it("marks monthly pacing as overpaced when spend materially exceeds elapsed budget", () => {
+    const rows = Array.from({ length: 15 }, (_, index) =>
+      daily({
+        date: `2026-05-${String(index + 1).padStart(2, "0")}`,
+        spend: 200,
+      }),
+    );
+
+    expect(
+      computeMonthlyPacing({
+        rows,
+        asOfDate: "2026-05-15",
+        dailyBudget: 100,
+        lifetimeBudget: null,
+      }).status,
+    ).toBe("overpaced");
   });
 });

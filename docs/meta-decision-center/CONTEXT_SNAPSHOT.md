@@ -34,7 +34,7 @@ path and ask the model to read it before planning or changing code.
 
 ## Current Repo State
 
-- Current implementation branch: `phase-c-meta-campaign-semantics`.
+- Current implementation branch: `phase-d-meta-signal-substrate`.
 - Phase A PR: `#162` (`[codex] Unify Meta funnel cohort resolution`), merged.
 - Phase A implementation commit: `fc8a8d7` (`Unify Meta funnel cohort resolution`).
 - Phase A context commit: `2a49ef1` (`Record Phase A PR context`).
@@ -46,12 +46,14 @@ path and ask the model to read it before planning or changing code.
 - Phase B review-fix commit: `7f18c81`
   (`Ignore fallback thresholds for Meta hard anchors`).
 - Phase B merge commit on `main`: `cd7b72d629bf828cca9acdba34a666dbf2fd80b9`.
-- Phase C PR: `#164` (`[codex] Add Meta campaign kind semantics`), ready for
-  review at the time of this snapshot.
+- Phase C PR: `#164` (`[codex] Add Meta campaign kind semantics`), merged.
 - Phase C implementation commit: `4f6cc32`
   (`Add Meta campaign kind semantics`).
+- Phase C merge commit on `main`: `82f7f76279ea400300ffa551045564b52bc96751`.
 - Current `main` SHA verified locally:
-  `cd7b72d629bf828cca9acdba34a666dbf2fd80b9`.
+  `82f7f76279ea400300ffa551045564b52bc96751`.
+- Phase D branch started from current `main`:
+  `phase-d-meta-signal-substrate`.
 - Phase A tracked-file modifications at the time of this snapshot:
   - `lib/meta/campaign-lanes.ts`
   - `lib/meta/campaign-lanes.test.ts`
@@ -65,6 +67,8 @@ path and ask the model to read it before planning or changing code.
 - Phase A local artifacts:
   - `_analysis/phase-a-meta-decision-hygiene/2026-05-15-smoke-evidence.md`
   - `_analysis/phase-a-meta-decision-hygiene/2026-05-15-pr-triage.md`
+- Phase D local artifacts:
+  - `_analysis/phase-d-meta-signal-substrate/2026-05-15-signal-coverage.md`
 - Context preservation file:
   - `docs/meta-decision-center/CONTEXT_SNAPSHOT.md`
 - Untracked local artifacts exist and should not be deleted casually:
@@ -98,6 +102,55 @@ path and ask the model to read it before planning or changing code.
   - `lib/meta/campaign-label-guard.test.ts`
   - `lib/meta/recommendations.ts`
   - `lib/meta/snapshot.ts`
+- Phase D evidence status:
+  - Live signal table is fresh through `2026-05-15`.
+  - Latest signal coverage: 5,258 rows across 12 businesses, 2,071 campaign
+    rows, 3,187 adset rows, 1,483 ready rows, and 3,775 partial rows.
+  - Existing populated fields are mostly learning/edit/age/frequency/CTR-decay:
+    `learning_state` 5,258, `days_since_significant_edit` 2,819,
+    `creative_age_days_max` 2,668, `frequency_p80` 225, `ctr_decay_pct` 74.
+  - Schema-only or currently unpopulated fields: audience overlap/size/stage,
+    lookalike, feed status/disapproval, dedup/CRM ratio, and
+    `tracking_quality_status`.
+  - Implementation implication: Phase D is gap-fix/populate/reader work, not a
+    reader-only change. Do not produce hard actions from unsupported audience,
+    feed, or tracking assumptions.
+- Phase D tracked-file modifications currently in progress:
+  - `_analysis/phase-d-meta-signal-substrate/2026-05-15-signal-coverage.md`
+  - `docs/meta-decision-center/CONTEXT_SNAPSHOT.md`
+  - `lib/meta/entity-signals.ts`
+  - `lib/meta/entity-signals-backfill.ts`
+  - `lib/meta/entity-signals-backfill.test.ts`
+  - `lib/meta/scenario-emitters/high-priority.ts`
+  - `lib/meta/scenario-emitters/high-priority.test.ts`
+  - `lib/meta/adset-decisions.ts`
+  - `lib/meta/adset-decisions.test.ts`
+  - `lib/meta/snapshot.test.ts`
+- Phase D implementation status:
+  - Signal reader/upsert now carries schema-backed diagnostics:
+    audience overlap/size/stage, lookalike pct, feed status/disapproval,
+    dedup rate, Meta-to-CRM ratio, and `tracking_quality_status`.
+  - Backfill now writes supported diagnostic evidence:
+    click-to-LPV tracking quality from `meta_ad_daily`, monthly MTD pacing from
+    daily/lifetime budget and spend, and account-level placement mix evidence
+    from `meta_breakdown_daily`.
+  - Unsupported fields remain explicit: audience overlap and feed/catalog status
+    are not inferred without a warehouse source.
+  - Campaign high-priority scenarios now emit watch/diagnose blockers for recent
+    edit cooldown, click-to-LPV tracking risk, and overpaced monthly budget
+    before hard scale/cut/rebuild actions.
+  - Adset hard purchase scale/cut is blocked when adset signals show recent edit
+    cooldown, click-to-LPV tracking risk, or overpaced monthly budget.
+- Phase D local verification so far:
+  - `npx vitest run lib/meta/entity-signals-backfill.test.ts lib/meta/scenario-emitters/high-priority.test.ts lib/meta/adset-decisions.test.ts lib/meta/snapshot.test.ts`
+    passed: 4 files, 68 tests.
+  - `npx vitest run lib/meta components/meta app/api/meta` passed: 109 files,
+    961 tests.
+  - `npx tsc --noEmit` passed.
+  - `npx vitest run` passed: 408 files passed, 4 skipped; 2,913 tests passed,
+    49 skipped.
+  - `npm run lint` passed.
+  - `npm run build` passed.
 
 ## Completed Work
 
@@ -289,8 +342,9 @@ path and ask the model to read it before planning or changing code.
 ### Phase C - Main/Test/Mixed Meta Semantics
 
 - Branch: `phase-c-meta-campaign-semantics`.
-- PR: `#164`, ready for review.
+- PR: `#164`, merged.
 - Implementation commit: `4f6cc32`.
+- Merge commit: `82f7f76`.
 - Added kind-aware compatibility to `meta_decision_calibration_daily`:
   - new `campaign_kind` dimension with values `all`, `main`, `test`, `mixed`;
   - default `all` preserves existing calibration behavior;
@@ -390,8 +444,8 @@ path and ask the model to read it before planning or changing code.
 
 ## Proposed Gap-Closure Plan
 
-Status: user-approved as of 2026-05-15. Phase A and Phase B are merged. Phase C
-is in implementation on `phase-c-meta-campaign-semantics`.
+Status: user-approved as of 2026-05-15. Phase A, Phase B, and Phase C are
+merged. Phase D is starting on `phase-d-meta-signal-substrate`.
 
 Claude was explicitly told to read this file first before producing its plan.
 Claude agreed with the final phase order and added three acceptance criteria:
@@ -449,8 +503,8 @@ where coverage is weak.
   broken CTA just because the action type exists.
 - Acceptance: UI still does not compute buyer actions; hard actions remain
   guarded by labels, anchors, maturity, and data freshness.
-  Status: local implementation and full local verification are complete.
-  Ready PR `#164` is open. GitHub CI/review/merge remain.
+  Status: complete. PR `#164` passed GitHub `typecheck`, `test`, and `build`
+  checks, then merged into `main` at `82f7f76`.
 
 ### Phase D - Signal Substrate, Pacing, Overlap, And Placement Gates
 
@@ -464,6 +518,10 @@ where coverage is weak.
   supports them.
 - Acceptance: missing signals produce unsupported/diagnose/watch, not hard
   actions.
+  Status: implemented locally for typed signal transport, click-to-LPV tracking
+  quality, monthly pacing, account-level placement evidence, and hard-action
+  blockers. Audience overlap and feed/catalog diagnostics remain explicit
+  unsupported states until an entity-scoped source exists.
 
 ### Phase E - Purchase Scenario Families
 

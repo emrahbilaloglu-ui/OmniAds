@@ -28,6 +28,15 @@ export interface MetaEntityDecisionSignal {
   creativeAgeDaysMax: number | null;
   frequencyP80: number | null;
   ctrDecayPct: number | null;
+  audienceOverlapPct?: number | null;
+  audienceSize?: number | null;
+  lookalikePct?: number | null;
+  audienceStage?: string | null;
+  feedDisapprovalCount?: number | null;
+  feedStatus?: string | null;
+  dedupRatePct?: number | null;
+  metaToCrmRatio?: number | null;
+  trackingQualityStatus?: string | null;
   sourceJson: Record<string, unknown>;
   qualityStatus: MetaEntitySignalQualityStatus;
   computedAt?: string | null;
@@ -60,6 +69,11 @@ function numberOrNull(value: unknown) {
   if (value == null) return null;
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function textOrNull(value: unknown) {
+  const text = String(value ?? "").trim();
+  return text.length > 0 ? text : null;
 }
 
 function learningStateOrNull(value: unknown): MetaLearningState | null {
@@ -106,6 +120,15 @@ export async function readMetaEntityDecisionSignalsDaily(input: {
         creative_age_days_max,
         frequency_p80,
         ctr_decay_pct,
+        audience_overlap_pct,
+        audience_size,
+        lookalike_pct,
+        audience_stage,
+        feed_disapproval_count,
+        feed_status,
+        dedup_rate_pct,
+        meta_to_crm_ratio,
+        tracking_quality_status,
         source_json,
         quality_status,
         computed_at
@@ -127,6 +150,15 @@ export async function readMetaEntityDecisionSignalsDaily(input: {
       creative_age_days_max: number | null;
       frequency_p80: number | null;
       ctr_decay_pct: number | null;
+      audience_overlap_pct: number | null;
+      audience_size: number | null;
+      lookalike_pct: number | null;
+      audience_stage: string | null;
+      feed_disapproval_count: number | null;
+      feed_status: string | null;
+      dedup_rate_pct: number | null;
+      meta_to_crm_ratio: number | null;
+      tracking_quality_status: string | null;
       source_json: Record<string, unknown> | null;
       quality_status: string | null;
       computed_at: string | null;
@@ -150,6 +182,15 @@ export async function readMetaEntityDecisionSignalsDaily(input: {
           creativeAgeDaysMax: numberOrNull(row.creative_age_days_max),
           frequencyP80: numberOrNull(row.frequency_p80),
           ctrDecayPct: numberOrNull(row.ctr_decay_pct),
+          audienceOverlapPct: numberOrNull(row.audience_overlap_pct),
+          audienceSize: numberOrNull(row.audience_size),
+          lookalikePct: numberOrNull(row.lookalike_pct),
+          audienceStage: textOrNull(row.audience_stage),
+          feedDisapprovalCount: numberOrNull(row.feed_disapproval_count),
+          feedStatus: textOrNull(row.feed_status),
+          dedupRatePct: numberOrNull(row.dedup_rate_pct),
+          metaToCrmRatio: numberOrNull(row.meta_to_crm_ratio),
+          trackingQualityStatus: textOrNull(row.tracking_quality_status),
           sourceJson: row.source_json ?? {},
           qualityStatus: qualityStatusOrDefault(row.quality_status),
           computedAt: normalizeTimestamp(row.computed_at),
@@ -161,7 +202,8 @@ export async function readMetaEntityDecisionSignalsDaily(input: {
       error instanceof Error &&
       (error.message.includes("meta_entity_decision_signals_daily") ||
         error.message.includes("creative_age_days_max") ||
-        error.message.includes("days_since_significant_edit"))
+        error.message.includes("days_since_significant_edit") ||
+        error.message.includes("tracking_quality_status"))
     ) {
       return new Map();
     }
@@ -189,6 +231,15 @@ export async function upsertMetaEntityDecisionSignalsDaily(
     "creative_age_days_max",
     "frequency_p80",
     "ctr_decay_pct",
+    "audience_overlap_pct",
+    "audience_size",
+    "lookalike_pct",
+    "audience_stage",
+    "feed_disapproval_count",
+    "feed_status",
+    "dedup_rate_pct",
+    "meta_to_crm_ratio",
+    "tracking_quality_status",
     "source_json",
     "quality_status",
   ];
@@ -210,6 +261,15 @@ export async function upsertMetaEntityDecisionSignalsDaily(
       signal.creativeAgeDaysMax,
       signal.frequencyP80,
       signal.ctrDecayPct,
+      signal.audienceOverlapPct ?? null,
+      signal.audienceSize ?? null,
+      signal.lookalikePct ?? null,
+      signal.audienceStage ?? null,
+      signal.feedDisapprovalCount ?? null,
+      signal.feedStatus ?? null,
+      signal.dedupRatePct ?? null,
+      signal.metaToCrmRatio ?? null,
+      signal.trackingQualityStatus ?? null,
       JSON.stringify(signal.sourceJson ?? {}),
       signal.qualityStatus,
     );
@@ -231,6 +291,15 @@ export async function upsertMetaEntityDecisionSignalsDaily(
         creative_age_days_max = EXCLUDED.creative_age_days_max,
         frequency_p80 = EXCLUDED.frequency_p80,
         ctr_decay_pct = EXCLUDED.ctr_decay_pct,
+        audience_overlap_pct = EXCLUDED.audience_overlap_pct,
+        audience_size = EXCLUDED.audience_size,
+        lookalike_pct = EXCLUDED.lookalike_pct,
+        audience_stage = EXCLUDED.audience_stage,
+        feed_disapproval_count = EXCLUDED.feed_disapproval_count,
+        feed_status = EXCLUDED.feed_status,
+        dedup_rate_pct = EXCLUDED.dedup_rate_pct,
+        meta_to_crm_ratio = EXCLUDED.meta_to_crm_ratio,
+        tracking_quality_status = EXCLUDED.tracking_quality_status,
         source_json = EXCLUDED.source_json::jsonb,
         quality_status = EXCLUDED.quality_status,
         computed_at = now()

@@ -1,11 +1,15 @@
 import { getDb } from "@/lib/db";
 import { getActiveBusinesses } from "@/lib/sync/active-businesses";
 import {
+  getMetaAdDailyRange,
   getMetaAdSetDailyRange,
+  getMetaBreakdownDailyRange,
   getMetaCampaignDailyRange,
 } from "@/lib/meta/warehouse";
 import type {
+  MetaAdDailyRow,
   MetaAdSetDailyRow,
+  MetaBreakdownDailyRow,
   MetaCampaignDailyRow,
   MetaWarehouseMetricSet,
 } from "@/lib/meta/warehouse-types";
@@ -20,6 +24,11 @@ const MIN_FREQUENCY_IMPRESSIONS = 1_000;
 const CTR_STABLE_SPEND_MIN_RATIO = 0.5;
 const CTR_STABLE_SPEND_MAX_RATIO = 2;
 const RECENT_EDIT_COOLDOWN_DAYS = 7;
+const TRACKING_CLICK_SAMPLE_MIN = 500;
+const TRACKING_LPV_DROP_RATIO_MAX = 0.25;
+const TRACKING_LPV_OBSERVED_RATIO_MIN = 0.45;
+const MONTHLY_PACING_OVER_RATIO = 1.25;
+const MONTHLY_PACING_UNDER_RATIO = 0.75;
 
 type DailyRow = Pick<
   MetaWarehouseMetricSet,
@@ -54,6 +63,9 @@ export interface RunMetaSignalsBackfillResult {
     creativeAgeDaysMax: number;
     lastSignificantEditAt: number;
     learningState: number;
+    trackingQualityStatus: number;
+    monthlyPacingStatus: number;
+    placementMix: number;
   };
 }
 
@@ -80,6 +92,25 @@ function addDaysToISO(value: string, days: number) {
   const date = new Date(`${normalizeDate(value)}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
+}
+
+function monthStartISO(value: string) {
+  const date = new Date(`${normalizeDate(value)}T00:00:00Z`);
+  date.setUTCDate(1);
+  return date.toISOString().slice(0, 10);
+}
+
+function daysInMonth(value: string) {
+  const date = new Date(`${normalizeDate(value)}T00:00:00Z`);
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
+}
+
+function monthDay(value: string) {
+  return new Date(`${normalizeDate(value)}T00:00:00Z`).getUTCDate();
+}
+
+function earlierISODate(left: string, right: string) {
+  return normalizeDate(left) < normalizeDate(right) ? normalizeDate(left) : normalizeDate(right);
 }
 
 function dayDiff(leftDate: string, rightDate: string) {
@@ -140,6 +171,144 @@ function rowFrequency(row: DailyRow) {
   }
   const reach = n(row.reach);
   return reach > 0 ? n(row.impressions) / reach : null;
+}
+
+type TrackingQualityStatus =
+  | "lpv_drop_suspected"
+  | "click_to_lpv_observed"
+  | "click_to_lpv_borderline"
+  | "insufficient_click_sample";
+
+export function computeTrackingQualityStatus(input: {
+  linkClicks: number;
+  landingPageViews: number;
+}) {
+  const linkClicks = Math.max(0, n(input.linkClicks));
+  const landingPageViews = Math.max(0, n(input.landingPageViews));
+  const landingPageViewRate = linkClicks > 0 ? landingPageViews / linkClicks : null;
+  let status: TrackingQualityStatus = "insufficient_click_sample";
+  if (linkClicks >= TRACKING_CLICK_SAMPLE_MIN && landingPageViewRate != null) {
+    if (landingPageViewRate <= TRACKING_LPV_DROP_RATIO_MAX) {
+      status = "lpv_drop_suspected";
+    } else if (landingPageViewRate >= TRACKING_LPV_OBSERVED_RATIO_MIN) {
+      status = "click_to_lpv_observed";
+    } else {
+      status = "click_to_lpv_borderline";
+    }
+  }
+  return {
+    status,
+    link_clicks: linkClicks,
+    landing_page_views: landingPageViews,
+    landing_page_view_rate: landingPageViewRate == null ? null : r2(landingPageViewRate),
+    click_sample_floor: TRACKING_CLICK_SAMPLE_MIN,
+    lpv_drop_ratio_max: TRACKING_LPV_DROP_RATIO_MAX,
+    lpv_observed_ratio_min: TRACKING_LPV_OBSERVED_RATIO_MIN,
+  };
+}
+
+function trackingQualityFromAdRows(rows: MetaAdDailyRow[], startDate: string, endDate: string) {
+  const filtered = rows.filter((row) => row.date >= normalizeDate(startDate) && row.date <= normalizeDate(endDate));
+  const linkClicks = filtered.reduce((sum, row) => sum + n(row.linkClicks), 0);
+  const landingPageViews = filtered.reduce((sum, row) => sum + n(row.landingPageViews), 0);
+  const addToCart = filtered.reduce((sum, row) => sum + n(row.addToCart), 0);
+  const initiateCheckout = filtered.reduce((sum, row) => sum + n(row.initiateCheckout), 0);
+  const purchases = filtered.reduce((sum, row) => sum + n(row.conversions), 0);
+  return {
+    ...computeTrackingQualityStatus({ linkClicks, landingPageViews }),
+    add_to_cart: addToCart,
+    initiate_checkout: initiateCheckout,
+    purchases,
+    source: "meta_ad_daily_click_to_lpv_28d",
+  };
+}
+
+export function computeMonthlyPacing(input: {
+  rows: DailyRow[];
+  asOfDate: string;
+  dailyBudget: number | null | undefined;
+  lifetimeBudget: number | null | undefined;
+}) {
+  const asOfDate = normalizeDate(input.asOfDate);
+  const monthStart = monthStartISO(asOfDate);
+  const monthLength = daysInMonth(asOfDate);
+  const elapsedDays = monthDay(asOfDate);
+  const dailyBudget = input.dailyBudget == null ? null : n(input.dailyBudget);
+  const lifetimeBudget = input.lifetimeBudget == null ? null : n(input.lifetimeBudget);
+  const monthlyBudget =
+    dailyBudget != null && dailyBudget > 0
+      ? dailyBudget * monthLength
+      : lifetimeBudget != null && lifetimeBudget > 0
+        ? lifetimeBudget
+        : null;
+  const mtdSpend = input.rows
+    .filter((row) => row.date >= monthStart && row.date <= asOfDate)
+    .reduce((sum, row) => sum + n(row.spend), 0);
+  const expectedMtdSpend = monthlyBudget == null ? null : monthlyBudget * (elapsedDays / monthLength);
+  const paceRatio = expectedMtdSpend != null && expectedMtdSpend > 0 ? mtdSpend / expectedMtdSpend : null;
+  const status =
+    monthlyBudget == null
+      ? "no_budget"
+      : paceRatio == null
+        ? "insufficient_budget_data"
+        : paceRatio > MONTHLY_PACING_OVER_RATIO
+          ? "overpaced"
+          : paceRatio < MONTHLY_PACING_UNDER_RATIO
+            ? "underpaced"
+            : "on_track";
+  return {
+    status,
+    month_start: monthStart,
+    elapsed_days: elapsedDays,
+    days_in_month: monthLength,
+    monthly_budget: monthlyBudget == null ? null : r2(monthlyBudget),
+    mtd_spend: r2(mtdSpend),
+    expected_mtd_spend: expectedMtdSpend == null ? null : r2(expectedMtdSpend),
+    pace_ratio: paceRatio == null ? null : r2(paceRatio),
+    over_ratio: MONTHLY_PACING_OVER_RATIO,
+    under_ratio: MONTHLY_PACING_UNDER_RATIO,
+  };
+}
+
+function buildPlacementMixSummary(rows: MetaBreakdownDailyRow[]) {
+  if (rows.length === 0) {
+    return {
+      status: "missing",
+      entity_scoped: false,
+      reason: "no_placement_breakdown_rows",
+    };
+  }
+  const grouped = new Map<string, { key: string; label: string; spend: number; impressions: number }>();
+  for (const row of rows) {
+    const key = row.breakdownKey;
+    const current = grouped.get(key) ?? {
+      key,
+      label: row.breakdownLabel,
+      spend: 0,
+      impressions: 0,
+    };
+    current.spend += n(row.spend);
+    current.impressions += n(row.impressions);
+    grouped.set(key, current);
+  }
+  const totalSpend = Array.from(grouped.values()).reduce((sum, row) => sum + row.spend, 0);
+  const topPlacements = Array.from(grouped.values())
+    .sort((left, right) => right.spend - left.spend)
+    .slice(0, 5)
+    .map((row) => ({
+      key: row.key,
+      label: row.label,
+      spend: r2(row.spend),
+      spend_share: totalSpend > 0 ? r2(row.spend / totalSpend) : null,
+      impressions: row.impressions,
+    }));
+  return {
+    status: "account_level_only",
+    entity_scoped: false,
+    reason: "meta_breakdown_daily_has_no_campaign_or_adset_key",
+    total_spend: r2(totalSpend),
+    top_placements: topPlacements,
+  };
 }
 
 export function computeFrequencyP80(rows: DailyRow[]) {
@@ -243,14 +412,24 @@ export function findLastSignificantEditAt(rows: ConfigHistoryRow[], asOfDate: st
 
 function qualityStatusFor(signal: Pick<
   MetaEntityDecisionSignal,
-  "learningState" | "frequencyP80" | "ctrDecayPct" | "creativeAgeDaysMax" | "lastSignificantEditAt"
+  | "learningState"
+  | "frequencyP80"
+  | "ctrDecayPct"
+  | "creativeAgeDaysMax"
+  | "lastSignificantEditAt"
+  | "trackingQualityStatus"
 >) {
+  const trackingStatusCounts =
+    signal.trackingQualityStatus === "lpv_drop_suspected" ||
+    signal.trackingQualityStatus === "click_to_lpv_observed" ||
+    signal.trackingQualityStatus === "click_to_lpv_borderline";
   const readySignals = [
     signal.learningState,
     signal.frequencyP80,
     signal.ctrDecayPct,
     signal.creativeAgeDaysMax,
     signal.lastSignificantEditAt,
+    trackingStatusCounts ? signal.trackingQualityStatus : null,
   ].filter((value) => value != null).length;
   if (readySignals >= 3) return "ready";
   if (readySignals > 0) return "partial";
@@ -412,6 +591,9 @@ function buildSignal(input: {
   learningState: MetaLearningState | null;
   creativeAgeDaysMax: number | null;
   configHistoryRows: ConfigHistoryRow[];
+  trackingQuality: ReturnType<typeof trackingQualityFromAdRows>;
+  monthlyPacing: ReturnType<typeof computeMonthlyPacing>;
+  placementMix: ReturnType<typeof buildPlacementMixSummary>;
   sourceJson: Record<string, unknown>;
 }): MetaEntityDecisionSignal {
   const edit = significantEditFields({
@@ -436,8 +618,22 @@ function buildSignal(input: {
       rows: input.rows,
       asOfDate: input.asOfDate,
     }),
+    audienceOverlapPct: null,
+    audienceSize: null,
+    lookalikePct: null,
+    audienceStage: null,
+    feedDisapprovalCount: null,
+    feedStatus: null,
+    dedupRatePct: null,
+    metaToCrmRatio: null,
+    trackingQualityStatus: input.trackingQuality.status,
     sourceJson: {
       ...input.sourceJson,
+      tracking_quality: input.trackingQuality,
+      monthly_pacing: input.monthlyPacing,
+      placement_mix: input.placementMix,
+      audience_overlap_status: "unsupported_no_entity_overlap_source",
+      feed_status_source: "unsupported_no_feed_or_catalog_source",
       learning_state_quality: "inferred",
       significant_edit_rules: [
         "budget_change_gt_20_pct",
@@ -463,6 +659,15 @@ function signalCounts(signals: MetaEntityDecisionSignal[]) {
     creativeAgeDaysMax: signals.filter((signal) => signal.creativeAgeDaysMax != null).length,
     lastSignificantEditAt: signals.filter((signal) => signal.lastSignificantEditAt != null).length,
     learningState: signals.filter((signal) => signal.learningState != null).length,
+    trackingQualityStatus: signals.filter((signal) => signal.trackingQualityStatus != null).length,
+    monthlyPacingStatus: signals.filter((signal) => {
+      const pacing = signal.sourceJson.monthly_pacing;
+      return Boolean(pacing && typeof pacing === "object" && "status" in pacing);
+    }).length,
+    placementMix: signals.filter((signal) => {
+      const placement = signal.sourceJson.placement_mix;
+      return Boolean(placement && typeof placement === "object" && "status" in placement);
+    }).length,
   };
 }
 
@@ -471,9 +676,10 @@ export async function runMetaSignalsBackfillForBusiness(
   asOfDate: string,
 ): Promise<RunMetaSignalsBackfillResult> {
   const normalizedAsOfDate = normalizeDate(asOfDate);
-  const startDate = addDaysToISO(normalizedAsOfDate, -27);
+  const metricStartDate = addDaysToISO(normalizedAsOfDate, -27);
+  const startDate = earlierISODate(metricStartDate, monthStartISO(normalizedAsOfDate));
   const last7Start = addDaysToISO(normalizedAsOfDate, -6);
-  const [campaignRows, adsetRows] = await Promise.all([
+  const [campaignRows, adsetRows, adRows, placementRows] = await Promise.all([
     getMetaCampaignDailyRange({
       businessId,
       startDate,
@@ -486,10 +692,31 @@ export async function runMetaSignalsBackfillForBusiness(
       endDate: normalizedAsOfDate,
       includeProvisional: true,
     }),
+    getMetaAdDailyRange({
+      businessId,
+      startDate,
+      endDate: normalizedAsOfDate,
+    }),
+    getMetaBreakdownDailyRange({
+      businessId,
+      startDate,
+      endDate: normalizedAsOfDate,
+      breakdownTypes: ["placement"],
+      includeProvisional: true,
+    }).catch((error) => {
+      console.warn("[meta-signals] placement_breakdown_unavailable", {
+        businessId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return [] as MetaBreakdownDailyRow[];
+    }),
   ]);
 
   const campaignGroups = byEntity(campaignRows, (row) => row.campaignId);
   const adsetGroups = byEntity(adsetRows, (row) => row.adsetId);
+  const adRowsByCampaign = byEntity(adRows, (row) => row.campaignId);
+  const adRowsByAdset = byEntity(adRows, (row) => row.adsetId);
+  const placementMix = buildPlacementMixSummary(placementRows);
   const campaignIds = Array.from(campaignGroups.keys());
   const adsetIds = Array.from(adsetGroups.keys());
   const [
@@ -530,6 +757,14 @@ export async function runMetaSignalsBackfillForBusiness(
       learningState,
       creativeAgeDaysMax: adsetCreativeAge.get(adsetId) ?? null,
       configHistoryRows: adsetHistory.get(adsetId) ?? [],
+      trackingQuality: trackingQualityFromAdRows(adRowsByAdset.get(adsetId) ?? [], metricStartDate, normalizedAsOfDate),
+      monthlyPacing: computeMonthlyPacing({
+        rows: sortedRows,
+        asOfDate: normalizedAsOfDate,
+        dailyBudget: latest.dailyBudget,
+        lifetimeBudget: latest.lifetimeBudget,
+      }),
+      placementMix,
       sourceJson: {
         source: "warehouse_signal_backfill",
         age_days: ageDays,
@@ -555,6 +790,14 @@ export async function runMetaSignalsBackfillForBusiness(
       learningState,
       creativeAgeDaysMax: campaignCreativeAge.get(campaignId) ?? null,
       configHistoryRows: campaignHistory.get(campaignId) ?? [],
+      trackingQuality: trackingQualityFromAdRows(adRowsByCampaign.get(campaignId) ?? [], metricStartDate, normalizedAsOfDate),
+      monthlyPacing: computeMonthlyPacing({
+        rows: sortedRows,
+        asOfDate: normalizedAsOfDate,
+        dailyBudget: latest.dailyBudget,
+        lifetimeBudget: latest.lifetimeBudget,
+      }),
+      placementMix,
       sourceJson: {
         source: "warehouse_signal_backfill",
         age_days: ageDays,

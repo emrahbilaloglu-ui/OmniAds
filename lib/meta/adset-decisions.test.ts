@@ -221,6 +221,56 @@ describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
     expect(recs.some((rec) => rec.type === "adset_cut_spend")).toBe(false);
   });
 
+  it("blocks hard purchase adset actions when signal diagnostics show click-to-LPV tracking risk", () => {
+    const recs = buildMetaAdsetRecommendations({
+      adsets: [
+        adset({
+          id: "scale-candidate",
+          optimizationGoal: "OFFSITE_CONVERSIONS",
+          customEventType: "",
+          spend: 1000,
+          purchases: 12,
+          revenue: 4500,
+          roas: 4.5,
+          cpa: 83,
+          ctr: 3,
+          frequency: 1,
+        }),
+      ],
+      commercialTargets,
+      entitySignalsByAdsetId: {
+        "scale-candidate": {
+          businessId: "biz_1",
+          providerAccountId: "act_1",
+          scopeType: "adset",
+          scopeId: "scale-candidate",
+          asOfDate: "2026-05-14",
+          learningState: "OPTIMAL_LEARNING_DONE",
+          daysAtLearningState: null,
+          lastSignificantEditAt: null,
+          daysSinceSignificantEdit: null,
+          recentChangeCooldownUntil: null,
+          creativeAgeDays: 20,
+          creativeAgeDaysMax: 20,
+          frequencyP80: null,
+          ctrDecayPct: null,
+          trackingQualityStatus: "lpv_drop_suspected",
+          sourceJson: {
+            tracking_quality: {
+              link_clicks: 500,
+              landing_page_views: 100,
+              landing_page_view_rate: 0.2,
+            },
+          },
+          qualityStatus: "ready",
+        },
+      },
+    });
+
+    expect(recs.some((rec) => rec.type === "adset_scale_budget")).toBe(false);
+    expect(recs.some((rec) => rec.type === "adset_cut_spend")).toBe(false);
+  });
+
   it("does not scale a purchase adset when the selected range has mixed goal config", () => {
     const recs = buildMetaAdsetRecommendations({
       adsets: [

@@ -11,11 +11,14 @@ import {
   maybeA2StructuralRebuild,
   maybeB1CappedBidRaise,
   maybeC1ControlledScale,
+  maybeC2RecentEditCooldown,
   maybeE1FatigueAdset,
   maybeE2CtrDecay,
   maybeE4CreativeAge,
   maybeF1SuddenRoasDrop,
+  maybeF3BudgetPacingCooldown,
   maybeF4StableWinnerFade,
+  maybeH1TrackingQualityDiagnostic,
   maybeI4TestShouldUseAbo,
   maybeJ1StableWinnerProtected,
   maybeK1MixedConfig,
@@ -229,6 +232,9 @@ describe("high priority Meta scenario emitters", () => {
     ["K1", () => maybeK1MixedConfig({ window: windowFor(campaign({ isBudgetMixed: true })), context, cohort: purchaseCohort })],
     ["I4", () => maybeI4TestShouldUseAbo({ window: windowFor(campaign({ name: "Creative Test Campaign", budgetLevel: "campaign" })), context, cohort: purchaseCohort, campaignRole: "prospecting_test" })],
     ["A1", () => maybeA1MathFloor({ window: windowFor(campaign({ dailyBudget: 100, roas: 1.5 })), context, cohort: purchaseCohort, signals: signal({ learningState: "LEARNING" }) })],
+    ["C2", () => maybeC2RecentEditCooldown({ window: windowFor(campaign()), context, cohort: purchaseCohort, signals: signal({ daysSinceSignificantEdit: 2, lastSignificantEditAt: "2026-05-06T00:00:00.000Z" }) })],
+    ["H1", () => maybeH1TrackingQualityDiagnostic({ window: windowFor(campaign()), context, cohort: purchaseCohort, signals: signal({ trackingQualityStatus: "lpv_drop_suspected", sourceJson: { tracking_quality: { link_clicks: 500, landing_page_views: 100, landing_page_view_rate: 0.2 } } }) })],
+    ["F3", () => maybeF3BudgetPacingCooldown({ window: windowFor(campaign()), context, cohort: purchaseCohort, signals: signal({ sourceJson: { monthly_pacing: { status: "overpaced", pace_ratio: 1.5, mtd_spend: 3000, expected_mtd_spend: 2000 } } }) })],
   ])("fires %s on a positive account-history fixture", (_id, build) => {
     const rec = build();
     expect(rec).toBeTruthy();
@@ -272,6 +278,43 @@ describe("high priority Meta scenario emitters", () => {
       signals: signal({ daysSinceSignificantEdit: 2, lastSignificantEditAt: "2026-05-06T00:00:00.000Z" }),
     });
     expect(rec).toBeNull();
+  });
+
+  it("prioritizes recent edit cooldown over campaign hard actions", () => {
+    const rec = emitHighPriorityCampaignScenario({
+      window: windowFor(campaign({ roas: 0.7, spend: 800, purchases: 2 })),
+      context,
+      cohort: purchaseCohort,
+      commercialTargets,
+      signals: signal({ daysSinceSignificantEdit: 2, lastSignificantEditAt: "2026-05-06T00:00:00.000Z" }),
+    });
+
+    expect(rec?.type).toBe("scenario_c2_recent_edit_cooldown");
+    expect(rec?.decisionState).toBe("watch");
+  });
+
+  it("prioritizes click-to-LPV tracking diagnosis over structural cut logic", () => {
+    const rec = emitHighPriorityCampaignScenario({
+      window: windowFor(campaign({ roas: 0.7, spend: 800, purchases: 2 })),
+      context,
+      cohort: purchaseCohort,
+      commercialTargets,
+      signals: signal({
+        learningState: "LEARNING_LIMITED",
+        trackingQualityStatus: "lpv_drop_suspected",
+        sourceJson: {
+          tracking_quality: {
+            link_clicks: 500,
+            landing_page_views: 100,
+            landing_page_view_rate: 0.2,
+          },
+        },
+      }),
+    });
+
+    expect(rec?.type).toBe("scenario_h1_dedup_tracking");
+    expect(rec?.decisionLabel).toBe("diagnose");
+    expect(rec?.decisionState).toBe("test");
   });
 
   it("does not emit controlled scale without a commercial target anchor", () => {

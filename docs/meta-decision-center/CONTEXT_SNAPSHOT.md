@@ -34,7 +34,7 @@ path and ask the model to read it before planning or changing code.
 
 ## Current Repo State
 
-- Current implementation branch: `phase-d-meta-signal-substrate`.
+- Current implementation branch: `main` after Phase D merge.
 - Phase A PR: `#162` (`[codex] Unify Meta funnel cohort resolution`), merged.
 - Phase A implementation commit: `fc8a8d7` (`Unify Meta funnel cohort resolution`).
 - Phase A context commit: `2a49ef1` (`Record Phase A PR context`).
@@ -50,10 +50,13 @@ path and ask the model to read it before planning or changing code.
 - Phase C implementation commit: `4f6cc32`
   (`Add Meta campaign kind semantics`).
 - Phase C merge commit on `main`: `82f7f76279ea400300ffa551045564b52bc96751`.
+- Phase D PR: `#165` (`[codex] Ground Meta decision signal diagnostics`),
+  merged.
+- Phase D implementation commit: `78b521a`
+  (`Ground Meta decision signal diagnostics`).
+- Phase D merge commit on `main`: `c218f48a7fb089322f4961c0169ca052bcb19f16`.
 - Current `main` SHA verified locally:
-  `82f7f76279ea400300ffa551045564b52bc96751`.
-- Phase D branch started from current `main`:
-  `phase-d-meta-signal-substrate`.
+  `c218f48a7fb089322f4961c0169ca052bcb19f16`.
 - Phase A tracked-file modifications at the time of this snapshot:
   - `lib/meta/campaign-lanes.ts`
   - `lib/meta/campaign-lanes.test.ts`
@@ -80,7 +83,7 @@ path and ask the model to read it before planning or changing code.
   - `_analysis/phase-meta-rnd/`
   - `docs/meta-decision-center/`
   - `scripts/_phase-meta-rnd-claude-personas.ts`
-- Open PRs remaining after Phase B merge: none.
+- Open PRs remaining after Phase D merge: none.
 - Phase B tracked-file modifications at the time of this snapshot:
   - `app/api/meta/recommendations/route.ts`
   - `lib/meta/commercial-targets.ts`
@@ -115,7 +118,7 @@ path and ask the model to read it before planning or changing code.
   - Implementation implication: Phase D is gap-fix/populate/reader work, not a
     reader-only change. Do not produce hard actions from unsupported audience,
     feed, or tracking assumptions.
-- Phase D tracked-file modifications currently in progress:
+- Phase D tracked-file modifications at the time of this snapshot:
   - `_analysis/phase-d-meta-signal-substrate/2026-05-15-signal-coverage.md`
   - `docs/meta-decision-center/CONTEXT_SNAPSHOT.md`
   - `lib/meta/entity-signals.ts`
@@ -151,6 +154,9 @@ path and ask the model to read it before planning or changing code.
     49 skipped.
   - `npm run lint` passed.
   - `npm run build` passed.
+  - GitHub PR `#165` checks passed: `typecheck`, `test`, and `build`.
+  - GitHub review context checked with thread-aware read: no review threads,
+    no reviews, and no conversation comments.
 
 ## Completed Work
 
@@ -518,10 +524,12 @@ where coverage is weak.
   supports them.
 - Acceptance: missing signals produce unsupported/diagnose/watch, not hard
   actions.
-  Status: implemented locally for typed signal transport, click-to-LPV tracking
-  quality, monthly pacing, account-level placement evidence, and hard-action
-  blockers. Audience overlap and feed/catalog diagnostics remain explicit
-  unsupported states until an entity-scoped source exists.
+  Status: complete. PR `#165` passed GitHub `typecheck`, `test`, and `build`
+  checks, then merged into `main` at `c218f48`. Implemented typed signal
+  transport, click-to-LPV tracking quality, monthly pacing, account-level
+  placement evidence, and hard-action blockers. Audience overlap and
+  feed/catalog diagnostics remain explicit unsupported states until an
+  entity-scoped source exists.
 
 ### Phase E - Purchase Scenario Families
 

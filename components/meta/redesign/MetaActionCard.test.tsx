@@ -28,6 +28,26 @@ describe("MetaActionCard", () => {
     expect(ignored).toContain("Ignored");
   });
 
+  it("renders backend-provided automation readiness without deriving the action in UI", () => {
+    const html = renderToStaticMarkup(<MetaActionCard rec={metaRec({
+      automationReadiness: {
+        contractVersion: "meta-automation-readiness.v1",
+        tier: "backtest_candidate",
+        autoExecuteEligible: false,
+        operatorReviewRequired: true,
+        decisionLabel: "scale",
+        blockers: ["no_empirical_outcome_model"],
+        missingEvidence: ["empirical_outcome_backtest"],
+        requiredEvidence: ["empirical_outcome_backtest"],
+        reason: "Empirical outcome backtesting is required before automation.",
+      },
+    })} />);
+
+    expect(html).toContain('data-automation-readiness');
+    expect(html).toContain("Auto");
+    expect(html).toContain("Backtest needed");
+  });
+
   it("renders anomaly cards in diagnostic mode", () => {
     const html = renderToStaticMarkup(<MetaActionCard anomaly={metaAnomaly({
       diagnosticLadder: [{ step: 1, label: "Tracking", detail: "Check events first." }],

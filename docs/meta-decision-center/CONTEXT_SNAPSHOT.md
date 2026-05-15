@@ -34,8 +34,9 @@ path and ask the model to read it before planning or changing code.
 
 ## Current Repo State
 
-- Current implementation branch: `main` after Phase E.4 merge. Next
-  implementation branch has not been created yet.
+- Current implementation branch:
+  `phase-f-meta-automation-readiness-substrate`, started from `main` after
+  Phase E.4 merge/context commit.
 - Phase A PR: `#162` (`[codex] Unify Meta funnel cohort resolution`), merged.
 - Phase A implementation commit: `fc8a8d7` (`Unify Meta funnel cohort resolution`).
 - Phase A context commit: `2a49ef1` (`Record Phase A PR context`).
@@ -595,9 +596,14 @@ path and ask the model to read it before planning or changing code.
 ## Remaining Gaps To Plan
 
 1. Empirical confidence, backtest, and auto-execute tier:
+   - Phase F.1 is in progress on branch
+     `phase-f-meta-automation-readiness-substrate`.
    - Confidence is still heuristic.
    - There is no per-scenario precision/recall or 14d/30d outcome correlation.
-   - Auto-execute readiness cannot be claimed without this layer.
+   - Auto-execute readiness cannot be claimed without this layer. The current
+     Phase F.1 implementation intentionally adds a conservative
+     `automationReadiness` substrate that marks current candidates below
+     auto-execute until empirical outcome evidence exists.
 
 2. Purchase scenario coverage:
    - Phase E.1, E.2, E.3, and E.4 implemented the learning/sample, bid-regime,
@@ -750,6 +756,51 @@ where coverage is weak.
 - Do not claim auto-execute readiness until target anchors, maturity, freshness,
   labels, and empirical scenario precision pass.
 - Acceptance: automation tier is evidence-backed and scenario-specific.
+- Phase F.1 in progress:
+  - Branch: `phase-f-meta-automation-readiness-substrate`.
+  - PR: `#170` (`[codex] Add Meta automation readiness substrate`).
+  - Implementation commit: `329b28b`
+    (`Add Meta automation readiness substrate`).
+  - Review-fix commit: `5194f9b`
+    (`Require preflight proof for Meta auto readiness`).
+  - Added a conservative `meta-automation-readiness.v1` payload layer for Meta
+    recommendations.
+  - Current auto-execute eligibility remains false unless a future empirical
+    outcome model is explicitly available.
+  - Label-guarded recommendations are recomputed as read-only automation
+    blockers, so missing Main/Test/Mixed context cannot leak into automation
+    candidates.
+  - UI displays backend-provided readiness only; it does not compute buyer
+    actions.
+  - Local verification so far:
+    - `npx vitest run lib/meta/automation-readiness.test.ts lib/meta/campaign-label-guard.test.ts lib/meta/adset-decisions.test.ts components/meta/redesign/MetaActionCard.test.tsx`
+      passed: 4 files, 31 tests.
+    - `npx vitest run lib/meta/automation-readiness.test.ts lib/meta/campaign-label-guard.test.ts components/meta/redesign/MetaActionCard.test.tsx`
+      passed after the helper cleanup: 3 files, 20 tests.
+    - `npx tsc --noEmit` passed.
+    - `npx vitest run lib/meta components/meta app/api/meta` passed: 110
+      files, 1000 tests.
+    - `npx vitest run` passed: 409 files passed, 4 skipped; 2952 tests
+      passed, 49 skipped.
+    - `npm run lint` passed.
+    - `npm run build` passed.
+    - `git diff --check` passed.
+    - After PR review fix `5194f9b`:
+      `npx vitest run lib/meta/automation-readiness.test.ts lib/meta/campaign-label-guard.test.ts components/meta/redesign/MetaActionCard.test.tsx`
+      passed: 3 files, 22 tests; `npx tsc --noEmit` passed;
+      `npx vitest run lib/meta components/meta app/api/meta` passed: 110
+      files, 1002 tests; `npx vitest run` passed: 409 files passed, 4
+      skipped, 2954 tests passed, 49 skipped; `npm run lint` passed;
+      `npm run build` passed.
+  - GitHub PR `#170` checks passed on implementation commit `329b28b`:
+    `typecheck`, `test`, and `build`; runtime deploy jobs skipped because no
+    runtime image change was detected.
+  - GitHub thread-aware review check on implementation commit `329b28b` found
+    one P1 review thread: auto-execute could become eligible if empirical
+    outcomes were enabled without live preflight or rollback proof. Fixed in
+    `5194f9b` by making live preflight and rollback explicit blockers/missing
+    evidence for auto readiness.
+  - Merge, deploy, and post-deploy smoke remain pending for this branch.
 
 ### Phase G - Final Regression, Deploy, Context, And Golden-Case Maintenance
 

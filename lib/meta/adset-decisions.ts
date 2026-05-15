@@ -28,6 +28,7 @@ import {
   metaScaleRoasFloor,
   type MetaCommercialTargets,
 } from "@/lib/meta/commercial-targets";
+import { withMetaAutomationReadiness } from "@/lib/meta/automation-readiness";
 import { emitEngagementAdsetScenario } from "@/lib/meta/scenario-emitters/engagement";
 import { emitLeadAdsetScenario } from "@/lib/meta/scenario-emitters/lead";
 import { emitMidFunnelAdsetScenario } from "@/lib/meta/scenario-emitters/mid-funnel";
@@ -448,5 +449,6 @@ export function buildMetaAdsetRecommendations(
 
   return recommendations
     .sort((left, right) => (right.confidenceScore ?? 0) - (left.confidenceScore ?? 0))
-    .slice(0, 250);
+    .slice(0, 250)
+    .map(withMetaAutomationReadiness);
 }

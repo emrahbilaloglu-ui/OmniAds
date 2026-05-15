@@ -109,6 +109,33 @@ describe("emitEngagementAdsetScenario", () => {
 
     expect(rec?.type).toBe("scenario_eg3_engagement_inefficient_cut");
     expect(rec?.decisionLabel).toBe("cut");
+    expect(rec?.confidence).toBe("high");
+    expect(rec?.confidenceScore).toBeGreaterThanOrEqual(0.7);
+  });
+
+  it("suppresses engagement recommendations when engagement event data is missing", () => {
+    const rec = emitEngagementAdsetScenario({
+      adset: adset({ spend: 1000, postEngagement: null, impressions: 20000 }),
+      context,
+      cohort: "engagement",
+      signals: signal(20),
+    });
+
+    expect(rec).toBeNull();
+  });
+
+  it("can cut when observed engagement event data is truly zero", () => {
+    const rec = emitEngagementAdsetScenario({
+      adset: adset({ spend: 1000, postEngagement: 0, impressions: 20000 }),
+      context,
+      cohort: "engagement",
+      signals: signal(20),
+    });
+
+    expect(rec?.type).toBe("scenario_eg3_engagement_inefficient_cut");
+    expect(rec?.decisionLabel).toBe("cut");
+    expect(rec?.confidence).toBe("high");
+    expect(rec?.confidenceScore).toBe(1);
   });
 
   it("emits EG2 keep for a steady engagement score", () => {
@@ -160,7 +187,7 @@ describe("emitEngagementAdsetScenario", () => {
     expect(rec).toBeNull();
   });
 
-  it("falls back to pure cost rank when engagement-rate calibration is missing", () => {
+  it("falls back to low-confidence watch when engagement-rate calibration is missing", () => {
     const missingRateContext: MetaCalibrationContext = {
       ...context,
       thresholds: {
@@ -178,7 +205,10 @@ describe("emitEngagementAdsetScenario", () => {
       signals: signal(20),
     });
 
-    expect(rec?.type).toBe("scenario_eg1_engagement_efficient_scale");
+    expect(rec?.type).toBe("scenario_eg2_engagement_steady_keep");
+    expect(rec?.decisionState).toBe("watch");
+    expect(rec?.confidence).toBe("low");
+    expect(rec?.confidenceScore).toBe(0.5);
     expect(targetValue(rec)?.quality_rank).toBeNull();
   });
 

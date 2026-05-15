@@ -48,9 +48,18 @@ function confidenceFromScore(score: number): MetaRecommendation["confidence"] {
   return "low";
 }
 
+function confidenceScoreFromScore(score: number) {
+  return r2(score >= 0.5 ? score : 1 - score);
+}
+
 function numberField(adset: MetaAdSetData, key: keyof MetaAdSetData) {
   const value = adset[key];
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function observedNumberField(adset: MetaAdSetData, key: keyof MetaAdSetData) {
+  const value = adset[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function threshold(
@@ -133,7 +142,7 @@ function baseEngagementRecommendation(input: {
     lens: input.lens,
     priority: input.priority,
     confidence: confidenceFromScore(input.score),
-    confidenceScore: r2(input.score),
+    confidenceScore: confidenceScoreFromScore(input.score),
     confidenceReason: null,
     decisionState: input.decisionState,
     decision: input.title,
@@ -171,7 +180,9 @@ export function emitEngagementAdsetScenario(input: AdsetScenarioInput): MetaReco
   const costThreshold = threshold(input, "cost_per_engagement_28d");
   if (!costThreshold) return null;
 
-  const postEngagement = numberField(input.adset, "postEngagement");
+  const postEngagement = observedNumberField(input.adset, "postEngagement");
+  if (postEngagement == null) return null;
+
   const costPerEngagement =
     postEngagement > 0 ? input.adset.spend / postEngagement : Number.POSITIVE_INFINITY;
   const costRank =
@@ -186,9 +197,8 @@ export function emitEngagementAdsetScenario(input: AdsetScenarioInput): MetaReco
     : null;
   if (engagementRateThreshold && qualityRank == null) return null;
 
-  const score = r2(
-    qualityRank == null ? costRank : (0.6 * costRank) + (0.4 * qualityRank),
-  );
+  const hasQualityCalibration = qualityRank != null;
+  const score = r2(hasQualityCalibration ? (0.6 * costRank) + (0.4 * qualityRank) : 0.5);
   const currency = (input.adset as MetaAdSetData & { currency?: string | null }).currency ?? null;
   const mature = isMature(input);
   const age = ageDays(input);
@@ -207,6 +217,25 @@ export function emitEngagementAdsetScenario(input: AdsetScenarioInput): MetaReco
     post_engagement: postEngagement,
     age_days: age,
   };
+
+  if (!hasQualityCalibration) {
+    return baseEngagementRecommendation({
+      scenarioType: "scenario_eg2_engagement_steady_keep",
+      decisionLabel: "keep",
+      decisionState: "watch",
+      priority: "low",
+      lens: "volume",
+      input,
+      title: `${input.adset.name}: hold engagement delivery`,
+      why: "Cost-per-engagement data is present, but required engagement-rate calibration is missing.",
+      summary: "Keep the engagement ad set in watch mode until quality-rate calibration is available.",
+      recommendedAction: "Hold",
+      expectedImpact: "Avoids scaling or cutting from cost-only engagement evidence.",
+      evidence,
+      score,
+      targetValue,
+    });
+  }
 
   if (score >= 0.7 && mature) {
     return baseEngagementRecommendation({

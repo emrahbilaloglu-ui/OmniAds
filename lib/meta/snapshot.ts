@@ -33,6 +33,7 @@ import {
 } from "@/lib/meta/campaign-label-guard";
 import { readMetaEntityDecisionSignalsDaily } from "@/lib/meta/entity-signals";
 import { runMetaSignalsBackfillForBusiness } from "@/lib/meta/entity-signals-backfill";
+import { attachMetaEmpiricalOutcomeSummariesFromLogs } from "@/lib/meta/empirical-outcome-integration";
 import { decisionLabelForMetaRec } from "@/lib/meta/rec-label-mapping";
 import {
   buildMetaRecommendations,
@@ -788,11 +789,15 @@ async function buildSnapshotRecommendations(input: {
     campaignLabelsById,
   });
 
-  return applyMetaCampaignLabelGuard({
+  const guardedRecommendations = applyMetaCampaignLabelGuard({
     recommendations: [...stateRows, ...campaignRecommendations, ...adsetRecommendations],
     campaignLabelsById,
     activeCampaignIds: campaignIds,
   }).recommendations;
+  return attachMetaEmpiricalOutcomeSummariesFromLogs({
+    businessId: input.businessId,
+    recommendations: guardedRecommendations,
+  });
 }
 
 export async function runMetaSnapshotForBusiness(
@@ -1121,11 +1126,15 @@ export async function readMetaDecisionSnapshotForRange(input: {
     businessId: input.businessId,
     campaignIds,
   });
-  const recommendations = applyMetaCampaignLabelGuard({
+  const guardedRecommendations = applyMetaCampaignLabelGuard({
     recommendations: hydratedRecommendations,
     campaignLabelsById,
     activeCampaignIds: campaignIds,
   }).recommendations;
+  const recommendations = await attachMetaEmpiricalOutcomeSummariesFromLogs({
+    businessId: input.businessId,
+    recommendations: guardedRecommendations,
+  });
   return {
     status: "ok",
     businessId: input.businessId,

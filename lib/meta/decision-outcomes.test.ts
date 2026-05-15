@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   appendMetaDecisionActionOutcomeLog,
   readMetaDecisionActionOutcomeLogs,
+  readMetaDecisionActionOutcomeLogsForRecommendationTypes,
 } from "@/lib/meta/decision-outcomes";
 import * as db from "@/lib/db";
 import * as schemaReadiness from "@/lib/db-schema-readiness";
@@ -87,5 +88,27 @@ describe("Meta decision outcome storage", () => {
     expect(query).toContain("recommendation_fingerprint =");
     expect(query).toContain("rec_id =");
     expect(sql.mock.calls.at(-1)?.at(-1)).toBe(500);
+  });
+
+  it("reads outcome logs for recommendation types only", async () => {
+    const calls: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      calls.push(strings.join(" "));
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await readMetaDecisionActionOutcomeLogsForRecommendationTypes({
+      businessId: "biz_1",
+      recTypes: ["adset_scale_budget", "adset_scale_budget", "adset_cut_spend"],
+      limit: 50,
+    });
+
+    const query = calls.join("\n");
+    expect(query).toContain("FROM meta_decision_action_outcome_logs");
+    expect(query).toContain("action_type = 'outcome'");
+    expect(query).toContain("rec_type = ANY(");
+    expect(sql.mock.calls.at(-1)?.at(-2)).toEqual(["adset_scale_budget", "adset_cut_spend"]);
+    expect(sql.mock.calls.at(-1)?.at(-1)).toBe(50);
   });
 });

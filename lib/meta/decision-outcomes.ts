@@ -130,3 +130,37 @@ export async function readMetaDecisionActionOutcomeLogs(input: {
     LIMIT ${Math.max(1, Math.min(input.limit ?? 100, 500))}
   `;
 }
+
+export async function readMetaDecisionActionOutcomeLogsForRecommendationTypes(input: {
+  businessId: string;
+  providerAccountId?: string | null;
+  recTypes: string[];
+  limit?: number;
+}) {
+  const recTypes = Array.from(
+    new Set(input.recTypes.map((value) => value.trim()).filter(Boolean)),
+  );
+  if (recTypes.length === 0) return [];
+
+  await assertMetaDecisionOutcomeTablesReady("meta_decision_outcome_storage");
+  const sql = getDb();
+  return sql`
+    SELECT
+      recommendation_fingerprint,
+      rec_id,
+      rec_type,
+      decision_label,
+      decision_family,
+      action_type,
+      outcome_status,
+      payload_json,
+      occurred_at::text AS occurred_at
+    FROM meta_decision_action_outcome_logs
+    WHERE business_id = ${input.businessId}
+      AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
+      AND action_type = 'outcome'
+      AND rec_type = ANY(${recTypes}::text[])
+    ORDER BY occurred_at DESC
+    LIMIT ${Math.max(1, Math.min(input.limit ?? recTypes.length * 100, 5000))}
+  `;
+}

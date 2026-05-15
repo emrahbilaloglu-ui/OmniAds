@@ -35,7 +35,8 @@ path and ask the model to read it before planning or changing code.
 ## Current Repo State
 
 - Current implementation branch:
-  `main`, after Phase F.3 merge.
+  `phase-f-meta-empirical-readiness-integration`, started from `main` after
+  Phase F.3 merge/context commit.
 - Phase A PR: `#162` (`[codex] Unify Meta funnel cohort resolution`), merged.
 - Phase A implementation commit: `fc8a8d7` (`Unify Meta funnel cohort resolution`).
 - Phase A context commit: `2a49ef1` (`Record Phase A PR context`).
@@ -110,9 +111,10 @@ path and ask the model to read it before planning or changing code.
   - `cbca3cd7` (`Require explicit Meta outcome action logs`)
   - `b99db07e` (`Read persisted Meta outcome status fields`)
 - Phase F.3 merge commit on `main`: `f59564bed53280980ec5e1cf3bbba58786cd38cb`.
+- Phase F.3 context commit on `main`: `0e6f1048`
+  (`Record Phase F empirical summary merge context`).
 - Latest `main` verified after Phase F.3 merge:
-  `f59564be` (`Merge pull request #172 from
-  erhanrdn/phase-f-meta-empirical-outcome-summary`).
+  `0e6f1048` (`Record Phase F empirical summary merge context`).
 - Phase E.1 branch started from `main` context commit:
   `c5617d99822312923b2b9a5fd13239826a76db24`.
 - Phase E.2 branch started after Phase E.1 merge/context:
@@ -127,6 +129,8 @@ path and ask the model to read it before planning or changing code.
   `phase-f-meta-decision-outcome-logs`.
 - Phase F.3 branch started after Phase F.2 merge/context:
   `phase-f-meta-empirical-outcome-summary`.
+- Phase F.4 branch started after Phase F.3 merge/context:
+  `phase-f-meta-empirical-readiness-integration`.
 - Phase A tracked-file modifications at the time of this snapshot:
   - `lib/meta/campaign-lanes.ts`
   - `lib/meta/campaign-lanes.test.ts`
@@ -152,7 +156,8 @@ path and ask the model to read it before planning or changing code.
   - `_analysis/phase-meta-goal-aware/`
   - `_analysis/phase-meta-rnd/`
   - `scripts/_phase-meta-rnd-claude-personas.ts`
-- Open PRs currently known in this workstream after Phase F.3 merge: none.
+- Open PRs currently known in this workstream after Phase F.3 merge/context:
+  none.
 - Phase B tracked-file modifications at the time of this snapshot:
   - `app/api/meta/recommendations/route.ts`
   - `lib/meta/commercial-targets.ts`
@@ -629,12 +634,14 @@ path and ask the model to read it before planning or changing code.
    - Phase F.1 is complete and merged in PR `#170`.
    - Phase F.2 is complete and merged in PR `#171`.
    - Phase F.3 is complete and merged in PR `#172`.
-   - Confidence is still heuristic.
+   - Phase F.4 is in progress on branch
+     `phase-f-meta-empirical-readiness-integration`.
+   - Visible confidence is still heuristic; F.4 intentionally does not change
+     confidence scores.
    - There is no per-scenario precision/recall or 14d/30d outcome correlation.
-   - Auto-execute readiness still cannot be claimed from production traffic
-     because Phase F.3 only adds the summarizer/gate; the production
-     recommendation builders do not yet fetch and attach empirical summaries.
-     The current implementation intentionally keeps candidates below
+   - Auto-execute readiness still cannot be claimed from production traffic.
+     F.4 attaches empirical summaries to snapshot/live recommendation payloads,
+     but the current implementation intentionally keeps candidates below
      auto-execute unless empirical outcome evidence, live preflight, and
      rollback proof are all explicitly present.
 
@@ -922,6 +929,33 @@ where coverage is weak.
   - Merged to `main` at `f59564be`.
   - CI runtime deploy jobs were skipped by the workflow; no production
     post-deploy smoke was performed for this phase.
+- Phase F.4 in progress:
+  - Branch: `phase-f-meta-empirical-readiness-integration`.
+  - Scope is conservative production-path integration: read persisted
+    `meta_decision_action_outcome_logs` outcome rows by recommendation type and
+    decision label, summarize them with the Phase F.3 empirical model, and
+    attach the summary to snapshot/live recommendation payloads.
+  - The integration does not change visible confidence scores and does not make
+    auto-execute eligible by itself. High empirical summaries only remove the
+    empirical-model blocker; live preflight and rollback proof remain required.
+  - Added a bulk outcome-log reader for recommendation types, a pure
+    recommendation enrichment helper, and a defensive integration wrapper that
+    returns unchanged recommendations if outcome-log storage is unavailable.
+  - Snapshot generation, persisted snapshot read, and live debug
+    recommendations now attempt empirical enrichment after label guards.
+  - Local verification so far:
+    - `npx vitest run lib/meta/empirical-outcomes.test.ts lib/meta/empirical-outcome-integration.test.ts lib/meta/decision-outcomes.test.ts lib/meta/automation-readiness.test.ts`
+      passed: 4 files, 21 tests.
+    - `npx tsc --noEmit` passed.
+    - `npx vitest run lib/meta components/meta app/api/meta` passed: 113
+      files, 1017 tests.
+    - `npx vitest run` passed: 413 files passed, 4 skipped; 2970 tests
+      passed, 49 skipped.
+    - `npm run lint` passed.
+    - `npm run build` passed.
+    - `git diff --check` passed.
+  - PR, GitHub review, merge, deploy, and post-deploy smoke remain pending for
+    this branch.
 
 ### Phase G - Final Regression, Deploy, Context, And Golden-Case Maintenance
 

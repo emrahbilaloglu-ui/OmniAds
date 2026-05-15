@@ -230,6 +230,8 @@ export function withMetaAutomationReadiness<T extends MetaRecommendation>(
 ): T & { automationReadiness: MetaAutomationReadiness } {
   return {
     ...rec,
-    automationReadiness: deriveMetaAutomationReadiness(rec),
+    automationReadiness: deriveMetaAutomationReadiness(rec, {
+      empiricalOutcomeSummary: rec.empiricalOutcomeSummary ?? null,
+    }),
   };
 }

@@ -48,6 +48,11 @@ import {
   deriveMetaAutomationReadiness,
   type MetaAutomationReadiness,
 } from "@/lib/meta/automation-readiness";
+import {
+  metaEmpiricalOutcomeSummaryKey,
+  type MetaEmpiricalOutcomeSummary,
+} from "@/lib/meta/empirical-outcomes";
+import { decisionLabelForMetaRec } from "@/lib/meta/rec-label-mapping";
 
 export type MetaDecisionState = "act" | "test" | "watch";
 export type MetaRecommendationLens = "volume" | "profitability" | "structure";
@@ -201,6 +206,7 @@ export interface MetaRecommendation {
   confidence: MetaRecommendationConfidence;
   confidenceScore?: number;
   confidenceReason?: string | null;
+  empiricalOutcomeSummary?: MetaEmpiricalOutcomeSummary;
   automationReadiness?: MetaAutomationReadiness;
   decisionState: MetaDecisionState;
   decision: string;
@@ -911,8 +917,53 @@ function stampRecommendation(recommendation: MetaRecommendation): MetaRecommenda
   };
   return {
     ...stamped,
-    automationReadiness: deriveMetaAutomationReadiness(stamped),
+    automationReadiness: deriveMetaAutomationReadiness(stamped, {
+      empiricalOutcomeSummary: stamped.empiricalOutcomeSummary ?? null,
+    }),
   };
+}
+
+export function empiricalOutcomeSummaryKeyForMetaRecommendation(
+  recommendation: MetaRecommendation,
+  options: { fallback?: boolean } = {},
+) {
+  return metaEmpiricalOutcomeSummaryKey({
+    recType: recommendation.type,
+    decisionLabel: options.fallback ? null : decisionLabelForMetaRec(recommendation),
+  });
+}
+
+export function attachMetaEmpiricalOutcomeSummariesToRecommendations(
+  recommendations: MetaRecommendation[],
+  summariesByKey: Record<string, MetaEmpiricalOutcomeSummary | undefined>,
+) {
+  return recommendations.map((recommendation) => {
+    const exactKey = empiricalOutcomeSummaryKeyForMetaRecommendation(recommendation);
+    const fallbackKey = empiricalOutcomeSummaryKeyForMetaRecommendation(recommendation, {
+      fallback: true,
+    });
+    const summary =
+      (exactKey ? summariesByKey[exactKey] : undefined) ??
+      (fallbackKey ? summariesByKey[fallbackKey] : undefined) ??
+      null;
+    if (!summary) return recommendation;
+
+    const enriched: MetaRecommendation = {
+      ...recommendation,
+      empiricalOutcomeSummary: summary,
+      signalQuality: {
+        ...(recommendation.signalQuality ?? {}),
+        empirical_outcome_key: exactKey ?? fallbackKey,
+        empirical_outcome_summary: summary,
+      },
+    };
+    return {
+      ...enriched,
+      automationReadiness: deriveMetaAutomationReadiness(enriched, {
+        empiricalOutcomeSummary: summary,
+      }),
+    };
+  });
 }
 
 interface MetaRecommendationTaxonomyContext {

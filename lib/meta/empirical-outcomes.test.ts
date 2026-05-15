@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyMetaDecisionOutcomeStatus,
+  metaEmpiricalOutcomeSummaryKey,
+  summarizeMetaDecisionOutcomesByKey,
   summarizeMetaDecisionOutcomes,
 } from "@/lib/meta/empirical-outcomes";
 
@@ -9,11 +11,58 @@ function rows(statuses: string[]) {
 }
 
 describe("Meta empirical outcomes", () => {
+  it("builds stable type and decision-label summary keys", () => {
+    expect(metaEmpiricalOutcomeSummaryKey({
+      recType: "adset_scale_budget",
+      decisionLabel: "scale",
+    })).toBe("adset_scale_budget::scale");
+    expect(metaEmpiricalOutcomeSummaryKey({
+      recType: "adset_scale_budget",
+      decisionLabel: null,
+    })).toBe("adset_scale_budget::*");
+  });
+
   it("normalizes outcome status vocabulary", () => {
     expect(classifyMetaDecisionOutcomeStatus("profitable")).toBe("positive");
     expect(classifyMetaDecisionOutcomeStatus("regressed")).toBe("negative");
     expect(classifyMetaDecisionOutcomeStatus("mixed")).toBe("neutral");
     expect(classifyMetaDecisionOutcomeStatus(null)).toBe("unknown");
+  });
+
+  it("summarizes persisted outcomes by recommendation type and decision label", () => {
+    const summaries = summarizeMetaDecisionOutcomesByKey([
+      {
+        rec_type: "adset_scale_budget",
+        decision_label: "scale",
+        action_type: "outcome",
+        outcome_status: "positive",
+      },
+      {
+        rec_type: "adset_scale_budget",
+        decision_label: "scale",
+        action_type: "outcome",
+        outcome_status: "negative",
+      },
+      {
+        rec_type: "adset_cut_spend",
+        decision_label: "cut",
+        action_type: "preflight",
+        outcome_status: "positive",
+      },
+    ], { minSampleSize: 2 });
+
+    expect(summaries["adset_scale_budget::scale"]).toMatchObject({
+      sampleSize: 2,
+      judgedSampleSize: 2,
+      positiveCount: 1,
+      negativeCount: 1,
+      confidenceBand: "low",
+    });
+    expect(summaries["adset_cut_spend::cut"]).toMatchObject({
+      sampleSize: 0,
+      judgedSampleSize: 0,
+      confidenceBand: "insufficient_sample",
+    });
   });
 
   it("ignores non-outcome action logs", () => {

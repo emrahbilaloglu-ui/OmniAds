@@ -22,11 +22,13 @@ import {
   resolveMetaFunnelCohort,
   type MetaFunnelCohort,
 } from "@/lib/meta/funnel-cohort";
+import { emitMidFunnelAdsetScenario } from "@/lib/meta/scenario-emitters/mid-funnel";
 
 export interface BuildMetaAdsetRecommendationsInput {
   adsets: MetaAdSetData[];
   campaigns?: MetaCampaignRow[];
   calibrationContext?: MetaCalibrationContext | null;
+  calibrationContextByAdsetId?: Record<string, MetaCalibrationContext | null | undefined>;
   calibrationContextByCampaignId?: Record<string, MetaCalibrationContext | null | undefined>;
   entitySignalsByAdsetId?: Record<string, MetaEntityDecisionSignal | null | undefined>;
 }
@@ -57,7 +59,8 @@ function contextForAdset(
   input: BuildMetaAdsetRecommendationsInput,
   adset: MetaAdSetData,
 ): MetaCalibrationContext | null {
-  return input.calibrationContextByCampaignId?.[adset.campaignId] ??
+  return input.calibrationContextByAdsetId?.[adset.id] ??
+    input.calibrationContextByCampaignId?.[adset.campaignId] ??
     input.calibrationContext ??
     null;
 }
@@ -201,6 +204,21 @@ export function buildMetaAdsetRecommendations(
     if (scenario) {
       recommendations.push(scenario);
       continue;
+    }
+
+    if (cohort === "mid_funnel") {
+      const midFunnelScenario = emitMidFunnelAdsetScenario({
+        adset,
+        campaign,
+        context,
+        cohort,
+        ...taxonomyFields,
+        signals: input.entitySignalsByAdsetId?.[adset.id] ?? null,
+      });
+      if (midFunnelScenario) {
+        recommendations.push(midFunnelScenario);
+        continue;
+      }
     }
 
     const scaleThreshold = context ? roas.p75 : Math.max(roas.p75, 2.5);

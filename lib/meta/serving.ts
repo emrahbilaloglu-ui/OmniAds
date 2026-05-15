@@ -27,6 +27,7 @@ import {
   getMetaAdSetDailyCoverage,
   getMetaAccountDailyCoverage,
   getMetaAccountDailyRange,
+  getMetaAdDailyRange,
   getMetaAdSetDailyRange,
   getMetaBreakdownDailyRange,
   getMetaCampaignDailyRange,
@@ -36,6 +37,7 @@ import {
 } from "@/lib/meta/warehouse";
 import {
   type MetaAccountDailyRow,
+  type MetaAdDailyRow,
   type MetaAdSetDailyRow,
   type MetaBreakdownDailyRow,
   type MetaCampaignDailyRow,
@@ -351,6 +353,10 @@ export interface MetaWarehouseAdSetTableRow {
   reach: number;
   frequency: number | null;
   clicks: number;
+  linkClicks?: number | null;
+  addToCart?: number | null;
+  initiateCheckout?: number | null;
+  viewContent?: number | null;
 }
 
 export interface MetaWarehouseBreakdownsResponse {
@@ -364,6 +370,13 @@ export interface MetaWarehouseBreakdownsResponse {
     campaign: Array<{ key: string; label: string; spend: number }>;
     adset: Array<{ key: string; label: string; spend: number }>;
   };
+}
+
+interface MetaAdSetFunnelEventTotals {
+  linkClicks: number;
+  addToCart: number;
+  initiateCheckout: number;
+  viewContent: number;
 }
 
 export interface MetaWarehouseCountryBreakdownsResponse {
@@ -407,7 +420,7 @@ function normalizeMetaServingDate(value: string | Date) {
 function filterRowsToPublishedKeys<T extends { providerAccountId: string; date: string | Date }>(
   rows: T[],
   verification: MetaPublishedVerificationSummary | null | undefined,
-  surface: "account_daily" | "campaign_daily" | "adset_daily",
+  surface: "account_daily" | "campaign_daily" | "adset_daily" | "ad_daily",
 ) {
   const keys = new Set(verification?.publishedKeysBySurface[surface] ?? []);
   if (keys.size === 0) return [] as T[];
@@ -1799,9 +1812,11 @@ function buildAdSetTableRow(input: {
   row: MetaAdSetDailyRow;
   latestConfig?: MetaWarehouseCurrentConfig | null;
   previousConfig?: MetaWarehousePreviousConfig | null;
+  funnelEvents?: MetaAdSetFunnelEventTotals | null;
 }): MetaWarehouseAdSetTableRow {
   const latest = input.latestConfig;
   const previous = input.previousConfig;
+  const funnelEvents = input.funnelEvents;
   return {
     id: input.row.adsetId,
     accountId: input.row.providerAccountId,
@@ -1850,7 +1865,64 @@ function buildAdSetTableRow(input: {
     reach: input.row.reach,
     frequency: input.row.frequency,
     clicks: input.row.clicks,
+    linkClicks: funnelEvents?.linkClicks ?? null,
+    addToCart: funnelEvents?.addToCart ?? null,
+    initiateCheckout: funnelEvents?.initiateCheckout ?? null,
+    viewContent: funnelEvents?.viewContent ?? null,
   };
+}
+
+function addToAdsetFunnelTotals(
+  totals: Map<string, MetaAdSetFunnelEventTotals>,
+  row: MetaAdDailyRow,
+) {
+  if (!row.adsetId) return;
+  const current = totals.get(row.adsetId) ?? {
+    linkClicks: 0,
+    addToCart: 0,
+    initiateCheckout: 0,
+    viewContent: 0,
+  };
+  current.linkClicks += Number(row.linkClicks ?? 0);
+  current.addToCart += Number(row.addToCart ?? 0);
+  current.initiateCheckout += Number(row.initiateCheckout ?? 0);
+  current.viewContent += Number(row.viewContent ?? 0);
+  totals.set(row.adsetId, current);
+}
+
+async function readMetaAdSetFunnelEventTotals(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  providerAccountIds?: string[] | null;
+  adsetIds: string[];
+  verification?: MetaPublishedVerificationSummary | null;
+}) {
+  if (input.adsetIds.length === 0) {
+    return new Map<string, MetaAdSetFunnelEventTotals>();
+  }
+  const requested = new Set(input.adsetIds);
+  const rows = await getMetaAdDailyRange({
+    businessId: input.businessId,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    providerAccountIds: input.providerAccountIds,
+  }).catch((error) => {
+    console.warn("[meta-serving] adset_funnel_events_unavailable", {
+      businessId: input.businessId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return [] as MetaAdDailyRow[];
+  });
+  const verifiedRows = input.verification
+    ? filterRowsToPublishedKeys(rows, input.verification, "ad_daily")
+    : rows;
+  const totals = new Map<string, MetaAdSetFunnelEventTotals>();
+  for (const row of verifiedRows) {
+    if (!row.adsetId || !requested.has(row.adsetId)) continue;
+    addToAdsetFunnelTotals(totals, row);
+  }
+  return totals;
 }
 
 export async function getMetaWarehouseAdSets(input: {
@@ -1873,7 +1945,7 @@ export async function getMetaWarehouseAdSets(input: {
         startDate: input.startDate,
         endDate: input.endDate,
         providerAccountIds,
-        surfaces: ["adset_daily"],
+        surfaces: ["adset_daily", "ad_daily"],
       }).catch(() => null)
     : null;
   const rows = v2Enabled
@@ -1957,7 +2029,7 @@ export async function getMetaWarehouseAdSets(input: {
           ),
         )
       : adsetIds;
-  const [dimensions, latestConfigHistory, previousHistoryDiffs] = await Promise.all([
+  const [dimensions, latestConfigHistory, previousHistoryDiffs, funnelEventTotals] = await Promise.all([
     readMetaAdSetDimensions({
       businessId: input.businessId,
       adsetIds,
@@ -1991,6 +2063,14 @@ export async function getMetaWarehouseAdSets(input: {
           return new Map<string, MetaPreviousConfigDiff>();
         })
       : Promise.resolve(new Map<string, MetaPreviousConfigDiff>()),
+    readMetaAdSetFunnelEventTotals({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      providerAccountIds: input.providerAccountIds,
+      adsetIds,
+      verification,
+    }),
   ]);
 
   return aggregated
@@ -2011,6 +2091,7 @@ export async function getMetaWarehouseAdSets(input: {
         previousConfig: input.includePrev
           ? mergePreviousConfig(null, previousHistoryDiffs.get(row.adsetId))
           : null,
+        funnelEvents: funnelEventTotals.get(row.adsetId) ?? null,
       })
     )
     .sort((a, b) => b.spend - a.spend);

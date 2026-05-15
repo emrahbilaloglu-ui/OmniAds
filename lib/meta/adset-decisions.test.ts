@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { buildMetaAdsetRecommendations } from "@/lib/meta/adset-decisions";
 import type { MetaAdSetData } from "@/lib/api/meta";
+import { LEGACY_META_CALIBRATION_THRESHOLDS } from "@/lib/meta/calibration";
+import type { MetaCalibrationContext } from "@/lib/meta/recommendations";
 
 function adset(overrides: Partial<MetaAdSetData> = {}): MetaAdSetData {
   return {
@@ -33,6 +35,24 @@ function adset(overrides: Partial<MetaAdSetData> = {}): MetaAdSetData {
     ...overrides,
   };
 }
+
+const midFunnelContext: MetaCalibrationContext = {
+  thresholds: {
+    source: "calibrated",
+    hardCutSpend: 200,
+    minRequiredSample: 8,
+    metrics: {
+      ...LEGACY_META_CALIBRATION_THRESHOLDS.metrics,
+      cost_per_atc_28d: { p10: 5, p25: 8, p50: 12, p75: 16, p90: 25, sampleSize: 20 },
+      atc_rate_28d: { p10: 1, p25: 2, p50: 3, p75: 4, p90: 5, sampleSize: 20 },
+      atc_to_purchase_rate_28d: { p10: 1, p25: 3, p50: 6, p75: 8, p90: 11, sampleSize: 20 },
+      freq_14d: { p10: 1, p25: 1.3, p50: 1.8, p75: 2.5, p90: 3.5, sampleSize: 20 },
+      ctr_28d: { p10: 0.4, p25: 1, p50: 2, p75: 3, p90: 4, sampleSize: 20 },
+    },
+  },
+  scope: { type: "campaign", id: "cmp-1", snapshotDate: "2026-05-14", cohort: "mid_funnel" },
+  cohort: "mid_funnel",
+};
 
 describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
   it("does not cut a THRUPLAY adset with high spend and zero purchases", () => {
@@ -126,5 +146,49 @@ describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
 
     expect(recs.some((rec) => rec.type === "adset_scale_budget")).toBe(false);
     expect(recs.some((rec) => rec.type === "adset_cut_spend")).toBe(false);
+  });
+
+  it("emits the mid-funnel weighted score recommendation after high-priority checks miss", () => {
+    const recs = buildMetaAdsetRecommendations({
+      adsets: [
+        adset({
+          optimizationGoal: "OFFSITE_CONVERSIONS",
+          customEventType: "ADD_TO_CART",
+          spend: 400,
+          addToCart: 100,
+          purchases: 20,
+          impressions: 1000,
+          ctr: 3,
+          frequency: 1.5,
+        }),
+      ],
+      calibrationContextByAdsetId: {
+        "adset-1": midFunnelContext,
+      },
+      entitySignalsByAdsetId: {
+        "adset-1": {
+          businessId: "biz_1",
+          providerAccountId: "act_1",
+          scopeType: "adset",
+          scopeId: "adset-1",
+          asOfDate: "2026-05-14",
+          learningState: "OPTIMAL_LEARNING_DONE",
+          daysAtLearningState: null,
+          lastSignificantEditAt: null,
+          daysSinceSignificantEdit: null,
+          recentChangeCooldownUntil: null,
+          creativeAgeDays: 20,
+          creativeAgeDaysMax: 20,
+          frequencyP80: null,
+          ctrDecayPct: null,
+          sourceJson: { age_days: 20 },
+          qualityStatus: "ready",
+        },
+      },
+    });
+
+    const rec = recs.find((candidate) => candidate.type === "scenario_m1_mid_funnel_efficient_scale");
+    expect(rec?.decisionLabel).toBe("scale");
+    expect(rec?.cohort).toBe("mid_funnel");
   });
 });

@@ -261,6 +261,7 @@ export interface MetaAdDailyRow extends MetaWarehouseBaseRow {
   landingPageViews?: number | null;
   addToCart?: number | null;
   initiateCheckout?: number | null;
+  viewContent?: number | null;
   destinationUrl?: string | null;
   destinationUrlRaw?: string | null;
   destinationUrlSource?: string | null;

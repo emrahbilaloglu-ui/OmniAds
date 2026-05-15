@@ -215,6 +215,9 @@ describe("meta snapshot job", () => {
         creativeAgeDaysMax: 0,
         lastSignificantEditAt: 0,
         learningState: 0,
+        trackingQualityStatus: 0,
+        monthlyPacingStatus: 0,
+        placementMix: 0,
       },
     });
     vi.mocked(evidenceTrail.buildEvidenceTrailsForRecommendations).mockImplementation(

@@ -164,17 +164,51 @@ function signalQuality(signals: MetaEntityDecisionSignal | null | undefined, con
   if (!signals) {
     return { quality_status: "missing", confidence_cap: "low_without_signal_table" };
   }
+  const monthlyPacing = sourceRecord(signals, "monthly_pacing");
+  const placementMix = sourceRecord(signals, "placement_mix");
   return {
     quality_status: signals.qualityStatus,
     confidence_cap: confidenceLabel,
     signal_source: "meta_entity_decision_signals_daily",
     learning_state: signals.learningState,
     days_since_significant_edit: signals.daysSinceSignificantEdit,
+    tracking_quality_status: signals.trackingQualityStatus ?? null,
+    monthly_pacing_status: textFromRecord(monthlyPacing, "status"),
+    placement_mix_status: textFromRecord(placementMix, "status"),
   };
 }
 
 function recentEditCooldownActive(signals: MetaEntityDecisionSignal | null | undefined) {
   return signals?.daysSinceSignificantEdit != null && signals.daysSinceSignificantEdit < 7;
+}
+
+function sourceRecord(
+  signals: MetaEntityDecisionSignal | null | undefined,
+  key: string,
+): Record<string, unknown> | null {
+  const value = signals?.sourceJson?.[key];
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function textFromRecord(record: Record<string, unknown> | null, key: string) {
+  const text = String(record?.[key] ?? "").trim();
+  return text.length > 0 ? text : null;
+}
+
+function numberFromRecord(record: Record<string, unknown> | null, key: string) {
+  const value = record?.[key];
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function trackingQualityIssue(signals: MetaEntityDecisionSignal | null | undefined) {
+  return signals?.trackingQualityStatus === "lpv_drop_suspected";
+}
+
+function monthlyPacingStatus(signals: MetaEntityDecisionSignal | null | undefined) {
+  return textFromRecord(sourceRecord(signals, "monthly_pacing"), "status");
 }
 
 function baseCampaignRec(input: {
@@ -195,6 +229,7 @@ function baseCampaignRec(input: {
   bidRegime?: MetaBidRegime;
   cohort: MetaFunnelCohort;
   signals?: MetaEntityDecisionSignal | null;
+  decisionLabel?: MetaRecommendation["decisionLabel"];
 }): MetaRecommendation {
   return {
     id: `${input.type}-${input.row.id}`,
@@ -205,6 +240,7 @@ function baseCampaignRec(input: {
     kind: "recommendation",
     lens: input.lens,
     priority: input.priority,
+    decisionLabel: input.decisionLabel,
     confidence: input.confidenceScore.label,
     confidenceScore: input.confidenceScore.score,
     confidenceReason: input.confidenceScore.reason ?? null,
@@ -402,6 +438,115 @@ export function maybeJ1StableWinnerProtected(input: CampaignScenarioInput): Meta
   });
 }
 
+export function maybeC2RecentEditCooldown(input: CampaignScenarioInput): MetaRecommendation | null {
+  const row = input.window.selected;
+  if (!recentEditCooldownActive(input.signals)) return null;
+  const conf = confidence({
+    level: "campaign",
+    context: input.context,
+    metricValue: row.roas,
+    threshold: metric(input.context, "roas_28d")?.p50 ?? (row.roas || 1),
+  });
+  return baseCampaignRec({
+    row,
+    type: "scenario_c2_recent_edit_cooldown",
+    lens: "structure",
+    priority: "medium",
+    confidenceScore: { ...conf, label: conf.label === "high" ? "medium" : conf.label },
+    decisionState: "watch",
+    decisionLabel: "keep",
+    title: `${row.name}: recent edit cooldown`,
+    why: "Signal table shows a significant edit inside the 7-day cooldown window.",
+    summary: "Hold hard budget and rebuild actions until the edit has enough post-change data.",
+    recommendedAction: "Wait for the cooldown window to clear before judging scale, cut, or rebuild actions.",
+    expectedImpact: "Reduces false decisions from Meta learning reset and post-edit volatility.",
+    evidence: [
+      { label: "Days since edit", value: String(input.signals?.daysSinceSignificantEdit ?? 0), tone: "warning" },
+      { label: "Cooldown", value: "7 days", tone: "neutral" },
+    ],
+    targetValue: {
+      days_since_significant_edit: input.signals?.daysSinceSignificantEdit ?? null,
+      cooldown_until: input.signals?.recentChangeCooldownUntil ?? null,
+    },
+    campaignRole: input.campaignRole,
+    bidRegime: input.bidRegime,
+    cohort: input.cohort,
+    signals: input.signals,
+  });
+}
+
+export function maybeH1TrackingQualityDiagnostic(input: CampaignScenarioInput): MetaRecommendation | null {
+  if (!trackingQualityIssue(input.signals)) return null;
+  const row = input.window.selected;
+  const tracking = sourceRecord(input.signals, "tracking_quality");
+  const conf = confidence({
+    level: "campaign",
+    context: input.context,
+    metricValue: row.roas,
+    threshold: metric(input.context, "roas_28d")?.p50 ?? (row.roas || 1),
+  });
+  return baseCampaignRec({
+    row,
+    type: "scenario_h1_dedup_tracking",
+    lens: "structure",
+    priority: "high",
+    confidenceScore: { ...conf, label: "medium", score: Math.min(conf.score, 0.69) },
+    decisionState: "test",
+    decisionLabel: "diagnose",
+    title: `${row.name}: diagnose click-to-LPV tracking`,
+    why: "Ad-level signal shows a dense click sample with unusually low landing page view capture.",
+    summary: "Do not cut or scale from purchase output until the click-to-LPV drop is explained.",
+    recommendedAction: "Check landing page load, redirect, Pixel/CAPI event capture, and broken URL paths before performance action.",
+    expectedImpact: "Separates a real sales problem from a measurement or landing-page quality problem.",
+    evidence: [
+      { label: "Link clicks", value: String(numberFromRecord(tracking, "link_clicks") ?? 0), tone: "neutral" },
+      { label: "Landing page views", value: String(numberFromRecord(tracking, "landing_page_views") ?? 0), tone: "warning" },
+      { label: "LPV / click", value: `${r2((numberFromRecord(tracking, "landing_page_view_rate") ?? 0) * 100)}%`, tone: "warning" },
+    ],
+    targetValue: tracking ?? { tracking_quality_status: input.signals?.trackingQualityStatus ?? null },
+    campaignRole: input.campaignRole,
+    bidRegime: input.bidRegime,
+    cohort: input.cohort,
+    signals: input.signals,
+  });
+}
+
+export function maybeF3BudgetPacingCooldown(input: CampaignScenarioInput): MetaRecommendation | null {
+  if (monthlyPacingStatus(input.signals) !== "overpaced") return null;
+  const row = input.window.selected;
+  const pacing = sourceRecord(input.signals, "monthly_pacing");
+  const conf = confidence({
+    level: "campaign",
+    context: input.context,
+    metricValue: row.roas,
+    threshold: metric(input.context, "roas_28d")?.p50 ?? (row.roas || 1),
+  });
+  return baseCampaignRec({
+    row,
+    type: "scenario_f3_budget_change_cooldown",
+    lens: "volume",
+    priority: "medium",
+    confidenceScore: { ...conf, label: conf.label === "high" ? "medium" : conf.label },
+    decisionState: "watch",
+    decisionLabel: "diagnose",
+    title: `${row.name}: monthly pacing cooldown`,
+    why: "MTD spend is materially ahead of the elapsed monthly budget pace.",
+    summary: "Avoid budget increases until pacing normalizes or the monthly target is intentionally raised.",
+    recommendedAction: "Hold scale actions and review monthly budget intent before changing bids or budgets.",
+    expectedImpact: "Prevents compounding an already overpaced spend curve.",
+    evidence: [
+      { label: "Pace ratio", value: `${r2(numberFromRecord(pacing, "pace_ratio") ?? 0)}x`, tone: "warning" },
+      { label: "MTD spend", value: fmtCurrency(numberFromRecord(pacing, "mtd_spend") ?? 0, row.currency), tone: "warning" },
+      { label: "Expected MTD spend", value: fmtCurrency(numberFromRecord(pacing, "expected_mtd_spend") ?? 0, row.currency), tone: "neutral" },
+    ],
+    targetValue: pacing ?? { monthly_pacing_status: "overpaced" },
+    campaignRole: input.campaignRole,
+    bidRegime: input.bidRegime,
+    cohort: input.cohort,
+    signals: input.signals,
+  });
+}
+
 export function maybeA2StructuralRebuild(input: CampaignScenarioInput): MetaRecommendation | null {
   const row = input.window.selected;
   const roas = metric(input.context, "roas_28d");
@@ -409,6 +554,7 @@ export function maybeA2StructuralRebuild(input: CampaignScenarioInput): MetaReco
   const cutCeiling = metaCutRoasCeiling(input.commercialTargets);
   if (!roas || !sampleReady(input.context, "roas_28d")) return null;
   if (!cutCeiling) return null;
+  if (recentEditCooldownActive(input.signals) || trackingQualityIssue(input.signals)) return null;
   const maturity = metaLossBudgetMaturity({
     targets: input.commercialTargets,
     accountCpaBaseline: cpa?.p50 ?? null,
@@ -681,6 +827,9 @@ export function maybeA1MathFloor(input: CampaignScenarioInput): MetaRecommendati
 }
 
 const CAMPAIGN_PRECEDENCE = [
+  maybeC2RecentEditCooldown,
+  maybeH1TrackingQualityDiagnostic,
+  maybeF3BudgetPacingCooldown,
   maybeA2StructuralRebuild,
   maybeK1MixedConfig,
   maybeI4TestShouldUseAbo,

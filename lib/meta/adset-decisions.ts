@@ -108,6 +108,32 @@ function hasRangeAlignedCohortConfig(adset: MetaAdSetData) {
   return !adset.isOptimizationGoalMixed && !adset.isCustomEventTypeMixed;
 }
 
+function signalRecord(
+  signals: MetaEntityDecisionSignal | null | undefined,
+  key: string,
+) {
+  const value = signals?.sourceJson?.[key];
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function textFromSignalRecord(
+  signals: MetaEntityDecisionSignal | null | undefined,
+  recordKey: string,
+  valueKey: string,
+) {
+  const text = String(signalRecord(signals, recordKey)?.[valueKey] ?? "").trim();
+  return text.length > 0 ? text : null;
+}
+
+function blocksPurchaseHardAction(signals: MetaEntityDecisionSignal | null | undefined) {
+  if (!signals) return false;
+  if (signals.daysSinceSignificantEdit != null && signals.daysSinceSignificantEdit < 7) return true;
+  if (signals.trackingQualityStatus === "lpv_drop_suspected") return true;
+  return textFromSignalRecord(signals, "monthly_pacing", "status") === "overpaced";
+}
+
 function confidence(input: {
   context: MetaCalibrationContext | null;
   metricValue: number;
@@ -201,6 +227,7 @@ export function buildMetaAdsetRecommendations(
       revenue: adset.revenue,
     });
     const context = contextForAdset(input, adset);
+    const signals = input.entitySignalsByAdsetId?.[adset.id] ?? null;
     const taxonomyFields = {
       campaignName: campaign?.name,
       campaignRole: campaign
@@ -220,7 +247,7 @@ export function buildMetaAdsetRecommendations(
       context,
       cohort,
       ...taxonomyFields,
-      signals: input.entitySignalsByAdsetId?.[adset.id] ?? null,
+      signals,
     });
     if (scenario) {
       recommendations.push(scenario);
@@ -234,7 +261,7 @@ export function buildMetaAdsetRecommendations(
         context,
         cohort,
         ...taxonomyFields,
-        signals: input.entitySignalsByAdsetId?.[adset.id] ?? null,
+        signals,
       });
       if (midFunnelScenario) {
         recommendations.push(midFunnelScenario);
@@ -249,7 +276,7 @@ export function buildMetaAdsetRecommendations(
         context,
         cohort,
         ...taxonomyFields,
-        signals: input.entitySignalsByAdsetId?.[adset.id] ?? null,
+        signals,
       });
       if (leadScenario) {
         recommendations.push(leadScenario);
@@ -264,7 +291,7 @@ export function buildMetaAdsetRecommendations(
         context,
         cohort,
         ...taxonomyFields,
-        signals: input.entitySignalsByAdsetId?.[adset.id] ?? null,
+        signals,
       });
       if (trafficScenario) {
         recommendations.push(trafficScenario);
@@ -279,7 +306,7 @@ export function buildMetaAdsetRecommendations(
         context,
         cohort,
         ...taxonomyFields,
-        signals: input.entitySignalsByAdsetId?.[adset.id] ?? null,
+        signals,
       });
       if (engagementScenario) {
         recommendations.push(engagementScenario);
@@ -304,7 +331,7 @@ export function buildMetaAdsetRecommendations(
       adset.spend >= maturity.spendThreshold,
     );
 
-    if (isPurchaseCohort(cohort) && hasRangeAlignedCohortConfig(adset)) {
+    if (isPurchaseCohort(cohort) && hasRangeAlignedCohortConfig(adset) && !blocksPurchaseHardAction(signals)) {
       if (
         scaleThreshold != null &&
         adset.purchases >= 8 &&

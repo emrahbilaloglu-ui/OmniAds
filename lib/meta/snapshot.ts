@@ -571,6 +571,7 @@ async function buildCalibrationContexts(input: {
   businessId: string;
   snapshotDate: string;
   campaigns: MetaCampaignRow[];
+  campaignLabelsById?: MetaCampaignLabelKindMap | null;
 }) {
   const byCampaignId: Record<string, MetaCalibrationContext> = {};
   for (const campaign of input.campaigns) {
@@ -583,6 +584,7 @@ async function buildCalibrationContexts(input: {
       accountId: campaign.accountId,
       snapshotDate: input.snapshotDate,
       cohort,
+      campaignKind: input.campaignLabelsById?.get(campaign.id) ?? "all",
     });
     byCampaignId[campaign.id] = {
       thresholds: scope.thresholds,
@@ -602,6 +604,7 @@ async function buildAdsetCalibrationContexts(input: {
   businessId: string;
   snapshotDate: string;
   adsets: MetaAdSetData[];
+  campaignLabelsById?: MetaCampaignLabelKindMap | null;
 }) {
   const byAdsetId: Record<string, MetaCalibrationContext> = {};
   const cache = new Map<string, MetaCalibrationContext>();
@@ -610,7 +613,8 @@ async function buildAdsetCalibrationContexts(input: {
       optimizationGoal: adset.optimizationGoal,
       customEventType: adset.customEventType,
     });
-    const cacheKey = `${adset.accountId ?? ""}:${adset.campaignId}:${cohort}`;
+    const campaignKind = input.campaignLabelsById?.get(adset.campaignId) ?? "all";
+    const cacheKey = `${adset.accountId ?? ""}:${adset.campaignId}:${cohort}:${campaignKind}`;
     const cached = cache.get(cacheKey);
     if (cached) {
       byAdsetId[adset.id] = cached;
@@ -621,6 +625,7 @@ async function buildAdsetCalibrationContexts(input: {
       accountId: adset.accountId ?? "",
       snapshotDate: input.snapshotDate,
       cohort,
+      campaignKind,
     });
     const context: MetaCalibrationContext = {
       thresholds: scope.thresholds,
@@ -721,6 +726,7 @@ async function buildSnapshotRecommendations(input: {
     businessId: input.businessId,
     snapshotDate: endDate,
     campaigns,
+    campaignLabelsById,
   });
   const historicalBidRegimes = Object.fromEntries(
     (
@@ -763,6 +769,7 @@ async function buildSnapshotRecommendations(input: {
     businessId: input.businessId,
     snapshotDate: endDate,
     adsets: adsetRows.rows ?? [],
+    campaignLabelsById,
   });
   const adsetRecommendations = buildMetaAdsetRecommendations({
     adsets: adsetRows.rows ?? [],

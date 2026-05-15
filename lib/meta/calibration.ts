@@ -3,6 +3,7 @@ import {
   resolveMetaFunnelCohort,
   type MetaFunnelCohort,
 } from "@/lib/meta/funnel-cohort";
+import type { MetaCampaignKind } from "@/lib/meta/campaign-label-types";
 
 export const MIN_CAMPAIGN_CALIBRATION_SAMPLE = 8;
 export const MIN_ACCOUNT_CALIBRATION_SAMPLE = 1;
@@ -31,6 +32,7 @@ export const META_CALIBRATION_METRICS = [
 
 export type MetaCalibrationMetricName = (typeof META_CALIBRATION_METRICS)[number];
 export type MetaCalibrationScopeType = "account" | "campaign";
+export type MetaCalibrationCampaignKind = "all" | MetaCampaignKind;
 export type MetaCalibrationFallbackReason =
   | "campaign_calibration_missing"
   | "campaign_sample_below_threshold"
@@ -62,6 +64,7 @@ export interface MetaCalibrationScopeResult {
     id: string;
     snapshotDate: string | null;
     cohort?: MetaFunnelCohort;
+    campaignKind?: MetaCalibrationCampaignKind;
   };
   reason?: MetaCalibrationFallbackReason;
 }
@@ -117,6 +120,7 @@ interface CalibrationPayloadRow {
   snapshot_date: string;
   metric_name: MetaCalibrationMetricName;
   cohort: MetaFunnelCohort;
+  campaign_kind: MetaCalibrationCampaignKind;
   p10: number;
   p25: number;
   p50: number;
@@ -131,6 +135,7 @@ type CalibrationDbRow = {
   snapshot_date: string;
   metric_name: MetaCalibrationMetricName;
   cohort: MetaFunnelCohort;
+  campaign_kind: MetaCalibrationCampaignKind;
   p10: unknown;
   p25: unknown;
   p50: unknown;
@@ -225,6 +230,13 @@ function isPositiveFinite(value: number | null | undefined): value is number {
 
 function isNonNegativeFinite(value: number | null | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function normalizeCalibrationCampaignKind(
+  value: MetaCalibrationCampaignKind | null | undefined,
+): MetaCalibrationCampaignKind {
+  if (value === "main" || value === "test" || value === "mixed") return value;
+  return "all";
 }
 
 export function computeMetaPercentiles(values: number[]): MetaMetricPercentiles | null {
@@ -401,6 +413,7 @@ function pushMetricRows(input: {
   scopeType: MetaCalibrationScopeType;
   scopeId: string;
   cohort: Exclude<MetaFunnelCohort, "unknown">;
+  campaignKind?: MetaCalibrationCampaignKind | null;
   samples: ComputedMetricSample[];
   sampleThreshold: number;
 }) {
@@ -424,6 +437,7 @@ function pushMetricRows(input: {
       snapshot_date: input.snapshotDate,
       metric_name: metricName,
       cohort: input.cohort,
+      campaign_kind: normalizeCalibrationCampaignKind(input.campaignKind),
       p10: percentiles.p10,
       p25: percentiles.p25,
       p50: percentiles.p50,
@@ -516,6 +530,7 @@ async function upsertCalibrationPayload(payload: CalibrationPayloadRow[], busine
           snapshot_date date,
           metric_name text,
           cohort text,
+          campaign_kind text,
           p10 numeric,
           p25 numeric,
           p50 numeric,
@@ -531,6 +546,7 @@ async function upsertCalibrationPayload(payload: CalibrationPayloadRow[], busine
         snapshot_date,
         metric_name,
         cohort,
+        campaign_kind,
         p10,
         p25,
         p50,
@@ -545,6 +561,7 @@ async function upsertCalibrationPayload(payload: CalibrationPayloadRow[], busine
         snapshot_date,
         metric_name,
         cohort,
+        campaign_kind,
         p10,
         p25,
         p50,
@@ -552,7 +569,7 @@ async function upsertCalibrationPayload(payload: CalibrationPayloadRow[], busine
         p90,
         sample_size
       FROM payload
-      ON CONFLICT (business_id, scope_type, scope_id, snapshot_date, metric_name, cohort)
+      ON CONFLICT (business_id, scope_type, scope_id, snapshot_date, metric_name, cohort, campaign_kind)
       DO UPDATE SET
         p10 = EXCLUDED.p10,
         p25 = EXCLUDED.p25,
@@ -685,20 +702,31 @@ async function readCalibrationRows(input: {
   scopeType: MetaCalibrationScopeType;
   scopeId: string;
   cohort?: MetaFunnelCohort | null;
+  campaignKind?: MetaCalibrationCampaignKind | null;
   snapshotDate?: string | null;
 }): Promise<CalibrationDbRow[]> {
   const sql = getDb();
   const snapshotDate = input.snapshotDate ? normalizeDate(input.snapshotDate) : todayIso();
   const cohort = input.cohort ?? "purchase";
+  const campaignKind = normalizeCalibrationCampaignKind(input.campaignKind);
   return (await sql`
     WITH latest AS (
-      SELECT MAX(snapshot_date) AS snapshot_date
+      SELECT snapshot_date, campaign_kind
       FROM meta_decision_calibration_daily
       WHERE business_id = ${input.businessId}
         AND scope_type = ${input.scopeType}
         AND scope_id = ${input.scopeId}
         AND cohort = ${cohort}
         AND snapshot_date <= ${snapshotDate}::date
+        AND (
+          campaign_kind = ${campaignKind}
+          OR (${campaignKind} <> 'all' AND campaign_kind = 'all')
+        )
+      GROUP BY snapshot_date, campaign_kind
+      ORDER BY
+        CASE WHEN campaign_kind = ${campaignKind} THEN 0 ELSE 1 END,
+        snapshot_date DESC
+      LIMIT 1
     )
     SELECT
       scope_type,
@@ -706,6 +734,7 @@ async function readCalibrationRows(input: {
       snapshot_date::text AS snapshot_date,
       metric_name,
       cohort,
+      campaign_kind,
       p10,
       p25,
       p50,
@@ -718,6 +747,7 @@ async function readCalibrationRows(input: {
       AND scope_id = ${input.scopeId}
       AND cohort = ${cohort}
       AND snapshot_date = (SELECT snapshot_date FROM latest)
+      AND campaign_kind = (SELECT campaign_kind FROM latest)
   `) as CalibrationDbRow[];
 }
 
@@ -781,10 +811,12 @@ export async function getMetaCalibrationScope(
     accountId: string;
     snapshotDate?: string | null;
     cohort?: MetaFunnelCohort | null;
+    campaignKind?: MetaCalibrationCampaignKind | null;
   },
 ): Promise<MetaCalibrationScopeResult> {
   const snapshotDate = scope.snapshotDate ? normalizeDate(scope.snapshotDate) : todayIso();
   const cohort = scope.cohort ?? "purchase";
+  const campaignKind = normalizeCalibrationCampaignKind(scope.campaignKind);
   let campaignFallbackReason: MetaCalibrationFallbackReason | undefined;
 
   if (scope.campaignId) {
@@ -793,6 +825,7 @@ export async function getMetaCalibrationScope(
       scopeType: "campaign",
       scopeId: scope.campaignId,
       cohort,
+      campaignKind,
       snapshotDate,
     });
     if (campaignRows.length > 0) {
@@ -803,6 +836,7 @@ export async function getMetaCalibrationScope(
           id: scope.campaignId,
           snapshotDate: campaignRows[0]?.snapshot_date ?? snapshotDate,
           cohort,
+          campaignKind: campaignRows[0]?.campaign_kind ?? campaignKind,
         },
       };
     }
@@ -824,6 +858,7 @@ export async function getMetaCalibrationScope(
     scopeType: "account",
     scopeId: scope.accountId,
     cohort,
+    campaignKind,
     snapshotDate,
   });
   if (accountRows.length > 0) {
@@ -834,6 +869,7 @@ export async function getMetaCalibrationScope(
         id: scope.accountId,
         snapshotDate: accountRows[0]?.snapshot_date ?? snapshotDate,
         cohort,
+        campaignKind: accountRows[0]?.campaign_kind ?? campaignKind,
       },
       ...(campaignFallbackReason ? { reason: campaignFallbackReason } : {}),
     };
@@ -847,6 +883,7 @@ export async function getMetaCalibrationScope(
       id: scope.accountId,
       snapshotDate: null,
       cohort,
+      campaignKind,
     },
     reason,
   };

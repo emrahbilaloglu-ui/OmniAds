@@ -2762,19 +2762,29 @@ export async function runMigrations(options?: {
           snapshot_date DATE NOT NULL,
           metric_name   TEXT NOT NULL,
           cohort        TEXT NOT NULL DEFAULT 'purchase',
+          campaign_kind TEXT NOT NULL DEFAULT 'all'
+            CHECK (campaign_kind IN ('all', 'main', 'test', 'mixed')),
           p10           NUMERIC NOT NULL,
           p25           NUMERIC NOT NULL,
           p50           NUMERIC NOT NULL,
           p75           NUMERIC NOT NULL,
           p90           NUMERIC NOT NULL,
           sample_size   INTEGER NOT NULL,
-          PRIMARY KEY (business_id, scope_type, scope_id, snapshot_date, metric_name, cohort)
+          PRIMARY KEY (business_id, scope_type, scope_id, snapshot_date, metric_name, cohort, campaign_kind)
         )`.catch(() => {}),
         sql`ALTER TABLE meta_decision_calibration_daily
           ADD COLUMN IF NOT EXISTS cohort TEXT NOT NULL DEFAULT 'purchase'`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_calibration_daily
+          ADD COLUMN IF NOT EXISTS campaign_kind TEXT NOT NULL DEFAULT 'all'`.catch(() => {}),
         sql`UPDATE meta_decision_calibration_daily
           SET cohort = 'purchase'
           WHERE cohort IS NULL`.catch(() => {}),
+        sql`UPDATE meta_decision_calibration_daily
+          SET campaign_kind = 'all'
+          WHERE campaign_kind IS NULL`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_calibration_daily
+          ADD CONSTRAINT meta_decision_calibration_daily_campaign_kind_check
+          CHECK (campaign_kind IN ('all', 'main', 'test', 'mixed'))`.catch(() => {}),
         sql`DO $$
           DECLARE
             current_pk_name TEXT;
@@ -2785,7 +2795,8 @@ export async function runMigrations(options?: {
               'scope_id',
               'snapshot_date',
               'metric_name',
-              'cohort'
+              'cohort',
+              'campaign_kind'
             ];
           BEGIN
             SELECT
@@ -2812,12 +2823,12 @@ export async function runMigrations(options?: {
               END IF;
 
               ALTER TABLE meta_decision_calibration_daily
-                ADD PRIMARY KEY (business_id, scope_type, scope_id, snapshot_date, metric_name, cohort);
+                ADD PRIMARY KEY (business_id, scope_type, scope_id, snapshot_date, metric_name, cohort, campaign_kind);
             END IF;
           END
           $$`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_calibration_cohort_scope
-          ON meta_decision_calibration_daily (business_id, scope_type, scope_id, snapshot_date, cohort)`.catch(() => {}),
+          ON meta_decision_calibration_daily (business_id, scope_type, scope_id, snapshot_date, cohort, campaign_kind)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_decision_responses (
           rec_id         TEXT NOT NULL,
           business_id    TEXT NOT NULL,

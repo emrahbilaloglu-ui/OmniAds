@@ -35,8 +35,7 @@ path and ask the model to read it before planning or changing code.
 ## Current Repo State
 
 - Current implementation branch:
-  `phase-f-meta-empirical-outcome-summary`, started from `main` after Phase
-  F.2 merge/context commit.
+  `main`, after Phase F.3 merge.
 - Phase A PR: `#162` (`[codex] Unify Meta funnel cohort resolution`), merged.
 - Phase A implementation commit: `fc8a8d7` (`Unify Meta funnel cohort resolution`).
 - Phase A context commit: `2a49ef1` (`Record Phase A PR context`).
@@ -100,9 +99,20 @@ path and ask the model to read it before planning or changing code.
 - Phase F.2 implementation commit: `bbf9cc4`
   (`Add Meta decision outcome log storage`).
 - Phase F.2 merge commit on `main`: `fce250858fa3a675d0b1671b38439fb84eac6f48`.
-- Latest `main` verified after Phase F.2 merge:
-  `fce25085` (`Merge pull request #171 from
-  erhanrdn/phase-f-meta-decision-outcome-logs`).
+- Phase F.3 PR: `#172`
+  (`[codex] Add Meta empirical outcome summaries`), merged.
+- Phase F.3 implementation commit: `fd36f53c`
+  (`Add Meta empirical outcome summaries`).
+- Phase F.3 review-fix commits:
+  - `a1287bb4` (`Require judged Meta outcome sample floor`)
+  - `63aaaaf9` (`Use judged Meta outcomes for negative rate`)
+  - `40efb29f` (`Ignore non-outcome Meta decision logs`)
+  - `cbca3cd7` (`Require explicit Meta outcome action logs`)
+  - `b99db07e` (`Read persisted Meta outcome status fields`)
+- Phase F.3 merge commit on `main`: `f59564bed53280980ec5e1cf3bbba58786cd38cb`.
+- Latest `main` verified after Phase F.3 merge:
+  `f59564be` (`Merge pull request #172 from
+  erhanrdn/phase-f-meta-empirical-outcome-summary`).
 - Phase E.1 branch started from `main` context commit:
   `c5617d99822312923b2b9a5fd13239826a76db24`.
 - Phase E.2 branch started after Phase E.1 merge/context:
@@ -115,6 +125,8 @@ path and ask the model to read it before planning or changing code.
   `phase-f-meta-automation-readiness-substrate`.
 - Phase F.2 branch started after Phase F.1 merge/context:
   `phase-f-meta-decision-outcome-logs`.
+- Phase F.3 branch started after Phase F.2 merge/context:
+  `phase-f-meta-empirical-outcome-summary`.
 - Phase A tracked-file modifications at the time of this snapshot:
   - `lib/meta/campaign-lanes.ts`
   - `lib/meta/campaign-lanes.test.ts`
@@ -140,7 +152,7 @@ path and ask the model to read it before planning or changing code.
   - `_analysis/phase-meta-goal-aware/`
   - `_analysis/phase-meta-rnd/`
   - `scripts/_phase-meta-rnd-claude-personas.ts`
-- Open PRs currently known in this workstream after Phase F.2 merge: none.
+- Open PRs currently known in this workstream after Phase F.3 merge: none.
 - Phase B tracked-file modifications at the time of this snapshot:
   - `app/api/meta/recommendations/route.ts`
   - `lib/meta/commercial-targets.ts`
@@ -616,14 +628,15 @@ path and ask the model to read it before planning or changing code.
 1. Empirical confidence, backtest, and auto-execute tier:
    - Phase F.1 is complete and merged in PR `#170`.
    - Phase F.2 is complete and merged in PR `#171`.
-   - Phase F.3 is in progress on branch
-     `phase-f-meta-empirical-outcome-summary`.
+   - Phase F.3 is complete and merged in PR `#172`.
    - Confidence is still heuristic.
    - There is no per-scenario precision/recall or 14d/30d outcome correlation.
-   - Auto-execute readiness cannot be claimed without this layer. The current
-     Phase F.1 implementation intentionally adds a conservative
-     `automationReadiness` substrate that marks current candidates below
-     auto-execute until empirical outcome evidence exists.
+   - Auto-execute readiness still cannot be claimed from production traffic
+     because Phase F.3 only adds the summarizer/gate; the production
+     recommendation builders do not yet fetch and attach empirical summaries.
+     The current implementation intentionally keeps candidates below
+     auto-execute unless empirical outcome evidence, live preflight, and
+     rollback proof are all explicitly present.
 
 2. Purchase scenario coverage:
    - Phase E.1, E.2, E.3, and E.4 implemented the learning/sample, bid-regime,
@@ -660,7 +673,8 @@ path and ask the model to read it before planning or changing code.
 ## Proposed Gap-Closure Plan
 
 Status: user-approved as of 2026-05-15. Phase A, Phase B, Phase C, Phase D,
-Phase E.1, Phase E.2, Phase E.3, and Phase E.4 are merged.
+Phase E.1, Phase E.2, Phase E.3, Phase E.4, Phase F.1, Phase F.2, and Phase
+F.3 are merged.
 
 Claude was explicitly told to read this file first before producing its plan.
 Claude agreed with the final phase order and added three acceptance criteria:
@@ -855,9 +869,18 @@ where coverage is weak.
   - Merged to `main` at `fce25085`.
   - CI runtime deploy jobs were skipped by the workflow; no production
     post-deploy smoke was performed for this phase.
-- Phase F.3 in progress:
+- Phase F.3 complete:
   - Branch: `phase-f-meta-empirical-outcome-summary`.
-  - Scope is still conservative: add empirical outcome summarization and wire it
+  - PR: `#172` (`[codex] Add Meta empirical outcome summaries`).
+  - Implementation commit: `fd36f53c`
+    (`Add Meta empirical outcome summaries`).
+  - Review-fix commits:
+    - `a1287bb4` (`Require judged Meta outcome sample floor`)
+    - `63aaaaf9` (`Use judged Meta outcomes for negative rate`)
+    - `40efb29f` (`Ignore non-outcome Meta decision logs`)
+    - `cbca3cd7` (`Require explicit Meta outcome action logs`)
+    - `b99db07e` (`Read persisted Meta outcome status fields`)
+  - Scope remained conservative: add empirical outcome summarization and wire it
     as an optional automation-readiness gate, but do not yet fetch summaries in
     production recommendation builders or change visible confidence scores.
   - Added `lib/meta/empirical-outcomes.ts` to classify outcome statuses and
@@ -867,18 +890,38 @@ where coverage is weak.
     can satisfy the empirical gate only when live preflight and rollback proof
     are also present; insufficient sample and weak precision become explicit
     blockers.
-  - Local verification so far:
+  - PR review hardened the empirical gate:
+    - Sample floor now applies to judged positive/negative outcomes, not total
+      raw rows.
+    - Negative-rate denominator now uses judged outcomes, so unknown/pending
+      rows cannot dilute loss risk.
+    - Summary rows must be explicit `actionType`/`action_type: "outcome"`;
+      preflight, execute, rollback, operator-response, and missing-action rows
+      are ignored.
+    - Persisted snake_case DB rows are supported through `action_type` and
+      `outcome_status`.
+  - Local verification:
     - `npx vitest run lib/meta/empirical-outcomes.test.ts lib/meta/automation-readiness.test.ts`
-      passed: 2 files, 12 tests.
+      passed after the final review fix: 2 files, 15 tests.
     - `npx tsc --noEmit` passed.
     - `npx vitest run lib/meta components/meta app/api/meta` passed: 112
-      files, 1010 tests.
+      files, 1013 tests.
     - `npx vitest run` passed: 412 files passed, 4 skipped; 2963 tests
-      passed, 49 skipped.
+      passed before review fixes; after final review fix it passed with 2966
+      tests passed and 49 skipped.
     - `npm run lint` passed.
     - `npm run build` passed.
-  - PR, GitHub review, merge, deploy, and post-deploy smoke remain pending for
-    this branch.
+    - `git diff --check` passed.
+  - GitHub PR `#172` checks passed on final commit `b99db07e`: `typecheck`,
+    `test`, and `build`; runtime deploy jobs skipped because no runtime image
+    change was detected.
+  - GitHub thread-aware review check found four empirical-summary review
+    threads across the branch. All were fixed and resolved:
+    `PRRT_kwDORfeVes6Cf5AE`, `PRRT_kwDORfeVes6Cf9ey`,
+    `PRRT_kwDORfeVes6CgAFE`, and `PRRT_kwDORfeVes6CgB_V`.
+  - Merged to `main` at `f59564be`.
+  - CI runtime deploy jobs were skipped by the workflow; no production
+    post-deploy smoke was performed for this phase.
 
 ### Phase G - Final Regression, Deploy, Context, And Golden-Case Maintenance
 

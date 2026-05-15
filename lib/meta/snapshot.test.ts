@@ -132,6 +132,15 @@ describe("meta snapshot job", () => {
       accountScopes: 1,
       campaignScopes: 1,
       sampleRowsTotal: 6,
+      sampleRowsByCohort: {
+        purchase: 6,
+        mid_funnel: 0,
+        lead: 0,
+        traffic: 0,
+        upper_funnel: 0,
+        engagement: 0,
+        unknown: 0,
+      },
       sampleRowsAfterCohortFilter: 6,
     });
     vi.mocked(calibration.getMetaCalibrationScope).mockResolvedValue({
@@ -232,6 +241,15 @@ describe("meta snapshot job", () => {
         accountScopes: 1,
         campaignScopes: 1,
         sampleRowsTotal: 6,
+        sampleRowsByCohort: {
+          purchase: 6,
+          mid_funnel: 0,
+          lead: 0,
+          traffic: 0,
+          upper_funnel: 0,
+          engagement: 0,
+          unknown: 0,
+        },
         sampleRowsAfterCohortFilter: 6,
       };
     });
@@ -264,6 +282,15 @@ describe("meta snapshot job", () => {
         accountScopes: 1,
         campaignScopes: 1,
         sampleRowsTotal: 6,
+        sampleRowsByCohort: {
+          purchase: 6,
+          mid_funnel: 0,
+          lead: 0,
+          traffic: 0,
+          upper_funnel: 0,
+          engagement: 0,
+          unknown: 0,
+        },
         sampleRowsAfterCohortFilter: 6,
       };
     });

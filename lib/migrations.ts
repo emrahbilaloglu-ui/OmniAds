@@ -2761,14 +2761,63 @@ export async function runMigrations(options?: {
           scope_id      TEXT NOT NULL,
           snapshot_date DATE NOT NULL,
           metric_name   TEXT NOT NULL,
+          cohort        TEXT NOT NULL DEFAULT 'purchase',
           p10           NUMERIC NOT NULL,
           p25           NUMERIC NOT NULL,
           p50           NUMERIC NOT NULL,
           p75           NUMERIC NOT NULL,
           p90           NUMERIC NOT NULL,
           sample_size   INTEGER NOT NULL,
-          PRIMARY KEY (business_id, scope_type, scope_id, snapshot_date, metric_name)
+          PRIMARY KEY (business_id, scope_type, scope_id, snapshot_date, metric_name, cohort)
         )`.catch(() => {}),
+        sql`ALTER TABLE meta_decision_calibration_daily
+          ADD COLUMN IF NOT EXISTS cohort TEXT NOT NULL DEFAULT 'purchase'`.catch(() => {}),
+        sql`UPDATE meta_decision_calibration_daily
+          SET cohort = 'purchase'
+          WHERE cohort IS NULL`.catch(() => {}),
+        sql`DO $$
+          DECLARE
+            current_pk_name TEXT;
+            current_pk_columns TEXT[];
+            desired_pk_columns CONSTANT TEXT[] := ARRAY[
+              'business_id',
+              'scope_type',
+              'scope_id',
+              'snapshot_date',
+              'metric_name',
+              'cohort'
+            ];
+          BEGIN
+            SELECT
+              c.conname,
+              array_agg(a.attname::text ORDER BY u.ord)
+            INTO current_pk_name, current_pk_columns
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            JOIN unnest(c.conkey) WITH ORDINALITY AS u(attnum, ord) ON true
+            JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = u.attnum
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'meta_decision_calibration_daily'
+              AND c.contype = 'p'
+            GROUP BY c.conname;
+
+            IF current_pk_columns IS DISTINCT FROM desired_pk_columns THEN
+              PERFORM set_config('lock_timeout', '2000ms', true);
+              IF current_pk_name IS NOT NULL THEN
+                EXECUTE format(
+                  'ALTER TABLE meta_decision_calibration_daily DROP CONSTRAINT %I',
+                  current_pk_name
+                );
+              END IF;
+
+              ALTER TABLE meta_decision_calibration_daily
+                ADD PRIMARY KEY (business_id, scope_type, scope_id, snapshot_date, metric_name, cohort);
+            END IF;
+          END
+          $$`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_calibration_cohort_scope
+          ON meta_decision_calibration_daily (business_id, scope_type, scope_id, snapshot_date, cohort)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_decision_responses (
           rec_id         TEXT NOT NULL,
           business_id    TEXT NOT NULL,

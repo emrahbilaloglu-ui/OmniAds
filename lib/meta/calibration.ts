@@ -1,5 +1,8 @@
 import { getDb, runDbTransaction } from "@/lib/db";
-import { resolveMetaFunnelCohort } from "@/lib/meta/funnel-cohort";
+import {
+  resolveMetaFunnelCohort,
+  type MetaFunnelCohort,
+} from "@/lib/meta/funnel-cohort";
 
 export const MIN_CAMPAIGN_CALIBRATION_SAMPLE = 8;
 export const MIN_ACCOUNT_CALIBRATION_SAMPLE = 1;
@@ -11,6 +14,19 @@ export const META_CALIBRATION_METRICS = [
   "cpm_14d",
   "ctr_28d",
   "win_rate_28d",
+  "cost_per_atc_28d",
+  "cost_per_ic_28d",
+  "cost_per_vc_28d",
+  "atc_rate_28d",
+  "atc_to_purchase_rate_28d",
+  "cost_per_thruplay_28d",
+  "thruplay_rate_28d",
+  "cost_per_lead_28d",
+  "lead_to_purchase_rate_28d",
+  "cost_per_link_click_28d",
+  "cost_per_lpv_28d",
+  "cost_per_engagement_28d",
+  "engagement_rate_28d",
 ] as const;
 
 export type MetaCalibrationMetricName = (typeof META_CALIBRATION_METRICS)[number];
@@ -45,6 +61,7 @@ export interface MetaCalibrationScopeResult {
     type: MetaCalibrationScopeType;
     id: string;
     snapshotDate: string | null;
+    cohort?: MetaFunnelCohort;
   };
   reason?: MetaCalibrationFallbackReason;
 }
@@ -56,7 +73,8 @@ export interface RunMetaCalibrationResult {
   accountScopes: number;
   campaignScopes: number;
   sampleRowsTotal: number;
-  sampleRowsAfterCohortFilter: number;
+  sampleRowsByCohort: Record<MetaFunnelCohort, number>;
+  sampleRowsAfterCohortFilter?: number;
 }
 
 interface AggregatedAdsetMetricRow {
@@ -70,6 +88,14 @@ interface AggregatedAdsetMetricRow {
   conversions_28d: unknown;
   impressions_28d: unknown;
   clicks_28d: unknown;
+  link_clicks_28d: unknown;
+  add_to_cart_28d: unknown;
+  initiate_checkout_28d: unknown;
+  view_content_28d: unknown;
+  landing_page_views_28d: unknown;
+  thruplay_actions_28d: unknown;
+  post_engagement_28d: unknown;
+  leads_28d: unknown;
   spend_14d: unknown;
   impressions_14d: unknown;
   reach_14d: unknown;
@@ -79,6 +105,7 @@ interface ComputedMetricSample {
   accountId: string;
   campaignId: string | null;
   adsetId: string;
+  cohort: MetaFunnelCohort;
   mature: boolean;
   values: Partial<Record<MetaCalibrationMetricName, number>>;
 }
@@ -89,6 +116,7 @@ interface CalibrationPayloadRow {
   scope_id: string;
   snapshot_date: string;
   metric_name: MetaCalibrationMetricName;
+  cohort: MetaFunnelCohort;
   p10: number;
   p25: number;
   p50: number;
@@ -102,6 +130,7 @@ type CalibrationDbRow = {
   scope_id: string;
   snapshot_date: string;
   metric_name: MetaCalibrationMetricName;
+  cohort: MetaFunnelCohort;
   p10: unknown;
   p25: unknown;
   p50: unknown;
@@ -117,7 +146,49 @@ const LEGACY_METRIC_THRESHOLDS: MetaMetricThresholdMap = {
   cpm_14d: { p10: 5, p25: 10, p50: 20, p75: 35, p90: 60, sampleSize: 0 },
   ctr_28d: { p10: 0.5, p25: 0.8, p50: 1.2, p75: 2, p90: 3, sampleSize: 0 },
   win_rate_28d: { p10: 0.15, p25: 0.4, p50: 0.8, p75: 1.5, p90: 3, sampleSize: 0 },
+  cost_per_atc_28d: { p10: 0, p25: 0, p50: 0, p75: 0, p90: 0, sampleSize: 0 },
+  cost_per_ic_28d: { p10: 0, p25: 0, p50: 0, p75: 0, p90: 0, sampleSize: 0 },
+  cost_per_vc_28d: { p10: 0, p25: 0, p50: 0, p75: 0, p90: 0, sampleSize: 0 },
+  atc_rate_28d: { p10: 0, p25: 0, p50: 0, p75: 0, p90: 0, sampleSize: 0 },
+  atc_to_purchase_rate_28d: { p10: 0, p25: 0, p50: 0, p75: 0, p90: 0, sampleSize: 0 },
+  cost_per_thruplay_28d: { p10: 0, p25: 0, p50: 0, p75: 0, p90: 0, sampleSize: 0 },
+  thruplay_rate_28d: { p10: 0, p25: 0, p50: 0, p75: 0, p90: 0, sampleSize: 0 },
+  cost_per_lead_28d: { p10: 0, p25: 0, p50: 0, p75: 0, p90: 0, sampleSize: 0 },
+  lead_to_purchase_rate_28d: { p10: 0, p25: 0, p50: 0, p75: 0, p90: 0, sampleSize: 0 },
+  cost_per_link_click_28d: { p10: 0, p25: 0, p50: 0, p75: 0, p90: 0, sampleSize: 0 },
+  cost_per_lpv_28d: { p10: 0, p25: 0, p50: 0, p75: 0, p90: 0, sampleSize: 0 },
+  cost_per_engagement_28d: { p10: 0, p25: 0, p50: 0, p75: 0, p90: 0, sampleSize: 0 },
+  engagement_rate_28d: { p10: 0, p25: 0, p50: 0, p75: 0, p90: 0, sampleSize: 0 },
 };
+
+const CALIBRATION_METRICS_BY_COHORT: Record<
+  Exclude<MetaFunnelCohort, "unknown">,
+  readonly MetaCalibrationMetricName[]
+> = {
+  purchase: ["roas_28d", "cpa_28d", "ctr_28d", "cpm_14d", "freq_14d", "win_rate_28d"],
+  mid_funnel: [
+    "cost_per_atc_28d",
+    "cost_per_ic_28d",
+    "cost_per_vc_28d",
+    "atc_rate_28d",
+    "atc_to_purchase_rate_28d",
+    "ctr_28d",
+    "cpm_14d",
+    "freq_14d",
+  ],
+  upper_funnel: ["cost_per_thruplay_28d", "thruplay_rate_28d", "cpm_14d", "freq_14d"],
+  lead: ["cost_per_lead_28d", "lead_to_purchase_rate_28d", "ctr_28d", "cpm_14d"],
+  traffic: ["cost_per_link_click_28d", "cost_per_lpv_28d", "ctr_28d", "cpm_14d"],
+  engagement: ["cost_per_engagement_28d", "engagement_rate_28d", "cpm_14d"],
+};
+
+const ZERO_INCLUSIVE_METRICS = new Set<MetaCalibrationMetricName>([
+  "atc_rate_28d",
+  "atc_to_purchase_rate_28d",
+  "thruplay_rate_28d",
+  "lead_to_purchase_rate_28d",
+  "engagement_rate_28d",
+]);
 
 export const LEGACY_META_CALIBRATION_THRESHOLDS: MetaCalibrationThresholds = {
   metrics: LEGACY_METRIC_THRESHOLDS,
@@ -150,6 +221,10 @@ function rounded(value: number) {
 
 function isPositiveFinite(value: number | null | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function isNonNegativeFinite(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
 export function computeMetaPercentiles(values: number[]): MetaMetricPercentiles | null {
@@ -236,14 +311,27 @@ function metricValuesForSample(row: AggregatedAdsetMetricRow): ComputedMetricSam
   const conversions28 = toNumber(row.conversions_28d);
   const impressions28 = toNumber(row.impressions_28d);
   const clicks28 = toNumber(row.clicks_28d);
+  const linkClicks28 = toNumber(row.link_clicks_28d);
+  const addToCart28 = toNumber(row.add_to_cart_28d);
+  const initiateCheckout28 = toNumber(row.initiate_checkout_28d);
+  const viewContent28 = toNumber(row.view_content_28d);
+  const landingPageViews28 = toNumber(row.landing_page_views_28d);
+  const thruplayActions28 = toNumber(row.thruplay_actions_28d);
+  const postEngagement28 = toNumber(row.post_engagement_28d);
+  const leads28 = toNumber(row.leads_28d);
   const spend14 = toNumber(row.spend_14d);
   const impressions14 = toNumber(row.impressions_14d);
   const reach14 = toNumber(row.reach_14d);
+  const cohort = resolveMetaFunnelCohort({
+    optimizationGoal: row.optimization_goal,
+    customEventType: row.custom_event_type,
+  });
 
   return {
     accountId: row.account_id,
     campaignId: row.campaign_id,
     adsetId: row.adset_id,
+    cohort,
     mature: spend28 > 0 && impressions28 > 0,
     values: {
       roas_28d: spend28 > 0 ? revenue28 / spend28 : undefined,
@@ -252,6 +340,19 @@ function metricValuesForSample(row: AggregatedAdsetMetricRow): ComputedMetricSam
       cpm_14d: impressions14 > 0 ? (spend14 / impressions14) * 1000 : undefined,
       ctr_28d: impressions28 > 0 ? (clicks28 / impressions28) * 100 : undefined,
       win_rate_28d: clicks28 > 0 ? (conversions28 / clicks28) * 100 : undefined,
+      cost_per_atc_28d: addToCart28 > 0 ? spend28 / addToCart28 : undefined,
+      cost_per_ic_28d: initiateCheckout28 > 0 ? spend28 / initiateCheckout28 : undefined,
+      cost_per_vc_28d: viewContent28 > 0 ? spend28 / viewContent28 : undefined,
+      atc_rate_28d: impressions28 > 0 ? (addToCart28 / impressions28) * 100 : undefined,
+      atc_to_purchase_rate_28d: addToCart28 > 0 ? (conversions28 / addToCart28) * 100 : undefined,
+      cost_per_thruplay_28d: thruplayActions28 > 0 ? spend28 / thruplayActions28 : undefined,
+      thruplay_rate_28d: impressions28 > 0 ? (thruplayActions28 / impressions28) * 100 : undefined,
+      cost_per_lead_28d: leads28 > 0 ? spend28 / leads28 : undefined,
+      lead_to_purchase_rate_28d: leads28 > 0 ? (conversions28 / leads28) * 100 : undefined,
+      cost_per_link_click_28d: linkClicks28 > 0 ? spend28 / linkClicks28 : undefined,
+      cost_per_lpv_28d: landingPageViews28 > 0 ? spend28 / landingPageViews28 : undefined,
+      cost_per_engagement_28d: postEngagement28 > 0 ? spend28 / postEngagement28 : undefined,
+      engagement_rate_28d: impressions28 > 0 ? (postEngagement28 / impressions28) * 100 : undefined,
     },
   };
 }
@@ -264,6 +365,14 @@ function mergeMetricRowsByAdset(rows: AggregatedAdsetMetricRow[]): AggregatedAds
     "conversions_28d",
     "impressions_28d",
     "clicks_28d",
+    "link_clicks_28d",
+    "add_to_cart_28d",
+    "initiate_checkout_28d",
+    "view_content_28d",
+    "landing_page_views_28d",
+    "thruplay_actions_28d",
+    "post_engagement_28d",
+    "leads_28d",
     "spend_14d",
     "impressions_14d",
     "reach_14d",
@@ -291,14 +400,22 @@ function pushMetricRows(input: {
   snapshotDate: string;
   scopeType: MetaCalibrationScopeType;
   scopeId: string;
+  cohort: Exclude<MetaFunnelCohort, "unknown">;
   samples: ComputedMetricSample[];
+  sampleThreshold: number;
 }) {
-  for (const metricName of META_CALIBRATION_METRICS) {
-    const percentiles = computeMetaPercentiles(
-      input.samples
-        .map((sample) => sample.values[metricName])
-        .filter(isPositiveFinite),
-    );
+  if (input.samples.length < input.sampleThreshold) return;
+
+  for (const metricName of CALIBRATION_METRICS_BY_COHORT[input.cohort]) {
+    const keepValue = ZERO_INCLUSIVE_METRICS.has(metricName)
+      ? isNonNegativeFinite
+      : isPositiveFinite;
+    const values = input.samples
+      .map((sample) => sample.values[metricName])
+      .filter(keepValue);
+    if (values.length < input.sampleThreshold) continue;
+
+    const percentiles = computeMetaPercentiles(values);
     if (!percentiles) continue;
     input.payload.push({
       business_id: input.businessId,
@@ -306,6 +423,7 @@ function pushMetricRows(input: {
       scope_id: input.scopeId,
       snapshot_date: input.snapshotDate,
       metric_name: metricName,
+      cohort: input.cohort,
       p10: percentiles.p10,
       p25: percentiles.p25,
       p50: percentiles.p50,
@@ -322,25 +440,59 @@ async function readAggregatedAdsetMetricRows(
 ): Promise<AggregatedAdsetMetricRow[]> {
   const sql = getDb();
   return (await sql`
+    WITH ad_event_daily AS (
+      SELECT
+        business_id,
+        provider_account_id,
+        date,
+        adset_id,
+        SUM(link_clicks) AS link_clicks,
+        SUM(COALESCE((NULLIF(payload_json->>'add_to_cart', ''))::numeric, 0)) AS add_to_cart,
+        SUM(COALESCE((NULLIF(payload_json->>'initiate_checkout', ''))::numeric, 0)) AS initiate_checkout,
+        SUM(COALESCE((NULLIF(payload_json->>'view_content', ''))::numeric, 0)) AS view_content,
+        SUM(COALESCE((NULLIF(payload_json->>'landing_page_views', ''))::numeric, 0)) AS landing_page_views,
+        SUM(COALESCE((NULLIF(payload_json->>'thruplay_actions', ''))::numeric, 0)) AS thruplay_actions,
+        SUM(COALESCE((NULLIF(payload_json->>'post_engagement', ''))::numeric, 0)) AS post_engagement,
+        SUM(COALESCE((NULLIF(payload_json->>'leads', ''))::numeric, 0)) AS leads
+      FROM meta_ad_daily
+      WHERE business_id = ${businessId}
+        AND date BETWEEN (${snapshotDate}::date - INTERVAL '27 days') AND ${snapshotDate}::date
+        AND COALESCE(truth_state, 'finalized') IN ('finalized', 'finalized_verified')
+        AND adset_id IS NOT NULL
+      GROUP BY business_id, provider_account_id, date, adset_id
+    )
     SELECT
-      provider_account_id AS account_id,
-      campaign_id,
-      adset_id,
-      optimization_goal,
-      custom_event_type,
-      SUM(spend) FILTER (WHERE date >= (${snapshotDate}::date - INTERVAL '27 days')) AS spend_28d,
-      SUM(revenue) FILTER (WHERE date >= (${snapshotDate}::date - INTERVAL '27 days')) AS revenue_28d,
-      SUM(conversions) FILTER (WHERE date >= (${snapshotDate}::date - INTERVAL '27 days')) AS conversions_28d,
-      SUM(impressions) FILTER (WHERE date >= (${snapshotDate}::date - INTERVAL '27 days')) AS impressions_28d,
-      SUM(clicks) FILTER (WHERE date >= (${snapshotDate}::date - INTERVAL '27 days')) AS clicks_28d,
-      SUM(spend) FILTER (WHERE date >= (${snapshotDate}::date - INTERVAL '13 days')) AS spend_14d,
-      SUM(impressions) FILTER (WHERE date >= (${snapshotDate}::date - INTERVAL '13 days')) AS impressions_14d,
-      SUM(reach) FILTER (WHERE date >= (${snapshotDate}::date - INTERVAL '13 days')) AS reach_14d
-    FROM meta_adset_daily
-    WHERE business_id = ${businessId}
-      AND date BETWEEN (${snapshotDate}::date - INTERVAL '27 days') AND ${snapshotDate}::date
-      AND COALESCE(truth_state, 'finalized') IN ('finalized', 'finalized_verified')
-    GROUP BY provider_account_id, campaign_id, adset_id, optimization_goal, custom_event_type
+      adset.provider_account_id AS account_id,
+      adset.campaign_id,
+      adset.adset_id,
+      adset.optimization_goal,
+      adset.custom_event_type,
+      SUM(adset.spend) FILTER (WHERE adset.date >= (${snapshotDate}::date - INTERVAL '27 days')) AS spend_28d,
+      SUM(adset.revenue) FILTER (WHERE adset.date >= (${snapshotDate}::date - INTERVAL '27 days')) AS revenue_28d,
+      SUM(adset.conversions) FILTER (WHERE adset.date >= (${snapshotDate}::date - INTERVAL '27 days')) AS conversions_28d,
+      SUM(adset.impressions) FILTER (WHERE adset.date >= (${snapshotDate}::date - INTERVAL '27 days')) AS impressions_28d,
+      SUM(adset.clicks) FILTER (WHERE adset.date >= (${snapshotDate}::date - INTERVAL '27 days')) AS clicks_28d,
+      SUM(ad_events.link_clicks) FILTER (WHERE adset.date >= (${snapshotDate}::date - INTERVAL '27 days')) AS link_clicks_28d,
+      SUM(ad_events.add_to_cart) FILTER (WHERE adset.date >= (${snapshotDate}::date - INTERVAL '27 days')) AS add_to_cart_28d,
+      SUM(ad_events.initiate_checkout) FILTER (WHERE adset.date >= (${snapshotDate}::date - INTERVAL '27 days')) AS initiate_checkout_28d,
+      SUM(ad_events.view_content) FILTER (WHERE adset.date >= (${snapshotDate}::date - INTERVAL '27 days')) AS view_content_28d,
+      SUM(ad_events.landing_page_views) FILTER (WHERE adset.date >= (${snapshotDate}::date - INTERVAL '27 days')) AS landing_page_views_28d,
+      SUM(ad_events.thruplay_actions) FILTER (WHERE adset.date >= (${snapshotDate}::date - INTERVAL '27 days')) AS thruplay_actions_28d,
+      SUM(ad_events.post_engagement) FILTER (WHERE adset.date >= (${snapshotDate}::date - INTERVAL '27 days')) AS post_engagement_28d,
+      SUM(ad_events.leads) FILTER (WHERE adset.date >= (${snapshotDate}::date - INTERVAL '27 days')) AS leads_28d,
+      SUM(adset.spend) FILTER (WHERE adset.date >= (${snapshotDate}::date - INTERVAL '13 days')) AS spend_14d,
+      SUM(adset.impressions) FILTER (WHERE adset.date >= (${snapshotDate}::date - INTERVAL '13 days')) AS impressions_14d,
+      SUM(adset.reach) FILTER (WHERE adset.date >= (${snapshotDate}::date - INTERVAL '13 days')) AS reach_14d
+    FROM meta_adset_daily adset
+    LEFT JOIN ad_event_daily ad_events
+      ON ad_events.business_id = adset.business_id
+      AND ad_events.provider_account_id = adset.provider_account_id
+      AND ad_events.date = adset.date
+      AND ad_events.adset_id = adset.adset_id
+    WHERE adset.business_id = ${businessId}
+      AND adset.date BETWEEN (${snapshotDate}::date - INTERVAL '27 days') AND ${snapshotDate}::date
+      AND COALESCE(adset.truth_state, 'finalized') IN ('finalized', 'finalized_verified')
+    GROUP BY adset.provider_account_id, adset.campaign_id, adset.adset_id, adset.optimization_goal, adset.custom_event_type
   `) as AggregatedAdsetMetricRow[];
 }
 
@@ -363,6 +515,7 @@ async function upsertCalibrationPayload(payload: CalibrationPayloadRow[], busine
           scope_id text,
           snapshot_date date,
           metric_name text,
+          cohort text,
           p10 numeric,
           p25 numeric,
           p50 numeric,
@@ -377,6 +530,7 @@ async function upsertCalibrationPayload(payload: CalibrationPayloadRow[], busine
         scope_id,
         snapshot_date,
         metric_name,
+        cohort,
         p10,
         p25,
         p50,
@@ -390,6 +544,7 @@ async function upsertCalibrationPayload(payload: CalibrationPayloadRow[], busine
         scope_id,
         snapshot_date,
         metric_name,
+        cohort,
         p10,
         p25,
         p50,
@@ -397,7 +552,7 @@ async function upsertCalibrationPayload(payload: CalibrationPayloadRow[], busine
         p90,
         sample_size
       FROM payload
-      ON CONFLICT (business_id, scope_type, scope_id, snapshot_date, metric_name)
+      ON CONFLICT (business_id, scope_type, scope_id, snapshot_date, metric_name, cohort)
       DO UPDATE SET
         p10 = EXCLUDED.p10,
         p25 = EXCLUDED.p25,
@@ -410,63 +565,103 @@ async function upsertCalibrationPayload(payload: CalibrationPayloadRow[], busine
   );
 }
 
+function emptyCohortCounts(): Record<MetaFunnelCohort, number> {
+  return {
+    purchase: 0,
+    mid_funnel: 0,
+    lead: 0,
+    traffic: 0,
+    upper_funnel: 0,
+    engagement: 0,
+    unknown: 0,
+  };
+}
+
+function writableCohort(cohort: MetaFunnelCohort): cohort is Exclude<MetaFunnelCohort, "unknown"> {
+  return cohort !== "unknown";
+}
+
+function sampleThresholdForScope(input: {
+  cohort: Exclude<MetaFunnelCohort, "unknown">;
+  scopeType: MetaCalibrationScopeType;
+}) {
+  if (input.cohort === "purchase" && input.scopeType === "account") {
+    return MIN_ACCOUNT_CALIBRATION_SAMPLE;
+  }
+  return MIN_CAMPAIGN_CALIBRATION_SAMPLE;
+}
+
 export async function runMetaCalibrationForBusiness(
   businessId: string,
   snapshotDate: string,
 ): Promise<RunMetaCalibrationResult> {
   const normalizedSnapshotDate = normalizeDate(snapshotDate);
   const rawRows = await readAggregatedAdsetMetricRows(businessId, normalizedSnapshotDate);
-  const purchaseRows = mergeMetricRowsByAdset(rawRows.filter((row) =>
-    resolveMetaFunnelCohort({
+  const payload: CalibrationPayloadRow[] = [];
+  const sampleRowsByCohort = emptyCohortCounts();
+
+  const rawRowsByCohort = new Map<MetaFunnelCohort, AggregatedAdsetMetricRow[]>();
+  for (const row of rawRows) {
+    const cohort = resolveMetaFunnelCohort({
       optimizationGoal: row.optimization_goal,
       customEventType: row.custom_event_type,
-    }) === "purchase",
-  ));
-  const samples = purchaseRows.map(metricValuesForSample);
-  const payload: CalibrationPayloadRow[] = [];
-
-  const accountGroups = new Map<string, ComputedMetricSample[]>();
-  for (const sample of samples) {
-    const list = accountGroups.get(sample.accountId);
-    if (list) list.push(sample);
-    else accountGroups.set(sample.accountId, [sample]);
-  }
-
-  for (const [accountId, groupSamples] of accountGroups.entries()) {
-    const matureSamples = groupSamples.filter((sample) => sample.mature);
-    if (matureSamples.length < MIN_ACCOUNT_CALIBRATION_SAMPLE) continue;
-    pushMetricRows({
-      payload,
-      businessId,
-      snapshotDate: normalizedSnapshotDate,
-      scopeType: "account",
-      scopeId: accountId,
-      samples: matureSamples,
     });
+    const list = rawRowsByCohort.get(cohort);
+    if (list) list.push(row);
+    else rawRowsByCohort.set(cohort, [row]);
   }
 
-  const campaignGroups = new Map<string, ComputedMetricSample[]>();
-  for (const sample of samples) {
-    if (!sample.campaignId) continue;
-    const key = `${sample.accountId}\u0000${sample.campaignId}`;
-    const list = campaignGroups.get(key);
-    if (list) list.push(sample);
-    else campaignGroups.set(key, [sample]);
-  }
+  for (const [cohort, cohortRows] of rawRowsByCohort.entries()) {
+    const rows = mergeMetricRowsByAdset(cohortRows);
+    sampleRowsByCohort[cohort] = rows.length;
+    if (!writableCohort(cohort)) continue;
 
-  for (const groupSamples of campaignGroups.values()) {
-    const matureSamples = groupSamples.filter((sample) => sample.mature);
-    if (matureSamples.length < MIN_CAMPAIGN_CALIBRATION_SAMPLE) continue;
-    const campaignId = matureSamples[0]?.campaignId;
-    if (!campaignId) continue;
-    pushMetricRows({
-      payload,
-      businessId,
-      snapshotDate: normalizedSnapshotDate,
-      scopeType: "campaign",
-      scopeId: campaignId,
-      samples: matureSamples,
-    });
+    const samples = rows.map(metricValuesForSample);
+    const accountGroups = new Map<string, ComputedMetricSample[]>();
+    for (const sample of samples) {
+      const list = accountGroups.get(sample.accountId);
+      if (list) list.push(sample);
+      else accountGroups.set(sample.accountId, [sample]);
+    }
+
+    for (const [accountId, groupSamples] of accountGroups.entries()) {
+      const matureSamples = groupSamples.filter((sample) => sample.mature);
+      pushMetricRows({
+        payload,
+        businessId,
+        snapshotDate: normalizedSnapshotDate,
+        scopeType: "account",
+        scopeId: accountId,
+        cohort,
+        samples: matureSamples,
+        sampleThreshold: sampleThresholdForScope({ cohort, scopeType: "account" }),
+      });
+    }
+
+    const campaignGroups = new Map<string, ComputedMetricSample[]>();
+    for (const sample of samples) {
+      if (!sample.campaignId) continue;
+      const key = `${sample.accountId}\u0000${sample.campaignId}`;
+      const list = campaignGroups.get(key);
+      if (list) list.push(sample);
+      else campaignGroups.set(key, [sample]);
+    }
+
+    for (const groupSamples of campaignGroups.values()) {
+      const matureSamples = groupSamples.filter((sample) => sample.mature);
+      const campaignId = matureSamples[0]?.campaignId;
+      if (!campaignId) continue;
+      pushMetricRows({
+        payload,
+        businessId,
+        snapshotDate: normalizedSnapshotDate,
+        scopeType: "campaign",
+        scopeId: campaignId,
+        cohort,
+        samples: matureSamples,
+        sampleThreshold: sampleThresholdForScope({ cohort, scopeType: "campaign" }),
+      });
+    }
   }
 
   await runDbTransaction(async () => {
@@ -480,7 +675,8 @@ export async function runMetaCalibrationForBusiness(
     accountScopes: new Set(payload.filter((row) => row.scope_type === "account").map((row) => row.scope_id)).size,
     campaignScopes: new Set(payload.filter((row) => row.scope_type === "campaign").map((row) => row.scope_id)).size,
     sampleRowsTotal: rawRows.length,
-    sampleRowsAfterCohortFilter: purchaseRows.length,
+    sampleRowsByCohort,
+    sampleRowsAfterCohortFilter: sampleRowsByCohort.purchase,
   };
 }
 
@@ -488,10 +684,12 @@ async function readCalibrationRows(input: {
   businessId: string;
   scopeType: MetaCalibrationScopeType;
   scopeId: string;
+  cohort?: MetaFunnelCohort | null;
   snapshotDate?: string | null;
 }): Promise<CalibrationDbRow[]> {
   const sql = getDb();
   const snapshotDate = input.snapshotDate ? normalizeDate(input.snapshotDate) : todayIso();
+  const cohort = input.cohort ?? "purchase";
   return (await sql`
     WITH latest AS (
       SELECT MAX(snapshot_date) AS snapshot_date
@@ -499,6 +697,7 @@ async function readCalibrationRows(input: {
       WHERE business_id = ${input.businessId}
         AND scope_type = ${input.scopeType}
         AND scope_id = ${input.scopeId}
+        AND cohort = ${cohort}
         AND snapshot_date <= ${snapshotDate}::date
     )
     SELECT
@@ -506,6 +705,7 @@ async function readCalibrationRows(input: {
       scope_id,
       snapshot_date::text AS snapshot_date,
       metric_name,
+      cohort,
       p10,
       p25,
       p50,
@@ -516,6 +716,7 @@ async function readCalibrationRows(input: {
     WHERE business_id = ${input.businessId}
       AND scope_type = ${input.scopeType}
       AND scope_id = ${input.scopeId}
+      AND cohort = ${cohort}
       AND snapshot_date = (SELECT snapshot_date FROM latest)
   `) as CalibrationDbRow[];
 }
@@ -523,6 +724,7 @@ async function readCalibrationRows(input: {
 async function readCampaignMatureAdsetCount(input: {
   businessId: string;
   campaignId: string;
+  cohort?: MetaFunnelCohort | null;
   snapshotDate?: string | null;
 }) {
   const sql = getDb();
@@ -531,6 +733,8 @@ async function readCampaignMatureAdsetCount(input: {
     WITH adset_samples AS (
       SELECT
         adset_id,
+        optimization_goal,
+        custom_event_type,
         SUM(spend) AS spend_28d,
         SUM(impressions) AS impressions_28d
       FROM meta_adset_daily
@@ -538,20 +742,49 @@ async function readCampaignMatureAdsetCount(input: {
         AND campaign_id = ${input.campaignId}
         AND date BETWEEN (${snapshotDate}::date - INTERVAL '27 days') AND ${snapshotDate}::date
         AND COALESCE(truth_state, 'finalized') IN ('finalized', 'finalized_verified')
-      GROUP BY adset_id
+      GROUP BY adset_id, optimization_goal, custom_event_type
     )
-    SELECT COUNT(*)::int AS mature_count
+    SELECT
+      adset_id,
+      optimization_goal,
+      custom_event_type,
+      spend_28d,
+      impressions_28d
     FROM adset_samples
     WHERE spend_28d > 0 AND impressions_28d > 0
-  `) as Array<{ mature_count?: unknown }>;
-  return Math.max(0, Math.round(toNumber(rows[0]?.mature_count)));
+  `) as Array<{
+    adset_id?: unknown;
+    optimization_goal?: unknown;
+    custom_event_type?: unknown;
+    spend_28d?: unknown;
+    impressions_28d?: unknown;
+  }>;
+
+  const cohort = input.cohort ?? "purchase";
+  const matureAdsets = new Set<string>();
+  for (const row of rows) {
+    const rowCohort = resolveMetaFunnelCohort({
+      optimizationGoal: typeof row.optimization_goal === "string" ? row.optimization_goal : null,
+      customEventType: typeof row.custom_event_type === "string" ? row.custom_event_type : null,
+    });
+    if (rowCohort !== cohort) continue;
+    const adsetId = String(row.adset_id ?? "");
+    if (adsetId) matureAdsets.add(adsetId);
+  }
+  return matureAdsets.size;
 }
 
 export async function getMetaCalibrationScope(
   businessId: string,
-  scope: { campaignId?: string | null; accountId: string; snapshotDate?: string | null },
+  scope: {
+    campaignId?: string | null;
+    accountId: string;
+    snapshotDate?: string | null;
+    cohort?: MetaFunnelCohort | null;
+  },
 ): Promise<MetaCalibrationScopeResult> {
   const snapshotDate = scope.snapshotDate ? normalizeDate(scope.snapshotDate) : todayIso();
+  const cohort = scope.cohort ?? "purchase";
   let campaignFallbackReason: MetaCalibrationFallbackReason | undefined;
 
   if (scope.campaignId) {
@@ -559,6 +792,7 @@ export async function getMetaCalibrationScope(
       businessId,
       scopeType: "campaign",
       scopeId: scope.campaignId,
+      cohort,
       snapshotDate,
     });
     if (campaignRows.length > 0) {
@@ -568,6 +802,7 @@ export async function getMetaCalibrationScope(
           type: "campaign",
           id: scope.campaignId,
           snapshotDate: campaignRows[0]?.snapshot_date ?? snapshotDate,
+          cohort,
         },
       };
     }
@@ -575,6 +810,7 @@ export async function getMetaCalibrationScope(
     const matureCount = await readCampaignMatureAdsetCount({
       businessId,
       campaignId: scope.campaignId,
+      cohort,
       snapshotDate,
     }).catch(() => MIN_CAMPAIGN_CALIBRATION_SAMPLE);
     campaignFallbackReason =
@@ -587,6 +823,7 @@ export async function getMetaCalibrationScope(
     businessId,
     scopeType: "account",
     scopeId: scope.accountId,
+    cohort,
     snapshotDate,
   });
   if (accountRows.length > 0) {
@@ -596,6 +833,7 @@ export async function getMetaCalibrationScope(
         type: "account",
         id: scope.accountId,
         snapshotDate: accountRows[0]?.snapshot_date ?? snapshotDate,
+        cohort,
       },
       ...(campaignFallbackReason ? { reason: campaignFallbackReason } : {}),
     };
@@ -608,6 +846,7 @@ export async function getMetaCalibrationScope(
       type: "account",
       id: scope.accountId,
       snapshotDate: null,
+      cohort,
     },
     reason,
   };

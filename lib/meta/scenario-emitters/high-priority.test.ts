@@ -3,6 +3,7 @@ import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { MetaAdSetData } from "@/lib/api/meta";
 import type { MetaCalibrationContext } from "@/lib/meta/recommendations";
 import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
+import { LEGACY_META_CALIBRATION_THRESHOLDS } from "@/lib/meta/calibration";
 import {
   emitHighPriorityAdsetScenario,
   emitHighPriorityCampaignScenario,
@@ -26,6 +27,7 @@ const context: MetaCalibrationContext = {
     hardCutSpend: 200,
     minRequiredSample: 3,
     metrics: {
+      ...LEGACY_META_CALIBRATION_THRESHOLDS.metrics,
       roas_28d: { p10: 0.5, p25: 1, p50: 2, p75: 3, p90: 4, sampleSize: 20 },
       cpa_28d: { p10: 20, p25: 30, p50: 50, p75: 80, p90: 120, sampleSize: 20 },
       freq_14d: { p10: 1, p25: 1.3, p50: 1.8, p75: 2.5, p90: 3.5, sampleSize: 20 },

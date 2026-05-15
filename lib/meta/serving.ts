@@ -360,6 +360,8 @@ export interface MetaWarehouseAdSetTableRow {
   viewContent?: number | null;
   leads?: number | null;
   postEngagement?: number | null;
+  thruplayActions?: number | null;
+  videoViews3s?: number | null;
 }
 
 export interface MetaWarehouseBreakdownsResponse {
@@ -383,6 +385,8 @@ interface MetaAdSetFunnelEventTotals {
   viewContent: number;
   leads: number;
   postEngagement: number;
+  thruplayActions: number;
+  videoViews3s: number;
 }
 
 export interface MetaWarehouseCountryBreakdownsResponse {
@@ -1878,6 +1882,8 @@ function buildAdSetTableRow(input: {
     viewContent: funnelEvents?.viewContent ?? null,
     leads: funnelEvents?.leads ?? null,
     postEngagement: funnelEvents?.postEngagement ?? null,
+    thruplayActions: funnelEvents?.thruplayActions ?? null,
+    videoViews3s: funnelEvents?.videoViews3s ?? null,
   };
 }
 
@@ -1894,6 +1900,8 @@ function addToAdsetFunnelTotals(
     viewContent: 0,
     leads: 0,
     postEngagement: 0,
+    thruplayActions: 0,
+    videoViews3s: 0,
   };
   current.linkClicks += Number(row.linkClicks ?? 0);
   current.landingPageViews += Number(row.landingPageViews ?? 0);
@@ -1902,6 +1910,8 @@ function addToAdsetFunnelTotals(
   current.viewContent += Number(row.viewContent ?? 0);
   current.leads += Number(row.leads ?? 0);
   current.postEngagement += Number(row.postEngagement ?? 0);
+  current.thruplayActions += Number(row.thruplayActions ?? 0);
+  current.videoViews3s += Number(row.videoViews3s ?? 0);
   totals.set(row.adsetId, current);
 }
 

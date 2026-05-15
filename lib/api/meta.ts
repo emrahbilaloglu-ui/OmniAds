@@ -282,6 +282,8 @@ export interface MetaAdSetData extends MetaMetricsData {
   viewContent?: number | null;
   leads?: number | null;
   postEngagement?: number | null;
+  thruplayActions?: number | null;
+  videoViews3s?: number | null;
   reach?: number | null;
   frequency?: number | null;
 }

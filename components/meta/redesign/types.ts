@@ -101,6 +101,7 @@ export interface MetaLanePayload {
 
 export type MetaDrillItem =
   | { mode: "decision"; rec: MetaRecommendation; relatedRecs?: MetaRecommendation[] }
+  | { mode: "informational"; rec: MetaRecommendation }
   | { mode: "anomaly"; anomaly: MetaAnomaly };
 
 export type MetaLaunchMode = "rebuild" | "duplicate" | "apply_bid";

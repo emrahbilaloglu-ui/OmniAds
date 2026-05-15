@@ -179,6 +179,82 @@ function payloadMetricNumber(payload: unknown, key: string) {
   return toNullableNumber((payload as Record<string, unknown>)[key]);
 }
 
+function payloadActionValueArrayNumber(payload: unknown, key: string) {
+  if (!payload || typeof payload !== "object") return null;
+  const raw = (payload as Record<string, unknown>)[key];
+  if (!Array.isArray(raw)) return null;
+  let total = 0;
+  let matched = false;
+  for (const item of raw) {
+    const value =
+      item && typeof item === "object"
+        ? toNullableNumber((item as { value?: unknown }).value)
+        : toNullableNumber(item);
+    if (value == null) continue;
+    total += value;
+    matched = true;
+  }
+  return matched ? total : null;
+}
+
+function payloadActionMetricNumber(payload: unknown, actionTypes: string[]) {
+  if (!payload || typeof payload !== "object") return null;
+  const raw = (payload as Record<string, unknown>).actions;
+  if (!Array.isArray(raw)) return null;
+  const allowed = new Set(actionTypes.map((item) => item.toLowerCase()));
+  let total = 0;
+  let matched = false;
+  for (const action of raw) {
+    if (!action || typeof action !== "object") continue;
+    const actionType = String((action as { action_type?: unknown }).action_type ?? "").toLowerCase();
+    if (!allowed.has(actionType)) continue;
+    const value = toNullableNumber((action as { value?: unknown }).value);
+    if (value == null) continue;
+    total += value;
+    matched = true;
+  }
+  return matched ? total : null;
+}
+
+function payloadThruplayActions(payload: unknown) {
+  const explicit = payloadMetricNumber(payload, "thruplay_actions");
+  if (explicit != null) return explicit;
+  const rawThruplayActions =
+    payloadActionValueArrayNumber(payload, "video_thruplay_watched_actions") ??
+    payloadMetricNumber(payload, "video_thruplay_watched_actions");
+  if (rawThruplayActions != null) return rawThruplayActions;
+  const explicitActionThruplay = payloadActionMetricNumber(payload, [
+    "thruplay",
+    "video_thruplay",
+    "video_thruplay_watched",
+    "video_thruplay_watched_actions",
+    "onsite_conversion.video_thruplay_watched",
+  ]);
+  if (explicitActionThruplay != null) return explicitActionThruplay;
+  return payloadActionMetricNumber(payload, ["video_view"]);
+}
+
+function payloadVideoViews3s(payload: unknown, impressions: number) {
+  if (payload && typeof payload === "object") {
+    const raw = (payload as Record<string, unknown>).video_play_actions;
+    if (Array.isArray(raw)) {
+      const first = raw[0];
+      const parsed =
+        first && typeof first === "object"
+          ? toNullableNumber((first as { value?: unknown }).value)
+          : toNullableNumber(first);
+      if (parsed != null) return parsed;
+    }
+  }
+  const rawVideoPlayActions = payloadMetricNumber(payload, "video_play_actions");
+  if (rawVideoPlayActions != null) return rawVideoPlayActions;
+  const rawActionsVideoViews = payloadActionMetricNumber(payload, ["video_view"]);
+  if (rawActionsVideoViews != null) return rawActionsVideoViews;
+  const thumbstop = payloadMetricNumber(payload, "thumbstop");
+  if (thumbstop == null || impressions <= 0) return null;
+  return Math.round((thumbstop / 100) * impressions);
+}
+
 const META_CREATIVE_MEDIA_PAYLOAD_KEYS = new Set([
   "preview_url",
   "thumbnail_url",
@@ -11257,6 +11333,8 @@ export async function getMetaAdDailyRange(input: {
     viewContent: payloadMetricNumber(row.payload_json, "view_content"),
     leads: payloadMetricNumber(row.payload_json, "leads"),
     postEngagement: payloadMetricNumber(row.payload_json, "post_engagement"),
+    thruplayActions: payloadThruplayActions(row.payload_json),
+    videoViews3s: payloadVideoViews3s(row.payload_json, Number(row.impressions ?? 0)),
     sourceSnapshotId: row.source_snapshot_id,
     truthState:
       row.truth_state == null

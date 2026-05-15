@@ -5,7 +5,12 @@ import { ConfidencePill, DecisionLabelChip } from "@/components/common/briefing"
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import type { MetaWindowKey, MetaDrillItem } from "@/components/meta/redesign/types";
 import { MetaEvidenceAccordion } from "@/components/meta/redesign/MetaEvidenceAccordion";
+import { MetaCohortChip } from "@/components/meta/redesign/MetaCohortChip";
 import { MetaScopeChip } from "@/components/meta/redesign/MetaScopeChip";
+import {
+  UpperFunnelKpiGrid,
+  upperFunnelMetricsForRec,
+} from "@/components/meta/redesign/MetaUpperFunnelInformationalCard";
 import { formatCurrency } from "@/lib/briefing/utils";
 import {
   decisionLabelForRec,
@@ -138,8 +143,17 @@ export function MetaDrillDrawer({
 }: MetaDrillDrawerProps) {
   if (!item) return null;
   const isAnomaly = item.mode === "anomaly";
-  const title = isAnomaly ? item.anomaly.title : item.rec.title;
-  const subtitle = isAnomaly ? item.anomaly.scopeLabel : scopeNameForRec(item.rec);
+  const isInformational = item.mode === "informational";
+  const title = isAnomaly
+    ? item.anomaly.title
+    : isInformational
+      ? item.rec.adsetName ?? item.rec.campaignName ?? item.rec.title
+      : item.rec.title;
+  const subtitle = isAnomaly
+    ? item.anomaly.scopeLabel
+    : isInformational
+      ? "Brand-build cohort — no purchase decision evaluation"
+      : scopeNameForRec(item.rec);
   const relatedRecs = item.mode === "decision" ? item.relatedRecs ?? [] : [];
 
   return (
@@ -150,6 +164,14 @@ export function MetaDrillDrawer({
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               {isAnomaly ? <MetaScopeChip level="anomaly" label={item.anomaly.scopeType} /> : <MetaScopeChip level={item.rec.level} />}
+              {isInformational ? (
+                <>
+                  <MetaCohortChip cohort={item.rec.cohort} />
+                  <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10.5px] font-medium text-slate-600">
+                    Informational
+                  </span>
+                </>
+              ) : null}
               <label className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[12px] text-slate-700">
                 Date:
                 <select
@@ -204,6 +226,16 @@ export function MetaDrillDrawer({
                 </div>
               </section>
             </>
+          ) : isInformational ? (
+            <section className="rounded-xl border border-slate-200 bg-white p-4">
+              <div className="text-[12px] font-semibold uppercase tracking-wider text-slate-500">Brand KPIs</div>
+              <p className="mt-2 text-[13px] leading-relaxed text-slate-700">
+                Upper-funnel delivery is shown for visibility only and is not evaluated as a purchase decision.
+              </p>
+              <div className="mt-4">
+                <UpperFunnelKpiGrid metrics={upperFunnelMetricsForRec(item.rec)} />
+              </div>
+            </section>
           ) : (
             <>
               <DecisionKpis rec={item.rec} relatedRecs={relatedRecs} />
@@ -226,7 +258,7 @@ export function MetaDrillDrawer({
           >
             Close
           </button>
-          {!isAnomaly && onLaunch ? (
+          {item.mode === "decision" && onLaunch ? (
             <button
               type="button"
               className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-3 py-1.5 text-[12.5px] font-medium text-white hover:bg-slate-800"
@@ -239,6 +271,10 @@ export function MetaDrillDrawer({
             <span className="inline-flex items-center gap-1 text-[12px] text-slate-500">
               Diagnose first
               <ArrowRight className="inline-block shrink-0" size={12} aria-hidden="true" />
+            </span>
+          ) : isInformational ? (
+            <span className="inline-flex items-center gap-1 text-[12px] text-slate-500">
+              Read-only brand metrics
             </span>
           ) : null}
         </div>

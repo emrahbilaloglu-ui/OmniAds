@@ -183,6 +183,62 @@ describe("MetaPlatformPage", () => {
     expect(nonSalesSection).toContain('data-cohort-chip="upper_funnel"');
   });
 
+  it("renders upper-funnel nonSales entries with the informational card", () => {
+    state.lanePayload = metaLanePayload({
+      nonSales: [
+        metaRec({
+          id: "rec_upper",
+          level: "adset",
+          campaignId: "cmp_upper",
+          campaignName: "Video Views",
+          adsetId: "adset_upper",
+          adsetName: "ThruPlay Broad",
+          cohort: "upper_funnel",
+          targetValue: {
+            spend: 84,
+            impressions: 1000,
+            thruplayActions: 42,
+            videoViews3s: 100,
+            frequency: 1.7,
+          },
+        }),
+      ],
+      counts: { actionNow: 1, watching: 1, healthy: 1, nonSales: 1, archive: 0 },
+    });
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+    const nonSalesSection = sectionHtml(html, "non-sales", "archive");
+
+    expect(nonSalesSection).toContain('data-card="meta-upper-funnel-informational"');
+  });
+
+  it("keeps non-upper-funnel nonSales entries on MetaActionCard", () => {
+    state.lanePayload = metaLanePayload({
+      nonSales: [
+        metaRec({
+          id: "rec_mid",
+          level: "adset",
+          campaignId: "cmp_mid",
+          campaignName: "ATC",
+          adsetId: "adset_mid",
+          adsetName: "ATC Broad",
+          cohort: "mid_funnel",
+        }),
+      ],
+      counts: { actionNow: 1, watching: 1, healthy: 1, nonSales: 1, archive: 0 },
+    });
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+    const nonSalesSection = sectionHtml(html, "non-sales", "archive");
+
+    expect(nonSalesSection).toContain('data-card="meta-action"');
+    expect(nonSalesSection).not.toContain('data-card="meta-upper-funnel-informational"');
+  });
+
   it("rolls mixed adset decisions up without duplicating individual cards", () => {
     state.lanePayload = metaLanePayload({
       actionNow: [

@@ -296,6 +296,8 @@ describe("meta historical serving", () => {
         viewContent: 15,
         leads: 3,
         postEngagement: 22,
+        thruplayActions: 14,
+        videoViews3s: 90,
       },
       {
         businessId: "biz-1",
@@ -327,6 +329,8 @@ describe("meta historical serving", () => {
         viewContent: 10,
         leads: 2,
         postEngagement: 18,
+        thruplayActions: 16,
+        videoViews3s: 70,
       },
     ] as never);
 
@@ -346,6 +350,8 @@ describe("meta historical serving", () => {
       viewContent: 25,
       leads: 5,
       postEngagement: 40,
+      thruplayActions: 30,
+      videoViews3s: 160,
     });
   });
 

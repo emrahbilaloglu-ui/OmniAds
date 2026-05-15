@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { deriveMetaAutomationReadiness } from "@/lib/meta/automation-readiness";
+import { summarizeMetaDecisionOutcomes } from "@/lib/meta/empirical-outcomes";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 
 function rec(overrides: Partial<MetaRecommendation> = {}): MetaRecommendation {
@@ -77,6 +78,51 @@ describe("deriveMetaAutomationReadiness", () => {
     expect(readiness.autoExecuteEligible).toBe(true);
     expect(readiness.blockers).toEqual([]);
     expect(readiness.missingEvidence).toEqual([]);
+  });
+
+  it("uses high empirical outcome summaries as the empirical gate", () => {
+    const summary = summarizeMetaDecisionOutcomes(
+      Array.from({ length: 12 }, () => ({ outcomeStatus: "positive" })),
+      { minSampleSize: 10 },
+    );
+
+    const readiness = deriveMetaAutomationReadiness(rec(), {
+      empiricalOutcomeSummary: summary,
+      livePreflightAvailable: true,
+      rollbackPlanAvailable: true,
+    });
+
+    expect(readiness.tier).toBe("auto_execute");
+    expect(readiness.autoExecuteEligible).toBe(true);
+    expect(readiness.blockers).toEqual([]);
+  });
+
+  it("blocks automation when empirical precision is below the floor", () => {
+    const summary = summarizeMetaDecisionOutcomes(
+      [
+        { outcomeStatus: "positive" },
+        { outcomeStatus: "positive" },
+        { outcomeStatus: "negative" },
+        { outcomeStatus: "negative" },
+        { outcomeStatus: "negative" },
+        { outcomeStatus: "neutral" },
+        { outcomeStatus: "neutral" },
+        { outcomeStatus: "neutral" },
+        { outcomeStatus: "neutral" },
+        { outcomeStatus: "neutral" },
+      ],
+      { minSampleSize: 10 },
+    );
+
+    const readiness = deriveMetaAutomationReadiness(rec(), {
+      empiricalOutcomeSummary: summary,
+      livePreflightAvailable: true,
+      rollbackPlanAvailable: true,
+    });
+
+    expect(readiness.tier).toBe("backtest_candidate");
+    expect(readiness.autoExecuteEligible).toBe(false);
+    expect(readiness.blockers).toContain("empirical_precision_below_floor");
   });
 
   it("keeps watch and diagnostic recommendations read-only", () => {

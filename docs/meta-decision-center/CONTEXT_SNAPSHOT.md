@@ -34,7 +34,9 @@ path and ask the model to read it before planning or changing code.
 
 ## Current Repo State
 
-- Current implementation branch: `main` after Phase F.2 merge.
+- Current implementation branch:
+  `phase-f-meta-empirical-outcome-summary`, started from `main` after Phase
+  F.2 merge/context commit.
 - Phase A PR: `#162` (`[codex] Unify Meta funnel cohort resolution`), merged.
 - Phase A implementation commit: `fc8a8d7` (`Unify Meta funnel cohort resolution`).
 - Phase A context commit: `2a49ef1` (`Record Phase A PR context`).
@@ -614,6 +616,8 @@ path and ask the model to read it before planning or changing code.
 1. Empirical confidence, backtest, and auto-execute tier:
    - Phase F.1 is complete and merged in PR `#170`.
    - Phase F.2 is complete and merged in PR `#171`.
+   - Phase F.3 is in progress on branch
+     `phase-f-meta-empirical-outcome-summary`.
    - Confidence is still heuristic.
    - There is no per-scenario precision/recall or 14d/30d outcome correlation.
    - Auto-execute readiness cannot be claimed without this layer. The current
@@ -851,6 +855,30 @@ where coverage is weak.
   - Merged to `main` at `fce25085`.
   - CI runtime deploy jobs were skipped by the workflow; no production
     post-deploy smoke was performed for this phase.
+- Phase F.3 in progress:
+  - Branch: `phase-f-meta-empirical-outcome-summary`.
+  - Scope is still conservative: add empirical outcome summarization and wire it
+    as an optional automation-readiness gate, but do not yet fetch summaries in
+    production recommendation builders or change visible confidence scores.
+  - Added `lib/meta/empirical-outcomes.ts` to classify outcome statuses and
+    summarize sample size, judged sample, positive/negative/neutral/unknown
+    counts, precision, negative rate, confidence band, and auto-eligible status.
+  - Extended `deriveMetaAutomationReadiness(...)` so a high empirical summary
+    can satisfy the empirical gate only when live preflight and rollback proof
+    are also present; insufficient sample and weak precision become explicit
+    blockers.
+  - Local verification so far:
+    - `npx vitest run lib/meta/empirical-outcomes.test.ts lib/meta/automation-readiness.test.ts`
+      passed: 2 files, 12 tests.
+    - `npx tsc --noEmit` passed.
+    - `npx vitest run lib/meta components/meta app/api/meta` passed: 112
+      files, 1010 tests.
+    - `npx vitest run` passed: 412 files passed, 4 skipped; 2963 tests
+      passed, 49 skipped.
+    - `npm run lint` passed.
+    - `npm run build` passed.
+  - PR, GitHub review, merge, deploy, and post-deploy smoke remain pending for
+    this branch.
 
 ### Phase G - Final Regression, Deploy, Context, And Golden-Case Maintenance
 

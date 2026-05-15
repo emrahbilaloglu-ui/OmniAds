@@ -20,6 +20,7 @@ export async function attachMetaEmpiricalOutcomeSummariesFromLogs(input: {
   );
   if (recTypes.length === 0) return input.recommendations;
 
+  // Outcome history is optional evidence; serving recommendations must stay available if it is absent.
   const rows = await readMetaDecisionActionOutcomeLogsForRecommendationTypes({
     businessId: input.businessId,
     providerAccountId: input.providerAccountId ?? null,

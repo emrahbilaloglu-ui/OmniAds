@@ -35,8 +35,7 @@ path and ask the model to read it before planning or changing code.
 ## Current Repo State
 
 - Current implementation branch:
-  `phase-f-meta-empirical-readiness-integration`, started from `main` after
-  Phase F.3 merge/context commit.
+  `main`, after Phase F.4 merge.
 - Phase A PR: `#162` (`[codex] Unify Meta funnel cohort resolution`), merged.
 - Phase A implementation commit: `fc8a8d7` (`Unify Meta funnel cohort resolution`).
 - Phase A context commit: `2a49ef1` (`Record Phase A PR context`).
@@ -113,8 +112,14 @@ path and ask the model to read it before planning or changing code.
 - Phase F.3 merge commit on `main`: `f59564bed53280980ec5e1cf3bbba58786cd38cb`.
 - Phase F.3 context commit on `main`: `0e6f1048`
   (`Record Phase F empirical summary merge context`).
-- Latest `main` verified after Phase F.3 merge:
-  `0e6f1048` (`Record Phase F empirical summary merge context`).
+- Phase F.4 PR: `#173`
+  (`[codex] Attach Meta empirical outcome summaries`), merged.
+- Phase F.4 implementation commit: `a8313fed`
+  (`Attach Meta empirical outcome summaries`).
+- Phase F.4 merge commit on `main`: `5d48acf644441fda15bc361510b75b9ad424c68a`.
+- Latest `main` verified after Phase F.4 merge:
+  `5d48acf6` (`Merge pull request #173 from
+  erhanrdn/phase-f-meta-empirical-readiness-integration`).
 - Phase E.1 branch started from `main` context commit:
   `c5617d99822312923b2b9a5fd13239826a76db24`.
 - Phase E.2 branch started after Phase E.1 merge/context:
@@ -156,8 +161,7 @@ path and ask the model to read it before planning or changing code.
   - `_analysis/phase-meta-goal-aware/`
   - `_analysis/phase-meta-rnd/`
   - `scripts/_phase-meta-rnd-claude-personas.ts`
-- Open PRs currently known in this workstream after Phase F.3 merge/context:
-  none.
+- Open PRs currently known in this workstream after Phase F.4 merge: none.
 - Phase B tracked-file modifications at the time of this snapshot:
   - `app/api/meta/recommendations/route.ts`
   - `lib/meta/commercial-targets.ts`
@@ -634,8 +638,7 @@ path and ask the model to read it before planning or changing code.
    - Phase F.1 is complete and merged in PR `#170`.
    - Phase F.2 is complete and merged in PR `#171`.
    - Phase F.3 is complete and merged in PR `#172`.
-   - Phase F.4 is in progress on branch
-     `phase-f-meta-empirical-readiness-integration`.
+   - Phase F.4 is complete and merged in PR `#173`.
    - Visible confidence is still heuristic; F.4 intentionally does not change
      confidence scores.
    - There is no per-scenario precision/recall or 14d/30d outcome correlation.
@@ -680,8 +683,8 @@ path and ask the model to read it before planning or changing code.
 ## Proposed Gap-Closure Plan
 
 Status: user-approved as of 2026-05-15. Phase A, Phase B, Phase C, Phase D,
-Phase E.1, Phase E.2, Phase E.3, Phase E.4, Phase F.1, Phase F.2, and Phase
-F.3 are merged.
+Phase E.1, Phase E.2, Phase E.3, Phase E.4, Phase F.1, Phase F.2, Phase F.3,
+and Phase F.4 are merged.
 
 Claude was explicitly told to read this file first before producing its plan.
 Claude agreed with the final phase order and added three acceptance criteria:
@@ -929,8 +932,11 @@ where coverage is weak.
   - Merged to `main` at `f59564be`.
   - CI runtime deploy jobs were skipped by the workflow; no production
     post-deploy smoke was performed for this phase.
-- Phase F.4 in progress:
+- Phase F.4 complete:
   - Branch: `phase-f-meta-empirical-readiness-integration`.
+  - PR: `#173` (`[codex] Attach Meta empirical outcome summaries`).
+  - Implementation commit: `a8313fed`
+    (`Attach Meta empirical outcome summaries`).
   - Scope is conservative production-path integration: read persisted
     `meta_decision_action_outcome_logs` outcome rows by recommendation type and
     decision label, summarize them with the Phase F.3 empirical model, and
@@ -954,8 +960,13 @@ where coverage is weak.
     - `npm run lint` passed.
     - `npm run build` passed.
     - `git diff --check` passed.
-  - PR, GitHub review, merge, deploy, and post-deploy smoke remain pending for
-    this branch.
+  - GitHub PR `#173` checks passed: `typecheck`, `test`, and `build`; runtime
+    deploy jobs skipped because no runtime image change was detected.
+  - GitHub thread-aware review check: no review threads, reviews, or
+    conversation comments.
+  - Merged to `main` at `5d48acf6`.
+  - CI runtime deploy jobs were skipped by the workflow; no production
+    post-deploy smoke was performed for this phase.
 
 ### Phase G - Final Regression, Deploy, Context, And Golden-Case Maintenance
 

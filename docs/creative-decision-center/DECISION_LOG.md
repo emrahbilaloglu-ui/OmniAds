@@ -154,6 +154,25 @@ is the pipeline orchestrator and now owns this semantic transform. No new
 `labelTransform` is an API/debug diagnostic only.
 
 Rejected alternative: persist `labelTransform` into
-`engine_v3_decision_snapshots_daily` in the same slice. Persistence is deferred
-to a separate follow-up because this phase already changes behavior and should
-not bundle a schema migration/rollback concern.
+`engine_v3_decision_snapshots_daily` in the same slice. Persistence was deferred
+to D013 because this phase already changed behavior and should not have bundled
+a schema migration/rollback concern.
+
+## D013 — Persist Test Cohort Label Transform Diagnostics
+
+Decision: persist `DecisionOutput.labelTransform` into
+`engine_v3_decision_snapshots_daily.label_transform` as a nullable constrained
+diagnostic field. The only allowed non-null value is
+`test_cohort_refresh_to_cut`.
+
+Reason: `labelTransform` explains why a Test campaign refresh signal became a
+cut-style decision. Keeping it only on the live/API `DecisionOutput` loses that
+audit context when daily snapshots are inspected later.
+
+Scope: this is persistence-only. It does not add a new `DecisionLabel`, does not
+change resolver math, does not change UI read paths, and must not be used by UI
+code to compute `buyerAction`.
+
+Risk: adding new transform values later requires a schema migration to widen the
+constraint. That is intentional; a new semantic transform should be an explicit
+decision-log event rather than an untracked string extension.

@@ -15,6 +15,7 @@ import {
   type CreativeInput,
   type DecisionLabel,
   type DecisionOutput,
+  type DecisionLabelTransform,
 } from "../types";
 import { hashAdvisoryLock } from "./calibration-job";
 import { JOB_NAME as LIFECYCLE_JOB_NAME } from "./lifecycle-job";
@@ -86,6 +87,7 @@ interface DecisionSnapshotPayloadRow {
   purchases: number;
   roas: number | null;
   recent7d_roas: number | null;
+  label_transform: DecisionLabelTransform | null;
   job_run_id: string;
   lifecycle_row_id: string | null;
   calibration_row_id: string | null;
@@ -140,6 +142,7 @@ WITH payload AS (
     purchases double precision,
     roas double precision,
     recent7d_roas double precision,
+    label_transform text,
     job_run_id uuid,
     lifecycle_row_id uuid,
     calibration_row_id uuid,
@@ -165,6 +168,7 @@ INSERT INTO engine_v3_decision_snapshots_daily (
   purchases,
   roas,
   recent7d_roas,
+  label_transform,
   job_run_id,
   lifecycle_row_id,
   calibration_row_id,
@@ -189,6 +193,7 @@ SELECT
   purchases,
   roas,
   recent7d_roas,
+  label_transform,
   job_run_id,
   lifecycle_row_id,
   calibration_row_id,
@@ -210,6 +215,7 @@ DO UPDATE SET
   purchases = EXCLUDED.purchases,
   roas = EXCLUDED.roas,
   recent7d_roas = EXCLUDED.recent7d_roas,
+  label_transform = EXCLUDED.label_transform,
   job_run_id = EXCLUDED.job_run_id,
   lifecycle_row_id = EXCLUDED.lifecycle_row_id,
   calibration_row_id = EXCLUDED.calibration_row_id,
@@ -630,6 +636,7 @@ function toSnapshotPayloadRow(input: {
     purchases: input.creativeInput.purchases,
     roas: input.creativeInput.roas,
     recent7d_roas: input.creativeInput.recent7dRoas,
+    label_transform: input.decision.labelTransform ?? null,
     job_run_id: input.jobRunId,
     lifecycle_row_id: input.lifecycleRowId,
     calibration_row_id: input.calibrationRowId,

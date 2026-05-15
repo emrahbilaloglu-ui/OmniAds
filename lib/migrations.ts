@@ -4977,6 +4977,7 @@ export async function runMigrations(options?: {
           purchases                  DOUBLE PRECISION,
           roas                       DOUBLE PRECISION,
           recent7d_roas              DOUBLE PRECISION,
+          label_transform            TEXT CHECK (label_transform IN ('test_cohort_refresh_to_cut')),
           job_run_id                 UUID REFERENCES engine_v3_job_runs(id) ON DELETE SET NULL,
           lifecycle_row_id           UUID REFERENCES engine_v3_creative_lifecycle_daily(id) ON DELETE SET NULL,
           calibration_row_id         UUID REFERENCES engine_v3_account_calibration_daily(id) ON DELETE SET NULL,
@@ -4988,7 +4989,8 @@ export async function runMigrations(options?: {
         )`,
         sql`ALTER TABLE engine_v3_decision_snapshots_daily
           ADD COLUMN IF NOT EXISTS scope_type TEXT NOT NULL DEFAULT 'account',
-          ADD COLUMN IF NOT EXISTS scope_id TEXT NOT NULL DEFAULT '*'`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS scope_id TEXT NOT NULL DEFAULT '*',
+          ADD COLUMN IF NOT EXISTS label_transform TEXT CHECK (label_transform IN ('test_cohort_refresh_to_cut'))`.catch(() => {}),
         sql`DO $$
           DECLARE
             old_constraint_name TEXT;

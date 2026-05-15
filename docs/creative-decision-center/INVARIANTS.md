@@ -31,6 +31,8 @@ These rules are hard gates for V2.1.
   refresh emissions already downgraded to `keep`.
 - `labelTransform` must be preserved on the final `DecisionOutput` even if the
   transformed label is subsequently downgraded by hard-action eligibility.
+- Snapshot persistence may store `labelTransform` only as nullable audit data;
+  downstream consumers must not recompute or override decision labels from it.
 - Test-cohort semantic transformation applies only to explicit
   `campaignKind === "test"` inputs. Main, Mixed, and unlabeled creatives keep
   their existing refresh semantics.

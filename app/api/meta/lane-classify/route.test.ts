@@ -209,7 +209,7 @@ describe("GET /api/meta/lane-classify", () => {
     expect(payload.counts.nonSales).toBe(payload.nonSales.length);
   });
 
-  it("keeps purchase and null-cohort recommendations in the existing purchase lanes", async () => {
+  it("keeps purchase, null-cohort, and unknown-cohort recommendations in the existing purchase lanes", async () => {
     vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
       status: "ok",
       businessId: "biz_1",
@@ -240,6 +240,14 @@ describe("GET /api/meta/lane-classify", () => {
           confidenceScore: 0.41,
           decisionState: "watch",
         }),
+        metaRec({
+          id: "rec_unknown",
+          campaignId: "cmp_unknown",
+          campaignName: "Unknown Cohort Campaign",
+          cohort: "unknown",
+          confidenceScore: 0.89,
+          decisionState: "act",
+        }),
       ],
     });
     vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
@@ -265,6 +273,15 @@ describe("GET /api/meta/lane-classify", () => {
           cpa: 67,
           optimizationGoal: "PURCHASE",
         },
+        {
+          id: "cmp_unknown",
+          name: "Unknown Cohort Campaign",
+          status: "ACTIVE",
+          spend: 450,
+          purchases: 5,
+          roas: 2.1,
+          cpa: 90,
+        },
       ] as never,
       evidenceSource: "live",
     });
@@ -277,8 +294,52 @@ describe("GET /api/meta/lane-classify", () => {
     const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d"));
     const payload = await response.json();
 
-    expect(payload.actionNow.map((rec: { id: string }) => rec.id)).toEqual(["rec_purchase"]);
+    expect(payload.actionNow.map((rec: { id: string }) => rec.id)).toEqual(["rec_purchase", "rec_unknown"]);
     expect(payload.watching.map((rec: { id: string }) => rec.id)).toEqual(["rec_null"]);
+    expect(payload.nonSales).toHaveLength(0);
+  });
+
+  it("keeps unknown-cohort purchase rows out of nonSales when sync fields are missing", async () => {
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 0,
+      },
+      recommendations: [],
+    });
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        {
+          id: "cmp_missing_goal",
+          name: "Missing Goal Purchase Activity",
+          status: "ACTIVE",
+          spend: 600,
+          purchases: 6,
+          roas: 2.4,
+          cpa: 100,
+        },
+      ] as never,
+      evidenceSource: "live",
+    });
+    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [] as never,
+      evidenceSource: "live",
+    });
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d"));
+    const payload = await response.json();
+
+    expect(payload.healthy.map((row: { id: string }) => row.id)).toEqual(["cmp_missing_goal"]);
     expect(payload.nonSales).toHaveLength(0);
   });
 

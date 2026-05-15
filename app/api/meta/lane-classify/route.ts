@@ -112,11 +112,11 @@ function cohortForAdsetRow(row: AdsetRow) {
 }
 
 function isPurchaseScopedCohort(cohort: MetaFunnelCohort | null | undefined) {
-  return !cohort || cohort === "purchase";
+  return !cohort || cohort === "purchase" || cohort === "unknown";
 }
 
 function isNonSalesCohort(cohort: MetaFunnelCohort | null | undefined) {
-  return Boolean(cohort && cohort !== "purchase");
+  return Boolean(cohort && cohort !== "purchase" && cohort !== "unknown");
 }
 
 function isVisibleForStatusLane(row: CampaignRow | AdsetRow, statusFilter: BriefingStatusFilter) {

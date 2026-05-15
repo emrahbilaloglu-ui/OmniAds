@@ -128,6 +128,7 @@ describe("MetaPlatformPage", () => {
           id: "rec_upper",
           campaignId: "cmp_upper",
           campaignName: "Video Views",
+          title: "Video Views is out of sales scope",
           cohort: "upper_funnel",
         }),
       ],
@@ -142,6 +143,7 @@ describe("MetaPlatformPage", () => {
     expect(nonSalesSection).toContain('id="non-sales"');
     expect(nonSalesSection).toContain("Out of Sales Scope");
     expect(nonSalesSection).toContain("Video Views");
+    expect(nonSalesSection).not.toContain('type="checkbox"');
   });
 
   it("renders an empty Out of Sales Scope lane with a zero count", () => {

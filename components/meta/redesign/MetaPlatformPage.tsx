@@ -517,7 +517,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
     () => actionNow.filter((rec) => !rollupRecIds.has(rec.id)),
     [actionNow, rollupRecIds],
   );
-  const allRecs = useMemo(() => [...actionNow, ...watching, ...nonSales], [actionNow, watching, nonSales]);
+  const allRecs = useMemo(() => [...actionNow, ...watching], [actionNow, watching]);
   const adsetRecsByCampaign = useMemo(() => {
     const next = new Map<string, MetaRecommendation[]>();
     for (const rec of allRecs) {
@@ -749,7 +749,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
         />
 
         <BulkToolbar
-          selectedCount={selectedIds.size}
+          selectedCount={selectedRecs.length}
           variant="meta"
           trackingBlocked={trackingBlocked}
           stickyTop="132px"
@@ -892,7 +892,6 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                     deferred={isDeferred(rec)}
                     responseState={responseStateForRec(rec)}
                     evidenceWindow={selectedWindow}
-                    onSelect={selectRec}
                     onPrimary={handlePrimary}
                     onOpenDrill={(item) => openDrillForRec(item as MetaRecommendation)}
                     onDefer={deferRec}

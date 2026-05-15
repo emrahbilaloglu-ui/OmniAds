@@ -94,6 +94,9 @@ export function normalizeCreativeMetricFields<T extends CreativeMetricFields>(ro
   const purchases = Number.isFinite(row.purchases) ? Math.max(0, row.purchases) : 0;
   const impressions = Number.isFinite(row.impressions) ? Math.max(0, row.impressions) : 0;
   const linkClicks = Number.isFinite(row.link_clicks) ? Math.max(0, row.link_clicks) : 0;
+  const thruplayActions = Number.isFinite(row.thruplay_actions) ? Math.max(0, row.thruplay_actions ?? 0) : 0;
+  const viewContent = Number.isFinite(row.view_content) ? Math.max(0, row.view_content ?? 0) : 0;
+  const postEngagement = Number.isFinite(row.post_engagement) ? Math.max(0, row.post_engagement ?? 0) : 0;
   const addToCart = Number.isFinite(row.add_to_cart) ? Math.max(0, row.add_to_cart) : 0;
   const purchaseValue =
     Number.isFinite(row.purchase_value) && row.purchase_value > 0 ? row.purchase_value : 0;
@@ -112,6 +115,9 @@ export function normalizeCreativeMetricFields<T extends CreativeMetricFields>(ro
     purchases: Math.round(purchases),
     impressions: Math.round(impressions),
     link_clicks: Math.round(linkClicks),
+    thruplay_actions: Math.round(thruplayActions),
+    view_content: Math.round(viewContent),
+    post_engagement: Math.round(postEngagement),
     add_to_cart: Math.round(addToCart),
     click_to_atc: r2(linkClicks > 0 ? (addToCart / linkClicks) * 100 : 0),
     atc_to_purchase: r2(addToCart > 0 ? (purchases / addToCart) * 100 : 0),
@@ -361,6 +367,9 @@ export function buildMetaCreativeApiRow(params: {
   const safePurchases = Number.isFinite(row.purchases) ? Math.max(0, row.purchases) : 0;
   const safeImpressions = Number.isFinite(row.impressions) ? Math.max(0, row.impressions) : 0;
   const safeLinkClicks = Number.isFinite(row.link_clicks) ? Math.max(0, row.link_clicks) : 0;
+  const safeThruplayActions = Number.isFinite(row.thruplay_actions) ? Math.max(0, row.thruplay_actions ?? 0) : 0;
+  const safeViewContent = Number.isFinite(row.view_content) ? Math.max(0, row.view_content ?? 0) : 0;
+  const safePostEngagement = Number.isFinite(row.post_engagement) ? Math.max(0, row.post_engagement ?? 0) : 0;
   const safeAddToCart = Number.isFinite(row.add_to_cart) ? Math.max(0, row.add_to_cart) : 0;
   const basePurchaseValue = Number.isFinite(row.purchase_value) ? Math.max(0, row.purchase_value) : 0;
   const roasFallbackValue =
@@ -504,6 +513,9 @@ export function buildMetaCreativeApiRow(params: {
     destination_url_confidence: row.destination_url_confidence ?? null,
     cta_type: row.cta_type ?? null,
     landing_page_views: row.landing_page_views,
+    thruplay_actions: Math.round(safeThruplayActions),
+    view_content: Math.round(safeViewContent),
+    post_engagement: Math.round(safePostEngagement),
     add_to_cart: row.add_to_cart,
     initiate_checkout: row.initiate_checkout,
     leads: row.leads,
@@ -662,6 +674,9 @@ export function buildMetaCreativeApiRowLightweight(params: {
     destination_url_confidence: row.destination_url_confidence ?? null,
     cta_type: row.cta_type ?? null,
     landing_page_views: Math.round(Number(row.landing_page_views ?? 0)),
+    thruplay_actions: normalizedMetrics.thruplay_actions,
+    view_content: normalizedMetrics.view_content,
+    post_engagement: normalizedMetrics.post_engagement,
     add_to_cart: normalizedMetrics.add_to_cart,
     initiate_checkout: Math.round(Number(row.initiate_checkout ?? 0)),
     leads: Math.round(Number(row.leads ?? 0)),

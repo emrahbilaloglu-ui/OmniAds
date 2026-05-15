@@ -317,6 +317,50 @@ export function hasSuspiciousMissingCatalogRevenueMetrics(
   );
 }
 
+export function hasRetainedZeroSpendActivity(row: {
+  impressions: number;
+  reach: number;
+  clicks: number;
+  effectiveLinkClicks: number;
+  outboundClicks: number;
+  purchases: number;
+  purchaseValue: number;
+  landingPageViews: number;
+  thruplayActions: number;
+  viewContent: number;
+  postEngagement: number;
+  addToCart: number;
+  initiateCheckout: number;
+  allActionTotal: number;
+  video3sViews: number;
+  video25Views: number;
+  video50Views: number;
+  video75Views: number;
+  video100Views: number;
+}): boolean {
+  return (
+    row.impressions > 0 ||
+    row.reach > 0 ||
+    row.clicks > 0 ||
+    row.effectiveLinkClicks > 0 ||
+    row.outboundClicks > 0 ||
+    row.purchases > 0 ||
+    row.purchaseValue > 0 ||
+    row.landingPageViews > 0 ||
+    row.thruplayActions > 0 ||
+    row.viewContent > 0 ||
+    row.postEngagement > 0 ||
+    row.addToCart > 0 ||
+    row.initiateCheckout > 0 ||
+    row.allActionTotal > 0 ||
+    row.video3sViews > 0 ||
+    row.video25Views > 0 ||
+    row.video50Views > 0 ||
+    row.video75Views > 0 ||
+    row.video100Views > 0
+  );
+}
+
 export function resolvePreviewOrigin(input: {
   cachedThumbnailUrl: string | null;
   finalPreviewUrl: string | null;
@@ -357,6 +401,7 @@ export function toRawRow(
     action_values?: MetaActionValue[];
     purchase_roas?: MetaActionValue[];
     video_play_actions?: MetaActionValue[];
+    video_thruplay_watched_actions?: MetaActionValue[];
     video_p25_watched_actions?: MetaActionValue[];
     video_p50_watched_actions?: MetaActionValue[];
     video_p75_watched_actions?: MetaActionValue[];
@@ -412,6 +457,24 @@ export function toRawRow(
       "offsite_conversion_fb_pixel_landing_page_view",
     ])
   );
+  const thruplayActions = Math.round(
+    parseFloat(insight.video_thruplay_watched_actions?.[0]?.value ?? "0") || 0,
+  );
+  const viewContent = Math.round(
+    parseActionAny(insight.actions, [
+      "view_content",
+      "omni_view_content",
+      "fb_mobile_content_view",
+      "offsite_conversion.fb_pixel_view_content",
+      "offsite_conversion_fb_pixel_view_content",
+    ])
+  );
+  const postEngagement = Math.round(
+    parseActionAny(insight.actions, [
+      "post_engagement",
+      "page_engagement",
+    ])
+  );
   const addToCart = Math.round(
     parseActionAny(insight.actions, [
       "omni_add_to_cart",
@@ -440,24 +503,28 @@ export function toRawRow(
   const video75Views = parseFloat(insight.video_p75_watched_actions?.[0]?.value ?? "0") || 0;
   const video100Views = parseFloat(insight.video_p100_watched_actions?.[0]?.value ?? "0") || 0;
   const allActionTotal = parseActionTotal(insight.actions);
-  const hasRetainedZeroSpendActivity =
-    impressions > 0 ||
-    reach > 0 ||
-    clicks > 0 ||
-    effectiveLinkClicks > 0 ||
-    outboundClicks > 0 ||
-    purchases > 0 ||
-    purchaseValue > 0 ||
-    landingPageViews > 0 ||
-    addToCart > 0 ||
-    initiateCheckout > 0 ||
-    allActionTotal > 0 ||
-    video3sViews > 0 ||
-    video25Views > 0 ||
-    video50Views > 0 ||
-    video75Views > 0 ||
-    video100Views > 0;
-  if (spend <= 0 && !hasRetainedZeroSpendActivity) return null;
+  const shouldRetainZeroSpendActivity = hasRetainedZeroSpendActivity({
+    impressions,
+    reach,
+    clicks,
+    effectiveLinkClicks,
+    outboundClicks,
+    purchases,
+    purchaseValue,
+    landingPageViews,
+    thruplayActions,
+    viewContent,
+    postEngagement,
+    addToCart,
+    initiateCheckout,
+    allActionTotal,
+    video3sViews,
+    video25Views,
+    video50Views,
+    video75Views,
+    video100Views,
+  });
+  if (spend <= 0 && !shouldRetainZeroSpendActivity) return null;
 
   const thumbstop = impressions > 0 ? r2((video3sViews / impressions) * 100) : 0;
   const clickToAtc = effectiveLinkClicks > 0 ? r2((addToCart / effectiveLinkClicks) * 100) : 0;
@@ -675,6 +742,9 @@ export function toRawRow(
     destination_url_confidence: landingUrl.confidence,
     cta_type: landingUrl.ctaType ?? null,
     landing_page_views: landingPageViews,
+    thruplay_actions: thruplayActions,
+    view_content: viewContent,
+    post_engagement: postEngagement,
     add_to_cart: addToCart,
     initiate_checkout: initiateCheckout,
     messages: Math.round(parseMessagingConversationCount(insight.actions)),
@@ -761,6 +831,9 @@ export function groupRows(
     const linkClicks = list.reduce((acc, item) => acc + item.link_clicks, 0);
     const outboundClicks = list.reduce((acc, item) => acc + (item.outbound_clicks ?? 0), 0);
     const landingPageViews = list.reduce((acc, item) => acc + item.landing_page_views, 0);
+    const thruplayActions = list.reduce((acc, item) => acc + (item.thruplay_actions ?? 0), 0);
+    const viewContent = list.reduce((acc, item) => acc + (item.view_content ?? 0), 0);
+    const postEngagement = list.reduce((acc, item) => acc + (item.post_engagement ?? 0), 0);
     const addToCart = list.reduce((acc, item) => acc + item.add_to_cart, 0);
     const initiateCheckout = list.reduce((acc, item) => acc + item.initiate_checkout, 0);
     const leads = list.reduce((acc, item) => acc + item.leads, 0);
@@ -974,6 +1047,9 @@ export function groupRows(
         list.map((item) => item.destination_url_confidence ?? null).find((value): value is string => Boolean(value)) ?? null,
       cta_type: list.map((item) => item.cta_type ?? null).find((value): value is string => Boolean(value)) ?? null,
       landing_page_views: landingPageViews,
+      thruplay_actions: thruplayActions,
+      view_content: viewContent,
+      post_engagement: postEngagement,
       add_to_cart: addToCart,
       initiate_checkout: initiateCheckout,
       leads,

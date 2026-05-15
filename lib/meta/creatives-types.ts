@@ -257,6 +257,7 @@ export interface MetaInsightRecord {
   action_values?: MetaActionValue[];
   purchase_roas?: MetaActionValue[];
   video_play_actions?: MetaActionValue[];
+  video_thruplay_watched_actions?: MetaActionValue[];
   video_p25_watched_actions?: MetaActionValue[];
   video_p50_watched_actions?: MetaActionValue[];
   video_p75_watched_actions?: MetaActionValue[];
@@ -574,6 +575,9 @@ export interface CreativeMetricFields {
   impressions: number;
   link_clicks: number;
   landing_page_views: number;
+  thruplay_actions?: number;
+  view_content?: number;
+  post_engagement?: number;
   add_to_cart: number;
   initiate_checkout: number;
   thumbstop: number;

@@ -30,7 +30,11 @@ import {
 import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
 import { emitHighPriorityCampaignScenario } from "@/lib/meta/scenario-emitters/high-priority";
 import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
-import { resolveMetaFunnelCohort, type MetaFunnelCohort } from "@/lib/meta/funnel-cohort";
+import {
+  isPurchaseCohort,
+  resolveMetaFunnelCohort,
+  type MetaFunnelCohort,
+} from "@/lib/meta/funnel-cohort";
 
 export type MetaDecisionState = "act" | "test" | "watch";
 export type MetaRecommendationLens = "volume" | "profitability" | "structure";
@@ -913,19 +917,20 @@ function isActiveCampaign(row: MetaCampaignRow) {
   return row.status === "ACTIVE";
 }
 
-function isPurchaseObjectiveCampaign(
-  row: Pick<MetaCampaignRow, "optimizationGoal" | "objective" | "purchases" | "revenue">
+function campaignFunnelCohort(
+  row: Pick<MetaCampaignRow, "optimizationGoal" | "customEventType" | "objective" | "purchases" | "revenue">,
 ) {
-  const goal = (row.optimizationGoal ?? "").toLowerCase().trim();
-  const objective = (row.objective ?? "").toLowerCase().trim();
-  if (goal.includes("purchase") || goal.includes("value")) return true;
-  if (!goal && (objective.includes("outcome_sales") || objective.includes("sales"))) return true;
-  if (!goal && !objective && ((row.purchases ?? 0) > 0 || (row.revenue ?? 0) > 0)) return true;
-  return false;
+  return resolveMetaFunnelCohort({
+    optimizationGoal: row.optimizationGoal,
+    customEventType: row.customEventType,
+    objective: row.objective,
+    purchases: row.purchases,
+    revenue: row.revenue,
+  });
 }
 
 function filterPurchaseObjectiveRows(rows: MetaCampaignRow[]) {
-  return rows.filter((row) => isPurchaseObjectiveCampaign(row));
+  return rows.filter((row) => isPurchaseCohort(campaignFunnelCohort(row)));
 }
 
 function comparablePeerRows(selectedRows: MetaCampaignRow[], row: MetaCampaignRow) {

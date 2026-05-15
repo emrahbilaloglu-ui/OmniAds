@@ -5,6 +5,7 @@ import {
   type AiCreativeHistoricalWindows,
   type CreativeDecisionResult,
 } from "@/lib/meta/creative-scoring";
+import { metaCampaignFamilyLabel, resolveMetaCampaignFamily } from "@/lib/meta/campaign-lanes";
 
 export interface MetaCreativeCampaignSignalSummary {
   campaignId: string;
@@ -54,54 +55,10 @@ export interface MetaCreativeIntelligenceSummary {
   byFamily: Record<string, Omit<MetaCreativeCampaignSignalSummary, "campaignId" | "campaignName"> & { familyKey: string; familyLabel: string }>;
 }
 
-function normalizeGoal(value: string | null | undefined) {
-  return (value ?? "").toLowerCase().trim();
-}
-
 function familyFromCampaign(row: MetaCampaignRow | null | undefined) {
-  const goal = normalizeGoal(row?.optimizationGoal);
-  const objective = normalizeGoal(row?.objective);
-
-  if (
-    goal.includes("purchase") ||
-    goal.includes("value") ||
-    goal.includes("offsite conversions") ||
-    goal.includes("offsite_conversion") ||
-    objective.includes("outcome_sales") ||
-    objective.includes("sales")
-  ) {
-    return { key: "purchase_value", label: "purchase/value" };
-  }
-  if (
-    goal.includes("add to cart") ||
-    goal.includes("initiate checkout") ||
-    goal.includes("checkout") ||
-    goal.includes("landing page") ||
-    goal.includes("conversion")
-  ) {
-    return { key: "mid_funnel", label: "mid-funnel conversion" };
-  }
-  if (goal.includes("lead") || goal.includes("registration")) {
-    return { key: "lead", label: "lead generation" };
-  }
-  if (
-    goal.includes("thruplay") ||
-    goal.includes("reach") ||
-    goal.includes("video") ||
-    goal.includes("awareness") ||
-    goal.includes("traffic")
-  ) {
-    return { key: "awareness", label: "awareness/video" };
-  }
-  if (
-    goal.includes("engagement") ||
-    goal.includes("message") ||
-    goal.includes("messaging") ||
-    goal.includes("post")
-  ) {
-    return { key: "engagement", label: "engagement/messaging" };
-  }
-  return { key: "other", label: "other" };
+  if (!row) return { key: "other", label: "other" };
+  const family = resolveMetaCampaignFamily(row);
+  return { key: family, label: metaCampaignFamilyLabel(family) };
 }
 
 function isWinner(decision: CreativeDecisionResult) {

@@ -9,9 +9,12 @@ import {
   emitHighPriorityCampaignScenario,
   maybeA1MathFloor,
   maybeA2StructuralRebuild,
+  maybeA3LearningOnPaceWait,
+  maybeA5PostLearningUnderperformer,
   maybeB1CappedBidRaise,
   maybeC1ControlledScale,
   maybeC2RecentEditCooldown,
+  maybeC3ScaleSampleGate,
   maybeE1FatigueAdset,
   maybeE2CtrDecay,
   maybeE4CreativeAge,
@@ -232,7 +235,10 @@ describe("high priority Meta scenario emitters", () => {
     ["K1", () => maybeK1MixedConfig({ window: windowFor(campaign({ isBudgetMixed: true })), context, cohort: purchaseCohort })],
     ["I4", () => maybeI4TestShouldUseAbo({ window: windowFor(campaign({ name: "Creative Test Campaign", budgetLevel: "campaign" })), context, cohort: purchaseCohort, campaignRole: "prospecting_test" })],
     ["A1", () => maybeA1MathFloor({ window: windowFor(campaign({ dailyBudget: 100, roas: 1.5 })), context, cohort: purchaseCohort, signals: signal({ learningState: "LEARNING" }) })],
+    ["A3", () => maybeA3LearningOnPaceWait({ window: windowFor(campaign({ roas: 1.4, purchases: 4, cpa: 70 })), context, cohort: purchaseCohort, signals: signal({ learningState: "LEARNING", sourceJson: { purchases_7d: 4 } }) })],
+    ["A5", () => maybeA5PostLearningUnderperformer({ window: windowFor(campaign({ roas: 0.9, spend: 800, purchases: 4 })), context, cohort: purchaseCohort, signals: signal({ learningState: "OPTIMAL_LEARNING_DONE" }), commercialTargets })],
     ["C2", () => maybeC2RecentEditCooldown({ window: windowFor(campaign()), context, cohort: purchaseCohort, signals: signal({ daysSinceSignificantEdit: 2, lastSignificantEditAt: "2026-05-06T00:00:00.000Z" }) })],
+    ["C3", () => maybeC3ScaleSampleGate({ window: windowFor(campaign({ roas: 3.4, purchases: 4 })), context, cohort: purchaseCohort, signals: signal({ learningState: "OPTIMAL_LEARNING_DONE" }), commercialTargets })],
     ["H1", () => maybeH1TrackingQualityDiagnostic({ window: windowFor(campaign()), context, cohort: purchaseCohort, signals: signal({ trackingQualityStatus: "lpv_drop_suspected", sourceJson: { tracking_quality: { link_clicks: 500, landing_page_views: 100, landing_page_view_rate: 0.2 } } }) })],
     ["F3", () => maybeF3BudgetPacingCooldown({ window: windowFor(campaign()), context, cohort: purchaseCohort, signals: signal({ sourceJson: { monthly_pacing: { status: "overpaced", pace_ratio: 1.5, mtd_spend: 3000, expected_mtd_spend: 2000 } } }) })],
   ])("fires %s on a positive account-history fixture", (_id, build) => {
@@ -334,6 +340,55 @@ describe("high priority Meta scenario emitters", () => {
       signals: signal({ learningState: null }),
     });
     expect(rec).toBeNull();
+  });
+
+  it("keeps on-pace learning campaigns out of hard action paths", () => {
+    const rec = emitHighPriorityCampaignScenario({
+      window: windowFor(campaign({ roas: 1.4, purchases: 4, cpa: 70 })),
+      context,
+      cohort: purchaseCohort,
+      signals: signal({ learningState: "LEARNING", sourceJson: { purchases_7d: 4 } }),
+      commercialTargets,
+    });
+
+    expect(rec?.type).toBe("scenario_a3_learning_on_pace_wait");
+    expect(rec?.decisionState).toBe("watch");
+    expect(rec?.decisionLabel).toBe("keep");
+  });
+
+  it("emits post-learning underperformer only after target-backed loss maturity", () => {
+    const rec = emitHighPriorityCampaignScenario({
+      window: windowFor(campaign({ roas: 0.9, spend: 800, purchases: 4 })),
+      context,
+      cohort: purchaseCohort,
+      signals: signal({ learningState: "OPTIMAL_LEARNING_DONE" }),
+      commercialTargets,
+    });
+
+    expect(rec?.type).toBe("scenario_a2_learning_weak_structural");
+
+    const direct = maybeA5PostLearningUnderperformer({
+      window: windowFor(campaign({ roas: 0.9, spend: 800, purchases: 4 })),
+      context,
+      cohort: purchaseCohort,
+      signals: signal({ learningState: "OPTIMAL_LEARNING_DONE" }),
+      commercialTargets,
+    });
+    expect(direct?.decisionLabel).toBe("cut");
+  });
+
+  it("uses scale sample gate before budget or scale actions", () => {
+    const rec = emitHighPriorityCampaignScenario({
+      window: windowFor(campaign({ roas: 3.4, purchases: 4 })),
+      context,
+      cohort: purchaseCohort,
+      signals: signal({ learningState: "OPTIMAL_LEARNING_DONE", ctrDecayPct: null }),
+      commercialTargets,
+    });
+
+    expect(rec?.type).toBe("scenario_c3_scale_sample_gate");
+    expect(rec?.decisionLabel).toBe("test_more");
+    expect(rec?.decisionState).toBe("watch");
   });
 
   it("does not fire controlled scale below account p75", () => {

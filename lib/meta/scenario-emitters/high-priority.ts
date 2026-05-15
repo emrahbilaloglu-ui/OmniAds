@@ -445,7 +445,8 @@ export function maybeB4MinRoasLoosen(input: CampaignScenarioInput): MetaRecommen
   const utilization = budgetUtilization(row);
   if (utilization == null || utilization >= 0.8) return null;
   const configuredTarget = row.bidValueFormat === "roas" && row.bidValue ? row.bidValue : null;
-  const effectiveTarget = Math.max(scaleFloor, configuredTarget ?? 0, roas.p50);
+  if (!configuredTarget) return null;
+  const effectiveTarget = Math.max(scaleFloor, configuredTarget, roas.p50);
   if (row.purchases < 8 || row.roas < effectiveTarget * 1.15) return null;
   const conf = confidence({
     level: "campaign",
@@ -475,7 +476,7 @@ export function maybeB4MinRoasLoosen(input: CampaignScenarioInput): MetaRecommen
     targetValue: {
       utilization: r2(utilization),
       current_target_roas: configuredTarget,
-      proposed_target_roas: configuredTarget ? r2(configuredTarget * 0.9) : null,
+      proposed_target_roas: r2(configuredTarget * 0.9),
     },
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
@@ -493,6 +494,7 @@ export function maybeB6ProfitFirstBidCapKeep(input: CampaignScenarioInput): Meta
   const scaleFloor = metaScaleRoasFloor(input.commercialTargets);
   if (!roas || !sampleReady(input.context, "roas_28d") || !scaleFloor) return null;
   const utilization = budgetUtilization(row);
+  if (utilization == null || utilization >= 0.95) return null;
   if (row.purchases < 8 || row.roas < Math.max(roas.p75, scaleFloor)) return null;
   const conf = confidence({
     level: "campaign",

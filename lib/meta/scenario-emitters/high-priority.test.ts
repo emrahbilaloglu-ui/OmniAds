@@ -433,6 +433,26 @@ describe("high priority Meta scenario emitters", () => {
     expect(rec?.decisionLabel).toBe("tune");
   });
 
+  it("does not loosen minimum ROAS when Meta target value is missing", () => {
+    const rec = maybeB4MinRoasLoosen({
+      window: windowFor(campaign({
+        bidStrategyType: "target_roas",
+        bidStrategyLabel: "Target ROAS",
+        bidValue: null,
+        bidValueFormat: null,
+        roas: 3.4,
+        purchases: 12,
+        dailyBudget: 500,
+        spend: 1000,
+      })),
+      context,
+      cohort: purchaseCohort,
+      commercialTargets,
+    });
+
+    expect(rec).toBeNull();
+  });
+
   it("keeps constrained bids under conservative profit posture before loosening bids", () => {
     const rec = emitHighPriorityCampaignScenario({
       window: windowFor(campaign({
@@ -453,6 +473,26 @@ describe("high priority Meta scenario emitters", () => {
     expect(rec?.type).toBe("scenario_b6_profit_first_bid_cap_keep");
     expect(rec?.decisionLabel).toBe("keep");
     expect(rec?.decisionState).toBe("watch");
+  });
+
+  it("does not let B6 hide full-delivery controlled scale candidates", () => {
+    const rec = emitHighPriorityCampaignScenario({
+      window: windowFor(campaign({
+        bidStrategyType: "cost_cap",
+        bidStrategyLabel: "Cost Cap",
+        bidValue: 5000,
+        roas: 3.4,
+        purchases: 20,
+        dailyBudget: 500,
+        spend: 14_000,
+      })),
+      context,
+      cohort: purchaseCohort,
+      signals: signal({ ctrDecayPct: null }),
+      commercialTargets: conservativeCommercialTargets,
+    });
+
+    expect(rec?.type).toBe("scenario_c1_controlled_scale");
   });
 
   it("does not fire controlled scale below account p75", () => {

@@ -200,20 +200,27 @@ path and ask the model to read it before planning or changing code.
   - Scope intentionally limited to bid-regime scenarios with existing reliable
     fields: `scenario_b4_min_roas_loosen` and
     `scenario_b6_profit_first_bid_cap_keep`.
+  - PR review fixes:
+    - B4 now requires a readable Meta ROAS target before recommending a target
+      loosen.
+    - B6 now requires under-delivery (`budget_utilization < 95%`) so it cannot
+      hide a full-delivery C1 controlled-scale candidate.
   - `scenario_b3_bid_cap_underperforming` and
     `scenario_b5_lowest_cost_volatility_switch` are intentionally deferred
     because required auction-loss and daily-volatility signals are not yet
     reliable enough for hard/tune recommendations.
   - Local verification so far:
     - `npx vitest run lib/meta/scenario-emitters/high-priority.test.ts lib/meta/recommendations.test.ts`
-      passed: 2 files, 73 tests.
+      passed after PR review fixes: 2 files, 75 tests.
     - `npx vitest run lib/meta components/meta app/api/meta` passed: 109
-      files, 972 tests.
-    - `npx tsc --noEmit` passed.
+      files, 974 tests after PR review fixes.
+    - `npx tsc --noEmit` passed after PR review fixes.
     - `npx vitest run` passed: 408 files passed, 4 skipped; 2,924 tests
-      passed, 49 skipped.
-    - `npm run lint` passed.
-    - `npm run build` passed.
+      passed, 49 skipped before PR review fixes.
+    - `npx vitest run` passed after PR review fixes: 408 files passed, 4
+      skipped; 2,926 tests passed, 49 skipped.
+    - `npm run lint` passed after PR review fixes.
+    - `npm run build` passed after PR review fixes.
 
 ## Completed Work
 

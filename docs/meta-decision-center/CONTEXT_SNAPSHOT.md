@@ -34,7 +34,7 @@ path and ask the model to read it before planning or changing code.
 
 ## Current Repo State
 
-- Current implementation branch: `phase-e-meta-learning-scenarios`.
+- Current implementation branch: `main` after Phase E.1 merge.
 - Phase A PR: `#162` (`[codex] Unify Meta funnel cohort resolution`), merged.
 - Phase A implementation commit: `fc8a8d7` (`Unify Meta funnel cohort resolution`).
 - Phase A context commit: `2a49ef1` (`Record Phase A PR context`).
@@ -55,6 +55,13 @@ path and ask the model to read it before planning or changing code.
 - Phase D implementation commit: `78b521a`
   (`Ground Meta decision signal diagnostics`).
 - Phase D merge commit on `main`: `c218f48a7fb089322f4961c0169ca052bcb19f16`.
+- Phase E.1 PR: `#166` (`[codex] Add Meta learning sample scenarios`),
+  merged.
+- Phase E.1 implementation commit: `a958eff`
+  (`Add Meta learning sample scenarios`).
+- Phase E.1 review-fix commit: `237bbe8`
+  (`Require learning exit evidence for Meta A5`).
+- Phase E.1 merge commit on `main`: `fe9de23b3734db9f7d82a6af1cad67899205e3cd`.
 - Latest Phase D implementation merge SHA verified locally:
   `c218f48a7fb089322f4961c0169ca052bcb19f16`.
 - Latest `main` may include subsequent context-only commits after this merge.
@@ -182,6 +189,10 @@ path and ask the model to read it before planning or changing code.
       passed, 49 skipped.
     - `npm run lint` passed.
     - `npm run build` passed.
+    - GitHub PR `#166` checks passed after review fix: `typecheck`,
+      `test`, and `build`.
+    - GitHub thread-aware review check: P1 A5 learning-exit thread resolved;
+      no remaining unresolved review threads at merge.
 
 ## Completed Work
 
@@ -570,8 +581,9 @@ where coverage is weak.
   a strong reason.
 - Acceptance: every scenario has fixtures, golden cases, invariant coverage,
   missing-signal fallback, and no hard action without anchors/maturity.
-  Status: Phase E.1 implemented locally for A3/A5/C3 learning and sample gates;
-  PR/review/CI/merge pending.
+  Status: Phase E.1 complete. PR `#166` passed GitHub `typecheck`, `test`,
+  and `build` after the A5 learning-exit review fix, then merged into `main`
+  at `fe9de23`.
 
 ### Phase F - Empirical Confidence And Automation Readiness
 

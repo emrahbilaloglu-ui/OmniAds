@@ -54,6 +54,23 @@ const midFunnelContext: MetaCalibrationContext = {
   cohort: "mid_funnel",
 };
 
+const leadContext: MetaCalibrationContext = {
+  thresholds: {
+    source: "calibrated",
+    hardCutSpend: 200,
+    minRequiredSample: 8,
+    metrics: {
+      ...LEGACY_META_CALIBRATION_THRESHOLDS.metrics,
+      cost_per_lead_28d: { p10: 5, p25: 10, p50: 20, p75: 30, p90: 35, sampleSize: 20 },
+      lead_to_purchase_rate_28d: { p10: 0, p25: 10, p50: 20, p75: 30, p90: 40, sampleSize: 20 },
+      freq_14d: { p10: 1, p25: 1.3, p50: 2, p75: 3, p90: 4, sampleSize: 20 },
+      ctr_28d: { p10: 0.4, p25: 1, p50: 2, p75: 3, p90: 4, sampleSize: 20 },
+    },
+  },
+  scope: { type: "campaign", id: "cmp-1", snapshotDate: "2026-05-14", cohort: "lead" },
+  cohort: "lead",
+};
+
 describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
   it("does not cut a THRUPLAY adset with high spend and zero purchases", () => {
     const recs = buildMetaAdsetRecommendations({
@@ -190,5 +207,48 @@ describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
     const rec = recs.find((candidate) => candidate.type === "scenario_m1_mid_funnel_efficient_scale");
     expect(rec?.decisionLabel).toBe("scale");
     expect(rec?.cohort).toBe("mid_funnel");
+  });
+
+  it("emits the lead weighted score recommendation after mid-funnel checks miss", () => {
+    const recs = buildMetaAdsetRecommendations({
+      adsets: [
+        adset({
+          optimizationGoal: "LEAD_GENERATION",
+          customEventType: "LEAD",
+          spend: 100,
+          leads: 25,
+          purchases: 0,
+          ctr: 3,
+          frequency: 1.5,
+        }),
+      ],
+      calibrationContextByAdsetId: {
+        "adset-1": leadContext,
+      },
+      entitySignalsByAdsetId: {
+        "adset-1": {
+          businessId: "biz_1",
+          providerAccountId: "act_1",
+          scopeType: "adset",
+          scopeId: "adset-1",
+          asOfDate: "2026-05-14",
+          learningState: "OPTIMAL_LEARNING_DONE",
+          daysAtLearningState: null,
+          lastSignificantEditAt: null,
+          daysSinceSignificantEdit: null,
+          recentChangeCooldownUntil: null,
+          creativeAgeDays: 20,
+          creativeAgeDaysMax: 20,
+          frequencyP80: null,
+          ctrDecayPct: null,
+          sourceJson: { age_days: 20 },
+          qualityStatus: "ready",
+        },
+      },
+    });
+
+    const rec = recs.find((candidate) => candidate.type === "scenario_l1_lead_efficient_scale");
+    expect(rec?.decisionLabel).toBe("scale");
+    expect(rec?.cohort).toBe("lead");
   });
 });

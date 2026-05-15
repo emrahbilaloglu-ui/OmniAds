@@ -11255,6 +11255,7 @@ export async function getMetaAdDailyRange(input: {
     addToCart: payloadMetricNumber(row.payload_json, "add_to_cart"),
     initiateCheckout: payloadMetricNumber(row.payload_json, "initiate_checkout"),
     viewContent: payloadMetricNumber(row.payload_json, "view_content"),
+    leads: payloadMetricNumber(row.payload_json, "leads"),
     sourceSnapshotId: row.source_snapshot_id,
     truthState:
       row.truth_state == null

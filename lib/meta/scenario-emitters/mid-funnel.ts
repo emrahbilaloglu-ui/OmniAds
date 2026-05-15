@@ -2,6 +2,7 @@ import type { MetaAdSetData } from "@/lib/api/meta";
 import { LEGACY_META_CALIBRATION_THRESHOLDS, type MetaCalibrationMetricName, type MetaMetricPercentiles } from "@/lib/meta/calibration";
 import { META_RECOMMENDATION_ENGINE_VERSION, type MetaRecommendation } from "@/lib/meta/recommendations";
 import type { AdsetScenarioInput } from "@/lib/meta/scenario-emitters/high-priority";
+import { percentileRank, percentileRankInverted } from "@/lib/meta/scenario-emitters/scoring-utils";
 
 type MidFunnelMetricKind = "atc" | "ic" | "vc";
 
@@ -68,24 +69,6 @@ function firstThreshold(
     if (percentiles) return percentiles;
   }
   return null;
-}
-
-function percentileRank(input: {
-  value: number;
-  thresholds: MetaMetricPercentiles;
-  lowerIsBetter?: boolean;
-}) {
-  const { value, thresholds, lowerIsBetter = false } = input;
-  if (!Number.isFinite(value)) return null;
-  if (thresholds.p90 === thresholds.p10) return 0.5;
-  if (lowerIsBetter) {
-    if (value <= thresholds.p10) return 1;
-    if (value >= thresholds.p90) return 0;
-    return 1 - ((value - thresholds.p10) / (thresholds.p90 - thresholds.p10));
-  }
-  if (value <= thresholds.p10) return 0;
-  if (value >= thresholds.p90) return 1;
-  return (value - thresholds.p10) / (thresholds.p90 - thresholds.p10);
 }
 
 function midFunnelMetricKind(adset: MetaAdSetData): MidFunnelMetricKind {
@@ -221,9 +204,9 @@ export function emitMidFunnelAdsetScenario(input: AdsetScenarioInput): MetaRecom
   const costPerEvent = input.adset.spend / count;
   const eventRate = input.adset.impressions > 0 ? (count / input.adset.impressions) * 100 : 0;
   const eventToPurchaseRate = count > 0 ? (input.adset.purchases / count) * 100 : 0;
-  const costRank = percentileRank({ value: costPerEvent, thresholds: costThreshold, lowerIsBetter: true });
-  const rateRank = percentileRank({ value: eventRate, thresholds: rateThreshold });
-  const purchaseRank = percentileRank({ value: eventToPurchaseRate, thresholds: purchaseRateThreshold });
+  const costRank = percentileRankInverted(costPerEvent, costThreshold);
+  const rateRank = percentileRank(eventRate, rateThreshold);
+  const purchaseRank = percentileRank(eventToPurchaseRate, purchaseRateThreshold);
   if (costRank == null || rateRank == null || purchaseRank == null) return null;
 
   const score = r2((0.5 * costRank) + (0.2 * rateRank) + (0.3 * purchaseRank));

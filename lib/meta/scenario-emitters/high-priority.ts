@@ -29,6 +29,7 @@ export function scenarioScopeAllowsCohort(
 ) {
   if (scope === "purchase_only") return cohort === "purchase";
   if (scope === "mid_funnel_only") return cohort === "mid_funnel";
+  if (scope === "lead_only") return cohort === "lead";
   return true;
 }
 

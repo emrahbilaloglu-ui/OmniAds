@@ -761,6 +761,8 @@ where coverage is weak.
   - PR: `#170` (`[codex] Add Meta automation readiness substrate`).
   - Implementation commit: `329b28b`
     (`Add Meta automation readiness substrate`).
+  - Review-fix commit: `5194f9b`
+    (`Require preflight proof for Meta auto readiness`).
   - Added a conservative `meta-automation-readiness.v1` payload layer for Meta
     recommendations.
   - Current auto-execute eligibility remains false unless a future empirical
@@ -783,11 +785,21 @@ where coverage is weak.
     - `npm run lint` passed.
     - `npm run build` passed.
     - `git diff --check` passed.
+    - After PR review fix `5194f9b`:
+      `npx vitest run lib/meta/automation-readiness.test.ts lib/meta/campaign-label-guard.test.ts components/meta/redesign/MetaActionCard.test.tsx`
+      passed: 3 files, 22 tests; `npx tsc --noEmit` passed;
+      `npx vitest run lib/meta components/meta app/api/meta` passed: 110
+      files, 1002 tests; `npx vitest run` passed: 409 files passed, 4
+      skipped, 2954 tests passed, 49 skipped; `npm run lint` passed;
+      `npm run build` passed.
   - GitHub PR `#170` checks passed on implementation commit `329b28b`:
     `typecheck`, `test`, and `build`; runtime deploy jobs skipped because no
     runtime image change was detected.
-  - GitHub thread-aware review check on implementation commit `329b28b`: no
-    review threads, reviews, or conversation comments.
+  - GitHub thread-aware review check on implementation commit `329b28b` found
+    one P1 review thread: auto-execute could become eligible if empirical
+    outcomes were enabled without live preflight or rollback proof. Fixed in
+    `5194f9b` by making live preflight and rollback explicit blockers/missing
+    evidence for auto readiness.
   - Merge, deploy, and post-deploy smoke remain pending for this branch.
 
 ### Phase G - Final Regression, Deploy, Context, And Golden-Case Maintenance

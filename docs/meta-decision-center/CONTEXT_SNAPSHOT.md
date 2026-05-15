@@ -34,7 +34,7 @@ path and ask the model to read it before planning or changing code.
 
 ## Current Repo State
 
-- Current implementation branch: `main` after Phase E.1 merge.
+- Current implementation branch: `phase-e-meta-bid-regime-scenarios`.
 - Phase A PR: `#162` (`[codex] Unify Meta funnel cohort resolution`), merged.
 - Phase A implementation commit: `fc8a8d7` (`Unify Meta funnel cohort resolution`).
 - Phase A context commit: `2a49ef1` (`Record Phase A PR context`).
@@ -67,6 +67,8 @@ path and ask the model to read it before planning or changing code.
 - Latest `main` may include subsequent context-only commits after this merge.
 - Phase E.1 branch started from `main` context commit:
   `c5617d99822312923b2b9a5fd13239826a76db24`.
+- Phase E.2 branch started after Phase E.1 merge/context:
+  `phase-e-meta-bid-regime-scenarios`.
 - Phase A tracked-file modifications at the time of this snapshot:
   - `lib/meta/campaign-lanes.ts`
   - `lib/meta/campaign-lanes.test.ts`
@@ -193,6 +195,25 @@ path and ask the model to read it before planning or changing code.
       `test`, and `build`.
     - GitHub thread-aware review check: P1 A5 learning-exit thread resolved;
       no remaining unresolved review threads at merge.
+- Phase E.2 implementation status:
+  - Branch: `phase-e-meta-bid-regime-scenarios`.
+  - Scope intentionally limited to bid-regime scenarios with existing reliable
+    fields: `scenario_b4_min_roas_loosen` and
+    `scenario_b6_profit_first_bid_cap_keep`.
+  - `scenario_b3_bid_cap_underperforming` and
+    `scenario_b5_lowest_cost_volatility_switch` are intentionally deferred
+    because required auction-loss and daily-volatility signals are not yet
+    reliable enough for hard/tune recommendations.
+  - Local verification so far:
+    - `npx vitest run lib/meta/scenario-emitters/high-priority.test.ts lib/meta/recommendations.test.ts`
+      passed: 2 files, 73 tests.
+    - `npx vitest run lib/meta components/meta app/api/meta` passed: 109
+      files, 972 tests.
+    - `npx tsc --noEmit` passed.
+    - `npx vitest run` passed: 408 files passed, 4 skipped; 2,924 tests
+      passed, 49 skipped.
+    - `npm run lint` passed.
+    - `npm run build` passed.
 
 ## Completed Work
 

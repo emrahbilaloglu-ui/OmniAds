@@ -149,6 +149,18 @@ function budgetAmount(row: MetaCampaignRow) {
   return row.dailyBudget ?? (row.lifetimeBudget ? row.lifetimeBudget / 30 : null);
 }
 
+function budgetUtilization(row: MetaCampaignRow) {
+  const budget = budgetAmount(row);
+  if (!budget || budget <= 0) return null;
+  return (row.spend / 28) / budget;
+}
+
+function isConstrainedBidStrategy(row: MetaCampaignRow) {
+  return row.bidStrategyType === "bid_cap" ||
+    row.bidStrategyType === "cost_cap" ||
+    row.bidStrategyType === "manual_bid";
+}
+
 function targetBand(current: number, pct: number) {
   return {
     current,
@@ -416,6 +428,102 @@ export function maybeB1CappedBidRaise(input: CampaignScenarioInput): MetaRecomme
       ...commercialTargetEvidence(input.commercialTargets, row.currency),
     ],
     targetValue: { bid: targetBand(bid, 0.1) },
+    campaignRole: input.campaignRole,
+    bidRegime: input.bidRegime,
+    cohort: input.cohort,
+    signals: input.signals,
+  });
+}
+
+export function maybeB4MinRoasLoosen(input: CampaignScenarioInput): MetaRecommendation | null {
+  const row = input.window.selected;
+  if (row.bidStrategyType !== "target_roas" && row.bidStrategyType !== "minimum_roas") return null;
+  if (recentEditCooldownActive(input.signals) || trackingQualityIssue(input.signals)) return null;
+  const roas = metric(input.context, "roas_28d");
+  const scaleFloor = metaScaleRoasFloor(input.commercialTargets);
+  if (!roas || !sampleReady(input.context, "roas_28d") || !scaleFloor) return null;
+  const utilization = budgetUtilization(row);
+  if (utilization == null || utilization >= 0.8) return null;
+  const configuredTarget = row.bidValueFormat === "roas" && row.bidValue ? row.bidValue : null;
+  const effectiveTarget = Math.max(scaleFloor, configuredTarget ?? 0, roas.p50);
+  if (row.purchases < 8 || row.roas < effectiveTarget * 1.15) return null;
+  const conf = confidence({
+    level: "campaign",
+    context: input.context,
+    metricValue: row.roas,
+    threshold: effectiveTarget,
+  });
+  return baseCampaignRec({
+    row,
+    type: "scenario_b4_min_roas_loosen",
+    lens: "volume",
+    priority: "medium",
+    confidenceScore: { ...conf, label: conf.label === "high" ? "medium" : conf.label },
+    decisionState: "test",
+    decisionLabel: "tune",
+    title: `${row.name}: loosen minimum ROAS carefully`,
+    why: `Actual ROAS ${fmtRoas(row.roas)} is comfortably above the configured/profit target while budget utilization is only ${r2(utilization * 100)}%.`,
+    summary: "The ROAS guardrail is likely restricting delivery more than needed.",
+    recommendedAction: "Lower the ROAS target by 10-15% and re-check delivery before increasing budget.",
+    expectedImpact: "Unlocks more delivery while keeping a profit guardrail in place.",
+    evidence: [
+      { label: "Budget utilization", value: `${r2(utilization * 100)}%`, tone: "warning" },
+      { label: "ROAS", value: fmtRoas(row.roas), tone: "positive" },
+      ...(configuredTarget ? [{ label: "Current ROAS target", value: fmtRoas(configuredTarget), tone: "neutral" as const }] : []),
+      ...commercialTargetEvidence(input.commercialTargets, row.currency),
+    ],
+    targetValue: {
+      utilization: r2(utilization),
+      current_target_roas: configuredTarget,
+      proposed_target_roas: configuredTarget ? r2(configuredTarget * 0.9) : null,
+    },
+    campaignRole: input.campaignRole,
+    bidRegime: input.bidRegime,
+    cohort: input.cohort,
+    signals: input.signals,
+  });
+}
+
+export function maybeB6ProfitFirstBidCapKeep(input: CampaignScenarioInput): MetaRecommendation | null {
+  const row = input.window.selected;
+  if (!isConstrainedBidStrategy(row)) return null;
+  if (input.commercialTargets?.riskPosture !== "conservative") return null;
+  if (recentEditCooldownActive(input.signals) || trackingQualityIssue(input.signals)) return null;
+  const roas = metric(input.context, "roas_28d");
+  const scaleFloor = metaScaleRoasFloor(input.commercialTargets);
+  if (!roas || !sampleReady(input.context, "roas_28d") || !scaleFloor) return null;
+  const utilization = budgetUtilization(row);
+  if (row.purchases < 8 || row.roas < Math.max(roas.p75, scaleFloor)) return null;
+  const conf = confidence({
+    level: "campaign",
+    context: input.context,
+    metricValue: row.roas,
+    threshold: Math.max(roas.p75, scaleFloor),
+  });
+  return baseCampaignRec({
+    row,
+    type: "scenario_b6_profit_first_bid_cap_keep",
+    lens: "profitability",
+    priority: "medium",
+    confidenceScore: { ...conf, label: conf.label === "high" ? "medium" : conf.label },
+    decisionState: "watch",
+    decisionLabel: "keep",
+    title: `${row.name}: keep profit-first bid cap`,
+    why: "Conservative commercial posture is active and the constrained bid setup is already holding profitable ROAS.",
+    summary: "Do not loosen the bid cap just to chase more volume.",
+    recommendedAction: "Keep the bid cap and scale only through a separate controlled-scale decision if profit remains stable.",
+    expectedImpact: "Protects margin while preserving the option to scale later.",
+    evidence: [
+      { label: "Risk posture", value: "conservative", tone: "neutral" },
+      { label: "Bid method", value: row.bidStrategyLabel ?? row.bidStrategyType ?? "constrained", tone: "neutral" },
+      { label: "ROAS", value: fmtRoas(row.roas), tone: "positive" },
+      ...(utilization != null ? [{ label: "Budget utilization", value: `${r2(utilization * 100)}%`, tone: "neutral" as const }] : []),
+      ...commercialTargetEvidence(input.commercialTargets, row.currency),
+    ],
+    targetValue: {
+      risk_posture: input.commercialTargets?.riskPosture ?? null,
+      utilization: utilization == null ? null : r2(utilization),
+    },
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
     cohort: input.cohort,
@@ -1016,6 +1124,8 @@ const CAMPAIGN_PRECEDENCE = [
   maybeE2CtrDecay,
   maybeE4CreativeAge,
   maybeC3ScaleSampleGate,
+  maybeB4MinRoasLoosen,
+  maybeB6ProfitFirstBidCapKeep,
   maybeB1CappedBidRaise,
   maybeC1ControlledScale,
   maybeA1MathFloor,

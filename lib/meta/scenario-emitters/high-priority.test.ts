@@ -12,6 +12,8 @@ import {
   maybeA3LearningOnPaceWait,
   maybeA5PostLearningUnderperformer,
   maybeB1CappedBidRaise,
+  maybeB4MinRoasLoosen,
+  maybeB6ProfitFirstBidCapKeep,
   maybeC1ControlledScale,
   maybeC2RecentEditCooldown,
   maybeC3ScaleSampleGate,
@@ -55,6 +57,10 @@ const commercialTargets = {
   targetCpa: 100,
   breakEvenCpa: 140,
   riskPosture: "balanced" as const,
+};
+const conservativeCommercialTargets = {
+  ...commercialTargets,
+  riskPosture: "conservative" as const,
 };
 
 function campaign(overrides: Partial<MetaCampaignRow> = {}): MetaCampaignRow {
@@ -226,6 +232,8 @@ describe("high priority Meta scenario emitters", () => {
   it.each([
     ["C1", () => maybeC1ControlledScale({ window: windowFor(campaign({ roas: 3.4, purchases: 20 })), context, cohort: purchaseCohort, commercialTargets })],
     ["B1", () => maybeB1CappedBidRaise({ window: windowFor(campaign({ bidStrategyType: "cost_cap", bidValue: 5000, roas: 2.4, dailyBudget: 500, spend: 1000 })), context, cohort: purchaseCohort, commercialTargets })],
+    ["B4", () => maybeB4MinRoasLoosen({ window: windowFor(campaign({ bidStrategyType: "target_roas", bidStrategyLabel: "Target ROAS", bidValue: 2.2, bidValueFormat: "roas", roas: 3.4, purchases: 12, dailyBudget: 500, spend: 1000 })), context, cohort: purchaseCohort, commercialTargets })],
+    ["B6", () => maybeB6ProfitFirstBidCapKeep({ window: windowFor(campaign({ bidStrategyType: "cost_cap", bidStrategyLabel: "Cost Cap", bidValue: 5000, roas: 3.4, purchases: 20, dailyBudget: 500, spend: 12000 })), context, cohort: purchaseCohort, commercialTargets: conservativeCommercialTargets })],
     ["J1", () => maybeJ1StableWinnerProtected({ window: windowFor(campaign({ roas: 3.4, purchases: 20 })), context, cohort: purchaseCohort })],
     ["A2", () => maybeA2StructuralRebuild({ window: windowFor(campaign({ roas: 0.7, spend: 500, purchases: 2 })), context, cohort: purchaseCohort, signals: signal(), commercialTargets })],
     ["F1", () => maybeF1SuddenRoasDrop({ window: windowFor(campaign({ roas: 2.4 }), { last7: campaign({ roas: 1, spend: 500 }) }), context, cohort: purchaseCohort })],
@@ -400,6 +408,50 @@ describe("high priority Meta scenario emitters", () => {
 
     expect(rec?.type).toBe("scenario_c3_scale_sample_gate");
     expect(rec?.decisionLabel).toBe("test_more");
+    expect(rec?.decisionState).toBe("watch");
+  });
+
+  it("uses minimum ROAS loosen before generic capped bid raise", () => {
+    const rec = emitHighPriorityCampaignScenario({
+      window: windowFor(campaign({
+        bidStrategyType: "target_roas",
+        bidStrategyLabel: "Target ROAS",
+        bidValue: 2.2,
+        bidValueFormat: "roas",
+        roas: 3.4,
+        purchases: 12,
+        dailyBudget: 500,
+        spend: 1000,
+      })),
+      context,
+      cohort: purchaseCohort,
+      signals: signal({ ctrDecayPct: null }),
+      commercialTargets,
+    });
+
+    expect(rec?.type).toBe("scenario_b4_min_roas_loosen");
+    expect(rec?.decisionLabel).toBe("tune");
+  });
+
+  it("keeps constrained bids under conservative profit posture before loosening bids", () => {
+    const rec = emitHighPriorityCampaignScenario({
+      window: windowFor(campaign({
+        bidStrategyType: "cost_cap",
+        bidStrategyLabel: "Cost Cap",
+        bidValue: 5000,
+        roas: 3.4,
+        purchases: 20,
+        dailyBudget: 500,
+        spend: 12000,
+      })),
+      context,
+      cohort: purchaseCohort,
+      signals: signal({ ctrDecayPct: null }),
+      commercialTargets: conservativeCommercialTargets,
+    });
+
+    expect(rec?.type).toBe("scenario_b6_profit_first_bid_cap_keep");
+    expect(rec?.decisionLabel).toBe("keep");
     expect(rec?.decisionState).toBe("watch");
   });
 

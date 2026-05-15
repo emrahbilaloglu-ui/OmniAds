@@ -22,7 +22,7 @@ describe("Meta empirical outcomes", () => {
         { actionType: "preflight", outcomeStatus: "success" },
         { actionType: "execute", outcomeStatus: "success" },
         { action_type: "rollback", outcomeStatus: "success" },
-        { actionType: "outcome", outcomeStatus: "negative" },
+        { action_type: "outcome", outcome_status: "negative" },
       ],
       { minSampleSize: 2 },
     );

@@ -5,6 +5,7 @@ export interface MetaDecisionOutcomeSummaryInputRow {
   actionType?: string | null;
   action_type?: string | null;
   outcomeStatus?: string | null;
+  outcome_status?: string | null;
 }
 
 export interface MetaEmpiricalOutcomeSummary {
@@ -92,7 +93,7 @@ export function summarizeMetaDecisionOutcomes(
     const actionType = String(row.actionType ?? row.action_type ?? "").trim().toLowerCase();
     if (actionType !== "outcome") continue;
     sampleSize += 1;
-    const outcome = classifyMetaDecisionOutcomeStatus(row.outcomeStatus);
+    const outcome = classifyMetaDecisionOutcomeStatus(row.outcomeStatus ?? row.outcome_status);
     if (outcome === "positive") positiveCount += 1;
     else if (outcome === "negative") negativeCount += 1;
     else if (outcome === "neutral") neutralCount += 1;

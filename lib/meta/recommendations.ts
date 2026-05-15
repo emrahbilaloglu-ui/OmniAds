@@ -44,6 +44,10 @@ import {
   metaScaleRoasFloor,
   type MetaCommercialTargets,
 } from "@/lib/meta/commercial-targets";
+import {
+  deriveMetaAutomationReadiness,
+  type MetaAutomationReadiness,
+} from "@/lib/meta/automation-readiness";
 
 export type MetaDecisionState = "act" | "test" | "watch";
 export type MetaRecommendationLens = "volume" | "profitability" | "structure";
@@ -197,6 +201,7 @@ export interface MetaRecommendation {
   confidence: MetaRecommendationConfidence;
   confidenceScore?: number;
   confidenceReason?: string | null;
+  automationReadiness?: MetaAutomationReadiness;
   decisionState: MetaDecisionState;
   decision: string;
   title: string;
@@ -895,7 +900,7 @@ function applyConfidence(
 }
 
 function stampRecommendation(recommendation: MetaRecommendation): MetaRecommendation {
-  return {
+  const stamped = {
     ...recommendation,
     confidenceScore:
       typeof recommendation.confidenceScore === "number"
@@ -903,6 +908,10 @@ function stampRecommendation(recommendation: MetaRecommendation): MetaRecommenda
         : defaultConfidenceScore(recommendation.confidence),
     confidenceReason: recommendation.confidenceReason ?? null,
     engineVersion: recommendation.engineVersion ?? META_RECOMMENDATION_ENGINE_VERSION,
+  };
+  return {
+    ...stamped,
+    automationReadiness: deriveMetaAutomationReadiness(stamped),
   };
 }
 

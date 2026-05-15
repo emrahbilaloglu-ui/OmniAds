@@ -4,6 +4,7 @@ import type {
   MetaRecommendation,
   MetaRecommendationType,
 } from "@/lib/meta/recommendations";
+import { withMetaAutomationReadiness } from "@/lib/meta/automation-readiness";
 
 export const META_CAMPAIGN_LABEL_GUARD_REASON = "unlabeled_campaign_soft_only";
 export const META_CAMPAIGN_LABEL_CONFIDENCE_CAP = 0.45;
@@ -320,7 +321,7 @@ export function applyMetaCampaignLabelGuard(input: {
       if (!hasMetaCampaignLabel(campaignId, labelMap)) unlabeledCampaignIds.add(campaignId);
     }
     return downgradeToSoftOnly(rec);
-  });
+  }).map(withMetaAutomationReadiness);
 
   return {
     recommendations,

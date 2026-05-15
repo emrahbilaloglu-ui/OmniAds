@@ -65,7 +65,11 @@ describe("applyMetaCampaignLabelGuard", () => {
     });
 
     expect(result.downgradedCount).toBe(0);
-    expect(result.recommendations[0]).toBe(input);
+    expect(result.recommendations[0]).toMatchObject(input);
+    expect(result.recommendations[0]?.automationReadiness).toMatchObject({
+      tier: "manual_review",
+      autoExecuteEligible: false,
+    });
   });
 
   it("downgrades unlabeled campaign hard actions to soft-only watch", () => {
@@ -92,6 +96,11 @@ describe("applyMetaCampaignLabelGuard", () => {
       confidence_cap: META_CAMPAIGN_LABEL_GUARD_REASON,
       label_status: "unlabeled",
       blocked_action_type: "scale_for_volume",
+    });
+    expect(guarded.automationReadiness).toMatchObject({
+      tier: "read_only",
+      autoExecuteEligible: false,
+      blockers: expect.arrayContaining(["missing_campaign_label"]),
     });
   });
 
@@ -166,7 +175,8 @@ describe("applyMetaCampaignLabelGuard", () => {
     });
 
     expect(result.downgradedCount).toBe(0);
-    expect(result.recommendations).toEqual(allowed);
+    expect(result.recommendations.map((item) => item.id)).toEqual(allowed.map((item) => item.id));
+    expect(result.recommendations.every((item) => item.automationReadiness)).toBe(true);
   });
 
   it("turns refresh semantics into cut semantics for labeled Test campaigns", () => {
@@ -249,7 +259,7 @@ describe("applyMetaCampaignLabelGuard", () => {
       activeCampaignIds: ["cmp-1", "cmp-2"],
     });
     expect(complete.downgradedCount).toBe(0);
-    expect(complete.recommendations[0]).toBe(accountRec);
+    expect(complete.recommendations[0]).toMatchObject(accountRec);
   });
 
   it("is idempotent for already downgraded recommendations", () => {
@@ -265,6 +275,11 @@ describe("applyMetaCampaignLabelGuard", () => {
     });
 
     expect(second.downgradedCount).toBe(0);
-    expect(second.recommendations[0]).toBe(first);
+    expect(second.recommendations[0]).toMatchObject({
+      confidenceReason: META_CAMPAIGN_LABEL_GUARD_REASON,
+      automationReadiness: {
+        tier: "read_only",
+      },
+    });
   });
 });

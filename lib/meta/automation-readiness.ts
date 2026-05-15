@@ -1,0 +1,189 @@
+import { decisionLabelForMetaRec } from "@/lib/meta/rec-label-mapping";
+import type { MetaDecisionLabel, MetaRecommendation } from "@/lib/meta/recommendations";
+
+export type MetaAutomationReadinessTier =
+  | "read_only"
+  | "manual_review"
+  | "backtest_candidate"
+  | "auto_execute";
+
+export type MetaAutomationReadinessBlocker =
+  | "no_empirical_outcome_model"
+  | "unsupported_action_class"
+  | "not_action_state"
+  | "diagnostic_or_watch_state"
+  | "low_confidence"
+  | "missing_campaign_label"
+  | "missing_commercial_anchor";
+
+export interface MetaAutomationReadiness {
+  contractVersion: "meta-automation-readiness.v1";
+  tier: MetaAutomationReadinessTier;
+  autoExecuteEligible: boolean;
+  operatorReviewRequired: boolean;
+  decisionLabel: MetaDecisionLabel;
+  blockers: MetaAutomationReadinessBlocker[];
+  missingEvidence: string[];
+  requiredEvidence: string[];
+  reason: string;
+}
+
+interface MetaAutomationReadinessOptions {
+  empiricalOutcomeModelAvailable?: boolean;
+}
+
+const AUTO_CANDIDATE_TYPES = new Set<MetaRecommendation["type"]>([
+  "adset_scale_budget",
+  "adset_cut_spend",
+]);
+
+const READ_ONLY_LABELS = new Set<MetaDecisionLabel>([
+  "keep",
+  "diagnose",
+  "out_of_scope",
+  "review_placements",
+  "review_adsets",
+]);
+
+const COMMERCIAL_ACTION_LABELS = new Set<MetaDecisionLabel>([
+  "scale",
+  "cut",
+]);
+
+const UNLABELED_CAMPAIGN_GUARD_REASON = "unlabeled_campaign_soft_only";
+
+function confidenceScore(rec: MetaRecommendation) {
+  if (typeof rec.confidenceScore === "number" && Number.isFinite(rec.confidenceScore)) {
+    return rec.confidenceScore;
+  }
+  if (rec.confidence === "high") return 0.8;
+  if (rec.confidence === "medium") return 0.62;
+  return 0.42;
+}
+
+function stringSignalQualityValue(rec: MetaRecommendation, key: string) {
+  const quality = rec.signalQuality;
+  if (!quality || typeof quality !== "object") return null;
+  const value = quality[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function isMissingCampaignLabel(rec: MetaRecommendation) {
+  return (
+    rec.confidenceReason === UNLABELED_CAMPAIGN_GUARD_REASON ||
+    stringSignalQualityValue(rec, "label_status") === "unlabeled" ||
+    stringSignalQualityValue(rec, "confidence_cap") === UNLABELED_CAMPAIGN_GUARD_REASON
+  );
+}
+
+function hasCommercialAnchor(rec: MetaRecommendation) {
+  return rec.evidence.some((item) =>
+    item.label === "Target ROAS" ||
+    item.label === "Break-even ROAS" ||
+    item.label === "Target CPA" ||
+    item.label === "Break-even CPA"
+  );
+}
+
+function unique<T extends string>(items: T[]) {
+  return Array.from(new Set(items));
+}
+
+function reasonFor(tier: MetaAutomationReadinessTier, blockers: MetaAutomationReadinessBlocker[]) {
+  if (blockers.includes("missing_campaign_label")) {
+    return "Campaign label is missing, so automation is blocked until Main/Test/Mixed context is explicit.";
+  }
+  if (blockers.includes("diagnostic_or_watch_state")) {
+    return "This recommendation is diagnostic, protective, or watch-only; it is not an execution candidate.";
+  }
+  if (blockers.includes("not_action_state")) {
+    return "This recommendation is not an act-now decision; a human should review it before any operational change.";
+  }
+  if (blockers.includes("unsupported_action_class")) {
+    return "This action class is not mapped to a safe Meta executor.";
+  }
+  if (blockers.includes("missing_commercial_anchor")) {
+    return "Commercial target or break-even proof is missing.";
+  }
+  if (blockers.includes("low_confidence")) {
+    return "Confidence is below the automation floor.";
+  }
+  if (blockers.includes("no_empirical_outcome_model")) {
+    return tier === "backtest_candidate"
+      ? "Deterministic evidence is promising, but empirical outcome backtesting is required before automation."
+      : "No empirical outcome model is attached to this scenario yet.";
+  }
+  return "Automation readiness check completed.";
+}
+
+export function deriveMetaAutomationReadiness(
+  rec: MetaRecommendation,
+  options: MetaAutomationReadinessOptions = {},
+): MetaAutomationReadiness {
+  const decisionLabel = decisionLabelForMetaRec(rec);
+  const blockers: MetaAutomationReadinessBlocker[] = [];
+  const requiredEvidence = [
+    "empirical_outcome_backtest",
+    "live_preflight",
+    "rollback_plan",
+    "campaign_label",
+  ];
+  const empiricalOutcomeModelAvailable = options.empiricalOutcomeModelAvailable === true;
+  const missingEvidence = empiricalOutcomeModelAvailable ? [] : ["empirical_outcome_backtest"];
+  const readOnly =
+    rec.kind === "state" ||
+    rec.kind === "anomaly" ||
+    rec.decisionState === "watch" ||
+    READ_ONLY_LABELS.has(decisionLabel);
+  const autoCandidateType = AUTO_CANDIDATE_TYPES.has(rec.type);
+  const score = confidenceScore(rec);
+
+  if (!empiricalOutcomeModelAvailable) blockers.push("no_empirical_outcome_model");
+  if (rec.decisionState !== "act") blockers.push("not_action_state");
+  if (readOnly) blockers.push("diagnostic_or_watch_state");
+  if (!autoCandidateType) blockers.push("unsupported_action_class");
+  if (score < 0.7) blockers.push("low_confidence");
+  if (isMissingCampaignLabel(rec)) {
+    blockers.push("missing_campaign_label");
+    missingEvidence.push("campaign_label");
+  }
+  if (COMMERCIAL_ACTION_LABELS.has(decisionLabel) && !hasCommercialAnchor(rec)) {
+    blockers.push("missing_commercial_anchor");
+    missingEvidence.push("commercial_target_or_breakeven");
+  }
+
+  let tier: MetaAutomationReadinessTier = "manual_review";
+  if (readOnly || blockers.includes("missing_campaign_label")) {
+    tier = "read_only";
+  } else if (
+    autoCandidateType &&
+    rec.decisionState === "act" &&
+    score >= 0.7 &&
+    !blockers.includes("missing_commercial_anchor")
+  ) {
+    tier = empiricalOutcomeModelAvailable ? "auto_execute" : "backtest_candidate";
+  }
+
+  const uniqueBlockers = unique(blockers);
+  const autoExecuteEligible = tier === "auto_execute" && uniqueBlockers.length === 0;
+  return {
+    contractVersion: "meta-automation-readiness.v1",
+    tier: autoExecuteEligible ? "auto_execute" : tier === "auto_execute" ? "backtest_candidate" : tier,
+    autoExecuteEligible,
+    operatorReviewRequired: tier === "manual_review" || tier === "backtest_candidate",
+    decisionLabel,
+    blockers: uniqueBlockers,
+    missingEvidence: unique(missingEvidence),
+    requiredEvidence,
+    reason: reasonFor(tier, uniqueBlockers),
+  };
+}
+
+export function withMetaAutomationReadiness<T extends MetaRecommendation>(
+  rec: T,
+): T & { automationReadiness: MetaAutomationReadiness } {
+  return {
+    ...rec,
+    automationReadiness: deriveMetaAutomationReadiness(rec),
+  };
+}

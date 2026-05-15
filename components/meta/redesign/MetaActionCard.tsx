@@ -105,6 +105,15 @@ function signalQualityText(rec: MetaRecommendation) {
   return status ?? (cap ? `cap ${cap}` : null);
 }
 
+function automationReadinessText(rec: MetaRecommendation) {
+  const readiness = rec.automationReadiness;
+  if (!readiness) return null;
+  if (readiness.tier === "auto_execute") return "Eligible";
+  if (readiness.tier === "backtest_candidate") return "Backtest needed";
+  if (readiness.tier === "manual_review") return "Manual review";
+  return "Read-only";
+}
+
 function responseStateTone(responseState: "acted" | "deferred" | "ignored") {
   if (responseState === "acted") return "border-emerald-200 bg-emerald-50 text-emerald-700";
   if (responseState === "deferred") return "border-amber-200 bg-amber-50 text-amber-800";
@@ -239,6 +248,7 @@ export function MetaActionCard({
   const effectiveResponseState = responseState ?? (deferred ? "deferred" : null);
   const calibration = calibrationScopeText(rec);
   const signalQuality = signalQualityText(rec);
+  const automationReadiness = automationReadinessText(rec);
 
   return (
     <article
@@ -364,6 +374,16 @@ export function MetaActionCard({
               >
                 <span className="shrink-0 text-slate-400">Signals</span>
                 <span className="ml-1 truncate font-medium text-slate-700">{signalQuality}</span>
+              </span>
+            ) : null}
+            {automationReadiness ? (
+              <span
+                className="inline-flex max-w-full items-center rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-slate-600"
+                title={rec.automationReadiness?.reason}
+                data-automation-readiness
+              >
+                <span className="shrink-0 text-slate-400">Auto</span>
+                <span className="ml-1 truncate font-medium text-slate-700">{automationReadiness}</span>
               </span>
             ) : null}
           </div>

@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   buildMetaRecommendations,
   calculateMetaStatisticalConfidence,
+  type MetaCalibrationContext,
 } from "@/lib/meta/recommendations";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCreativeIntelligenceSummary } from "@/lib/meta/creative-intelligence";
+import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
+import { LEGACY_META_CALIBRATION_THRESHOLDS } from "@/lib/meta/calibration";
 
 function campaign(overrides: Partial<MetaCampaignRow>): MetaCampaignRow {
   return {
@@ -123,6 +126,46 @@ const commercialTargets = {
   breakEvenCpa: 160,
   riskPosture: "balanced" as const,
 };
+
+const calibrationContext: MetaCalibrationContext = {
+  thresholds: {
+    source: "calibrated",
+    hardCutSpend: 200,
+    minRequiredSample: 3,
+    metrics: {
+      ...LEGACY_META_CALIBRATION_THRESHOLDS.metrics,
+      roas_28d: { p10: 0.5, p25: 1, p50: 2, p75: 3, p90: 4, sampleSize: 20 },
+      cpa_28d: { p10: 20, p25: 30, p50: 50, p75: 80, p90: 120, sampleSize: 20 },
+      freq_14d: { p10: 1, p25: 1.3, p50: 1.8, p75: 2.5, p90: 3.5, sampleSize: 20 },
+      cpm_14d: { p10: 5, p25: 8, p50: 12, p75: 18, p90: 25, sampleSize: 20 },
+      ctr_28d: { p10: 0.5, p25: 1, p50: 2, p75: 3, p90: 4, sampleSize: 20 },
+      win_rate_28d: { p10: 0.1, p25: 0.2, p50: 0.4, p75: 0.6, p90: 0.8, sampleSize: 20 },
+    },
+  },
+  scope: { type: "account", id: "biz-1", snapshotDate: "2026-05-15" },
+};
+
+function entitySignal(overrides: Partial<MetaEntityDecisionSignal> = {}): MetaEntityDecisionSignal {
+  return {
+    businessId: "biz-1",
+    providerAccountId: "act-1",
+    scopeType: "campaign",
+    scopeId: "cmp-1",
+    asOfDate: "2026-05-15",
+    learningState: "OPTIMAL_LEARNING_DONE",
+    daysAtLearningState: null,
+    lastSignificantEditAt: null,
+    daysSinceSignificantEdit: null,
+    recentChangeCooldownUntil: null,
+    creativeAgeDays: 28,
+    creativeAgeDaysMax: 28,
+    frequencyP80: null,
+    ctrDecayPct: null,
+    sourceJson: {},
+    qualityStatus: "ready",
+    ...overrides,
+  };
+}
 
 const creativeIntelligence: MetaCreativeIntelligenceSummary = {
   totalCreatives: 8,
@@ -383,7 +426,7 @@ describe("buildMetaRecommendations", () => {
     expect(result.recommendations.some((item) => item.type === "scale_for_profitability")).toBe(true);
   });
 
-  it("does not produce insights for add to cart campaigns because recommendations are purchase-only", () => {
+  it("does not produce insights for add to cart campaigns without explicit recent purchase signal", () => {
     const row = campaign({ optimizationGoal: "Add To Cart", purchases: 28, roas: 2.9 });
     const result = buildMetaRecommendations({
       windows: {
@@ -402,6 +445,47 @@ describe("buildMetaRecommendations", () => {
 
     expect(result.recommendations).toHaveLength(0);
     expect(result.summary.title).toContain("No purchase-focused");
+  });
+
+  it("emits G2 purchase-downshift from the real builder for explicit pre-purchase optimization", () => {
+    const row = campaign({
+      optimizationGoal: "OFFSITE_CONVERSIONS",
+      customEventType: "ADD_TO_CART",
+      purchases: 12,
+      revenue: 3120,
+      roas: 2.6,
+    });
+    const result = buildMetaRecommendations({
+      windows: {
+        selected: [row],
+        previousSelected: [],
+        last3: [row],
+        last7: [row],
+        last14: [row],
+        last30: [row],
+        last90: [row],
+        allHistory: [row],
+      },
+      breakdowns,
+      commercialTargets,
+      calibrationContext,
+      entitySignalsByCampaignId: {
+        [row.id]: entitySignal({ sourceJson: { purchases_7d: 6 } }),
+      },
+    });
+
+    const rec = result.recommendations.find((item) => item.type === "scenario_g2_downshift_to_purchase");
+    expect(rec).toMatchObject({
+      type: "scenario_g2_downshift_to_purchase",
+      decisionLabel: "switch",
+      decisionState: "test",
+      cohort: "mid_funnel",
+    });
+    expect(rec?.targetValue).toMatchObject({
+      current_event: "ADD_TO_CART",
+      proposed_event: "PURCHASE",
+      purchase_signal_7d: 6,
+    });
   });
 
   it("treats revenue-bearing campaigns as eligible when objective metadata is missing", () => {

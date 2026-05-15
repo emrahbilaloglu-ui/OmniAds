@@ -294,6 +294,7 @@ path and ask the model to read it before planning or changing code.
       merge.
 - Phase E.4 implementation status:
   - Branch: `phase-e-meta-purchase-downshift-scenario`.
+  - PR: `#169`, open.
   - Scope intentionally limited to `scenario_g2_downshift_to_purchase`.
   - G2 emits only when a campaign is explicitly optimized to a supported
     pre-purchase event (`INITIATE_CHECKOUT`, `ADD_TO_CART`, `VIEW_CONTENT`, or
@@ -306,6 +307,13 @@ path and ask the model to read it before planning or changing code.
     commercial target anchors.
   - The G2 scenario scope is `any` because the source cohort can be
     mid/upper/traffic even though the target event is purchase.
+  - PR review fix:
+    - G2 now runs through the real `buildMetaRecommendations(...)` path before
+      the purchase-only recommendation window filter, so explicit pre-purchase
+      campaigns are not dropped before the G2 emitter can evaluate them.
+    - The production-path test keeps ordinary add-to-cart campaigns with no
+      explicit `purchases_7d` signal at zero recommendations, while allowing G2
+      when that signal and commercial target evidence exist.
   - Local verification so far:
     - `npx vitest run lib/meta/scenario-emitters/high-priority.test.ts lib/meta/campaign-label-guard.test.ts lib/meta/rec-label-mapping.test.ts lib/meta/engine-v1/scenarios.test.ts`
       passed: 4 files, 98 tests.
@@ -316,6 +324,16 @@ path and ask the model to read it before planning or changing code.
       passed, 49 skipped.
     - `npm run lint` passed.
     - `npm run build` passed.
+    - After PR review fix,
+      `npx vitest run lib/meta/recommendations.test.ts lib/meta/scenario-emitters/high-priority.test.ts lib/meta/campaign-label-guard.test.ts lib/meta/rec-label-mapping.test.ts lib/meta/engine-v1/scenarios.test.ts`
+      passed: 5 files, 126 tests.
+    - After PR review fix, `npx tsc --noEmit` passed.
+    - After PR review fix, `npx vitest run lib/meta components/meta app/api/meta`
+      passed: 109 files, 995 tests.
+    - After PR review fix, `npx vitest run` passed: 408 files passed, 4
+      skipped; 2,947 tests passed, 49 skipped.
+    - After PR review fix, `npm run lint` passed.
+    - After PR review fix, `npm run build` passed.
 
 ## Completed Work
 

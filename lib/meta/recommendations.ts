@@ -28,7 +28,10 @@ import {
   type MetaCampaignLaneSignal,
 } from "@/lib/meta/campaign-lanes";
 import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
-import { emitHighPriorityCampaignScenario } from "@/lib/meta/scenario-emitters/high-priority";
+import {
+  emitHighPriorityCampaignScenario,
+  maybeG2DownshiftToPurchase,
+} from "@/lib/meta/scenario-emitters/high-priority";
 import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
 import {
   isPurchaseCohort,
@@ -969,6 +972,39 @@ function campaignFunnelCohort(
 
 function filterPurchaseObjectiveRows(rows: MetaCampaignRow[]) {
   return rows.filter((row) => isPurchaseCohort(campaignFunnelCohort(row)));
+}
+
+function buildPurchaseDownshiftScenarioRecommendations(input: {
+  windows: CampaignWindowSnapshot[];
+  selectedRows: MetaCampaignRow[];
+  calibrationContext?: MetaCalibrationContext | null;
+  calibrationContextByCampaignId?: Record<string, MetaCalibrationContext | null | undefined>;
+  entitySignalsByCampaignId?: Record<string, MetaEntityDecisionSignal | null | undefined>;
+  commercialTargets?: MetaCommercialTargets | null;
+}): MetaRecommendation[] {
+  const taxonomyContext = buildRecommendationTaxonomyContext(input.selectedRows);
+  const recommendations: MetaRecommendation[] = [];
+  for (const campaignWindow of input.windows) {
+    const calibrationContext =
+      input.calibrationContextByCampaignId?.[campaignWindow.selected.id] ??
+      input.calibrationContext ??
+      null;
+    const campaignRole = inferCampaignRole(campaignWindow.selected, {
+      campaigns: input.selectedRows,
+      laneSignals: taxonomyContext.laneSignals,
+    });
+    const scenario = maybeG2DownshiftToPurchase({
+      window: campaignWindow,
+      context: calibrationContext,
+      cohort: campaignFunnelCohort(campaignWindow.selected),
+      campaignRole,
+      bidRegime: inferBidRegime(null, campaignWindow.selected),
+      signals: input.entitySignalsByCampaignId?.[campaignWindow.selected.id] ?? null,
+      commercialTargets: input.commercialTargets ?? null,
+    });
+    if (scenario) recommendations.push(scenario);
+  }
+  return recommendations;
 }
 
 function comparablePeerRows(selectedRows: MetaCampaignRow[], row: MetaCampaignRow) {
@@ -2827,6 +2863,16 @@ export function buildMetaRecommendations(input: {
   language?: AppLanguage;
 }): MetaRecommendationsResponse {
   const language = input.language ?? "en";
+  const allWindows = buildCampaignWindows(input.windows);
+  const allSelectedRows = input.windows.selected;
+  const purchaseDownshiftScenarios = buildPurchaseDownshiftScenarioRecommendations({
+    windows: allWindows,
+    selectedRows: allSelectedRows,
+    calibrationContext: input.calibrationContext ?? null,
+    calibrationContextByCampaignId: input.calibrationContextByCampaignId,
+    entitySignalsByCampaignId: input.entitySignalsByCampaignId,
+    commercialTargets: input.commercialTargets ?? null,
+  });
   const purchaseWindows: MetaRecommendationWindows = {
     selected: filterPurchaseObjectiveRows(input.windows.selected),
     previousSelected: filterPurchaseObjectiveRows(input.windows.previousSelected),
@@ -2840,6 +2886,14 @@ export function buildMetaRecommendations(input: {
   const windows = buildCampaignWindows(purchaseWindows);
   const selectedRows = purchaseWindows.selected;
   if (selectedRows.length === 0) {
+    if (purchaseDownshiftScenarios.length > 0) {
+      const stampedDownshift = purchaseDownshiftScenarios.map(stampRecommendation);
+      return localizeMetaRecommendationsResponse({
+        status: "ok",
+        summary: buildSummary(stampedDownshift, language),
+        recommendations: stampedDownshift,
+      }, language);
+    }
     return {
       status: "ok",
       summary: {
@@ -2862,7 +2916,7 @@ export function buildMetaRecommendations(input: {
   const seasonalContext = buildSeasonalContext(purchaseWindows);
   const scalingStructureSnapshot = buildScalingStructureSnapshot(windows);
 
-  const recommendations: MetaRecommendation[] = [];
+  const recommendations: MetaRecommendation[] = [...purchaseDownshiftScenarios];
 
   const seasonalRecommendation = maybeSeasonalRegimeRecommendation(purchaseWindows, seasonalContext);
   if (seasonalRecommendation) recommendations.push(seasonalRecommendation);

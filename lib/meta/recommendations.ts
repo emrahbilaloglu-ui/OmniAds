@@ -130,7 +130,34 @@ export type MetaRecommendationType =
   | "geo_cluster_for_signal_density"
   | "creative_test_structure"
   | "scaling_structure_fit"
+  | "promote_test_to_main"
   | "winner_promotion_flow";
+
+export type MetaDecisionLabel =
+  | "scale"
+  | "cut"
+  | "refresh"
+  | "keep"
+  | "test_more"
+  | "diagnose"
+  | "below_breakeven"
+  | "fatigue"
+  | "rebuild"
+  | "switch"
+  | "tune"
+  | "swap"
+  | "review_placements"
+  | "review_adsets"
+  | "out_of_scope";
+
+export interface MetaRecommendationLabelTransform {
+  reason: "test_refresh_to_cut" | "test_scale_to_promote_main";
+  campaignKind: "test";
+  fromType: MetaRecommendationType;
+  toType: MetaRecommendationType;
+  fromDecisionLabel: MetaDecisionLabel | null;
+  toDecisionLabel: MetaDecisionLabel;
+}
 
 export type MetaSeasonalState = "peak" | "post_peak" | "normalized" | "unstable";
 
@@ -157,22 +184,8 @@ export interface MetaRecommendation {
   adsetName?: string;
   type: MetaRecommendationType;
   kind?: "recommendation" | "anomaly" | "state";
-  decisionLabel?:
-    | "scale"
-    | "cut"
-    | "refresh"
-    | "keep"
-    | "test_more"
-    | "diagnose"
-    | "below_breakeven"
-    | "fatigue"
-    | "rebuild"
-    | "switch"
-    | "tune"
-    | "swap"
-    | "review_placements"
-    | "review_adsets"
-    | "out_of_scope";
+  decisionLabel?: MetaDecisionLabel;
+  labelTransform?: MetaRecommendationLabelTransform;
   stateReason?: string | null;
   signalQuality?: Record<string, unknown>;
   calibrationScope?: Record<string, unknown>;

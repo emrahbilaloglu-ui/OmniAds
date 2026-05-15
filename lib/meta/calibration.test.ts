@@ -102,6 +102,7 @@ function insertedPayload(sql: ReturnType<typeof makeSqlMock>) {
     scope_id: string;
     metric_name: string;
     cohort: string;
+    campaign_kind: string;
     p25: number;
     p50: number;
     p75: number;
@@ -109,13 +110,19 @@ function insertedPayload(sql: ReturnType<typeof makeSqlMock>) {
   }>;
 }
 
-function calibrationMetricRow(scopeType: "account" | "campaign", scopeId: string, cohort = "purchase") {
+function calibrationMetricRow(
+  scopeType: "account" | "campaign",
+  scopeId: string,
+  cohort = "purchase",
+  campaignKind = "all",
+) {
   return {
     scope_type: scopeType,
     scope_id: scopeId,
     snapshot_date: "2026-05-06",
     metric_name: "roas_28d",
     cohort,
+    campaign_kind: campaignKind,
     p10: 1,
     p25: 1.5,
     p50: 2,
@@ -433,9 +440,67 @@ describe("meta calibration", () => {
     );
 
     expect(accountCtrRows.map((row) => row.cohort).sort()).toEqual(["mid_funnel", "purchase"]);
+    expect(payload.every((row) => row.campaign_kind === "all")).toBe(true);
     expect(sql.queryCalls[0]?.text).toContain(
-      "ON CONFLICT (business_id, scope_type, scope_id, snapshot_date, metric_name, cohort)",
+      "ON CONFLICT (business_id, scope_type, scope_id, snapshot_date, metric_name, cohort, campaign_kind)",
     );
+  });
+
+  it("reads kind-specific calibration rows and exposes campaign kind in scope metadata", async () => {
+    const sql = makeSqlMock({
+      calibrationRows: (values) => {
+        const scopeType = values[1];
+        const scopeId = values[2];
+        if (scopeType === "campaign" && scopeId === "cmp_test") {
+          return [calibrationMetricRow("campaign", "cmp_test", "purchase", "test")];
+        }
+        return [];
+      },
+      matureCount: () => 9,
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+
+    const scope = await getMetaCalibrationScope("biz_1", {
+      accountId: "act_1",
+      campaignId: "cmp_test",
+      snapshotDate: "2026-05-06",
+      campaignKind: "test",
+    });
+
+    expect(scope.scope).toMatchObject({
+      type: "campaign",
+      id: "cmp_test",
+      campaignKind: "test",
+    });
+    expect(sql.tagCalls.join("\n")).toContain("campaign_kind = ?");
+  });
+
+  it("falls back to all-kind calibration rows when a requested campaign kind has no rows", async () => {
+    const sql = makeSqlMock({
+      calibrationRows: (values) => {
+        const scopeType = values[1];
+        const scopeId = values[2];
+        if (scopeType === "account" && scopeId === "act_1") {
+          return [calibrationMetricRow("account", "act_1", "purchase", "all")];
+        }
+        return [];
+      },
+      matureCount: () => 9,
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+
+    const scope = await getMetaCalibrationScope("biz_1", {
+      accountId: "act_1",
+      campaignId: "cmp_test",
+      snapshotDate: "2026-05-06",
+      campaignKind: "test",
+    });
+
+    expect(scope.scope).toMatchObject({
+      type: "account",
+      id: "act_1",
+      campaignKind: "all",
+    });
   });
 
   it("returns campaign fallback reasons and account-missing legacy fallback", async () => {

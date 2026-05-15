@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   META_CAMPAIGN_LABEL_GUARD_REASON,
+  META_TEST_REFRESH_TO_CUT_REASON,
+  META_TEST_SCALE_TO_PROMOTE_REASON,
   applyMetaCampaignLabelGuard,
   buildMetaCampaignLabelKindMap,
 } from "@/lib/meta/campaign-label-guard";
@@ -133,6 +135,63 @@ describe("applyMetaCampaignLabelGuard", () => {
 
     expect(result.downgradedCount).toBe(0);
     expect(result.recommendations).toEqual(allowed);
+  });
+
+  it("turns refresh semantics into cut semantics for labeled Test campaigns", () => {
+    const result = applyMetaCampaignLabelGuard({
+      recommendations: [
+        rec({
+          id: "refresh",
+          type: "scenario_e1_frequency_fatigue",
+          decisionLabel: "refresh",
+          recommendedAction: "Refresh creative.",
+        }),
+      ],
+      campaignLabelsById: buildMetaCampaignLabelKindMap([label("cmp-1", "test")]),
+      activeCampaignIds: ["cmp-1"],
+    });
+
+    expect(result.downgradedCount).toBe(0);
+    expect(result.recommendations[0]).toMatchObject({
+      type: "scenario_e1_frequency_fatigue",
+      decisionLabel: "cut",
+      labelTransform: {
+        reason: META_TEST_REFRESH_TO_CUT_REASON,
+        campaignKind: "test",
+        fromDecisionLabel: "refresh",
+        toDecisionLabel: "cut",
+      },
+      signalQuality: {
+        labelTransform: {
+          reason: META_TEST_REFRESH_TO_CUT_REASON,
+        },
+      },
+    });
+    expect(result.recommendations[0]?.recommendedAction).toContain("Cut or stop this Test lane");
+  });
+
+  it("turns scale semantics into a promote-to-main payload recommendation for labeled Test campaigns", () => {
+    const result = applyMetaCampaignLabelGuard({
+      recommendations: [rec()],
+      campaignLabelsById: buildMetaCampaignLabelKindMap([label("cmp-1", "test")]),
+      activeCampaignIds: ["cmp-1"],
+    });
+
+    expect(result.downgradedCount).toBe(0);
+    expect(result.recommendations[0]).toMatchObject({
+      id: "promote-test-to-main-rec-1",
+      type: "promote_test_to_main",
+      decisionLabel: "scale",
+      labelTransform: {
+        reason: META_TEST_SCALE_TO_PROMOTE_REASON,
+        campaignKind: "test",
+        fromType: "scale_for_volume",
+        toType: "promote_test_to_main",
+        fromDecisionLabel: "scale",
+        toDecisionLabel: "scale",
+      },
+    });
+    expect(result.recommendations[0]?.recommendedAction).toContain("Promote the validated Test setup");
   });
 
   it("downgrades account-level hard actions unless all active campaigns are labeled", () => {

@@ -110,6 +110,13 @@ describe("runMigrations", () => {
     expect(queries.join("\n")).toContain("idx_meta_creative_media_business_date");
     expect(queries.join("\n")).toContain("CREATE TABLE IF NOT EXISTS meta_campaign_labels");
     expect(queries.join("\n")).toContain("campaign_kind IN ('main', 'test', 'mixed')");
+    expect(queries.join("\n")).toContain("campaign_kind IN ('all', 'main', 'test', 'mixed')");
+    expect(queries.join("\n")).toContain(
+      "ADD COLUMN IF NOT EXISTS campaign_kind TEXT NOT NULL DEFAULT 'all'",
+    );
+    expect(queries.join("\n")).toContain(
+      "ADD PRIMARY KEY (business_id, scope_type, scope_id, snapshot_date, metric_name, cohort, campaign_kind)",
+    );
     expect(queries.join("\n")).toContain("idx_meta_campaign_labels_business_kind");
     expect(queries.join("\n")).toContain("idx_google_ads_account_daily_business_account_date");
     expect(queries.join("\n")).toContain("idx_shopify_orders_business_account_created_local");
@@ -410,18 +417,24 @@ describe("runMigrations", () => {
 
     const joinedQueries = queries.join("\n");
     expect(joinedQueries).toContain("cohort        TEXT NOT NULL DEFAULT 'purchase'");
+    expect(joinedQueries).toContain("campaign_kind TEXT NOT NULL DEFAULT 'all'");
     expect(joinedQueries).toContain(
       "ADD COLUMN IF NOT EXISTS cohort TEXT NOT NULL DEFAULT 'purchase'",
     );
+    expect(joinedQueries).toContain(
+      "ADD COLUMN IF NOT EXISTS campaign_kind TEXT NOT NULL DEFAULT 'all'",
+    );
     expect(joinedQueries).toContain("SET cohort = 'purchase'");
+    expect(joinedQueries).toContain("SET campaign_kind = 'all'");
     expect(joinedQueries).toContain("WHERE cohort IS NULL");
+    expect(joinedQueries).toContain("WHERE campaign_kind IS NULL");
     expect(joinedQueries).toContain("set_config('lock_timeout', '2000ms', true)");
     expect(joinedQueries).toContain("current_pk_columns IS DISTINCT FROM desired_pk_columns");
     expect(joinedQueries).toContain(
       "ALTER TABLE meta_decision_calibration_daily DROP CONSTRAINT %I",
     );
     expect(joinedQueries).toContain(
-      "ADD PRIMARY KEY (business_id, scope_type, scope_id, snapshot_date, metric_name, cohort)",
+      "ADD PRIMARY KEY (business_id, scope_type, scope_id, snapshot_date, metric_name, cohort, campaign_kind)",
     );
     expect(joinedQueries).toContain("idx_meta_calibration_cohort_scope");
   });

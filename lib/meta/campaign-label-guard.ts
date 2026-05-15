@@ -1,8 +1,14 @@
 import type { MetaCampaignKind, MetaCampaignLabel } from "@/lib/meta/campaign-label-types";
-import type { MetaRecommendation } from "@/lib/meta/recommendations";
+import type {
+  MetaDecisionLabel,
+  MetaRecommendation,
+  MetaRecommendationType,
+} from "@/lib/meta/recommendations";
 
 export const META_CAMPAIGN_LABEL_GUARD_REASON = "unlabeled_campaign_soft_only";
 export const META_CAMPAIGN_LABEL_CONFIDENCE_CAP = 0.45;
+export const META_TEST_REFRESH_TO_CUT_REASON = "test_refresh_to_cut";
+export const META_TEST_SCALE_TO_PROMOTE_REASON = "test_scale_to_promote_main";
 
 export type MetaCampaignLabelKindMap = ReadonlyMap<string, MetaCampaignKind>;
 
@@ -43,6 +49,32 @@ const ACCOUNT_LEVEL_HARD_TYPES = new Set<MetaRecommendation["type"]>([
   "winner_promotion_flow",
 ]);
 
+const REFRESH_ACTION_TYPES = new Set<MetaRecommendation["type"]>([
+  "scenario_e1_frequency_fatigue",
+  "scenario_e2_ctr_decay_refresh",
+  "scenario_e3_frequency_p80_fatigue",
+  "scenario_e4_creative_age_refresh",
+  "scenario_m4_mid_funnel_refresh",
+  "scenario_l4_lead_refresh",
+  "scenario_t4_traffic_refresh",
+  "scenario_eg4_engagement_refresh",
+]);
+
+const SCALE_ACTION_TYPES = new Set<MetaRecommendation["type"]>([
+  "adset_scale_budget",
+  "scale_for_volume",
+  "scale_for_profitability",
+  "winner_promotion_flow",
+  "scenario_b2_lowest_cost_budget_scale",
+  "scenario_c1_controlled_scale",
+  "scenario_d3_lal_compound_scale",
+  "scenario_k2_peak_scale_ceiling",
+  "scenario_m1_mid_funnel_efficient_scale",
+  "scenario_l1_lead_efficient_scale",
+  "scenario_t1_traffic_efficient_scale",
+  "scenario_eg1_engagement_efficient_scale",
+]);
+
 export function buildMetaCampaignLabelKindMap(
   labels: Array<Pick<MetaCampaignLabel, "campaignId" | "kind">>,
 ): MetaCampaignLabelKindMap {
@@ -58,6 +90,10 @@ export function hasMetaCampaignLabel(
 
 function isAlreadyGuarded(rec: MetaRecommendation) {
   return rec.confidenceReason === META_CAMPAIGN_LABEL_GUARD_REASON;
+}
+
+function isAlreadyLabelTransformed(rec: MetaRecommendation) {
+  return Boolean(rec.labelTransform);
 }
 
 function isHardAction(rec: MetaRecommendation) {
@@ -98,9 +134,126 @@ function appendGuardEvidence(rec: MetaRecommendation): MetaRecommendation["evide
   ];
 }
 
+function appendTransformEvidence(
+  rec: MetaRecommendation,
+  value: string,
+): MetaRecommendation["evidence"] {
+  const hasLabelEvidence = rec.evidence.some((item) => item.label === "Campaign label");
+  const hasTransformEvidence = rec.evidence.some((item) => item.label === "Label transform");
+  return [
+    ...rec.evidence,
+    ...(hasLabelEvidence
+      ? []
+      : [{ label: "Campaign label", value: "Test", tone: "neutral" as const }]),
+    ...(hasTransformEvidence
+      ? []
+      : [{ label: "Label transform", value, tone: "warning" as const }]),
+  ];
+}
+
+function explicitOrInferredDecisionLabel(rec: MetaRecommendation): MetaDecisionLabel | null {
+  if (rec.decisionLabel) return rec.decisionLabel;
+  if (REFRESH_ACTION_TYPES.has(rec.type)) return "refresh";
+  if (SCALE_ACTION_TYPES.has(rec.type)) return "scale";
+  return null;
+}
+
 function labelFirstSummary(rec: MetaRecommendation) {
   const subject = rec.campaignName ?? rec.adsetName ?? "This Meta entity";
   return `${subject} has a possible hard action, but Main/Test/Mixed campaign context is missing. Label the campaign before changing budgets, bids, or promotion flow.`;
+}
+
+function labelTransformPayload(input: {
+  reason: typeof META_TEST_REFRESH_TO_CUT_REASON | typeof META_TEST_SCALE_TO_PROMOTE_REASON;
+  rec: MetaRecommendation;
+  toType: MetaRecommendationType;
+  toDecisionLabel: MetaDecisionLabel;
+}) {
+  return {
+    reason: input.reason,
+    campaignKind: "test" as const,
+    fromType: input.rec.type,
+    toType: input.toType,
+    fromDecisionLabel: explicitOrInferredDecisionLabel(input.rec),
+    toDecisionLabel: input.toDecisionLabel,
+  };
+}
+
+function transformTestRefreshToCut(rec: MetaRecommendation): MetaRecommendation {
+  const transform = labelTransformPayload({
+    reason: META_TEST_REFRESH_TO_CUT_REASON,
+    rec,
+    toType: rec.type,
+    toDecisionLabel: "cut",
+  });
+  const subject = rec.campaignName ?? rec.adsetName ?? "Test campaign";
+  return {
+    ...rec,
+    decisionLabel: "cut",
+    labelTransform: transform,
+    decision: "Cut failed test instead of refreshing it",
+    title: `${subject}: cut test instead of refreshing`,
+    why: `${rec.why} Because this campaign is labeled Test, a refresh signal means the test did not earn another iteration in the same container.`,
+    summary: "A Test campaign with a refresh signal should be stopped or replaced, not refreshed in place like a Main campaign.",
+    recommendedAction: "Cut or stop this Test lane and launch the next hypothesis separately; do not keep refreshing the same failed test container.",
+    expectedImpact: "Prevents test budget from being trapped in repeated refresh cycles.",
+    evidence: appendTransformEvidence(rec, "Refresh -> Cut"),
+    signalQuality: {
+      ...(rec.signalQuality ?? {}),
+      labelTransform: transform,
+    },
+    calibrationScope: {
+      ...(rec.calibrationScope ?? {}),
+      labelTransform: transform,
+    },
+  };
+}
+
+function transformTestScaleToPromotion(rec: MetaRecommendation): MetaRecommendation {
+  const transform = labelTransformPayload({
+    reason: META_TEST_SCALE_TO_PROMOTE_REASON,
+    rec,
+    toType: "promote_test_to_main",
+    toDecisionLabel: "scale",
+  });
+  const subject = rec.campaignName ?? rec.adsetName ?? "Test campaign";
+  return {
+    ...rec,
+    id: rec.id.startsWith("promote-test-to-main-")
+      ? rec.id
+      : `promote-test-to-main-${rec.id}`,
+    type: "promote_test_to_main",
+    decisionLabel: "scale",
+    labelTransform: transform,
+    decision: "Promote winning test to Main",
+    title: `${subject}: promote winning test to Main`,
+    why: `${rec.why} Because this campaign is labeled Test, the scale verdict becomes a promotion decision instead of simply increasing Test spend.`,
+    summary: "The test appears validated; move the winning setup into a Main lane before scaling.",
+    recommendedAction: "Promote the validated Test setup into a Main campaign or Main ad set lane, then scale from the Main structure under normal guardrails.",
+    expectedImpact: "Separates validation budget from scale budget and keeps Test campaigns from becoming accidental Main campaigns.",
+    evidence: appendTransformEvidence(rec, "Scale -> Promote to Main"),
+    signalQuality: {
+      ...(rec.signalQuality ?? {}),
+      labelTransform: transform,
+    },
+    calibrationScope: {
+      ...(rec.calibrationScope ?? {}),
+      labelTransform: transform,
+    },
+  };
+}
+
+function applyTestCampaignSemantics(
+  rec: MetaRecommendation,
+  labelMap: MetaCampaignLabelKindMap,
+) {
+  if (rec.kind === "state" || rec.kind === "anomaly") return rec;
+  if (isAlreadyLabelTransformed(rec)) return rec;
+  if (!rec.campaignId || labelMap.get(rec.campaignId) !== "test") return rec;
+  const label = explicitOrInferredDecisionLabel(rec);
+  if (label === "refresh") return transformTestRefreshToCut(rec);
+  if (label === "scale") return transformTestScaleToPromotion(rec);
+  return rec;
 }
 
 function downgradeToSoftOnly(rec: MetaRecommendation): MetaRecommendation {
@@ -149,7 +302,8 @@ export function applyMetaCampaignLabelGuard(input: {
   let downgradedCount = 0;
   let accountLevelDowngraded = false;
 
-  const recommendations = input.recommendations.map((rec) => {
+  const recommendations = input.recommendations.map((candidate) => {
+    const rec = applyTestCampaignSemantics(candidate, labelMap);
     if (isAlreadyGuarded(rec) || !isHardAction(rec)) return rec;
 
     const campaignIds = campaignIdsForRec(rec, activeCampaignIds);

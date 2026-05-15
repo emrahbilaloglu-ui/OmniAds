@@ -34,17 +34,24 @@ path and ask the model to read it before planning or changing code.
 
 ## Current Repo State
 
-- Current implementation branch: `phase-b-meta-profit-maturity`.
+- Current implementation branch: `phase-c-meta-campaign-semantics`.
 - Phase A PR: `#162` (`[codex] Unify Meta funnel cohort resolution`), merged.
 - Phase A implementation commit: `fc8a8d7` (`Unify Meta funnel cohort resolution`).
 - Phase A context commit: `2a49ef1` (`Record Phase A PR context`).
 - Phase A merge commit on `main`: `49716c3706ec9ea98e0e452452163357b6cdeae0`.
 - Phase B PR: `#163` (`[codex] Anchor Meta hard actions to commercial targets`),
-  ready for review at the time of this snapshot.
+  merged.
 - Phase B implementation commit: `aaa0c0d`
   (`Anchor Meta hard actions to commercial targets`).
+- Phase B review-fix commit: `7f18c81`
+  (`Ignore fallback thresholds for Meta hard anchors`).
+- Phase B merge commit on `main`: `cd7b72d629bf828cca9acdba34a666dbf2fd80b9`.
+- Phase C PR: `#164` (`[codex] Add Meta campaign kind semantics`), ready for
+  review at the time of this snapshot.
+- Phase C implementation commit: `4f6cc32`
+  (`Add Meta campaign kind semantics`).
 - Current `main` SHA verified locally:
-  `49716c3706ec9ea98e0e452452163357b6cdeae0`.
+  `cd7b72d629bf828cca9acdba34a666dbf2fd80b9`.
 - Phase A tracked-file modifications at the time of this snapshot:
   - `lib/meta/campaign-lanes.ts`
   - `lib/meta/campaign-lanes.test.ts`
@@ -69,7 +76,7 @@ path and ask the model to read it before planning or changing code.
   - `_analysis/phase-meta-rnd/`
   - `docs/meta-decision-center/`
   - `scripts/_phase-meta-rnd-claude-personas.ts`
-- Open PRs remaining after Phase A stale-PR triage: none.
+- Open PRs remaining after Phase B merge: none.
 - Phase B tracked-file modifications at the time of this snapshot:
   - `app/api/meta/recommendations/route.ts`
   - `lib/meta/commercial-targets.ts`
@@ -82,6 +89,15 @@ path and ask the model to read it before planning or changing code.
   - `lib/meta/scenario-emitters/high-priority.test.ts`
   - `lib/meta/snapshot.ts`
   - `lib/meta/snapshot.test.ts`
+- Phase C tracked-file modifications at the time of this snapshot:
+  - `lib/migrations.ts`
+  - `lib/migrations.test.ts`
+  - `lib/meta/calibration.ts`
+  - `lib/meta/calibration.test.ts`
+  - `lib/meta/campaign-label-guard.ts`
+  - `lib/meta/campaign-label-guard.test.ts`
+  - `lib/meta/recommendations.ts`
+  - `lib/meta/snapshot.ts`
 
 ## Completed Work
 
@@ -208,8 +224,10 @@ path and ask the model to read it before planning or changing code.
 ### Phase B - Target/Profit Anchor And Unified Purchase Maturity
 
 - Branch: `phase-b-meta-profit-maturity`.
-- PR: `#163`, ready for review.
+- PR: `#163`, merged.
 - Implementation commit: `aaa0c0d`.
+- Review-fix commit: `7f18c81`.
+- Merge commit: `cd7b72d`.
 - Added `lib/meta/commercial-targets.ts` as the shared Meta commercial target
   adapter.
 - The adapter reads `business_target_packs` through
@@ -267,6 +285,39 @@ path and ask the model to read it before planning or changing code.
   - This is deliberate. Lead, traffic, mid-funnel, and engagement actions need
     their own CPL/link-click/event-cost targets or D/E signal substrate before
     their hard actions can be made fully automation-ready.
+
+### Phase C - Main/Test/Mixed Meta Semantics
+
+- Branch: `phase-c-meta-campaign-semantics`.
+- PR: `#164`, ready for review.
+- Implementation commit: `4f6cc32`.
+- Added kind-aware compatibility to `meta_decision_calibration_daily`:
+  - new `campaign_kind` dimension with values `all`, `main`, `test`, `mixed`;
+  - default `all` preserves existing calibration behavior;
+  - primary key and cohort-scope index include `campaign_kind`.
+- Calibration reads now accept requested campaign kind:
+  - requested `main`/`test`/`mixed` rows are preferred when present;
+  - `all` rows remain the fallback.
+- Snapshot recommendation context now passes campaign label kind into campaign
+  and adset calibration scope reads.
+- Added engine-only Test campaign transforms:
+  - `refresh` semantics become `cut` for campaigns labeled `Test`;
+  - `scale` semantics become payload type `promote_test_to_main`;
+  - transforms write a `labelTransform` object into the recommendation payload,
+    `signalQuality`, and `calibrationScope`.
+- UI CTA mapping for `promote_test_to_main` is intentionally not enabled in
+  this phase.
+- Phase C targeted verification passed:
+  - `npx vitest run lib/meta/calibration.test.ts lib/meta/campaign-label-guard.test.ts lib/migrations.test.ts lib/meta/snapshot.test.ts`
+  - Result: 4 test files, 43 tests passed.
+- Phase C broader verification passed:
+  - `npx vitest run lib/meta components/meta app/api/meta`
+  - Result: 109 test files, 952 tests passed.
+  - `npx vitest run lib/migrations.test.ts`
+  - Result: 1 test file, 8 tests passed.
+  - `npx tsc --noEmit`
+  - `npm run lint`
+  - `npm run build`
 
 ## Important Caveats
 
@@ -339,8 +390,8 @@ path and ask the model to read it before planning or changing code.
 
 ## Proposed Gap-Closure Plan
 
-Status: user-approved as of 2026-05-15. Phase A is merged. Phase B has a ready
-PR open on `phase-b-meta-profit-maturity`.
+Status: user-approved as of 2026-05-15. Phase A and Phase B are merged. Phase C
+is in implementation on `phase-c-meta-campaign-semantics`.
 
 Claude was explicitly told to read this file first before producing its plan.
 Claude agreed with the final phase order and added three acceptance criteria:
@@ -381,8 +432,8 @@ where coverage is weak.
   economics.
 - Acceptance: no hard scale/cut without a target/profit anchor and mature loss
   evidence; docs and golden cases updated.
-  Status: implementation, local verification, and ready PR `#163` are complete.
-  GitHub CI/review/merge remain.
+  Status: complete. PR `#163` passed GitHub `typecheck`, `test`, and `build`
+  checks after the review fix, then merged into `main` at `cd7b72d`.
 
 ### Phase C - Main/Test/Mixed Meta Semantics
 
@@ -398,6 +449,8 @@ where coverage is weak.
   broken CTA just because the action type exists.
 - Acceptance: UI still does not compute buyer actions; hard actions remain
   guarded by labels, anchors, maturity, and data freshness.
+  Status: local implementation and full local verification are complete.
+  Ready PR `#164` is open. GitHub CI/review/merge remain.
 
 ### Phase D - Signal Substrate, Pacing, Overlap, And Placement Gates
 

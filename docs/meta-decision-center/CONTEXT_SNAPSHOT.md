@@ -55,8 +55,9 @@ path and ask the model to read it before planning or changing code.
 - Phase D implementation commit: `78b521a`
   (`Ground Meta decision signal diagnostics`).
 - Phase D merge commit on `main`: `c218f48a7fb089322f4961c0169ca052bcb19f16`.
-- Current `main` SHA verified locally:
+- Latest Phase D implementation merge SHA verified locally:
   `c218f48a7fb089322f4961c0169ca052bcb19f16`.
+- Latest `main` may include subsequent context-only commits after this merge.
 - Phase A tracked-file modifications at the time of this snapshot:
   - `lib/meta/campaign-lanes.ts`
   - `lib/meta/campaign-lanes.test.ts`

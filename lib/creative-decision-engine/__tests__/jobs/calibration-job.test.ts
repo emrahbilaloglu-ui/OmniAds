@@ -52,9 +52,12 @@ type JobRunRow = Record<string, unknown> & {
 type CalibrationRow = Record<string, unknown> & {
   scope_type: unknown;
   scope_id: unknown;
+  campaign_kind: unknown;
   creative_format: unknown;
   eligible_creative_count: unknown;
   mature_creative_count: unknown;
+  roas_p75: unknown;
+  roas_p60: unknown;
   quality_status: unknown;
   ctr_p50: unknown;
   funnel_sample_count: unknown;
@@ -96,6 +99,13 @@ async function cleanupCampaignScopeFixture(fixture: CampaignScopeFixture) {
   const db = getDb();
   await db.query(
     `
+    DELETE FROM meta_campaign_labels
+    WHERE business_id = $1
+    `,
+    [fixture.businessId],
+  );
+  await db.query(
+    `
     DELETE FROM meta_creative_daily
     WHERE business_ref_id = $1::uuid
        OR business_id = $1::text
@@ -123,6 +133,38 @@ async function cleanupCampaignScopeFixture(fixture: CampaignScopeFixture) {
        OR email = $2
     `,
     [fixture.userId, fixture.userEmail],
+  );
+}
+
+async function insertCampaignLabels(
+  fixture: CampaignScopeFixture,
+  labels: Record<string, "main" | "test" | "mixed">,
+) {
+  const rows = Object.entries(labels).map(([campaignId, campaignKind]) => ({
+    campaign_id: campaignId,
+    campaign_kind: campaignKind,
+  }));
+  await getDb().query(
+    `
+    INSERT INTO meta_campaign_labels (
+      business_id,
+      campaign_id,
+      campaign_kind,
+      source,
+      labeled_by
+    )
+    SELECT
+      $1,
+      row.campaign_id,
+      row.campaign_kind,
+      'user',
+      'calibration-job-test'
+    FROM jsonb_to_recordset($2::jsonb) AS row(
+      campaign_id text,
+      campaign_kind text
+    )
+    `,
+    [fixture.businessId, JSON.stringify(rows)],
   );
 }
 
@@ -292,8 +334,9 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
     expect(result.jobRunId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     );
-    expect(result.rowsWritten).toBe(5);
+    expect(result.rowsWritten).toBe(20);
     expect(result.calibration?.businessId).toBe(businessId);
+    expect(result.calibration?.campaignKind).toBe("all");
 
     const rows = await getDb().query<CalibrationRow>(
       `
@@ -302,6 +345,7 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
       WHERE business_ref_id = $1::uuid
         AND as_of_date = $2::date
         AND engine_version = $3
+        AND campaign_kind = 'all'
       ORDER BY creative_format
       `,
       [businessId, AS_OF, ENGINE_VERSION],
@@ -330,7 +374,7 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
       [result.jobRunId],
     );
     expect(jobRun?.status).toBe("success");
-    expect(toNumber(jobRun?.row_count)).toBe(5);
+    expect(toNumber(jobRun?.row_count)).toBe(20);
   });
 
   it("is idempotent for calibration rows while recording each invocation", async () => {
@@ -349,7 +393,7 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
       `,
       [businessId, AS_OF, ENGINE_VERSION],
     );
-    expect(toNumber(calibrationCount?.count)).toBe(5);
+    expect(toNumber(calibrationCount?.count)).toBe(20);
 
     const [jobRunCount] = await getDb().query<CountRow>(
       `
@@ -378,11 +422,11 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
     });
 
     expect(result.status).toBe("success");
-    expect(result.rowsWritten).toBe(10);
+    expect(result.rowsWritten).toBe(25);
 
     const campaignRows = await getDb().query<CalibrationRow>(
       `
-      SELECT scope_type, scope_id, creative_format, mature_creative_count
+      SELECT scope_type, scope_id, campaign_kind, creative_format, mature_creative_count
       FROM engine_v3_account_calibration_daily
       WHERE business_ref_id = $1::uuid
         AND as_of_date = $2::date
@@ -397,10 +441,80 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
       new Set(["campaign_large"]),
     );
     expect(campaignRows).toHaveLength(5);
+    expect(new Set(campaignRows.map((row) => row.campaign_kind))).toEqual(
+      new Set(["all"]),
+    );
     const overall = campaignRows.find(
       (row) => row.creative_format === "overall",
     );
     expect(toNumber(overall?.mature_creative_count)).toBe(8);
+  });
+
+  it("writes account calibration rows segmented by campaign kind without segmenting campaign-scope rows", async () => {
+    const fixture = CAMPAIGN_SCOPE_FIXTURES[0]!;
+    await setupCampaignScopeFixture(fixture, AS_OF, {
+      campaign_main: 30,
+      campaign_test: 12,
+      campaign_unlabeled: 8,
+    });
+    await insertCampaignLabels(fixture, {
+      campaign_main: "main",
+      campaign_test: "test",
+    });
+
+    const result = await runCalibrationJob({
+      businessId: fixture.businessId,
+      asOf: AS_OF,
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.rowsWritten).toBe(35);
+
+    const accountRows = await getDb().query<CalibrationRow>(
+      `
+      SELECT campaign_kind, mature_creative_count, roas_p75, roas_p60, quality_status
+      FROM engine_v3_account_calibration_daily
+      WHERE business_ref_id = $1::uuid
+        AND as_of_date = $2::date
+        AND engine_version = $3
+        AND scope_type = 'account'
+        AND scope_id = '*'
+        AND creative_format = 'overall'
+      ORDER BY campaign_kind
+      `,
+      [fixture.businessId, AS_OF, ENGINE_VERSION],
+    );
+
+    const byKind = new Map(
+      accountRows.map((row) => [String(row.campaign_kind), row]),
+    );
+    expect(accountRows).toHaveLength(4);
+    expect(toNumber(byKind.get("all")?.mature_creative_count)).toBe(50);
+    expect(toNumber(byKind.get("main")?.mature_creative_count)).toBe(30);
+    expect(toNumber(byKind.get("test")?.mature_creative_count)).toBe(12);
+    expect(toNumber(byKind.get("mixed")?.mature_creative_count)).toBe(0);
+    expect(byKind.get("all")?.quality_status).toBe("ready");
+    expect(byKind.get("main")?.quality_status).toBe("ready");
+    expect(byKind.get("test")?.quality_status).toBe("low_sample");
+    expect(byKind.get("mixed")?.quality_status).toBe("low_sample");
+    expect(byKind.get("main")?.roas_p75).not.toBeNull();
+    expect(byKind.get("test")?.roas_p75).toBeNull();
+    expect(byKind.get("test")?.roas_p60).not.toBeNull();
+    expect(byKind.get("mixed")?.roas_p60).toBeNull();
+
+    const campaignKinds = await getDb().query<{ campaign_kind: unknown }>(
+      `
+      SELECT DISTINCT campaign_kind
+      FROM engine_v3_account_calibration_daily
+      WHERE business_ref_id = $1::uuid
+        AND as_of_date = $2::date
+        AND engine_version = $3
+        AND scope_type = 'campaign'
+      ORDER BY campaign_kind
+      `,
+      [fixture.businessId, AS_OF, ENGINE_VERSION],
+    );
+    expect(campaignKinds.map((row) => row.campaign_kind)).toEqual(["all"]);
   });
 
   it("does not write campaign rows below the mature creative threshold", async () => {
@@ -415,7 +529,7 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
     });
 
     expect(result.status).toBe("success");
-    expect(result.rowsWritten).toBe(5);
+    expect(result.rowsWritten).toBe(20);
 
     const [campaignRowCount] = await getDb().query<CountRow>(
       `
@@ -452,8 +566,8 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
       asOf: AS_OF,
     });
 
-    expect(first.rowsWritten).toBe(15);
-    expect(second.rowsWritten).toBe(10);
+    expect(first.rowsWritten).toBe(30);
+    expect(second.rowsWritten).toBe(25);
 
     const rows = await getDb().query<CountRow & { business_ref_id: unknown }>(
       `
@@ -475,8 +589,8 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
     const counts = new Map(
       rows.map((row) => [String(row.business_ref_id), toNumber(row.count)]),
     );
-    expect(counts.get(firstFixture.businessId)).toBe(15);
-    expect(counts.get(secondFixture.businessId)).toBe(10);
+    expect(counts.get(firstFixture.businessId)).toBe(30);
+    expect(counts.get(secondFixture.businessId)).toBe(25);
   });
 
   it("excludes unsupported objectives from calibration baselines", async () => {

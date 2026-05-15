@@ -4,7 +4,13 @@ import {
   decideCreative,
   resolveAccountDecisionProfile,
 } from "@/lib/creative-decision-engine";
+import {
+  applyCreativeCampaignLabelGuard,
+  buildCreativeCampaignLabelMap,
+  withCreativeCampaignLabelContext,
+} from "@/lib/creative-decision-engine/campaign-label-guard";
 import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
+import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
 import { resolveDataSource } from "../data-source";
 
 export const dynamic = "force-dynamic";
@@ -69,7 +75,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const decision = decideCreative(input, profile, dataHealth);
+  const campaignLabelsById = buildCreativeCampaignLabelMap(
+    input.campaignId
+      ? await readMetaCampaignLabels({
+          businessId: resolvedBusinessId,
+          campaignIds: [input.campaignId],
+        })
+      : [],
+  );
+  const inputWithCampaignKind = withCreativeCampaignLabelContext(
+    input,
+    campaignLabelsById,
+  );
+  const decision = applyCreativeCampaignLabelGuard({
+    decision: decideCreative(inputWithCampaignKind, profile, dataHealth),
+    input: inputWithCampaignKind,
+    campaignLabelsById,
+  });
   const [funnelDiagnosis, operatorResponse] = await Promise.all([
     dataSource.getLatestFunnelDiagnosis({
       businessId: resolvedBusinessId,
@@ -93,7 +115,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     scope: profile.scope,
     accountProfile: profile,
     decision,
-    input,
+    input: inputWithCampaignKind,
     funnelDiagnosis,
     operatorResponse,
   });

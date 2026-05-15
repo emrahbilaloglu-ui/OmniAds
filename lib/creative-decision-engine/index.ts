@@ -6,6 +6,8 @@ export * from "./account-decision-profile";
 export * from "./spend-unit-resolver";
 export * from "./engine-presets";
 export * from "./funnel";
+export * from "./kind-aware-profile";
+export * from "./test-cohort-semantic";
 export * from "./operator-response-detection";
 export * from "./feature-flags";
 export { decideCreative } from "./engine";

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
+import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
 import { readTriageState } from "@/lib/triage-events";
 import type { EngineV3Flags } from "@/lib/creative-decision-engine";
@@ -21,6 +22,10 @@ vi.mock("@/lib/meta/creatives-api", () => ({
 
 vi.mock("@/lib/creative-decision-engine/feature-flags", () => ({
   resolveEngineV3Flags: vi.fn(),
+}));
+
+vi.mock("@/lib/meta/campaign-labels", () => ({
+  readMetaCampaignLabels: vi.fn(),
 }));
 
 vi.mock("@/lib/triage-events", () => ({
@@ -66,6 +71,20 @@ beforeEach(() => {
     },
   });
   vi.mocked(resolveEngineV3Flags).mockResolvedValue(makeFlags());
+  vi.mocked(readMetaCampaignLabels).mockResolvedValue([
+    {
+      businessId: "biz_1",
+      campaignId: "mock-campaign-001",
+      kind: "main",
+      testDimension: null,
+      source: "user",
+      providerAccountId: null,
+      campaignName: "Mock Campaign",
+      labeledBy: "user_1",
+      labeledAt: "2026-05-07T00:00:00.000Z",
+      updatedAt: "2026-05-07T00:00:00.000Z",
+    },
+  ]);
   vi.mocked(readTriageState).mockResolvedValue({ rows: [], deferredCount: 0 });
   vi.mocked(getMetaCreativesApiPayload).mockResolvedValue({
     status: "ok",
@@ -157,6 +176,8 @@ describe("GET /api/creatives/briefing", () => {
       impressions: 50000,
       linkClicks: 600,
       addToCart: 80,
+      campaignKind: "main",
+      campaignLabelStatus: "labeled",
     });
     expect(payload.pulse.engineVersion).toBeTruthy();
     expect(payload.statusFilter).toBe("active");
@@ -183,6 +204,22 @@ describe("GET /api/creatives/briefing", () => {
     expect(payload.actionNow).toEqual([]);
     expect(payload.watching).toEqual([]);
     expect(payload.healthy).toEqual([]);
+  });
+
+  it("surfaces missing campaign label context in cards", async () => {
+    vi.mocked(readMetaCampaignLabels).mockResolvedValue([]);
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07"),
+    );
+    const payload = await response.json();
+    const cards = [...payload.actionNow, ...payload.watching, ...payload.healthy];
+
+    expect(response.status).toBe(200);
+    expect(cards[0]).toMatchObject({
+      campaignLabelStatus: "unlabeled",
+      campaignKind: null,
+    });
   });
 
   it("returns auth errors unchanged", async () => {

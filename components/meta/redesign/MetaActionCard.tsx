@@ -75,6 +75,7 @@ function EvidenceTags({ rec, evidenceWindow = "28d" }: { rec: MetaRecommendation
 }
 
 function PrimaryIcon({ rec }: { rec: MetaRecommendation }) {
+  if (rec.kind === "state") return <ExternalLink className="inline-block shrink-0" size={13} aria-hidden="true" />;
   if (rec.type === "adset_cut_spend") return <Pause className="inline-block shrink-0" size={13} aria-hidden="true" />;
   if (rec.type === "bid_strategy_fit" || rec.type === "bid_value_guidance" || rec.type === "bid_band_from_history") {
     return <Sliders className="inline-block shrink-0" size={13} aria-hidden="true" />;

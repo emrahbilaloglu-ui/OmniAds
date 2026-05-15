@@ -69,4 +69,13 @@ describe("ActionNowCard", () => {
     expect(deferredHtml).toContain("data-action=\"undefer\"");
     expect(cuttingHtml).toContain("opacity-0 -translate-x-4 pointer-events-none");
   });
+
+  it("renders campaign kind context when provided by the server", () => {
+    const html = renderToStaticMarkup(
+      <ActionNowCard card={card({ campaignKind: "main", campaignLabelStatus: "labeled" })} />,
+    );
+
+    expect(html).toContain(">Main<");
+    expect(html).toContain("bg-emerald-50");
+  });
 });

@@ -6,7 +6,14 @@ import type {
   CreativeDecisionDataSource,
   DecisionCalibrationProfileConfig,
 } from "../data-source";
-import type { CreativeInput, DataHealth, FunnelDiagnosis } from "../types";
+import type {
+  AccountCalibration,
+  AccountFunnelCalibration,
+  CalibrationCampaignKind,
+  CreativeInput,
+  DataHealth,
+  FunnelDiagnosis,
+} from "../types";
 import type { OperatorResponseResult } from "../operator-response-detection";
 import {
   makeAccountCalibration,
@@ -25,6 +32,14 @@ class ProfileDataSource implements CreativeDecisionDataSource {
       calibration: null,
       matureCreativeCount: null,
     },
+    private readonly accountBaselinesByKind: Record<
+      CalibrationCampaignKind,
+      AccountCalibration | null
+    > | null = null,
+    private readonly funnelCalibrationByKind: Record<
+      CalibrationCampaignKind,
+      AccountFunnelCalibration | null
+    > | null = null,
   ) {}
 
   async getCreativeInput(): Promise<CreativeInput | null> {
@@ -35,12 +50,34 @@ class ProfileDataSource implements CreativeDecisionDataSource {
     return this.calibration;
   }
 
+  async getAccountCalibrationAllKinds() {
+    return (
+      this.accountBaselinesByKind ?? {
+        all: { ...this.calibration, campaignKind: "all" },
+        main: null,
+        test: null,
+        mixed: null,
+      }
+    );
+  }
+
   async getCampaignCalibration() {
     return this.campaignLookup;
   }
 
   async getAccountFunnelCalibration() {
     return makeAccountFunnelCalibration();
+  }
+
+  async getAccountFunnelCalibrationAllKinds() {
+    return (
+      this.funnelCalibrationByKind ?? {
+        all: makeAccountFunnelCalibration({ campaignKind: "all" }),
+        main: null,
+        test: null,
+        mixed: null,
+      }
+    );
   }
 
   async listCreativeInputs(): Promise<CreativeInput[]> {
@@ -127,6 +164,64 @@ describe("resolveAccountDecisionProfile", () => {
       5,
     );
     expect(profile.hardActionEligibility.scale).toBe(true);
+  });
+
+  it("precomputes kind-segmented calibration while keeping canonical thresholds unchanged", async () => {
+    const accountCalibration = makeAccountCalibration({
+      roasRatioP10: 0.4,
+      roasRatioP25: 0.7,
+      winnerPurchaseP50: 10,
+    });
+    const mainCalibration = makeAccountCalibration({
+      campaignKind: "main",
+      roasRatioP10: 0.01,
+      roasRatioP25: 0.02,
+      winnerPurchaseP50: 1,
+    });
+
+    const profile = await resolveAccountDecisionProfile({
+      businessId: "00000000-0000-4000-8000-000000000509",
+      asOf: "2026-05-04",
+      dataSource: new ProfileDataSource(
+        {
+          targetCpa: null,
+          targetRoas: 2.2,
+          breakEvenCpa: null,
+          breakEvenRoas: 1.7,
+          operatorAovAssumption: null,
+          defaultRiskPosture: "balanced",
+        },
+        accountCalibration,
+        null,
+        { calibration: null, matureCreativeCount: null },
+        {
+          all: { ...accountCalibration, campaignKind: "all" },
+          main: mainCalibration,
+          test: null,
+          mixed: null,
+        },
+        {
+          all: makeAccountFunnelCalibration({ campaignKind: "all" }),
+          main: makeAccountFunnelCalibration({ campaignKind: "main" }),
+          test: null,
+          mixed: null,
+        },
+      ),
+      flags: makeFlags({
+        businessId: "00000000-0000-4000-8000-000000000509",
+      }),
+    });
+
+    expect(profile.accountBaselinesByKind?.main?.roasRatioP25).toBe(0.02);
+    expect(profile.thresholdsByKind?.main?.bottomQuartileRatio).toBe(0.02);
+    expect(profile.thresholdsByKind?.main?.scaleMinPurchases).toBe(1);
+    expect(profile.spendUnitByKind?.main?.spendUnitSource).toBe(
+      "meta_derived_aov",
+    );
+    expect(profile.funnelCalibrationByKind?.main?.campaignKind).toBe("main");
+    expect(profile.accountBaselines.roasRatioP25).toBe(0.7);
+    expect(profile.thresholds.bottomQuartileRatio).toBe(0.7);
+    expect(profile.thresholds.severeLoserRatio).toBe(0.4);
   });
 
   it("uses campaign ratio percentiles when a campaign-scoped row has enough mature creatives", async () => {

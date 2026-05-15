@@ -190,6 +190,10 @@ function DecisionEvidence({ payload }: { payload: DecisionEvidenceResponse }) {
         rows={[
           ["effectiveTargetRoas", payload.decision.effectiveTargetRoas],
           ["ratioToTarget", payload.decision.ratioToTarget],
+          ["campaignLabelStatus", payload.decision.campaignLabelStatus],
+          ["campaignKind", payload.decision.campaignKind],
+          ["campaignTestDimension", payload.decision.campaignTestDimension],
+          ["blockedActionType", payload.decision.blockedActionType],
         ]}
       />
     </div>

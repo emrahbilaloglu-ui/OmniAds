@@ -6,8 +6,14 @@ import {
   resolveAccountDecisionProfile,
   ENGINE_VERSION,
 } from "@/lib/creative-decision-engine";
+import {
+  applyCreativeCampaignLabelGuard,
+  buildCreativeCampaignLabelMap,
+  withCreativeCampaignLabelContext,
+} from "@/lib/creative-decision-engine/campaign-label-guard";
 import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
 import { WarehouseDataSource } from "@/lib/creative-decision-engine/data-source";
+import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
 
 const BUSINESSES: Record<string, string> = {
   TheSwaf: "172d0ab8-495b-4679-a4c6-ffa404c389d3",
@@ -56,15 +62,43 @@ async function main() {
       businessId: id,
       asOf,
     });
+    const campaignIds = Array.from(
+      new Set(
+        inputs
+          .map((input) => input.campaignId?.trim() || "")
+          .filter(Boolean),
+      ),
+    );
+    const campaignLabelsById = buildCreativeCampaignLabelMap(
+      campaignIds.length > 0
+        ? await readMetaCampaignLabels({
+            businessId: id,
+            campaignIds,
+          })
+        : [],
+    );
 
     console.log(`  ${inputs.length} creative inputs`);
     let labelCount = 0;
     for (const input of inputs) {
-      const decision = decideCreative(input, profile, dataHealth);
+      const inputWithCampaignKind = withCreativeCampaignLabelContext(
+        input,
+        campaignLabelsById,
+      );
+      const decision = applyCreativeCampaignLabelGuard({
+        decision: decideCreative(inputWithCampaignKind, profile, dataHealth),
+        input: inputWithCampaignKind,
+        campaignLabelsById,
+      });
       allRows.push({
         business: name,
         creative_id: input.creativeId,
         creative_name: input.creativeName ?? "",
+        campaign_kind: decision.campaignKind,
+        campaign_label_status: decision.campaignLabelStatus,
+        decision_kind_source: decision.decisionKindSource,
+        label_transform: decision.labelTransform,
+        blocked_action_type: decision.blockedActionType,
         v3_label: decision.label,
         v3_reason: decision.reason,
         v3_confidence: decision.confidence,
@@ -83,6 +117,11 @@ async function main() {
     "business",
     "creative_id",
     "creative_name",
+    "campaign_kind",
+    "campaign_label_status",
+    "decision_kind_source",
+    "label_transform",
+    "blocked_action_type",
     "v3_label",
     "v3_reason",
     "v3_confidence",

@@ -226,7 +226,7 @@ export function MetaDrillDrawer({
           >
             Close
           </button>
-          {!isAnomaly ? (
+          {!isAnomaly && onLaunch ? (
             <button
               type="button"
               className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-3 py-1.5 text-[12.5px] font-medium text-white hover:bg-slate-800"
@@ -235,12 +235,12 @@ export function MetaDrillDrawer({
               Launchpad bridge
               <ExternalLink className="inline-block shrink-0" size={13} aria-hidden="true" />
             </button>
-          ) : (
+          ) : isAnomaly ? (
             <span className="inline-flex items-center gap-1 text-[12px] text-slate-500">
               Diagnose first
               <ArrowRight className="inline-block shrink-0" size={12} aria-hidden="true" />
             </span>
-          )}
+          ) : null}
         </div>
       </aside>
     </div>

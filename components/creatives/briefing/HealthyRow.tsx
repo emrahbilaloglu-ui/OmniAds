@@ -2,6 +2,7 @@
 
 import { DecisionLabelChip } from "@/components/common/briefing";
 import {
+  CampaignKindChip,
   Thumb,
   asDecisionLabel,
   cardId,
@@ -39,6 +40,7 @@ export function HealthyRow({
       <Thumb name={name} size="xs" />
       <div className="flex-1 min-w-0 flex items-center gap-2">
         <span className="text-slate-800 truncate">{name}</span>
+        <CampaignKindChip card={card} />
         <span className="text-[10px] uppercase tracking-wider text-slate-400">
           {card.brand || "Brand"}
         </span>

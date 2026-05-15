@@ -7,6 +7,7 @@ import {
   it,
   vi,
 } from "vitest";
+import { readFileSync } from "node:fs";
 import { getDb, resetDbClientCache, runDbTransaction } from "@/lib/db";
 import {
   JOB_NAME as CALIBRATION_JOB_NAME,
@@ -22,17 +23,27 @@ import {
   runLifecycleJob,
 } from "../../jobs/lifecycle-job";
 import { WarehouseDataSource } from "../../data-source";
-import { ENGINE_VERSION, type DecisionLabel } from "../../types";
+import {
+  ENGINE_VERSION,
+  type AccountCalibration,
+  type AccountFunnelCalibration,
+  type CreativeInput,
+  type DataHealth,
+  type DecisionLabel,
+} from "../../types";
 
 const AS_OF = "2026-05-04";
 const PREVIOUS_AS_OF = "2026-05-03";
 const THESWAF_BUSINESS_ID = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
 const IWASTORE_BUSINESS_ID = "f8a3b5ac-588c-462f-8702-11cd24ff3cd2";
 const FAILURE_BUSINESS_ID = "00000000-0000-4000-8000-000000000551";
+const PERSISTED_GUARD_BUSINESS_ID =
+  "00000000-0000-4000-8000-000000000552";
 const TEST_BUSINESS_IDS = [
   THESWAF_BUSINESS_ID,
   IWASTORE_BUSINESS_ID,
   FAILURE_BUSINESS_ID,
+  PERSISTED_GUARD_BUSINESS_ID,
 ];
 
 type CountRow = Record<string, unknown> & {
@@ -115,8 +126,30 @@ function changeEventCountMetadata(value: unknown) {
   return typeof count === "number" ? count : null;
 }
 
+describe("decisions job SQL contracts", () => {
+  it("links snapshots to the canonical all-kind calibration row", () => {
+    const source = readFileSync(
+      "lib/creative-decision-engine/jobs/decisions-job.ts",
+      "utf8",
+    );
+    const calibrationLookup = source.match(
+      /async function findLatestCalibrationRowId[\s\S]*?LIMIT 1/,
+    )?.[0];
+
+    expect(calibrationLookup).toContain("campaign_kind = 'all'");
+    expect(calibrationLookup).toContain("creative_format = 'overall'");
+  });
+});
+
 async function cleanupEngineRows() {
   const db = getDb();
+  await db.query(
+    `
+    DELETE FROM meta_campaign_labels
+    WHERE business_id = ANY($1::text[])
+    `,
+    [TEST_BUSINESS_IDS],
+  );
   await db.query(
     `
     DELETE FROM business_engine_v3_flags
@@ -169,6 +202,191 @@ async function cleanupEngineRows() {
       ENGINE_VERSION,
       [JOB_NAME, LIFECYCLE_JOB_NAME, CALIBRATION_JOB_NAME],
     ],
+  );
+}
+
+const FRESH_DATA_HEALTH: DataHealth = {
+  calibration: {
+    asOfDate: AS_OF,
+    computedAt: `${AS_OF}T00:00:00.000Z`,
+    sourceFreshnessHours: 1,
+    staleTier: "none",
+    fallbackMode: "precomputed",
+    note: null,
+  },
+  lifecycle: {
+    asOfDate: AS_OF,
+    computedAt: `${AS_OF}T00:00:00.000Z`,
+    sourceFreshnessHours: 1,
+    staleTier: "none",
+    fallbackMode: "precomputed",
+    note: null,
+  },
+  decisions: {
+    asOfDate: AS_OF,
+    computedAt: `${AS_OF}T00:00:00.000Z`,
+    sourceFreshnessHours: 1,
+    staleTier: "none",
+    fallbackMode: "precomputed",
+    note: null,
+  },
+  worstTier: "none",
+  degraded: false,
+};
+
+const READY_ACCOUNT_CALIBRATION: AccountCalibration = {
+  businessId: PERSISTED_GUARD_BUSINESS_ID,
+  computedAt: `${AS_OF}T00:00:00.000Z`,
+  matureCreativeCount: 35,
+  roasP75: 2.4,
+  roasP60: 2,
+  refreshRatioP10: 0.8,
+  lowCtrP10: 0.7,
+  accountCpaP50: 50,
+  accountCpaSampleCount: 35,
+  metaAttributedAovMean90d: 50,
+  metaAttributedAovPurchaseCount90d: 35,
+  metaAttributedRevenue90d: 1750,
+  matureSpendP50: 250,
+  matureSpendP75: 400,
+  winnerSpendP25: 150,
+  winnerSpendP50: 300,
+  winnerPurchaseP50: 5,
+  roasRatioP10: 0.4,
+  roasRatioP25: 0.7,
+  roasRatioP50: 1,
+  roasRatioP75: 1.25,
+  metaAovQuality: "ready",
+};
+
+const READY_FUNNEL_CALIBRATION: AccountFunnelCalibration = {
+  byFormat: {
+    overall: {
+      creativeFormat: "overall",
+      ctrP25: 0.8,
+      ctrP50: 1.2,
+      cpmP50: 12,
+      cpmP75: 18,
+      thumbstopP25: 15,
+      thumbstopP50: 25,
+      linkToLpvP25: 60,
+      linkToLpvP50: 75,
+      linkToAtcP25: 8,
+      linkToAtcP50: 12,
+      lpvToAtcP25: 10,
+      lpvToAtcP50: 16,
+      atcToIcP25: 35,
+      atcToIcP50: 50,
+      icToPurchaseP25: 20,
+      icToPurchaseP50: 30,
+      clickToPurchaseP25: 0.8,
+      clickToPurchaseP50: 1.2,
+      sampleSize: 35,
+      qualityStatus: "ready",
+    },
+  },
+};
+
+function scalingCreativeInput(input: {
+  businessId: string;
+  campaignId: string;
+}): CreativeInput {
+  return {
+    creativeId: "persisted-guard-scale-creative",
+    creativeName: "Persisted Guard Scale Creative",
+    businessId: input.businessId,
+    campaignId: input.campaignId,
+    objective: "OUTCOME_SALES",
+    effectiveCohort: "purchase",
+    spend: 500,
+    purchases: 10,
+    purchaseValue: 1500,
+    impressions: 50000,
+    linkClicks: 800,
+    roas: 3,
+    cpa: 50,
+    ctr: 1.6,
+    frequency: 1.5,
+    recent7dSpend: 150,
+    recent7dPurchases: 3,
+    recent7dRoas: 3,
+    recent7dImpressions: 15000,
+    effectiveStatus: "ACTIVE",
+    ageDays: 21,
+    lastSpendAt: AS_OF,
+    policyReason: null,
+    dataFreshnessHours: 1,
+    fatigueStatus: "none",
+    targetRoas: 2,
+    breakevenRoas: 1,
+    lifecyclePosition: "rising",
+    daysSincePeak: 1,
+    peakRoas30d: 3.2,
+    peakConfidence: 0.8,
+    spendTrajectory30d: "rising",
+    spendSlope7d: 1,
+    spendSlope30d: 1,
+    roasSlope7d: 0.1,
+    roasSlope30d: 0.1,
+    cpm: 10,
+    outboundClicks: 760,
+    landingPageViews: 700,
+    addToCart: 120,
+    initiateCheckout: 60,
+    thumbstop: 30,
+    video25Rate: 20,
+    video50Rate: 12,
+    video75Rate: 8,
+    video100Rate: 4,
+    qualityRanking: "average",
+    engagementRateRanking: "average",
+    conversionRateRanking: "average",
+    creativeFormat: "video",
+  };
+}
+
+function mockWarehouseForSingleCreative(creativeInput: CreativeInput) {
+  vi.spyOn(
+    WarehouseDataSource.prototype,
+    "getBusinessTargetPack",
+  ).mockResolvedValue({
+    targetCpa: null,
+    targetRoas: 2,
+    breakEvenCpa: null,
+    breakEvenRoas: 1,
+    operatorAovAssumption: null,
+    defaultRiskPosture: "balanced",
+  });
+  vi.spyOn(
+    WarehouseDataSource.prototype,
+    "getDecisionCalibrationProfile",
+  ).mockResolvedValue(null);
+  vi.spyOn(
+    WarehouseDataSource.prototype,
+    "getAccountCalibration",
+  ).mockResolvedValue({
+    ...READY_ACCOUNT_CALIBRATION,
+    businessId: creativeInput.businessId,
+  });
+  vi.spyOn(
+    WarehouseDataSource.prototype,
+    "getAccountFunnelCalibration",
+  ).mockResolvedValue(READY_FUNNEL_CALIBRATION);
+  vi.spyOn(
+    WarehouseDataSource.prototype,
+    "getMetaAttributedAov",
+  ).mockResolvedValue({
+    aovMean: 50,
+    purchaseCount: 35,
+    totalRevenue: 1750,
+    windowStart: "2026-02-05",
+    windowEnd: AS_OF,
+  });
+  vi.spyOn(WarehouseDataSource.prototype, "getDataHealth").mockResolvedValue(
+    FRESH_DATA_HEALTH,
+  );
+  vi.spyOn(WarehouseDataSource.prototype, "listCreativeInputs").mockResolvedValue(
+    [creativeInput],
   );
 }
 
@@ -486,6 +704,33 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
       changeEventsWritten: 0,
     });
     expect(await countDecisionSnapshots(businessId)).toBe(0);
+  });
+
+  it("persists the campaign-label guard output for unlabeled hard decisions", async () => {
+    const businessId = PERSISTED_GUARD_BUSINESS_ID;
+    const creativeInput = scalingCreativeInput({
+      businessId,
+      campaignId: "persisted-guard-unlabeled-campaign",
+    });
+    mockWarehouseForSingleCreative(creativeInput);
+
+    const result = await runDecisionsJob({ businessId, asOf: AS_OF });
+
+    expect(result.status).toBe("success");
+    expect(result.snapshotsWritten).toBe(1);
+
+    const [snapshot] = await fetchDecisionSnapshots({ businessId, limit: 1 });
+    expect(snapshot?.creative_id).toBe(creativeInput.creativeId);
+    expect(snapshot?.label).toBe("diagnose");
+    expect(toNumber(snapshot?.confidence)).toBeLessThanOrEqual(50);
+    expect(snapshot?.reason).toContain(
+      "[Unlabeled campaign - label to enable action]",
+    );
+    expect(snapshot?.badges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "unlabeled_campaign_context" }),
+      ]),
+    );
   });
 
   it("writes a change event only when the prior snapshot label differs", async () => {

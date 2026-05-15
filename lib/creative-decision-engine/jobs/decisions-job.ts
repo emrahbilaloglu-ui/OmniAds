@@ -1,5 +1,11 @@
 import { getDb, runDbTransaction } from "@/lib/db";
+import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
 import { resolveAccountDecisionProfile } from "../account-decision-profile";
+import {
+  applyCreativeCampaignLabelGuard,
+  buildCreativeCampaignLabelMap,
+  withCreativeCampaignLabelContext,
+} from "../campaign-label-guard";
 import { WarehouseDataSource } from "../data-source";
 import { decideCreative } from "../engine";
 import { resolveEngineV3Flags } from "../feature-flags";
@@ -349,11 +355,26 @@ export async function runDecisionsJob(
         businessId: input.businessId,
         asOf: input.asOf,
       });
+      const campaignLabelsById =
+        await readCreativeCampaignLabelsById({
+          businessId: input.businessId,
+          creativeInputs,
+        });
       const decisions: DecisionComputation[] = creativeInputs.map(
-        (creativeInput) => ({
-          input: creativeInput,
-          decision: decideCreative(creativeInput, profile, dataHealth),
-        }),
+        (creativeInput) => {
+          const inputWithCampaignKind = withCreativeCampaignLabelContext(
+            creativeInput,
+            campaignLabelsById,
+          );
+          return {
+            input: inputWithCampaignKind,
+            decision: applyCreativeCampaignLabelGuard({
+              decision: decideCreative(inputWithCampaignKind, profile, dataHealth),
+              input: inputWithCampaignKind,
+              campaignLabelsById,
+            }),
+          };
+        },
       );
 
       const creativeIds = decisions.map((decision) => decision.input.creativeId);
@@ -566,6 +587,7 @@ async function findLatestCalibrationRowId(input: DecisionsJobInput) {
     WHERE business_ref_id = $1::uuid
       AND scope_type = 'account'
       AND scope_id = '*'
+      AND campaign_kind = 'all'
       AND creative_format = 'overall'
       AND engine_version = $2
       AND as_of_date <= $3::date
@@ -689,10 +711,14 @@ function toDecisionChangeEventRows(input: {
   return input.decisions.flatMap(({ input: creativeInput, decision }) => {
     const previous = input.previousSnapshots.get(creativeInput.creativeId);
     const current = input.currentSnapshots.get(creativeInput.creativeId);
+    const comparablePrevious =
+      previous === undefined
+        ? undefined
+        : normalizePreviousSnapshotForCampaignLabelGuard(previous, decision);
     if (
-      previous === undefined ||
+      comparablePrevious === undefined ||
       current === undefined ||
-      previous.label === decision.label
+      comparablePrevious.label === decision.label
     ) {
       return [];
     }
@@ -703,16 +729,59 @@ function toDecisionChangeEventRows(input: {
         business_id: input.businessId,
         creative_id: creativeInput.creativeId,
         event_date: input.asOf,
-        previous_label: previous.label,
+        previous_label: comparablePrevious.label,
         current_label: current.label,
-        previous_confidence: previous.confidence,
+        previous_confidence: comparablePrevious.confidence,
         current_confidence: current.confidence,
-        previous_decision_snapshot_id: previous.id,
+        previous_decision_snapshot_id: comparablePrevious.id,
         decision_snapshot_id: current.id,
         job_run_id: input.jobRunId,
       },
     ];
   });
+}
+
+async function readCreativeCampaignLabelsById(input: {
+  businessId: string;
+  creativeInputs: CreativeInput[];
+}) {
+  const campaignIds = Array.from(
+    new Set(
+      input.creativeInputs
+        .map((creativeInput) => creativeInput.campaignId?.trim() || "")
+        .filter(Boolean),
+    ),
+  );
+  if (campaignIds.length === 0) return buildCreativeCampaignLabelMap([]);
+
+  return buildCreativeCampaignLabelMap(
+    await readMetaCampaignLabels({
+      businessId: input.businessId,
+      campaignIds,
+    }),
+  );
+}
+
+function isHardDecisionLabel(label: DecisionLabel) {
+  return label === "scale" || label === "cut" || label === "refresh";
+}
+
+function normalizePreviousSnapshotForCampaignLabelGuard(
+  previous: PreviousSnapshot,
+  currentDecision: DecisionOutput,
+): PreviousSnapshot {
+  if (
+    currentDecision.campaignLabelStatus === "unlabeled" &&
+    isHardDecisionLabel(previous.label)
+  ) {
+    return {
+      ...previous,
+      label: "diagnose",
+      confidence: Math.min(previous.confidence, 50),
+    };
+  }
+
+  return previous;
 }
 
 async function insertDecisionChangeEvents(rows: DecisionChangeEventPayloadRow[]) {

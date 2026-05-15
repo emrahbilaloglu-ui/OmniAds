@@ -7,10 +7,24 @@ import { metaAnomaly, metaRec } from "@/components/meta/redesign/test-fixtures";
 describe("MetaDrillDrawer", () => {
   it("renders decision drilldown with evidence", () => {
     const html = renderToStaticMarkup(
-      <MetaDrillDrawer item={{ mode: "decision", rec: metaRec() }} window="28d" onWindowChange={vi.fn()} onClose={vi.fn()} />,
+      <MetaDrillDrawer
+        item={{ mode: "decision", rec: metaRec() }}
+        window="28d"
+        onWindowChange={vi.fn()}
+        onClose={vi.fn()}
+        onLaunch={vi.fn()}
+      />,
     );
     expect(html).toContain("Engine reasoning");
     expect(html).toContain("Launchpad bridge");
+  });
+
+  it("hides the Launchpad bridge when no launch handler is available", () => {
+    const html = renderToStaticMarkup(
+      <MetaDrillDrawer item={{ mode: "decision", rec: metaRec() }} window="28d" onWindowChange={vi.fn()} onClose={vi.fn()} />,
+    );
+    expect(html).toContain("Engine reasoning");
+    expect(html).not.toContain("Launchpad bridge");
   });
 
   it("renders anomaly diagnostics", () => {

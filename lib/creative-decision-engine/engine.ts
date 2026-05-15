@@ -2,6 +2,7 @@ import {
   type AccountDecisionProfile,
   type CreativeInput,
   type DataHealth,
+  type DecisionKindSource,
   type DecisionOutput,
 } from "./types";
 import { diagnoseGate } from "./gates/diagnose";
@@ -11,6 +12,7 @@ import { ratioZonesGate } from "./gates/ratio-zones";
 import { scopeGate } from "./gates/scope";
 import { targetResolutionGate } from "./gates/target-resolution";
 import { zeroConvBurnerGate } from "./gates/zero-conv-burner";
+import { selectKindAwareDecisionProfile } from "./kind-aware-profile";
 import {
   enforceHardActionEligibility,
   finalizeDecision,
@@ -48,49 +50,67 @@ export function decideCreative(
   profile: AccountDecisionProfile,
   dataHealth?: DataHealth,
 ): DecisionOutput {
+  const {
+    profile: decisionProfile,
+    decisionKindSource,
+  } = selectKindAwareDecisionProfile(input, profile);
+  const finalizeOutput = (output: DecisionOutput) =>
+    withDecisionKindSource(
+      enforceHardActionEligibility(output, decisionProfile),
+      decisionKindSource,
+    );
   let result = scopeGate(
-    initialContext(input, profile, dataHealth),
+    initialContext(input, decisionProfile, dataHealth),
   );
   if (result.kind === "terminal") {
-    return enforceHardActionEligibility(result.output, profile);
+    return finalizeOutput(result.output);
   }
 
   result = targetResolutionGate(result.context);
   if (result.kind === "terminal") {
-    return enforceHardActionEligibility(result.output, profile);
+    return finalizeOutput(result.output);
   }
 
   result = diagnoseGate(result.context);
   if (result.kind === "terminal") {
-    return enforceHardActionEligibility(result.output, profile);
+    return finalizeOutput(result.output);
   }
 
   result = qualityOnlyGate(result.context);
   if (result.kind === "terminal") {
-    return enforceHardActionEligibility(result.output, profile);
+    return finalizeOutput(result.output);
   }
 
   result = zeroConvBurnerGate(result.context);
   if (result.kind === "terminal") {
-    return enforceHardActionEligibility(result.output, profile);
+    return finalizeOutput(result.output);
   }
 
   result = maturityGate(result.context);
   if (result.kind === "terminal") {
-    return enforceHardActionEligibility(result.output, profile);
+    return finalizeOutput(result.output);
   }
 
   result = ratioZonesGate(result.context);
   if (result.kind === "terminal") {
-    return enforceHardActionEligibility(result.output, profile);
+    return finalizeOutput(result.output);
   }
 
-  return enforceHardActionEligibility(
+  return finalizeOutput(
     finalizeDecision(
       result.context,
       "test_more",
       "Pipeline reached end without decision.",
     ),
-    profile,
   );
+}
+
+function withDecisionKindSource(
+  decision: DecisionOutput,
+  decisionKindSource: DecisionKindSource,
+): DecisionOutput {
+  return {
+    ...decision,
+    decisionKindSource,
+  };
 }

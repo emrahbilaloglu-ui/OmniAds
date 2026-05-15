@@ -199,6 +199,7 @@ async function handleQuery(queryText: string, values?: unknown[]) {
     normalized.includes("FROM engine_v3_account_calibration_daily") &&
     normalized.includes("mature_creative_count AS mature_count")
   ) {
+    expect(normalized).toContain("campaign_kind = 'all'");
     return [{ mature_count: fixture.matureCount }];
   }
 

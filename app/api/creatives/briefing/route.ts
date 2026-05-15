@@ -10,8 +10,14 @@ import {
   type DecisionLabel,
   type DecisionOutput,
 } from "@/lib/creative-decision-engine";
+import {
+  applyCreativeCampaignLabelGuard,
+  buildCreativeCampaignLabelMap,
+  withCreativeCampaignLabelContext,
+} from "@/lib/creative-decision-engine/campaign-label-guard";
 import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
 import { resolveDataSource } from "@/app/api/creatives/decision-engine-v3/data-source";
+import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
 import { isInBriefing, parseBriefingStatusFilter } from "@/lib/meta/briefing-filter";
 import { nDaysAgo, toISODate } from "@/lib/meta/creatives-row-mappers";
@@ -30,6 +36,7 @@ function badgeLabels(badges: DecisionBadge[]) {
   return badges.flatMap((badge) => {
     if (badge.type === "below_breakeven") return ["below_breakeven"];
     if (badge.type === "fatigue_watch" || badge.type === "fatigue_fatigued") return ["fatigue"];
+    if (badge.type === "unlabeled_campaign_context") return ["unlabeled_campaign_context"];
     return [];
   });
 }
@@ -122,6 +129,10 @@ function cardForDecision(input: {
     primary: primaryActionForDecision(decision),
     status: row?.effective_status ?? creativeInput?.effectiveStatus ?? null,
     ageDays: creativeInput?.ageDays ?? null,
+    campaignKind: decision.campaignKind ?? null,
+    campaignTestDimension: decision.campaignTestDimension ?? null,
+    campaignLabelStatus: decision.campaignLabelStatus ?? null,
+    blockedActionType: decision.blockedActionType ?? null,
   };
 }
 
@@ -257,14 +268,14 @@ export async function GET(request: NextRequest) {
       statusFilter,
     );
   });
-  const inputByCreativeId = new Map(scopedInputs.map((input) => [input.creativeId, input]));
+  const scopedInputByCreativeId = new Map(scopedInputs.map((input) => [input.creativeId, input]));
   const creativeRowsById = buildRowMap(
     creativeRows.filter((row) =>
       isInBriefing(
         {
-          status: row.effective_status ?? inputByCreativeId.get(row.creative_id)?.effectiveStatus ?? null,
+          status: row.effective_status ?? scopedInputByCreativeId.get(row.creative_id)?.effectiveStatus ?? null,
           effective_status: row.effective_status ?? null,
-          effectiveStatus: row.effective_status ?? inputByCreativeId.get(row.creative_id)?.effectiveStatus ?? null,
+          effectiveStatus: row.effective_status ?? scopedInputByCreativeId.get(row.creative_id)?.effectiveStatus ?? null,
         },
         statusFilter,
       ),
@@ -275,14 +286,39 @@ export async function GET(request: NextRequest) {
       .filter((row) => row.action === "deferred" && row.scopeType === "creative")
       .map((row) => row.scopeId),
   );
+  const campaignIds = Array.from(
+    new Set(
+      scopedInputs
+        .map((input) => input.campaignId?.trim() || "")
+        .filter(Boolean),
+    ),
+  );
+  const campaignLabelsById = buildCreativeCampaignLabelMap(
+    campaignIds.length > 0
+      ? await readMetaCampaignLabels({
+          businessId: resolvedBusinessId,
+          campaignIds,
+        })
+      : [],
+  );
 
   const lanes: Record<BriefingLane, BriefingCreativeCard[]> = {
     action: [],
     watching: [],
     healthy: [],
   };
-  const decisions = scopedInputs.map((creativeInput) =>
-    decideCreative(creativeInput, profile, dataHealth),
+  const enrichedInputs = scopedInputs.map((creativeInput) =>
+    withCreativeCampaignLabelContext(creativeInput, campaignLabelsById),
+  );
+  const inputByCreativeId = new Map(
+    enrichedInputs.map((input) => [input.creativeId, input]),
+  );
+  const decisions = enrichedInputs.map((creativeInput) =>
+    applyCreativeCampaignLabelGuard({
+      decision: decideCreative(creativeInput, profile, dataHealth),
+      input: creativeInput,
+      campaignLabelsById,
+    }),
   );
 
   for (const decision of decisions) {

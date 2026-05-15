@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { CrossAdsetRollupCard } from "@/components/meta/redesign/CrossAdsetRollupCard";
 import { MetaActionCard } from "@/components/meta/redesign/MetaActionCard";
 import { MetaAlertsStrip } from "@/components/meta/redesign/MetaAlertsStrip";
+import { MetaCampaignLabelsSection } from "@/components/meta/redesign/MetaCampaignLabelsSection";
 import { MetaDrillDrawer } from "@/components/meta/redesign/MetaDrillDrawer";
 import { MetaHealthyRow } from "@/components/meta/redesign/MetaHealthyRow";
 import { MetaLaunchpadOverlay } from "@/components/meta/redesign/MetaLaunchpadOverlay";
@@ -847,6 +848,8 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
               ) : null}
             </section>
 
+            <MetaCampaignLabelsSection businessId={businessId} />
+
             <section id="healthy" className="scroll-mt-40">
               <LaneHeader
                 laneKey="healthy"
@@ -917,11 +920,11 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
         window={selectedWindow}
         onWindowChange={setWindow}
         onClose={() => setDrillItem(null)}
-        onLaunch={() => {
-          if (drillItem?.mode !== "decision") return;
-          const mode = launchModeForRec(drillItem.rec) ?? "rebuild";
-          openOverlayForRec(drillItem.rec, mode);
-        }}
+        onLaunch={
+          drillItem?.mode === "decision" && launchModeForRec(drillItem.rec)
+            ? () => openOverlayForRec(drillItem.rec, launchModeForRec(drillItem.rec)!)
+            : undefined
+        }
       />
 
       <MetaLaunchpadOverlay

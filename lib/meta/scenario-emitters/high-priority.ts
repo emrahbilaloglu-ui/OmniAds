@@ -263,6 +263,35 @@ function isPurchaseOptimizedCampaign(input: CampaignScenarioInput) {
   return false;
 }
 
+type PrePurchaseOptimizationEvent =
+  | "INITIATE_CHECKOUT"
+  | "ADD_TO_CART"
+  | "VIEW_CONTENT"
+  | "LANDING_PAGE_VIEWS";
+
+const PURCHASE_DOWNSHIFT_SOURCE_EVENTS: ReadonlyMap<PrePurchaseOptimizationEvent, string> = new Map([
+  ["INITIATE_CHECKOUT", "Initiate checkout"],
+  ["ADD_TO_CART", "Add to cart"],
+  ["VIEW_CONTENT", "View content"],
+  ["LANDING_PAGE_VIEWS", "Landing page views"],
+] as const);
+
+function explicitPrePurchaseOptimizationEvent(input: CampaignScenarioInput) {
+  const customEventType = normalizedMetaText(input.window.selected.customEventType);
+  const optimizationGoal = normalizedMetaText(input.window.selected.optimizationGoal);
+  const event = customEventType || optimizationGoal;
+  const label = PURCHASE_DOWNSHIFT_SOURCE_EVENTS.get(event as PrePurchaseOptimizationEvent);
+  return label ? { event, label } : null;
+}
+
+function explicitPurchases7d(input: CampaignScenarioInput) {
+  return numberFromSource(input.signals, "purchases_7d");
+}
+
+function minRecentPurchaseSample(context: MetaCalibrationContext | null) {
+  return Math.max(5, minRequiredSample(context));
+}
+
 function bestUpperFunnelEvent(row: MetaCampaignRow, purchaseSignal: number) {
   const candidates = [
     {
@@ -901,6 +930,61 @@ export function maybeG1UpperFunnelEvent(input: CampaignScenarioInput): MetaRecom
   });
 }
 
+export function maybeG2DownshiftToPurchase(input: CampaignScenarioInput): MetaRecommendation | null {
+  const row = input.window.selected;
+  if (isPurchaseOptimizedCampaign(input)) return null;
+  if (recentEditCooldownActive(input.signals) || trackingQualityIssue(input.signals)) return null;
+  const currentEvent = explicitPrePurchaseOptimizationEvent(input);
+  if (!currentEvent) return null;
+  const recentPurchases = explicitPurchases7d(input);
+  if (recentPurchases == null) return null;
+  const roas = metric(input.context, "roas_28d");
+  const scaleFloor = metaScaleRoasFloor(input.commercialTargets);
+  if (!roas || !sampleReady(input.context, "roas_28d") || !scaleFloor) return null;
+  const purchaseFloor = minRecentPurchaseSample(input.context);
+  if (recentPurchases < purchaseFloor || row.purchases < purchaseFloor) return null;
+  const threshold = Math.max(roas.p50, scaleFloor);
+  if (row.roas < threshold) return null;
+  const conf = confidence({
+    level: "campaign",
+    context: input.context,
+    metricValue: row.roas,
+    threshold,
+  });
+  return baseCampaignRec({
+    row,
+    type: "scenario_g2_downshift_to_purchase",
+    lens: "structure",
+    priority: "medium",
+    confidenceScore: { ...conf, label: conf.label === "high" ? "medium" : conf.label },
+    decisionState: "test",
+    decisionLabel: "switch",
+    title: `${row.name}: test purchase optimization lane`,
+    why: `${currentEvent.label} optimization is producing enough recent purchase signal and ROAS is above both account median and configured profit floor.`,
+    summary: "The campaign no longer needs a shallower event to collect signal.",
+    recommendedAction: "Test a separate PURCHASE optimization lane with bounded budget instead of continuing to scale the pre-purchase event.",
+    expectedImpact: "Moves optimization closer to the business outcome while keeping the event switch isolated from the incumbent lane.",
+    evidence: [
+      { label: "Current event", value: currentEvent.label, tone: "neutral" },
+      { label: "7d purchases", value: String(r2(recentPurchases)), tone: "positive" },
+      { label: "ROAS", value: fmtRoas(row.roas), tone: "positive" },
+      { label: "ROAS p50", value: fmtRoas(roas.p50), tone: "neutral" },
+      ...commercialTargetEvidence(input.commercialTargets, row.currency),
+    ],
+    targetValue: {
+      current_event: currentEvent.event,
+      proposed_event: "PURCHASE",
+      purchase_signal_7d: r2(recentPurchases),
+      purchase_floor: purchaseFloor,
+      roas_threshold: threshold,
+    },
+    campaignRole: input.campaignRole,
+    bidRegime: input.bidRegime,
+    cohort: input.cohort,
+    signals: input.signals,
+  });
+}
+
 export function maybeA5PostLearningUnderperformer(input: CampaignScenarioInput): MetaRecommendation | null {
   const row = input.window.selected;
   if (input.signals?.learningState !== "OPTIMAL_LEARNING_DONE") return null;
@@ -1296,6 +1380,7 @@ const CAMPAIGN_PRECEDENCE = [
   maybeK4CatalogFeedFirst,
   maybeA3LearningOnPaceWait,
   maybeG1UpperFunnelEvent,
+  maybeG2DownshiftToPurchase,
   maybeA2StructuralRebuild,
   maybeA5PostLearningUnderperformer,
   maybeK1MixedConfig,

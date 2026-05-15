@@ -127,18 +127,27 @@ describe("applyMetaCampaignLabelGuard", () => {
           decisionLabel: "switch",
           recommendedAction: "Test a separate ADD_TO_CART optimization lane.",
         }),
+        rec({
+          id: "g2",
+          type: "scenario_g2_downshift_to_purchase",
+          decisionLabel: "switch",
+          recommendedAction: "Test a separate PURCHASE optimization lane.",
+        }),
       ],
       campaignLabelsById: buildMetaCampaignLabelKindMap([]),
       activeCampaignIds: ["cmp-1"],
     });
 
-    expect(result.downgradedCount).toBe(1);
-    expect(result.recommendations[0]).toMatchObject({
-      kind: "state",
-      decisionLabel: "diagnose",
-      decisionState: "watch",
-      confidenceReason: META_CAMPAIGN_LABEL_GUARD_REASON,
-    });
+    expect(result.downgradedCount).toBe(2);
+    expect(result.recommendations).toHaveLength(2);
+    for (const guarded of result.recommendations) {
+      expect(guarded).toMatchObject({
+        kind: "state",
+        decisionLabel: "diagnose",
+        decisionState: "watch",
+        confidenceReason: META_CAMPAIGN_LABEL_GUARD_REASON,
+      });
+    }
   });
 
   it("allows diagnostics, refreshes, rebuilds, state rows, and anomalies without labels", () => {

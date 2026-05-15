@@ -24,6 +24,7 @@ import {
   maybeF3BudgetPacingCooldown,
   maybeF4StableWinnerFade,
   maybeG1UpperFunnelEvent,
+  maybeG2DownshiftToPurchase,
   maybeH1TrackingQualityDiagnostic,
   maybeI4TestShouldUseAbo,
   maybeJ1StableWinnerProtected,
@@ -453,6 +454,115 @@ describe("high priority Meta scenario emitters", () => {
       context,
       cohort: purchaseCohort,
       signals: signal({ learningState: "LEARNING_LIMITED", sourceJson: { purchases_7d: 0 } }),
+    });
+
+    expect(rec).toBeNull();
+  });
+
+  it("tests purchase downshift when a pre-purchase event has target-backed purchase signal", () => {
+    const rec = maybeG2DownshiftToPurchase({
+      window: windowFor(campaign({
+        optimizationGoal: "OFFSITE_CONVERSIONS",
+        customEventType: "ADD_TO_CART",
+        roas: 2.6,
+        purchases: 12,
+      })),
+      context,
+      cohort: "mid_funnel",
+      signals: signal({ sourceJson: { purchases_7d: 6 } }),
+      commercialTargets,
+    });
+
+    expect(rec?.type).toBe("scenario_g2_downshift_to_purchase");
+    expect(rec?.decisionLabel).toBe("switch");
+    expect(rec?.decisionState).toBe("test");
+    expect(rec?.targetValue).toMatchObject({
+      current_event: "ADD_TO_CART",
+      proposed_event: "PURCHASE",
+      purchase_signal_7d: 6,
+    });
+  });
+
+  it("emits G2 from a mid-funnel source cohort instead of blocking on purchase-only scope", () => {
+    const rec = emitHighPriorityCampaignScenario({
+      window: windowFor(campaign({
+        optimizationGoal: "OFFSITE_CONVERSIONS",
+        customEventType: "ADD_TO_CART",
+        roas: 2.6,
+        purchases: 12,
+      })),
+      context,
+      cohort: "mid_funnel",
+      signals: signal({ sourceJson: { purchases_7d: 6 } }),
+      commercialTargets,
+    });
+
+    expect(rec?.type).toBe("scenario_g2_downshift_to_purchase");
+    expect(rec?.cohort).toBe("mid_funnel");
+  });
+
+  it("does not fire G2 for campaigns already optimized to purchase", () => {
+    const rec = maybeG2DownshiftToPurchase({
+      window: windowFor(campaign({
+        optimizationGoal: "OFFSITE_CONVERSIONS",
+        customEventType: "PURCHASE",
+        roas: 2.6,
+        purchases: 12,
+      })),
+      context,
+      cohort: purchaseCohort,
+      signals: signal({ sourceJson: { purchases_7d: 6 } }),
+      commercialTargets,
+    });
+
+    expect(rec).toBeNull();
+  });
+
+  it("does not fire G2 from generic offsite conversions without an explicit pre-purchase event", () => {
+    const rec = maybeG2DownshiftToPurchase({
+      window: windowFor(campaign({
+        optimizationGoal: "OFFSITE_CONVERSIONS",
+        customEventType: null,
+        roas: 2.6,
+        purchases: 12,
+      })),
+      context,
+      cohort: purchaseCohort,
+      signals: signal({ sourceJson: { purchases_7d: 6 } }),
+      commercialTargets,
+    });
+
+    expect(rec).toBeNull();
+  });
+
+  it("does not fire G2 without explicit recent purchase signal evidence", () => {
+    const rec = maybeG2DownshiftToPurchase({
+      window: windowFor(campaign({
+        optimizationGoal: "OFFSITE_CONVERSIONS",
+        customEventType: "ADD_TO_CART",
+        roas: 2.6,
+        purchases: 12,
+      })),
+      context,
+      cohort: "mid_funnel",
+      signals: signal({ sourceJson: {} }),
+      commercialTargets,
+    });
+
+    expect(rec).toBeNull();
+  });
+
+  it("does not fire G2 without a configured commercial target anchor", () => {
+    const rec = maybeG2DownshiftToPurchase({
+      window: windowFor(campaign({
+        optimizationGoal: "OFFSITE_CONVERSIONS",
+        customEventType: "ADD_TO_CART",
+        roas: 2.6,
+        purchases: 12,
+      })),
+      context,
+      cohort: "mid_funnel",
+      signals: signal({ sourceJson: { purchases_7d: 6 } }),
     });
 
     expect(rec).toBeNull();

@@ -99,7 +99,7 @@ export function summarizeMetaDecisionOutcomes(
   const negativeRate = ratio(negativeCount, sampleSize);
   let confidenceBand: MetaEmpiricalConfidenceBand = "insufficient_sample";
 
-  if (sampleSize >= minSampleSize && precision != null && negativeRate != null) {
+  if (judgedSampleSize >= minSampleSize && precision != null && negativeRate != null) {
     if (precision >= highPrecisionFloor && negativeRate <= maxHighNegativeRate) {
       confidenceBand = "high";
     } else if (precision >= mediumPrecisionFloor) {

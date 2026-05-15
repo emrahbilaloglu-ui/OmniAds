@@ -31,6 +31,35 @@ describe("Meta empirical outcomes", () => {
     });
   });
 
+  it("requires enough judged outcomes before auto eligibility", () => {
+    const summary = summarizeMetaDecisionOutcomes(
+      rows([
+        "positive",
+        "neutral",
+        "neutral",
+        "neutral",
+        "neutral",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+      ]),
+      { minSampleSize: 10 },
+    );
+
+    expect(summary).toMatchObject({
+      sampleSize: 10,
+      judgedSampleSize: 1,
+      positiveCount: 1,
+      negativeCount: 0,
+      precision: 1,
+      negativeRate: 0,
+      confidenceBand: "insufficient_sample",
+      autoEligible: false,
+    });
+  });
+
   it("marks high precision with low negative rate as auto eligible", () => {
     const summary = summarizeMetaDecisionOutcomes(
       rows([
@@ -43,15 +72,15 @@ describe("Meta empirical outcomes", () => {
         "positive",
         "positive",
         "positive",
-        "neutral",
+        "positive",
       ]),
       { minSampleSize: 10 },
     );
 
     expect(summary).toMatchObject({
       sampleSize: 10,
-      judgedSampleSize: 9,
-      positiveCount: 9,
+      judgedSampleSize: 10,
+      positiveCount: 10,
       negativeCount: 0,
       precision: 1,
       negativeRate: 0,
@@ -62,7 +91,18 @@ describe("Meta empirical outcomes", () => {
 
   it("keeps weak precision below auto eligibility", () => {
     const summary = summarizeMetaDecisionOutcomes(
-      rows(["positive", "positive", "positive", "negative", "negative", "negative", "neutral", "neutral", "neutral", "neutral"]),
+      rows([
+        "positive",
+        "positive",
+        "positive",
+        "negative",
+        "negative",
+        "negative",
+        "negative",
+        "negative",
+        "negative",
+        "negative",
+      ]),
       { minSampleSize: 10 },
     );
 

@@ -35,6 +35,8 @@ path and ask the model to read it before planning or changing code.
 ## Current Repo State
 
 - Current implementation branch: `phase-a-meta-decision-hygiene`.
+- Phase A PR: `#162` (`[codex] Unify Meta funnel cohort resolution`), draft.
+- Phase A implementation commit: `fc8a8d7` (`Unify Meta funnel cohort resolution`).
 - Base `main` SHA verified locally:
   `0b79c22229de09b014b0dc8fff91ee2bf74bb8c7`.
 - Phase A tracked-file modifications at the time of this snapshot:
@@ -122,6 +124,8 @@ path and ask the model to read it before planning or changing code.
 ### Phase A - Hygiene, Evidence, And Single-Source Cleanup
 
 - Branch: `phase-a-meta-decision-hygiene`.
+- Draft PR: `#162`.
+- Implementation commit: `fc8a8d7`.
 - A.1 single-source cleanup:
   - `lib/meta/recommendations.ts` no longer uses its local string-based
     campaign purchase filter.
@@ -278,8 +282,8 @@ where coverage is weak.
   information value is checked. Status: completed; stale PRs closed.
 - Acceptance: context file updated, evidence saved under `_analysis/`, targeted
   tests green, and no hard-action behavior changes mixed into the cleanup PR.
-  Status: local implementation and broad verification are complete; PR creation
-  remains.
+  Status: local implementation, broad verification, and draft PR creation are
+  complete. GitHub CI/review/merge remain.
 
 ### Phase B - Target/Profit Anchor And Unified Maturity
 

@@ -236,6 +236,7 @@ const META_CANONICAL_PROVIDER_REF_TABLES = [
   "meta_adset_config_history",
   "meta_ad_dimensions",
   "meta_creative_dimensions",
+  "meta_decision_action_outcome_logs",
 ] as const;
 
 const GOOGLE_ADS_CANONICAL_PROVIDER_REF_TABLES = [
@@ -2840,6 +2841,32 @@ export async function runMigrations(options?: {
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_decision_responses_business_timestamp
           ON meta_decision_responses (business_id, timestamp)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_decision_action_outcome_logs (
+          id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id                TEXT NOT NULL,
+          business_ref_id            UUID REFERENCES businesses(id) ON DELETE SET NULL,
+          provider_account_id        TEXT,
+          provider_account_ref_id    UUID REFERENCES provider_accounts(id) ON DELETE SET NULL,
+          recommendation_fingerprint TEXT NOT NULL,
+          rec_id                     TEXT,
+          rec_type                   TEXT,
+          decision_label             TEXT,
+          decision_family            TEXT,
+          action_type                TEXT NOT NULL
+                                     CHECK (action_type IN ('operator_response', 'preflight', 'execute', 'rollback', 'outcome')),
+          outcome_status             TEXT,
+          summary                    TEXT NOT NULL,
+          payload_json               JSONB NOT NULL DEFAULT '{}'::jsonb,
+          occurred_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+          created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_decision_action_outcome_logs_business
+          ON meta_decision_action_outcome_logs (business_id, occurred_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_decision_action_outcome_logs_recommendation
+          ON meta_decision_action_outcome_logs (recommendation_fingerprint, occurred_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_decision_action_outcome_logs_rec
+          ON meta_decision_action_outcome_logs (business_id, rec_id, occurred_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_campaign_labels (
           business_id         TEXT NOT NULL,
           campaign_id         TEXT NOT NULL,

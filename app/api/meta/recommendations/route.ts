@@ -18,6 +18,7 @@ import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import { resolveRequestLanguage } from "@/lib/request-language";
 import { META_WAREHOUSE_HISTORY_DAYS } from "@/lib/meta/history";
 import { readMetaCommercialTargets } from "@/lib/meta/commercial-targets";
+import { attachMetaEmpiricalOutcomeSummariesFromLogs } from "@/lib/meta/empirical-outcome-integration";
 
 // Intentional exception: recommendations keep snapshot-backed historical
 // config regime analysis across multi-window history. This is not a normal
@@ -286,5 +287,17 @@ export async function GET(request: NextRequest) {
     },
   );
 
-  return NextResponse.json(payload);
+  const recommendations = await attachMetaEmpiricalOutcomeSummariesFromLogs({
+    businessId,
+    recommendations: payload.recommendations,
+  });
+
+  return NextResponse.json({
+    ...payload,
+    summary: {
+      ...payload.summary,
+      recommendationCount: recommendations.length,
+    },
+    recommendations,
+  });
 }

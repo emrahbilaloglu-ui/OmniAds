@@ -6,6 +6,10 @@ export interface MetaDecisionOutcomeSummaryInputRow {
   action_type?: string | null;
   outcomeStatus?: string | null;
   outcome_status?: string | null;
+  recType?: string | null;
+  rec_type?: string | null;
+  decisionLabel?: string | null;
+  decision_label?: string | null;
 }
 
 export interface MetaEmpiricalOutcomeSummary {
@@ -28,6 +32,16 @@ export interface MetaEmpiricalOutcomeSummaryOptions {
   highPrecisionFloor?: number;
   mediumPrecisionFloor?: number;
   maxHighNegativeRate?: number;
+}
+
+export function metaEmpiricalOutcomeSummaryKey(input: {
+  recType?: string | null;
+  decisionLabel?: string | null;
+}) {
+  const recType = String(input.recType ?? "").trim();
+  if (!recType) return null;
+  const decisionLabel = String(input.decisionLabel ?? "").trim();
+  return `${recType}::${decisionLabel || "*"}`;
 }
 
 const POSITIVE_STATUSES = new Set([
@@ -129,4 +143,29 @@ export function summarizeMetaDecisionOutcomes(
     minSampleSize,
     autoEligible: confidenceBand === "high",
   };
+}
+
+export function summarizeMetaDecisionOutcomesByKey(
+  rows: MetaDecisionOutcomeSummaryInputRow[],
+  options: MetaEmpiricalOutcomeSummaryOptions = {},
+) {
+  const rowsByKey = new Map<string, MetaDecisionOutcomeSummaryInputRow[]>();
+
+  for (const row of rows) {
+    const key = metaEmpiricalOutcomeSummaryKey({
+      recType: row.recType ?? row.rec_type,
+      decisionLabel: row.decisionLabel ?? row.decision_label,
+    });
+    if (!key) continue;
+    const bucket = rowsByKey.get(key) ?? [];
+    bucket.push(row);
+    rowsByKey.set(key, bucket);
+  }
+
+  return Object.fromEntries(
+    Array.from(rowsByKey.entries()).map(([key, groupedRows]) => [
+      key,
+      summarizeMetaDecisionOutcomes(groupedRows, options),
+    ]),
+  );
 }

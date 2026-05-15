@@ -148,8 +148,346 @@ describe("GET /api/meta/lane-classify", () => {
       previousBidValueCapturedAt: "2026-04-01T00:00:00.000Z",
     });
     expect(payload.deferredIds).toEqual(["rec_deferred"]);
+    expect(payload.counts.nonSales).toBe(0);
     expect(payload.counts.archive).toBe(0);
     expect(payload.statusFilter).toBe("active");
+  });
+
+  it("routes non-purchase recommendations into nonSales only", async () => {
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 1,
+      },
+      recommendations: [
+        metaRec({
+          id: "rec_upper",
+          campaignId: "cmp_upper",
+          campaignName: "Video Views",
+          cohort: "upper_funnel",
+          confidenceScore: 0.91,
+          decisionState: "act",
+        }),
+      ],
+    });
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        {
+          id: "cmp_upper",
+          name: "Video Views",
+          status: "ACTIVE",
+          spend: 500,
+          purchases: 0,
+          roas: 0,
+          cpa: null,
+          optimizationGoal: "THRUPLAY",
+        },
+      ] as never,
+      evidenceSource: "live",
+    });
+    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [] as never,
+      evidenceSource: "live",
+    });
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d"));
+    const payload = await response.json();
+
+    expect(payload.actionNow.map((rec: { id: string }) => rec.id)).not.toContain("rec_upper");
+    expect(payload.watching.map((rec: { id: string }) => rec.id)).not.toContain("rec_upper");
+    expect(payload.nonSales.map((rec: { id: string }) => rec.id)).toEqual(["rec_upper"]);
+    expect(payload.counts.nonSales).toBe(payload.nonSales.length);
+  });
+
+  it("keeps purchase, null-cohort, and unknown-cohort recommendations in the existing purchase lanes", async () => {
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 2,
+      },
+      recommendations: [
+        metaRec({
+          id: "rec_purchase",
+          campaignId: "cmp_purchase",
+          campaignName: "Purchase Campaign",
+          cohort: "purchase",
+          confidenceScore: 0.88,
+          decisionState: "act",
+        }),
+        metaRec({
+          id: "rec_null",
+          campaignId: "cmp_null",
+          campaignName: "Null Cohort Campaign",
+          cohort: null,
+          confidenceScore: 0.41,
+          decisionState: "watch",
+        }),
+        metaRec({
+          id: "rec_unknown",
+          campaignId: "cmp_unknown",
+          campaignName: "Unknown Cohort Campaign",
+          cohort: "unknown",
+          confidenceScore: 0.89,
+          decisionState: "act",
+        }),
+      ],
+    });
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        {
+          id: "cmp_purchase",
+          name: "Purchase Campaign",
+          status: "ACTIVE",
+          spend: 500,
+          purchases: 8,
+          roas: 2.8,
+          cpa: 30,
+          optimizationGoal: "PURCHASE",
+        },
+        {
+          id: "cmp_null",
+          name: "Null Cohort Campaign",
+          status: "ACTIVE",
+          spend: 200,
+          purchases: 3,
+          roas: 1.4,
+          cpa: 67,
+          optimizationGoal: "PURCHASE",
+        },
+        {
+          id: "cmp_unknown",
+          name: "Unknown Cohort Campaign",
+          status: "ACTIVE",
+          spend: 450,
+          purchases: 5,
+          roas: 2.1,
+          cpa: 90,
+        },
+      ] as never,
+      evidenceSource: "live",
+    });
+    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [] as never,
+      evidenceSource: "live",
+    });
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d"));
+    const payload = await response.json();
+
+    expect(payload.actionNow.map((rec: { id: string }) => rec.id)).toEqual(["rec_purchase", "rec_unknown"]);
+    expect(payload.watching.map((rec: { id: string }) => rec.id)).toEqual(["rec_null"]);
+    expect(payload.nonSales).toHaveLength(0);
+  });
+
+  it("keeps unknown-cohort purchase rows out of nonSales when sync fields are missing", async () => {
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 0,
+      },
+      recommendations: [],
+    });
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        {
+          id: "cmp_missing_goal",
+          name: "Missing Goal Purchase Activity",
+          status: "ACTIVE",
+          spend: 600,
+          purchases: 6,
+          roas: 2.4,
+          cpa: 100,
+        },
+      ] as never,
+      evidenceSource: "live",
+    });
+    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [] as never,
+      evidenceSource: "live",
+    });
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d"));
+    const payload = await response.json();
+
+    expect(payload.healthy.map((row: { id: string }) => row.id)).toEqual(["cmp_missing_goal"]);
+    expect(payload.nonSales).toHaveLength(0);
+  });
+
+  it("routes healthy non-purchase campaign rows into nonSales instead of healthy", async () => {
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 0,
+      },
+      recommendations: [],
+    });
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        {
+          id: "cmp_thruplay",
+          name: "Video Views",
+          status: "ACTIVE",
+          spend: 700,
+          purchases: 0,
+          roas: 0,
+          cpa: null,
+          optimizationGoal: "THRUPLAY",
+        },
+      ] as never,
+      evidenceSource: "live",
+    });
+    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [] as never,
+      evidenceSource: "live",
+    });
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d"));
+    const payload = await response.json();
+
+    expect(payload.healthy.map((row: { id: string }) => row.id)).not.toContain("cmp_thruplay");
+    expect(payload.nonSales[0]).toMatchObject({
+      campaignId: "cmp_thruplay",
+      campaignName: "Video Views",
+      cohort: "upper_funnel",
+      decision: "non_sales_eligible",
+    });
+    expect(payload.counts.nonSales).toBe(payload.nonSales.length);
+  });
+
+  it("keeps healthy purchase campaign rows in healthy", async () => {
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 0,
+      },
+      recommendations: [],
+    });
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        {
+          id: "cmp_purchase_healthy",
+          name: "Purchase Healthy",
+          status: "ACTIVE",
+          spend: 700,
+          purchases: 8,
+          roas: 2.7,
+          cpa: 32,
+          optimizationGoal: "OFFSITE_CONVERSIONS",
+          customEventType: "",
+        },
+      ] as never,
+      evidenceSource: "live",
+    });
+    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [] as never,
+      evidenceSource: "live",
+    });
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d"));
+    const payload = await response.json();
+
+    expect(payload.healthy.map((row: { id: string }) => row.id)).toEqual(["cmp_purchase_healthy"]);
+    expect(payload.nonSales).toHaveLength(0);
+  });
+
+  it("routes archived non-purchase campaign rows into nonSales instead of archive", async () => {
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 0,
+      },
+      recommendations: [],
+    });
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        {
+          id: "cmp_archived_video",
+          name: "Archived Video Views",
+          status: "PAUSED",
+          spend: 250,
+          purchases: 0,
+          roas: 0,
+          cpa: null,
+          optimizationGoal: "THRUPLAY",
+        },
+      ] as never,
+      evidenceSource: "live",
+    });
+    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [] as never,
+      evidenceSource: "live",
+    });
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d"));
+    const payload = await response.json();
+
+    expect(payload.archive.map((row: { id: string }) => row.id)).not.toContain("cmp_archived_video");
+    expect(payload.nonSales[0]).toMatchObject({
+      campaignId: "cmp_archived_video",
+      campaignName: "Archived Video Views",
+      cohort: "upper_funnel",
+    });
+    expect(payload.counts.nonSales).toBe(payload.nonSales.length);
   });
 
   it("filters closed-entity recommendations by default and exposes them in archive", async () => {
@@ -174,8 +512,26 @@ describe("GET /api/meta/lane-classify", () => {
     vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
       status: "ok",
       rows: [
-        { id: "cmp_1", name: "Active ASC", status: "ACTIVE", spend: 100, purchases: 3, roas: 2.5, cpa: 33 },
-        { id: "cmp_paused", name: "Paused ASC", status: "PAUSED", spend: 700, purchases: 7, roas: 1.4, cpa: 100 },
+        {
+          id: "cmp_1",
+          name: "Active ASC",
+          status: "ACTIVE",
+          spend: 100,
+          purchases: 3,
+          roas: 2.5,
+          cpa: 33,
+          optimizationGoal: "PURCHASE",
+        },
+        {
+          id: "cmp_paused",
+          name: "Paused ASC",
+          status: "PAUSED",
+          spend: 700,
+          purchases: 7,
+          roas: 1.4,
+          cpa: 100,
+          optimizationGoal: "PURCHASE",
+        },
       ] as never,
       evidenceSource: "live",
     });

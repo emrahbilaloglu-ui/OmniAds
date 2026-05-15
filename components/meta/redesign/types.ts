@@ -93,9 +93,10 @@ export interface MetaLanePayload {
   actionNow: MetaRecommendation[];
   watching: MetaRecommendation[];
   healthy: MetaHealthyEntity[];
+  nonSales: MetaRecommendation[];
   archive: MetaArchivedEntity[];
   deferredIds: string[];
-  counts: { actionNow: number; watching: number; healthy: number; archive: number };
+  counts: { actionNow: number; watching: number; healthy: number; nonSales: number; archive: number };
 }
 
 export type MetaDrillItem =

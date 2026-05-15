@@ -17,6 +17,7 @@ const CREATIVE_TONE_CLASS: Record<LaneKey, string> = {
   action: "bg-rose-500",
   watching: "bg-sky-500",
   healthy: "bg-emerald-500",
+  nonSales: "bg-zinc-400",
   archive: "bg-slate-400",
   audience: "bg-violet-400",
 };
@@ -25,6 +26,7 @@ const CREATIVE_ICON = {
   action: AlertTriangle,
   watching: Eye,
   healthy: CheckCircle2,
+  nonSales: Eye,
   archive: Eye,
   audience: Target,
 };
@@ -33,6 +35,7 @@ const CREATIVE_ICON_CLASS: Record<LaneKey, string> = {
   action: "text-rose-600",
   watching: "text-sky-600",
   healthy: "text-emerald-600",
+  nonSales: "text-zinc-600",
   archive: "text-slate-500",
   audience: "text-violet-600",
 };

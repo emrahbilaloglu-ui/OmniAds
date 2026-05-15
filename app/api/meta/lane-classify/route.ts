@@ -4,7 +4,11 @@ import { getDb } from "@/lib/db";
 import { getMetaAdSetsForRange } from "@/lib/meta/adsets-source";
 import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
 import { readMetaDecisionSnapshotForRange } from "@/lib/meta/snapshot";
-import type { MetaRecommendation } from "@/lib/meta/recommendations";
+import {
+  META_RECOMMENDATION_ENGINE_VERSION,
+  type MetaRecommendation,
+} from "@/lib/meta/recommendations";
+import { resolveMetaFunnelCohort, type MetaFunnelCohort } from "@/lib/meta/funnel-cohort";
 import {
   briefingStatusForEntity,
   briefingStatusLabel,
@@ -93,6 +97,109 @@ function toNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function cohortForCampaignRow(row: CampaignRow) {
+  return resolveMetaFunnelCohort({
+    optimizationGoal: row.optimizationGoal,
+    customEventType: row.customEventType,
+  });
+}
+
+function cohortForAdsetRow(row: AdsetRow) {
+  return resolveMetaFunnelCohort({
+    optimizationGoal: row.optimizationGoal,
+    customEventType: row.customEventType,
+  });
+}
+
+function isPurchaseScopedCohort(cohort: MetaFunnelCohort | null | undefined) {
+  return !cohort || cohort === "purchase" || cohort === "unknown";
+}
+
+function isNonSalesCohort(cohort: MetaFunnelCohort | null | undefined) {
+  return Boolean(cohort && cohort !== "purchase" && cohort !== "unknown");
+}
+
+function isVisibleForStatusLane(row: CampaignRow | AdsetRow, statusFilter: BriefingStatusFilter) {
+  return isWithIssuesEntity(row) || isInBriefing(row, statusFilter) || isArchiveOnlyEntity(row, statusFilter);
+}
+
+function formatCohort(cohort: MetaFunnelCohort) {
+  return cohort.replace(/_/g, " ");
+}
+
+function formatRoasValue(value: unknown) {
+  return `${toNumber(value).toFixed(2)}x`;
+}
+
+function nonSalesStateRecommendation(input: {
+  id: string;
+  level: "campaign" | "adset";
+  name: string;
+  campaignId?: string | null;
+  campaignName?: string | null;
+  spend: number;
+  roas: number;
+  cpa: number | null;
+  purchases: number;
+  status: string | null;
+  statusLabel: string;
+  cohort: MetaFunnelCohort;
+}): MetaRecommendation {
+  const levelLabel = input.level === "campaign" ? "Campaign" : "Adset";
+  const cohortLabel = formatCohort(input.cohort);
+  const statusLabel = input.statusLabel || input.status || "Unknown";
+
+  return {
+    id: `entity_state-${input.level}-${input.id}`,
+    level: input.level,
+    campaignId: input.level === "campaign" ? input.id : input.campaignId ?? undefined,
+    campaignName: input.level === "campaign" ? input.name : input.campaignName ?? undefined,
+    adsetId: input.level === "adset" ? input.id : undefined,
+    adsetName: input.level === "adset" ? input.name : undefined,
+    type: input.level === "campaign" ? "campaign_state" : "adset_state",
+    kind: "state",
+    decisionLabel: "out_of_scope",
+    stateReason: `${levelLabel} is configured for ${cohortLabel} delivery and is separated from purchase decisions.`,
+    lens: "structure",
+    priority: "low",
+    confidence: "low",
+    confidenceScore: 0.35,
+    confidenceReason: null,
+    decisionState: "watch",
+    decision: "non_sales_eligible",
+    title: `${input.name}: out of sales scope`,
+    why: `${levelLabel} resolves to the ${cohortLabel} cohort, so it should not compete with purchase-scoped action lanes.`,
+    summary: `${input.name} is shown separately from purchase decisions while preserving spend visibility.`,
+    recommendedAction: "Keep out of the sales decision queue.",
+    expectedImpact: "Keeps the daily purchase briefing clean without hiding non-purchase activity.",
+    evidence: [
+      { label: "Cohort", value: input.cohort, tone: "neutral" },
+      { label: "Status", value: statusLabel, tone: "neutral" },
+      { label: "Spend", value: String(input.spend), tone: "neutral" },
+      { label: "ROAS", value: formatRoasValue(input.roas), tone: "neutral" },
+      { label: "Purchases", value: String(input.purchases), tone: "neutral" },
+    ],
+    timeframeContext: {
+      coreVerdict: `${levelLabel} is outside the purchase cohort.`,
+      selectedRangeOverlay: "Non-purchase cohorts are routed here instead of Action Now or Watching.",
+      historicalSupport: "Cohort is derived from Meta optimization goal and custom event fields.",
+      seasonalityFlag: "none",
+      note: input.cpa == null ? null : `CPA in selected window: ${input.cpa}.`,
+    },
+    targetValue: {
+      entityState: "non_sales_eligible",
+      actionDensityEligible: false,
+      status: input.status,
+      cpa: input.cpa,
+      spend: input.spend,
+    },
+    engineVersion: META_RECOMMENDATION_ENGINE_VERSION,
+    signalQuality: { quality_status: "out_of_sales_scope", confidence_cap: "low" },
+    calibrationScope: {},
+    cohort: input.cohort,
+  };
+}
+
 function latestRecentChangeAt(rec: MetaRecommendation) {
   const changes = rec.evidenceTrail?.recent_changes;
   if (!Array.isArray(changes)) return null;
@@ -179,6 +286,7 @@ function healthyCampaignRows(input: {
   statusFilter: BriefingStatusFilter;
 }): HealthyMetaRow[] {
   return input.rows
+    .filter((row) => isPurchaseScopedCohort(cohortForCampaignRow(row)))
     .filter((row) => !input.recommendedScopeIds.has(row.id))
     .filter((row) => isInBriefing(row, input.statusFilter))
     .filter((row) => toNumber(row.spend) >= 100 || toNumber(row.purchases) >= 3)
@@ -216,6 +324,7 @@ function healthyAdsetRows(input: {
   statusFilter: BriefingStatusFilter;
 }): HealthyMetaRow[] {
   return input.rows
+    .filter((row) => isPurchaseScopedCohort(cohortForAdsetRow(row)))
     .filter((row) => !input.recommendedScopeIds.has(row.id))
     .filter((row) => isInBriefing(row, input.statusFilter))
     .filter((row) => toNumber(row.spend) >= 75 || toNumber(row.purchases) >= 3)
@@ -254,6 +363,7 @@ function archiveCampaignRows(input: {
   window: PulseWindow;
 }): ArchivedMetaRow[] {
   return input.rows
+    .filter((row) => isPurchaseScopedCohort(cohortForCampaignRow(row)))
     .filter((row) => isArchiveOnlyEntity(row, input.statusFilter))
     .map((row) => ({
       id: row.id,
@@ -280,6 +390,7 @@ function archiveAdsetRows(input: {
   campaignNamesById?: Map<string, string>;
 }): ArchivedMetaRow[] {
   return input.rows
+    .filter((row) => isPurchaseScopedCohort(cohortForAdsetRow(row)))
     .filter((row) => isArchiveOnlyEntity(row, input.statusFilter))
     .map((row) => ({
       id: row.id,
@@ -299,6 +410,61 @@ function archiveAdsetRows(input: {
           ? "Status truth is incomplete; engine recommendations are suppressed."
           : null,
     }));
+}
+
+function nonSalesCampaignRows(input: {
+  rows: CampaignRow[];
+  recommendedScopeIds: Set<string>;
+  statusFilter: BriefingStatusFilter;
+}): MetaRecommendation[] {
+  return input.rows
+    .map((row) => ({ row, cohort: cohortForCampaignRow(row) }))
+    .filter(({ cohort }) => isNonSalesCohort(cohort))
+    .filter(({ row }) => !input.recommendedScopeIds.has(row.id))
+    .filter(({ row }) => isVisibleForStatusLane(row, input.statusFilter))
+    .map(({ row, cohort }) =>
+      nonSalesStateRecommendation({
+        id: row.id,
+        level: "campaign",
+        name: row.name,
+        spend: toNumber(row.spend),
+        roas: toNumber(row.roas),
+        cpa: row.cpa == null ? null : toNumber(row.cpa),
+        purchases: toNumber(row.purchases),
+        status: briefingStatusForEntity(row),
+        statusLabel: briefingStatusLabel(row),
+        cohort,
+      }),
+    );
+}
+
+function nonSalesAdsetRows(input: {
+  rows: AdsetRow[];
+  recommendedScopeIds: Set<string>;
+  campaignNamesById?: Map<string, string>;
+  statusFilter: BriefingStatusFilter;
+}): MetaRecommendation[] {
+  return input.rows
+    .map((row) => ({ row, cohort: cohortForAdsetRow(row) }))
+    .filter(({ cohort }) => isNonSalesCohort(cohort))
+    .filter(({ row }) => !input.recommendedScopeIds.has(row.id))
+    .filter(({ row }) => isVisibleForStatusLane(row, input.statusFilter))
+    .map(({ row, cohort }) =>
+      nonSalesStateRecommendation({
+        id: row.id,
+        level: "adset",
+        name: row.name,
+        campaignId: row.campaignId,
+        campaignName: input.campaignNamesById?.get(row.campaignId) ?? null,
+        spend: toNumber(row.spend),
+        roas: toNumber(row.roas),
+        cpa: row.cpa == null ? null : toNumber(row.cpa),
+        purchases: toNumber(row.purchases),
+        status: briefingStatusForEntity(row),
+        statusLabel: briefingStatusLabel(row),
+        cohort,
+      }),
+    );
 }
 
 export async function GET(request: NextRequest) {
@@ -348,14 +514,16 @@ export async function GET(request: NextRequest) {
   const recommendations = (snapshot?.recommendations ?? []).filter((rec) =>
     isRecommendationInScope({ rec, statusFilter, campaignsById, adsetsById }),
   );
-  const actionNow = recommendations.filter(
+  const purchaseScopedRecs = recommendations.filter((rec) => isPurchaseScopedCohort(rec.cohort));
+  const nonSalesRecs = recommendations.filter((rec) => isNonSalesCohort(rec.cohort));
+  const actionNow = purchaseScopedRecs.filter(
     (rec) =>
       (rec.confidenceScore ?? 0) >= 0.7 &&
       !isInLearning(rec) &&
       !isWithIssuesRec({ rec, campaignsById, adsetsById }) &&
       !deferredIds.has(rec.id),
   );
-  const watching = recommendations.filter(
+  const watching = purchaseScopedRecs.filter(
     (rec) =>
       !actionNow.includes(rec) &&
       (isWithIssuesRec({ rec, campaignsById, adsetsById }) ||
@@ -372,6 +540,11 @@ export async function GET(request: NextRequest) {
     ...healthyCampaignRows({ rows: campaigns.rows ?? [], recommendedScopeIds, statusFilter }),
     ...healthyAdsetRows({ rows: adsets.rows ?? [], recommendedScopeIds, campaignNamesById, statusFilter }),
   ].slice(0, 18);
+  const nonSales = [
+    ...nonSalesRecs,
+    ...nonSalesCampaignRows({ rows: campaigns.rows ?? [], recommendedScopeIds, statusFilter }),
+    ...nonSalesAdsetRows({ rows: adsets.rows ?? [], recommendedScopeIds, campaignNamesById, statusFilter }),
+  ].slice(0, 30);
   const archive = [
     ...archiveCampaignRows({ rows: campaigns.rows ?? [], statusFilter, window }),
     ...archiveAdsetRows({ rows: adsets.rows ?? [], statusFilter, window, campaignNamesById }),
@@ -388,12 +561,14 @@ export async function GET(request: NextRequest) {
       actionNow,
       watching,
       healthy,
+      nonSales,
       archive,
       deferredIds: [...deferredIds],
       counts: {
         actionNow: actionNow.length,
         watching: watching.length,
         healthy: healthy.length,
+        nonSales: nonSales.length,
         archive: archive.length,
       },
     },

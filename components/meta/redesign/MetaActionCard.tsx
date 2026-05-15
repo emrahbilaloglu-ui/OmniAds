@@ -252,15 +252,17 @@ export function MetaActionCard({
       data-rec-id={id}
     >
       <div className="flex items-start gap-3">
-        <label className="mt-1 inline-flex items-center">
-          <input
-            type="checkbox"
-            className="size-4 rounded border-slate-300"
-            checked={selected}
-            aria-label={`Select ${scopeName}`}
-            onChange={(event) => onSelect?.(id, event.currentTarget.checked)}
-          />
-        </label>
+        {onSelect ? (
+          <label className="mt-1 inline-flex items-center">
+            <input
+              type="checkbox"
+              className="size-4 rounded border-slate-300"
+              checked={selected}
+              aria-label={`Select ${scopeName}`}
+              onChange={(event) => onSelect(id, event.currentTarget.checked)}
+            />
+          </label>
+        ) : null}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 flex-wrap">
             <MetaScopeChip level={rec.level} />

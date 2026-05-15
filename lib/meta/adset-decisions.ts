@@ -24,6 +24,7 @@ import {
 } from "@/lib/meta/funnel-cohort";
 import { emitLeadAdsetScenario } from "@/lib/meta/scenario-emitters/lead";
 import { emitMidFunnelAdsetScenario } from "@/lib/meta/scenario-emitters/mid-funnel";
+import { emitTrafficAdsetScenario } from "@/lib/meta/scenario-emitters/traffic";
 
 export interface BuildMetaAdsetRecommendationsInput {
   adsets: MetaAdSetData[];
@@ -233,6 +234,21 @@ export function buildMetaAdsetRecommendations(
       });
       if (leadScenario) {
         recommendations.push(leadScenario);
+        continue;
+      }
+    }
+
+    if (cohort === "traffic") {
+      const trafficScenario = emitTrafficAdsetScenario({
+        adset,
+        campaign,
+        context,
+        cohort,
+        ...taxonomyFields,
+        signals: input.entitySignalsByAdsetId?.[adset.id] ?? null,
+      });
+      if (trafficScenario) {
+        recommendations.push(trafficScenario);
         continue;
       }
     }

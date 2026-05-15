@@ -13,12 +13,14 @@ export type MetaEngineScenarioId =
   | "J1" | "J2" | "J3"
   | "K1" | "K2" | "K3" | "K4"
   | "M1" | "M2" | "M3" | "M4"
-  | "L1" | "L2" | "L3" | "L4";
+  | "L1" | "L2" | "L3" | "L4"
+  | "T1" | "T2" | "T3" | "T4";
 
 export type MetaEngineScenarioCohortScope =
   | "purchase_only"
   | "mid_funnel_only"
   | "lead_only"
+  | "traffic_only"
   | "any";
 
 export interface MetaEngineScenarioDefinition {
@@ -86,6 +88,10 @@ export const META_ENGINE_V1_SCENARIOS: MetaEngineScenarioDefinition[] = [
   { id: "L2", recType: "scenario_l2_lead_steady_keep", cohortScope: "lead_only", requiredSignals: ["cost_per_lead", "leads"], missingSignalFallback: "state_watch" },
   { id: "L3", recType: "scenario_l3_lead_inefficient_cut", cohortScope: "lead_only", requiredSignals: ["cost_per_lead", "leads", "spend"], missingSignalFallback: "state_watch" },
   { id: "L4", recType: "scenario_l4_lead_refresh", cohortScope: "lead_only", requiredSignals: ["cost_per_lead", "frequency", "ctr"], missingSignalFallback: "state_watch" },
+  { id: "T1", recType: "scenario_t1_traffic_efficient_scale", cohortScope: "traffic_only", requiredSignals: ["cost_per_link_click_or_lpv", "ctr", "age_days", "spend"], missingSignalFallback: "state_watch" },
+  { id: "T2", recType: "scenario_t2_traffic_steady_keep", cohortScope: "traffic_only", requiredSignals: ["cost_per_link_click_or_lpv", "ctr"], missingSignalFallback: "state_watch" },
+  { id: "T3", recType: "scenario_t3_traffic_inefficient_cut", cohortScope: "traffic_only", requiredSignals: ["cost_per_link_click_or_lpv", "ctr", "spend"], missingSignalFallback: "state_watch" },
+  { id: "T4", recType: "scenario_t4_traffic_refresh", cohortScope: "traffic_only", requiredSignals: ["cost_per_link_click_or_lpv", "frequency", "ctr"], missingSignalFallback: "state_watch" },
 ];
 
 export function scenarioDefinitionById(id: MetaEngineScenarioId) {

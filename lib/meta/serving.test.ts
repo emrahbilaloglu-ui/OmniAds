@@ -290,6 +290,7 @@ describe("meta historical serving", () => {
         ctr: 8.33,
         cpc: 1.2,
         linkClicks: 40,
+        landingPageViews: 18,
         addToCart: 9,
         initiateCheckout: 4,
         viewContent: 15,
@@ -319,6 +320,7 @@ describe("meta historical serving", () => {
         ctr: 7.5,
         cpc: 1.33,
         linkClicks: 25,
+        landingPageViews: 12,
         addToCart: 6,
         initiateCheckout: 2,
         viewContent: 10,
@@ -336,6 +338,7 @@ describe("meta historical serving", () => {
     expect(rows[0]).toMatchObject({
       id: "adset-1",
       linkClicks: 65,
+      landingPageViews: 30,
       addToCart: 15,
       initiateCheckout: 6,
       viewContent: 25,

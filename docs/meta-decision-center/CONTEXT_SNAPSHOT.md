@@ -34,7 +34,8 @@ path and ask the model to read it before planning or changing code.
 
 ## Current Repo State
 
-- Current implementation branch: `phase-e-meta-purchase-downshift-scenario`.
+- Current implementation branch: `main` after Phase E.4 merge. Next
+  implementation branch has not been created yet.
 - Phase A PR: `#162` (`[codex] Unify Meta funnel cohort resolution`), merged.
 - Phase A implementation commit: `fc8a8d7` (`Unify Meta funnel cohort resolution`).
 - Phase A context commit: `2a49ef1` (`Record Phase A PR context`).
@@ -77,9 +78,16 @@ path and ask the model to read it before planning or changing code.
   - `9934b94` (`Require explicit purchase event for Meta G1`)
   - `1d4f91a` (`Harden Meta feed status diagnostics`)
 - Phase E.3 merge commit on `main`: `4ca36bcb9bf8f8aaba357ee8e11e881fdd7c1a1d`.
-- Latest `main` verified locally after Phase E.3 merge:
-  `4ca36bcb` (`Merge pull request #168 from
-  erhanrdn/phase-e-meta-optimization-feed-scenarios`).
+- Phase E.4 PR: `#169`
+  (`[codex] Add Meta purchase downshift scenario`), merged.
+- Phase E.4 implementation commit: `0b49e13`
+  (`Add Meta purchase downshift scenario`).
+- Phase E.4 review-fix commit: `db79421`
+  (`Reach Meta purchase downshift in recommendations`).
+- Phase E.4 merge commit on `main`: `bb2736e260aca8d2a1dae45a1fd685c646659240`.
+- Latest `main` verified locally after Phase E.4 merge:
+  `bb2736e2` (`Merge pull request #169 from
+  erhanrdn/phase-e-meta-purchase-downshift-scenario`).
 - Phase E.1 branch started from `main` context commit:
   `c5617d99822312923b2b9a5fd13239826a76db24`.
 - Phase E.2 branch started after Phase E.1 merge/context:
@@ -113,7 +121,7 @@ path and ask the model to read it before planning or changing code.
   - `_analysis/phase-meta-goal-aware/`
   - `_analysis/phase-meta-rnd/`
   - `scripts/_phase-meta-rnd-claude-personas.ts`
-- Open PRs currently known in this workstream after Phase E.3 merge: none.
+- Open PRs currently known in this workstream after Phase E.4 merge: none.
 - Phase B tracked-file modifications at the time of this snapshot:
   - `app/api/meta/recommendations/route.ts`
   - `lib/meta/commercial-targets.ts`
@@ -294,7 +302,10 @@ path and ask the model to read it before planning or changing code.
       merge.
 - Phase E.4 implementation status:
   - Branch: `phase-e-meta-purchase-downshift-scenario`.
-  - PR: `#169`, open.
+  - PR: `#169`, merged.
+  - Implementation commit: `0b49e13`.
+  - Review-fix commit: `db79421`.
+  - Merge commit: `bb2736e2`.
   - Scope intentionally limited to `scenario_g2_downshift_to_purchase`.
   - G2 emits only when a campaign is explicitly optimized to a supported
     pre-purchase event (`INITIATE_CHECKOUT`, `ADD_TO_CART`, `VIEW_CONTENT`, or
@@ -334,6 +345,11 @@ path and ask the model to read it before planning or changing code.
       skipped; 2,947 tests passed, 49 skipped.
     - After PR review fix, `npm run lint` passed.
     - After PR review fix, `npm run build` passed.
+    - GitHub PR `#169` checks passed after review fix: `typecheck`, `test`,
+      and `build`; runtime deploy jobs skipped because no runtime image change
+      was detected.
+    - GitHub thread-aware review check: P2 G2 production-reachability thread
+      resolved; no remaining unresolved review threads at merge.
 
 ## Completed Work
 
@@ -584,9 +600,9 @@ path and ask the model to read it before planning or changing code.
    - Auto-execute readiness cannot be claimed without this layer.
 
 2. Purchase scenario coverage:
-   - Phase E.1, E.2, and E.3 implemented the learning/sample, bid-regime, and
-     optimization/feed subsets that current data can support.
-   - Phase E.4 is in progress for the G2 purchase-downshift subset.
+   - Phase E.1, E.2, E.3, and E.4 implemented the learning/sample, bid-regime,
+     optimization/feed, and purchase-downshift subsets that current data can
+     support.
    - Remaining scenario-library IDs are still unimplemented, especially
      audience/overlap, placement, cross-campaign, seasonal, and deeper
      controlled-scale variants.
@@ -618,8 +634,7 @@ path and ask the model to read it before planning or changing code.
 ## Proposed Gap-Closure Plan
 
 Status: user-approved as of 2026-05-15. Phase A, Phase B, Phase C, Phase D,
-Phase E.1, Phase E.2, and Phase E.3 are merged. Phase E.4 is in progress on
-`phase-e-meta-purchase-downshift-scenario`.
+Phase E.1, Phase E.2, Phase E.3, and Phase E.4 are merged.
 
 Claude was explicitly told to read this file first before producing its plan.
 Claude agreed with the final phase order and added three acceptance criteria:
@@ -713,15 +728,16 @@ where coverage is weak.
   a strong reason.
 - Acceptance: every scenario has fixtures, golden cases, invariant coverage,
   missing-signal fallback, and no hard action without anchors/maturity.
-  Status: Phase E.1, E.2, and E.3 complete.
+  Status: Phase E.1, E.2, E.3, and E.4 complete.
   - Phase E.1 PR `#166` passed GitHub `typecheck`, `test`, and `build` after
     the A5 learning-exit review fix, then merged into `main` at `fe9de23`.
   - Phase E.2 PR `#167` passed GitHub `typecheck`, `test`, and `build` after
     the B4/B6 review fixes, then merged into `main` at `9b01d42`.
   - Phase E.3 PR `#168` passed GitHub `typecheck`, `test`, and `build` after
     the G1/K4 review fixes, then merged into `main` at `4ca36bcb`.
-  - Phase E.4 is in progress for `scenario_g2_downshift_to_purchase`; it is not
-    merged yet.
+  - Phase E.4 PR `#169` passed GitHub `typecheck`, `test`, and `build` after
+    the G2 production-reachability review fix, then merged into `main` at
+    `bb2736e2`.
   - Remaining Phase E work should focus only on scenario families whose required
     signals are present or can be explicitly populated; unsupported overlap/feed
     assumptions must keep producing diagnose/watch, not hard actions.

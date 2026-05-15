@@ -47,12 +47,13 @@ export function normalizeMetaCommercialTargets(input?: Partial<MetaCommercialTar
 
 export async function readMetaCommercialTargets(businessId: string): Promise<MetaCommercialTargets> {
   const snapshot = await getBusinessCommercialTruthSnapshot(businessId);
+  const targetPack = snapshot.targetPack;
   return normalizeMetaCommercialTargets({
-    targetRoas: snapshot.targetPack?.targetRoas ?? snapshot.coverage?.thresholds.targetRoas ?? null,
-    breakEvenRoas: snapshot.targetPack?.breakEvenRoas ?? snapshot.coverage?.thresholds.breakEvenRoas ?? null,
-    targetCpa: snapshot.targetPack?.targetCpa ?? snapshot.coverage?.thresholds.targetCpa ?? null,
-    breakEvenCpa: snapshot.targetPack?.breakEvenCpa ?? snapshot.coverage?.thresholds.breakEvenCpa ?? null,
-    riskPosture: snapshot.targetPack?.defaultRiskPosture ?? snapshot.coverage?.thresholds.defaultRiskPosture ?? "balanced",
+    targetRoas: targetPack?.targetRoas ?? null,
+    breakEvenRoas: targetPack?.breakEvenRoas ?? null,
+    targetCpa: targetPack?.targetCpa ?? null,
+    breakEvenCpa: targetPack?.breakEvenCpa ?? null,
+    riskPosture: targetPack?.defaultRiskPosture ?? "balanced",
   });
 }
 

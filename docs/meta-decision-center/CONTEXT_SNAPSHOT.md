@@ -214,6 +214,10 @@ path and ask the model to read it before planning or changing code.
   adapter.
 - The adapter reads `business_target_packs` through
   `getBusinessCommercialTruthSnapshot(...)`, not inline SQL in API routes.
+- PR review correction:
+  - `coverage.thresholds` fallback values are not treated as configured Meta
+    anchors.
+  - Hard scale/cut anchors now come only from the actual target pack fields.
 - Commercial target fields used by Meta:
   - `targetRoas`
   - `breakEvenRoas`
@@ -247,11 +251,13 @@ path and ask the model to read it before planning or changing code.
   - no purchase adset hard scale/cut without commercial targets;
   - no C1 controlled scale without commercial targets;
   - target helper normalization, scale/cut floors, and CPA loss-budget maturity.
+  - `readMetaCommercialTargets(...)` ignores conservative fallback coverage
+    thresholds when the target pack is absent.
 - Phase B targeted verification passed:
   - `npx vitest run lib/meta/commercial-targets.test.ts lib/meta/recommendations.test.ts lib/meta/adset-decisions.test.ts lib/meta/scenario-emitters/high-priority.test.ts lib/meta/snapshot.test.ts app/api/meta/recommendations/route.test.ts`
-  - Result: 6 test files, 87 tests passed.
+  - Result after PR review fix: 6 test files, 88 tests passed.
   - `npx vitest run lib/meta components/meta app/api/meta`
-  - Result: 108 test files, 944 tests passed.
+  - Result after PR review fix: 109 test files, 948 tests passed.
   - `npx tsc --noEmit`
   - `npm run lint`
   - `npm run build`

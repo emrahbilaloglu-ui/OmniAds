@@ -78,6 +78,33 @@ describe("creative-decision-engine v3", () => {
     expect(out.effectiveTargetRoas).toBe(2.4);
   });
 
+  it("uses quality-only funnel scoring when no target or account benchmark exists", async () => {
+    const input = await getMockCreativeInput("c-1");
+    const calibration = await mock.getAccountCalibration({
+      businessId: "biz-1",
+      asOf: "2026-05-04",
+    });
+    const profile = makeAccountDecisionProfile({
+      accountBaselines: {
+        ...calibration,
+        matureCreativeCount: 0,
+        roasP75: null,
+        roasP60: null,
+      },
+    });
+
+    const out = decideCreative({ ...input, targetRoas: null }, profile);
+
+    expect(out.label).toBe("keep");
+    expect(out.truthSource).toBe("global_default");
+    expect(out.effectiveTargetRoas).toBe(0);
+    expect(out.ratioToTarget).toBeNull();
+    expect(out.reason).toContain("[quality-only above_average]");
+    expect(out.badges.map((badge) => badge.type)).toContain(
+      "quality_only_assessment",
+    );
+  });
+
   it("returns keep for mock creative in scale zone without scale purchase depth", async () => {
     const input = await getMockCreativeInput("c-1");
     const profile = await getMockProfile();
@@ -162,7 +189,7 @@ describe("creative-decision-engine v3", () => {
     expect(out.confidence).toBe(67);
   });
 
-  it("clamps confidence to the lower bound when penalties stack", async () => {
+  it("uses quality-only funnel diagnosis instead of global-default hard cuts", async () => {
     const input = await getMockCreativeInput("c-1");
     const calibration = await mock.getAccountCalibration({
       businessId: "biz-1",
@@ -196,13 +223,17 @@ describe("creative-decision-engine v3", () => {
       profile,
     );
 
-    expect(out.label).toBe("cut");
+    expect(out.label).toBe("diagnose");
+    expect(out.reason).toContain("Landing page issue:");
     expect(out.badges.map((badge) => badge.type)).toEqual([
       "truth_global_default",
+      "landing_page_issue",
       "low_ctr",
-      "missing_recent_data",
     ]);
-    expect(out.confidence).toBe(40);
+    expect(out.truthSource).toBe("global_default");
+    expect(out.effectiveTargetRoas).toBe(0);
+    expect(out.ratioToTarget).toBeNull();
+    expect(out.confidence).toBe(45);
   });
 
   it("refreshes fatigued mature creatives below target with recent drop", async () => {
@@ -244,8 +275,12 @@ describe("creative-decision-engine v3", () => {
         purchaseValue: 0,
         roas: 0,
         cpa: null,
+        linkClicks: 0,
+        landingPageViews: 0,
         addToCart: 0,
         initiateCheckout: 0,
+        ctr: 0.2,
+        thumbstop: 5,
         ageDays: 14,
       },
       profile,
@@ -253,7 +288,7 @@ describe("creative-decision-engine v3", () => {
 
     expect(out.label).toBe("cut");
     expect(out.reason).toBe(
-      "0 purchases on $300 spend (28d cumulative, age 14d) — sustained zero-conversion burn.",
+      "0 purchases on $300 spend (28d cumulative, age 14d) — sustained zero-conversion burn past CPA-anchored maturity threshold $290.",
     );
   });
 
@@ -327,13 +362,13 @@ describe("creative-decision-engine v3", () => {
 
     expect(out.label).toBe("out_of_scope");
     expect(out.truthSource).toBe("global_default");
-    expect(out.effectiveTargetRoas).toBe(2.0);
+    expect(out.effectiveTargetRoas).toBe(0);
     expect(out.ratioToTarget).toBeNull();
     expect(out.reason).not.toContain("; lifecycle:");
     expect(out.reason).not.toContain("; momentum:");
   });
 
-  it("returns diagnose for active creatives with no recent spend", async () => {
+  it("keeps performance decision but flags active creatives with no recent spend", async () => {
     const input = await getMockCreativeInput("c-1");
     const profile = await getMockProfile();
 
@@ -348,11 +383,10 @@ describe("creative-decision-engine v3", () => {
       profile,
     );
 
-    expect(out.label).toBe("diagnose");
-    expect(out.reason).toBe(
-      "Active creative — 0 spend in last 7d, 28d total $500 — check delivery (ad set status, budget, audience size, frequency caps).",
+    expect(out.label).toBe("keep");
+    expect(out.badges.map((badge) => badge.type)).toContain(
+      "delivery_limited",
     );
-    expect(out.reason).not.toContain("; lifecycle:");
-    expect(out.reason).not.toContain("; momentum:");
+    expect(out.reason).not.toContain("check delivery");
   });
 });

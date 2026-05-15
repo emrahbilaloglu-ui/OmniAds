@@ -1,4 +1,5 @@
 import { finalizeDecision, type GateContext, type GateResult } from "./types";
+import { maturitySpendThreshold } from "./maturity";
 
 export const ZERO_CONV_MIN_AGE_DAYS = 7;
 
@@ -9,10 +10,13 @@ function formatSpend(value: number): string {
 export function zeroConvBurnerGate(ctx: GateContext): GateResult {
   const purchases = ctx.input.purchases ?? 0;
   const ageDays = ctx.input.ageDays ?? 0;
-  const spendThreshold = ctx.profile.thresholds.zeroConvBurnerSpend;
+  const zeroConvThreshold = ctx.profile.thresholds.zeroConvBurnerSpend;
+  const spendThreshold =
+    zeroConvThreshold === null
+      ? maturitySpendThreshold(ctx)
+      : Math.max(zeroConvThreshold, maturitySpendThreshold(ctx));
 
   if (
-    spendThreshold !== null &&
     purchases === 0 &&
     ctx.input.spend >= spendThreshold &&
     ageDays >= ZERO_CONV_MIN_AGE_DAYS
@@ -29,7 +33,9 @@ export function zeroConvBurnerGate(ctx: GateContext): GateResult {
         "cut",
         `0 purchases on $${formatSpend(
           ctx.input.spend,
-        )} spend (28d cumulative, age ${ageDays}d) — sustained zero-conversion burn.`,
+        )} spend (28d cumulative, age ${ageDays}d) — sustained zero-conversion burn past CPA-anchored maturity threshold $${formatSpend(
+          spendThreshold,
+        )}.`,
       ),
     };
   }

@@ -4,7 +4,24 @@ function formatSpend(value: number): string {
   return value.toLocaleString("en-US", { maximumFractionDigits: 0 });
 }
 
-function maturitySpendThreshold(ctx: GateContext): number {
+function positiveFinite(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+export function maturitySpendThreshold(ctx: GateContext): number {
+  const minSpendFloor = ctx.profile.thresholds.recentSampleMinSpend ?? 50;
+  const accountCpaP50 =
+    ctx.profile.accountBaselines.accountCpaP50 ??
+    ctx.profile.spendUnitEvidence.accountCpaP50;
+
+  if (positiveFinite(accountCpaP50)) {
+    return Math.max(minSpendFloor, accountCpaP50 * ctx.profile.multipliers.hardCut);
+  }
+
+  if (positiveFinite(ctx.profile.thresholds.hardCutSpend)) {
+    return Math.max(minSpendFloor, ctx.profile.thresholds.hardCutSpend);
+  }
+
   return (
     ctx.profile.accountBaselines.matureSpendP50 ??
     ctx.profile.thresholds.recentSampleMinSpend ??
@@ -20,12 +37,12 @@ function maturityPurchasesThreshold(ctx: GateContext): number {
     winnerPurchaseP50 > 0
   ) {
     return Math.max(
-      1,
+      3,
       Math.ceil(winnerPurchaseP50 * ctx.profile.multipliers.recentSample),
     );
   }
   return Math.max(
-    1,
+    3,
     Math.ceil(
       ctx.profile.thresholds.scaleMinPurchases *
         ctx.profile.multipliers.recentSample,

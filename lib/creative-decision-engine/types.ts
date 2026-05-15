@@ -404,7 +404,9 @@ export interface DecisionBadge {
     | "past_peak_unclear_signal"
     | "volatile_trend"
     | "tracking_anomaly"
+    | "quality_only_assessment"
     | "creative_quality_weak"
+    | "delivery_limited"
     | "landing_page_issue"
     | "checkout_breakdown"
     | "upper_funnel_strong_site_weak";
@@ -462,9 +464,17 @@ export const DECISION_BADGE_DISPLAY: Record<
     label: "Tracking anomaly",
     severity: "warning",
   },
+  quality_only_assessment: {
+    label: "Quality-only assessment",
+    severity: "info",
+  },
   creative_quality_weak: {
     label: "Creative quality weak",
     severity: "warning",
+  },
+  delivery_limited: {
+    label: "Limited delivery signal",
+    severity: "info",
   },
   landing_page_issue: {
     label: "Landing page issue",

@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { defaultBusinessConfig } from "../../config";
 import { targetResolutionGate } from "../../gates/target-resolution";
 import {
   makeAccountCalibration,
@@ -81,13 +80,11 @@ describe("targetResolutionGate", () => {
     expect(ctx.confidenceDeltas).toEqual([-15]);
   });
 
-  it("falls back to global default when commercial and account truth are missing", () => {
-    const businessConfig = defaultBusinessConfig("biz-1");
+  it("uses quality-only mode when commercial and account truth are missing", () => {
     const ctx = advanceContext(
       targetResolutionGate(
         makeGateContext({
           input: makeCreativeInput({ targetRoas: null }),
-          businessConfig,
           calibration: makeAccountCalibration({
             matureCreativeCount: 5,
             roasP75: null,
@@ -98,13 +95,12 @@ describe("targetResolutionGate", () => {
     );
 
     expect(ctx.truthSource).toBe("global_default");
-    expect(ctx.effectiveTargetRoas).toBe(
-      businessConfig.globalDefaultTargetRoas,
-    );
+    expect(ctx.effectiveTargetRoas).toBe(0);
+    expect(ctx.ratioToTarget).toBeNull();
     expect(ctx.badges).toEqual([
       {
         type: "truth_global_default",
-        label: "Truth: global default (operator review)",
+        label: "No profit target: quality-only assessment",
         severity: "warning",
       },
     ]);

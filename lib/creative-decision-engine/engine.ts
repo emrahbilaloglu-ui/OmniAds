@@ -6,6 +6,7 @@ import {
 } from "./types";
 import { diagnoseGate } from "./gates/diagnose";
 import { maturityGate } from "./gates/maturity";
+import { qualityOnlyGate } from "./gates/quality-only";
 import { ratioZonesGate } from "./gates/ratio-zones";
 import { scopeGate } from "./gates/scope";
 import { targetResolutionGate } from "./gates/target-resolution";
@@ -32,7 +33,7 @@ function initialContext(
     input,
     profile,
     dataHealth,
-    effectiveTargetRoas: 2.0,
+    effectiveTargetRoas: 0,
     truthSource: "global_default",
     ratioToTarget: null,
     badges: [],
@@ -60,6 +61,11 @@ export function decideCreative(
   }
 
   result = diagnoseGate(result.context);
+  if (result.kind === "terminal") {
+    return enforceHardActionEligibility(result.output, profile);
+  }
+
+  result = qualityOnlyGate(result.context);
   if (result.kind === "terminal") {
     return enforceHardActionEligibility(result.output, profile);
   }

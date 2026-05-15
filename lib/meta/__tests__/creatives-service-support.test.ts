@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildMetaCreativeApiRowLightweight } from "@/lib/meta/creatives-service-support";
+import {
+  buildMetaCreativeApiRow,
+  buildMetaCreativeApiRowLightweight,
+} from "@/lib/meta/creatives-service-support";
 import type { RawCreativeRow } from "@/lib/meta/creatives-types";
 
 function buildRawRow(overrides: Partial<RawCreativeRow> = {}): RawCreativeRow {
@@ -90,6 +93,9 @@ function buildRawRow(overrides: Partial<RawCreativeRow> = {}): RawCreativeRow {
     clicks: 75,
     link_clicks: 50,
     landing_page_views: 20,
+    thruplay_actions: 12,
+    view_content: 18,
+    post_engagement: 24,
     add_to_cart: 15,
     initiate_checkout: 5,
     leads: 0,
@@ -106,6 +112,21 @@ function buildRawRow(overrides: Partial<RawCreativeRow> = {}): RawCreativeRow {
 }
 
 describe("buildMetaCreativeApiRowLightweight", () => {
+  it("preserves expanded funnel metrics from persisted rows", () => {
+    const row = buildMetaCreativeApiRowLightweight({
+      row: buildRawRow({
+        thruplay_actions: 12.4,
+        view_content: 18.6,
+        post_engagement: 24.2,
+      }),
+      includeDebugFields: false,
+    });
+
+    expect(row.thruplay_actions).toBe(12);
+    expect(row.view_content).toBe(19);
+    expect(row.post_engagement).toBe(24);
+  });
+
   it("reuses persisted preview metadata without rebuilding derived preview fields", () => {
     const row = buildMetaCreativeApiRowLightweight({
       row: buildRawRow(),
@@ -276,5 +297,24 @@ describe("buildMetaCreativeApiRowLightweight", () => {
     expect(row.ctr_all).toBe(4);
     expect(row.click_to_atc).toBe(18.75);
     expect(row.atc_to_purchase).toBe(22.22);
+  });
+});
+
+describe("buildMetaCreativeApiRow", () => {
+  it("preserves expanded funnel metrics from live rows before warehouse payload persistence", () => {
+    const row = buildMetaCreativeApiRow({
+      row: buildRawRow({
+        thruplay_actions: 9.7,
+        view_content: 15.2,
+        post_engagement: 27.8,
+      }),
+      cachedThumbnailUrl: null,
+      cardFallbackThumbnailUrl: null,
+      includeDebugFields: false,
+    });
+
+    expect(row.thruplay_actions).toBe(10);
+    expect(row.view_content).toBe(15);
+    expect(row.post_engagement).toBe(28);
   });
 });

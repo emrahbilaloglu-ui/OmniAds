@@ -34,7 +34,8 @@ path and ask the model to read it before planning or changing code.
 
 ## Current Repo State
 
-- Current implementation branch: `phase-e-meta-bid-regime-scenarios`.
+- Current implementation branch: `main` after Phase E.2 merge. Next phase branch
+  has not been started yet.
 - Phase A PR: `#162` (`[codex] Unify Meta funnel cohort resolution`), merged.
 - Phase A implementation commit: `fc8a8d7` (`Unify Meta funnel cohort resolution`).
 - Phase A context commit: `2a49ef1` (`Record Phase A PR context`).
@@ -62,9 +63,14 @@ path and ask the model to read it before planning or changing code.
 - Phase E.1 review-fix commit: `237bbe8`
   (`Require learning exit evidence for Meta A5`).
 - Phase E.1 merge commit on `main`: `fe9de23b3734db9f7d82a6af1cad67899205e3cd`.
-- Latest Phase D implementation merge SHA verified locally:
-  `c218f48a7fb089322f4961c0169ca052bcb19f16`.
-- Latest `main` may include subsequent context-only commits after this merge.
+- Phase E.2 PR: `#167` (`[codex] Add Meta bid regime scenarios`), merged.
+- Phase E.2 implementation commit: `2d07ac0`
+  (`Add Meta bid regime scenarios`).
+- Phase E.2 review-fix commit: `521810d`
+  (`Tighten Meta bid scenario gates`).
+- Phase E.2 merge commit on `main`: `9b01d42c206912ddca0a0975cbc5c0a3e9d5af22`.
+- Latest `main` verified locally after Phase E.2 merge:
+  `9b01d42c206912ddca0a0975cbc5c0a3e9d5af22`.
 - Phase E.1 branch started from `main` context commit:
   `c5617d99822312923b2b9a5fd13239826a76db24`.
 - Phase E.2 branch started after Phase E.1 merge/context:
@@ -93,9 +99,8 @@ path and ask the model to read it before planning or changing code.
   - `_analysis/phase-a-meta-decision-hygiene/`
   - `_analysis/phase-meta-goal-aware/`
   - `_analysis/phase-meta-rnd/`
-  - `docs/meta-decision-center/`
   - `scripts/_phase-meta-rnd-claude-personas.ts`
-- Open PRs remaining after Phase D merge: none.
+- Open PRs currently known in this workstream after Phase E.2 merge: none.
 - Phase B tracked-file modifications at the time of this snapshot:
   - `app/api/meta/recommendations/route.ts`
   - `lib/meta/commercial-targets.ts`
@@ -221,6 +226,12 @@ path and ask the model to read it before planning or changing code.
       skipped; 2,926 tests passed, 49 skipped.
     - `npm run lint` passed after PR review fixes.
     - `npm run build` passed after PR review fixes.
+    - GitHub PR `#167` checks passed after review fixes: `typecheck`,
+      `test`, and `build`; runtime deploy jobs skipped because no runtime image
+      change was detected.
+    - GitHub thread-aware review check: P1 B6 controlled-scale suppression
+      thread and P2 B4 missing-target thread resolved; no remaining unresolved
+      review threads at merge.
 
 ## Completed Work
 

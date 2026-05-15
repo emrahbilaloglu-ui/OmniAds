@@ -757,6 +757,10 @@ where coverage is weak.
   labels, and empirical scenario precision pass.
 - Acceptance: automation tier is evidence-backed and scenario-specific.
 - Phase F.1 in progress:
+  - Branch: `phase-f-meta-automation-readiness-substrate`.
+  - PR: `#170` (`[codex] Add Meta automation readiness substrate`).
+  - Implementation commit: `329b28b`
+    (`Add Meta automation readiness substrate`).
   - Added a conservative `meta-automation-readiness.v1` payload layer for Meta
     recommendations.
   - Current auto-execute eligibility remains false unless a future empirical
@@ -779,8 +783,12 @@ where coverage is weak.
     - `npm run lint` passed.
     - `npm run build` passed.
     - `git diff --check` passed.
-  - PR, GitHub review, merge, deploy, and post-deploy smoke remain pending for
-    this branch.
+  - GitHub PR `#170` checks passed on implementation commit `329b28b`:
+    `typecheck`, `test`, and `build`; runtime deploy jobs skipped because no
+    runtime image change was detected.
+  - GitHub thread-aware review check on implementation commit `329b28b`: no
+    review threads, reviews, or conversation comments.
+  - Merge, deploy, and post-deploy smoke remain pending for this branch.
 
 ### Phase G - Final Regression, Deploy, Context, And Golden-Case Maintenance
 

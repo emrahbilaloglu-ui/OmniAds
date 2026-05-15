@@ -420,7 +420,7 @@ function normalizeMetaServingDate(value: string | Date) {
 function filterRowsToPublishedKeys<T extends { providerAccountId: string; date: string | Date }>(
   rows: T[],
   verification: MetaPublishedVerificationSummary | null | undefined,
-  surface: "account_daily" | "campaign_daily" | "adset_daily",
+  surface: "account_daily" | "campaign_daily" | "adset_daily" | "ad_daily",
 ) {
   const keys = new Set(verification?.publishedKeysBySurface[surface] ?? []);
   if (keys.size === 0) return [] as T[];
@@ -1896,6 +1896,7 @@ async function readMetaAdSetFunnelEventTotals(input: {
   endDate: string;
   providerAccountIds?: string[] | null;
   adsetIds: string[];
+  verification?: MetaPublishedVerificationSummary | null;
 }) {
   if (input.adsetIds.length === 0) {
     return new Map<string, MetaAdSetFunnelEventTotals>();
@@ -1913,8 +1914,11 @@ async function readMetaAdSetFunnelEventTotals(input: {
     });
     return [] as MetaAdDailyRow[];
   });
+  const verifiedRows = input.verification
+    ? filterRowsToPublishedKeys(rows, input.verification, "ad_daily")
+    : rows;
   const totals = new Map<string, MetaAdSetFunnelEventTotals>();
-  for (const row of rows) {
+  for (const row of verifiedRows) {
     if (!row.adsetId || !requested.has(row.adsetId)) continue;
     addToAdsetFunnelTotals(totals, row);
   }
@@ -1941,7 +1945,7 @@ export async function getMetaWarehouseAdSets(input: {
         startDate: input.startDate,
         endDate: input.endDate,
         providerAccountIds,
-        surfaces: ["adset_daily"],
+        surfaces: ["adset_daily", "ad_daily"],
       }).catch(() => null)
     : null;
   const rows = v2Enabled
@@ -2065,6 +2069,7 @@ export async function getMetaWarehouseAdSets(input: {
       endDate: input.endDate,
       providerAccountIds: input.providerAccountIds,
       adsetIds,
+      verification,
     }),
   ]);
 

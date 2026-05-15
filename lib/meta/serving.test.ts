@@ -340,6 +340,112 @@ describe("meta historical serving", () => {
     });
   });
 
+  it("filters ad set funnel event totals to published ad-daily keys when finalization v2 is enabled", async () => {
+    process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
+    process.env.META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES = "";
+    vi.mocked(warehouse.getMetaPublishedVerificationSummary).mockResolvedValue({
+      verificationState: "complete",
+      truthReady: true,
+      totalDays: 1,
+      completedCoreDays: 1,
+      sourceFetchedAt: "2026-04-04T00:00:00Z",
+      publishedAt: "2026-04-04T00:05:00Z",
+      asOf: "2026-04-04T00:05:00Z",
+      publishedSlices: 2,
+      totalExpectedSlices: 2,
+      reasonCounts: {},
+      publishedKeysBySurface: {
+        adset_daily: ["act_1:2026-04-03"],
+        ad_daily: ["act_1:2026-04-03"],
+      },
+    } as never);
+    vi.mocked(warehouse.getMetaAdSetDailyRange).mockResolvedValue([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adsetNameCurrent: "Adset 1",
+        adsetNameHistorical: "Adset 1",
+        adsetStatus: "ACTIVE",
+        optimizationGoal: "OFFSITE_CONVERSIONS",
+        customEventType: "ADD_TO_CART",
+        bidStrategyType: null,
+        bidStrategyLabel: null,
+        manualBidAmount: null,
+        bidValue: null,
+        bidValueFormat: null,
+        dailyBudget: null,
+        lifetimeBudget: null,
+        isBudgetMixed: false,
+        isConfigMixed: false,
+        isOptimizationGoalMixed: false,
+        isBidStrategyMixed: false,
+        isBidValueMixed: false,
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 100,
+        impressions: 1000,
+        clicks: 80,
+        reach: 900,
+        frequency: 1.11,
+        conversions: 2,
+        revenue: 120,
+        roas: 1.2,
+        cpa: 50,
+        ctr: 8,
+        cpc: 1.25,
+        sourceSnapshotId: null,
+      },
+    ] as never);
+    vi.mocked(warehouse.getMetaAdDailyRange).mockResolvedValue([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adId: "ad-published",
+        linkClicks: 40,
+        addToCart: 9,
+        initiateCheckout: 4,
+        viewContent: 15,
+      },
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-04",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adId: "ad-unpublished",
+        linkClicks: 25,
+        addToCart: 6,
+        initiateCheckout: 2,
+        viewContent: 10,
+      },
+    ] as never);
+
+    const rows = await getMetaWarehouseAdSets({
+      businessId: "biz-1",
+      startDate: "2026-04-03",
+      endDate: "2026-04-03",
+      campaignId: "cmp-1",
+      providerAccountIds: ["act_1"],
+    });
+
+    expect(warehouse.getMetaPublishedVerificationSummary).toHaveBeenCalledWith(
+      expect.objectContaining({ surfaces: ["adset_daily", "ad_daily"] }),
+    );
+    expect(rows[0]).toMatchObject({
+      id: "adset-1",
+      linkClicks: 40,
+      addToCart: 9,
+      initiateCheckout: 4,
+      viewContent: 15,
+    });
+  });
+
   it("returns campaign current config from typed history instead of warehouse fact config", async () => {
     vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([
       {

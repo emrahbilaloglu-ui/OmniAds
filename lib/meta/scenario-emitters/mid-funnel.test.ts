@@ -106,6 +106,8 @@ describe("emitMidFunnelAdsetScenario", () => {
 
     expect(rec?.type).toBe("scenario_m3_mid_funnel_inefficient_cut");
     expect(rec?.decisionLabel).toBe("cut");
+    expect(rec?.confidence).toBe("high");
+    expect(rec?.confidenceScore).toBeGreaterThanOrEqual(0.7);
   });
 
   it("emits M2 keep for a steady mid_funnel score", () => {

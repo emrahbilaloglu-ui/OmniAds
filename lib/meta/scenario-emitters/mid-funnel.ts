@@ -38,6 +38,10 @@ function confidenceFromScore(score: number): MetaRecommendation["confidence"] {
   return "low";
 }
 
+function confidenceScoreFromScore(score: number) {
+  return r2(score >= 0.5 ? score : 1 - score);
+}
+
 function numberField(adset: MetaAdSetData, key: keyof MetaAdSetData) {
   const value = adset[key];
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
@@ -171,7 +175,7 @@ function baseMidFunnelRecommendation(input: {
     lens: input.decisionLabel === "cut" ? "profitability" : "volume",
     priority: input.priority,
     confidence: confidenceFromScore(input.score),
-    confidenceScore: r2(input.score),
+    confidenceScore: confidenceScoreFromScore(input.score),
     confidenceReason: null,
     decisionState: input.decisionState,
     decision: input.title,

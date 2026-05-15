@@ -48,6 +48,35 @@ describe("deriveMetaAutomationReadiness", () => {
     expect(readiness.operatorReviewRequired).toBe(true);
     expect(readiness.blockers).toContain("no_empirical_outcome_model");
     expect(readiness.missingEvidence).toContain("empirical_outcome_backtest");
+    expect(readiness.missingEvidence).toEqual(
+      expect.arrayContaining(["live_preflight", "rollback_plan"]),
+    );
+  });
+
+  it("does not allow auto-execute with empirical outcomes but missing preflight or rollback proof", () => {
+    const readiness = deriveMetaAutomationReadiness(rec(), {
+      empiricalOutcomeModelAvailable: true,
+    });
+
+    expect(readiness.tier).toBe("backtest_candidate");
+    expect(readiness.autoExecuteEligible).toBe(false);
+    expect(readiness.blockers).toEqual(
+      expect.arrayContaining(["missing_live_preflight", "missing_rollback_plan"]),
+    );
+    expect(readiness.missingEvidence).toEqual(["live_preflight", "rollback_plan"]);
+  });
+
+  it("requires empirical outcomes, live preflight, and rollback proof before auto-execute", () => {
+    const readiness = deriveMetaAutomationReadiness(rec(), {
+      empiricalOutcomeModelAvailable: true,
+      livePreflightAvailable: true,
+      rollbackPlanAvailable: true,
+    });
+
+    expect(readiness.tier).toBe("auto_execute");
+    expect(readiness.autoExecuteEligible).toBe(true);
+    expect(readiness.blockers).toEqual([]);
+    expect(readiness.missingEvidence).toEqual([]);
   });
 
   it("keeps watch and diagnostic recommendations read-only", () => {

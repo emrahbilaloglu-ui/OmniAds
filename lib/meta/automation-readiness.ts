@@ -14,7 +14,9 @@ export type MetaAutomationReadinessBlocker =
   | "diagnostic_or_watch_state"
   | "low_confidence"
   | "missing_campaign_label"
-  | "missing_commercial_anchor";
+  | "missing_commercial_anchor"
+  | "missing_live_preflight"
+  | "missing_rollback_plan";
 
 export interface MetaAutomationReadiness {
   contractVersion: "meta-automation-readiness.v1";
@@ -28,8 +30,10 @@ export interface MetaAutomationReadiness {
   reason: string;
 }
 
-interface MetaAutomationReadinessOptions {
+export interface MetaAutomationReadinessOptions {
   empiricalOutcomeModelAvailable?: boolean;
+  livePreflightAvailable?: boolean;
+  rollbackPlanAvailable?: boolean;
 }
 
 const AUTO_CANDIDATE_TYPES = new Set<MetaRecommendation["type"]>([
@@ -105,6 +109,12 @@ function reasonFor(tier: MetaAutomationReadinessTier, blockers: MetaAutomationRe
   if (blockers.includes("missing_commercial_anchor")) {
     return "Commercial target or break-even proof is missing.";
   }
+  if (blockers.includes("missing_live_preflight")) {
+    return "Live provider preflight proof is missing.";
+  }
+  if (blockers.includes("missing_rollback_plan")) {
+    return "Rollback proof is missing.";
+  }
   if (blockers.includes("low_confidence")) {
     return "Confidence is below the automation floor.";
   }
@@ -129,6 +139,8 @@ export function deriveMetaAutomationReadiness(
     "campaign_label",
   ];
   const empiricalOutcomeModelAvailable = options.empiricalOutcomeModelAvailable === true;
+  const livePreflightAvailable = options.livePreflightAvailable === true;
+  const rollbackPlanAvailable = options.rollbackPlanAvailable === true;
   const missingEvidence = empiricalOutcomeModelAvailable ? [] : ["empirical_outcome_backtest"];
   const readOnly =
     rec.kind === "state" ||
@@ -139,6 +151,14 @@ export function deriveMetaAutomationReadiness(
   const score = confidenceScore(rec);
 
   if (!empiricalOutcomeModelAvailable) blockers.push("no_empirical_outcome_model");
+  if (!livePreflightAvailable) {
+    blockers.push("missing_live_preflight");
+    missingEvidence.push("live_preflight");
+  }
+  if (!rollbackPlanAvailable) {
+    blockers.push("missing_rollback_plan");
+    missingEvidence.push("rollback_plan");
+  }
   if (rec.decisionState !== "act") blockers.push("not_action_state");
   if (readOnly) blockers.push("diagnostic_or_watch_state");
   if (!autoCandidateType) blockers.push("unsupported_action_class");
@@ -153,15 +173,19 @@ export function deriveMetaAutomationReadiness(
   }
 
   let tier: MetaAutomationReadinessTier = "manual_review";
-  if (readOnly || blockers.includes("missing_campaign_label")) {
-    tier = "read_only";
-  } else if (
+  const executionCandidate =
     autoCandidateType &&
     rec.decisionState === "act" &&
     score >= 0.7 &&
-    !blockers.includes("missing_commercial_anchor")
-  ) {
-    tier = empiricalOutcomeModelAvailable ? "auto_execute" : "backtest_candidate";
+    !blockers.includes("missing_commercial_anchor");
+
+  if (readOnly || blockers.includes("missing_campaign_label")) {
+    tier = "read_only";
+  } else if (executionCandidate) {
+    tier =
+      empiricalOutcomeModelAvailable && livePreflightAvailable && rollbackPlanAvailable
+        ? "auto_execute"
+        : "backtest_candidate";
   }
 
   const uniqueBlockers = unique(blockers);

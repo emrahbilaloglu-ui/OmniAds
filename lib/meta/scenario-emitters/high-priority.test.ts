@@ -470,6 +470,26 @@ describe("high priority Meta scenario emitters", () => {
     expect(rec).toBeNull();
   });
 
+  it("does not treat negated healthy feed statuses as catalog feed issues", () => {
+    const noIssues = maybeK4CatalogFeedFirst({
+      window: windowFor(campaign({ name: "Catalog DPA", objective: "PRODUCT_CATALOG_SALES" })),
+      context,
+      cohort: purchaseCohort,
+      campaignRole: "catalog_dpa",
+      signals: signal({ feedStatus: "no_issues", feedDisapprovalCount: 0, sourceJson: {} }),
+    });
+    const notLimited = maybeK4CatalogFeedFirst({
+      window: windowFor(campaign({ name: "Catalog DPA", objective: "PRODUCT_CATALOG_SALES" })),
+      context,
+      cohort: purchaseCohort,
+      campaignRole: "catalog_dpa",
+      signals: signal({ feedStatus: "not_limited", feedDisapprovalCount: 0, sourceJson: {} }),
+    });
+
+    expect(noIssues).toBeNull();
+    expect(notLimited).toBeNull();
+  });
+
   it("uses catalog feed diagnostics before optimization-event switching", () => {
     const rec = emitHighPriorityCampaignScenario({
       window: windowFor(campaign({

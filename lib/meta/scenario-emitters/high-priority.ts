@@ -312,9 +312,15 @@ function isCatalogCampaign(input: CampaignScenarioInput) {
 function feedDiagnostic(input: CampaignScenarioInput) {
   const source = sourceRecord(input.signals, "feed_status");
   const status = String(input.signals?.feedStatus ?? textFromRecord(source, "status") ?? "").trim();
-  const normalizedStatus = status.toLowerCase();
+  const normalizedStatus = status.toLowerCase().replace(/[\s-]+/g, "_");
   const disapprovalCount = input.signals?.feedDisapprovalCount ?? numberFromRecord(source, "disapproval_count") ?? 0;
-  const problematicStatus = /disapproved|rejected|error|issue|limited|failed/.test(normalizedStatus);
+  const healthyStatus =
+    normalizedStatus.startsWith("no_") ||
+    normalizedStatus.startsWith("not_") ||
+    ["approved", "active", "ok", "healthy"].includes(normalizedStatus);
+  const problematicStatus =
+    !healthyStatus &&
+    /(^|_)(disapproved|rejected|error|issue|issues|limited|failed|with_issues|needs_review)($|_)/.test(normalizedStatus);
   if (disapprovalCount <= 0 && !problematicStatus) return null;
   return { status: status || "issues_detected", disapprovalCount, source };
 }

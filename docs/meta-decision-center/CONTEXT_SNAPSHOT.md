@@ -255,16 +255,18 @@ path and ask the model to read it before planning or changing code.
       unless purchase custom-event evidence is present.
     - G1 now requires explicit `age_days` evidence from the signal table instead
       of inferring age from the presence of a 7-day aggregate window.
+    - K4 feed-status matching now treats negated/healthy statuses such as
+      `no_issues` and `not_limited` as non-problematic.
   - Local verification so far:
     - `npx vitest run lib/meta/scenario-emitters/high-priority.test.ts lib/meta/campaign-label-guard.test.ts lib/meta/rec-label-mapping.test.ts`
-      passed after PR review fixes: 3 files, 88 tests.
+      passed after PR review fixes: 3 files, 89 tests.
     - `npx tsc --noEmit` passed after PR review fixes.
     - `npx vitest run lib/meta components/meta app/api/meta` passed: 109
-      files, 986 tests after PR review fixes.
+      files, 987 tests after PR review fixes.
     - `npx vitest run` passed before PR review fixes: 408 files passed, 4
       skipped; 2,935 tests passed, 49 skipped.
     - `npx vitest run` passed after PR review fixes: 408 files passed, 4
-      skipped; 2,938 tests passed, 49 skipped.
+      skipped; 2,939 tests passed, 49 skipped.
     - `npm run lint` passed after PR review fixes.
     - `npm run build` passed after PR review fixes.
 

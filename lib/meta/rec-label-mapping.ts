@@ -45,10 +45,12 @@ export function decisionLabelForMetaRec(input: MetaRecLabelInput): DecisionLabel
     case "scenario_m1_mid_funnel_efficient_scale":
     case "scenario_l1_lead_efficient_scale":
     case "scenario_t1_traffic_efficient_scale":
+    case "scenario_eg1_engagement_efficient_scale":
       return "scale";
     case "scenario_m3_mid_funnel_inefficient_cut":
     case "scenario_l3_lead_inefficient_cut":
     case "scenario_t3_traffic_inefficient_cut":
+    case "scenario_eg3_engagement_inefficient_cut":
       return "cut";
     case "rebuild_with_constraints":
     case "campaign_structure":
@@ -108,6 +110,7 @@ export function decisionLabelForMetaRec(input: MetaRecLabelInput): DecisionLabel
     case "scenario_m4_mid_funnel_refresh":
     case "scenario_l4_lead_refresh":
     case "scenario_t4_traffic_refresh":
+    case "scenario_eg4_engagement_refresh":
       return "refresh";
     case "scenario_d4_audience_overlap_consolidate":
     case "scenario_i1_abo_winner_budget_shift":
@@ -118,6 +121,7 @@ export function decisionLabelForMetaRec(input: MetaRecLabelInput): DecisionLabel
     case "scenario_m2_mid_funnel_steady_keep":
     case "scenario_l2_lead_steady_keep":
     case "scenario_t2_traffic_steady_keep":
+    case "scenario_eg2_engagement_steady_keep":
     case "entity_state":
     case "campaign_state":
     case "adset_state":
@@ -175,6 +179,10 @@ export function primaryLabelForMetaRec(input: MetaRecLabelInput) {
   if (input.type === "scenario_t2_traffic_steady_keep") return "Hold";
   if (input.type === "scenario_t3_traffic_inefficient_cut") return "Pause adset";
   if (input.type === "scenario_t4_traffic_refresh") return "Refresh creative";
+  if (input.type === "scenario_eg1_engagement_efficient_scale") return "Scale budget";
+  if (input.type === "scenario_eg2_engagement_steady_keep") return "Hold";
+  if (input.type === "scenario_eg3_engagement_inefficient_cut") return "Pause adset";
+  if (input.type === "scenario_eg4_engagement_refresh") return "Refresh creative";
   if (input.type === "bid_strategy_fit") return input.lens === "profitability" ? "Test Cost Cap" : "Review bid strategy";
   if (input.type === "historical_bid_regime_fit") return "Switch strategy";
   if (input.type === "bid_band_from_history") return "Apply bid band";

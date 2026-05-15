@@ -295,6 +295,7 @@ describe("meta historical serving", () => {
         initiateCheckout: 4,
         viewContent: 15,
         leads: 3,
+        postEngagement: 22,
       },
       {
         businessId: "biz-1",
@@ -325,6 +326,7 @@ describe("meta historical serving", () => {
         initiateCheckout: 2,
         viewContent: 10,
         leads: 2,
+        postEngagement: 18,
       },
     ] as never);
 
@@ -343,6 +345,7 @@ describe("meta historical serving", () => {
       initiateCheckout: 6,
       viewContent: 25,
       leads: 5,
+      postEngagement: 40,
     });
   });
 

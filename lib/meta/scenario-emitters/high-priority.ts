@@ -31,6 +31,7 @@ export function scenarioScopeAllowsCohort(
   if (scope === "mid_funnel_only") return cohort === "mid_funnel";
   if (scope === "lead_only") return cohort === "lead";
   if (scope === "traffic_only") return cohort === "traffic";
+  if (scope === "engagement_only") return cohort === "engagement";
   return true;
 }
 

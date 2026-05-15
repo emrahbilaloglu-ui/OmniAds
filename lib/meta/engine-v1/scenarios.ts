@@ -14,13 +14,15 @@ export type MetaEngineScenarioId =
   | "K1" | "K2" | "K3" | "K4"
   | "M1" | "M2" | "M3" | "M4"
   | "L1" | "L2" | "L3" | "L4"
-  | "T1" | "T2" | "T3" | "T4";
+  | "T1" | "T2" | "T3" | "T4"
+  | "EG1" | "EG2" | "EG3" | "EG4";
 
 export type MetaEngineScenarioCohortScope =
   | "purchase_only"
   | "mid_funnel_only"
   | "lead_only"
   | "traffic_only"
+  | "engagement_only"
   | "any";
 
 export interface MetaEngineScenarioDefinition {
@@ -92,6 +94,11 @@ export const META_ENGINE_V1_SCENARIOS: MetaEngineScenarioDefinition[] = [
   { id: "T2", recType: "scenario_t2_traffic_steady_keep", cohortScope: "traffic_only", requiredSignals: ["cost_per_link_click_or_lpv", "ctr"], missingSignalFallback: "state_watch" },
   { id: "T3", recType: "scenario_t3_traffic_inefficient_cut", cohortScope: "traffic_only", requiredSignals: ["cost_per_link_click_or_lpv", "ctr", "spend"], missingSignalFallback: "state_watch" },
   { id: "T4", recType: "scenario_t4_traffic_refresh", cohortScope: "traffic_only", requiredSignals: ["cost_per_link_click_or_lpv", "frequency", "ctr"], missingSignalFallback: "state_watch" },
+  // Use EG ids to avoid colliding with existing G1-G3 upper-funnel scenario ids.
+  { id: "EG1", recType: "scenario_eg1_engagement_efficient_scale", cohortScope: "engagement_only", requiredSignals: ["cost_per_engagement", "engagement_rate", "age_days", "spend"], missingSignalFallback: "state_watch" },
+  { id: "EG2", recType: "scenario_eg2_engagement_steady_keep", cohortScope: "engagement_only", requiredSignals: ["cost_per_engagement", "engagement_rate"], missingSignalFallback: "state_watch" },
+  { id: "EG3", recType: "scenario_eg3_engagement_inefficient_cut", cohortScope: "engagement_only", requiredSignals: ["cost_per_engagement", "engagement_rate", "spend"], missingSignalFallback: "state_watch" },
+  { id: "EG4", recType: "scenario_eg4_engagement_refresh", cohortScope: "engagement_only", requiredSignals: ["cost_per_engagement", "frequency"], missingSignalFallback: "state_watch" },
 ];
 
 export function scenarioDefinitionById(id: MetaEngineScenarioId) {

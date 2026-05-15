@@ -16,6 +16,29 @@ describe("Meta empirical outcomes", () => {
     expect(classifyMetaDecisionOutcomeStatus(null)).toBe("unknown");
   });
 
+  it("ignores non-outcome action logs", () => {
+    const summary = summarizeMetaDecisionOutcomes(
+      [
+        { actionType: "preflight", outcomeStatus: "success" },
+        { actionType: "execute", outcomeStatus: "success" },
+        { action_type: "rollback", outcomeStatus: "success" },
+        { actionType: "outcome", outcomeStatus: "negative" },
+      ],
+      { minSampleSize: 2 },
+    );
+
+    expect(summary).toMatchObject({
+      sampleSize: 1,
+      judgedSampleSize: 1,
+      positiveCount: 0,
+      negativeCount: 1,
+      precision: 0,
+      negativeRate: 1,
+      confidenceBand: "insufficient_sample",
+      autoEligible: false,
+    });
+  });
+
   it("requires enough sample before emitting a confidence band", () => {
     const summary = summarizeMetaDecisionOutcomes(rows(["positive", "positive", "negative"]), {
       minSampleSize: 5,

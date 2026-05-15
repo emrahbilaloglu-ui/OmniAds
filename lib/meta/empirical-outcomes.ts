@@ -2,6 +2,8 @@ export type MetaEmpiricalOutcomeClass = "positive" | "negative" | "neutral" | "u
 export type MetaEmpiricalConfidenceBand = "insufficient_sample" | "low" | "medium" | "high";
 
 export interface MetaDecisionOutcomeSummaryInputRow {
+  actionType?: string | null;
+  action_type?: string | null;
   outcomeStatus?: string | null;
 }
 
@@ -84,8 +86,12 @@ export function summarizeMetaDecisionOutcomes(
   let negativeCount = 0;
   let neutralCount = 0;
   let unknownCount = 0;
+  let sampleSize = 0;
 
   for (const row of rows) {
+    const actionType = String(row.actionType ?? row.action_type ?? "").trim().toLowerCase();
+    if (actionType && actionType !== "outcome") continue;
+    sampleSize += 1;
     const outcome = classifyMetaDecisionOutcomeStatus(row.outcomeStatus);
     if (outcome === "positive") positiveCount += 1;
     else if (outcome === "negative") negativeCount += 1;
@@ -93,7 +99,6 @@ export function summarizeMetaDecisionOutcomes(
     else unknownCount += 1;
   }
 
-  const sampleSize = rows.length;
   const judgedSampleSize = positiveCount + negativeCount;
   const precision = ratio(positiveCount, judgedSampleSize);
   const negativeRate = ratio(negativeCount, judgedSampleSize);

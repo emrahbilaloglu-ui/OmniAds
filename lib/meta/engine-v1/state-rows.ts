@@ -34,17 +34,8 @@ export interface BuildMetaEntityStateRowsInput {
   campaignLabelsById?: MetaCampaignLabelKindMap | null;
 }
 
-function isSalesObjective(value: string | null | undefined) {
-  const text = String(value ?? "").toLowerCase();
-  return text.includes("sales") || text.includes("conversion") || text.includes("purchase");
-}
-
 function isPaused(status: string | null | undefined) {
   return String(status ?? "").toUpperCase() !== "ACTIVE";
-}
-
-function goalOrFallback(goal: string | null | undefined, fallback: string | null | undefined) {
-  return String(goal ?? "").trim() ? goal : fallback;
 }
 
 function fmtRoas(value: number) {
@@ -62,8 +53,11 @@ function stateForCampaign(
   labelMap: MetaCampaignLabelKindMap | null | undefined,
 ): MetaEntityStateResolution {
   const cohort = resolveMetaFunnelCohort({
-    optimizationGoal: goalOrFallback(campaign.optimizationGoal, campaign.objective),
+    optimizationGoal: campaign.optimizationGoal,
     customEventType: campaign.customEventType,
+    objective: campaign.objective,
+    purchases: campaign.purchases,
+    revenue: campaign.revenue,
   });
   if (
     labelMap &&
@@ -74,13 +68,6 @@ function stateForCampaign(
     return { state: "unlabeled_campaign_context", cohort };
   }
   if (!isPurchaseCohort(cohort)) {
-    if (
-      cohort === "unknown" &&
-      !isSalesObjective(campaign.objective) &&
-      !isSalesObjective(campaign.optimizationGoal)
-    ) {
-      return { state: "out_of_scope", cohort };
-    }
     if (cohort === "unknown") {
       if (isPaused(campaign.status) && campaign.spend <= 0) return { state: "archived", cohort };
       return { state: "watch", cohort };
@@ -105,6 +92,9 @@ function stateForAdset(
   const cohort = resolveMetaFunnelCohort({
     optimizationGoal: adset.optimizationGoal,
     customEventType: adset.customEventType,
+    objective: campaign?.objective,
+    purchases: adset.purchases,
+    revenue: adset.revenue,
   });
   if (
     labelMap &&
@@ -115,13 +105,6 @@ function stateForAdset(
     return { state: "unlabeled_campaign_context", cohort };
   }
   if (!isPurchaseCohort(cohort)) {
-    if (
-      cohort === "unknown" &&
-      !isSalesObjective(campaign?.objective) &&
-      !isSalesObjective(adset.optimizationGoal)
-    ) {
-      return { state: "out_of_scope", cohort };
-    }
     if (cohort === "unknown") {
       if (isPaused(adset.status) && adset.spend <= 0) return { state: "archived", cohort };
       return { state: "watch", cohort };

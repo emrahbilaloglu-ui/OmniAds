@@ -192,7 +192,7 @@ describe("Meta Engine v1 state rows funnel cohort labels", () => {
     expect(row?.evidence).toContainEqual({ label: "Cohort", value: "lead", tone: "neutral" });
   });
 
-  it("keeps a sales-campaign adset with unknown goal fields in watch instead of non_sales_eligible", () => {
+  it("uses campaign objective fallback for an adset with unknown goal fields", () => {
     const row = adsetState({
       adset: {
         optimizationGoal: null,
@@ -203,10 +203,10 @@ describe("Meta Engine v1 state rows funnel cohort labels", () => {
     expect(row?.decision).toBe("watch");
     expect(row?.decisionLabel).toBe("diagnose");
     expect(row?.targetValue).toMatchObject({ actionDensityEligible: true });
-    expect(row?.evidence).toContainEqual({ label: "Cohort", value: "unknown", tone: "neutral" });
+    expect(row?.evidence).toContainEqual({ label: "Cohort", value: "purchase", tone: "neutral" });
   });
 
-  it("preserves out_of_scope when adset goal fields are null and campaign objective is non-sales", () => {
+  it("uses campaign objective fallback when adset goal fields are null and campaign objective is non-sales", () => {
     const row = adsetState({
       campaign: {
         objective: "OUTCOME_AWARENESS",
@@ -218,8 +218,8 @@ describe("Meta Engine v1 state rows funnel cohort labels", () => {
       },
     });
 
-    expect(row?.decision).toBe("out_of_scope");
-    expect(row?.evidence).toContainEqual({ label: "Cohort", value: "unknown", tone: "neutral" });
+    expect(row?.decision).toBe("non_sales_eligible");
+    expect(row?.evidence).toContainEqual({ label: "Cohort", value: "upper_funnel", tone: "neutral" });
   });
 
   it("emits unlabeled campaign context when campaign labels are enforced and missing", () => {

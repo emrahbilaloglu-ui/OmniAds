@@ -52,6 +52,22 @@ const OPTIMIZATION_GOAL_COHORTS: Record<string, MetaFunnelCohort> = {
   DERIVED_EVENTS: "engagement",
 };
 
+const OBJECTIVE_COHORTS: Record<string, MetaFunnelCohort> = {
+  OUTCOME_SALES: "purchase",
+  SALES: "purchase",
+  OUTCOME_LEADS: "lead",
+  LEADS: "lead",
+  LEAD_GENERATION: "lead",
+  OUTCOME_TRAFFIC: "traffic",
+  TRAFFIC: "traffic",
+  OUTCOME_AWARENESS: "upper_funnel",
+  BRAND_AWARENESS: "upper_funnel",
+  AWARENESS: "upper_funnel",
+  REACH: "upper_funnel",
+  OUTCOME_ENGAGEMENT: "engagement",
+  ENGAGEMENT: "engagement",
+};
+
 function normalizeMetaGoal(value: string | null | undefined) {
   return String(value ?? "").trim().replace(/[\s-]+/g, "_").toUpperCase();
 }
@@ -59,6 +75,9 @@ function normalizeMetaGoal(value: string | null | undefined) {
 export function resolveMetaFunnelCohort(input: {
   optimizationGoal?: string | null;
   customEventType?: string | null;
+  objective?: string | null;
+  purchases?: number | null;
+  revenue?: number | null;
 }): MetaFunnelCohort {
   const event = normalizeMetaGoal(input.customEventType);
   if (event && EVENT_COHORTS[event]) return EVENT_COHORTS[event];
@@ -66,6 +85,15 @@ export function resolveMetaFunnelCohort(input: {
   const optimizationGoal = normalizeMetaGoal(input.optimizationGoal);
   if (optimizationGoal && OPTIMIZATION_GOAL_COHORTS[optimizationGoal]) {
     return OPTIMIZATION_GOAL_COHORTS[optimizationGoal];
+  }
+
+  const objective = normalizeMetaGoal(input.objective);
+  if (objective && OBJECTIVE_COHORTS[objective]) {
+    return OBJECTIVE_COHORTS[objective];
+  }
+
+  if (!event && !optimizationGoal && !objective && ((input.purchases ?? 0) > 0 || (input.revenue ?? 0) > 0)) {
+    return "purchase";
   }
 
   return "unknown";

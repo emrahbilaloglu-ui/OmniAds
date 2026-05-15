@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
-import { buildMetaCampaignLaneSignals, buildMetaCampaignLaneSummary } from "@/lib/meta/campaign-lanes";
+import {
+  buildMetaCampaignLaneSignals,
+  buildMetaCampaignLaneSummary,
+  resolveMetaCampaignFamily,
+} from "@/lib/meta/campaign-lanes";
 
 function campaign(overrides: Partial<MetaCampaignRow>): MetaCampaignRow {
   return {
@@ -101,6 +105,31 @@ function campaign(overrides: Partial<MetaCampaignRow>): MetaCampaignRow {
 }
 
 describe("campaign lanes", () => {
+  it("uses the shared funnel cohort resolver for campaign family classification", () => {
+    expect(resolveMetaCampaignFamily(campaign({
+      id: "lpv",
+      objective: "OUTCOME_SALES",
+      optimizationGoal: "LANDING_PAGE_VIEWS",
+      purchases: 8,
+      revenue: 1600,
+    }))).toBe("awareness");
+
+    expect(resolveMetaCampaignFamily(campaign({
+      id: "catalog",
+      optimizationGoal: "PRODUCT_CATALOG_SALES",
+      customEventType: null,
+    }))).toBe("purchase_value");
+
+    expect(resolveMetaCampaignFamily(campaign({
+      id: "metadata-missing",
+      objective: null,
+      optimizationGoal: null,
+      customEventType: null,
+      purchases: 2,
+      revenue: 300,
+    }))).toBe("purchase_value");
+  });
+
   it("does not assign lanes to homogeneous mature families", () => {
     const rows = [
       campaign({ id: "a", name: "A", roas: 3.1, purchases: 22, spend: 1800 }),

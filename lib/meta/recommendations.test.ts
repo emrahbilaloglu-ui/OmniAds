@@ -569,6 +569,99 @@ describe("buildMetaRecommendations", () => {
     expect(result.recommendations.some((item) => item.type === "budget_allocation")).toBe(false);
   });
 
+  it("keeps offsite conversions with purchase event in the purchase recommendation window", () => {
+    const offsitePurchase = campaign({
+      id: "cmp-offsite-purchase",
+      name: "Offsite Purchase Campaign",
+      objective: "OUTCOME_SALES",
+      optimizationGoal: "OFFSITE_CONVERSIONS",
+      customEventType: "PURCHASE",
+      roas: 2.4,
+      purchases: 12,
+      revenue: 2400,
+      spend: 1000,
+      cpa: 83.33,
+    });
+
+    const result = buildMetaRecommendations({
+      windows: {
+        selected: [offsitePurchase],
+        previousSelected: [],
+        last3: [offsitePurchase],
+        last7: [offsitePurchase],
+        last14: [offsitePurchase],
+        last30: [offsitePurchase],
+        last90: [offsitePurchase],
+        allHistory: [offsitePurchase],
+      },
+      breakdowns,
+    });
+
+    expect(result.summary.title).not.toBe("No purchase-focused Meta insight");
+  });
+
+  it("keeps product catalog sales in the purchase recommendation window", () => {
+    const catalogSales = campaign({
+      id: "cmp-catalog-sales",
+      name: "Catalog Sales Campaign",
+      objective: "OUTCOME_SALES",
+      optimizationGoal: "PRODUCT_CATALOG_SALES",
+      customEventType: null,
+      roas: 3.1,
+      purchases: 16,
+      revenue: 3100,
+      spend: 1000,
+      cpa: 62.5,
+    });
+
+    const result = buildMetaRecommendations({
+      windows: {
+        selected: [catalogSales],
+        previousSelected: [],
+        last3: [catalogSales],
+        last7: [catalogSales],
+        last14: [catalogSales],
+        last30: [catalogSales],
+        last90: [catalogSales],
+        allHistory: [catalogSales],
+      },
+      breakdowns,
+    });
+
+    expect(result.summary.title).not.toBe("No purchase-focused Meta insight");
+  });
+
+  it("keeps landing-page-view campaigns out of the purchase recommendation window even with sales metrics", () => {
+    const traffic = campaign({
+      id: "cmp-lpv",
+      name: "LPV Campaign",
+      objective: "OUTCOME_SALES",
+      optimizationGoal: "LANDING_PAGE_VIEWS",
+      customEventType: null,
+      roas: 2.1,
+      purchases: 8,
+      revenue: 2100,
+      spend: 1000,
+      cpa: 125,
+    });
+
+    const result = buildMetaRecommendations({
+      windows: {
+        selected: [traffic],
+        previousSelected: [],
+        last3: [traffic],
+        last7: [traffic],
+        last14: [traffic],
+        last30: [traffic],
+        last90: [traffic],
+        allHistory: [traffic],
+      },
+      breakdowns,
+    });
+
+    expect(result.summary.title).toBe("No purchase-focused Meta insight");
+  });
+
   it("produces historical bid regime and rebuild recommendations when current open bidding conflicts with constrained history", () => {
     const row = campaign({
       id: "cmp-rebuild",

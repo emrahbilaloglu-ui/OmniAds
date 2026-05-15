@@ -83,6 +83,27 @@ describe("resolveMetaFunnelCohort", () => {
     expect(resolveMetaFunnelCohort({ optimizationGoal: "Lead" })).toBe("lead");
   });
 
+  it("uses objective only when goal and event metadata are absent", () => {
+    expect(resolveMetaFunnelCohort({ objective: "OUTCOME_SALES" })).toBe("purchase");
+    expect(resolveMetaFunnelCohort({ objective: "OUTCOME_LEADS" })).toBe("lead");
+    expect(resolveMetaFunnelCohort({ objective: "OUTCOME_TRAFFIC" })).toBe("traffic");
+    expect(resolveMetaFunnelCohort({ objective: "OUTCOME_AWARENESS" })).toBe("upper_funnel");
+    expect(resolveMetaFunnelCohort({ objective: "OUTCOME_ENGAGEMENT" })).toBe("engagement");
+    expect(resolveMetaFunnelCohort({
+      optimizationGoal: "LANDING_PAGE_VIEWS",
+      objective: "OUTCOME_SALES",
+    })).toBe("traffic");
+  });
+
+  it("uses revenue-bearing fallback only when all cohort metadata is absent", () => {
+    expect(resolveMetaFunnelCohort({ purchases: 3, revenue: 120 })).toBe("purchase");
+    expect(resolveMetaFunnelCohort({
+      optimizationGoal: "LANDING_PAGE_VIEWS",
+      purchases: 3,
+      revenue: 120,
+    })).toBe("traffic");
+  });
+
   it("returns unknown when no field resolves", () => {
     expect(resolveMetaFunnelCohort({ optimizationGoal: null, customEventType: null })).toBe("unknown");
     expect(resolveMetaFunnelCohort({})).toBe("unknown");

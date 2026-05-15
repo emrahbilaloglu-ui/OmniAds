@@ -1,4 +1,5 @@
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
+import { resolveMetaFunnelCohort, type MetaFunnelCohort } from "@/lib/meta/funnel-cohort";
 
 export type MetaCampaignLaneLabel = "Scaling" | "Validation" | "Test";
 export type MetaCampaignLaneReason =
@@ -34,50 +35,28 @@ function normalizeGoal(value: string | null | undefined) {
   return (value ?? "").toLowerCase().trim();
 }
 
-export function resolveMetaCampaignFamily(row: Pick<MetaCampaignRow, "optimizationGoal" | "objective">): MetaCampaignFamily {
-  const goal = normalizeGoal(row.optimizationGoal);
-  const objective = normalizeGoal(row.objective);
+type CampaignFamilyInput = Pick<
+  MetaCampaignRow,
+  "optimizationGoal" | "customEventType" | "objective" | "purchases" | "revenue"
+>;
 
-  if (
-    goal.includes("purchase") ||
-    goal.includes("value") ||
-    goal.includes("offsite conversions") ||
-    goal.includes("offsite_conversion") ||
-    objective.includes("outcome_sales") ||
-    objective.includes("sales")
-  ) {
-    return "purchase_value";
-  }
-  if (
-    goal.includes("add to cart") ||
-    goal.includes("initiate checkout") ||
-    goal.includes("checkout") ||
-    goal.includes("landing page") ||
-    goal.includes("conversion")
-  ) {
-    return "mid_funnel";
-  }
-  if (goal.includes("lead") || goal.includes("registration")) {
-    return "lead";
-  }
-  if (
-    goal.includes("thruplay") ||
-    goal.includes("reach") ||
-    goal.includes("video") ||
-    goal.includes("awareness") ||
-    goal.includes("traffic")
-  ) {
-    return "awareness";
-  }
-  if (
-    goal.includes("engagement") ||
-    goal.includes("message") ||
-    goal.includes("messaging") ||
-    goal.includes("post")
-  ) {
-    return "engagement";
-  }
+function familyFromFunnelCohort(cohort: MetaFunnelCohort): MetaCampaignFamily {
+  if (cohort === "purchase") return "purchase_value";
+  if (cohort === "mid_funnel") return "mid_funnel";
+  if (cohort === "lead") return "lead";
+  if (cohort === "upper_funnel" || cohort === "traffic") return "awareness";
+  if (cohort === "engagement") return "engagement";
   return "other";
+}
+
+export function resolveMetaCampaignFamily(row: CampaignFamilyInput): MetaCampaignFamily {
+  return familyFromFunnelCohort(resolveMetaFunnelCohort({
+    optimizationGoal: row.optimizationGoal,
+    customEventType: row.customEventType,
+    objective: row.objective,
+    purchases: row.purchases,
+    revenue: row.revenue,
+  }));
 }
 
 export function metaCampaignFamilyLabel(family: MetaCampaignFamily) {
@@ -93,7 +72,12 @@ export function isScalingCampaignFamily(family: MetaCampaignFamily) {
   return family === "purchase_value" || family === "mid_funnel" || family === "lead";
 }
 
-export function comparableMetaIntentKey(row: Pick<MetaCampaignRow, "optimizationGoal" | "objective">) {
+export function comparableMetaIntentKey(row: CampaignFamilyInput) {
+  const customEventType = normalizeGoal(row.customEventType);
+  if (customEventType) {
+    return `custom_event:${customEventType}`;
+  }
+
   const optimization = normalizeGoal(row.optimizationGoal);
   if (optimization) {
     return `optimization:${optimization}`;
@@ -107,7 +91,8 @@ export function comparableMetaIntentKey(row: Pick<MetaCampaignRow, "optimization
   return `family:${resolveMetaCampaignFamily(row)}`;
 }
 
-export function comparableMetaIntentLabel(row: Pick<MetaCampaignRow, "optimizationGoal" | "objective">) {
+export function comparableMetaIntentLabel(row: CampaignFamilyInput) {
+  if (row.customEventType) return row.customEventType;
   if (row.optimizationGoal) return row.optimizationGoal;
   if (row.objective) return row.objective;
   return metaCampaignFamilyLabel(resolveMetaCampaignFamily(row));

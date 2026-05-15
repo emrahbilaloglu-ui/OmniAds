@@ -39,11 +39,14 @@ const IWASTORE_BUSINESS_ID = "f8a3b5ac-588c-462f-8702-11cd24ff3cd2";
 const FAILURE_BUSINESS_ID = "00000000-0000-4000-8000-000000000551";
 const PERSISTED_GUARD_BUSINESS_ID =
   "00000000-0000-4000-8000-000000000552";
+const LABEL_TRANSFORM_BUSINESS_ID =
+  "00000000-0000-4000-8000-000000000553";
 const TEST_BUSINESS_IDS = [
   THESWAF_BUSINESS_ID,
   IWASTORE_BUSINESS_ID,
   FAILURE_BUSINESS_ID,
   PERSISTED_GUARD_BUSINESS_ID,
+  LABEL_TRANSFORM_BUSINESS_ID,
 ];
 
 type CountRow = Record<string, unknown> & {
@@ -80,6 +83,7 @@ type DecisionSnapshotFixtureRow = Record<string, unknown> & {
   purchases: unknown;
   roas: unknown;
   recent7d_roas: unknown;
+  label_transform: unknown;
 };
 
 type DecisionEventRow = Record<string, unknown> & {
@@ -138,6 +142,28 @@ describe("decisions job SQL contracts", () => {
 
     expect(calibrationLookup).toContain("campaign_kind = 'all'");
     expect(calibrationLookup).toContain("creative_format = 'overall'");
+  });
+
+  it("persists label transform diagnostics in the snapshot upsert contract", () => {
+    const source = readFileSync(
+      "lib/creative-decision-engine/jobs/decisions-job.ts",
+      "utf8",
+    );
+    const snapshotUpsert = source.match(
+      /const UPSERT_DECISION_SNAPSHOTS_QUERY = `[\s\S]*?RETURNING id, creative_id, label, confidence/,
+    )?.[0];
+    const mapper = source.match(
+      /function toSnapshotPayloadRow[\s\S]*?label_transform: input\.decision\.labelTransform \?\? null,[\s\S]*?};/,
+    )?.[0];
+
+    expect(snapshotUpsert).toContain("label_transform text");
+    expect(snapshotUpsert).toContain("label_transform,");
+    expect(snapshotUpsert).toContain(
+      "label_transform = EXCLUDED.label_transform",
+    );
+    expect(mapper).toContain(
+      "label_transform: input.decision.labelTransform ?? null",
+    );
   });
 });
 
@@ -345,6 +371,26 @@ function scalingCreativeInput(input: {
   };
 }
 
+function refreshCreativeInput(input: {
+  businessId: string;
+  campaignId: string;
+}): CreativeInput {
+  return {
+    ...scalingCreativeInput(input),
+    creativeId: "persisted-label-transform-refresh-creative",
+    creativeName: "Persisted Label Transform Refresh Creative",
+    spend: 600,
+    purchases: 6,
+    purchaseValue: 990,
+    roas: 1.65,
+    cpa: 100,
+    recent7dSpend: 80,
+    recent7dPurchases: 1,
+    recent7dRoas: 1,
+    fatigueStatus: "fatigued",
+  };
+}
+
 function mockWarehouseForSingleCreative(creativeInput: CreativeInput) {
   vi.spyOn(
     WarehouseDataSource.prototype,
@@ -387,6 +433,37 @@ function mockWarehouseForSingleCreative(creativeInput: CreativeInput) {
   );
   vi.spyOn(WarehouseDataSource.prototype, "listCreativeInputs").mockResolvedValue(
     [creativeInput],
+  );
+}
+
+async function insertCampaignLabel(input: {
+  businessId: string;
+  campaignId: string;
+  campaignKind: "main" | "test" | "mixed";
+}) {
+  await getDb().query(
+    `
+    INSERT INTO meta_campaign_labels (
+      business_id,
+      campaign_id,
+      campaign_kind,
+      source,
+      labeled_by
+    )
+    VALUES (
+      $1,
+      $2,
+      $3,
+      'user',
+      'decisions-job-test'
+    )
+    ON CONFLICT (business_id, campaign_id) DO UPDATE SET
+      campaign_kind = EXCLUDED.campaign_kind,
+      source = EXCLUDED.source,
+      labeled_by = EXCLUDED.labeled_by,
+      updated_at = now()
+    `,
+    [input.businessId, input.campaignId, input.campaignKind],
   );
 }
 
@@ -497,7 +574,8 @@ async function fetchDecisionSnapshots(input: {
       spend,
       purchases,
       roas,
-      recent7d_roas
+      recent7d_roas,
+      label_transform
     FROM engine_v3_decision_snapshots_daily
     WHERE business_ref_id = $1::uuid
       AND as_of_date = $2::date
@@ -731,6 +809,30 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
         expect.objectContaining({ type: "unlabeled_campaign_context" }),
       ]),
     );
+    expect(snapshot?.label_transform).toBeNull();
+  });
+
+  it("persists Test cohort refresh-to-cut label transforms on snapshots", async () => {
+    const businessId = LABEL_TRANSFORM_BUSINESS_ID;
+    const campaignId = "persisted-label-transform-test-campaign";
+    const creativeInput = refreshCreativeInput({ businessId, campaignId });
+    mockWarehouseForSingleCreative(creativeInput);
+    await insertCampaignLabel({
+      businessId,
+      campaignId,
+      campaignKind: "test",
+    });
+
+    const result = await runDecisionsJob({ businessId, asOf: AS_OF });
+
+    expect(result.status).toBe("success");
+    expect(result.snapshotsWritten).toBe(1);
+
+    const [snapshot] = await fetchDecisionSnapshots({ businessId, limit: 1 });
+    expect(snapshot?.creative_id).toBe(creativeInput.creativeId);
+    expect(snapshot?.label).toBe("cut");
+    expect(snapshot?.label_transform).toBe("test_cohort_refresh_to_cut");
+    expect(snapshot?.reason).toContain("[test_cohort: refresh->cut]");
   });
 
   it("writes a change event only when the prior snapshot label differs", async () => {

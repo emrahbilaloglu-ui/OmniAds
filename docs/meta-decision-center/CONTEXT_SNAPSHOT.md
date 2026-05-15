@@ -34,7 +34,9 @@ path and ask the model to read it before planning or changing code.
 
 ## Current Repo State
 
-- Current implementation branch: `main` after Phase F.1 merge.
+- Current implementation branch:
+  `phase-f-meta-decision-outcome-logs`, started from `main` after Phase F.1
+  merge/context commit.
 - Phase A PR: `#162` (`[codex] Unify Meta funnel cohort resolution`), merged.
 - Phase A implementation commit: `fc8a8d7` (`Unify Meta funnel cohort resolution`).
 - Phase A context commit: `2a49ef1` (`Record Phase A PR context`).
@@ -606,6 +608,8 @@ path and ask the model to read it before planning or changing code.
 
 1. Empirical confidence, backtest, and auto-execute tier:
    - Phase F.1 is complete and merged in PR `#170`.
+   - Phase F.2 is in progress on branch
+     `phase-f-meta-decision-outcome-logs`.
    - Confidence is still heuristic.
    - There is no per-scenario precision/recall or 14d/30d outcome correlation.
    - Auto-execute readiness cannot be claimed without this layer. The current
@@ -815,6 +819,29 @@ where coverage is weak.
   - Merged to `main` at `fe95969d`.
   - CI runtime deploy jobs were skipped by the workflow; no production
     post-deploy smoke was performed for this phase.
+- Phase F.2 in progress:
+  - Branch: `phase-f-meta-decision-outcome-logs`.
+  - Scope is intentionally additive: create/read/write storage for
+    `meta_decision_action_outcome_logs`, but do not yet change confidence
+    scores or auto-execute eligibility.
+  - Added migration shape for canonical business/provider refs,
+    recommendation fingerprint, rec metadata, action type, outcome status,
+    payload JSON, and occurred timestamp.
+  - Added `lib/meta/decision-outcomes.ts` storage helpers:
+    `appendMetaDecisionActionOutcomeLog(...)` and
+    `readMetaDecisionActionOutcomeLogs(...)`.
+  - Local verification so far:
+    - `npx vitest run lib/meta/decision-outcomes.test.ts lib/migrations.meta-decision-outcomes.test.ts`
+      passed: 2 files, 3 tests.
+    - `npx tsc --noEmit` passed.
+    - `npx vitest run lib/meta lib/migrations.test.ts lib/migrations.meta-decision-outcomes.test.ts`
+      passed: 72 files, 788 tests.
+    - `npx vitest run` passed: 411 files passed, 4 skipped; 2957 tests
+      passed, 49 skipped.
+    - `npm run lint` passed.
+    - `npm run build` passed.
+  - PR, GitHub review, merge, deploy, and post-deploy smoke remain pending for
+    this branch.
 
 ### Phase G - Final Regression, Deploy, Context, And Golden-Case Maintenance
 

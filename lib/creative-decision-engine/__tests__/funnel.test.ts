@@ -96,7 +96,7 @@ describe("computeFunnelDiagnosis", () => {
     expect(result.creativeResponsible).toBe(false);
   });
 
-  it("marks healthy upstream activity with zero purchases as tracking", () => {
+  it("marks healthy upstream activity with zero purchases as checkout breakdown", () => {
     const result = diagnose({
       creative: {
         spend: 500,
@@ -108,9 +108,9 @@ describe("computeFunnelDiagnosis", () => {
       },
     });
 
-    expect(result.primaryWeakStage).toBe("tracking");
+    expect(result.primaryWeakStage).toBe("checkout");
     expect(result.creativeResponsible).toBe(false);
-    expect(result.confidence).toBe(0.85);
+    expect(result.evidence.join(" ")).toContain("IC-to-purchase");
   });
 
   it("returns insufficient_signal when the weak denominator is too thin", () => {

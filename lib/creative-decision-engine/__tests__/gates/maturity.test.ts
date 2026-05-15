@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { defaultBusinessConfig } from "../../config";
 import { maturityGate } from "../../gates/maturity";
 import {
   makeAccountCalibration,
@@ -235,26 +234,28 @@ describe("maturityGate", () => {
     expect(output.reason).toMatch(/^Thin data/);
   });
 
-  it("uses custom businessConfig thresholds", () => {
-    const businessConfig = {
-      ...defaultBusinessConfig("biz-1"),
-      maturitySpendThreshold: 1000,
-    };
+  it("uses CPA-anchored maturity before legacy mature spend thresholds", () => {
     const output = terminalOutput(
       maturityGate(
         makeGateContext({
           input: makeCreativeInput({
-            spend: 500,
+            spend: 450,
             purchases: 10,
           }),
-          businessConfig,
+          profile: makeAccountDecisionProfile({
+            accountBaselines: makeAccountCalibration({
+              accountCpaP50: 100,
+              matureSpendP50: 100,
+              winnerPurchaseP50: 10,
+            }),
+          }),
         }),
       ),
     );
 
     expect(output.label).toBe("test_more");
     expect(output.reason).toBe(
-      "Thin data (28d spend $500, 10 purchases, age 21d) — let the creative accumulate signal.",
+      "Thin data (28d spend $450, 10 purchases, age 21d) — let the creative accumulate signal.",
     );
   });
 });

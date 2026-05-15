@@ -33,22 +33,25 @@ function terminalOutput(result: ReturnType<typeof diagnoseGate>) {
 }
 
 describe("diagnoseGate", () => {
-  it("diagnoses active creatives with no recent spend but prior spend", () => {
-    const output = terminalOutput(
-      diagnoseGate(
-        resolvedContext({
-          effectiveStatus: "ACTIVE",
-          recent7dSpend: 0,
-          spend: 500,
-        }),
-      ),
+  it("adds a warning but does not diagnose active creatives with no recent spend", () => {
+    const result = diagnoseGate(
+      resolvedContext({
+        effectiveStatus: "ACTIVE",
+        recent7dSpend: 0,
+        spend: 500,
+      }),
     );
 
-    expect(output.label).toBe("diagnose");
-    expect(output.reason).toBe(
-      "Active creative — 0 spend in last 7d, 28d total $500 — check delivery (ad set status, budget, audience size, frequency caps).",
-    );
-    expect(output.confidence).toBe(65);
+    expect(result.kind).toBe("advance");
+    if (result.kind === "advance") {
+      expect(result.context.badges).toContainEqual({
+        type: "delivery_limited",
+        label:
+          "Active creative has 0 spend in last 7d after $500 28d spend; treat as low-delivery warning, not creative failure",
+        severity: "info",
+      });
+      expect(result.context.confidenceDeltas).toContain(-5);
+    }
   });
 
   it("diagnoses rejected creatives with policy fallback reason", () => {
@@ -124,8 +127,9 @@ describe("diagnoseGate", () => {
     expect(result.kind).toBe("advance");
   });
 
-  it("does not diagnose tracking anomaly when add-to-cart is missing", () => {
-    const result = diagnoseGate(
+  it("diagnoses landing-page funnel issues when add-to-cart collapses after clicks", () => {
+    const output = terminalOutput(
+      diagnoseGate(
       resolvedContext({
         spend: 500,
         impressions: 5000,
@@ -135,12 +139,19 @@ describe("diagnoseGate", () => {
         initiateCheckout: 0,
         purchases: 0,
       }),
+      ),
     );
 
-    expect(result.kind).toBe("advance");
+    expect(output.label).toBe("diagnose");
+    expect(output.reason).toContain("Landing page issue:");
+    expect(output.badges).toContainEqual({
+      type: "landing_page_issue",
+      label: "Landing page issue",
+      severity: "warning",
+    });
   });
 
-  it("diagnoses tracking anomaly through funnel diagnosis", () => {
+  it("diagnoses checkout breakdown through funnel diagnosis", () => {
     const output = terminalOutput(
       diagnoseGate(
         resolvedContext({
@@ -157,13 +168,13 @@ describe("diagnoseGate", () => {
     );
 
     expect(output.label).toBe("diagnose");
-    expect(output.reason).toContain("Tracking anomaly:");
+    expect(output.reason).toContain("Checkout breakdown:");
     expect(output.badges).toContainEqual({
-      type: "tracking_anomaly",
-      label: "Tracking anomaly",
+      type: "checkout_breakdown",
+      label: "Checkout breakdown",
       severity: "warning",
     });
-    expect(output.confidence).toBe(85);
+    expect(output.confidence).toBe(70);
   });
 
   it("advances healthy creatives", () => {

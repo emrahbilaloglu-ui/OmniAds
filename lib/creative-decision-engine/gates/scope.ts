@@ -9,7 +9,7 @@ export function scopeGate(ctx: GateContext): GateResult {
   const objective = ctx.input.objective;
   const ctxWithDefaults: GateContext = {
     ...ctx,
-    effectiveTargetRoas: 2.0,
+    effectiveTargetRoas: 0,
     truthSource: "global_default",
     ratioToTarget: null,
     badges: [],

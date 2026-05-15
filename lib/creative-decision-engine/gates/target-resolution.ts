@@ -24,7 +24,7 @@ function truthBadge(
     case "global_default":
       return {
         type: "truth_global_default",
-        label: "Truth: global default (operator review)",
+        label: "No profit target: quality-only assessment",
         severity: "warning",
       };
   }
@@ -57,7 +57,7 @@ export function targetResolutionGate(ctx: GateContext): GateResult {
     badge = truthBadge(truthSource);
     confidenceDelta = -15;
   } else {
-    effectiveTargetRoas = 2.0;
+    effectiveTargetRoas = 0;
     truthSource = "global_default";
     badge = truthBadge(truthSource);
     confidenceDelta = -25;

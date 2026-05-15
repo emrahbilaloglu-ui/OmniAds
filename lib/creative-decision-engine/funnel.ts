@@ -7,6 +7,22 @@ import type {
   FunnelRates,
 } from "./types";
 
+export type QualityOnlyStatus =
+  | "strong"
+  | "above_average"
+  | "neutral"
+  | "below_average"
+  | "weak"
+  | "insufficient";
+
+export interface QualityOnlyAssessment {
+  status: QualityOnlyStatus;
+  score: number | null;
+  confidence: number;
+  evidence: string[];
+  diagnosis: FunnelDiagnosis;
+}
+
 const FALLBACK_DENOMINATOR_P50 = {
   upperFunnel: 1_000,
   landingPage: 50,
@@ -119,7 +135,7 @@ function checkStageWeak(input: {
     return { weak: false, insufficient: false, evidence: null };
   }
 
-  const belowThreshold = input.rate <= threshold;
+  const belowThreshold = input.rate < threshold;
   if (!belowThreshold) {
     return { weak: false, insufficient: false, evidence: null };
   }
@@ -149,6 +165,40 @@ function confidence(input: {
     0,
     Math.min(1, base + input.denominatorConfidence * 0.25 + evidenceLift),
   );
+}
+
+function boundedScore(rawScore: number): number {
+  return Math.max(0.5, Math.min(2, rawScore));
+}
+
+function componentScore(input: {
+  value: number | null;
+  baseline: number | null;
+  denominatorConfidence: number;
+  inverse?: boolean;
+}): number | null {
+  if (
+    input.value === null ||
+    input.baseline === null ||
+    input.value <= 0 ||
+    input.baseline <= 0 ||
+    input.denominatorConfidence < 0.5
+  ) {
+    return null;
+  }
+
+  const rawScore = input.inverse
+    ? input.baseline / input.value
+    : input.value / input.baseline;
+  return boundedScore(rawScore);
+}
+
+function qualityStatus(score: number): QualityOnlyStatus {
+  if (score >= 1.3) return "strong";
+  if (score >= 1.0) return "above_average";
+  if (score >= 0.85) return "neutral";
+  if (score >= 0.7) return "below_average";
+  return "weak";
 }
 
 function emptyDiagnosis(
@@ -229,25 +279,6 @@ export function computeFunnelDiagnosis(input: {
     creative.initiateCheckout,
     FALLBACK_DENOMINATOR_P50.checkout,
   );
-
-  if (
-    creative.spend > 0 &&
-    (creative.linkClicks ?? 0) > 0 &&
-    (creative.landingPageViews ?? 0) > 0 &&
-    (creative.addToCart ?? 0) > 0 &&
-    (creative.initiateCheckout ?? 0) > 0 &&
-    creative.purchases === 0
-  ) {
-    return {
-      primaryWeakStage: "tracking",
-      creativeResponsible: false,
-      confidence: 0.85,
-      evidence: [
-        "spend, clicks, landing page views, add-to-cart, and checkout all have activity but purchases are zero",
-      ],
-      rates,
-    };
-  }
 
   const insufficientEvidence: string[] = [];
   const upperEvidence: string[] = [];
@@ -414,5 +445,155 @@ export function computeFunnelDiagnosis(input: {
     confidence: 1,
     evidence: ["funnel rates are not below account weak thresholds"],
     rates,
+  };
+}
+
+export function assessQualityOnly(input: {
+  creative: CreativeInput;
+  funnelCalibration: AccountFunnelCalibration;
+  profile: AccountDecisionProfile;
+}): QualityOnlyAssessment {
+  const { creative, funnelCalibration } = input;
+  const rates = computeFunnelRates(creative);
+  const baseline = resolveBaseline({ creative, funnelCalibration });
+  const diagnosis = computeFunnelDiagnosis(input);
+
+  if (baseline === null) {
+    return {
+      status: "insufficient",
+      score: null,
+      confidence: 0,
+      evidence: ["no account funnel calibration available"],
+      diagnosis,
+    };
+  }
+
+  const upperConfidence = stageDenominatorConfidence(
+    creative.impressions,
+    FALLBACK_DENOMINATOR_P50.upperFunnel,
+  );
+  const clickConfidence = stageDenominatorConfidence(
+    creative.linkClicks,
+    FALLBACK_DENOMINATOR_P50.landingPage,
+  );
+  const lpvConfidence = stageDenominatorConfidence(
+    creative.landingPageViews,
+    FALLBACK_DENOMINATOR_P50.landingPage,
+  );
+  const atcConfidence = stageDenominatorConfidence(
+    creative.addToCart,
+    FALLBACK_DENOMINATOR_P50.checkout,
+  );
+
+  const components: Array<{
+    name: string;
+    weight: number;
+    score: number | null;
+  }> = [
+    {
+      name: "hook",
+      weight: 0.05,
+      score: componentScore({
+        value: creative.thumbstop,
+        baseline: baseline.thumbstopP50,
+        denominatorConfidence: upperConfidence,
+      }),
+    },
+    {
+      name: "ctr",
+      weight: 0.1,
+      score: componentScore({
+        value: rates.ctr,
+        baseline: baseline.ctrP50,
+        denominatorConfidence: upperConfidence,
+      }),
+    },
+    {
+      name: "cpm_efficiency",
+      weight: 0.1,
+      score: componentScore({
+        value: creative.cpm,
+        baseline: baseline.cpmP50,
+        denominatorConfidence: upperConfidence,
+        inverse: true,
+      }),
+    },
+    {
+      name: "click_to_lpv",
+      weight: 0.15,
+      score: componentScore({
+        value: rates.linkToLpvRate,
+        baseline: baseline.linkToLpvP50,
+        denominatorConfidence: clickConfidence,
+      }),
+    },
+    {
+      name: "lpv_to_atc",
+      weight: 0.2,
+      score: componentScore({
+        value: rates.lpvToAtcRate,
+        baseline: baseline.lpvToAtcP50,
+        denominatorConfidence: lpvConfidence,
+      }),
+    },
+    {
+      name: "atc_to_ic",
+      weight: 0.25,
+      score: componentScore({
+        value: rates.atcToIcRate,
+        baseline: baseline.atcToIcP50,
+        denominatorConfidence: atcConfidence,
+      }),
+    },
+  ];
+
+  const scoredComponents = components.filter(
+    (
+      component,
+    ): component is { name: string; weight: number; score: number } =>
+      component.score !== null,
+  );
+  if (scoredComponents.length === 0) {
+    return {
+      status: "insufficient",
+      score: null,
+      confidence: 0,
+      evidence: ["not enough upper/mid-funnel denominators for quality scoring"],
+      diagnosis,
+    };
+  }
+
+  const totalWeight = scoredComponents.reduce(
+    (sum, component) => sum + component.weight,
+    0,
+  );
+  const score =
+    scoredComponents.reduce(
+      (sum, component) => sum + component.score * component.weight,
+      0,
+    ) / totalWeight;
+  const minimumDenominatorConfidence = Math.min(
+    ...[
+      upperConfidence,
+      clickConfidence,
+      lpvConfidence,
+      atcConfidence,
+    ].filter((value) => value > 0),
+  );
+
+  return {
+    status: qualityStatus(score),
+    score,
+    confidence: Math.max(
+      0.45,
+      Math.min(
+        0.85,
+        0.5 + minimumDenominatorConfidence * 0.2 + scoredComponents.length * 0.03,
+      ),
+    ),
+    evidence: scoredComponents.map(
+      (component) => `${component.name} score ${component.score.toFixed(2)}x`,
+    ),
+    diagnosis,
   };
 }

@@ -4,6 +4,7 @@ import {
   type GateResult,
 } from "./types";
 import { computeFunnelDiagnosis } from "../funnel";
+import type { DecisionBadge } from "../types";
 
 function terminal(ctx: GateContext, reason: string, confidenceBase: number) {
   return {
@@ -27,13 +28,23 @@ export function diagnoseGate(ctx: GateContext): GateResult {
     (ctx.input.recent7dSpend ?? 0) === 0 &&
     spend > 0
   ) {
-    return terminal(
-      ctx,
-      `Active creative — 0 spend in last 7d, 28d total $${spend.toFixed(
-        0,
-      )} — check delivery (ad set status, budget, audience size, frequency caps).`,
-      65,
-    );
+    return {
+      kind: "advance",
+      context: {
+        ...ctx,
+        badges: [
+          ...ctx.badges,
+          {
+            type: "delivery_limited",
+            label: `Active creative has 0 spend in last 7d after $${spend.toFixed(
+              0,
+            )} 28d spend; treat as low-delivery warning, not creative failure`,
+            severity: "info",
+          },
+        ],
+        confidenceDeltas: [...ctx.confidenceDeltas, -5],
+      },
+    };
   }
 
   const policyReason = ctx.input.policyReason?.trim() ?? "";
@@ -66,6 +77,36 @@ export function diagnoseGate(ctx: GateContext): GateResult {
     funnelCalibration: ctx.profile.funnelCalibration,
     profile: ctx.profile,
   });
+
+  if (
+    (funnelDiagnosis.primaryWeakStage === "landing_page" ||
+      funnelDiagnosis.primaryWeakStage === "checkout") &&
+    funnelDiagnosis.confidence >= 0.65
+  ) {
+    const badge: DecisionBadge =
+      funnelDiagnosis.primaryWeakStage === "landing_page"
+        ? {
+            type: "landing_page_issue",
+            label: "Landing page issue",
+            severity: "warning",
+          }
+        : {
+            type: "checkout_breakdown",
+            label: "Checkout breakdown",
+            severity: "warning",
+          };
+
+    return terminal(
+      {
+        ...ctx,
+        badges: [...ctx.badges, badge],
+      },
+      `${badge.label}: ${funnelDiagnosis.evidence.join(
+        "; ",
+      )}. This is a funnel-step diagnosis, not proof that the creative itself is the problem.`,
+      70,
+    );
+  }
 
   if (funnelDiagnosis.primaryWeakStage === "tracking") {
     return terminal(

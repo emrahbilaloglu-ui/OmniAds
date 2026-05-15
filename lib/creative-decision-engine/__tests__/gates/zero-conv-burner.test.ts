@@ -25,7 +25,7 @@ describe("zeroConvBurnerGate", () => {
 
     expect(output.label).toBe("cut");
     expect(output.reason).toBe(
-      "0 purchases on $300 spend (28d cumulative, age 14d) — sustained zero-conversion burn.",
+      "0 purchases on $300 spend (28d cumulative, age 14d) — sustained zero-conversion burn past CPA-anchored maturity threshold $290.",
     );
     expect(output.confidence).toBe(80);
   });

@@ -34,7 +34,8 @@ path and ask the model to read it before planning or changing code.
 
 ## Current Repo State
 
-- Current implementation branch: `phase-e-meta-optimization-feed-scenarios`.
+- Current implementation branch: `main` after Phase E.3 merge. Next
+  implementation branch has not been created yet.
 - Phase A PR: `#162` (`[codex] Unify Meta funnel cohort resolution`), merged.
 - Phase A implementation commit: `fc8a8d7` (`Unify Meta funnel cohort resolution`).
 - Phase A context commit: `2a49ef1` (`Record Phase A PR context`).
@@ -68,8 +69,18 @@ path and ask the model to read it before planning or changing code.
 - Phase E.2 review-fix commit: `521810d`
   (`Tighten Meta bid scenario gates`).
 - Phase E.2 merge commit on `main`: `9b01d42c206912ddca0a0975cbc5c0a3e9d5af22`.
-- Latest `main` verified locally after Phase E.2 merge:
-  `f215f2e` (`Record Phase E bid regime merge context`).
+- Phase E.3 PR: `#168`
+  (`[codex] Add Meta optimization and feed scenarios`), merged.
+- Phase E.3 implementation commit: `39f11ec`
+  (`Add Meta optimization and feed scenarios`).
+- Phase E.3 review-fix commits:
+  - `f4adb4a` (`Tighten Meta optimization event scenario gates`)
+  - `9934b94` (`Require explicit purchase event for Meta G1`)
+  - `1d4f91a` (`Harden Meta feed status diagnostics`)
+- Phase E.3 merge commit on `main`: `4ca36bcb9bf8f8aaba357ee8e11e881fdd7c1a1d`.
+- Latest `main` verified locally after Phase E.3 merge:
+  `4ca36bcb` (`Merge pull request #168 from
+  erhanrdn/phase-e-meta-optimization-feed-scenarios`).
 - Phase E.1 branch started from `main` context commit:
   `c5617d99822312923b2b9a5fd13239826a76db24`.
 - Phase E.2 branch started after Phase E.1 merge/context:
@@ -101,7 +112,7 @@ path and ask the model to read it before planning or changing code.
   - `_analysis/phase-meta-goal-aware/`
   - `_analysis/phase-meta-rnd/`
   - `scripts/_phase-meta-rnd-claude-personas.ts`
-- Open PRs currently known in this workstream after Phase E.2 merge: none.
+- Open PRs currently known in this workstream after Phase E.3 merge: none.
 - Phase B tracked-file modifications at the time of this snapshot:
   - `app/api/meta/recommendations/route.ts`
   - `lib/meta/commercial-targets.ts`
@@ -235,6 +246,10 @@ path and ask the model to read it before planning or changing code.
       review threads at merge.
 - Phase E.3 implementation status:
   - Branch: `phase-e-meta-optimization-feed-scenarios`.
+  - PR: `#168`, merged.
+  - Implementation commit: `39f11ec`.
+  - Review-fix commits: `f4adb4a`, `9934b94`, and `1d4f91a`.
+  - Merge commit: `4ca36bcb`.
   - Scope intentionally limited to scenarios with reliable present or explicitly
     populated signals:
     `scenario_g1_upper_funnel_event` and
@@ -269,6 +284,13 @@ path and ask the model to read it before planning or changing code.
       skipped; 2,939 tests passed, 49 skipped.
     - `npm run lint` passed after PR review fixes.
     - `npm run build` passed after PR review fixes.
+    - GitHub PR `#168` checks passed after review fixes: `typecheck`,
+      `test`, and `build`; runtime deploy jobs skipped because no runtime image
+      change was detected.
+    - GitHub thread-aware review check: P2 G1 optimization-event thread, P2 G1
+      explicit-age thread, P2 G1 purchase-event thread, and P2 K4 negated
+      feed-status thread resolved; no remaining unresolved review threads at
+      merge.
 
 ## Completed Work
 
@@ -513,57 +535,46 @@ path and ask the model to read it before planning or changing code.
 
 ## Remaining Gaps To Plan
 
-1. Meta target/profit anchor enforcement:
-   - `target_roas` and `break_even_roas` are not yet hard anchors for Meta scale
-     or cut decisions.
-   - Account percentiles still behave too much like action thresholds.
-
-2. Unified Meta maturity:
-   - There is no single formula such as:
-     `spend >= max(currency_floor, CPA_baseline * multiplier) + event floor +
-     attribution window + active days + recovery gate`.
-   - Maturity needs to reflect loss budget, not the spend behavior of scaled
-     incumbent campaigns.
-
-3. Main/Test kind-aware Meta calibration and thresholds:
-   - Creative has kind-aware profile selection.
-   - Meta campaign/adset scenario thresholds do not yet segment Main/Test/Mixed
-     calibration.
-
-4. Budget pacing, audience overlap, and placement mix gates:
-   - Monthly budget vs MTD pace is not a real decision input.
-   - Audience overlap and placement mix are not populated/used as hard gates.
-
-5. Empirical confidence, backtest, and auto-execute tier:
+1. Empirical confidence, backtest, and auto-execute tier:
    - Confidence is still heuristic.
    - There is no per-scenario precision/recall or 14d/30d outcome correlation.
    - Auto-execute readiness cannot be claimed without this layer.
 
-6. Purchase scenario coverage:
-   - Many scenario-library IDs remain unimplemented, especially learning,
-     cooldown, bid-strategy, tracking-diagnostic, overlap, seasonal, and
+2. Purchase scenario coverage:
+   - Phase E.1, E.2, and E.3 implemented the learning/sample, bid-regime, and
+     optimization/feed subsets that current data can support.
+   - Remaining scenario-library IDs are still unimplemented, especially
+     audience/overlap, placement, cross-campaign, seasonal, and deeper
      controlled-scale variants.
 
-7. Single-source campaign cohort resolution cleanup:
+3. Signal coverage gaps that still block additional scenario families:
+   - Audience overlap, audience size/stage, lookalike, and entity-scoped
+     feed/catalog source coverage remain weak or unsupported.
+   - Monthly pacing, click-to-LPV tracking quality, and account-level placement
+     evidence exist, but placement and overlap still need stronger entity-level
+     decision gates before hard automation.
+
+4. Single-source campaign cohort resolution cleanup:
    - Phase A removed the known campaign-level string-based purchase filter in
      `lib/meta/recommendations.ts`.
    - Keep this item as a regression watch: future campaign/adset filters should
      use `resolveMetaFunnelCohort(...)` rather than local string matching.
 
-8. Purchase-side C1 and related scenario refactor:
-   - Controlled scale still lacks enough profit anchor, ROAS trend, learning
-     state, and variance awareness.
+5. Purchase-side C1 and related scenario refactor:
+   - Controlled scale is anchored more safely after Phases B/D/E.1/E.2, but it
+     still lacks enough ROAS trend, volatility, placement, and post-action
+     outcome awareness for auto-execute.
 
-9. Meta-side refresh/cut semantics and Test-to-Main promotion:
+6. Meta-side refresh/cut semantics and Test-to-Main promotion:
    - Creative Test `refresh -> cut` semantics exist.
-   - Meta recommendation semantics do not yet have equivalent kind-aware
-     transform.
-   - `promote_test_to_main` remains intentionally unimplemented.
+   - Meta engine has label transforms and `promote_test_to_main` payload support,
+     but the UI CTA mapping remains intentionally disabled until label coverage
+     and kind-aware distribution stability are proven.
 
 ## Proposed Gap-Closure Plan
 
-Status: user-approved as of 2026-05-15. Phase A, Phase B, and Phase C are
-merged. Phase D is starting on `phase-d-meta-signal-substrate`.
+Status: user-approved as of 2026-05-15. Phase A, Phase B, Phase C, Phase D,
+Phase E.1, Phase E.2, and Phase E.3 are merged.
 
 Claude was explicitly told to read this file first before producing its plan.
 Claude agreed with the final phase order and added three acceptance criteria:
@@ -657,9 +668,16 @@ where coverage is weak.
   a strong reason.
 - Acceptance: every scenario has fixtures, golden cases, invariant coverage,
   missing-signal fallback, and no hard action without anchors/maturity.
-  Status: Phase E.1 complete. PR `#166` passed GitHub `typecheck`, `test`,
-  and `build` after the A5 learning-exit review fix, then merged into `main`
-  at `fe9de23`.
+  Status: Phase E.1, E.2, and E.3 complete.
+  - Phase E.1 PR `#166` passed GitHub `typecheck`, `test`, and `build` after
+    the A5 learning-exit review fix, then merged into `main` at `fe9de23`.
+  - Phase E.2 PR `#167` passed GitHub `typecheck`, `test`, and `build` after
+    the B4/B6 review fixes, then merged into `main` at `9b01d42`.
+  - Phase E.3 PR `#168` passed GitHub `typecheck`, `test`, and `build` after
+    the G1/K4 review fixes, then merged into `main` at `4ca36bcb`.
+  - Remaining Phase E work should focus only on scenario families whose required
+    signals are present or can be explicitly populated; unsupported overlap/feed
+    assumptions must keep producing diagnose/watch, not hard actions.
 
 ### Phase F - Empirical Confidence And Automation Readiness
 

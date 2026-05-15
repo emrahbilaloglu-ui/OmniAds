@@ -50,9 +50,18 @@ function confidenceFromScore(score: number): MetaRecommendation["confidence"] {
   return "low";
 }
 
+function confidenceScoreFromScore(score: number) {
+  return r2(score >= 0.5 ? score : 1 - score);
+}
+
 function numberField(adset: MetaAdSetData, key: keyof MetaAdSetData) {
   const value = adset[key];
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function observedNumberField(adset: MetaAdSetData, key: keyof MetaAdSetData) {
+  const value = adset[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function threshold(
@@ -82,8 +91,8 @@ function primaryMetric(adset: MetaAdSetData): TrafficPrimaryMetric {
 }
 
 function primaryCount(adset: MetaAdSetData, metric: TrafficPrimaryMetric) {
-  if (metric === "cost_per_lpv_28d") return numberField(adset, "landingPageViews");
-  return numberField(adset, "linkClicks");
+  if (metric === "cost_per_lpv_28d") return observedNumberField(adset, "landingPageViews");
+  return observedNumberField(adset, "linkClicks");
 }
 
 function primaryLabel(metric: TrafficPrimaryMetric) {
@@ -159,7 +168,7 @@ function baseTrafficRecommendation(input: {
     lens: input.lens,
     priority: input.priority,
     confidence: confidenceFromScore(input.score),
-    confidenceScore: r2(input.score),
+    confidenceScore: confidenceScoreFromScore(input.score),
     confidenceReason: null,
     decisionState: input.decisionState,
     decision: input.title,
@@ -199,6 +208,8 @@ export function emitTrafficAdsetScenario(input: AdsetScenarioInput): MetaRecomme
   if (!primaryThreshold) return null;
 
   const count = primaryCount(input.adset, metric);
+  if (count == null) return null;
+
   const primaryValue = count > 0 ? input.adset.spend / count : Number.POSITIVE_INFINITY;
   const primaryRank = count > 0 ? percentileRankInverted(primaryValue, primaryThreshold) : 0;
   if (primaryRank == null) return null;

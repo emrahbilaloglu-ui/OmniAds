@@ -109,6 +109,49 @@ describe("emitTrafficAdsetScenario", () => {
 
     expect(rec?.type).toBe("scenario_t3_traffic_inefficient_cut");
     expect(rec?.decisionLabel).toBe("cut");
+    expect(rec?.confidence).toBe("high");
+    expect(rec?.confidenceScore).toBeGreaterThanOrEqual(0.7);
+  });
+
+  it("suppresses link-click traffic recommendations when event data is missing", () => {
+    const rec = emitTrafficAdsetScenario({
+      adset: adset({ spend: 1000, linkClicks: null, ctr: 0.5 }),
+      context,
+      cohort: "traffic",
+      signals: signal(20),
+    });
+
+    expect(rec).toBeNull();
+  });
+
+  it("suppresses LPV traffic recommendations when LPV data is missing", () => {
+    const rec = emitTrafficAdsetScenario({
+      adset: adset({
+        optimizationGoal: "LANDING_PAGE_VIEWS",
+        spend: 1000,
+        landingPageViews: null,
+        ctr: 0.5,
+      }),
+      context,
+      cohort: "traffic",
+      signals: signal(20),
+    });
+
+    expect(rec).toBeNull();
+  });
+
+  it("can cut when observed traffic event data is truly zero", () => {
+    const rec = emitTrafficAdsetScenario({
+      adset: adset({ spend: 1000, linkClicks: 0, ctr: 0.5 }),
+      context,
+      cohort: "traffic",
+      signals: signal(20),
+    });
+
+    expect(rec?.type).toBe("scenario_t3_traffic_inefficient_cut");
+    expect(rec?.decisionLabel).toBe("cut");
+    expect(rec?.confidence).toBe("high");
+    expect(rec?.confidenceScore).toBe(1);
   });
 
   it("uses LPV cost calibration for landing-page-view traffic", () => {

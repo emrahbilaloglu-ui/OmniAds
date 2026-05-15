@@ -115,6 +115,15 @@ const breakdowns: MetaBreakdownsResponse = {
   products: { available: true },
 };
 
+const commercialTargets = {
+  source: "configured_targets" as const,
+  targetRoas: 2.2,
+  breakEvenRoas: 1.5,
+  targetCpa: 120,
+  breakEvenCpa: 160,
+  riskPosture: "balanced" as const,
+};
+
 const creativeIntelligence: MetaCreativeIntelligenceSummary = {
   totalCreatives: 8,
   winnerCount: 3,
@@ -300,6 +309,7 @@ describe("buildMetaRecommendations", () => {
         allHistory: [weak90],
       },
       breakdowns,
+      commercialTargets,
     });
 
     const rec = result.recommendations.find((item) => item.type === "scale_for_volume");
@@ -321,10 +331,34 @@ describe("buildMetaRecommendations", () => {
         allHistory: [campaign({ roas: 3.05, purchases: 25, spend: 1600 })],
       },
       breakdowns,
+      commercialTargets,
     });
 
     const rec = result.recommendations.find((item) => item.type === "scale_for_volume");
     expect(rec?.decisionState).toBe("act");
+  });
+
+  it("does not emit hard campaign scale or profitability actions without commercial targets", () => {
+    const strong = campaign({ roas: 3.8, purchases: 32, spend: 1800, revenue: 6840 });
+    const weak = campaign({ id: "weak", name: "Weak", roas: 0.8, purchases: 10, spend: 3000, revenue: 2400, cpa: 300 });
+    const peer = campaign({ id: "peer", name: "Peer", roas: 3.4, purchases: 35, spend: 2000, revenue: 6800, cpa: 57.14 });
+
+    const result = buildMetaRecommendations({
+      windows: {
+        selected: [strong, weak, peer],
+        previousSelected: [],
+        last3: [strong, weak, peer],
+        last7: [strong, weak, peer],
+        last14: [strong, weak, peer],
+        last30: [strong, weak, peer],
+        last90: [strong, weak, peer],
+        allHistory: [strong, weak, peer],
+      },
+      breakdowns,
+    });
+
+    expect(result.recommendations.some((item) => item.type === "scale_for_volume")).toBe(false);
+    expect(result.recommendations.some((item) => item.type === "scale_for_profitability")).toBe(false);
   });
 
   it("produces profitability recommendation for weak high-spend campaign", () => {
@@ -343,6 +377,7 @@ describe("buildMetaRecommendations", () => {
         allHistory: [campaign({ roas: 1.4, purchases: 21, spend: 2750, revenue: 3850, cpa: 131 }), strongPeer],
       },
       breakdowns,
+      commercialTargets,
     });
 
     expect(result.recommendations.some((item) => item.type === "scale_for_profitability")).toBe(true);
@@ -362,6 +397,7 @@ describe("buildMetaRecommendations", () => {
         allHistory: [campaign({ optimizationGoal: "Add To Cart", purchases: 23, roas: 2.4 })],
       },
       breakdowns,
+      commercialTargets,
     });
 
     expect(result.recommendations).toHaveLength(0);
@@ -388,6 +424,7 @@ describe("buildMetaRecommendations", () => {
         allHistory: [campaign({ objective: null, optimizationGoal: null, purchases: 11, revenue: 1600, roas: 2.1 })],
       },
       breakdowns,
+      commercialTargets,
     });
 
     expect(result.summary.recommendationCount).toBeGreaterThan(0);

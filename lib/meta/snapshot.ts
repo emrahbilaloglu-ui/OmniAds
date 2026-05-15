@@ -48,6 +48,7 @@ import {
 } from "@/lib/meta/recommendations";
 import { resolveMetaFunnelCohort } from "@/lib/meta/funnel-cohort";
 import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
+import { readMetaCommercialTargets } from "@/lib/meta/commercial-targets";
 
 export interface RunMetaSnapshotResult {
   businessId: string;
@@ -730,6 +731,7 @@ async function buildSnapshotRecommendations(input: {
       })
     ).entries(),
   );
+  const commercialTargets = await readMetaCommercialTargets(input.businessId).catch(() => null);
 
   const campaignRecommendations = buildMetaRecommendations({
     windows: {
@@ -747,6 +749,7 @@ async function buildSnapshotRecommendations(input: {
     calibrationContext: contexts.accountContext,
     calibrationContextByCampaignId: contexts.byCampaignId,
     entitySignalsByCampaignId,
+    commercialTargets,
     language: "en",
   }).recommendations;
 
@@ -768,6 +771,7 @@ async function buildSnapshotRecommendations(input: {
     calibrationContextByCampaignId: contexts.byCampaignId,
     calibrationContextByAdsetId: adsetCalibrationContextByAdsetId,
     entitySignalsByAdsetId,
+    commercialTargets,
   });
   const stateRows = buildMetaEntityStateRows({
     campaigns,

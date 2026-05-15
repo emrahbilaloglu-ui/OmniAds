@@ -34,11 +34,17 @@ path and ask the model to read it before planning or changing code.
 
 ## Current Repo State
 
-- Current implementation branch: `phase-a-meta-decision-hygiene`.
-- Phase A PR: `#162` (`[codex] Unify Meta funnel cohort resolution`), draft.
+- Current implementation branch: `phase-b-meta-profit-maturity`.
+- Phase A PR: `#162` (`[codex] Unify Meta funnel cohort resolution`), merged.
 - Phase A implementation commit: `fc8a8d7` (`Unify Meta funnel cohort resolution`).
-- Base `main` SHA verified locally:
-  `0b79c22229de09b014b0dc8fff91ee2bf74bb8c7`.
+- Phase A context commit: `2a49ef1` (`Record Phase A PR context`).
+- Phase A merge commit on `main`: `49716c3706ec9ea98e0e452452163357b6cdeae0`.
+- Phase B PR: `#163` (`[codex] Anchor Meta hard actions to commercial targets`),
+  ready for review at the time of this snapshot.
+- Phase B implementation commit: `aaa0c0d`
+  (`Anchor Meta hard actions to commercial targets`).
+- Current `main` SHA verified locally:
+  `49716c3706ec9ea98e0e452452163357b6cdeae0`.
 - Phase A tracked-file modifications at the time of this snapshot:
   - `lib/meta/campaign-lanes.ts`
   - `lib/meta/campaign-lanes.test.ts`
@@ -64,6 +70,18 @@ path and ask the model to read it before planning or changing code.
   - `docs/meta-decision-center/`
   - `scripts/_phase-meta-rnd-claude-personas.ts`
 - Open PRs remaining after Phase A stale-PR triage: none.
+- Phase B tracked-file modifications at the time of this snapshot:
+  - `app/api/meta/recommendations/route.ts`
+  - `lib/meta/commercial-targets.ts`
+  - `lib/meta/commercial-targets.test.ts`
+  - `lib/meta/recommendations.ts`
+  - `lib/meta/recommendations.test.ts`
+  - `lib/meta/adset-decisions.ts`
+  - `lib/meta/adset-decisions.test.ts`
+  - `lib/meta/scenario-emitters/high-priority.ts`
+  - `lib/meta/scenario-emitters/high-priority.test.ts`
+  - `lib/meta/snapshot.ts`
+  - `lib/meta/snapshot.test.ts`
 
 ## Completed Work
 
@@ -106,6 +124,7 @@ path and ask the model to read it before planning or changing code.
 ### PR / Review / Deploy Closure
 
 - Merged final Meta chain through current main SHA `0b79c222`.
+- Merged Phase A through current main SHA `49716c3` via PR `#162`.
 - Closed stale superseded PRs `#112`, `#114`, `#115`, `#116`, `#117`.
 - Phase A triaged and closed old draft/review PRs `#80`, `#79`, `#77`, `#76`,
   `#75`, `#73`, `#58`, `#52`, `#48`, `#46`, and `#36` as stale historical
@@ -124,8 +143,10 @@ path and ask the model to read it before planning or changing code.
 ### Phase A - Hygiene, Evidence, And Single-Source Cleanup
 
 - Branch: `phase-a-meta-decision-hygiene`.
-- Draft PR: `#162`.
+- PR: `#162`, merged.
 - Implementation commit: `fc8a8d7`.
+- Context commit: `2a49ef1`.
+- Merge commit: `49716c3`.
 - A.1 single-source cleanup:
   - `lib/meta/recommendations.ts` no longer uses its local string-based
     campaign purchase filter.
@@ -183,6 +204,69 @@ path and ask the model to read it before planning or changing code.
     `audience_overlap_pct` coverage is zero in the evidence window.
   - `meta_campaign_labels` production adoption is currently zero; label-guarded
     hard actions are expected to block until users label campaigns.
+
+### Phase B - Target/Profit Anchor And Unified Purchase Maturity
+
+- Branch: `phase-b-meta-profit-maturity`.
+- PR: `#163`, ready for review.
+- Implementation commit: `aaa0c0d`.
+- Added `lib/meta/commercial-targets.ts` as the shared Meta commercial target
+  adapter.
+- The adapter reads `business_target_packs` through
+  `getBusinessCommercialTruthSnapshot(...)`, not inline SQL in API routes.
+- PR review correction:
+  - `coverage.thresholds` fallback values are not treated as configured Meta
+    anchors.
+  - Hard scale/cut anchors now come only from the actual target pack fields.
+- Commercial target fields used by Meta:
+  - `targetRoas`
+  - `breakEvenRoas`
+  - `targetCpa`
+  - `breakEvenCpa`
+  - `riskPosture`
+- Purchase hard-action semantics now require configured commercial anchors:
+  - campaign `scale_for_volume`;
+  - campaign `scale_for_profitability`;
+  - adset `adset_scale_budget`;
+  - adset `adset_cut_spend`;
+  - high-priority campaign `scenario_c1_controlled_scale`;
+  - high-priority campaign `scenario_b1_capped_winner_bid_raise`;
+  - high-priority campaign `scenario_a2_learning_weak_structural`.
+- ROAS anchor behavior:
+  - scale floor = `targetRoas`, or `breakEvenRoas * 1.15` when target ROAS is
+    missing;
+  - cut/loss ceiling = `breakEvenRoas`, or `targetRoas * 0.75` when break-even
+    ROAS is missing;
+  - account percentiles remain benchmark gates, not standalone profit targets.
+- Purchase loss-budget maturity behavior:
+  - maturity spend = `max(currency_floor, CPA_baseline * risk_multiplier)`;
+  - CPA baseline priority = `breakEvenCpa`, then `targetCpa`, then calibrated or
+    account CPA baseline;
+  - risk multipliers: conservative `2.5`, balanced `2.0`, aggressive `1.5`;
+  - currency floors currently: USD/EUR/default `50`, TRY `1500`.
+- Live and snapshot recommendation paths now pass commercial targets into the
+  campaign/adset decision builders.
+- Explicit test coverage added:
+  - no campaign hard scale/profitability action without commercial targets;
+  - no purchase adset hard scale/cut without commercial targets;
+  - no C1 controlled scale without commercial targets;
+  - target helper normalization, scale/cut floors, and CPA loss-budget maturity.
+  - `readMetaCommercialTargets(...)` ignores conservative fallback coverage
+    thresholds when the target pack is absent.
+- Phase B targeted verification passed:
+  - `npx vitest run lib/meta/commercial-targets.test.ts lib/meta/recommendations.test.ts lib/meta/adset-decisions.test.ts lib/meta/scenario-emitters/high-priority.test.ts lib/meta/snapshot.test.ts app/api/meta/recommendations/route.test.ts`
+  - Result after PR review fix: 6 test files, 88 tests passed.
+  - `npx vitest run lib/meta components/meta app/api/meta`
+  - Result after PR review fix: 109 test files, 948 tests passed.
+  - `npx tsc --noEmit`
+  - `npm run lint`
+  - `npm run build`
+- Intentional Phase B boundary:
+  - Non-purchase hard cut emitters still use cohort/event-cost maturity logic and
+    are not forced through sales ROAS anchors in this PR.
+  - This is deliberate. Lead, traffic, mid-funnel, and engagement actions need
+    their own CPL/link-click/event-cost targets or D/E signal substrate before
+    their hard actions can be made fully automation-ready.
 
 ## Important Caveats
 
@@ -255,8 +339,8 @@ path and ask the model to read it before planning or changing code.
 
 ## Proposed Gap-Closure Plan
 
-Status: user-approved as of 2026-05-15. Phase A is in implementation on
-`phase-a-meta-decision-hygiene`.
+Status: user-approved as of 2026-05-15. Phase A is merged. Phase B has a ready
+PR open on `phase-b-meta-profit-maturity`.
 
 Claude was explicitly told to read this file first before producing its plan.
 Claude agreed with the final phase order and added three acceptance criteria:
@@ -282,8 +366,8 @@ where coverage is weak.
   information value is checked. Status: completed; stale PRs closed.
 - Acceptance: context file updated, evidence saved under `_analysis/`, targeted
   tests green, and no hard-action behavior changes mixed into the cleanup PR.
-  Status: local implementation, broad verification, and draft PR creation are
-  complete. GitHub CI/review/merge remain.
+  Status: complete. PR `#162` passed GitHub `typecheck`, `test`, and `build`
+  checks, then merged into `main` at `49716c3`.
 
 ### Phase B - Target/Profit Anchor And Unified Maturity
 
@@ -297,6 +381,8 @@ where coverage is weak.
   economics.
 - Acceptance: no hard scale/cut without a target/profit anchor and mature loss
   evidence; docs and golden cases updated.
+  Status: implementation, local verification, and ready PR `#163` are complete.
+  GitHub CI/review/merge remain.
 
 ### Phase C - Main/Test/Mixed Meta Semantics
 

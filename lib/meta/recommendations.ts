@@ -35,6 +35,12 @@ import {
   resolveMetaFunnelCohort,
   type MetaFunnelCohort,
 } from "@/lib/meta/funnel-cohort";
+import {
+  metaCutRoasCeiling,
+  metaLossBudgetMaturity,
+  metaScaleRoasFloor,
+  type MetaCommercialTargets,
+} from "@/lib/meta/commercial-targets";
 
 export type MetaDecisionState = "act" | "test" | "watch";
 export type MetaRecommendationLens = "volume" | "profitability" | "structure";
@@ -813,6 +819,25 @@ function thresholdMetric(
 function hardCutSpend(calibrationContext: MetaCalibrationContext | null | undefined) {
   return calibrationContext?.thresholds.hardCutSpend ??
     LEGACY_META_CALIBRATION_THRESHOLDS.hardCutSpend;
+}
+
+function commercialTargetEvidence(
+  targets: MetaCommercialTargets | null | undefined,
+  currency: string | null | undefined,
+): MetaRecommendationEvidence[] {
+  const items: MetaRecommendationEvidence[] = [];
+  if (targets?.targetRoas) {
+    items.push({ label: "Target ROAS", value: fmtRoas(targets.targetRoas), tone: "neutral" });
+  }
+  if (targets?.breakEvenRoas) {
+    items.push({ label: "Break-even ROAS", value: fmtRoas(targets.breakEvenRoas), tone: "neutral" });
+  }
+  if (targets?.breakEvenCpa) {
+    items.push({ label: "Break-even CPA", value: fmtCurrency(targets.breakEvenCpa, currency ?? "$"), tone: "neutral" });
+  } else if (targets?.targetCpa) {
+    items.push({ label: "Target CPA", value: fmtCurrency(targets.targetCpa, currency ?? "$"), tone: "neutral" });
+  }
+  return items;
 }
 
 function minRequiredSample(calibrationContext: MetaCalibrationContext | null | undefined) {
@@ -2405,23 +2430,29 @@ function maybeVolumeScaleRecommendation(
   peerRoas: number,
   peerCpa: number,
   calibrationContext?: MetaCalibrationContext | null,
+  commercialTargets?: MetaCommercialTargets | null,
 ): MetaRecommendation | null {
   const row = window.selected;
   const core = buildWeightedCampaignSnapshot(window);
   const roasThresholds = thresholdMetric(calibrationContext, "roas_28d");
   const cpaThresholds = thresholdMetric(calibrationContext, "cpa_28d");
+  const scaleFloor = metaScaleRoasFloor(commercialTargets);
+  if (!scaleFloor) return null;
   const scaleRoasThreshold = calibrationContext
-    ? roasThresholds.p75
-    : Math.max(peerRoas * 0.95, 2);
+    ? Math.max(roasThresholds.p75, scaleFloor)
+    : Math.max(peerRoas * 0.95, scaleFloor);
   const cpaCeiling = calibrationContext
     ? cpaThresholds.p75
     : peerCpa > 0
       ? peerCpa * 1.1
       : Number.POSITIVE_INFINITY;
+  const commercialCpaCeiling =
+    commercialTargets?.breakEvenCpa ?? (commercialTargets?.targetCpa ? commercialTargets.targetCpa * 1.1 : null);
   if (row.status !== "ACTIVE") return null;
   if (core.purchases < 10) return null;
   if (core.roas < scaleRoasThreshold) return null;
   if (Number.isFinite(cpaCeiling) && core.cpa > cpaCeiling) return null;
+  if (commercialCpaCeiling && core.cpa > commercialCpaCeiling) return null;
 
   const support = buildHistoricalSupport(
     window,
@@ -2455,6 +2486,7 @@ function maybeVolumeScaleRecommendation(
       { label: "Core ROAS", value: fmtRoas(core.roas), tone: "positive" },
       { label: "Core CPA", value: fmtCurrency(core.cpa, row.currency === "TRY" ? "₺" : row.currency === "EUR" ? "€" : "$"), tone: "positive" },
       { label: "Core purchases", value: String(Math.round(core.purchases)), tone: "positive" },
+      ...commercialTargetEvidence(commercialTargets, row.currency === "TRY" ? "₺" : row.currency === "EUR" ? "€" : "$"),
     ],
     timeframeContext: buildTimeframeContext(
       "Core verdict says scale economics are healthy across weighted recent-to-historical windows.",
@@ -2480,23 +2512,42 @@ function maybeProfitabilityRecommendation(
   peerRoas: number,
   selectedRows: MetaCampaignRow[],
   calibrationContext?: MetaCalibrationContext | null,
+  commercialTargets?: MetaCommercialTargets | null,
 ): MetaRecommendation | null {
   const row = window.selected;
   const core = buildWeightedCampaignSnapshot(window);
   const roasThresholds = thresholdMetric(calibrationContext, "roas_28d");
+  const cpaThresholds = thresholdMetric(calibrationContext, "cpa_28d");
+  const cutCeiling = metaCutRoasCeiling(commercialTargets);
+  if (!cutCeiling) return null;
+  const totalSelectedSpend = selectedRows.reduce((sum, campaign) => sum + campaign.spend, 0);
+  const totalSelectedPurchases = selectedRows.reduce((sum, campaign) => sum + campaign.purchases, 0);
+  const accountCpaBaseline =
+    cpaThresholds.p50 > 0
+      ? cpaThresholds.p50
+      : totalSelectedPurchases > 0
+        ? totalSelectedSpend / totalSelectedPurchases
+        : null;
+  const maturity = metaLossBudgetMaturity({
+    targets: commercialTargets,
+    accountCpaBaseline,
+    currency: row.currency,
+  });
+  if (!maturity || core.spend < maturity.spendThreshold) return null;
   const weakRoasThreshold = calibrationContext
     ? roasThresholds.p25
     : Math.max(1.6, peerRoas * 0.8);
-  const totalSpend = selectedRows.reduce((sum, campaign) => sum + campaign.spend, 0);
+  const totalSpend = totalSelectedSpend;
   const spendShare = totalSpend > 0 ? row.spend / totalSpend : 0;
   if (spendShare < 0.12 && row.spend < average(selectedRows.map((campaign) => campaign.spend))) return null;
   if (core.roas >= weakRoasThreshold) return null;
+  if (core.roas >= cutCeiling) return null;
 
   const support = buildHistoricalSupport(window, (historical) => historical.roas < weakRoasThreshold);
   const seasonality = seasonalitySignal(window);
   const decision = conservativeDecision(support.supportCount, support.total, seasonality.flag);
   const severeLoser =
-    core.roas < roasThresholds.p10 && core.spend > hardCutSpend(calibrationContext);
+    core.roas < Math.min(roasThresholds.p10, cutCeiling) && core.spend >= maturity.spendThreshold;
   return applyConfidence({
     id: `profit-${row.id}`,
     level: "campaign",
@@ -2520,6 +2571,8 @@ function maybeProfitabilityRecommendation(
       { label: "Spend share", value: `${r2(spendShare * 100)}%`, tone: "warning" },
       { label: "Core ROAS", value: fmtRoas(core.roas), tone: "warning" },
       { label: "Peer-group ROAS", value: fmtRoas(peerRoas), tone: "neutral" },
+      { label: "Loss maturity spend", value: fmtCurrency(maturity.spendThreshold, row.currency === "TRY" ? "₺" : row.currency === "EUR" ? "€" : "$"), tone: "neutral" },
+      ...commercialTargetEvidence(commercialTargets, row.currency === "TRY" ? "₺" : row.currency === "EUR" ? "€" : "$"),
     ],
     timeframeContext: buildTimeframeContext(
       "Core verdict says profitability is weaker than the comparable optimization cohort.",
@@ -2757,6 +2810,7 @@ export function buildMetaRecommendations(input: {
   calibrationContext?: MetaCalibrationContext | null;
   calibrationContextByCampaignId?: Record<string, MetaCalibrationContext | null | undefined>;
   entitySignalsByCampaignId?: Record<string, MetaEntityDecisionSignal | null | undefined>;
+  commercialTargets?: MetaCommercialTargets | null;
   language?: AppLanguage;
 }): MetaRecommendationsResponse {
   const language = input.language ?? "en";
@@ -2865,13 +2919,11 @@ export function buildMetaRecommendations(input: {
     const scenario = emitHighPriorityCampaignScenario({
       window: campaignWindow,
       context: calibrationContext,
-      cohort: resolveMetaFunnelCohort({
-        optimizationGoal: campaignWindow.selected.optimizationGoal,
-        customEventType: campaignWindow.selected.customEventType,
-      }),
+      cohort: campaignFunnelCohort(campaignWindow.selected),
       campaignRole,
       bidRegime,
       signals: input.entitySignalsByCampaignId?.[campaignWindow.selected.id] ?? null,
+      commercialTargets: input.commercialTargets ?? null,
     });
     if (scenario) recommendations.push(scenario);
 
@@ -2895,6 +2947,7 @@ export function buildMetaRecommendations(input: {
       peerMetrics.roas || selectedAccount.roas,
       peerMetrics.cpa || selectedAccount.cpa,
       calibrationContext,
+      input.commercialTargets ?? null,
     );
     if (volume) recommendations.push(volume);
 
@@ -2903,6 +2956,7 @@ export function buildMetaRecommendations(input: {
       peerMetrics.roas || selectedAccount.roas,
       peerRows,
       calibrationContext,
+      input.commercialTargets ?? null,
     );
     if (profitability) recommendations.push(profitability);
   }

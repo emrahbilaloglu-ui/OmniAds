@@ -42,6 +42,14 @@ const context: MetaCalibrationContext = {
 };
 
 const purchaseCohort = "purchase" as const;
+const commercialTargets = {
+  source: "configured_targets" as const,
+  targetRoas: 2.2,
+  breakEvenRoas: 1.4,
+  targetCpa: 100,
+  breakEvenCpa: 140,
+  riskPosture: "balanced" as const,
+};
 
 function campaign(overrides: Partial<MetaCampaignRow> = {}): MetaCampaignRow {
   return {
@@ -210,10 +218,10 @@ function signal(overrides: Partial<MetaEntityDecisionSignal> = {}): MetaEntityDe
 
 describe("high priority Meta scenario emitters", () => {
   it.each([
-    ["C1", () => maybeC1ControlledScale({ window: windowFor(campaign({ roas: 3.4, purchases: 20 })), context, cohort: purchaseCohort })],
-    ["B1", () => maybeB1CappedBidRaise({ window: windowFor(campaign({ bidStrategyType: "cost_cap", bidValue: 5000, roas: 2.4, dailyBudget: 500, spend: 1000 })), context, cohort: purchaseCohort })],
+    ["C1", () => maybeC1ControlledScale({ window: windowFor(campaign({ roas: 3.4, purchases: 20 })), context, cohort: purchaseCohort, commercialTargets })],
+    ["B1", () => maybeB1CappedBidRaise({ window: windowFor(campaign({ bidStrategyType: "cost_cap", bidValue: 5000, roas: 2.4, dailyBudget: 500, spend: 1000 })), context, cohort: purchaseCohort, commercialTargets })],
     ["J1", () => maybeJ1StableWinnerProtected({ window: windowFor(campaign({ roas: 3.4, purchases: 20 })), context, cohort: purchaseCohort })],
-    ["A2", () => maybeA2StructuralRebuild({ window: windowFor(campaign({ roas: 0.7, spend: 500, purchases: 2 })), context, cohort: purchaseCohort, signals: signal() })],
+    ["A2", () => maybeA2StructuralRebuild({ window: windowFor(campaign({ roas: 0.7, spend: 500, purchases: 2 })), context, cohort: purchaseCohort, signals: signal(), commercialTargets })],
     ["F1", () => maybeF1SuddenRoasDrop({ window: windowFor(campaign({ roas: 2.4 }), { last7: campaign({ roas: 1, spend: 500 }) }), context, cohort: purchaseCohort })],
     ["F4", () => maybeF4StableWinnerFade({ window: windowFor(campaign({ roas: 2, ctr: 1 }), { last30: campaign({ roas: 2 }), last90: campaign({ roas: 3, ctr: 2 }) }), context, cohort: purchaseCohort })],
     ["E2", () => maybeE2CtrDecay({ window: windowFor(campaign({ ctr: 1 }), { last7: campaign({ ctr: 1, spend: 800 }), last14: campaign({ ctr: 1.4 }) }), context, cohort: purchaseCohort, signals: signal({ ctrDecayPct: -22 }) })],
@@ -260,7 +268,17 @@ describe("high priority Meta scenario emitters", () => {
       window: windowFor(campaign({ roas: 3.4, purchases: 20 })),
       context,
       cohort: purchaseCohort,
+      commercialTargets,
       signals: signal({ daysSinceSignificantEdit: 2, lastSignificantEditAt: "2026-05-06T00:00:00.000Z" }),
+    });
+    expect(rec).toBeNull();
+  });
+
+  it("does not emit controlled scale without a commercial target anchor", () => {
+    const rec = maybeC1ControlledScale({
+      window: windowFor(campaign({ roas: 3.4, purchases: 20 })),
+      context,
+      cohort: purchaseCohort,
     });
     expect(rec).toBeNull();
   });
@@ -280,6 +298,7 @@ describe("high priority Meta scenario emitters", () => {
       window: windowFor(campaign({ roas: 2.5, purchases: 20 })),
       context,
       cohort: purchaseCohort,
+      commercialTargets,
     });
     expect(rec).toBeNull();
   });
@@ -299,6 +318,7 @@ describe("high priority Meta scenario emitters", () => {
       window: windowFor(campaign({ roas: 3.4, purchases: 20 })),
       context: thinContext,
       cohort: purchaseCohort,
+      commercialTargets,
     });
     expect(rec).toBeNull();
   });
@@ -308,6 +328,7 @@ describe("high priority Meta scenario emitters", () => {
       window: windowFor(campaign({ roas: 3.4, purchases: 20 })),
       context,
       cohort: "upper_funnel",
+      commercialTargets,
     });
     expect(rec).toBeNull();
   });
@@ -371,6 +392,7 @@ describe("high priority Meta scenario emitters", () => {
       window: windowFor(campaign({ roas: 3.4, purchases: 20 })),
       context,
       cohort: purchaseCohort,
+      commercialTargets,
     });
     expect(rec?.type).toBe("scenario_c1_controlled_scale");
   });

@@ -24,6 +24,12 @@ import {
 } from "@/lib/meta/evidence-trail";
 import { buildMetaAdsetRecommendations } from "@/lib/meta/adset-decisions";
 import { buildMetaEntityStateRows } from "@/lib/meta/engine-v1/state-rows";
+import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
+import {
+  applyMetaCampaignLabelGuard,
+  buildMetaCampaignLabelKindMap,
+  type MetaCampaignLabelKindMap,
+} from "@/lib/meta/campaign-label-guard";
 import { readMetaEntityDecisionSignalsDaily } from "@/lib/meta/entity-signals";
 import { runMetaSignalsBackfillForBusiness } from "@/lib/meta/entity-signals-backfill";
 import { decisionLabelForMetaRec } from "@/lib/meta/rec-label-mapping";
@@ -148,6 +154,20 @@ function confidenceLabel(score: number): MetaRecommendationConfidence {
   if (score >= 0.7) return "high";
   if (score >= 0.55) return "medium";
   return "low";
+}
+
+async function readCampaignLabelKindMap(input: {
+  businessId: string;
+  campaignIds?: string[] | null;
+}): Promise<MetaCampaignLabelKindMap> {
+  const labels = await readMetaCampaignLabels(input).catch((error) => {
+    console.warn("[meta-snapshot] campaign_label_read_failed", {
+      businessId: input.businessId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return [];
+  });
+  return buildMetaCampaignLabelKindMap(labels);
 }
 
 function scopeForRecommendation(recommendation: MetaRecommendation, businessId: string) {
@@ -633,6 +653,11 @@ async function buildSnapshotRecommendations(input: {
   });
 
   const campaigns = selectedCampaigns.rows ?? [];
+  const campaignIds = campaigns.map((campaign) => campaign.id);
+  const campaignLabelsById = await readCampaignLabelKindMap({
+    businessId: input.businessId,
+    campaignIds,
+  });
   const entitySignals = await readMetaEntityDecisionSignalsDaily({
     businessId: input.businessId,
     asOfDate: endDate,
@@ -657,7 +682,7 @@ async function buildSnapshotRecommendations(input: {
       await readMetaBidRegimeHistorySummaries({
         businessId: input.businessId,
         entityLevel: "campaign",
-        entityIds: campaigns.map((row) => row.id),
+        entityIds: campaignIds,
       })
     ).entries(),
   );
@@ -685,7 +710,7 @@ async function buildSnapshotRecommendations(input: {
     businessId: input.businessId,
     startDate,
     endDate,
-    campaignIds: campaigns.map((campaign) => campaign.id),
+    campaignIds,
   });
   const adsetRecommendations = buildMetaAdsetRecommendations({
     adsets: adsetRows.rows ?? [],
@@ -699,9 +724,14 @@ async function buildSnapshotRecommendations(input: {
     adsets: adsetRows.rows ?? [],
     calibrationContext: contexts.accountContext,
     calibrationContextByCampaignId: contexts.byCampaignId,
+    campaignLabelsById,
   });
 
-  return [...stateRows, ...campaignRecommendations, ...adsetRecommendations];
+  return applyMetaCampaignLabelGuard({
+    recommendations: [...stateRows, ...campaignRecommendations, ...adsetRecommendations],
+    campaignLabelsById,
+    activeCampaignIds: campaignIds,
+  }).recommendations;
 }
 
 export async function runMetaSnapshotForBusiness(
@@ -1018,7 +1048,23 @@ export async function readMetaDecisionSnapshotForRange(input: {
   `) as SnapshotDbRow[];
 
   if (rows.length === 0) return null;
-  const recommendations = rows.map(hydrateRecommendation);
+  const hydratedRecommendations = rows.map(hydrateRecommendation);
+  const campaignIds = Array.from(
+    new Set(
+      hydratedRecommendations
+        .map((recommendation) => recommendation.campaignId)
+        .filter((campaignId): campaignId is string => Boolean(campaignId)),
+    ),
+  );
+  const campaignLabelsById = await readCampaignLabelKindMap({
+    businessId: input.businessId,
+    campaignIds,
+  });
+  const recommendations = applyMetaCampaignLabelGuard({
+    recommendations: hydratedRecommendations,
+    campaignLabelsById,
+    activeCampaignIds: campaignIds,
+  }).recommendations;
   return {
     status: "ok",
     businessId: input.businessId,

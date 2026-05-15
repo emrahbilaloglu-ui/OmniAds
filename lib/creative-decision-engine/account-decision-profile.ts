@@ -17,13 +17,23 @@ import {
 import type {
   AccountCalibration,
   AccountDecisionProfile,
+  CalibrationCampaignKind,
   DecisionProfileScope,
   EngineMultiplierSet,
   EngineRiskPreset,
   EngineThresholdSet,
+  HardActionEligibility,
   MetaAovQuality,
+  SpendUnitProfile,
   ThresholdQuality,
 } from "./types";
+
+const CALIBRATION_CAMPAIGN_KINDS: CalibrationCampaignKind[] = [
+  "all",
+  "main",
+  "test",
+  "mixed",
+];
 
 function positiveFinite(value: number | null | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
@@ -124,6 +134,62 @@ function purchaseThreshold(
   return Math.max(1, Math.ceil(raw * multiplier));
 }
 
+function emptyByKind<T>(): Record<CalibrationCampaignKind, T | null> {
+  return {
+    all: null,
+    main: null,
+    test: null,
+    mixed: null,
+  };
+}
+
+function buildEngineThresholds(input: {
+  spendUnit: number | null;
+  multipliers: EngineMultiplierSet;
+  accountBaselines: AccountCalibration;
+}): EngineThresholdSet {
+  return {
+    zeroConvBurnerSpend: spendThreshold(
+      input.spendUnit,
+      input.multipliers.zeroConvBurner,
+    ),
+    cutCandidateSpend: spendThreshold(
+      input.spendUnit,
+      input.multipliers.cutCandidate,
+    ),
+    sustainedLoserSpend: spendThreshold(
+      input.spendUnit,
+      input.multipliers.sustainedLoser,
+    ),
+    hardCutSpend: spendThreshold(
+      input.spendUnit,
+      input.multipliers.hardCut,
+    ),
+    recentSampleMinSpend: spendThreshold(
+      input.spendUnit,
+      input.multipliers.recentSample,
+    ),
+    scaleMinEvidenceSpend: spendThreshold(
+      input.spendUnit,
+      input.multipliers.scaleEvidence,
+    ),
+    winnerMemoryMinSpend: spendThreshold(
+      input.spendUnit,
+      input.multipliers.winnerMemory,
+    ),
+    scaleMinPurchases: purchaseThreshold(
+      input.accountBaselines.winnerPurchaseP50,
+      input.multipliers.scalePurchase,
+    ),
+    winnerMemoryMinPurchases: purchaseThreshold(
+      input.accountBaselines.winnerPurchaseP50,
+      input.multipliers.winnerMemory,
+    ),
+    bottomQuartileRatio: input.accountBaselines.roasRatioP25,
+    severeLoserRatio: input.accountBaselines.roasRatioP10,
+  };
+}
+
 function resolveThresholdQuality(input: {
   spendUnit: number | null;
   confidence: AccountDecisionProfile["spendUnitConfidence"];
@@ -140,6 +206,92 @@ function hardActionReason(input: {
   metaAovQuality: MetaAovQuality;
 }): string {
   return `threshold baseline ${input.source} has ${input.confidence} confidence (meta AOV ${input.metaAovQuality})`;
+}
+
+function resolveSpendUnitProfile(input: {
+  targetPack: BusinessTargetPack | null;
+  accountBaselines: AccountCalibration;
+  attributionAovAdjustmentMultiplier: number;
+}): SpendUnitProfile {
+  const resolution = resolveSpendUnit({
+    targetCpa: input.targetPack?.targetCpa ?? null,
+    operatorAovAssumption: input.targetPack?.operatorAovAssumption ?? null,
+    metaAttributedAovMean90d: input.accountBaselines.metaAttributedAovMean90d,
+    metaAttributedAovPurchaseCount90d:
+      input.accountBaselines.metaAttributedAovPurchaseCount90d,
+    metaAttributedRevenue90d: input.accountBaselines.metaAttributedRevenue90d,
+    targetRoas: input.targetPack?.targetRoas ?? null,
+    breakEvenRoas: input.targetPack?.breakEvenRoas ?? null,
+    accountCpaP50: input.accountBaselines.accountCpaP50,
+    accountCpaSampleCount: input.accountBaselines.accountCpaSampleCount,
+    attributionAovAdjustmentMultiplier:
+      input.attributionAovAdjustmentMultiplier,
+  });
+
+  return {
+    spendUnit: resolution.spendUnit,
+    spendUnitSource: resolution.source,
+    spendUnitConfidence: resolution.confidence,
+    spendUnitEvidence: resolution.evidence,
+    hardEligibleByDefault: resolution.hardEligibleByDefault,
+  };
+}
+
+function resolveHardActionEligibility(input: {
+  spendUnitProfile: SpendUnitProfile;
+  metaAovQuality: MetaAovQuality;
+  shadowOnly: boolean;
+}): HardActionEligibility {
+  if (input.shadowOnly) {
+    return {
+      scale: false,
+      cut: false,
+      refresh: false,
+      reason: "shadow_only",
+    };
+  }
+
+  const hardEligible =
+    input.spendUnitProfile.hardEligibleByDefault &&
+    (input.spendUnitProfile.spendUnitConfidence === "high" ||
+      (input.spendUnitProfile.spendUnitConfidence === "medium" &&
+        input.metaAovQuality === "ready"));
+
+  return {
+    scale: hardEligible,
+    cut: hardEligible,
+    refresh: hardEligible,
+    reason: hardEligible
+      ? null
+      : hardActionReason({
+          source: input.spendUnitProfile.spendUnitSource,
+          confidence: input.spendUnitProfile.spendUnitConfidence,
+          metaAovQuality: input.metaAovQuality,
+        }),
+  };
+}
+
+function withAovFallback(input: {
+  calibration: AccountCalibration;
+  fallback: AccountCalibration;
+}): AccountCalibration {
+  const purchaseCount =
+    input.calibration.metaAttributedAovPurchaseCount90d ||
+    input.fallback.metaAttributedAovPurchaseCount90d;
+  return {
+    ...input.calibration,
+    metaAttributedAovMean90d:
+      input.calibration.metaAttributedAovMean90d ??
+      input.fallback.metaAttributedAovMean90d,
+    metaAttributedAovPurchaseCount90d: purchaseCount,
+    metaAttributedRevenue90d:
+      input.calibration.metaAttributedRevenue90d ||
+      input.fallback.metaAttributedRevenue90d,
+    metaAovQuality:
+      input.calibration.metaAovQuality !== "unavailable"
+        ? input.calibration.metaAovQuality
+        : classifyMetaAovQuality(purchaseCount),
+  };
 }
 
 export async function resolveAccountDecisionProfile(input: {
@@ -165,6 +317,28 @@ export async function resolveAccountDecisionProfile(input: {
     businessId: input.businessId,
     asOf: input.asOf,
   });
+  const accountBaselinesByKindPromise =
+    input.dataSource.getAccountCalibrationAllKinds
+      ? input.dataSource
+          .getAccountCalibrationAllKinds({
+            businessId: input.businessId,
+            asOf: input.asOf,
+          })
+          .catch(() => undefined)
+      : Promise.resolve(undefined);
+  const funnelCalibrationByKindPromise =
+    input.dataSource.getAccountFunnelCalibrationAllKinds
+      ? input.dataSource
+          .getAccountFunnelCalibrationAllKinds({
+            businessId: input.businessId,
+            asOf: input.asOf,
+          })
+          .catch(() => undefined)
+      : Promise.resolve(undefined);
+  const [accountBaselinesByKind, funnelCalibrationByKind] = await Promise.all([
+    accountBaselinesByKindPromise,
+    funnelCalibrationByKindPromise,
+  ]);
 
   const needsLiveMetaAov =
     accountCalibration.metaAttributedAovMean90d === null ||
@@ -201,6 +375,20 @@ export async function resolveAccountDecisionProfile(input: {
     metaAttributedRevenue90d,
     metaAovQuality,
   };
+  const resolvedAccountBaselinesByKind = accountBaselinesByKind
+    ? CALIBRATION_CAMPAIGN_KINDS.reduce<
+        Record<CalibrationCampaignKind, AccountCalibration | null>
+      >((acc, campaignKind) => {
+        const calibration = accountBaselinesByKind[campaignKind];
+        acc[campaignKind] = calibration
+          ? withAovFallback({
+              calibration,
+              fallback: accountBaselinesWithAov,
+            })
+          : null;
+        return acc;
+      }, emptyByKind<AccountCalibration>())
+    : undefined;
   const scopedCalibration = await resolveScopedCalibration({
     businessId: input.businessId,
     asOf: input.asOf,
@@ -214,16 +402,9 @@ export async function resolveAccountDecisionProfile(input: {
     1.0,
     profileConfig?.attributionAovAdjustmentMultiplier,
   );
-  const spendUnitResolution = resolveSpendUnit({
-    targetCpa: targetPack?.targetCpa ?? null,
-    operatorAovAssumption: targetPack?.operatorAovAssumption ?? null,
-    metaAttributedAovMean90d,
-    metaAttributedAovPurchaseCount90d,
-    metaAttributedRevenue90d,
-    targetRoas: targetPack?.targetRoas ?? null,
-    breakEvenRoas: targetPack?.breakEvenRoas ?? null,
-    accountCpaP50: accountBaselines.accountCpaP50,
-    accountCpaSampleCount: accountBaselines.accountCpaSampleCount,
+  const canonicalSpendUnitProfile = resolveSpendUnitProfile({
+    targetPack,
+    accountBaselines,
     attributionAovAdjustmentMultiplier,
   });
   const flags =
@@ -235,72 +416,60 @@ export async function resolveAccountDecisionProfile(input: {
     presetOverride: flags.presetOverride ?? null,
   });
   const multipliers = mergeMultipliers({ preset, profileConfig });
-  const thresholds: EngineThresholdSet = {
-    zeroConvBurnerSpend: spendThreshold(
-      spendUnitResolution.spendUnit,
-      multipliers.zeroConvBurner,
-    ),
-    cutCandidateSpend: spendThreshold(
-      spendUnitResolution.spendUnit,
-      multipliers.cutCandidate,
-    ),
-    sustainedLoserSpend: spendThreshold(
-      spendUnitResolution.spendUnit,
-      multipliers.sustainedLoser,
-    ),
-    hardCutSpend: spendThreshold(
-      spendUnitResolution.spendUnit,
-      multipliers.hardCut,
-    ),
-    recentSampleMinSpend: spendThreshold(
-      spendUnitResolution.spendUnit,
-      multipliers.recentSample,
-    ),
-    scaleMinEvidenceSpend: spendThreshold(
-      spendUnitResolution.spendUnit,
-      multipliers.scaleEvidence,
-    ),
-    winnerMemoryMinSpend: spendThreshold(
-      spendUnitResolution.spendUnit,
-      multipliers.winnerMemory,
-    ),
-    scaleMinPurchases: purchaseThreshold(
-      accountBaselines.winnerPurchaseP50,
-      multipliers.scalePurchase,
-    ),
-    winnerMemoryMinPurchases: purchaseThreshold(
-      accountBaselines.winnerPurchaseP50,
-      multipliers.winnerMemory,
-    ),
-    bottomQuartileRatio: accountBaselines.roasRatioP25,
-    severeLoserRatio: accountBaselines.roasRatioP10,
-  };
+  const thresholds = buildEngineThresholds({
+    spendUnit: canonicalSpendUnitProfile.spendUnit,
+    multipliers,
+    accountBaselines,
+  });
+  const finalHardActionEligibility = resolveHardActionEligibility({
+    spendUnitProfile: canonicalSpendUnitProfile,
+    metaAovQuality,
+    shadowOnly: flags.shadowOnly,
+  });
+  const spendUnitByKind =
+    resolvedAccountBaselinesByKind === undefined
+      ? undefined
+      : emptyByKind<SpendUnitProfile>();
+  const thresholdsByKind =
+    resolvedAccountBaselinesByKind === undefined
+      ? undefined
+      : emptyByKind<EngineThresholdSet>();
+  const hardActionEligibilityByKind =
+    resolvedAccountBaselinesByKind === undefined
+      ? undefined
+      : emptyByKind<HardActionEligibility>();
 
-  const hardEligible =
-    spendUnitResolution.hardEligibleByDefault &&
-    (spendUnitResolution.confidence === "high" ||
-      (spendUnitResolution.confidence === "medium" &&
-        metaAovQuality === "ready"));
-  const hardActionEligibility = {
-    scale: hardEligible,
-    cut: hardEligible,
-    refresh: hardEligible,
-    reason: hardEligible
-      ? null
-      : hardActionReason({
-          source: spendUnitResolution.source,
-          confidence: spendUnitResolution.confidence,
-          metaAovQuality,
-        }),
-  };
-  const finalHardActionEligibility = flags.shadowOnly
-    ? {
-        scale: false,
-        cut: false,
-        refresh: false,
-        reason: "shadow_only",
-      }
-    : hardActionEligibility;
+  if (
+    resolvedAccountBaselinesByKind !== undefined &&
+    spendUnitByKind !== undefined &&
+    thresholdsByKind !== undefined &&
+    hardActionEligibilityByKind !== undefined
+  ) {
+    for (const campaignKind of CALIBRATION_CAMPAIGN_KINDS) {
+      const calibration =
+        campaignKind === "all"
+          ? accountBaselines
+          : resolvedAccountBaselinesByKind[campaignKind];
+      if (calibration === null) continue;
+      const spendUnitProfile = resolveSpendUnitProfile({
+        targetPack,
+        accountBaselines: calibration,
+        attributionAovAdjustmentMultiplier,
+      });
+      spendUnitByKind[campaignKind] = spendUnitProfile;
+      thresholdsByKind[campaignKind] = buildEngineThresholds({
+        spendUnit: spendUnitProfile.spendUnit,
+        multipliers,
+        accountBaselines: calibration,
+      });
+      hardActionEligibilityByKind[campaignKind] =
+        resolveHardActionEligibility({
+          spendUnitProfile,
+          metaAovQuality: calibration.metaAovQuality,
+          shadowOnly: flags.shadowOnly,
+        });
+    }
+  }
 
   return {
     businessId: input.businessId,
@@ -309,14 +478,19 @@ export async function resolveAccountDecisionProfile(input: {
     objectiveFamily: "sales",
     preset,
     presetSource,
-    spendUnit: spendUnitResolution.spendUnit,
-    spendUnitSource: spendUnitResolution.source,
-    spendUnitConfidence: spendUnitResolution.confidence,
-    spendUnitEvidence: spendUnitResolution.evidence,
+    spendUnit: canonicalSpendUnitProfile.spendUnit,
+    spendUnitSource: canonicalSpendUnitProfile.spendUnitSource,
+    spendUnitConfidence: canonicalSpendUnitProfile.spendUnitConfidence,
+    spendUnitEvidence: canonicalSpendUnitProfile.spendUnitEvidence,
     multipliers,
     thresholds,
     accountBaselines,
     funnelCalibration,
+    accountBaselinesByKind: resolvedAccountBaselinesByKind,
+    spendUnitByKind,
+    thresholdsByKind,
+    hardActionEligibilityByKind,
+    funnelCalibrationByKind,
     scope: scopedCalibration.scope,
     hardActionEligibility: finalHardActionEligibility,
     quality: {
@@ -324,8 +498,8 @@ export async function resolveAccountDecisionProfile(input: {
       calibrationReady: accountBaselines.matureCreativeCount >= 30,
       metaAovQuality,
       thresholdQuality: resolveThresholdQuality({
-        spendUnit: spendUnitResolution.spendUnit,
-        confidence: spendUnitResolution.confidence,
+        spendUnit: canonicalSpendUnitProfile.spendUnit,
+        confidence: canonicalSpendUnitProfile.spendUnitConfidence,
       }),
     },
   };

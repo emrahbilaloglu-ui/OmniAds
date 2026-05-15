@@ -12,6 +12,7 @@ import {
 } from "@/components/common/briefing";
 import {
   BadgeChip,
+  CampaignKindChip,
   CtrBar,
   FatigueDot,
   MetricDivider,
@@ -109,6 +110,7 @@ export function ActionNowCard({
                 <h3 className={`${conf.textWeight} text-slate-900 text-[14px] truncate`}>
                   {name}
                 </h3>
+                <CampaignKindChip card={card} />
                 <span className="text-[10.5px] uppercase tracking-wider text-slate-400 font-medium">
                   {card.brand || "Brand"}
                 </span>

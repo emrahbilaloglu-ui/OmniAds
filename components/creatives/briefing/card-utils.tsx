@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import {
   Activity,
   ArrowRight,
+  AlertTriangle,
   Clock,
   Database,
   FileText,
@@ -116,6 +117,18 @@ export function Thumb({
 }
 
 export function BadgeChip({ label }: { label: DecisionLabel | string }) {
+  if (label === "unlabeled_campaign_context") {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800"
+        title="Campaign label missing. Mark this campaign as Main, Test, or Mixed before hard actions."
+      >
+        <AlertTriangle className="inline-block shrink-0" size={11} aria-hidden="true" />
+        campaign label
+      </span>
+    );
+  }
+
   const safeLabel = asDecisionLabel(label);
   const Icon = safeLabel === "below_breakeven" ? TrendingDown : ZapOff;
 
@@ -124,6 +137,58 @@ export function BadgeChip({ label }: { label: DecisionLabel | string }) {
       <Icon className="inline-block shrink-0" size={11} aria-hidden="true" />
       {safeLabel.replace(/_/g, " ")}
     </DecisionLabelChip>
+  );
+}
+
+export function CampaignKindChip({
+  card,
+}: {
+  card: Pick<
+    BriefingCreativeCard,
+    "campaignKind" | "campaignLabelStatus" | "campaignTestDimension" | "blockedActionType"
+  >;
+}) {
+  if (card.campaignLabelStatus === "no_campaign") return null;
+
+  if (card.campaignLabelStatus === "unlabeled") {
+    const detail = card.blockedActionType
+      ? `Engine wanted ${card.blockedActionType}, blocked until Main/Test/Mixed is labeled.`
+      : "Campaign label missing.";
+    return (
+      <span
+        className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
+        title={detail}
+      >
+        Unlabeled
+      </span>
+    );
+  }
+
+  if (!card.campaignKind) return null;
+
+  const label =
+    card.campaignKind === "main"
+      ? "Main"
+      : card.campaignKind === "test"
+        ? "Test"
+        : "Mixed";
+  const tone =
+    card.campaignKind === "main"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : card.campaignKind === "test"
+        ? "border-sky-200 bg-sky-50 text-sky-700"
+        : "border-violet-200 bg-violet-50 text-violet-700";
+  const detail = card.campaignTestDimension
+    ? `${label}: ${card.campaignTestDimension}`
+    : label;
+
+  return (
+    <span
+      className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold ${tone}`}
+      title={detail}
+    >
+      {label}
+    </span>
   );
 }
 

@@ -40,6 +40,10 @@ vi.mock("@/lib/meta/config-snapshots", () => ({
   readMetaBidRegimeHistorySummaries: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/campaign-labels", () => ({
+  readMetaCampaignLabels: vi.fn(async () => []),
+}));
+
 vi.mock("@/lib/meta/anomalies", () => ({
   detectAnomaliesForBusiness: vi.fn(),
 }));
@@ -63,6 +67,7 @@ const campaignSource = await import("@/lib/meta/campaigns-source");
 const adsetsSource = await import("@/lib/meta/adsets-source");
 const breakdownsSource = await import("@/lib/meta/breakdowns-source");
 const configSnapshots = await import("@/lib/meta/config-snapshots");
+const campaignLabels = await import("@/lib/meta/campaign-labels");
 const anomalies = await import("@/lib/meta/anomalies");
 const evidenceTrail = await import("@/lib/meta/evidence-trail");
 const entitySignals = await import("@/lib/meta/entity-signals");
@@ -171,6 +176,7 @@ describe("meta snapshot job", () => {
       products: { available: false },
     } as never);
     vi.mocked(configSnapshots.readMetaBidRegimeHistorySummaries).mockResolvedValue(new Map());
+    vi.mocked(campaignLabels.readMetaCampaignLabels).mockResolvedValue([]);
     vi.mocked(anomalies.detectAnomaliesForBusiness).mockResolvedValue([]);
     vi.mocked(entitySignals.readMetaEntityDecisionSignalsDaily).mockResolvedValue(new Map());
     vi.mocked(entitySignalsBackfill.runMetaSignalsBackfillForBusiness).mockResolvedValue({
@@ -517,6 +523,108 @@ describe("meta snapshot job", () => {
       campaignRole: "retargeting",
       bidRegime: "lowest_cost",
     });
+  });
+
+  it("guards pre-existing persisted hard actions at read time when campaign label is missing", async () => {
+    const sql = makeSqlMock([
+      {
+        scope_type: "campaign",
+        scope_id: "cmp_1",
+        business_id: "biz_1",
+        snapshot_date: "2026-05-06",
+        rec_id: "scale-cmp_1",
+        rec_type: "scale_for_volume",
+        level: "campaign",
+        decision_state: "act",
+        confidence_score: "0.9",
+        evidence: { items: [] },
+        recommended_action: "Increase budget 10-15%.",
+        target_value: null,
+        expected_impact: "More volume.",
+        reasoning: "Strong scale signal.",
+        predictive_overlay: "Persisted snapshot.",
+        engine_version: "v1.0.0",
+        evidence_trail: {},
+        campaign_role: "prospecting_scale",
+        bid_regime: "lowest_cost",
+        created_at: "2026-05-06T03:00:00.000Z",
+      },
+    ]);
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+    vi.mocked(campaignLabels.readMetaCampaignLabels).mockResolvedValue([]);
+
+    const result = await readMetaDecisionSnapshotForRange({
+      businessId: "biz_1",
+      startDate: "2026-05-01",
+      endDate: "2026-05-06",
+    });
+
+    expect(result?.recommendations[0]).toMatchObject({
+      kind: "state",
+      decisionState: "watch",
+      decisionLabel: "diagnose",
+      confidence: "low",
+      confidenceReason: "unlabeled_campaign_soft_only",
+      signalQuality: {
+        label_status: "unlabeled",
+        blocked_action_type: "scale_for_volume",
+      },
+    });
+  });
+
+  it("keeps persisted hard actions when the campaign label exists", async () => {
+    const sql = makeSqlMock([
+      {
+        scope_type: "campaign",
+        scope_id: "cmp_1",
+        business_id: "biz_1",
+        snapshot_date: "2026-05-06",
+        rec_id: "scale-cmp_1",
+        rec_type: "scale_for_volume",
+        level: "campaign",
+        decision_state: "act",
+        confidence_score: "0.9",
+        evidence: { items: [] },
+        recommended_action: "Increase budget 10-15%.",
+        target_value: null,
+        expected_impact: "More volume.",
+        reasoning: "Strong scale signal.",
+        predictive_overlay: "Persisted snapshot.",
+        engine_version: "v1.0.0",
+        evidence_trail: {},
+        campaign_role: "prospecting_scale",
+        bid_regime: "lowest_cost",
+        created_at: "2026-05-06T03:00:00.000Z",
+      },
+    ]);
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+    vi.mocked(campaignLabels.readMetaCampaignLabels).mockResolvedValue([
+      {
+        businessId: "biz_1",
+        campaignId: "cmp_1",
+        kind: "main",
+        testDimension: null,
+        source: "user",
+        providerAccountId: "act_1",
+        campaignName: "Campaign 1",
+        labeledBy: "user_1",
+        labeledAt: "2026-05-15T00:00:00.000Z",
+        updatedAt: "2026-05-15T00:00:00.000Z",
+      },
+    ]);
+
+    const result = await readMetaDecisionSnapshotForRange({
+      businessId: "biz_1",
+      startDate: "2026-05-01",
+      endDate: "2026-05-06",
+    });
+
+    expect(result?.recommendations[0]).toMatchObject({
+      type: "scale_for_volume",
+      decisionState: "act",
+      confidence: "high",
+    });
+    expect(result?.recommendations[0]?.confidenceReason).not.toBe("unlabeled_campaign_soft_only");
   });
 
   it("marks previously active anomalies resolved when absent on rerun", async () => {

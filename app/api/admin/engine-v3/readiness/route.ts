@@ -309,6 +309,7 @@ async function readMatureCount(db: DbClient, businessId: string) {
     WHERE (business_ref_id::text = $1 OR business_id = $1)
       AND scope_type = 'account'
       AND scope_id = '*'
+      AND campaign_kind = 'all'
       AND creative_format = 'overall'
     ORDER BY as_of_date DESC, computed_at DESC
     LIMIT 1
@@ -322,6 +323,36 @@ async function readMatureCount(db: DbClient, businessId: string) {
 async function readDecisionsSummary(db: DbClient, businessId: string) {
   const [row] = await db.query<DecisionsSummaryRow>(
     `
+    WITH snapshots AS (
+      SELECT *
+      FROM engine_v3_decision_snapshots_daily
+      WHERE business_ref_id::text = $1 OR business_id = $1
+    ),
+    guarded AS (
+      SELECT
+        snapshots.computed_at,
+        CASE
+          WHEN snapshots.label IN ('scale', 'refresh', 'cut')
+            AND lifecycle.campaign_id IS NOT NULL
+            AND labels.campaign_id IS NULL
+          THEN 'diagnose'
+          ELSE snapshots.label
+        END AS label
+      FROM snapshots
+      LEFT JOIN LATERAL (
+        SELECT lifecycle.campaign_id
+        FROM engine_v3_creative_lifecycle_daily lifecycle
+        WHERE lifecycle.business_ref_id = snapshots.business_ref_id
+          AND lifecycle.creative_id = snapshots.creative_id
+          AND lifecycle.engine_version = snapshots.engine_version
+          AND lifecycle.as_of_date <= snapshots.as_of_date
+        ORDER BY lifecycle.as_of_date DESC, lifecycle.computed_at DESC
+        LIMIT 1
+      ) lifecycle ON true
+      LEFT JOIN meta_campaign_labels labels
+        ON labels.business_id = COALESCE(snapshots.business_id, snapshots.business_ref_id::text)
+       AND labels.campaign_id = lifecycle.campaign_id
+    )
     SELECT
       COUNT(*) FILTER (WHERE computed_at > NOW() - INTERVAL '24 hours') AS last_24h,
       COUNT(*) FILTER (WHERE computed_at > NOW() - INTERVAL '7 days') AS last_7d,
@@ -333,8 +364,7 @@ async function readDecisionsSummary(db: DbClient, businessId: string) {
         WHERE computed_at > NOW() - INTERVAL '24 hours'
           AND label IN ('scale', 'refresh', 'cut')
       ) AS hard_action_count
-    FROM engine_v3_decision_snapshots_daily
-    WHERE business_ref_id::text = $1 OR business_id = $1
+    FROM guarded
     `,
     [businessId],
   );

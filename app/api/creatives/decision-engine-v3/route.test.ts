@@ -6,6 +6,7 @@ import {
   type EngineV3Flags,
 } from "@/lib/creative-decision-engine";
 import { requireBusinessAccess } from "@/lib/access";
+import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
 import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
 import { resolveDataSource } from "./data-source";
 import { GET } from "./route";
@@ -16,6 +17,10 @@ vi.mock("@/lib/access", () => ({
 
 vi.mock("@/lib/creative-decision-engine/feature-flags", () => ({
   resolveEngineV3Flags: vi.fn(),
+}));
+
+vi.mock("@/lib/meta/campaign-labels", () => ({
+  readMetaCampaignLabels: vi.fn(),
 }));
 
 const previousDataSourceFlag = process.env.DECISION_ENGINE_V3_DATA_SOURCE;
@@ -79,6 +84,20 @@ function mockAccessError(status: 401 | 403) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockBusinessAccess();
+  vi.mocked(readMetaCampaignLabels).mockResolvedValue([
+    {
+      businessId: "biz-1",
+      campaignId: "mock-campaign-001",
+      kind: "main",
+      testDimension: null,
+      source: "user",
+      providerAccountId: null,
+      campaignName: null,
+      labeledBy: "user-1",
+      labeledAt: "2026-05-04T00:00:00.000Z",
+      updatedAt: "2026-05-04T00:00:00.000Z",
+    },
+  ]);
   vi.mocked(resolveEngineV3Flags).mockImplementation(async (businessId) =>
     makeFlags({ businessId: String(businessId) }),
   );
@@ -125,6 +144,8 @@ describe("GET /api/creatives/decision-engine-v3", () => {
     });
     expect(payload.scope).toEqual({ type: "account", id: "*" });
     expect(payload.decisions).toHaveLength(3);
+    expect(payload.decisions[0]?.campaignLabelStatus).toBe("labeled");
+    expect(payload.decisions[0]?.campaignKind).toBe("main");
     expect(requireBusinessAccess).toHaveBeenCalledWith({
       request: expect.any(NextRequest),
       businessId: "biz-1",
@@ -149,6 +170,28 @@ describe("GET /api/creatives/decision-engine-v3", () => {
     });
     expect(payload.accountProfile.scope).toEqual(payload.scope);
     expect(payload.decisions).toHaveLength(3);
+  });
+
+  it("adds missing campaign label context when labels are absent", async () => {
+    process.env.DECISION_ENGINE_V3_DATA_SOURCE = "mock";
+    vi.mocked(readMetaCampaignLabels).mockResolvedValue([]);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/decision-engine-v3?businessId=biz-1&asOf=2026-05-04",
+      ),
+    );
+    const payload = (await response.json()) as DecisionResponse;
+
+    expect(response.status).toBe(200);
+    expect(payload.decisions[0]).toMatchObject({
+      campaignLabelStatus: "unlabeled",
+      campaignKind: null,
+      blockedActionType: null,
+    });
+    expect(payload.decisions[0]?.badges.map((badge) => badge.type)).toContain(
+      "unlabeled_campaign_context",
+    );
   });
 
   it("returns 403 for an authenticated user with no membership", async () => {

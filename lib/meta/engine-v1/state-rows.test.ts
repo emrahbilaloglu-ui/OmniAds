@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { MetaAdSetData } from "@/lib/api/meta";
+import { buildMetaCampaignLabelKindMap } from "@/lib/meta/campaign-label-guard";
 import { buildMetaEntityStateRows } from "@/lib/meta/engine-v1/state-rows";
 
 function campaign(overrides: Partial<MetaCampaignRow> = {}): MetaCampaignRow {
@@ -219,5 +220,43 @@ describe("Meta Engine v1 state rows funnel cohort labels", () => {
 
     expect(row?.decision).toBe("out_of_scope");
     expect(row?.evidence).toContainEqual({ label: "Cohort", value: "unknown", tone: "neutral" });
+  });
+
+  it("emits unlabeled campaign context when campaign labels are enforced and missing", () => {
+    const rows = buildMetaEntityStateRows({
+      campaigns: [campaign()],
+      adsets: [adset()],
+      campaignLabelsById: buildMetaCampaignLabelKindMap([]),
+    });
+
+    expect(rows.find((row) => row.level === "campaign")).toMatchObject({
+      decision: "unlabeled_campaign_context",
+      decisionLabel: "diagnose",
+      decisionState: "watch",
+      confidence: "low",
+      signalQuality: {
+        quality_status: "missing_campaign_label",
+        label_status: "unlabeled",
+      },
+    });
+    expect(rows.find((row) => row.level === "adset")).toMatchObject({
+      decision: "unlabeled_campaign_context",
+    });
+  });
+
+  it("uses existing purchase-path state when the campaign label exists", () => {
+    const rows = buildMetaEntityStateRows({
+      campaigns: [campaign()],
+      adsets: [adset()],
+      campaignLabelsById: buildMetaCampaignLabelKindMap([
+        {
+          campaignId: "cmp-1",
+          kind: "main",
+        },
+      ]),
+    });
+
+    expect(rows.find((row) => row.level === "campaign")?.decision).not.toBe("unlabeled_campaign_context");
+    expect(rows.find((row) => row.level === "adset")?.decision).not.toBe("unlabeled_campaign_context");
   });
 });

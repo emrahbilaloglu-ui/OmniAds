@@ -40,6 +40,25 @@ describe("creative-decision-engine v3 - data source", () => {
       });
       expect(cal.matureCreativeCount).toBeGreaterThan(0);
       expect(cal.roasP75).not.toBeNull();
+      expect(cal.campaignKind).toBe("all");
+    });
+
+    it("returns kind-segmented calibration packs without changing the default pack", async () => {
+      const byKind = await mock.getAccountCalibrationAllKinds({
+        businessId: "biz-1",
+        asOf: "2026-05-04",
+      });
+      const funnelByKind = await mock.getAccountFunnelCalibrationAllKinds({
+        businessId: "biz-1",
+        asOf: "2026-05-04",
+      });
+
+      expect(byKind.all?.campaignKind).toBe("all");
+      expect(byKind.main?.campaignKind).toBe("main");
+      expect(byKind.test?.campaignKind).toBe("test");
+      expect(byKind.mixed?.campaignKind).toBe("mixed");
+      expect(funnelByKind.main?.campaignKind).toBe("main");
+      expect(funnelByKind.main?.byFormat.overall?.qualityStatus).toBe("ready");
     });
 
     it("lists creative inputs", async () => {

@@ -2780,6 +2780,30 @@ export async function runMigrations(options?: {
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_decision_responses_business_timestamp
           ON meta_decision_responses (business_id, timestamp)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_campaign_labels (
+          business_id         TEXT NOT NULL,
+          campaign_id         TEXT NOT NULL,
+          provider_account_id TEXT,
+          campaign_name       TEXT,
+          campaign_kind       TEXT NOT NULL
+            CHECK (campaign_kind IN ('main', 'test', 'mixed')),
+          test_dimension      TEXT
+            CHECK (
+              test_dimension IS NULL OR
+              test_dimension IN ('creative', 'audience', 'bid', 'offer', 'structure', 'other')
+            ),
+          source              TEXT NOT NULL DEFAULT 'user'
+            CHECK (source IN ('user', 'bulk_apply_confirmed')),
+          labeled_by          TEXT,
+          labeled_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (business_id, campaign_id),
+          CHECK (campaign_kind = 'test' OR test_dimension IS NULL)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_labels_business_kind
+          ON meta_campaign_labels (business_id, campaign_kind, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_labels_account
+          ON meta_campaign_labels (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
         sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS optimization_goal TEXT`.catch(() => {}),
         sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS custom_event_type TEXT`.catch(() => {}),
         sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS pixel_id TEXT`.catch(() => {}),
@@ -4654,12 +4678,17 @@ export async function runMigrations(options?: {
           computed_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
           created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          campaign_kind              TEXT NOT NULL DEFAULT 'all'
+                                      CHECK (campaign_kind IN ('all', 'main', 'test', 'mixed')),
           UNIQUE (business_ref_id, scope_type, scope_id, as_of_date, engine_version)
         )`,
         sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_calibration_latest
           ON engine_v3_account_calibration_daily
           (business_ref_id, scope_type, scope_id, as_of_date DESC)
           INCLUDE (roas_p75, roas_p60, refresh_ratio_p10, low_ctr_p10, quality_status, source_max_date)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_calibration_latest_by_kind
+          ON engine_v3_account_calibration_daily
+          (business_ref_id, scope_type, scope_id, campaign_kind, as_of_date DESC, creative_format)`,
         sql`ALTER TABLE engine_v3_account_calibration_daily
           ADD COLUMN IF NOT EXISTS account_cpa_p50 DOUBLE PRECISION,
           ADD COLUMN IF NOT EXISTS account_cpa_sample_count INTEGER NOT NULL DEFAULT 0,
@@ -4679,6 +4708,8 @@ export async function runMigrations(options?: {
           ADD COLUMN IF NOT EXISTS roas_ratio_p75 DOUBLE PRECISION`.catch(() => {}),
         sql`ALTER TABLE engine_v3_account_calibration_daily
           ADD COLUMN IF NOT EXISTS creative_format TEXT NOT NULL DEFAULT 'overall',
+          ADD COLUMN IF NOT EXISTS campaign_kind TEXT NOT NULL DEFAULT 'all'
+            CHECK (campaign_kind IN ('all', 'main', 'test', 'mixed')),
           ADD COLUMN IF NOT EXISTS ctr_p25 DOUBLE PRECISION,
           ADD COLUMN IF NOT EXISTS ctr_p50 DOUBLE PRECISION,
           ADD COLUMN IF NOT EXISTS cpm_p50 DOUBLE PRECISION,
@@ -4704,27 +4735,40 @@ export async function runMigrations(options?: {
           DECLARE
             old_constraint_name TEXT;
           BEGIN
-            SELECT c.conname
-            INTO old_constraint_name
-            FROM pg_constraint c
-            JOIN pg_class t ON t.oid = c.conrelid
-            JOIN pg_namespace n ON n.oid = t.relnamespace
-            WHERE n.nspname = current_schema()
-              AND t.relname = 'engine_v3_account_calibration_daily'
-              AND c.contype = 'u'
-              AND (
-                SELECT array_agg(a.attname::text ORDER BY u.ord)
-                FROM unnest(c.conkey) WITH ORDINALITY AS u(attnum, ord)
-                JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = u.attnum
-              ) = ARRAY['business_ref_id', 'scope_type', 'scope_id', 'as_of_date', 'engine_version']
-            LIMIT 1;
-
-            IF old_constraint_name IS NOT NULL THEN
+            FOR old_constraint_name IN
+              SELECT c.conname
+              FROM pg_constraint c
+              JOIN pg_class t ON t.oid = c.conrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+              WHERE n.nspname = current_schema()
+                AND t.relname = 'engine_v3_account_calibration_daily'
+                AND c.contype = 'u'
+                AND (
+                  (
+                    SELECT array_agg(a.attname::text ORDER BY u.ord)
+                    FROM unnest(c.conkey) WITH ORDINALITY AS u(attnum, ord)
+                    JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = u.attnum
+                  ) = ARRAY['business_ref_id', 'scope_type', 'scope_id', 'as_of_date', 'engine_version']
+                  OR (
+                    SELECT array_agg(a.attname::text ORDER BY u.ord)
+                    FROM unnest(c.conkey) WITH ORDINALITY AS u(attnum, ord)
+                    JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = u.attnum
+                  ) = ARRAY[
+                    'business_ref_id',
+                    'scope_type',
+                    'scope_id',
+                    'creative_format',
+                    'as_of_date',
+                    'engine_version'
+                  ]
+                )
+            LOOP
+              PERFORM set_config('lock_timeout', '2000ms', true);
               EXECUTE format(
                 'ALTER TABLE engine_v3_account_calibration_daily DROP CONSTRAINT %I',
                 old_constraint_name
               );
-            END IF;
+            END LOOP;
 
             IF NOT EXISTS (
               SELECT 1
@@ -4742,14 +4786,16 @@ export async function runMigrations(options?: {
                   'business_ref_id',
                   'scope_type',
                   'scope_id',
+                  'campaign_kind',
                   'creative_format',
                   'as_of_date',
                   'engine_version'
                 ]
             ) THEN
+              PERFORM set_config('lock_timeout', '2000ms', true);
               ALTER TABLE engine_v3_account_calibration_daily
                 ADD CONSTRAINT engine_v3_account_calibration_daily_format_unique
-                UNIQUE (business_ref_id, scope_type, scope_id, creative_format, as_of_date, engine_version);
+                UNIQUE (business_ref_id, scope_type, scope_id, campaign_kind, creative_format, as_of_date, engine_version);
             END IF;
           END
           $$`.catch(() => {}),

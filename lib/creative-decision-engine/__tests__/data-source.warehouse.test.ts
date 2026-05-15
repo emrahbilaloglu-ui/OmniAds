@@ -142,6 +142,49 @@ async function insertPrecomputedCalibration(input?: {
   );
 }
 
+async function insertPrecomputedKindCalibration(input: {
+  campaignKind: "main" | "test" | "mixed";
+  matureCreativeCount: number;
+  roasP75: number | null;
+  roasP60: number | null;
+  sourceMaxUpdatedAt?: string;
+  engineVersion?: string;
+  asOf?: string;
+}) {
+  const asOf = input.asOf ?? AS_OF;
+  await getDb().query(
+    `
+    INSERT INTO engine_v3_account_calibration_daily (
+      business_ref_id, business_id, scope_type, scope_id, campaign_kind, creative_format,
+      as_of_date, engine_version,
+      sample_window_start, sample_window_end, sample_window_days,
+      eligible_creative_count, mature_creative_count, zero_conversion_count,
+      roas_p75, roas_p60, source_min_date, source_max_date,
+      source_max_updated_at, quality_status, computed_at
+    )
+    VALUES (
+      $1::uuid, $1, 'account', '*', $2, 'overall',
+      $3::date, $4,
+      ($3::date - INTERVAL '89 days')::date, $3::date, 90,
+      $5::integer, $5::integer, 0,
+      $6::double precision, $7::double precision,
+      ($3::date - INTERVAL '89 days')::date, $3::date,
+      $8::timestamptz, 'low_sample', now()
+    )
+    `,
+    [
+      PRECOMPUTED_TEST_BUSINESS_ID,
+      input.campaignKind,
+      asOf,
+      input.engineVersion ?? ENGINE_VERSION,
+      input.matureCreativeCount,
+      input.roasP75,
+      input.roasP60,
+      input.sourceMaxUpdatedAt ?? new Date().toISOString(),
+    ],
+  );
+}
+
 async function insertPrecomputedLifecycle(input?: {
   sourceMaxUpdatedAt?: string;
   creativeId?: string;
@@ -465,6 +508,7 @@ describe.skipIf(!process.env.DATABASE_URL)(
 
       expect(calibration).toMatchObject({
         businessId: PRECOMPUTED_TEST_BUSINESS_ID,
+        campaignKind: "all",
         matureCreativeCount: 35,
         roasP75: 3.4,
         roasP60: 2.6,
@@ -477,6 +521,46 @@ describe.skipIf(!process.env.DATABASE_URL)(
       );
     });
 
+    it("keeps default account calibration on all while exposing kind-segmented rows separately", async () => {
+      await insertPrecomputedCalibration();
+      await insertPrecomputedKindCalibration({
+        campaignKind: "main",
+        matureCreativeCount: 14,
+        roasP75: null,
+        roasP60: 1.9,
+      });
+      const precomputedWarehouse = new WarehouseDataSource();
+
+      const defaultCalibration =
+        await precomputedWarehouse.getAccountCalibration({
+          businessId: PRECOMPUTED_TEST_BUSINESS_ID,
+          asOf: AS_OF,
+        });
+      const mainCalibration =
+        await precomputedWarehouse.getAccountCalibrationByKind({
+          businessId: PRECOMPUTED_TEST_BUSINESS_ID,
+          asOf: AS_OF,
+          campaignKind: "main",
+        });
+      const byKind = await precomputedWarehouse.getAccountCalibrationAllKinds({
+        businessId: PRECOMPUTED_TEST_BUSINESS_ID,
+        asOf: AS_OF,
+      });
+
+      expect(defaultCalibration.campaignKind).toBe("all");
+      expect(defaultCalibration.matureCreativeCount).toBe(35);
+      expect(mainCalibration).toMatchObject({
+        campaignKind: "main",
+        matureCreativeCount: 14,
+        roasP75: null,
+        roasP60: 1.9,
+      });
+      expect(byKind.all?.matureCreativeCount).toBe(35);
+      expect(byKind.main?.matureCreativeCount).toBe(14);
+      expect(byKind.test).toBeNull();
+      expect(byKind.mixed).toBeNull();
+    });
+
     it("reads account funnel calibration by format from the precomputed table", async () => {
       await insertPrecomputedCalibration();
       const precomputedWarehouse = new WarehouseDataSource();
@@ -486,6 +570,7 @@ describe.skipIf(!process.env.DATABASE_URL)(
         asOf: AS_OF,
       });
 
+      expect(calibration.campaignKind).toBe("all");
       expect(Object.keys(calibration.byFormat).sort()).toEqual([
         "overall",
         "video",

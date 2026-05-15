@@ -125,20 +125,87 @@ interface OperatorEventPayloadRow {
 }
 
 const FIND_RECOMMENDED_CREATIVES_QUERY = `
+WITH snapshots AS (
+  SELECT *
+  FROM engine_v3_decision_snapshots_daily
+  WHERE business_ref_id = $1::uuid
+    AND label IN ('scale', 'refresh')
+    AND as_of_date BETWEEN ($2::date - ($3::integer * INTERVAL '1 day')) AND $2::date
+),
+guarded AS (
+  SELECT
+    snapshots.creative_id,
+    CASE
+      WHEN lifecycle.campaign_id IS NOT NULL
+        AND labels.campaign_id IS NULL
+      THEN 'diagnose'
+      ELSE snapshots.label
+    END AS effective_label
+  FROM snapshots
+  LEFT JOIN LATERAL (
+    SELECT lifecycle.campaign_id
+    FROM engine_v3_creative_lifecycle_daily lifecycle
+    WHERE lifecycle.business_ref_id = snapshots.business_ref_id
+      AND lifecycle.creative_id = snapshots.creative_id
+      AND lifecycle.engine_version = snapshots.engine_version
+      AND lifecycle.as_of_date <= snapshots.as_of_date
+    ORDER BY lifecycle.as_of_date DESC, lifecycle.computed_at DESC
+    LIMIT 1
+  ) lifecycle ON true
+  LEFT JOIN meta_campaign_labels labels
+    ON labels.business_id = COALESCE(snapshots.business_id, snapshots.business_ref_id::text)
+   AND labels.campaign_id = lifecycle.campaign_id
+)
 SELECT DISTINCT creative_id
-FROM engine_v3_decision_snapshots_daily
-WHERE business_ref_id = $1::uuid
-  AND label IN ('scale', 'refresh')
-  AND as_of_date BETWEEN ($2::date - ($3::integer * INTERVAL '1 day')) AND $2::date
+FROM guarded
+WHERE effective_label IN ('scale', 'refresh')
 ORDER BY creative_id
 `;
 
 const FIND_RECOMMENDATIONS_QUERY = `
+WITH snapshots AS (
+  SELECT *
+  FROM engine_v3_decision_snapshots_daily
+  WHERE business_ref_id = $1::uuid
+    AND creative_id = $2
+    AND as_of_date BETWEEN ($3::date - ($4::integer * INTERVAL '1 day')) AND $3::date
+),
+guarded AS (
+  SELECT
+    snapshots.id,
+    snapshots.as_of_date,
+    CASE
+      WHEN snapshots.label IN ('scale', 'refresh', 'cut')
+        AND lifecycle.campaign_id IS NOT NULL
+        AND labels.campaign_id IS NULL
+      THEN 'diagnose'
+      ELSE snapshots.label
+    END AS label,
+    CASE
+      WHEN snapshots.label IN ('scale', 'refresh', 'cut')
+        AND lifecycle.campaign_id IS NOT NULL
+        AND labels.campaign_id IS NULL
+      THEN LEAST(snapshots.confidence, 50)
+      ELSE snapshots.confidence
+    END AS confidence,
+    snapshots.computed_at
+  FROM snapshots
+  LEFT JOIN LATERAL (
+    SELECT lifecycle.campaign_id
+    FROM engine_v3_creative_lifecycle_daily lifecycle
+    WHERE lifecycle.business_ref_id = snapshots.business_ref_id
+      AND lifecycle.creative_id = snapshots.creative_id
+      AND lifecycle.engine_version = snapshots.engine_version
+      AND lifecycle.as_of_date <= snapshots.as_of_date
+    ORDER BY lifecycle.as_of_date DESC, lifecycle.computed_at DESC
+    LIMIT 1
+  ) lifecycle ON true
+  LEFT JOIN meta_campaign_labels labels
+    ON labels.business_id = COALESCE(snapshots.business_id, snapshots.business_ref_id::text)
+   AND labels.campaign_id = lifecycle.campaign_id
+)
 SELECT id, as_of_date, label, confidence
-FROM engine_v3_decision_snapshots_daily
-WHERE business_ref_id = $1::uuid
-  AND creative_id = $2
-  AND as_of_date BETWEEN ($3::date - ($4::integer * INTERVAL '1 day')) AND $3::date
+FROM guarded
 ORDER BY as_of_date ASC, computed_at ASC
 `;
 

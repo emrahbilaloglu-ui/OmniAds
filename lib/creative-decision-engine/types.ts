@@ -6,6 +6,10 @@
  */
 
 import type { MetaFunnelCohort } from "@/lib/meta/funnel-cohort";
+import type {
+  MetaCampaignKind,
+  MetaCampaignTestDimension,
+} from "@/lib/meta/campaign-label-types";
 import type { EngineV3Flags } from "./feature-flags";
 import type { OperatorResponseResult } from "./operator-response-detection";
 
@@ -89,6 +93,14 @@ export interface SpendUnitEvidence {
   warnings: string[];
 }
 
+export interface SpendUnitProfile {
+  spendUnit: number | null;
+  spendUnitSource: SpendUnitSource;
+  spendUnitConfidence: SpendUnitConfidence;
+  spendUnitEvidence: SpendUnitEvidence;
+  hardEligibleByDefault: boolean;
+}
+
 export interface EngineMultiplierSet {
   zeroConvBurner: number;
   cutCandidate: number;
@@ -113,6 +125,13 @@ export interface EngineThresholdSet {
   winnerMemoryMinPurchases: number;
   bottomQuartileRatio: number | null;
   severeLoserRatio: number | null;
+}
+
+export interface HardActionEligibility {
+  scale: boolean;
+  cut: boolean;
+  refresh: boolean;
+  reason: string | null;
 }
 
 export type LifecyclePosition =
@@ -198,8 +217,11 @@ export interface FormatFunnelBaseline {
 }
 
 export interface AccountFunnelCalibration {
+  campaignKind?: CalibrationCampaignKind;
   byFormat: Record<string, FormatFunnelBaseline>;
 }
+
+export type CalibrationCampaignKind = "all" | MetaCampaignKind;
 
 /** Per-creative metric inputs the engine needs to decide. */
 export interface CreativeInput {
@@ -207,6 +229,11 @@ export interface CreativeInput {
   creativeName: string | null;
   businessId: string;
   campaignId: string | null;
+  /**
+   * Server-resolved Main/Test/Mixed campaign label. Routes/jobs populate this
+   * before calling decideCreative; UI must not derive it.
+   */
+  campaignKind?: MetaCampaignKind | null;
 
   // Scope
   objective: CampaignObjective | null;
@@ -311,6 +338,7 @@ export interface BusinessConfig {
 export interface AccountCalibration {
   businessId: string;
   computedAt: string;
+  campaignKind?: CalibrationCampaignKind;
 
   // Mature creative pool size (drives which baseline tier applies)
   matureCreativeCount: number;
@@ -365,14 +393,32 @@ export interface AccountDecisionProfile {
   thresholds: EngineThresholdSet;
   accountBaselines: AccountCalibration;
   funnelCalibration: AccountFunnelCalibration;
+  /**
+   * @phase-1b-data-only
+   * Kind-segmented account baselines are exposed for observability and P1c.
+   * Resolver gates must continue reading accountBaselines/funnelCalibration
+   * until the kind-aware decision phase is explicitly implemented.
+   */
+  accountBaselinesByKind?: Record<CalibrationCampaignKind, AccountCalibration | null>;
+  /**
+   * @phase-1c-kind-aware
+   * Precomputed spend-unit resolutions and thresholds keyed by campaign kind.
+   * Gate files select a prepared profile view instead of recomputing math.
+   */
+  spendUnitByKind?: Record<CalibrationCampaignKind, SpendUnitProfile | null>;
+  thresholdsByKind?: Record<CalibrationCampaignKind, EngineThresholdSet | null>;
+  hardActionEligibilityByKind?: Record<
+    CalibrationCampaignKind,
+    HardActionEligibility | null
+  >;
+  /**
+   * @phase-1b-data-only
+   * Kind-segmented funnel baselines are data-only in P1b.
+   */
+  funnelCalibrationByKind?: Record<CalibrationCampaignKind, AccountFunnelCalibration | null>;
   scope: DecisionProfileScope;
 
-  hardActionEligibility: {
-    scale: boolean;
-    cut: boolean;
-    refresh: boolean;
-    reason: string | null;
-  };
+  hardActionEligibility: HardActionEligibility;
 
   quality: {
     commercialTruthReady: boolean;
@@ -409,7 +455,8 @@ export interface DecisionBadge {
     | "delivery_limited"
     | "landing_page_issue"
     | "checkout_breakdown"
-    | "upper_funnel_strong_site_weak";
+    | "upper_funnel_strong_site_weak"
+    | "unlabeled_campaign_context";
   label: string;
   severity: "info" | "warning";
 }
@@ -488,7 +535,24 @@ export const DECISION_BADGE_DISPLAY: Record<
     label: "Upper funnel strong, site weak",
     severity: "info",
   },
+  unlabeled_campaign_context: {
+    label: "Campaign label missing",
+    severity: "warning",
+  },
 };
+
+export type CreativeCampaignLabelStatus =
+  | "labeled"
+  | "unlabeled"
+  | "no_campaign";
+
+export type DecisionKindSource =
+  | "kind_main"
+  | "kind_test"
+  | "kind_mixed"
+  | "all_fallback";
+
+export type DecisionLabelTransform = "test_cohort_refresh_to_cut";
 
 /** Final per-creative decision. */
 export interface DecisionOutput {
@@ -507,6 +571,21 @@ export interface DecisionOutput {
     roas: number | null;
     recent7dRoas: number | null;
   };
+  campaignLabelStatus?: CreativeCampaignLabelStatus;
+  campaignKind?: MetaCampaignKind | null;
+  campaignTestDimension?: MetaCampaignTestDimension | null;
+  blockedActionType?: DecisionLabel | null;
+  /**
+   * Read-only diagnostic: tells audit/API consumers whether the decision used
+   * kind-specific baselines or the canonical account-wide fallback. UI must not
+   * derive decision behavior from this field.
+   */
+  decisionKindSource?: DecisionKindSource;
+  /**
+   * Read-only diagnostic: records semantic label transforms applied by the
+   * engine pipeline. UI must not derive decision behavior from this field.
+   */
+  labelTransform?: DecisionLabelTransform | null;
   engineVersion: string;
   generatedAt: string;
 }

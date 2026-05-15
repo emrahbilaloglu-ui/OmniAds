@@ -5,10 +5,12 @@ import {
   type DataHealth,
   type DecisionBadge,
   type DecisionLabel,
+  type DecisionLabelTransform,
   type DecisionOutput,
   type TruthSource,
 } from "../types";
 import { computeFunnelDiagnosis } from "../funnel";
+import { applyTestCohortRefreshOverride } from "../test-cohort-semantic";
 
 export interface GateContext {
   input: CreativeInput;
@@ -35,6 +37,7 @@ interface BuildDecisionOutputInput {
   effectiveTargetRoas?: number;
   ratioToTarget?: number | null;
   badges?: DecisionBadge[];
+  labelTransform?: DecisionLabelTransform | null;
 }
 
 export function clampConfidence(
@@ -46,6 +49,22 @@ export function clampConfidence(
     confidenceBase,
   );
   return Math.max(40, Math.min(95, adjustedConfidence));
+}
+
+function hasDecisionBadge(
+  badges: readonly DecisionBadge[],
+  type: DecisionBadge["type"],
+): boolean {
+  return badges.some((badge) => badge.type === type);
+}
+
+function appendDecisionBadgeOnce(
+  badges: readonly DecisionBadge[],
+  badge: DecisionBadge,
+): DecisionBadge[] {
+  return hasDecisionBadge(badges, badge.type)
+    ? [...badges]
+    : [...badges, badge];
 }
 
 export function applyPostProcess(
@@ -158,13 +177,14 @@ export function applyPostProcess(
       Math.min(0.6, ctx.profile.thresholds.bottomQuartileRatio ?? 0.6) &&
     ctx.profile.thresholds.cutCandidateSpend !== null &&
     ctx.input.spend >= ctx.profile.thresholds.cutCandidateSpend &&
-    (label === "test_more" || label === "keep")
+    (label === "test_more" || label === "keep") &&
+    !hasDecisionBadge(badges, "cut_candidate")
   ) {
     badges.push({
       type: "cut_candidate",
-      label: `Cut candidate — ROAS ${(
-        ctx.ratioToTarget * 100
-      ).toFixed(0)}% of target on $${ctx.input.spend.toFixed(
+      label: `Cut candidate — ROAS ${(ctx.ratioToTarget * 100).toFixed(
+        0,
+      )}% of target on $${ctx.input.spend.toFixed(
         0,
       )} spend; consider manual cut or wait for hard threshold`,
       severity: "warning",
@@ -272,14 +292,11 @@ function applySoftOnlyLabel(input: {
     return {
       label: "test_more",
       reason: `[soft-only - cut blocked] ${input.reason} (${reason})`,
-      badges: [
-        ...input.badges,
-        {
-          type: "cut_candidate",
-          label: "Soft-cut candidate",
-          severity: "warning",
-        },
-      ],
+      badges: appendDecisionBadgeOnce(input.badges, {
+        type: "cut_candidate",
+        label: "Soft-cut candidate",
+        severity: "warning",
+      }),
     };
   }
 
@@ -320,6 +337,7 @@ export function buildDecisionOutput(
       roas: ctx.input.roas,
       recent7dRoas: ctx.input.recent7dRoas,
     },
+    labelTransform: output.labelTransform ?? null,
     engineVersion: ENGINE_VERSION,
     generatedAt: ctx.generatedAt,
   };
@@ -330,9 +348,14 @@ export function finalizeDecision(
   label: DecisionLabel,
   reason: string,
 ): DecisionOutput {
-  const softOnly = applySoftOnlyLabel({
+  const transformed = applyTestCohortRefreshOverride({
+    campaignKind: ctx.input.campaignKind,
     label,
     reason,
+  });
+  const softOnly = applySoftOnlyLabel({
+    label: transformed.label,
+    reason: transformed.reason,
     badges: ctx.badges,
     profile: ctx.profile,
   });
@@ -347,6 +370,7 @@ export function finalizeDecision(
     reason: softOnly.reason,
     confidence: clampConfidence(ctx.confidenceBase, confidenceDeltas),
     badges,
+    labelTransform: transformed.labelTransform,
   });
 }
 
@@ -366,14 +390,11 @@ export function enforceHardActionEligibility(
       ...decision,
       label: "test_more",
       reason: `[soft-only - cut blocked] ${decision.reason} (${profile.hardActionEligibility.reason})`,
-      badges: [
-        ...decision.badges,
-        {
-          type: "cut_candidate",
-          label: "Soft-cut candidate",
-          severity: "warning",
-        },
-      ],
+      badges: appendDecisionBadgeOnce(decision.badges, {
+        type: "cut_candidate",
+        label: "Soft-cut candidate",
+        severity: "warning",
+      }),
     };
   }
   if (decision.label === "refresh" && !profile.hardActionEligibility.refresh) {

@@ -12,6 +12,7 @@ import {
 } from "@/components/common/briefing";
 import {
   BadgeChip,
+  CampaignKindChip,
   Sparkline,
   Thumb,
   asDecisionLabel,
@@ -80,6 +81,7 @@ export function WatchingCard({
             <h4 className={`${conf.textWeight} text-slate-800 text-[13px] truncate`}>
               {name}
             </h4>
+            <CampaignKindChip card={card} />
             <span className="text-[10px] uppercase tracking-wider text-slate-400">
               {card.brand || "Brand"}
             </span>

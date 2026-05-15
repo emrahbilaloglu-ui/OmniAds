@@ -5,7 +5,11 @@ import {
 } from "../config";
 import { STALE_TIER_WARNING_MAX_HOURS } from "../data-health";
 import { resolveEngineV3Flags } from "../feature-flags";
-import { ENGINE_VERSION, type AccountCalibration } from "../types";
+import {
+  ENGINE_VERSION,
+  type AccountCalibration,
+  type CalibrationCampaignKind,
+} from "../types";
 
 export const JOB_NAME = "engine_v3_calibration_job";
 const SAMPLE_WINDOW_DAYS = 90;
@@ -19,6 +23,7 @@ const CALIBRATION_FORMATS = [
   "carousel",
   "catalog",
 ] as const;
+const ACCOUNT_CALIBRATION_KINDS = ["all", "main", "test", "mixed"] as const;
 type CalibrationCreativeFormat = (typeof CALIBRATION_FORMATS)[number];
 type CalibrationScopeType = typeof ACCOUNT_SCOPE_TYPE | typeof CAMPAIGN_SCOPE_TYPE;
 
@@ -45,6 +50,7 @@ interface ComputedCalibration {
   businessId: string;
   scopeType: CalibrationScopeType;
   scopeId: string;
+  campaignKind: CalibrationCampaignKind;
   creativeFormat: CalibrationCreativeFormat;
   asOfDate: string;
   sampleWindowStart: string;
@@ -173,14 +179,14 @@ WITH target_pack AS (
 ),
 per_creative_raw AS (
   SELECT
-    creative_id,
+    d.creative_id,
     MAX(
       regexp_replace(
         lower(COALESCE(
-          NULLIF(payload_json->>'format', ''),
-          NULLIF(payload_json->>'creative_format', ''),
-          creative_visual_format,
-          creative_primary_type,
+          NULLIF(d.payload_json->>'format', ''),
+          NULLIF(d.payload_json->>'creative_format', ''),
+          d.creative_visual_format,
+          d.creative_primary_type,
           'other'
         )),
         '[^a-z0-9]+',
@@ -188,28 +194,32 @@ per_creative_raw AS (
         'g'
       )
     ) AS raw_creative_format,
-    SUM(spend) AS total_spend,
-    SUM(conversions) AS total_purchases,
-    SUM(revenue) AS total_revenue,
-    SUM(impressions) AS total_impressions,
-    SUM(clicks) AS total_clicks,
-    SUM(link_clicks) AS total_link_clicks,
-    SUM(COALESCE((NULLIF(payload_json->>'landing_page_views', ''))::numeric, 0)) AS lpv_total,
-    SUM(COALESCE((NULLIF(payload_json->>'add_to_cart', ''))::numeric, 0)) AS atc_total,
-    SUM(COALESCE((NULLIF(payload_json->>'initiate_checkout', ''))::numeric, 0)) AS ic_total,
-    SUM(COALESCE((NULLIF(payload_json->>'thumbstop', ''))::numeric, 0) * impressions) AS thumbstop_weighted,
-    SUM(spend) FILTER (WHERE date >= ($1::date - INTERVAL '27 days')) AS cumulative_28d_spend,
-    SUM(revenue) FILTER (WHERE date >= ($1::date - INTERVAL '27 days')) AS cumulative_28d_revenue,
-    SUM(impressions) FILTER (WHERE date >= ($1::date - INTERVAL '27 days')) AS cumulative_28d_impressions,
-    SUM(clicks) FILTER (WHERE date >= ($1::date - INTERVAL '27 days')) AS cumulative_28d_clicks,
-    SUM(spend) FILTER (WHERE date >= ($1::date - INTERVAL '6 days')) AS recent_7d_spend,
-    SUM(revenue) FILTER (WHERE date >= ($1::date - INTERVAL '6 days')) AS recent_7d_revenue
-  FROM meta_creative_daily
-  WHERE business_ref_id = $2::uuid
-    AND date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
-    AND objective = ANY($5::text[])
-    AND ($6::text IS NULL OR campaign_id = $6::text)
-  GROUP BY creative_id
+    SUM(d.spend) AS total_spend,
+    SUM(d.conversions) AS total_purchases,
+    SUM(d.revenue) AS total_revenue,
+    SUM(d.impressions) AS total_impressions,
+    SUM(d.clicks) AS total_clicks,
+    SUM(d.link_clicks) AS total_link_clicks,
+    SUM(COALESCE((NULLIF(d.payload_json->>'landing_page_views', ''))::numeric, 0)) AS lpv_total,
+    SUM(COALESCE((NULLIF(d.payload_json->>'add_to_cart', ''))::numeric, 0)) AS atc_total,
+    SUM(COALESCE((NULLIF(d.payload_json->>'initiate_checkout', ''))::numeric, 0)) AS ic_total,
+    SUM(COALESCE((NULLIF(d.payload_json->>'thumbstop', ''))::numeric, 0) * d.impressions) AS thumbstop_weighted,
+    SUM(d.spend) FILTER (WHERE d.date >= ($1::date - INTERVAL '27 days')) AS cumulative_28d_spend,
+    SUM(d.revenue) FILTER (WHERE d.date >= ($1::date - INTERVAL '27 days')) AS cumulative_28d_revenue,
+    SUM(d.impressions) FILTER (WHERE d.date >= ($1::date - INTERVAL '27 days')) AS cumulative_28d_impressions,
+    SUM(d.clicks) FILTER (WHERE d.date >= ($1::date - INTERVAL '27 days')) AS cumulative_28d_clicks,
+    SUM(d.spend) FILTER (WHERE d.date >= ($1::date - INTERVAL '6 days')) AS recent_7d_spend,
+    SUM(d.revenue) FILTER (WHERE d.date >= ($1::date - INTERVAL '6 days')) AS recent_7d_revenue
+  FROM meta_creative_daily d
+  LEFT JOIN meta_campaign_labels labels
+    ON labels.business_id = d.business_id
+   AND labels.campaign_id = d.campaign_id
+  WHERE d.business_ref_id = $2::uuid
+    AND d.date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
+    AND d.objective = ANY($5::text[])
+    AND ($6::text IS NULL OR d.campaign_id = $6::text)
+    AND ($7::text = 'all' OR labels.campaign_kind = $7::text)
+  GROUP BY d.creative_id
 ),
 per_creative AS (
   SELECT
@@ -365,14 +375,18 @@ meta_aov AS (
 ),
 source_bounds AS (
   SELECT
-    MIN(date) AS source_min_date,
-    MAX(date) AS source_max_date,
-    MAX(updated_at) AS source_max_updated_at
-  FROM meta_creative_daily
-  WHERE business_ref_id = $2::uuid
-    AND date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
-    AND objective = ANY($5::text[])
-    AND ($6::text IS NULL OR campaign_id = $6::text)
+    MIN(d.date) AS source_min_date,
+    MAX(d.date) AS source_max_date,
+    MAX(d.updated_at) AS source_max_updated_at
+  FROM meta_creative_daily d
+  LEFT JOIN meta_campaign_labels labels
+    ON labels.business_id = d.business_id
+   AND labels.campaign_id = d.campaign_id
+  WHERE d.business_ref_id = $2::uuid
+    AND d.date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
+    AND d.objective = ANY($5::text[])
+    AND ($6::text IS NULL OR d.campaign_id = $6::text)
+    AND ($7::text = 'all' OR labels.campaign_kind = $7::text)
 )
 SELECT
   ($1::date - INTERVAL '89 days')::date AS sample_window_start,
@@ -503,7 +517,7 @@ INSERT INTO engine_v3_account_calibration_daily (
   click_to_purchase_p25, click_to_purchase_p50,
   funnel_sample_count, funnel_quality_status,
   source_min_date, source_max_date, source_max_updated_at,
-  quality_status, job_run_id, computed_at
+  campaign_kind, quality_status, job_run_id, computed_at
 ) VALUES (
   $1::uuid, $2, $3, $4, $5, $6::date, $7,
   $8::date, $9::date, $10::integer,
@@ -525,9 +539,9 @@ INSERT INTO engine_v3_account_calibration_daily (
   $49::double precision, $50::double precision,
   $51::integer, $52,
   $53::date, $54::date, $55::timestamptz,
-  $56, $57::uuid, $58::timestamptz
+  $56, $57, $58::uuid, $59::timestamptz
 )
-ON CONFLICT (business_ref_id, scope_type, scope_id, creative_format, as_of_date, engine_version)
+ON CONFLICT (business_ref_id, scope_type, scope_id, campaign_kind, creative_format, as_of_date, engine_version)
 DO UPDATE SET
   sample_window_start = EXCLUDED.sample_window_start,
   sample_window_end = EXCLUDED.sample_window_end,
@@ -577,6 +591,7 @@ DO UPDATE SET
   source_min_date = EXCLUDED.source_min_date,
   source_max_date = EXCLUDED.source_max_date,
   source_max_updated_at = EXCLUDED.source_max_updated_at,
+  campaign_kind = EXCLUDED.campaign_kind,
   quality_status = EXCLUDED.quality_status,
   job_run_id = EXCLUDED.job_run_id,
   computed_at = EXCLUDED.computed_at,
@@ -703,6 +718,7 @@ export async function runCalibrationJob(
           calibration.sourceMinDate,
           calibration.sourceMaxDate,
           calibration.sourceMaxUpdatedAt,
+          calibration.campaignKind,
           calibration.qualityStatus,
           jobRunId,
           calibration.computedAt,
@@ -713,6 +729,7 @@ export async function runCalibrationJob(
         (calibration) =>
           calibration.scopeType === ACCOUNT_SCOPE_TYPE &&
           calibration.scopeId === ACCOUNT_SCOPE_ID &&
+          calibration.campaignKind === "all" &&
           calibration.creativeFormat === "overall",
       );
 
@@ -843,17 +860,22 @@ async function computeCalibrations(input: {
   ];
 
   for (const scope of scopes) {
+    const campaignKinds: readonly CalibrationCampaignKind[] =
+      scope.scopeType === ACCOUNT_SCOPE_TYPE ? ACCOUNT_CALIBRATION_KINDS : ["all"];
     for (const creativeFormat of CALIBRATION_FORMATS) {
-      calibrations.push(
-        await computeCalibration({
-          businessId: input.businessId,
-          asOf: input.asOf,
-          scopeType: scope.scopeType,
-          scopeId: scope.scopeId,
-          creativeFormat,
-          computedAt,
-        }),
-      );
+      for (const campaignKind of campaignKinds) {
+        calibrations.push(
+          await computeCalibration({
+            businessId: input.businessId,
+            asOf: input.asOf,
+            scopeType: scope.scopeType,
+            scopeId: scope.scopeId,
+            campaignKind,
+            creativeFormat,
+            computedAt,
+          }),
+        );
+      }
     }
   }
 
@@ -888,6 +910,7 @@ async function computeCalibration(input: {
   asOf: string;
   scopeType: CalibrationScopeType;
   scopeId: string;
+  campaignKind: CalibrationCampaignKind;
   creativeFormat: CalibrationCreativeFormat;
   computedAt: string;
 }): Promise<ComputedCalibration> {
@@ -901,6 +924,7 @@ async function computeCalibration(input: {
       input.creativeFormat,
       supportedObjectivesArray,
       input.scopeType === CAMPAIGN_SCOPE_TYPE ? input.scopeId : null,
+      input.campaignKind,
     ],
   );
   const matureCreativeCount =
@@ -913,6 +937,7 @@ async function computeCalibration(input: {
     businessId: input.businessId,
     scopeType: input.scopeType,
     scopeId: input.scopeId,
+    campaignKind: input.campaignKind,
     creativeFormat: input.creativeFormat,
     asOfDate: input.asOf,
     sampleWindowStart:
@@ -986,6 +1011,7 @@ function calibrationToAccountCalibration(
   return {
     businessId: row.businessId,
     computedAt: row.computedAt,
+    campaignKind: row.campaignKind,
     matureCreativeCount: row.matureCreativeCount,
     roasP75: row.roasP75,
     roasP60: row.roasP60,

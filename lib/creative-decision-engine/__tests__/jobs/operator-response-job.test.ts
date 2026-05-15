@@ -13,9 +13,12 @@ const RECOMMENDED_AT = "2026-04-25";
 const THESWAF_BUSINESS_ID = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
 const SYNTHETIC_IGNORED_CREATIVE_ID = "operator-response-synthetic-ignored";
 const SYNTHETIC_SCALED_CREATIVE_ID = "operator-response-synthetic-scaled";
+const SYNTHETIC_UNLABELED_CREATIVE_ID =
+  "operator-response-synthetic-unlabeled";
 const SYNTHETIC_CREATIVE_IDS = [
   SYNTHETIC_IGNORED_CREATIVE_ID,
   SYNTHETIC_SCALED_CREATIVE_ID,
+  SYNTHETIC_UNLABELED_CREATIVE_ID,
 ];
 
 type JobRunRow = Record<string, unknown> & {
@@ -41,6 +44,17 @@ function toNumber(value: unknown) {
 
 async function cleanupSyntheticRows() {
   const db = getDb();
+  await db.query(
+    `
+    DELETE FROM meta_campaign_labels
+    WHERE business_id = $1
+      AND campaign_id = ANY($2::text[])
+    `,
+    [
+      THESWAF_BUSINESS_ID,
+      SYNTHETIC_CREATIVE_IDS.map((creativeId) => `${creativeId}-campaign`),
+    ],
+  );
   await db.query(
     `
     DELETE FROM engine_v3_decision_events
@@ -131,10 +145,41 @@ async function insertSuccessfulDecisionsRun() {
 async function insertSyntheticFixture(input: {
   creativeId: string;
   withBudgetIncrease?: boolean;
+  withCampaignLabel?: boolean;
 }) {
   const adsetId = `${input.creativeId}-adset`;
   const campaignId = `${input.creativeId}-campaign`;
   const adId = `${input.creativeId}-ad`;
+  if (input.withCampaignLabel !== false) {
+    await getDb().query(
+      `
+      INSERT INTO meta_campaign_labels (
+        business_id,
+        campaign_id,
+        campaign_kind,
+        source,
+        labeled_by,
+        labeled_at,
+        updated_at
+      )
+      VALUES (
+        $1,
+        $2,
+        'main',
+        'user',
+        'vitest',
+        now(),
+        now()
+      )
+      ON CONFLICT (business_id, campaign_id) DO UPDATE SET
+        campaign_kind = EXCLUDED.campaign_kind,
+        source = EXCLUDED.source,
+        labeled_by = EXCLUDED.labeled_by,
+        updated_at = now()
+      `,
+      [THESWAF_BUSINESS_ID, campaignId],
+    );
+  }
   await getDb().query(
     `
     INSERT INTO engine_v3_creative_lifecycle_daily (
@@ -475,6 +520,26 @@ describe.skipIf(!process.env.DATABASE_URL)("operator response job", () => {
     const lifecycle = await fetchLifecycle(SYNTHETIC_SCALED_CREATIVE_ID);
     expect(lifecycle?.operator_response_type).toBe("scaled");
     expect(await countOperatorEvents(SYNTHETIC_SCALED_CREATIVE_ID)).toBe(1);
+  });
+
+  it("ignores historical hard snapshots when the campaign is still unlabeled", async () => {
+    await insertSuccessfulDecisionsRun();
+    await insertSyntheticFixture({
+      creativeId: SYNTHETIC_UNLABELED_CREATIVE_ID,
+      withCampaignLabel: false,
+    });
+
+    const result = await runOperatorResponseJob({
+      businessId: THESWAF_BUSINESS_ID,
+      asOf: AS_OF,
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.creativesEvaluated).toBe(0);
+
+    const lifecycle = await fetchLifecycle(SYNTHETIC_UNLABELED_CREATIVE_ID);
+    expect(lifecycle?.operator_response_type).toBeNull();
+    expect(await countOperatorEvents(SYNTHETIC_UNLABELED_CREATIVE_ID)).toBe(0);
   });
 
   it("records skipped when the advisory lock is already held", async () => {

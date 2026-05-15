@@ -101,3 +101,59 @@ Reason: AI-generated resolver drift must be controlled.
 
 Risk: plausible but inconsistent resolver rewrites.
 
+## D011 — Kind-Aware Baseline Selection With Strict Canonical Fallback
+
+Decision: when a creative's source campaign is labeled Main/Test/Mixed and
+the kind-specific calibration row is sufficient, `decideCreative` uses a
+kind-selected profile view: account baselines, spend-unit thresholds, funnel
+calibration, and hard-action eligibility are selected together. Otherwise the
+decision falls back to the canonical `all` profile.
+
+Reason: Main and Test cohorts can have materially different distributions.
+Using one shared baseline blurs decision boundaries and makes Test/Main
+campaign labels operationally weaker than intended.
+
+Risk: kind-aware decisions can diverge from canonical `all` decisions for
+labeled creatives. Mitigation: GC-038 through GC-042 plus strict canonical
+fallback for missing, sparse, or unlabeled kind data. `DecisionOutput`
+also exposes `decisionKindSource` so API/debug consumers can distinguish
+kind-selected decisions from canonical fallback while `accountProfile` remains
+the canonical account-wide profile.
+
+Rejected alternative: per-gate kind selection. That would mix Main/Test
+threshold logic across gate files and violate D009.
+
+Rejected alternative: include Test-fatigue refresh-to-cut semantic switching in
+the same slice. That changes operator-visible label semantics and belongs in a
+separate phase.
+
+## D012 — Test Cohort Refresh Signals Become Cut Semantics
+
+Decision: when a resolver gate emits `refresh` for a creative whose source
+campaign is explicitly labeled Test, the engine pipeline transforms that label
+to `cut` before soft-only hard-action eligibility is applied. The transform is
+recorded on `DecisionOutput.labelTransform` as
+`test_cohort_refresh_to_cut`, and the reason receives a
+`[test_cohort: refresh->cut]` prefix.
+
+Reason: Test campaigns are experiment slots. A fatigue/refresh signal in Test
+does not mean "refresh this stable winner"; it means the experiment has reached
+a negative or exhausted outcome and should leave the test pool. Main and Mixed
+campaigns keep the existing `refresh` semantics.
+
+Ordering: the transform runs inside `finalizeDecision` before
+`applySoftOnlyLabel`, so it sees the raw gate-emitted label before any
+`hardActionEligibility` downgrade. This is required because `applySoftOnlyLabel`
+already converts `refresh` to `keep` when refresh is disabled. Placing the
+transform after `finalizeDecision` would miss those cases. The engine-level
+`enforceHardActionEligibility` call remains an idempotent defensive duplicate.
+
+Scope: resolver gate files remain unchanged. `gates/types.ts::finalizeDecision`
+is the pipeline orchestrator and now owns this semantic transform. No new
+`DecisionLabel` value is introduced, no UI computes the transform, and
+`labelTransform` is an API/debug diagnostic only.
+
+Rejected alternative: persist `labelTransform` into
+`engine_v3_decision_snapshots_daily` in the same slice. Persistence is deferred
+to a separate follow-up because this phase already changes behavior and should
+not bundle a schema migration/rollback concern.

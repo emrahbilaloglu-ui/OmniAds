@@ -4,7 +4,13 @@ import {
   decideCreative,
   resolveAccountDecisionProfile,
 } from "@/lib/creative-decision-engine";
+import {
+  applyCreativeCampaignLabelGuard,
+  buildCreativeCampaignLabelMap,
+  withCreativeCampaignLabelContext,
+} from "@/lib/creative-decision-engine/campaign-label-guard";
 import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
+import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
 import { resolveDataSource } from "./data-source";
 
 export const dynamic = "force-dynamic";
@@ -62,9 +68,32 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const scopedInputs = campaignId
     ? inputs.filter((input) => input.campaignId === campaignId)
     : inputs;
-  const decisions = scopedInputs.map((input) =>
-    decideCreative(input, profile, dataHealth),
+  const campaignIds = Array.from(
+    new Set(
+      scopedInputs
+        .map((input) => input.campaignId?.trim() || "")
+        .filter(Boolean),
+    ),
   );
+  const campaignLabelsById = buildCreativeCampaignLabelMap(
+    campaignIds.length > 0
+      ? await readMetaCampaignLabels({
+          businessId: resolvedBusinessId,
+          campaignIds,
+        })
+      : [],
+  );
+  const decisions = scopedInputs.map((input) => {
+    const inputWithCampaignKind = withCreativeCampaignLabelContext(
+      input,
+      campaignLabelsById,
+    );
+    return applyCreativeCampaignLabelGuard({
+      decision: decideCreative(inputWithCampaignKind, profile, dataHealth),
+      input: inputWithCampaignKind,
+      campaignLabelsById,
+    });
+  });
 
   return NextResponse.json({
     businessId: resolvedBusinessId,

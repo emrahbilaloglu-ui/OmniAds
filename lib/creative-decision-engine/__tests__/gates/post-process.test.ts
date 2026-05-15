@@ -304,6 +304,26 @@ describe("applyPostProcess - cut candidate", () => {
     expect(result.confidenceDeltas).toEqual([]);
   });
 
+  it("does not duplicate an existing cut_candidate badge", () => {
+    const result = runPostProcess("test_more", {
+      input: { spend: 300 },
+      gate: {
+        ratioToTarget: 0.5,
+        badges: [
+          {
+            type: "cut_candidate",
+            label: "Soft-cut candidate",
+            severity: "warning",
+          },
+        ],
+      },
+    });
+
+    expect(
+      result.badges.filter((badge) => badge.type === "cut_candidate"),
+    ).toHaveLength(1);
+  });
+
   it("does not add cut_candidate below the spend floor", () => {
     const result = runPostProcess("test_more", {
       input: { spend: 299 },

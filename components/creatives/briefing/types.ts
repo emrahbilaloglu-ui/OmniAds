@@ -1,4 +1,8 @@
 import type { DecisionLabel } from "@/components/common/briefing/types";
+import type {
+  MetaCampaignKind,
+  MetaCampaignTestDimension,
+} from "@/lib/meta/campaign-label-types";
 
 export interface BriefingPrimaryAction {
   kind?: string | null;
@@ -66,6 +70,10 @@ export interface BriefingCreativeCard {
   primary?: BriefingPrimaryAction | null;
   status?: string | null;
   ageDays?: number | null;
+  campaignKind?: MetaCampaignKind | null;
+  campaignTestDimension?: MetaCampaignTestDimension | null;
+  campaignLabelStatus?: "labeled" | "unlabeled" | "no_campaign" | null;
+  blockedActionType?: DecisionLabel | string | null;
   placementList?: BriefingPlacement[] | null;
   mixed?: boolean | null;
 }

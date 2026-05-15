@@ -5,7 +5,13 @@ import {
   WarehouseDataSource,
   type CreativeInput,
 } from "@/lib/creative-decision-engine";
+import {
+  applyCreativeCampaignLabelGuard,
+  buildCreativeCampaignLabelMap,
+  withCreativeCampaignLabelContext,
+} from "@/lib/creative-decision-engine/campaign-label-guard";
 import { getDb, resetDbClientCache } from "@/lib/db";
+import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
 import {
   configureOperationalScriptRuntime,
   withOperationalStartupLogsSilenced,
@@ -31,6 +37,11 @@ interface OutputRow {
   engine_v3_truth_source: string;
   engine_v3_ratio: number | null;
   engine_v3_target_roas: number;
+  campaign_kind: string | null;
+  campaign_label_status: string | null;
+  decision_kind_source: string | null;
+  label_transform: string | null;
+  blocked_action_type: string | null;
   engine_v3_badges: string;
   engine_v3_reason: string;
   spend: number;
@@ -70,6 +81,11 @@ const OUTPUT_HEADERS = [
   "engine_v3_truth_source",
   "engine_v3_ratio",
   "engine_v3_target_roas",
+  "campaign_kind",
+  "campaign_label_status",
+  "decision_kind_source",
+  "label_transform",
+  "blocked_action_type",
   "engine_v3_badges",
   "engine_v3_reason",
   "spend",
@@ -129,6 +145,19 @@ async function main() {
       const inputByWarehouseId = new Map(
         inputs.map((input) => [input.creativeId, input]),
       );
+      const campaignIds = uniqueStrings(
+        inputs
+          .map((input) => input.campaignId?.trim() || "")
+          .filter(Boolean),
+      );
+      const campaignLabelsById = buildCreativeCampaignLabelMap(
+        campaignIds.length > 0
+          ? await readMetaCampaignLabels({
+              businessId,
+              campaignIds,
+            })
+          : [],
+      );
       const inputBySourceId = new Map<string, CreativeInput>();
       for (const row of group) {
         const warehouseCreativeId =
@@ -152,6 +181,11 @@ async function main() {
             engine_v3_truth_source: "n/a",
             engine_v3_ratio: null,
             engine_v3_target_roas: 0,
+            campaign_kind: null,
+            campaign_label_status: null,
+            decision_kind_source: null,
+            label_transform: null,
+            blocked_action_type: null,
             engine_v3_badges: "",
             engine_v3_reason:
               "Creative not present in meta_creative_daily for this asOf",
@@ -166,7 +200,15 @@ async function main() {
           continue;
         }
 
-        const decision = decideCreative(input, profile, dataHealth);
+        const inputWithCampaignKind = withCreativeCampaignLabelContext(
+          input,
+          campaignLabelsById,
+        );
+        const decision = applyCreativeCampaignLabelGuard({
+          decision: decideCreative(inputWithCampaignKind, profile, dataHealth),
+          input: inputWithCampaignKind,
+          campaignLabelsById,
+        });
         output.push({
           business_name: row.business_name,
           business_id: row.business_id,
@@ -179,6 +221,11 @@ async function main() {
           engine_v3_truth_source: decision.truthSource,
           engine_v3_ratio: decision.ratioToTarget,
           engine_v3_target_roas: decision.effectiveTargetRoas,
+          campaign_kind: decision.campaignKind ?? null,
+          campaign_label_status: decision.campaignLabelStatus ?? null,
+          decision_kind_source: decision.decisionKindSource ?? null,
+          label_transform: decision.labelTransform ?? null,
+          blocked_action_type: decision.blockedActionType ?? null,
           engine_v3_badges: decision.badges.map((badge) => badge.type).join(";"),
           engine_v3_reason: decision.reason,
           spend: input.spend,

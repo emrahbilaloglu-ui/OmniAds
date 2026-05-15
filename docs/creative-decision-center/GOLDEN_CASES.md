@@ -39,6 +39,19 @@ These cases must become executable fixtures before resolver behavior changes. Do
 | GC-033 | operator surface says act_now but V2 says Diagnose | Diagnose | diagnose_data | diagnose | data_quality | high | low | truth_degraded | learning | diagnose_data |
 | GC-034 | old V1 stable_winner maps to V2 Protect | Protect | protect | review_only | performance | medium | high | stable_winner | mature | diagnose_data |
 | GC-035 | old V1 fatigued_winner maps to V2 Refresh | Refresh | refresh | review_only | fatigue | high | high | fatigue_composite | mature | diagnose_data |
+| GC-036 | unlabeled campaign with would-be scale | Diagnose | diagnose_data | review_only | data_quality | medium | low | campaign_label_missing | mature | diagnose_data |
+| GC-037 | labeled campaign with would-be scale | Scale | scale | review_only | performance | high | high | strong_relative_winner | mature | diagnose_data |
+| GC-038 | labeled Main creative where Main baseline is stricter than all baseline | Keep | review | review_only | performance | medium | medium | kind_main_baseline_stricter | mature | canonical_all_fallback |
+| GC-039 | labeled Test creative where Test baseline is easier than all baseline | Scale | scale | review_only | performance | high | high | kind_test_baseline_selected | mature | canonical_all_fallback |
+| GC-040 | labeled Main creative with sparse/null Main calibration row | Same as canonical | same_as_canonical | review_only | performance | medium | medium | kind_baseline_fallback | mature | canonical_all_fallback |
+| GC-041 | labeled Mixed creative with no sufficient Mixed calibration row | Same as canonical | same_as_canonical | review_only | performance | medium | medium | kind_mixed_fallback | mature | canonical_all_fallback |
+| GC-042 | unlabeled campaign with would-be scale after kind-aware resolver | Diagnose | diagnose_data | review_only | data_quality | medium | low | campaign_label_missing | mature | diagnose_data |
+| GC-043 | labeled Test creative with gate-emitted refresh signal | Cut | cut | review_only | performance | high | medium | test_cohort_refresh_to_cut | mature | diagnose_data |
+| GC-044a | labeled Test creative with refresh signal where transformed cut is soft-blocked | Test More | test_more | review_only | performance | medium | medium | test_cohort_refresh_to_cut_soft_blocked | mature | diagnose_data |
+| GC-044b | labeled Test creative where original refresh would be soft-blocked but transformed cut is allowed | Cut | cut | review_only | performance | high | medium | test_cohort_refresh_before_soft_only | mature | diagnose_data |
+| GC-045 | labeled Main creative with gate-emitted refresh signal | Refresh | refresh | review_only | fatigue | high | medium | fatigue_composite | mature | diagnose_data |
+| GC-046 | labeled Mixed creative with gate-emitted refresh signal | Refresh | refresh | review_only | fatigue | high | medium | fatigue_composite | mature | diagnose_data |
+| GC-047 | unlabeled creative with gate-emitted refresh signal | Diagnose | diagnose_data | review_only | data_quality | medium | low | campaign_label_missing | mature | diagnose_data |
 
 ## Case Notes
 
@@ -77,6 +90,32 @@ These cases must become executable fixtures before resolver behavior changes. Do
 - GC-033 proves operator urgency must not override V2 data-quality diagnosis.
 - GC-034 proves V1 `stable_winner` maps to V2 `Protect`.
 - GC-035 proves V1 `fatigued_winner` maps to V2 `Refresh`.
+- GC-036 proves missing Main/Test/Mixed campaign context blocks hard creative actions but preserves diagnostic evidence.
+- GC-037 proves a present campaign label is context, not a blocker by itself.
+- GC-038 proves a labeled Main campaign can use a stricter Main-specific
+  baseline and avoid scaling against the easier canonical all-account baseline.
+- GC-039 proves a labeled Test campaign can use Test-specific baselines when
+  the Test bucket is sufficiently mature.
+- GC-040 proves sparse/null kind calibration falls back to canonical all-account
+  behavior rather than mixing per-gate thresholds.
+- GC-041 proves sparse Mixed buckets fall back to all-account behavior and are
+  never inferred from Main/Test buckets.
+- GC-042 proves P1c kind-aware selection composes with the P0 campaign-label
+  guard: unlabeled hard actions remain diagnostic.
+- GC-043 proves Test campaign `refresh` emissions become `cut` semantics and
+  carry the `test_cohort_refresh_to_cut` diagnostic.
+- GC-044a proves the transform diagnostic is preserved even when the transformed
+  cut is downgraded by soft-only hard-action eligibility.
+- GC-044b proves the transform runs before soft-only handling; a refresh-blocked
+  but cut-allowed Test decision still emits `cut`, not `keep`.
+- GC-045 proves Main campaigns keep the existing refresh semantics.
+- GC-046 proves Mixed campaigns keep the existing refresh semantics.
+- GC-047 proves unlabeled creatives do not receive Test semantics and are still
+  blocked by the campaign-label guard when the raw hard action is `refresh`.
+- P1b kind-segmented calibration was data-only. P1c consumes those
+  baselines only through a strict profile selector: sufficient labeled kind
+  data may change decisions; sparse, mixed-empty, or unlabeled rows must match
+  canonical `all` behavior.
 
 ## Fixture Requirements
 

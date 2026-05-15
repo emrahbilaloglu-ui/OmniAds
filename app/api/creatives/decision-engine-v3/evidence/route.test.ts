@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
 import {
   decideCreative,
   resolveAccountDecisionProfile,
@@ -22,6 +23,10 @@ vi.mock("@/lib/access", () => ({
 
 vi.mock("@/lib/creative-decision-engine/feature-flags", () => ({
   resolveEngineV3Flags: vi.fn(),
+}));
+
+vi.mock("@/lib/meta/campaign-labels", () => ({
+  readMetaCampaignLabels: vi.fn(),
 }));
 
 vi.mock("@/lib/creative-decision-engine", async (importOriginal) => {
@@ -310,6 +315,20 @@ beforeEach(() => {
     instance: dataSource as never,
     label: "warehouse",
   });
+  vi.mocked(readMetaCampaignLabels).mockResolvedValue([
+    {
+      businessId: "biz-1",
+      campaignId: "campaign-1",
+      kind: "main",
+      testDimension: null,
+      source: "user",
+      providerAccountId: null,
+      campaignName: null,
+      labeledBy: "user-1",
+      labeledAt: "2026-05-04T00:00:00.000Z",
+      updatedAt: "2026-05-04T00:00:00.000Z",
+    },
+  ]);
   dataSource.listCreativeInputs.mockResolvedValue([input]);
   dataSource.getDataHealth.mockResolvedValue(dataHealth);
   dataSource.getLatestFunnelDiagnosis.mockResolvedValue(funnelDiagnosis);
@@ -407,11 +426,24 @@ describe("GET /api/creatives/decision-engine-v3/evidence", () => {
       dataHealth,
       scope: { type: "account", id: "*" },
       accountProfile: { businessId: "biz-1", preset: "balanced" },
-      decision: { creativeId: "creative-1", label: "scale" },
-      input: { creativeId: "creative-1" },
+      decision: {
+        creativeId: "creative-1",
+        label: "scale",
+        campaignLabelStatus: "labeled",
+        campaignKind: "main",
+      },
+      input: { creativeId: "creative-1", campaignKind: "main" },
       funnelDiagnosis: { primaryWeakStage: "none" },
       operatorResponse: { responseType: "ignored" },
     });
+    expect(decideCreative).toHaveBeenCalledWith(
+      expect.objectContaining({
+        creativeId: "creative-1",
+        campaignKind: "main",
+      }),
+      expect.any(Object),
+      dataHealth,
+    );
     expect(dataSource.listCreativeInputs).toHaveBeenCalledWith({
       businessId: "biz-1",
       asOf: "2026-05-04",
@@ -438,6 +470,34 @@ describe("GET /api/creatives/decision-engine-v3/evidence", () => {
       expect.objectContaining({
         campaignId: "campaign-1",
       }),
+    );
+  });
+
+  it("guards hard evidence decisions when campaign label is missing", async () => {
+    vi.mocked(readMetaCampaignLabels).mockResolvedValue([]);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/decision-engine-v3/evidence?businessId=biz-1&creativeId=creative-1&campaignId=campaign-1",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.decision).toMatchObject({
+      label: "diagnose",
+      confidence: 50,
+      campaignLabelStatus: "unlabeled",
+      campaignKind: null,
+      blockedActionType: "scale",
+    });
+    expect(payload.decision.badges.map((badge: { type: string }) => badge.type)).toContain(
+      "unlabeled_campaign_context",
+    );
+    expect(decideCreative).toHaveBeenCalledWith(
+      expect.objectContaining({ campaignKind: null }),
+      expect.any(Object),
+      dataHealth,
     );
   });
 

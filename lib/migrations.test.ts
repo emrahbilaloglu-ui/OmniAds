@@ -108,6 +108,9 @@ describe("runMigrations", () => {
     expect(queries.join("\n")).toContain("old_constraint_name");
     expect(queries.join("\n")).toContain("idx_meta_creative_media_ad_grain");
     expect(queries.join("\n")).toContain("idx_meta_creative_media_business_date");
+    expect(queries.join("\n")).toContain("CREATE TABLE IF NOT EXISTS meta_campaign_labels");
+    expect(queries.join("\n")).toContain("campaign_kind IN ('main', 'test', 'mixed')");
+    expect(queries.join("\n")).toContain("idx_meta_campaign_labels_business_kind");
     expect(queries.join("\n")).toContain("idx_google_ads_account_daily_business_account_date");
     expect(queries.join("\n")).toContain("idx_shopify_orders_business_account_created_local");
     expect(queries.join("\n")).toContain("SET lock_timeout = '2000ms'");

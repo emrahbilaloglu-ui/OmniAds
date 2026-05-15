@@ -53,4 +53,20 @@ describe("WatchingCard", () => {
     expect(html).toContain("Reappears tomorrow 9am ·");
     expect(html).toContain("data-action=\"undefer\"");
   });
+
+  it("renders unlabeled campaign context without creating an action", () => {
+    const html = renderToStaticMarkup(
+      <WatchingCard
+        card={card({
+          campaignLabelStatus: "unlabeled",
+          blockedActionType: "scale",
+          badges: ["unlabeled_campaign_context"],
+        })}
+      />,
+    );
+
+    expect(html).toContain(">Unlabeled<");
+    expect(html).toContain("campaign label");
+    expect(html).not.toContain("data-kind=\"scale\"");
+  });
 });

@@ -64,6 +64,7 @@ describe("Meta rec label mapping", () => {
     ["scenario_eg3_engagement_inefficient_cut", "cut", "Pause adset"],
     ["scenario_eg4_engagement_refresh", "refresh", "Refresh creative"],
     ["scenario_g1_upper_funnel_event", "switch", "Switch optimization"],
+    ["scenario_g2_downshift_to_purchase", "switch", "Switch to purchase"],
     ["scenario_k4_catalog_feed_first", "diagnose", "Open diagnostics"],
   ] as const)("maps %s to its decision and primary action labels", (type, decisionLabel, primaryLabel) => {
     const input = {

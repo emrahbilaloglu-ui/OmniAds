@@ -34,8 +34,7 @@ path and ask the model to read it before planning or changing code.
 
 ## Current Repo State
 
-- Current implementation branch: `main` after Phase E.3 merge. Next
-  implementation branch has not been created yet.
+- Current implementation branch: `phase-e-meta-purchase-downshift-scenario`.
 - Phase A PR: `#162` (`[codex] Unify Meta funnel cohort resolution`), merged.
 - Phase A implementation commit: `fc8a8d7` (`Unify Meta funnel cohort resolution`).
 - Phase A context commit: `2a49ef1` (`Record Phase A PR context`).
@@ -87,6 +86,8 @@ path and ask the model to read it before planning or changing code.
   `phase-e-meta-bid-regime-scenarios`.
 - Phase E.3 branch started after Phase E.2 merge/context:
   `phase-e-meta-optimization-feed-scenarios`.
+- Phase E.4 branch started after Phase E.3 merge/context:
+  `phase-e-meta-purchase-downshift-scenario`.
 - Phase A tracked-file modifications at the time of this snapshot:
   - `lib/meta/campaign-lanes.ts`
   - `lib/meta/campaign-lanes.test.ts`
@@ -291,6 +292,30 @@ path and ask the model to read it before planning or changing code.
       explicit-age thread, P2 G1 purchase-event thread, and P2 K4 negated
       feed-status thread resolved; no remaining unresolved review threads at
       merge.
+- Phase E.4 implementation status:
+  - Branch: `phase-e-meta-purchase-downshift-scenario`.
+  - Scope intentionally limited to `scenario_g2_downshift_to_purchase`.
+  - G2 emits only when a campaign is explicitly optimized to a supported
+    pre-purchase event (`INITIATE_CHECKOUT`, `ADD_TO_CART`, `VIEW_CONTENT`, or
+    `LANDING_PAGE_VIEWS`), has explicit `purchases_7d` evidence, has enough
+    recent purchase sample, and clears both calibrated account ROAS p50 and the
+    configured commercial ROAS floor.
+  - G2 does not emit for purchase-optimized campaigns, generic
+    `OFFSITE_CONVERSIONS` without custom-event evidence, missing recent purchase
+    evidence, recent edit cooldown, tracking-quality issue, or missing
+    commercial target anchors.
+  - The G2 scenario scope is `any` because the source cohort can be
+    mid/upper/traffic even though the target event is purchase.
+  - Local verification so far:
+    - `npx vitest run lib/meta/scenario-emitters/high-priority.test.ts lib/meta/campaign-label-guard.test.ts lib/meta/rec-label-mapping.test.ts lib/meta/engine-v1/scenarios.test.ts`
+      passed: 4 files, 98 tests.
+    - `npx tsc --noEmit` passed.
+    - `npx vitest run lib/meta components/meta app/api/meta` passed: 109
+      files, 994 tests.
+    - `npx vitest run` passed: 408 files passed, 4 skipped; 2,946 tests
+      passed, 49 skipped.
+    - `npm run lint` passed.
+    - `npm run build` passed.
 
 ## Completed Work
 
@@ -543,6 +568,7 @@ path and ask the model to read it before planning or changing code.
 2. Purchase scenario coverage:
    - Phase E.1, E.2, and E.3 implemented the learning/sample, bid-regime, and
      optimization/feed subsets that current data can support.
+   - Phase E.4 is in progress for the G2 purchase-downshift subset.
    - Remaining scenario-library IDs are still unimplemented, especially
      audience/overlap, placement, cross-campaign, seasonal, and deeper
      controlled-scale variants.
@@ -574,7 +600,8 @@ path and ask the model to read it before planning or changing code.
 ## Proposed Gap-Closure Plan
 
 Status: user-approved as of 2026-05-15. Phase A, Phase B, Phase C, Phase D,
-Phase E.1, Phase E.2, and Phase E.3 are merged.
+Phase E.1, Phase E.2, and Phase E.3 are merged. Phase E.4 is in progress on
+`phase-e-meta-purchase-downshift-scenario`.
 
 Claude was explicitly told to read this file first before producing its plan.
 Claude agreed with the final phase order and added three acceptance criteria:
@@ -675,6 +702,8 @@ where coverage is weak.
     the B4/B6 review fixes, then merged into `main` at `9b01d42`.
   - Phase E.3 PR `#168` passed GitHub `typecheck`, `test`, and `build` after
     the G1/K4 review fixes, then merged into `main` at `4ca36bcb`.
+  - Phase E.4 is in progress for `scenario_g2_downshift_to_purchase`; it is not
+    merged yet.
   - Remaining Phase E work should focus only on scenario families whose required
     signals are present or can be explicitly populated; unsupported overlap/feed
     assumptions must keep producing diagnose/watch, not hard actions.

@@ -63,7 +63,9 @@ export const META_ENGINE_V1_SCENARIOS: MetaEngineScenarioDefinition[] = [
   { id: "F4", recType: "scenario_f4_stable_winner_drop_context", cohortScope: "purchase_only", requiredSignals: ["stable_winner", "roas_drop", "cpm_trend", "seasonality_context"], missingSignalFallback: "diagnose_low_confidence" },
   // G1 is upper-funnel event-fit context, not a purchase scale/cut verdict.
   { id: "G1", recType: "scenario_g1_upper_funnel_event", cohortScope: "any", requiredSignals: ["purchases_7d", "optimization_event", "age_days"], missingSignalFallback: "state_watch" },
-  { id: "G2", recType: "scenario_g2_downshift_to_purchase", cohortScope: "purchase_only", requiredSignals: ["optimization_event", "purchases_7d", "roas_p50"], missingSignalFallback: "state_watch" },
+  // G2 starts from a pre-purchase optimization event and tests purchase; the
+  // source cohort can be mid/upper/traffic even when the target event is purchase.
+  { id: "G2", recType: "scenario_g2_downshift_to_purchase", cohortScope: "any", requiredSignals: ["optimization_event", "purchases_7d", "roas_p50"], missingSignalFallback: "state_watch" },
   // G3 is test/tracking context; purchase ROAS is evidence, not the cohort gate.
   { id: "G3", recType: "scenario_g3_ab_test_bottom_funnel_verdict", cohortScope: "any", requiredSignals: ["test_pairing", "purchase_roas"], missingSignalFallback: "state_watch" },
   { id: "H1", recType: "scenario_h1_dedup_tracking", cohortScope: "any", requiredSignals: ["dedup_rate_pct"], missingSignalFallback: "unsupported_state" },

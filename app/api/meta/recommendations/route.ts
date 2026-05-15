@@ -17,6 +17,7 @@ import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import { resolveRequestLanguage } from "@/lib/request-language";
 import { META_WAREHOUSE_HISTORY_DAYS } from "@/lib/meta/history";
+import { readMetaCommercialTargets } from "@/lib/meta/commercial-targets";
 
 // Intentional exception: recommendations keep snapshot-backed historical
 // config regime analysis across multi-window history. This is not a normal
@@ -179,6 +180,7 @@ export async function GET(request: NextRequest) {
     allHistoryCampaigns,
     breakdowns,
     creativeScoreSnapshot,
+    commercialTargets,
   ] = await Promise.all([
     getMetaCampaignsForRange({
       ...Object.fromEntries(baseParams),
@@ -236,6 +238,7 @@ export async function GET(request: NextRequest) {
       selectedStartDate: startDate,
       selectedEndDate: endDate,
     }),
+    readMetaCommercialTargets(businessId).catch(() => null),
   ]);
 
   const creativeIntelligence = buildMetaCreativeIntelligence({
@@ -267,6 +270,7 @@ export async function GET(request: NextRequest) {
           })
         ).entries()
       ),
+      commercialTargets,
       language,
     }),
     {

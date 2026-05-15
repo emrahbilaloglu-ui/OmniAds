@@ -4,6 +4,15 @@ import type { MetaAdSetData } from "@/lib/api/meta";
 import { LEGACY_META_CALIBRATION_THRESHOLDS } from "@/lib/meta/calibration";
 import type { MetaCalibrationContext } from "@/lib/meta/recommendations";
 
+const commercialTargets = {
+  source: "configured_targets" as const,
+  targetRoas: 2.2,
+  breakEvenRoas: 1.5,
+  targetCpa: 120,
+  breakEvenCpa: 160,
+  riskPosture: "balanced" as const,
+};
+
 function adset(overrides: Partial<MetaAdSetData> = {}): MetaAdSetData {
   return {
     id: "adset-1",
@@ -115,6 +124,7 @@ describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
           roas: 0,
         }),
       ],
+      commercialTargets,
     });
 
     expect(recs.some((rec) => rec.type === "adset_cut_spend")).toBe(false);
@@ -131,6 +141,7 @@ describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
           roas: 0,
         }),
       ],
+      commercialTargets,
     });
 
     expect(recs.some((rec) => rec.type === "adset_cut_spend")).toBe(false);
@@ -171,11 +182,43 @@ describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
           cpm: 10,
         }),
       ],
+      commercialTargets,
     });
 
     const scaleRec = recs.find((rec) => rec.type === "adset_scale_budget");
     expect(scaleRec).toBeTruthy();
     expect(scaleRec?.cohort).toBe("purchase");
+  });
+
+  it("does not emit hard purchase adset scale or cut without commercial targets", () => {
+    const recs = buildMetaAdsetRecommendations({
+      adsets: [
+        adset({
+          id: "scale-candidate",
+          optimizationGoal: "OFFSITE_CONVERSIONS",
+          customEventType: "",
+          spend: 1000,
+          purchases: 12,
+          revenue: 4500,
+          roas: 4.5,
+          cpa: 83,
+          ctr: 2,
+        }),
+        adset({
+          id: "cut-candidate",
+          optimizationGoal: "OFFSITE_CONVERSIONS",
+          customEventType: "",
+          spend: 1000,
+          purchases: 1,
+          revenue: 500,
+          roas: 0.5,
+          cpa: 1000,
+        }),
+      ],
+    });
+
+    expect(recs.some((rec) => rec.type === "adset_scale_budget")).toBe(false);
+    expect(recs.some((rec) => rec.type === "adset_cut_spend")).toBe(false);
   });
 
   it("does not scale a purchase adset when the selected range has mixed goal config", () => {

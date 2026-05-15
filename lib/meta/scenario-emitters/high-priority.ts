@@ -11,6 +11,12 @@ import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
 import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
 import type { MetaFunnelCohort } from "@/lib/meta/funnel-cohort";
 import {
+  metaCutRoasCeiling,
+  metaLossBudgetMaturity,
+  metaScaleRoasFloor,
+  type MetaCommercialTargets,
+} from "@/lib/meta/commercial-targets";
+import {
   META_ENGINE_V1_SCENARIOS,
   type MetaEngineScenarioCohortScope,
 } from "@/lib/meta/engine-v1/scenarios";
@@ -51,6 +57,7 @@ export interface CampaignScenarioInput {
   campaignRole?: MetaCampaignRole;
   bidRegime?: MetaBidRegime;
   signals?: MetaEntityDecisionSignal | null;
+  commercialTargets?: MetaCommercialTargets | null;
 }
 
 export interface AdsetScenarioInput {
@@ -65,10 +72,6 @@ export interface AdsetScenarioInput {
 
 function metric(context: MetaCalibrationContext | null, name: keyof typeof LEGACY_META_CALIBRATION_THRESHOLDS.metrics) {
   return context?.thresholds.metrics[name] ?? null;
-}
-
-function hardCutSpend(context: MetaCalibrationContext | null) {
-  return context?.thresholds.hardCutSpend ?? LEGACY_META_CALIBRATION_THRESHOLDS.hardCutSpend;
 }
 
 function minRequiredSample(context: MetaCalibrationContext | null) {
@@ -99,6 +102,18 @@ function fmtCurrency(value: number, currency: string | null | undefined) {
 
 function fmtRoas(value: number) {
   return `${value.toFixed(2)}x`;
+}
+
+function commercialTargetEvidence(
+  targets: MetaCommercialTargets | null | undefined,
+  currency: string | null | undefined,
+): MetaRecommendation["evidence"] {
+  const evidence: MetaRecommendation["evidence"] = [];
+  if (targets?.targetRoas) evidence.push({ label: "Target ROAS", value: fmtRoas(targets.targetRoas), tone: "neutral" });
+  if (targets?.breakEvenRoas) evidence.push({ label: "Break-even ROAS", value: fmtRoas(targets.breakEvenRoas), tone: "neutral" });
+  if (targets?.breakEvenCpa) evidence.push({ label: "Break-even CPA", value: fmtCurrency(targets.breakEvenCpa, currency), tone: "neutral" });
+  else if (targets?.targetCpa) evidence.push({ label: "Target CPA", value: fmtCurrency(targets.targetCpa, currency), tone: "neutral" });
+  return evidence;
 }
 
 function confidence(input: {
@@ -280,12 +295,15 @@ function baseAdsetRec(input: {
 export function maybeC1ControlledScale(input: CampaignScenarioInput): MetaRecommendation | null {
   const row = input.window.selected;
   const roas = metric(input.context, "roas_28d");
+  const scaleFloor = metaScaleRoasFloor(input.commercialTargets);
   if (!roas || !sampleReady(input.context, "roas_28d")) return null;
+  if (!scaleFloor) return null;
   if (recentEditCooldownActive(input.signals)) return null;
-  if (historyAgeDays(input.window) < 28 || row.roas < roas.p75 || row.purchases < 8) return null;
+  const scaleThreshold = Math.max(roas.p75, scaleFloor);
+  if (historyAgeDays(input.window) < 28 || row.roas < scaleThreshold || row.purchases < 8) return null;
   const budget = budgetAmount(row);
   if (!budget) return null;
-  const conf = confidence({ level: "campaign", context: input.context, metricValue: row.roas, threshold: roas.p75 });
+  const conf = confidence({ level: "campaign", context: input.context, metricValue: row.roas, threshold: scaleThreshold });
   return baseCampaignRec({
     row,
     type: "scenario_c1_controlled_scale",
@@ -294,7 +312,7 @@ export function maybeC1ControlledScale(input: CampaignScenarioInput): MetaRecomm
     confidenceScore: conf,
     decisionState: conf.score >= 0.7 ? "act" : "test",
     title: `${row.name}: controlled scale candidate`,
-    why: `28d ROAS ${fmtRoas(row.roas)} is above calibrated p75 ${fmtRoas(roas.p75)} with mature purchase depth.`,
+    why: `28d ROAS ${fmtRoas(row.roas)} is above calibrated p75 ${fmtRoas(roas.p75)} and the configured profit floor ${fmtRoas(scaleFloor)} with mature purchase depth.`,
     summary: "The campaign is a mature winner; scale only in a bounded 10-25% step.",
     recommendedAction: "Increase campaign budget by 10-25% and watch CPA/ROAS for 48-72 hours.",
     expectedImpact: "More volume while avoiding a learning reset from an oversized edit.",
@@ -302,6 +320,7 @@ export function maybeC1ControlledScale(input: CampaignScenarioInput): MetaRecomm
       { label: "ROAS", value: fmtRoas(row.roas), tone: "positive" },
       { label: "ROAS p75", value: fmtRoas(roas.p75), tone: "neutral" },
       { label: "Purchases", value: String(row.purchases), tone: "positive" },
+      ...commercialTargetEvidence(input.commercialTargets, row.currency),
     ],
     targetValue: { budget: { current: budget, proposed: r2(budget * 1.15), range: { low: r2(budget * 1.1), high: r2(budget * 1.25) } } },
     campaignRole: input.campaignRole,
@@ -314,14 +333,17 @@ export function maybeC1ControlledScale(input: CampaignScenarioInput): MetaRecomm
 export function maybeB1CappedBidRaise(input: CampaignScenarioInput): MetaRecommendation | null {
   const row = input.window.selected;
   const roas = metric(input.context, "roas_28d");
+  const scaleFloor = metaScaleRoasFloor(input.commercialTargets);
   if (!roas || !sampleReady(input.context, "roas_28d")) return null;
+  if (!scaleFloor) return null;
   if (!["cost_cap", "bid_cap", "target_roas", "minimum_roas", "manual_bid"].includes(String(row.bidStrategyType))) return null;
   const budget = budgetAmount(row);
   const bid = row.bidValue ?? row.manualBidAmount;
-  if (!budget || !bid || row.roas < roas.p50) return null;
+  const threshold = Math.max(roas.p50, scaleFloor);
+  if (!budget || !bid || row.roas < threshold) return null;
   const dailySpend = row.spend / 28;
   if (dailySpend / budget >= 0.95) return null;
-  const conf = confidence({ level: "campaign", context: input.context, metricValue: row.roas, threshold: roas.p50 });
+  const conf = confidence({ level: "campaign", context: input.context, metricValue: row.roas, threshold });
   return baseCampaignRec({
     row,
     type: "scenario_b1_capped_winner_bid_raise",
@@ -330,7 +352,7 @@ export function maybeB1CappedBidRaise(input: CampaignScenarioInput): MetaRecomme
     confidenceScore: conf,
     decisionState: "act",
     title: `${row.name}: capped winner needs bid room`,
-    why: `Capped bidding is under-delivering while ROAS ${fmtRoas(row.roas)} is above calibrated p50 ${fmtRoas(roas.p50)}.`,
+    why: `Capped bidding is under-delivering while ROAS ${fmtRoas(row.roas)} is above calibrated p50 ${fmtRoas(roas.p50)} and the configured profit floor ${fmtRoas(scaleFloor)}.`,
     summary: "Raise the bid cap before raising budget; budget utilization is below 95%.",
     recommendedAction: "Increase the bid cap 10% and re-check delivery before any budget increase.",
     expectedImpact: "Unlock delivery without forcing budget into an auction cap.",
@@ -338,6 +360,7 @@ export function maybeB1CappedBidRaise(input: CampaignScenarioInput): MetaRecomme
       { label: "Budget utilization", value: `${r2((dailySpend / budget) * 100)}%`, tone: "warning" },
       { label: "ROAS p50", value: fmtRoas(roas.p50), tone: "neutral" },
       { label: "Current bid", value: fmtCurrency(bid, row.currency), tone: "neutral" },
+      ...commercialTargetEvidence(input.commercialTargets, row.currency),
     ],
     targetValue: { bid: targetBand(bid, 0.1) },
     campaignRole: input.campaignRole,
@@ -382,10 +405,19 @@ export function maybeJ1StableWinnerProtected(input: CampaignScenarioInput): Meta
 export function maybeA2StructuralRebuild(input: CampaignScenarioInput): MetaRecommendation | null {
   const row = input.window.selected;
   const roas = metric(input.context, "roas_28d");
+  const cpa = metric(input.context, "cpa_28d");
+  const cutCeiling = metaCutRoasCeiling(input.commercialTargets);
   if (!roas || !sampleReady(input.context, "roas_28d")) return null;
+  if (!cutCeiling) return null;
+  const maturity = metaLossBudgetMaturity({
+    targets: input.commercialTargets,
+    accountCpaBaseline: cpa?.p50 ?? null,
+    currency: row.currency,
+  });
+  if (!maturity || row.spend < maturity.spendThreshold) return null;
   if (!input.signals?.learningState || input.signals.learningState === "LEARNING") return null;
-  if (historyAgeDays(input.window) < 7 || row.roas >= roas.p25 || row.spend < hardCutSpend(input.context)) return null;
-  const conf = confidence({ level: "campaign", context: input.context, metricValue: row.roas, threshold: roas.p25, severeLoser: row.roas <= roas.p10 });
+  if (historyAgeDays(input.window) < 7 || row.roas >= roas.p25 || row.roas >= cutCeiling) return null;
+  const conf = confidence({ level: "campaign", context: input.context, metricValue: row.roas, threshold: Math.min(roas.p25, cutCeiling), severeLoser: row.roas <= Math.min(roas.p10, cutCeiling) });
   return baseCampaignRec({
     row,
     type: "scenario_a2_learning_weak_structural",
@@ -394,7 +426,7 @@ export function maybeA2StructuralRebuild(input: CampaignScenarioInput): MetaReco
     confidenceScore: conf,
     decisionState: "act",
     title: `${row.name}: rebuild weak structure`,
-    why: `ROAS ${fmtRoas(row.roas)} is below calibrated p25 ${fmtRoas(roas.p25)} after meaningful spend.`,
+    why: `ROAS ${fmtRoas(row.roas)} is below calibrated p25 ${fmtRoas(roas.p25)} and the configured loss floor ${fmtRoas(cutCeiling)} after mature loss-budget spend.`,
     summary: "Do not wait for learning to rescue a severe underperformer.",
     recommendedAction: "Rebuild with cleaner audience, creative, and optimization separation before adding budget.",
     expectedImpact: "Stops budget from compounding through a structurally weak setup.",
@@ -402,6 +434,8 @@ export function maybeA2StructuralRebuild(input: CampaignScenarioInput): MetaReco
       { label: "Spend", value: fmtCurrency(row.spend, row.currency), tone: "warning" },
       { label: "ROAS", value: fmtRoas(row.roas), tone: "warning" },
       { label: "ROAS p25", value: fmtRoas(roas.p25), tone: "neutral" },
+      { label: "Loss maturity spend", value: fmtCurrency(maturity.spendThreshold, row.currency), tone: "neutral" },
+      ...commercialTargetEvidence(input.commercialTargets, row.currency),
     ],
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,

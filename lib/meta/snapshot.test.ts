@@ -60,6 +60,21 @@ vi.mock("@/lib/meta/entity-signals-backfill", () => ({
   runMetaSignalsBackfillForBusiness: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/commercial-targets", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/meta/commercial-targets")>();
+  return {
+    ...actual,
+    readMetaCommercialTargets: vi.fn(async () => ({
+      source: "configured_targets",
+      targetRoas: 2.2,
+      breakEvenRoas: 1.5,
+      targetCpa: 120,
+      breakEvenCpa: 160,
+      riskPosture: "balanced",
+    })),
+  };
+});
+
 const db = await import("@/lib/db");
 const activeBusinesses = await import("@/lib/sync/active-businesses");
 const calibration = await import("@/lib/meta/calibration");

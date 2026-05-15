@@ -22,6 +22,12 @@ import {
   resolveMetaFunnelCohort,
   type MetaFunnelCohort,
 } from "@/lib/meta/funnel-cohort";
+import {
+  metaCutRoasCeiling,
+  metaLossBudgetMaturity,
+  metaScaleRoasFloor,
+  type MetaCommercialTargets,
+} from "@/lib/meta/commercial-targets";
 import { emitEngagementAdsetScenario } from "@/lib/meta/scenario-emitters/engagement";
 import { emitLeadAdsetScenario } from "@/lib/meta/scenario-emitters/lead";
 import { emitMidFunnelAdsetScenario } from "@/lib/meta/scenario-emitters/mid-funnel";
@@ -34,6 +40,7 @@ export interface BuildMetaAdsetRecommendationsInput {
   calibrationContextByAdsetId?: Record<string, MetaCalibrationContext | null | undefined>;
   calibrationContextByCampaignId?: Record<string, MetaCalibrationContext | null | undefined>;
   entitySignalsByAdsetId?: Record<string, MetaEntityDecisionSignal | null | undefined>;
+  commercialTargets?: MetaCommercialTargets | null;
 }
 
 function r2(value: number) {
@@ -75,13 +82,21 @@ function metricThresholds(
   return context?.thresholds.metrics[metric] ?? LEGACY_META_CALIBRATION_THRESHOLDS.metrics[metric];
 }
 
-function hardCutSpend(context: MetaCalibrationContext | null) {
-  return context?.thresholds.hardCutSpend ?? LEGACY_META_CALIBRATION_THRESHOLDS.hardCutSpend;
-}
-
 function minRequiredSample(context: MetaCalibrationContext | null) {
   return context?.thresholds.minRequiredSample ??
     LEGACY_META_CALIBRATION_THRESHOLDS.minRequiredSample;
+}
+
+function commercialTargetEvidence(
+  targets: MetaCommercialTargets | null | undefined,
+  currency: string | null | undefined,
+): MetaRecommendation["evidence"] {
+  const evidence: MetaRecommendation["evidence"] = [];
+  if (targets?.targetRoas) evidence.push({ label: "Target ROAS", value: fmtRoas(targets.targetRoas), tone: "neutral" });
+  if (targets?.breakEvenRoas) evidence.push({ label: "Break-even ROAS", value: fmtRoas(targets.breakEvenRoas), tone: "neutral" });
+  if (targets?.breakEvenCpa) evidence.push({ label: "Break-even CPA", value: fmtCurrency(targets.breakEvenCpa, currency), tone: "neutral" });
+  else if (targets?.targetCpa) evidence.push({ label: "Target CPA", value: fmtCurrency(targets.targetCpa, currency), tone: "neutral" });
+  return evidence;
 }
 
 function adsetFrequency(adset: MetaAdSetData) {
@@ -177,12 +192,15 @@ export function buildMetaAdsetRecommendations(
   const recommendations: MetaRecommendation[] = [];
 
   for (const adset of activeAdsets) {
+    const campaign = campaignsById.get(adset.campaignId) ?? null;
     const cohort = resolveMetaFunnelCohort({
       optimizationGoal: adset.optimizationGoal,
       customEventType: adset.customEventType,
+      objective: campaign?.objective,
+      purchases: adset.purchases,
+      revenue: adset.revenue,
     });
     const context = contextForAdset(input, adset);
-    const campaign = campaignsById.get(adset.campaignId) ?? null;
     const taxonomyFields = {
       campaignName: campaign?.name,
       campaignRole: campaign
@@ -269,13 +287,26 @@ export function buildMetaAdsetRecommendations(
       }
     }
 
-    const scaleThreshold = context ? roas.p75 : Math.max(roas.p75, 2.5);
+    const scaleFloor = metaScaleRoasFloor(input.commercialTargets);
+    const cutCeiling = metaCutRoasCeiling(input.commercialTargets);
+    const scaleThreshold = scaleFloor ? (context ? Math.max(roas.p75, scaleFloor) : Math.max(roas.p75, scaleFloor)) : null;
     const weakThreshold = context ? roas.p25 : Math.max(roas.p25, 1.5);
-    const severeLoser = adset.roas < roas.p10 && adset.spend > hardCutSpend(context);
     const currency = (adset as MetaAdSetData & { currency?: string | null }).currency ?? null;
+    const maturity = metaLossBudgetMaturity({
+      targets: input.commercialTargets,
+      accountCpaBaseline: cpa.p50,
+      currency,
+    });
+    const severeLoser = Boolean(
+      cutCeiling &&
+      maturity &&
+      adset.roas < Math.min(roas.p10, cutCeiling) &&
+      adset.spend >= maturity.spendThreshold,
+    );
 
     if (isPurchaseCohort(cohort) && hasRangeAlignedCohortConfig(adset)) {
       if (
+        scaleThreshold != null &&
         adset.purchases >= 8 &&
         adset.roas >= scaleThreshold &&
         (adset.cpa <= 0 || adset.cpa <= cpa.p75)
@@ -304,12 +335,19 @@ export function buildMetaAdsetRecommendations(
             { label: "Ad set ROAS", value: fmtRoas(adset.roas), tone: "positive" },
             { label: "ROAS p75", value: fmtRoas(roas.p75), tone: "neutral" },
             { label: "Purchases", value: String(adset.purchases), tone: "positive" },
+            ...commercialTargetEvidence(input.commercialTargets, currency),
           ],
         }));
         continue;
       }
 
-      if (adset.spend >= hardCutSpend(context) && adset.roas < weakThreshold) {
+      if (
+        cutCeiling != null &&
+        maturity &&
+        adset.spend >= maturity.spendThreshold &&
+        adset.roas < weakThreshold &&
+        adset.roas < cutCeiling
+      ) {
         const confidenceResult = confidence({
           context,
           metricValue: adset.roas,
@@ -335,6 +373,8 @@ export function buildMetaAdsetRecommendations(
             { label: "Ad set spend", value: fmtCurrency(adset.spend, currency), tone: "warning" },
             { label: "Ad set ROAS", value: fmtRoas(adset.roas), tone: "warning" },
             { label: "ROAS p25", value: fmtRoas(roas.p25), tone: "neutral" },
+            { label: "Loss maturity spend", value: fmtCurrency(maturity.spendThreshold, currency), tone: "neutral" },
+            ...commercialTargetEvidence(input.commercialTargets, currency),
             ...(severeLoser
               ? [{ label: "Severe loser bypass", value: "active", tone: "warning" as const }]
               : []),

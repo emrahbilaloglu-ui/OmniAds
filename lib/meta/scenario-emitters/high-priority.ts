@@ -217,6 +217,17 @@ function monthlyPacingStatus(signals: MetaEntityDecisionSignal | null | undefine
   return textFromRecord(sourceRecord(signals, "monthly_pacing"), "status");
 }
 
+function learningExitEvidence(signals: MetaEntityDecisionSignal | null | undefined) {
+  const sourceExitAt = String(signals?.sourceJson?.learning_exit_at ?? "").trim();
+  const learningExitAt = sourceExitAt.length > 0 ? sourceExitAt : null;
+  const daysAtLearningState =
+    signals?.daysAtLearningState != null && Number.isFinite(Number(signals.daysAtLearningState))
+      ? Number(signals.daysAtLearningState)
+      : null;
+  if (!learningExitAt && daysAtLearningState == null) return null;
+  return { learningExitAt, daysAtLearningState };
+}
+
 function baseCampaignRec(input: {
   row: MetaCampaignRow;
   type: MetaRecommendation["type"];
@@ -645,6 +656,8 @@ export function maybeA3LearningOnPaceWait(input: CampaignScenarioInput): MetaRec
 export function maybeA5PostLearningUnderperformer(input: CampaignScenarioInput): MetaRecommendation | null {
   const row = input.window.selected;
   if (input.signals?.learningState !== "OPTIMAL_LEARNING_DONE") return null;
+  const learningExit = learningExitEvidence(input.signals);
+  if (!learningExit) return null;
   if (recentEditCooldownActive(input.signals) || trackingQualityIssue(input.signals)) return null;
   const roas = metric(input.context, "roas_28d");
   const cpa = metric(input.context, "cpa_28d");
@@ -680,6 +693,11 @@ export function maybeA5PostLearningUnderperformer(input: CampaignScenarioInput):
     expectedImpact: "Stops mature underperformance from absorbing additional budget.",
     evidence: [
       { label: "Learning state", value: "complete", tone: "neutral" },
+      {
+        label: "Post-learning age",
+        value: learningExit.daysAtLearningState != null ? `${learningExit.daysAtLearningState}d` : "exit recorded",
+        tone: "neutral",
+      },
       { label: "ROAS", value: fmtRoas(row.roas), tone: "warning" },
       { label: "ROAS p50", value: fmtRoas(roas.p50), tone: "neutral" },
       { label: "Loss maturity spend", value: fmtCurrency(maturity.spendThreshold, row.currency), tone: "neutral" },
@@ -689,6 +707,8 @@ export function maybeA5PostLearningUnderperformer(input: CampaignScenarioInput):
       roas_p50: roas.p50,
       cut_ceiling: cutCeiling,
       maturity_spend: maturity.spendThreshold,
+      learning_exit_at: learningExit.learningExitAt,
+      days_at_learning_state: learningExit.daysAtLearningState,
     },
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,

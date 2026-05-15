@@ -166,14 +166,17 @@ path and ask the model to read it before planning or changing code.
     `scenario_a3_learning_on_pace_wait`,
     `scenario_a5_post_learning_underperformer`, and
     `scenario_c3_scale_sample_gate`.
+  - PR review fix: A5 now requires learning-exit/post-learning maturity
+    evidence (`learning_exit_at` in `sourceJson` or `days_at_learning_state`)
+    before producing a cut/action recommendation.
   - `scenario_a4_learning_limited_persistent` is intentionally not included
     because it requires entity-scoped audience size/overlap, which Phase D
     confirmed is not populated.
   - Local verification so far:
     - `npx vitest run lib/meta/scenario-emitters/high-priority.test.ts lib/meta/recommendations.test.ts lib/meta/adset-decisions.test.ts`
-      passed: 3 files, 79 tests.
+      passed after review fix: 3 files, 80 tests.
     - `npx vitest run lib/meta components/meta app/api/meta` passed: 109
-      files, 967 tests.
+      files, 968 tests.
     - `npx tsc --noEmit` passed.
     - `npx vitest run` passed: 408 files passed, 4 skipped; 2,919 tests
       passed, 49 skipped.

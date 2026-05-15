@@ -82,7 +82,7 @@ describe("deriveMetaAutomationReadiness", () => {
 
   it("uses high empirical outcome summaries as the empirical gate", () => {
     const summary = summarizeMetaDecisionOutcomes(
-      Array.from({ length: 12 }, () => ({ outcomeStatus: "positive" })),
+      Array.from({ length: 12 }, () => ({ actionType: "outcome", outcomeStatus: "positive" })),
       { minSampleSize: 10 },
     );
 
@@ -100,16 +100,16 @@ describe("deriveMetaAutomationReadiness", () => {
   it("blocks automation when empirical precision is below the floor", () => {
     const summary = summarizeMetaDecisionOutcomes(
       [
-        { outcomeStatus: "positive" },
-        { outcomeStatus: "positive" },
-        { outcomeStatus: "negative" },
-        { outcomeStatus: "negative" },
-        { outcomeStatus: "negative" },
-        { outcomeStatus: "negative" },
-        { outcomeStatus: "negative" },
-        { outcomeStatus: "negative" },
-        { outcomeStatus: "negative" },
-        { outcomeStatus: "negative" },
+        { actionType: "outcome", outcomeStatus: "positive" },
+        { actionType: "outcome", outcomeStatus: "positive" },
+        { actionType: "outcome", outcomeStatus: "negative" },
+        { actionType: "outcome", outcomeStatus: "negative" },
+        { actionType: "outcome", outcomeStatus: "negative" },
+        { actionType: "outcome", outcomeStatus: "negative" },
+        { actionType: "outcome", outcomeStatus: "negative" },
+        { actionType: "outcome", outcomeStatus: "negative" },
+        { actionType: "outcome", outcomeStatus: "negative" },
+        { actionType: "outcome", outcomeStatus: "negative" },
       ],
       { minSampleSize: 10 },
     );

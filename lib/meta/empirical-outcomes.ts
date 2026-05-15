@@ -90,7 +90,7 @@ export function summarizeMetaDecisionOutcomes(
 
   for (const row of rows) {
     const actionType = String(row.actionType ?? row.action_type ?? "").trim().toLowerCase();
-    if (actionType && actionType !== "outcome") continue;
+    if (actionType !== "outcome") continue;
     sampleSize += 1;
     const outcome = classifyMetaDecisionOutcomeStatus(row.outcomeStatus);
     if (outcome === "positive") positiveCount += 1;

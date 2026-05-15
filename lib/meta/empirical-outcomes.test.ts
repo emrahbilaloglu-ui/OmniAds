@@ -5,7 +5,7 @@ import {
 } from "@/lib/meta/empirical-outcomes";
 
 function rows(statuses: string[]) {
-  return statuses.map((outcomeStatus) => ({ outcomeStatus }));
+  return statuses.map((outcomeStatus) => ({ actionType: "outcome", outcomeStatus }));
 }
 
 describe("Meta empirical outcomes", () => {

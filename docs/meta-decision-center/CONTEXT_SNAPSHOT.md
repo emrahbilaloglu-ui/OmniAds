@@ -34,8 +34,7 @@ path and ask the model to read it before planning or changing code.
 
 ## Current Repo State
 
-- Current implementation branch: `main` after Phase E.2 merge. Next phase branch
-  has not been started yet.
+- Current implementation branch: `phase-e-meta-optimization-feed-scenarios`.
 - Phase A PR: `#162` (`[codex] Unify Meta funnel cohort resolution`), merged.
 - Phase A implementation commit: `fc8a8d7` (`Unify Meta funnel cohort resolution`).
 - Phase A context commit: `2a49ef1` (`Record Phase A PR context`).
@@ -70,11 +69,13 @@ path and ask the model to read it before planning or changing code.
   (`Tighten Meta bid scenario gates`).
 - Phase E.2 merge commit on `main`: `9b01d42c206912ddca0a0975cbc5c0a3e9d5af22`.
 - Latest `main` verified locally after Phase E.2 merge:
-  `9b01d42c206912ddca0a0975cbc5c0a3e9d5af22`.
+  `f215f2e` (`Record Phase E bid regime merge context`).
 - Phase E.1 branch started from `main` context commit:
   `c5617d99822312923b2b9a5fd13239826a76db24`.
 - Phase E.2 branch started after Phase E.1 merge/context:
   `phase-e-meta-bid-regime-scenarios`.
+- Phase E.3 branch started after Phase E.2 merge/context:
+  `phase-e-meta-optimization-feed-scenarios`.
 - Phase A tracked-file modifications at the time of this snapshot:
   - `lib/meta/campaign-lanes.ts`
   - `lib/meta/campaign-lanes.test.ts`
@@ -232,6 +233,31 @@ path and ask the model to read it before planning or changing code.
     - GitHub thread-aware review check: P1 B6 controlled-scale suppression
       thread and P2 B4 missing-target thread resolved; no remaining unresolved
       review threads at merge.
+- Phase E.3 implementation status:
+  - Branch: `phase-e-meta-optimization-feed-scenarios`.
+  - Scope intentionally limited to scenarios with reliable present or explicitly
+    populated signals:
+    `scenario_g1_upper_funnel_event` and
+    `scenario_k4_catalog_feed_first`.
+  - G1 emits only for purchase-optimized campaigns that are at least 7 days old,
+    have weak recent purchase signal, and have a stronger same-campaign
+    pre-purchase event signal. It is a `test`/`switch` recommendation, not a
+    cut.
+  - K4 emits only when explicit feed/catalog issue evidence exists
+    (`feedStatus`, `feedDisapprovalCount`, or `sourceJson.feed_status`). It does
+    not infer feed problems from zero purchases or poor ROAS.
+  - G1/G2 optimization-event switch recommendations are now treated as
+    label-guarded hard actions when campaign Main/Test/Mixed context is missing.
+  - Local verification so far:
+    - `npx vitest run lib/meta/scenario-emitters/high-priority.test.ts lib/meta/campaign-label-guard.test.ts lib/meta/rec-label-mapping.test.ts`
+      passed: 3 files, 85 tests.
+    - `npx tsc --noEmit` passed.
+    - `npx vitest run lib/meta components/meta app/api/meta` passed: 109
+      files, 983 tests.
+    - `npx vitest run` passed: 408 files passed, 4 skipped; 2,935 tests
+      passed, 49 skipped.
+    - `npm run lint` passed.
+    - `npm run build` passed.
 
 ## Completed Work
 

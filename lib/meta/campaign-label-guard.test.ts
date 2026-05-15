@@ -118,6 +118,29 @@ describe("applyMetaCampaignLabelGuard", () => {
     expect(result.unlabeledCampaignIds).toEqual(["cmp-2"]);
   });
 
+  it("downgrades unlabeled optimization-event switch recommendations", () => {
+    const result = applyMetaCampaignLabelGuard({
+      recommendations: [
+        rec({
+          id: "g1",
+          type: "scenario_g1_upper_funnel_event",
+          decisionLabel: "switch",
+          recommendedAction: "Test a separate ADD_TO_CART optimization lane.",
+        }),
+      ],
+      campaignLabelsById: buildMetaCampaignLabelKindMap([]),
+      activeCampaignIds: ["cmp-1"],
+    });
+
+    expect(result.downgradedCount).toBe(1);
+    expect(result.recommendations[0]).toMatchObject({
+      kind: "state",
+      decisionLabel: "diagnose",
+      decisionState: "watch",
+      confidenceReason: META_CAMPAIGN_LABEL_GUARD_REASON,
+    });
+  });
+
   it("allows diagnostics, refreshes, rebuilds, state rows, and anomalies without labels", () => {
     const allowed = [
       rec({ id: "diag", type: "scenario_f1_roas_drop_diagnostic", decisionLabel: "diagnose" }),

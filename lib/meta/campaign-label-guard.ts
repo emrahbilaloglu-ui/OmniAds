@@ -39,6 +39,8 @@ const HARD_ACTION_TYPES = new Set<MetaRecommendation["type"]>([
   "scenario_c1_controlled_scale",
   "scenario_c3_scale_sample_gate",
   "scenario_d3_lal_compound_scale",
+  "scenario_g1_upper_funnel_event",
+  "scenario_g2_downshift_to_purchase",
   "scenario_i1_abo_winner_budget_shift",
   "scenario_k2_peak_scale_ceiling",
   "scenario_k3_post_peak_taper",

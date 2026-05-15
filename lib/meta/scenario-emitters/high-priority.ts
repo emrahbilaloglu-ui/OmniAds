@@ -240,6 +240,86 @@ function learningExitEvidence(signals: MetaEntityDecisionSignal | null | undefin
   return { learningExitAt, daysAtLearningState };
 }
 
+function normalizedMetaText(...values: Array<string | null | undefined>) {
+  return values.join(" ").trim().replace(/[\s-]+/g, "_").toUpperCase();
+}
+
+function sourceAgeDays(input: CampaignScenarioInput) {
+  const sourceAge = numberFromSource(input.signals, "age_days");
+  if (sourceAge != null) return sourceAge;
+  return historyAgeDays(input.window);
+}
+
+function purchases7d(input: CampaignScenarioInput) {
+  return numberFromSource(input.signals, "purchases_7d") ?? input.window.last7?.purchases ?? input.window.selected.purchases;
+}
+
+function isPurchaseOptimizedCampaign(input: CampaignScenarioInput) {
+  if (input.cohort === "purchase") return true;
+  const text = normalizedMetaText(
+    input.window.selected.customEventType,
+    input.window.selected.optimizationGoal,
+    input.window.selected.objective,
+  );
+  return /\b(PURCHASE|VALUE|OFFSITE_CONVERSIONS|PRODUCT_CATALOG_SALES|OUTCOME_SALES|SALES)\b/.test(text);
+}
+
+function bestUpperFunnelEvent(row: MetaCampaignRow, purchaseSignal: number) {
+  const candidates = [
+    {
+      event: "INITIATE_CHECKOUT",
+      label: "Initiate checkout",
+      count: row.initiateCheckout,
+      cost: row.costPerCheckoutInitiated,
+      relativeFloor: Math.max(3, purchaseSignal * 2),
+    },
+    {
+      event: "ADD_TO_CART",
+      label: "Add to cart",
+      count: row.addToCart,
+      cost: row.costPerAddToCart,
+      relativeFloor: Math.max(5, purchaseSignal * 3),
+    },
+    {
+      event: "VIEW_CONTENT",
+      label: "View content",
+      count: row.contentViews,
+      cost: row.costPerContentView,
+      relativeFloor: Math.max(10, purchaseSignal * 5),
+    },
+    {
+      event: "LANDING_PAGE_VIEWS",
+      label: "Landing page view",
+      count: row.landingPageViews,
+      cost: row.costPerLandingPageView,
+      relativeFloor: Math.max(25, purchaseSignal * 10),
+    },
+  ];
+  return candidates.find((candidate) =>
+    candidate.count >= candidate.relativeFloor && (candidate.cost == null || candidate.cost >= 0),
+  ) ?? null;
+}
+
+function isCatalogCampaign(input: CampaignScenarioInput) {
+  if (input.campaignRole === "catalog_dpa") return true;
+  const text = normalizedMetaText(
+    input.window.selected.name,
+    input.window.selected.objective,
+    input.window.selected.optimizationGoal,
+  );
+  return /CATALOG|DPA|PRODUCT_CATALOG_SALES/.test(text);
+}
+
+function feedDiagnostic(input: CampaignScenarioInput) {
+  const source = sourceRecord(input.signals, "feed_status");
+  const status = String(input.signals?.feedStatus ?? textFromRecord(source, "status") ?? "").trim();
+  const normalizedStatus = status.toLowerCase();
+  const disapprovalCount = input.signals?.feedDisapprovalCount ?? numberFromRecord(source, "disapproval_count") ?? 0;
+  const problematicStatus = /disapproved|rejected|error|issue|limited|failed/.test(normalizedStatus);
+  if (disapprovalCount <= 0 && !problematicStatus) return null;
+  return { status: status || "issues_detected", disapprovalCount, source };
+}
+
 function baseCampaignRec(input: {
   row: MetaCampaignRow;
   type: MetaRecommendation["type"];
@@ -763,6 +843,59 @@ export function maybeA3LearningOnPaceWait(input: CampaignScenarioInput): MetaRec
   });
 }
 
+export function maybeG1UpperFunnelEvent(input: CampaignScenarioInput): MetaRecommendation | null {
+  const row = input.window.selected;
+  if (!isPurchaseOptimizedCampaign(input)) return null;
+  if (recentEditCooldownActive(input.signals) || trackingQualityIssue(input.signals)) return null;
+  const ageDays = sourceAgeDays(input);
+  const purchaseSignal = purchases7d(input);
+  if (ageDays < 7 || purchaseSignal >= 50) return null;
+  const candidate = bestUpperFunnelEvent(row, purchaseSignal);
+  if (!candidate) return null;
+  const roas = metric(input.context, "roas_28d");
+  const purchaseSignalWeak =
+    row.purchases < 8 ||
+    input.signals?.learningState === "LEARNING_LIMITED" ||
+    Boolean(roas && sampleReady(input.context, "roas_28d") && row.roas < roas.p50);
+  if (!purchaseSignalWeak) return null;
+  const conf = confidence({
+    level: "campaign",
+    context: input.context,
+    metricValue: row.roas,
+    threshold: roas?.p50 ?? (row.roas || 1),
+  });
+  return baseCampaignRec({
+    row,
+    type: "scenario_g1_upper_funnel_event",
+    lens: "structure",
+    priority: "medium",
+    confidenceScore: { ...conf, label: conf.label === "high" ? "medium" : conf.label },
+    decisionState: "test",
+    decisionLabel: "switch",
+    title: `${row.name}: test upper-funnel optimization event`,
+    why: `Purchase optimization has only ${r2(purchaseSignal)} purchases in the recent window, while ${candidate.label.toLowerCase()} has a stronger same-campaign signal.`,
+    summary: "Treat this as a signal-density problem before cutting the campaign.",
+    recommendedAction: `Test a separate ${candidate.event} optimization lane instead of forcing more spend into a thin purchase event.`,
+    expectedImpact: "Builds enough conversion signal to evaluate the funnel without mistaking sparse purchase data for final failure.",
+    evidence: [
+      { label: "7d purchases", value: String(r2(purchaseSignal)), tone: "warning" },
+      { label: candidate.label, value: String(r2(candidate.count)), tone: "positive" },
+      { label: "Age", value: `${r2(ageDays)}d`, tone: "neutral" },
+    ],
+    targetValue: {
+      current_event: row.customEventType ?? row.optimizationGoal ?? "PURCHASE",
+      proposed_event: candidate.event,
+      purchase_signal_7d: r2(purchaseSignal),
+      candidate_event_count_28d: r2(candidate.count),
+      candidate_event_cost: candidate.cost == null ? null : r2(candidate.cost),
+    },
+    campaignRole: input.campaignRole,
+    bidRegime: input.bidRegime,
+    cohort: input.cohort,
+    signals: input.signals,
+  });
+}
+
 export function maybeA5PostLearningUnderperformer(input: CampaignScenarioInput): MetaRecommendation | null {
   const row = input.window.selected;
   if (input.signals?.learningState !== "OPTIMAL_LEARNING_DONE") return null;
@@ -819,6 +952,45 @@ export function maybeA5PostLearningUnderperformer(input: CampaignScenarioInput):
       maturity_spend: maturity.spendThreshold,
       learning_exit_at: learningExit.learningExitAt,
       days_at_learning_state: learningExit.daysAtLearningState,
+    },
+    campaignRole: input.campaignRole,
+    bidRegime: input.bidRegime,
+    cohort: input.cohort,
+    signals: input.signals,
+  });
+}
+
+export function maybeK4CatalogFeedFirst(input: CampaignScenarioInput): MetaRecommendation | null {
+  const row = input.window.selected;
+  if (!isCatalogCampaign(input)) return null;
+  const feed = feedDiagnostic(input);
+  if (!feed) return null;
+  const conf = confidence({
+    level: "campaign",
+    context: input.context,
+    metricValue: row.roas,
+    threshold: metric(input.context, "roas_28d")?.p50 ?? (row.roas || 1),
+  });
+  return baseCampaignRec({
+    row,
+    type: "scenario_k4_catalog_feed_first",
+    lens: "structure",
+    priority: "high",
+    confidenceScore: { ...conf, label: "medium", score: Math.min(conf.score, 0.69) },
+    decisionState: "test",
+    decisionLabel: "diagnose",
+    title: `${row.name}: fix catalog feed before judging performance`,
+    why: "Catalog/DPA campaign has explicit feed issue evidence, so delivery quality may be constrained before media buying logic is judged.",
+    summary: "Resolve catalog/feed health before scale, cut, or rebuild decisions.",
+    recommendedAction: "Audit feed approval, item disapprovals, product availability, and catalog match quality before budget action.",
+    expectedImpact: "Prevents cutting or restructuring a campaign whose delivery is limited by catalog health.",
+    evidence: [
+      { label: "Feed status", value: feed.status, tone: "warning" },
+      { label: "Disapproved items", value: String(r2(feed.disapprovalCount)), tone: feed.disapprovalCount > 0 ? "warning" : "neutral" },
+    ],
+    targetValue: feed.source ?? {
+      feed_status: feed.status,
+      feed_disapproval_count: feed.disapprovalCount,
     },
     campaignRole: input.campaignRole,
     bidRegime: input.bidRegime,
@@ -1116,7 +1288,9 @@ const CAMPAIGN_PRECEDENCE = [
   maybeC2RecentEditCooldown,
   maybeH1TrackingQualityDiagnostic,
   maybeF3BudgetPacingCooldown,
+  maybeK4CatalogFeedFirst,
   maybeA3LearningOnPaceWait,
+  maybeG1UpperFunnelEvent,
   maybeA2StructuralRebuild,
   maybeA5PostLearningUnderperformer,
   maybeK1MixedConfig,

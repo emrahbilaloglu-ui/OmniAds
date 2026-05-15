@@ -89,6 +89,36 @@ describe("Meta empirical outcomes", () => {
     });
   });
 
+  it("does not let unknown outcomes dilute the negative-rate gate", () => {
+    const summary = summarizeMetaDecisionOutcomes(
+      rows([
+        "positive",
+        "positive",
+        "positive",
+        "positive",
+        "positive",
+        "positive",
+        "positive",
+        "positive",
+        "negative",
+        "negative",
+        ...Array.from({ length: 990 }, () => "unknown"),
+      ]),
+      { minSampleSize: 10 },
+    );
+
+    expect(summary).toMatchObject({
+      sampleSize: 1000,
+      judgedSampleSize: 10,
+      positiveCount: 8,
+      negativeCount: 2,
+      precision: 0.8,
+      negativeRate: 0.2,
+      confidenceBand: "medium",
+      autoEligible: false,
+    });
+  });
+
   it("keeps weak precision below auto eligibility", () => {
     const summary = summarizeMetaDecisionOutcomes(
       rows([

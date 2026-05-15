@@ -40,7 +40,7 @@ path and ask the model to read it before planning or changing code.
 - Phase A context commit: `2a49ef1` (`Record Phase A PR context`).
 - Phase A merge commit on `main`: `49716c3706ec9ea98e0e452452163357b6cdeae0`.
 - Phase B PR: `#163` (`[codex] Anchor Meta hard actions to commercial targets`),
-  draft at the time of this snapshot.
+  ready for review at the time of this snapshot.
 - Phase B implementation commit: `aaa0c0d`
   (`Anchor Meta hard actions to commercial targets`).
 - Current `main` SHA verified locally:
@@ -208,7 +208,7 @@ path and ask the model to read it before planning or changing code.
 ### Phase B - Target/Profit Anchor And Unified Purchase Maturity
 
 - Branch: `phase-b-meta-profit-maturity`.
-- Draft PR: `#163`.
+- PR: `#163`, ready for review.
 - Implementation commit: `aaa0c0d`.
 - Added `lib/meta/commercial-targets.ts` as the shared Meta commercial target
   adapter.
@@ -333,7 +333,7 @@ path and ask the model to read it before planning or changing code.
 
 ## Proposed Gap-Closure Plan
 
-Status: user-approved as of 2026-05-15. Phase A is merged. Phase B has a draft
+Status: user-approved as of 2026-05-15. Phase A is merged. Phase B has a ready
 PR open on `phase-b-meta-profit-maturity`.
 
 Claude was explicitly told to read this file first before producing its plan.
@@ -375,7 +375,7 @@ where coverage is weak.
   economics.
 - Acceptance: no hard scale/cut without a target/profit anchor and mature loss
   evidence; docs and golden cases updated.
-  Status: implementation, local verification, and draft PR `#163` are complete.
+  Status: implementation, local verification, and ready PR `#163` are complete.
   GitHub CI/review/merge remain.
 
 ### Phase C - Main/Test/Mixed Meta Semantics

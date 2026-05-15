@@ -106,6 +106,33 @@ describe("emitLeadAdsetScenario", () => {
 
     expect(rec?.type).toBe("scenario_l3_lead_inefficient_cut");
     expect(rec?.decisionLabel).toBe("cut");
+    expect(rec?.confidence).toBe("high");
+    expect(rec?.confidenceScore).toBeGreaterThanOrEqual(0.7);
+  });
+
+  it("suppresses lead recommendations when lead data is missing", () => {
+    const rec = emitLeadAdsetScenario({
+      adset: adset({ spend: 1000, leads: null }),
+      context,
+      cohort: "lead",
+      signals: signal(20),
+    });
+
+    expect(rec).toBeNull();
+  });
+
+  it("can cut when observed lead data is truly zero", () => {
+    const rec = emitLeadAdsetScenario({
+      adset: adset({ spend: 1000, leads: 0 }),
+      context,
+      cohort: "lead",
+      signals: signal(20),
+    });
+
+    expect(rec?.type).toBe("scenario_l3_lead_inefficient_cut");
+    expect(rec?.decisionLabel).toBe("cut");
+    expect(rec?.confidence).toBe("high");
+    expect(rec?.confidenceScore).toBe(1);
   });
 
   it("emits L2 keep for a steady lead score", () => {

@@ -48,9 +48,18 @@ function confidenceFromScore(score: number): MetaRecommendation["confidence"] {
   return "low";
 }
 
+function confidenceScoreFromScore(score: number) {
+  return r2(score >= 0.5 ? score : 1 - score);
+}
+
 function numberField(adset: MetaAdSetData, key: keyof MetaAdSetData) {
   const value = adset[key];
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function observedNumberField(adset: MetaAdSetData, key: keyof MetaAdSetData) {
+  const value = adset[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function threshold(
@@ -132,7 +141,7 @@ function baseLeadRecommendation(input: {
     lens: input.lens,
     priority: input.priority,
     confidence: confidenceFromScore(input.score),
-    confidenceScore: r2(input.score),
+    confidenceScore: confidenceScoreFromScore(input.score),
     confidenceReason: null,
     decisionState: input.decisionState,
     decision: input.title,
@@ -170,7 +179,9 @@ export function emitLeadAdsetScenario(input: AdsetScenarioInput): MetaRecommenda
   const costThreshold = threshold(input, "cost_per_lead_28d");
   if (!costThreshold) return null;
 
-  const leads = numberField(input.adset, "leads");
+  const leads = observedNumberField(input.adset, "leads");
+  if (leads == null) return null;
+
   const purchases = numberField(input.adset, "purchases");
   const costPerLead = leads > 0 ? input.adset.spend / leads : Number.POSITIVE_INFINITY;
   const baseRank = leads > 0 ? percentileRankInverted(costPerLead, costThreshold) : 0;

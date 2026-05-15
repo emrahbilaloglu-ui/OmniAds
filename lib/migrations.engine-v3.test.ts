@@ -240,4 +240,21 @@ describe("Engine v3 precomputed table migrations", () => {
       /\b(INSERT INTO|UPDATE|DELETE FROM|TRUNCATE)\s+engine_v3_/i,
     );
   });
+
+  it("adds kind calibration columns before indexing them", async () => {
+    const queries = await collectMigrationQueries();
+    const normalizedQueries = queries.map(normalizeSql);
+    const addKindColumnsIndex = normalizedQueries.findIndex(
+      (query) =>
+        query.includes("ALTER TABLE engine_v3_account_calibration_daily") &&
+        query.includes("ADD COLUMN IF NOT EXISTS creative_format") &&
+        query.includes("ADD COLUMN IF NOT EXISTS campaign_kind"),
+    );
+    const byKindIndexIndex = normalizedQueries.findIndex((query) =>
+      query.includes("CREATE INDEX IF NOT EXISTS idx_engine_v3_calibration_latest_by_kind"),
+    );
+
+    expect(addKindColumnsIndex).toBeGreaterThanOrEqual(0);
+    expect(byKindIndexIndex).toBeGreaterThan(addKindColumnsIndex);
+  });
 });

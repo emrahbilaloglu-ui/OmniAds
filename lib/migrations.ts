@@ -4686,9 +4686,6 @@ export async function runMigrations(options?: {
           ON engine_v3_account_calibration_daily
           (business_ref_id, scope_type, scope_id, as_of_date DESC)
           INCLUDE (roas_p75, roas_p60, refresh_ratio_p10, low_ctr_p10, quality_status, source_max_date)`,
-        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_calibration_latest_by_kind
-          ON engine_v3_account_calibration_daily
-          (business_ref_id, scope_type, scope_id, campaign_kind, as_of_date DESC, creative_format)`,
         sql`ALTER TABLE engine_v3_account_calibration_daily
           ADD COLUMN IF NOT EXISTS account_cpa_p50 DOUBLE PRECISION,
           ADD COLUMN IF NOT EXISTS account_cpa_sample_count INTEGER NOT NULL DEFAULT 0,
@@ -4731,6 +4728,9 @@ export async function runMigrations(options?: {
           ADD COLUMN IF NOT EXISTS funnel_sample_count INTEGER NOT NULL DEFAULT 0,
           ADD COLUMN IF NOT EXISTS funnel_quality_status TEXT
             CHECK (funnel_quality_status IN ('ready', 'low_sample', 'insufficient'))`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_calibration_latest_by_kind
+          ON engine_v3_account_calibration_daily
+          (business_ref_id, scope_type, scope_id, campaign_kind, as_of_date DESC, creative_format)`,
         sql`DO $$
           DECLARE
             old_constraint_name TEXT;

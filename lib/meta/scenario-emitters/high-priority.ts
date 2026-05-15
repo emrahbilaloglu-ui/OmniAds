@@ -203,12 +203,29 @@ function numberFromRecord(record: Record<string, unknown> | null, key: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function numberFromSource(signals: MetaEntityDecisionSignal | null | undefined, key: string) {
+  const value = signals?.sourceJson?.[key];
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function trackingQualityIssue(signals: MetaEntityDecisionSignal | null | undefined) {
   return signals?.trackingQualityStatus === "lpv_drop_suspected";
 }
 
 function monthlyPacingStatus(signals: MetaEntityDecisionSignal | null | undefined) {
   return textFromRecord(sourceRecord(signals, "monthly_pacing"), "status");
+}
+
+function learningExitEvidence(signals: MetaEntityDecisionSignal | null | undefined) {
+  const sourceExitAt = String(signals?.sourceJson?.learning_exit_at ?? "").trim();
+  const learningExitAt = sourceExitAt.length > 0 ? sourceExitAt : null;
+  const daysAtLearningState =
+    signals?.daysAtLearningState != null && Number.isFinite(Number(signals.daysAtLearningState))
+      ? Number(signals.daysAtLearningState)
+      : null;
+  if (!learningExitAt && daysAtLearningState == null) return null;
+  return { learningExitAt, daysAtLearningState };
 }
 
 function baseCampaignRec(input: {
@@ -590,6 +607,165 @@ export function maybeA2StructuralRebuild(input: CampaignScenarioInput): MetaReco
   });
 }
 
+export function maybeA3LearningOnPaceWait(input: CampaignScenarioInput): MetaRecommendation | null {
+  const row = input.window.selected;
+  if (input.signals?.learningState !== "LEARNING") return null;
+  const roas = metric(input.context, "roas_28d");
+  const cpa = metric(input.context, "cpa_28d");
+  if (!roas || !sampleReady(input.context, "roas_28d")) return null;
+  const purchases7d = numberFromSource(input.signals, "purchases_7d") ?? input.window.last7?.purchases ?? row.purchases;
+  const onPaceByRoas = row.roas >= roas.p25;
+  const onPaceByCpa = Boolean(cpa && row.cpa > 0 && row.cpa <= cpa.p75);
+  if (purchases7d < 2 || (!onPaceByRoas && !onPaceByCpa)) return null;
+  const conf = confidence({
+    level: "campaign",
+    context: input.context,
+    metricValue: row.roas,
+    threshold: roas.p25,
+  });
+  return baseCampaignRec({
+    row,
+    type: "scenario_a3_learning_on_pace_wait",
+    lens: "structure",
+    priority: "medium",
+    confidenceScore: { ...conf, label: conf.label === "high" ? "medium" : conf.label },
+    decisionState: "watch",
+    decisionLabel: "keep",
+    title: `${row.name}: learning is on pace`,
+    why: "Campaign is still in learning, but recent purchase pace and efficiency are not weak enough to justify intervention.",
+    summary: "Hold hard changes while Meta exits learning unless another blocker appears.",
+    recommendedAction: "Do not scale, cut, or rebuild yet; wait for the learning window to mature.",
+    expectedImpact: "Avoids resetting a campaign that still has a viable learning signal.",
+    evidence: [
+      { label: "Learning state", value: "LEARNING", tone: "neutral" },
+      { label: "7d purchases", value: String(r2(purchases7d)), tone: "positive" },
+      { label: "ROAS p25", value: fmtRoas(roas.p25), tone: "neutral" },
+    ],
+    targetValue: {
+      purchases_7d: purchases7d,
+      roas_p25: roas.p25,
+      cpa_p75: cpa?.p75 ?? null,
+    },
+    campaignRole: input.campaignRole,
+    bidRegime: input.bidRegime,
+    cohort: input.cohort,
+    signals: input.signals,
+  });
+}
+
+export function maybeA5PostLearningUnderperformer(input: CampaignScenarioInput): MetaRecommendation | null {
+  const row = input.window.selected;
+  if (input.signals?.learningState !== "OPTIMAL_LEARNING_DONE") return null;
+  const learningExit = learningExitEvidence(input.signals);
+  if (!learningExit) return null;
+  if (recentEditCooldownActive(input.signals) || trackingQualityIssue(input.signals)) return null;
+  const roas = metric(input.context, "roas_28d");
+  const cpa = metric(input.context, "cpa_28d");
+  const cutCeiling = metaCutRoasCeiling(input.commercialTargets);
+  if (!roas || !sampleReady(input.context, "roas_28d") || !cutCeiling) return null;
+  if (historyAgeDays(input.window) < 14 || row.roas >= roas.p50 || row.roas >= cutCeiling) return null;
+  const maturity = metaLossBudgetMaturity({
+    targets: input.commercialTargets,
+    accountCpaBaseline: cpa?.p50 ?? null,
+    currency: row.currency,
+  });
+  if (!maturity || row.spend < maturity.spendThreshold) return null;
+  const threshold = Math.min(roas.p50, cutCeiling);
+  const conf = confidence({
+    level: "campaign",
+    context: input.context,
+    metricValue: row.roas,
+    threshold,
+    severeLoser: row.roas <= Math.min(roas.p25, cutCeiling),
+  });
+  return baseCampaignRec({
+    row,
+    type: "scenario_a5_post_learning_underperformer",
+    lens: "profitability",
+    priority: row.roas <= Math.min(roas.p25, cutCeiling) ? "high" : "medium",
+    confidenceScore: conf,
+    decisionState: conf.score >= 0.7 ? "act" : "test",
+    decisionLabel: "cut",
+    title: `${row.name}: post-learning underperformer`,
+    why: `Learning is complete, but ROAS ${fmtRoas(row.roas)} is below calibrated p50 ${fmtRoas(roas.p50)} and the configured loss floor ${fmtRoas(cutCeiling)} after mature loss-budget spend.`,
+    summary: "This is no longer an early-learning patience problem.",
+    recommendedAction: "Reduce budget pressure or rebuild the campaign before giving it more spend.",
+    expectedImpact: "Stops mature underperformance from absorbing additional budget.",
+    evidence: [
+      { label: "Learning state", value: "complete", tone: "neutral" },
+      {
+        label: "Post-learning age",
+        value: learningExit.daysAtLearningState != null ? `${learningExit.daysAtLearningState}d` : "exit recorded",
+        tone: "neutral",
+      },
+      { label: "ROAS", value: fmtRoas(row.roas), tone: "warning" },
+      { label: "ROAS p50", value: fmtRoas(roas.p50), tone: "neutral" },
+      { label: "Loss maturity spend", value: fmtCurrency(maturity.spendThreshold, row.currency), tone: "neutral" },
+      ...commercialTargetEvidence(input.commercialTargets, row.currency),
+    ],
+    targetValue: {
+      roas_p50: roas.p50,
+      cut_ceiling: cutCeiling,
+      maturity_spend: maturity.spendThreshold,
+      learning_exit_at: learningExit.learningExitAt,
+      days_at_learning_state: learningExit.daysAtLearningState,
+    },
+    campaignRole: input.campaignRole,
+    bidRegime: input.bidRegime,
+    cohort: input.cohort,
+    signals: input.signals,
+  });
+}
+
+export function maybeC3ScaleSampleGate(input: CampaignScenarioInput): MetaRecommendation | null {
+  const row = input.window.selected;
+  const roas = metric(input.context, "roas_28d");
+  const scaleFloor = metaScaleRoasFloor(input.commercialTargets);
+  if (!roas || !sampleReady(input.context, "roas_28d") || !scaleFloor) return null;
+  if (recentEditCooldownActive(input.signals) || trackingQualityIssue(input.signals)) return null;
+  const scaleThreshold = Math.max(roas.p75, scaleFloor);
+  if (row.roas < scaleThreshold) return null;
+  const ageDays = historyAgeDays(input.window);
+  const purchaseSampleThin = row.purchases > 0 && row.purchases < 8;
+  const historyTooYoung = ageDays > 0 && ageDays < 28;
+  if (!purchaseSampleThin && !historyTooYoung) return null;
+  const conf = confidence({
+    level: "campaign",
+    context: input.context,
+    metricValue: row.roas,
+    threshold: scaleThreshold,
+  });
+  return baseCampaignRec({
+    row,
+    type: "scenario_c3_scale_sample_gate",
+    lens: "volume",
+    priority: "medium",
+    confidenceScore: { ...conf, label: conf.label === "high" ? "medium" : conf.label },
+    decisionState: "watch",
+    decisionLabel: "test_more",
+    title: `${row.name}: scale sample gate`,
+    why: `ROAS is above the scale line, but the campaign has only ${row.purchases} purchases or less than 28 days of history.`,
+    summary: "Treat this as a promising candidate, not a scale action yet.",
+    recommendedAction: "Keep testing until purchase depth and history clear the scale sample gate.",
+    expectedImpact: "Prevents false winner promotion from a thin positive sample.",
+    evidence: [
+      { label: "ROAS", value: fmtRoas(row.roas), tone: "positive" },
+      { label: "Scale threshold", value: fmtRoas(scaleThreshold), tone: "neutral" },
+      { label: "Purchases", value: String(row.purchases), tone: purchaseSampleThin ? "warning" : "positive" },
+      { label: "History age", value: `${ageDays}d`, tone: historyTooYoung ? "warning" : "positive" },
+    ],
+    targetValue: {
+      purchase_floor: 8,
+      history_floor_days: 28,
+      scale_threshold: scaleThreshold,
+    },
+    campaignRole: input.campaignRole,
+    bidRegime: input.bidRegime,
+    cohort: input.cohort,
+    signals: input.signals,
+  });
+}
+
 export function maybeF1SuddenRoasDrop(input: CampaignScenarioInput): MetaRecommendation | null {
   const row = input.window.selected;
   const last7 = input.window.last7;
@@ -830,13 +1006,16 @@ const CAMPAIGN_PRECEDENCE = [
   maybeC2RecentEditCooldown,
   maybeH1TrackingQualityDiagnostic,
   maybeF3BudgetPacingCooldown,
+  maybeA3LearningOnPaceWait,
   maybeA2StructuralRebuild,
+  maybeA5PostLearningUnderperformer,
   maybeK1MixedConfig,
   maybeI4TestShouldUseAbo,
   maybeF1SuddenRoasDrop,
   maybeF4StableWinnerFade,
   maybeE2CtrDecay,
   maybeE4CreativeAge,
+  maybeC3ScaleSampleGate,
   maybeB1CappedBidRaise,
   maybeC1ControlledScale,
   maybeA1MathFloor,

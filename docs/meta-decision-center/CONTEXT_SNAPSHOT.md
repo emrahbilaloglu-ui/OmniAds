@@ -34,7 +34,7 @@ path and ask the model to read it before planning or changing code.
 
 ## Current Repo State
 
-- Current implementation branch: `main` after Phase D merge.
+- Current implementation branch: `phase-e-meta-learning-scenarios`.
 - Phase A PR: `#162` (`[codex] Unify Meta funnel cohort resolution`), merged.
 - Phase A implementation commit: `fc8a8d7` (`Unify Meta funnel cohort resolution`).
 - Phase A context commit: `2a49ef1` (`Record Phase A PR context`).
@@ -58,6 +58,8 @@ path and ask the model to read it before planning or changing code.
 - Latest Phase D implementation merge SHA verified locally:
   `c218f48a7fb089322f4961c0169ca052bcb19f16`.
 - Latest `main` may include subsequent context-only commits after this merge.
+- Phase E.1 branch started from `main` context commit:
+  `c5617d99822312923b2b9a5fd13239826a76db24`.
 - Phase A tracked-file modifications at the time of this snapshot:
   - `lib/meta/campaign-lanes.ts`
   - `lib/meta/campaign-lanes.test.ts`
@@ -158,6 +160,28 @@ path and ask the model to read it before planning or changing code.
   - GitHub PR `#165` checks passed: `typecheck`, `test`, and `build`.
   - GitHub review context checked with thread-aware read: no review threads,
     no reviews, and no conversation comments.
+- Phase E.1 implementation status:
+  - Branch: `phase-e-meta-learning-scenarios`.
+  - Scope intentionally limited to learning/sample guard family:
+    `scenario_a3_learning_on_pace_wait`,
+    `scenario_a5_post_learning_underperformer`, and
+    `scenario_c3_scale_sample_gate`.
+  - PR review fix: A5 now requires learning-exit/post-learning maturity
+    evidence (`learning_exit_at` in `sourceJson` or `days_at_learning_state`)
+    before producing a cut/action recommendation.
+  - `scenario_a4_learning_limited_persistent` is intentionally not included
+    because it requires entity-scoped audience size/overlap, which Phase D
+    confirmed is not populated.
+  - Local verification so far:
+    - `npx vitest run lib/meta/scenario-emitters/high-priority.test.ts lib/meta/recommendations.test.ts lib/meta/adset-decisions.test.ts`
+      passed after review fix: 3 files, 80 tests.
+    - `npx vitest run lib/meta components/meta app/api/meta` passed: 109
+      files, 968 tests.
+    - `npx tsc --noEmit` passed.
+    - `npx vitest run` passed: 408 files passed, 4 skipped; 2,919 tests
+      passed, 49 skipped.
+    - `npm run lint` passed.
+    - `npm run build` passed.
 
 ## Completed Work
 
@@ -546,6 +570,8 @@ where coverage is weak.
   a strong reason.
 - Acceptance: every scenario has fixtures, golden cases, invariant coverage,
   missing-signal fallback, and no hard action without anchors/maturity.
+  Status: Phase E.1 implemented locally for A3/A5/C3 learning and sample gates;
+  PR/review/CI/merge pending.
 
 ### Phase F - Empirical Confidence And Automation Readiness
 

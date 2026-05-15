@@ -246,8 +246,7 @@ function normalizedMetaText(...values: Array<string | null | undefined>) {
 
 function sourceAgeDays(input: CampaignScenarioInput) {
   const sourceAge = numberFromSource(input.signals, "age_days");
-  if (sourceAge != null) return sourceAge;
-  return historyAgeDays(input.window);
+  return sourceAge;
 }
 
 function purchases7d(input: CampaignScenarioInput) {
@@ -255,13 +254,13 @@ function purchases7d(input: CampaignScenarioInput) {
 }
 
 function isPurchaseOptimizedCampaign(input: CampaignScenarioInput) {
-  if (input.cohort === "purchase") return true;
-  const text = normalizedMetaText(
-    input.window.selected.customEventType,
-    input.window.selected.optimizationGoal,
-    input.window.selected.objective,
-  );
-  return /\b(PURCHASE|VALUE|OFFSITE_CONVERSIONS|PRODUCT_CATALOG_SALES|OUTCOME_SALES|SALES)\b/.test(text);
+  const customEventType = normalizedMetaText(input.window.selected.customEventType);
+  if (customEventType) return /^(PURCHASE|VALUE)$/.test(customEventType);
+  const optimizationGoal = normalizedMetaText(input.window.selected.optimizationGoal);
+  if (optimizationGoal) {
+    return /^(PURCHASE|VALUE|OFFSITE_CONVERSIONS|PRODUCT_CATALOG_SALES)$/.test(optimizationGoal);
+  }
+  return false;
 }
 
 function bestUpperFunnelEvent(row: MetaCampaignRow, purchaseSignal: number) {
@@ -849,7 +848,7 @@ export function maybeG1UpperFunnelEvent(input: CampaignScenarioInput): MetaRecom
   if (recentEditCooldownActive(input.signals) || trackingQualityIssue(input.signals)) return null;
   const ageDays = sourceAgeDays(input);
   const purchaseSignal = purchases7d(input);
-  if (ageDays < 7 || purchaseSignal >= 50) return null;
+  if (ageDays == null || ageDays < 7 || purchaseSignal >= 50) return null;
   const candidate = bestUpperFunnelEvent(row, purchaseSignal);
   if (!candidate) return null;
   const roas = metric(input.context, "roas_28d");

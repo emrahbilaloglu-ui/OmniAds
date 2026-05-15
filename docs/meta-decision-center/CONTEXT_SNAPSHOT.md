@@ -248,16 +248,23 @@ path and ask the model to read it before planning or changing code.
     not infer feed problems from zero purchases or poor ROAS.
   - G1/G2 optimization-event switch recommendations are now treated as
     label-guarded hard actions when campaign Main/Test/Mixed context is missing.
+  - PR review fixes:
+    - G1 now requires the actual optimization event/custom event to be purchase
+      optimized; a Sales objective alone is not enough.
+    - G1 now requires explicit `age_days` evidence from the signal table instead
+      of inferring age from the presence of a 7-day aggregate window.
   - Local verification so far:
     - `npx vitest run lib/meta/scenario-emitters/high-priority.test.ts lib/meta/campaign-label-guard.test.ts lib/meta/rec-label-mapping.test.ts`
-      passed: 3 files, 85 tests.
-    - `npx tsc --noEmit` passed.
+      passed after PR review fixes: 3 files, 87 tests.
+    - `npx tsc --noEmit` passed after PR review fixes.
     - `npx vitest run lib/meta components/meta app/api/meta` passed: 109
-      files, 983 tests.
-    - `npx vitest run` passed: 408 files passed, 4 skipped; 2,935 tests
-      passed, 49 skipped.
-    - `npm run lint` passed.
-    - `npm run build` passed.
+      files, 985 tests after PR review fixes.
+    - `npx vitest run` passed before PR review fixes: 408 files passed, 4
+      skipped; 2,935 tests passed, 49 skipped.
+    - `npx vitest run` passed after PR review fixes: 408 files passed, 4
+      skipped; 2,937 tests passed, 49 skipped.
+    - `npm run lint` passed after PR review fixes.
+    - `npm run build` passed after PR review fixes.
 
 ## Completed Work
 

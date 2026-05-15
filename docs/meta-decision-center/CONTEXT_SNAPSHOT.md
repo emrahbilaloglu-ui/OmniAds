@@ -34,9 +34,7 @@ path and ask the model to read it before planning or changing code.
 
 ## Current Repo State
 
-- Current implementation branch:
-  `phase-f-meta-decision-outcome-logs`, started from `main` after Phase F.1
-  merge/context commit.
+- Current implementation branch: `main` after Phase F.2 merge.
 - Phase A PR: `#162` (`[codex] Unify Meta funnel cohort resolution`), merged.
 - Phase A implementation commit: `fc8a8d7` (`Unify Meta funnel cohort resolution`).
 - Phase A context commit: `2a49ef1` (`Record Phase A PR context`).
@@ -95,9 +93,14 @@ path and ask the model to read it before planning or changing code.
 - Phase F.1 branch-context commit: `92541c3`
   (`Record Phase F readiness review fix`).
 - Phase F.1 merge commit on `main`: `fe95969d34d3398bb827b5c3430791dda740fbf3`.
-- Latest `main` verified after Phase F.1 merge:
-  `fe95969d` (`Merge pull request #170 from
-  erhanrdn/phase-f-meta-automation-readiness-substrate`).
+- Phase F.2 PR: `#171`
+  (`[codex] Add Meta decision outcome log storage`), merged.
+- Phase F.2 implementation commit: `bbf9cc4`
+  (`Add Meta decision outcome log storage`).
+- Phase F.2 merge commit on `main`: `fce250858fa3a675d0b1671b38439fb84eac6f48`.
+- Latest `main` verified after Phase F.2 merge:
+  `fce25085` (`Merge pull request #171 from
+  erhanrdn/phase-f-meta-decision-outcome-logs`).
 - Phase E.1 branch started from `main` context commit:
   `c5617d99822312923b2b9a5fd13239826a76db24`.
 - Phase E.2 branch started after Phase E.1 merge/context:
@@ -108,6 +111,8 @@ path and ask the model to read it before planning or changing code.
   `phase-e-meta-purchase-downshift-scenario`.
 - Phase F.1 branch started after Phase E.4 merge/context:
   `phase-f-meta-automation-readiness-substrate`.
+- Phase F.2 branch started after Phase F.1 merge/context:
+  `phase-f-meta-decision-outcome-logs`.
 - Phase A tracked-file modifications at the time of this snapshot:
   - `lib/meta/campaign-lanes.ts`
   - `lib/meta/campaign-lanes.test.ts`
@@ -133,7 +138,7 @@ path and ask the model to read it before planning or changing code.
   - `_analysis/phase-meta-goal-aware/`
   - `_analysis/phase-meta-rnd/`
   - `scripts/_phase-meta-rnd-claude-personas.ts`
-- Open PRs currently known in this workstream after Phase F.1 merge: none.
+- Open PRs currently known in this workstream after Phase F.2 merge: none.
 - Phase B tracked-file modifications at the time of this snapshot:
   - `app/api/meta/recommendations/route.ts`
   - `lib/meta/commercial-targets.ts`
@@ -608,8 +613,7 @@ path and ask the model to read it before planning or changing code.
 
 1. Empirical confidence, backtest, and auto-execute tier:
    - Phase F.1 is complete and merged in PR `#170`.
-   - Phase F.2 is in progress on branch
-     `phase-f-meta-decision-outcome-logs`.
+   - Phase F.2 is complete and merged in PR `#171`.
    - Confidence is still heuristic.
    - There is no per-scenario precision/recall or 14d/30d outcome correlation.
    - Auto-execute readiness cannot be claimed without this layer. The current
@@ -819,7 +823,7 @@ where coverage is weak.
   - Merged to `main` at `fe95969d`.
   - CI runtime deploy jobs were skipped by the workflow; no production
     post-deploy smoke was performed for this phase.
-- Phase F.2 in progress:
+- Phase F.2 complete:
   - Branch: `phase-f-meta-decision-outcome-logs`.
   - Scope is intentionally additive: create/read/write storage for
     `meta_decision_action_outcome_logs`, but do not yet change confidence
@@ -840,8 +844,13 @@ where coverage is weak.
       passed, 49 skipped.
     - `npm run lint` passed.
     - `npm run build` passed.
-  - PR, GitHub review, merge, deploy, and post-deploy smoke remain pending for
-    this branch.
+  - GitHub PR `#171` checks passed: `typecheck`, `test`, and `build`;
+    runtime deploy jobs skipped because no runtime image change was detected.
+  - GitHub thread-aware review check: no review threads, reviews, or
+    conversation comments.
+  - Merged to `main` at `fce25085`.
+  - CI runtime deploy jobs were skipped by the workflow; no production
+    post-deploy smoke was performed for this phase.
 
 ### Phase G - Final Regression, Deploy, Context, And Golden-Case Maintenance
 

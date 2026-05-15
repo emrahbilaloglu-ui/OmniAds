@@ -251,18 +251,20 @@ path and ask the model to read it before planning or changing code.
   - PR review fixes:
     - G1 now requires the actual optimization event/custom event to be purchase
       optimized; a Sales objective alone is not enough.
+    - G1 no longer treats generic `OFFSITE_CONVERSIONS` as purchase optimized
+      unless purchase custom-event evidence is present.
     - G1 now requires explicit `age_days` evidence from the signal table instead
       of inferring age from the presence of a 7-day aggregate window.
   - Local verification so far:
     - `npx vitest run lib/meta/scenario-emitters/high-priority.test.ts lib/meta/campaign-label-guard.test.ts lib/meta/rec-label-mapping.test.ts`
-      passed after PR review fixes: 3 files, 87 tests.
+      passed after PR review fixes: 3 files, 88 tests.
     - `npx tsc --noEmit` passed after PR review fixes.
     - `npx vitest run lib/meta components/meta app/api/meta` passed: 109
-      files, 985 tests after PR review fixes.
+      files, 986 tests after PR review fixes.
     - `npx vitest run` passed before PR review fixes: 408 files passed, 4
       skipped; 2,935 tests passed, 49 skipped.
     - `npx vitest run` passed after PR review fixes: 408 files passed, 4
-      skipped; 2,937 tests passed, 49 skipped.
+      skipped; 2,938 tests passed, 49 skipped.
     - `npm run lint` passed after PR review fixes.
     - `npm run build` passed after PR review fixes.
 

@@ -258,7 +258,7 @@ function isPurchaseOptimizedCampaign(input: CampaignScenarioInput) {
   if (customEventType) return /^(PURCHASE|VALUE)$/.test(customEventType);
   const optimizationGoal = normalizedMetaText(input.window.selected.optimizationGoal);
   if (optimizationGoal) {
-    return /^(PURCHASE|VALUE|OFFSITE_CONVERSIONS|PRODUCT_CATALOG_SALES)$/.test(optimizationGoal);
+    return /^(PURCHASE|VALUE|PRODUCT_CATALOG_SALES)$/.test(optimizationGoal);
   }
   return false;
 }

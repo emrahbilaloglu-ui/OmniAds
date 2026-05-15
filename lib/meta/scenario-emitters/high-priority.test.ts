@@ -425,6 +425,24 @@ describe("high priority Meta scenario emitters", () => {
     expect(rec).toBeNull();
   });
 
+  it("does not fire G1 from generic offsite conversions without purchase custom-event evidence", () => {
+    const rec = maybeG1UpperFunnelEvent({
+      window: windowFor(campaign({
+        objective: "OUTCOME_SALES",
+        optimizationGoal: "OFFSITE_CONVERSIONS",
+        customEventType: null,
+        purchases: 0,
+        initiateCheckout: 24,
+        addToCart: 70,
+      })),
+      context,
+      cohort: purchaseCohort,
+      signals: signal({ learningState: "LEARNING_LIMITED", sourceJson: { age_days: 14, purchases_7d: 0 } }),
+    });
+
+    expect(rec).toBeNull();
+  });
+
   it("does not fire G1 without explicit age evidence from entity signals", () => {
     const rec = maybeG1UpperFunnelEvent({
       window: windowFor(campaign({

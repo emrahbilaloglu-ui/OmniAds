@@ -46,6 +46,10 @@ path and ask the model to read it before planning or changing code.
 - Phase B review-fix commit: `7f18c81`
   (`Ignore fallback thresholds for Meta hard anchors`).
 - Phase B merge commit on `main`: `cd7b72d629bf828cca9acdba34a666dbf2fd80b9`.
+- Phase C PR: `#164` (`[codex] Add Meta campaign kind semantics`), draft at
+  the time of this snapshot.
+- Phase C implementation commit: `4f6cc32`
+  (`Add Meta campaign kind semantics`).
 - Current `main` SHA verified locally:
   `cd7b72d629bf828cca9acdba34a666dbf2fd80b9`.
 - Phase A tracked-file modifications at the time of this snapshot:
@@ -285,6 +289,8 @@ path and ask the model to read it before planning or changing code.
 ### Phase C - Main/Test/Mixed Meta Semantics
 
 - Branch: `phase-c-meta-campaign-semantics`.
+- Draft PR: `#164`.
+- Implementation commit: `4f6cc32`.
 - Added kind-aware compatibility to `meta_decision_calibration_daily`:
   - new `campaign_kind` dimension with values `all`, `main`, `test`, `mixed`;
   - default `all` preserves existing calibration behavior;
@@ -444,7 +450,7 @@ where coverage is weak.
 - Acceptance: UI still does not compute buyer actions; hard actions remain
   guarded by labels, anchors, maturity, and data freshness.
   Status: local implementation and full local verification are complete.
-  PR, CI/review, and merge remain.
+  Draft PR `#164` is open. GitHub CI/review/merge remain.
 
 ### Phase D - Signal Substrate, Pacing, Overlap, And Placement Gates
 

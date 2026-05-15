@@ -254,6 +254,35 @@ describe("meta calibration", () => {
     ]));
   });
 
+  it("applies the cohort sample threshold after filtering each metric's usable values", async () => {
+    const rows = Array.from({ length: 8 }, (_, index) =>
+      metricRow({
+        campaignId: "cmp_sparse_atc",
+        adsetId: `atc_sparse_${index}`,
+        optimizationGoal: "OFFSITE_CONVERSIONS",
+        customEventType: "ADD_TO_CART",
+        spend: 80 + index,
+        revenue: 0,
+        conversions: 0,
+        impressions: 1000,
+        clicks: 40 + index,
+        addToCart: index === 0 ? 10 : 0,
+        viewContent: 20 + index,
+      }),
+    );
+    const sql = makeSqlMock({ metricRows: rows });
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+
+    await runMetaCalibrationForBusiness("biz_1", "2026-05-06");
+    const accountRows = insertedPayload(sql).filter((row) =>
+      row.cohort === "mid_funnel" && row.scope_type === "account"
+    );
+
+    expect(accountRows.some((row) => row.metric_name === "cost_per_atc_28d")).toBe(false);
+    expect(accountRows.find((row) => row.metric_name === "atc_rate_28d")?.sample_size).toBe(8);
+    expect(accountRows.find((row) => row.metric_name === "ctr_28d")?.sample_size).toBe(8);
+  });
+
   it("calibrates ROAS percentiles from the purchase cohort without pooling non-purchase rows", async () => {
     const rows = [
       metricRow({ campaignId: "cmp_1", adsetId: "purchase_1", spend: 100, revenue: 150, conversions: 2 }),

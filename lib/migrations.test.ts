@@ -415,8 +415,10 @@ describe("runMigrations", () => {
     );
     expect(joinedQueries).toContain("SET cohort = 'purchase'");
     expect(joinedQueries).toContain("WHERE cohort IS NULL");
+    expect(joinedQueries).toContain("set_config('lock_timeout', '2000ms', true)");
+    expect(joinedQueries).toContain("current_pk_columns IS DISTINCT FROM desired_pk_columns");
     expect(joinedQueries).toContain(
-      "DROP CONSTRAINT IF EXISTS meta_decision_calibration_daily_pkey",
+      "ALTER TABLE meta_decision_calibration_daily DROP CONSTRAINT %I",
     );
     expect(joinedQueries).toContain(
       "ADD PRIMARY KEY (business_id, scope_type, scope_id, snapshot_date, metric_name, cohort)",

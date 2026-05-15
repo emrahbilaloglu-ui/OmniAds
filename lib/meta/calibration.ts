@@ -410,11 +410,12 @@ function pushMetricRows(input: {
     const keepValue = ZERO_INCLUSIVE_METRICS.has(metricName)
       ? isNonNegativeFinite
       : isPositiveFinite;
-    const percentiles = computeMetaPercentiles(
-      input.samples
-        .map((sample) => sample.values[metricName])
-        .filter(keepValue),
-    );
+    const values = input.samples
+      .map((sample) => sample.values[metricName])
+      .filter(keepValue);
+    if (values.length < input.sampleThreshold) continue;
+
+    const percentiles = computeMetaPercentiles(values);
     if (!percentiles) continue;
     input.payload.push({
       business_id: input.businessId,

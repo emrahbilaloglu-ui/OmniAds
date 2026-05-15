@@ -23,9 +23,11 @@ import {
   maybeF1SuddenRoasDrop,
   maybeF3BudgetPacingCooldown,
   maybeF4StableWinnerFade,
+  maybeG1UpperFunnelEvent,
   maybeH1TrackingQualityDiagnostic,
   maybeI4TestShouldUseAbo,
   maybeJ1StableWinnerProtected,
+  maybeK4CatalogFeedFirst,
   maybeK1MixedConfig,
   scenarioScopeAllowsCohort,
 } from "@/lib/meta/scenario-emitters/high-priority";
@@ -244,11 +246,13 @@ describe("high priority Meta scenario emitters", () => {
     ["I4", () => maybeI4TestShouldUseAbo({ window: windowFor(campaign({ name: "Creative Test Campaign", budgetLevel: "campaign" })), context, cohort: purchaseCohort, campaignRole: "prospecting_test" })],
     ["A1", () => maybeA1MathFloor({ window: windowFor(campaign({ dailyBudget: 100, roas: 1.5 })), context, cohort: purchaseCohort, signals: signal({ learningState: "LEARNING" }) })],
     ["A3", () => maybeA3LearningOnPaceWait({ window: windowFor(campaign({ roas: 1.4, purchases: 4, cpa: 70 })), context, cohort: purchaseCohort, signals: signal({ learningState: "LEARNING", sourceJson: { purchases_7d: 4 } }) })],
+    ["G1", () => maybeG1UpperFunnelEvent({ window: windowFor(campaign({ roas: 0, purchases: 0, revenue: 0, initiateCheckout: 18, costPerCheckoutInitiated: 20, addToCart: 45, costPerAddToCart: 8 })), context, cohort: purchaseCohort, signals: signal({ learningState: "LEARNING_LIMITED", sourceJson: { age_days: 14, purchases_7d: 0 } }) })],
     ["A5", () => maybeA5PostLearningUnderperformer({ window: windowFor(campaign({ roas: 0.9, spend: 800, purchases: 4 })), context, cohort: purchaseCohort, signals: signal({ learningState: "OPTIMAL_LEARNING_DONE", daysAtLearningState: 5 }), commercialTargets })],
     ["C2", () => maybeC2RecentEditCooldown({ window: windowFor(campaign()), context, cohort: purchaseCohort, signals: signal({ daysSinceSignificantEdit: 2, lastSignificantEditAt: "2026-05-06T00:00:00.000Z" }) })],
     ["C3", () => maybeC3ScaleSampleGate({ window: windowFor(campaign({ roas: 3.4, purchases: 4 })), context, cohort: purchaseCohort, signals: signal({ learningState: "OPTIMAL_LEARNING_DONE" }), commercialTargets })],
     ["H1", () => maybeH1TrackingQualityDiagnostic({ window: windowFor(campaign()), context, cohort: purchaseCohort, signals: signal({ trackingQualityStatus: "lpv_drop_suspected", sourceJson: { tracking_quality: { link_clicks: 500, landing_page_views: 100, landing_page_view_rate: 0.2 } } }) })],
     ["F3", () => maybeF3BudgetPacingCooldown({ window: windowFor(campaign()), context, cohort: purchaseCohort, signals: signal({ sourceJson: { monthly_pacing: { status: "overpaced", pace_ratio: 1.5, mtd_spend: 3000, expected_mtd_spend: 2000 } } }) })],
+    ["K4", () => maybeK4CatalogFeedFirst({ window: windowFor(campaign({ name: "Catalog DPA", objective: "PRODUCT_CATALOG_SALES" })), context, cohort: purchaseCohort, campaignRole: "catalog_dpa", signals: signal({ feedStatus: "disapproved", feedDisapprovalCount: 3, sourceJson: { feed_status: { status: "disapproved", disapproval_count: 3 } } }) })],
   ])("fires %s on a positive account-history fixture", (_id, build) => {
     const rec = build();
     expect(rec).toBeTruthy();
@@ -362,6 +366,157 @@ describe("high priority Meta scenario emitters", () => {
     expect(rec?.type).toBe("scenario_a3_learning_on_pace_wait");
     expect(rec?.decisionState).toBe("watch");
     expect(rec?.decisionLabel).toBe("keep");
+  });
+
+  it("uses upper-funnel event switch before structural rebuild when purchase signal is thin", () => {
+    const rec = emitHighPriorityCampaignScenario({
+      window: windowFor(campaign({
+        roas: 0,
+        spend: 800,
+        purchases: 0,
+        revenue: 0,
+        initiateCheckout: 24,
+        costPerCheckoutInitiated: 25,
+        addToCart: 70,
+        costPerAddToCart: 9,
+      })),
+      context,
+      cohort: purchaseCohort,
+      signals: signal({ learningState: "LEARNING_LIMITED", sourceJson: { age_days: 14, purchases_7d: 0 } }),
+      commercialTargets,
+    });
+
+    expect(rec?.type).toBe("scenario_g1_upper_funnel_event");
+    expect(rec?.decisionLabel).toBe("switch");
+    expect(rec?.decisionState).toBe("test");
+    expect(rec?.targetValue).toMatchObject({ proposed_event: "INITIATE_CHECKOUT" });
+  });
+
+  it("does not switch optimization event when purchase signal is already healthy", () => {
+    const rec = maybeG1UpperFunnelEvent({
+      window: windowFor(campaign({
+        purchases: 60,
+        initiateCheckout: 120,
+        addToCart: 240,
+      })),
+      context,
+      cohort: purchaseCohort,
+      signals: signal({ learningState: "OPTIMAL_LEARNING_DONE", sourceJson: { age_days: 28, purchases_7d: 60 } }),
+    });
+
+    expect(rec).toBeNull();
+  });
+
+  it("does not fire G1 from a sales objective when the actual custom event is mid-funnel", () => {
+    const rec = maybeG1UpperFunnelEvent({
+      window: windowFor(campaign({
+        objective: "OUTCOME_SALES",
+        optimizationGoal: "OFFSITE_CONVERSIONS",
+        customEventType: "ADD_TO_CART",
+        purchases: 0,
+        initiateCheckout: 24,
+        addToCart: 70,
+      })),
+      context,
+      cohort: "mid_funnel",
+      signals: signal({ learningState: "LEARNING_LIMITED", sourceJson: { age_days: 14, purchases_7d: 0 } }),
+    });
+
+    expect(rec).toBeNull();
+  });
+
+  it("does not fire G1 from generic offsite conversions without purchase custom-event evidence", () => {
+    const rec = maybeG1UpperFunnelEvent({
+      window: windowFor(campaign({
+        objective: "OUTCOME_SALES",
+        optimizationGoal: "OFFSITE_CONVERSIONS",
+        customEventType: null,
+        purchases: 0,
+        initiateCheckout: 24,
+        addToCart: 70,
+      })),
+      context,
+      cohort: purchaseCohort,
+      signals: signal({ learningState: "LEARNING_LIMITED", sourceJson: { age_days: 14, purchases_7d: 0 } }),
+    });
+
+    expect(rec).toBeNull();
+  });
+
+  it("does not fire G1 without explicit age evidence from entity signals", () => {
+    const rec = maybeG1UpperFunnelEvent({
+      window: windowFor(campaign({
+        purchases: 0,
+        initiateCheckout: 24,
+        addToCart: 70,
+      })),
+      context,
+      cohort: purchaseCohort,
+      signals: signal({ learningState: "LEARNING_LIMITED", sourceJson: { purchases_7d: 0 } }),
+    });
+
+    expect(rec).toBeNull();
+  });
+
+  it("does not emit catalog feed diagnostics without explicit feed evidence", () => {
+    const rec = maybeK4CatalogFeedFirst({
+      window: windowFor(campaign({ name: "Catalog DPA", objective: "PRODUCT_CATALOG_SALES" })),
+      context,
+      cohort: purchaseCohort,
+      campaignRole: "catalog_dpa",
+      signals: signal({ feedStatus: null, feedDisapprovalCount: null, sourceJson: {} }),
+    });
+
+    expect(rec).toBeNull();
+  });
+
+  it("does not treat negated healthy feed statuses as catalog feed issues", () => {
+    const noIssues = maybeK4CatalogFeedFirst({
+      window: windowFor(campaign({ name: "Catalog DPA", objective: "PRODUCT_CATALOG_SALES" })),
+      context,
+      cohort: purchaseCohort,
+      campaignRole: "catalog_dpa",
+      signals: signal({ feedStatus: "no_issues", feedDisapprovalCount: 0, sourceJson: {} }),
+    });
+    const notLimited = maybeK4CatalogFeedFirst({
+      window: windowFor(campaign({ name: "Catalog DPA", objective: "PRODUCT_CATALOG_SALES" })),
+      context,
+      cohort: purchaseCohort,
+      campaignRole: "catalog_dpa",
+      signals: signal({ feedStatus: "not_limited", feedDisapprovalCount: 0, sourceJson: {} }),
+    });
+
+    expect(noIssues).toBeNull();
+    expect(notLimited).toBeNull();
+  });
+
+  it("uses catalog feed diagnostics before optimization-event switching", () => {
+    const rec = emitHighPriorityCampaignScenario({
+      window: windowFor(campaign({
+        name: "Catalog DPA",
+        objective: "PRODUCT_CATALOG_SALES",
+        roas: 0,
+        purchases: 0,
+        revenue: 0,
+        initiateCheckout: 24,
+      })),
+      context,
+      cohort: purchaseCohort,
+      campaignRole: "catalog_dpa",
+      signals: signal({
+        learningState: "LEARNING_LIMITED",
+        feedStatus: "disapproved",
+        feedDisapprovalCount: 3,
+        sourceJson: {
+          age_days: 14,
+          purchases_7d: 0,
+          feed_status: { status: "disapproved", disapproval_count: 3 },
+        },
+      }),
+    });
+
+    expect(rec?.type).toBe("scenario_k4_catalog_feed_first");
+    expect(rec?.decisionLabel).toBe("diagnose");
   });
 
   it("emits post-learning underperformer only after target-backed loss maturity", () => {

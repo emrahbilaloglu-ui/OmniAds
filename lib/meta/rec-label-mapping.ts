@@ -185,6 +185,9 @@ export function primaryLabelForMetaRec(input: MetaRecLabelInput) {
   if (input.type === "scenario_eg4_engagement_refresh") return "Refresh creative";
   if (input.type === "bid_strategy_fit") return input.lens === "profitability" ? "Test Cost Cap" : "Review bid strategy";
   if (input.type === "historical_bid_regime_fit") return "Switch strategy";
+  if (input.type === "scenario_g1_upper_funnel_event") return "Switch optimization";
+  if (input.type === "scenario_g2_downshift_to_purchase") return "Switch to purchase";
+  if (input.type === "scenario_k4_catalog_feed_first") return "Open diagnostics";
   if (input.type === "bid_band_from_history") return "Apply bid band";
   return input.decisionState === "act" ? "Act now" : "Open drilldown";
 }

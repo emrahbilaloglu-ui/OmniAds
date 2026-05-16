@@ -448,7 +448,8 @@ invariants, golden cases, and Phase G closeout record.
 
 ### PR / Review / Deploy Closure
 
-- Merged final Meta chain through current main SHA `fe1a9f8a`.
+- Merged final runtime-affecting Meta chain through SHA `fe1a9f8a`; Phase G
+  docs-only closeout commits are recorded in the Phase G section below.
 - Merged Phase A through current main SHA `49716c3` via PR `#162`.
 - Closed stale superseded PRs `#112`, `#114`, `#115`, `#116`, `#117`.
 - Phase A triaged and closed old draft/review PRs `#80`, `#79`, `#77`, `#76`,
@@ -1063,6 +1064,22 @@ where coverage is weak.
   - `npm run lint` passed.
   - `npm run build` passed.
   - `git diff --check` passed.
+- Claude read-only recheck after documentation closeout returned no blockers:
+  "Phase G complete for implemented A-F.4 scope"; remaining items are
+  Phase H/product-scope limitations.
+- Phase G docs closeout commit `ceda07e3` (`Complete Meta Phase G
+  documentation closeout`) was pushed to `main`.
+- GitHub CI run `25947833866` for `ceda07e3` succeeded:
+  `detect-runtime-changes`, `typecheck`, and `test` passed; `build`,
+  `publish-web-image`, `publish-worker-image`, and `dispatch-deploy` were
+  skipped because the commit was docs-only; `skip-runtime-deploy` passed.
+- Live public build-info verification after `ceda07e3` confirmed runtime still
+  serving the last runtime commit:
+  `buildId=fe1a9f8aedb971d66e669888a907d7d2fcbd7940`,
+  `nodeEnv=production`, `deployGate=pass`, `releaseGate=pass`,
+  `missingExact=[]`, `runtimeRegistry.contractValid=true`,
+  `web.healthState=healthy`, `worker.healthState=healthy`,
+  `providerScope=meta`, and `repairPlan.eligible=true`.
 - Phase G scope note: this closeout confirms implemented A-F.4 behavior,
   verification, deploy evidence, and documentation hygiene. It does not claim
   unsupported scenario families are automation-ready; those remain explicit

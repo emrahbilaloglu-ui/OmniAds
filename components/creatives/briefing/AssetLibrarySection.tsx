@@ -1,17 +1,30 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Grid3X3, List, Search } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { Search } from "lucide-react";
 import { CreativesTableSection } from "@/components/creatives/CreativesTableSection";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import type { DecisionLabel } from "@/components/common/briefing/types";
 import type { AiCreativeHistoricalWindows as CreativeHistoricalWindows } from "@/lib/meta/creative-scoring";
+import {
+  CustomizeKpisModal,
+  DateRangePicker,
+  KpiSummaryTiles,
+  PresetBar,
+  ShareViewModal,
+  computeRangeFromPreset,
+  type AssetLibraryPreset,
+  type DateRangeValue,
+  type KpiCatalogEntry,
+  type KpiSummaryTile,
+  type ShareViewState,
+} from "@/components/common/briefing";
 
 type AssetLibraryStatusFilter = "all" | "active" | "closed_30d";
 type AssetLibraryFormatFilter = "image" | "video" | "catalog" | "carousel";
 type AssetLibraryBadgeFilter = "below_breakeven" | "fatigue";
 type AssetLibrarySort = "spend_desc" | "roas_desc" | "roas_asc" | "name_asc" | "launch_desc";
-type AssetLibraryViewMode = "grid" | "list";
+type LabelFilterKey = "all" | "main" | "test" | "mixed";
 
 type AssetLibraryRow = MetaCreativeRow & {
   engineLabel?: DecisionLabel | string | null;
@@ -26,6 +39,7 @@ interface AssetLibraryFilters {
   formats: AssetLibraryFormatFilter[];
   labels: DecisionLabel[];
   badges: AssetLibraryBadgeFilter[];
+  campaignLabel: LabelFilterKey;
   search: string;
   sort: AssetLibrarySort;
 }
@@ -43,33 +57,16 @@ interface AssetLibrarySectionProps {
   onToggleAll: () => void;
   onOpenRow: (rowId: string) => void;
   onSortedRowsChange?: (rows: MetaCreativeRow[]) => void;
+  dateRange?: DateRangeValue;
+  onDateRangeChange?: (next: DateRangeValue) => void;
+  isFetching?: boolean;
 }
 
-const STATUS_FILTERS: Array<{ key: AssetLibraryStatusFilter; label: string }> = [
+const LABEL_FILTERS: ReadonlyArray<{ key: LabelFilterKey; label: string }> = [
   { key: "all", label: "All" },
-  { key: "active", label: "Active" },
-  { key: "closed_30d", label: "Closed 30d" },
-];
-
-const FORMAT_FILTERS: Array<{ key: AssetLibraryFormatFilter; label: string }> = [
-  { key: "image", label: "image" },
-  { key: "video", label: "video" },
-  { key: "catalog", label: "catalog" },
-  { key: "carousel", label: "carousel" },
-];
-
-const LABEL_FILTERS: DecisionLabel[] = [
-  "scale",
-  "cut",
-  "refresh",
-  "keep",
-  "test_more",
-  "diagnose",
-];
-
-const BADGE_FILTERS: Array<{ key: AssetLibraryBadgeFilter; label: string }> = [
-  { key: "below_breakeven", label: "Below breakeven" },
-  { key: "fatigue", label: "Fatigue" },
+  { key: "main", label: "Main" },
+  { key: "test", label: "Test" },
+  { key: "mixed", label: "Mixed" },
 ];
 
 const DEFAULT_FILTERS: AssetLibraryFilters = {
@@ -77,9 +74,112 @@ const DEFAULT_FILTERS: AssetLibraryFilters = {
   formats: [],
   labels: [],
   badges: [],
+  campaignLabel: "all",
   search: "",
   sort: "spend_desc",
 };
+
+const PRESETS: ReadonlyArray<AssetLibraryPreset & { metrics: string[] }> = [
+  {
+    key: "facebook_ecom",
+    label: "Facebook Ecommerce",
+    description:
+      "Buyer view — spend, ROAS, CPA, frequency. Works on existing endpoints today.",
+    metricsCount: 6,
+    metricChips: ["Spend", "ROAS", "CPA", "Freq", "CTR", "Purch"],
+    metrics: ["spend", "roas", "cpa", "frequency", "ctr", "purchases"],
+  },
+  {
+    key: "video",
+    label: "Video",
+    description: "Buyer + video efficiency framing.",
+    metricsCount: 6,
+    metricChips: ["Spend", "ROAS", "Thumbstop", "Hold", "VTR", "CPM"],
+    metrics: ["spend", "roas", "thumbstop", "videoHold", "vtr", "cpm"],
+  },
+  {
+    key: "saas",
+    label: "SaaS",
+    description: "Lead/sub efficiency framing for SaaS accounts.",
+    metricsCount: 5,
+    metricChips: ["Spend", "CTR", "Leads", "CPL", "CPM"],
+    metrics: ["spend", "ctr", "leads", "cpl", "cpm"],
+  },
+  {
+    key: "creative_teams",
+    label: "Creative teams",
+    description: "0–100 scores per concept · Hook / CTA / Offer / Click / Watch.",
+    metricsCount: 6,
+    metricChips: ["Hook", "CTA", "Offer", "Click", "Watch", "Gap"],
+    metrics: ["hookScore", "ctaScore", "offerScore", "clickScore", "watchScore", "gap"],
+    unavailable: true,
+    unavailableReason:
+      "Backend-dependent — Creative scoring pipeline ships separately.",
+  },
+];
+
+const KPI_CATALOG: ReadonlyArray<KpiCatalogEntry> = [
+  { key: "spend", label: "Spend", group: "Performance", description: "Total spend for the selected window." },
+  { key: "roas", label: "ROAS", group: "Performance", description: "Return on ad spend. Compared against account anchor." },
+  { key: "cpa", label: "CPA", group: "Performance", description: "Cost per acquisition." },
+  { key: "purchases", label: "Purchases", group: "Performance", description: "Total purchases in the window." },
+  { key: "frequency", label: "Frequency", group: "Delivery", description: "Average impressions per reached user." },
+  { key: "ctr", label: "CTR", group: "Engagement", description: "Click-through rate." },
+  { key: "cpm", label: "CPM", group: "Delivery", description: "Cost per thousand impressions." },
+  { key: "leads", label: "Leads", group: "Performance", description: "Lead conversions for SaaS accounts." },
+  { key: "cpl", label: "CPL", group: "Performance", description: "Cost per lead." },
+  { key: "thumbstop", label: "Thumbstop", group: "Video", description: "3s view rate — does the creative stop the scroll?" },
+  { key: "videoHold", label: "Video hold", group: "Video", description: "% of viewers who watch past 15s." },
+  { key: "vtr", label: "VTR", group: "Video", description: "View-through rate." },
+  {
+    key: "hookScore",
+    label: "Hook score",
+    group: "Creative scores",
+    description: "0–100 score derived from thumbstop + retention vs account baseline.",
+    unavailable: true,
+    unavailableReason: "Requires the creative scoring pipeline.",
+  },
+  {
+    key: "ctaScore",
+    label: "CTA score",
+    group: "Creative scores",
+    description: "0–100 score for call-to-action clarity.",
+    unavailable: true,
+    unavailableReason: "Requires the creative scoring pipeline.",
+  },
+  {
+    key: "offerScore",
+    label: "Offer score",
+    group: "Creative scores",
+    description: "0–100 score for offer relevance.",
+    unavailable: true,
+    unavailableReason: "Requires the creative scoring pipeline.",
+  },
+  {
+    key: "clickScore",
+    label: "Click score",
+    group: "Creative scores",
+    description: "0–100 score for click momentum.",
+    unavailable: true,
+    unavailableReason: "Requires the creative scoring pipeline.",
+  },
+  {
+    key: "watchScore",
+    label: "Watch score",
+    group: "Creative scores",
+    description: "0–100 score for video watch behavior.",
+    unavailable: true,
+    unavailableReason: "Requires the creative scoring pipeline.",
+  },
+  {
+    key: "aiTag_hook",
+    label: "AI tag · hook style",
+    group: "AI tags",
+    description: "Tagged hook style: UGC / Demo / Promise.",
+    unavailable: true,
+    unavailableReason: "Requires AI tag generation backend.",
+  },
+];
 
 export const ASSET_LIBRARY_VIEW_STORAGE_KEY = "creatives-briefing-asset-library-view";
 
@@ -95,6 +195,7 @@ export function isAssetLibraryFilterActive(filters: AssetLibraryFilters) {
     filters.formats.length > 0 ||
     filters.labels.length > 0 ||
     filters.badges.length > 0 ||
+    filters.campaignLabel !== "all" ||
     filters.search.trim().length > 0
   );
 }
@@ -115,6 +216,7 @@ export function filterAssetLibraryRows(
     if (filters.formats.length > 0 && !filters.formats.some((format) => rowMatchesFormat(extended, format))) return false;
     if (filters.labels.length > 0 && !filters.labels.includes(rowEngineLabel(extended) as DecisionLabel)) return false;
     if (filters.badges.length > 0 && !filters.badges.every((badge) => rowMatchesBadge(extended, badge))) return false;
+    if (filters.campaignLabel !== "all" && rowCampaignLabel(extended) !== filters.campaignLabel) return false;
     if (search && !rowMatchesSearch(extended, search)) return false;
     return true;
   });
@@ -148,20 +250,23 @@ export function AssetLibrarySection({
   onToggleAll,
   onOpenRow,
   onSortedRowsChange,
+  dateRange: controlledDateRange,
+  onDateRangeChange,
+  isFetching = false,
 }: AssetLibrarySectionProps) {
   const [filters, setFilters] = useState<AssetLibraryFilters>(DEFAULT_FILTERS);
-  const [viewMode, setViewMode] = useState<AssetLibraryViewMode>("list");
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const stored = window.localStorage.getItem(ASSET_LIBRARY_VIEW_STORAGE_KEY);
-    if (stored === "grid" || stored === "list") setViewMode(stored);
-  }, []);
-
-  const updateViewMode = (next: AssetLibraryViewMode) => {
-    setViewMode(next);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(ASSET_LIBRARY_VIEW_STORAGE_KEY, next);
+  const [activePreset, setActivePreset] = useState<string>("facebook_ecom");
+  const [customizeOpen, setCustomizeOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [uncontrolledDateRange, setUncontrolledDateRange] = useState<DateRangeValue>(
+    () => ({ preset: "14d", ...computeRangeFromPreset("14d") }),
+  );
+  const dateRange = controlledDateRange ?? uncontrolledDateRange;
+  const setDateRange = (next: DateRangeValue) => {
+    if (onDateRangeChange) {
+      onDateRangeChange(next);
+    } else {
+      setUncontrolledDateRange(next);
     }
   };
 
@@ -171,115 +276,187 @@ export function AssetLibrarySection({
   );
   const filtersActive = isAssetLibraryFilterActive(filters);
 
+  const presetEntry = PRESETS.find((preset) => preset.key === activePreset) ?? PRESETS[0];
+
+  const summaryTiles: KpiSummaryTile[] = useMemo(() => {
+    const totalSpend = filteredRows.reduce((sum, row) => sum + safeNumber(row.spend), 0);
+    const totalPurchases = filteredRows.reduce(
+      (sum, row) => sum + safeNumber(row.purchases),
+      0,
+    );
+    const roasValues = filteredRows
+      .map((row) => safeNumber(row.roas))
+      .filter((value) => value > 0);
+    const medianRoas =
+      roasValues.length === 0
+        ? 0
+        : roasValues.sort((a, b) => a - b)[Math.floor(roasValues.length / 2)];
+    const cpaValues = filteredRows
+      .map((row) => safeNumber(row.cpa))
+      .filter((value) => value > 0);
+    const medianCpa =
+      cpaValues.length === 0
+        ? 0
+        : cpaValues.sort((a, b) => a - b)[Math.floor(cpaValues.length / 2)];
+
+    return [
+      {
+        key: "total-spend",
+        title: "Total spend",
+        scope: `· ${filteredRows.length} creatives`,
+        value: formatCurrency(totalSpend, defaultCurrency),
+        micro: <span>Window · {dateRange.startDate} → {dateRange.endDate}</span>,
+      },
+      {
+        key: "median-roas",
+        title: "Median ROAS",
+        value: medianRoas > 0 ? medianRoas.toFixed(2) : "—",
+        unit: medianRoas > 0 ? "×" : undefined,
+        highlight: medianRoas >= 2 ? "good" : medianRoas > 0 && medianRoas < 1.4 ? "warn" : "neutral",
+      },
+      {
+        key: "median-cpa",
+        title: "Median CPA",
+        value: medianCpa > 0 ? formatCurrency(medianCpa, defaultCurrency) : "—",
+      },
+      {
+        key: "purchases",
+        title: "Purchases",
+        value: String(totalPurchases),
+        micro: presetEntry.unavailable ? (
+          <span className="text-amber-700">
+            Scoring preset is backend-dependent — buyer KPIs shown above.
+          </span>
+        ) : (
+          <span>Across the current selection.</span>
+        ),
+      },
+    ];
+  }, [filteredRows, dateRange, presetEntry, defaultCurrency]);
+
+  function handleApplyKpis(nextSelected: string[]) {
+    onSelectedMetricIdsChange(nextSelected);
+  }
+
+  function buildShareUrl(state: ShareViewState) {
+    const params = new URLSearchParams({
+      preset: activePreset,
+      audience: state.audience,
+      expires: String(state.expiresInDays),
+      snapshot: state.freezeSnapshot ? "1" : "0",
+    });
+    return `/share/creative/[token]?${params.toString()}`;
+  }
+
   return (
-    <section className="mt-8" data-asset-library>
-      <div className="flex items-baseline gap-3 mb-3">
-        <h2 className="text-[15px] font-semibold text-slate-900">Asset Library</h2>
-        <span className="text-[12px] text-slate-500">All creatives with Engine v3 context</span>
-        <span className="ml-auto text-[11.5px] text-slate-500">
-          {filteredRows.length} visible · {rows.length} total
-        </span>
-      </div>
+    <section className="mt-6 space-y-4" data-asset-library>
+      <PresetBar
+        testId="asset-library-preset-bar"
+        presets={[...PRESETS]}
+        activePresetKey={activePreset}
+        onPresetChange={setActivePreset}
+        dateChip={
+          <DateRangePicker
+            testId="asset-library-date-picker"
+            label="Asset library date range"
+            value={dateRange}
+            onChange={setDateRange}
+          />
+        }
+        labelFilter={
+          <div
+            className="inline-flex items-center rounded-md border border-slate-200 bg-white p-0.5"
+            role="group"
+            aria-label="Campaign label filter"
+          >
+            {LABEL_FILTERS.map((filter) => (
+              <button
+                key={filter.key}
+                type="button"
+                onClick={() =>
+                  setFilters((current) => ({ ...current, campaignLabel: filter.key }))
+                }
+                aria-pressed={filters.campaignLabel === filter.key}
+                className={
+                  "rounded px-2 py-0.5 text-[11.5px] font-medium transition-colors " +
+                  (filters.campaignLabel === filter.key
+                    ? "bg-slate-900 text-white"
+                    : "text-slate-500 hover:bg-slate-50 hover:text-slate-800")
+                }
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
+        }
+        countLabel={`${filteredRows.length} · ${rows.length} total`}
+        selectedCount={selectedRowIds.length}
+        onCustomize={() => setCustomizeOpen(true)}
+        onShareView={() => setShareOpen(true)}
+      />
+
+      {presetEntry.unavailable ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-[12.5px] text-amber-900">
+          <b>{presetEntry.label}</b> — {presetEntry.unavailableReason} Falling
+          back to the buyer summary below until the scoring pipeline ships.
+        </div>
+      ) : null}
+
+      <KpiSummaryTiles tiles={summaryTiles} testId="asset-library-kpi-summary" />
+
+      {isFetching ? (
+        <div
+          className="text-[11.5px] text-slate-500"
+          aria-live="polite"
+          data-asset-library-fetching
+        >
+          Refreshing for {dateRange.startDate} → {dateRange.endDate}…
+        </div>
+      ) : null}
 
       <div className="rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-200 bg-slate-50/70 space-y-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Status</span>
-            {STATUS_FILTERS.map((filter) => (
-              <ChipButton
-                key={filter.key}
-                active={filters.status === filter.key}
-                onClick={() => setFilters((current) => ({ ...current, status: filter.key }))}
-              >
-                {filter.label}
-              </ChipButton>
-            ))}
-            <span className="h-4 w-px bg-slate-200" />
-            <span className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Format</span>
-            {FORMAT_FILTERS.map((filter) => (
-              <ChipButton
-                key={filter.key}
-                active={filters.formats.includes(filter.key)}
-                onClick={() => setFilters((current) => ({ ...current, formats: toggleArrayFilter(current.formats, filter.key) }))}
-              >
-                {filter.label}
-              </ChipButton>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Engine v3 label</span>
-            {LABEL_FILTERS.map((label) => (
-              <ChipButton
-                key={label}
-                active={filters.labels.includes(label)}
-                onClick={() => setFilters((current) => ({ ...current, labels: toggleArrayFilter(current.labels, label) }))}
-              >
-                {label.replace(/_/g, " ")}
-              </ChipButton>
-            ))}
-            <span className="h-4 w-px bg-slate-200" />
-            <span className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Badge</span>
-            {BADGE_FILTERS.map((filter) => (
-              <ChipButton
-                key={filter.key}
-                active={filters.badges.includes(filter.key)}
-                onClick={() => setFilters((current) => ({ ...current, badges: toggleArrayFilter(current.badges, filter.key) }))}
-              >
-                {filter.label}
-              </ChipButton>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <label className="relative flex-1 min-w-[220px]">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 inline-block shrink-0" size={14} aria-hidden="true" />
-              <input
-                type="search"
-                value={filters.search}
-                onChange={(event) => setFilters((current) => ({ ...current, search: event.currentTarget.value }))}
-                placeholder="Search creatives, campaigns, tags"
-                className="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-8 pr-3 text-[12.5px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-              />
-            </label>
-            <select
-              value={filters.sort}
-              onChange={(event) => setFilters((current) => ({ ...current, sort: event.currentTarget.value as AssetLibrarySort }))}
-              className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[12.5px] text-slate-700"
-              aria-label="Sort asset library"
-            >
-              <option value="spend_desc">Sort: spend</option>
-              <option value="roas_desc">Sort: ROAS high</option>
-              <option value="roas_asc">Sort: ROAS low</option>
-              <option value="name_asc">Sort: name</option>
-              <option value="launch_desc">Sort: newest</option>
-            </select>
-            <div className="inline-flex rounded-md border border-slate-200 bg-white p-0.5" data-view-mode={viewMode}>
-              <button
-                type="button"
-                aria-label="Grid view"
-                className={`p-1.5 rounded ${viewMode === "grid" ? "bg-blue-50 text-blue-700" : "text-slate-500 hover:text-slate-900"}`}
-                onClick={() => updateViewMode("grid")}
-              >
-                <Grid3X3 className="inline-block shrink-0" size={14} aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                aria-label="List view"
-                className={`p-1.5 rounded ${viewMode === "list" ? "bg-blue-50 text-blue-700" : "text-slate-500 hover:text-slate-900"}`}
-                onClick={() => updateViewMode("list")}
-              >
-                <List className="inline-block shrink-0" size={14} aria-hidden="true" />
-              </button>
-            </div>
-          </div>
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50/70 px-4 py-2.5">
+          <label className="relative flex-1 min-w-[220px]">
+            <Search
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 inline-block shrink-0 text-slate-400"
+              size={14}
+              aria-hidden="true"
+            />
+            <input
+              type="search"
+              value={filters.search}
+              onChange={(event) =>
+                setFilters((current) => ({ ...current, search: event.currentTarget.value }))
+              }
+              placeholder="Search creatives, campaigns, tags"
+              className="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-8 pr-3 text-[12.5px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            />
+          </label>
+          <select
+            value={filters.sort}
+            onChange={(event) =>
+              setFilters((current) => ({
+                ...current,
+                sort: event.currentTarget.value as AssetLibrarySort,
+              }))
+            }
+            className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[12.5px] text-slate-700"
+            aria-label="Sort asset library"
+          >
+            <option value="spend_desc">Sort: spend</option>
+            <option value="roas_desc">Sort: ROAS high</option>
+            <option value="roas_asc">Sort: ROAS low</option>
+            <option value="name_asc">Sort: name</option>
+            <option value="launch_desc">Sort: newest</option>
+          </select>
         </div>
 
-        <div data-asset-library-body data-view={viewMode}>
+        <div data-asset-library-body data-preset={activePreset}>
           {filteredRows.length === 0 ? (
             <div className="px-4 py-6 text-[12.5px] text-slate-500">
               {rows.length === 0
-                ? emptyMessage ?? "No Meta creative rows were found for the selected window."
+                ? emptyMessage ??
+                  "No Meta creative rows were found for the selected window."
                 : "No creatives match the current Asset Library filters."}
             </div>
           ) : (
@@ -305,31 +482,23 @@ export function AssetLibrarySection({
           </div>
         ) : null}
       </div>
-    </section>
-  );
-}
 
-function ChipButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border text-[11.5px] ${
-        active
-          ? "border-blue-300 bg-blue-50 text-blue-700 font-medium"
-          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-      }`}
-      onClick={onClick}
-    >
-      {children}
-    </button>
+      <CustomizeKpisModal
+        open={customizeOpen}
+        catalog={[...KPI_CATALOG]}
+        selectedKeys={selectedMetricIds}
+        presetLabel={presetEntry.label}
+        onClose={() => setCustomizeOpen(false)}
+        onApply={handleApplyKpis}
+      />
+      <ShareViewModal
+        open={shareOpen}
+        presetLabel={presetEntry.label}
+        itemCount={selectedRowIds.length || filteredRows.length}
+        buildShareUrl={buildShareUrl}
+        onClose={() => setShareOpen(false)}
+      />
+    </section>
   );
 }
 
@@ -337,8 +506,18 @@ function rowEngineLabel(row: AssetLibraryRow) {
   return row.engineLabel ?? row.decisionLabel ?? row.briefingLabel ?? null;
 }
 
+function rowCampaignLabel(row: AssetLibraryRow): LabelFilterKey {
+  const value = String((row as { campaignKind?: string | null }).campaignKind ?? "").toLowerCase();
+  if (value === "main") return "main";
+  if (value === "test") return "test";
+  if (value === "mixed") return "mixed";
+  return "all";
+}
+
 function safeRows(rows: unknown): MetaCreativeRow[] {
-  return Array.isArray(rows) ? rows.filter((row): row is MetaCreativeRow => Boolean(row && typeof row === "object")) : [];
+  return Array.isArray(rows)
+    ? rows.filter((row): row is MetaCreativeRow => Boolean(row && typeof row === "object"))
+    : [];
 }
 
 function safeText(value: unknown) {
@@ -378,8 +557,7 @@ function rowMatchesBadge(row: AssetLibraryRow, badge: AssetLibraryBadgeFilter) {
     ...safeStringArray(row.engineBadges),
     ...safeStringArray(row.badges),
     ...safeStringArray(row.tags),
-  ]
-    .map((item) => item.toLowerCase().replace(/\s+/g, "_"));
+  ].map((item) => item.toLowerCase().replace(/\s+/g, "_"));
   return badges.includes(badge);
 }
 
@@ -391,4 +569,18 @@ function rowMatchesSearch(row: AssetLibraryRow, search: string) {
     row.accountName,
     ...safeStringArray(row.tags),
   ].some((value) => safeText(value).toLowerCase().includes(search));
+}
+
+function formatCurrency(value: number, currency: string | null): string {
+  if (!Number.isFinite(value) || value <= 0) return "—";
+  const isoCurrency = (currency ?? "USD").toUpperCase();
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: isoCurrency,
+      maximumFractionDigits: 0,
+    }).format(value);
+  } catch {
+    return `$${Math.round(value).toLocaleString()}`;
+  }
 }

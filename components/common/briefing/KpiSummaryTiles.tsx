@@ -1,0 +1,63 @@
+"use client";
+
+import type { ReactNode } from "react";
+
+export interface KpiSummaryTile {
+  key: string;
+  title: string;
+  scope?: string;
+  value: string;
+  unit?: string;
+  micro?: ReactNode;
+  highlight?: "neutral" | "warn" | "good";
+}
+
+interface KpiSummaryTilesProps {
+  tiles: KpiSummaryTile[];
+  testId?: string;
+}
+
+const HIGHLIGHT_STYLES: Record<NonNullable<KpiSummaryTile["highlight"]>, string> = {
+  neutral: "border-slate-200 bg-white",
+  warn: "border-amber-200 bg-amber-50/50",
+  good: "border-emerald-200 bg-emerald-50/50",
+};
+
+export function KpiSummaryTiles({
+  tiles,
+  testId = "kpi-summary-tiles",
+}: KpiSummaryTilesProps) {
+  if (tiles.length === 0) return null;
+  return (
+    <div
+      className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4"
+      data-testid={testId}
+    >
+      {tiles.map((tile) => (
+        <div
+          key={tile.key}
+          className={
+            "rounded-xl border px-3.5 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)] " +
+            HIGHLIGHT_STYLES[tile.highlight ?? "neutral"]
+          }
+        >
+          <div className="flex items-center justify-between text-[10.5px] uppercase tracking-wider text-slate-500">
+            <span className="font-semibold">{tile.title}</span>
+            {tile.scope ? <span className="font-mono normal-case">{tile.scope}</span> : null}
+          </div>
+          <div className="mt-1 flex items-baseline gap-1">
+            <span className="text-[20px] font-bold tabular-nums text-slate-900">
+              {tile.value}
+            </span>
+            {tile.unit ? (
+              <span className="text-[12px] text-slate-500">{tile.unit}</span>
+            ) : null}
+          </div>
+          {tile.micro ? (
+            <div className="mt-1 text-[11px] text-slate-500">{tile.micro}</div>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}

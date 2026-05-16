@@ -26,12 +26,23 @@ import {
   useDeferState,
   BulkToolbar,
   EvidencePopover,
+  InsightsPanel,
   LaunchpadOverlay,
   LaneHeader,
+  PhonePreview,
   PulseStrip,
   TrackingBlockerBanner,
   TrackingConfirmModal,
+  buildAnomaliesWidget,
+  buildEngineStatusWidget,
+  buildTargetAnchorWidget,
+  computeRangeFromPreset,
+  deriveTileFormat,
+  deriveTileShape,
   type BulkAction,
+  type DateRangeValue,
+  type InsightWidget,
+  type PhonePreviewPlacement,
 } from "@/components/common/briefing";
 import type { LaunchpadOverlayMode } from "@/components/common/briefing/LaunchpadOverlay";
 import type { LaneKey } from "@/components/common/briefing/types";
@@ -689,11 +700,15 @@ export function CreativesBriefingPage() {
     [activeBusiness?.timezone],
   );
   const sevenDayStart = useMemo(() => addDaysToIso(todayIso, -6), [todayIso]);
-  const libraryStart = useMemo(() => addDaysToIso(todayIso, -29), [todayIso]);
   const tabParam = searchParams?.get("tab") ?? null;
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(
     workspaceModeFromTab(tabParam),
   );
+  const [assetLibraryRange, setAssetLibraryRange] = useState<DateRangeValue>(
+    () => ({ preset: "28d", ...computeRangeFromPreset("28d") }),
+  );
+  const libraryStart = assetLibraryRange.startDate;
+  const libraryEnd = assetLibraryRange.endDate;
 
   const briefingQuery = useQuery({
     queryKey: ["creatives-briefing", businessId],
@@ -729,7 +744,7 @@ export function CreativesBriefingPage() {
       "creatives-briefing-asset-library",
       businessId,
       libraryStart,
-      todayIso,
+      libraryEnd,
     ],
     enabled: Boolean(businessId),
     staleTime: 60 * 1000,
@@ -737,7 +752,7 @@ export function CreativesBriefingPage() {
       fetchAssetLibraryRows({
         businessId,
         startDate: libraryStart,
-        endDate: todayIso,
+        endDate: libraryEnd,
       }),
   });
 
@@ -884,6 +899,50 @@ export function CreativesBriefingPage() {
     normalizedBriefingData?.pulse?.trackingDetail ||
     normalizedBriefingData?.pulse?.trackingAnomalyDetail ||
     undefined;
+
+  const insightWidgets = useMemo<InsightWidget[]>(() => {
+    const widgets: InsightWidget[] = [];
+    const targetRoas = engineProfile?.spendUnitEvidence?.targetRoas ?? null;
+    const breakEvenRoas = engineProfile?.spendUnitEvidence?.breakEvenRoas ?? null;
+    const targetWidget = buildTargetAnchorWidget(
+      engineProfile
+        ? {
+            configured: targetRoas != null || breakEvenRoas != null,
+            targetRoas,
+            breakEvenRoas,
+            setAnchorHref: "/commercial-truth",
+          }
+        : null,
+    );
+    if (targetWidget) widgets.push(targetWidget);
+
+    const engineWidget = buildEngineStatusWidget(
+      normalizedBriefingData?.pulse
+        ? {
+            version: normalizedBriefingData.pulse.engineVersion ?? null,
+            lastRunAt: null,
+            operatingMode: normalizedBriefingData.pulse.calibratedAgo
+              ? `calibrated ${normalizedBriefingData.pulse.calibratedAgo}`
+              : null,
+            snapshotStatus: null,
+          }
+        : null,
+    );
+    if (engineWidget) widgets.push(engineWidget);
+
+    const anomaliesWidget = buildAnomaliesWidget({
+      activeCount: trackingAnomalyActive ? 1 : 0,
+      detail: trackingBlockerDetail,
+    });
+    if (anomaliesWidget) widgets.push(anomaliesWidget);
+
+    return widgets;
+  }, [
+    engineProfile,
+    normalizedBriefingData?.pulse,
+    trackingAnomalyActive,
+    trackingBlockerDetail,
+  ]);
   const assetLibraryPayload = assetLibraryQuery.data;
   const assetLibraryRows = Array.isArray(assetLibraryPayload)
     ? assetLibraryPayload
@@ -1299,7 +1358,7 @@ export function CreativesBriefingPage() {
             onToggle={handleToggleLane}
           />
           {collapsed.action ? null : (
-            <div className="space-y-3">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {isInitialLoading ? <LaneSkeleton /> : null}
               {!isInitialLoading &&
               !briefingError &&
@@ -1404,7 +1463,7 @@ export function CreativesBriefingPage() {
                 }
                 onClear={() => clearSelectedIdsForLane(watchingSelectedIds)}
               />
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 {watchingItems.map((card) => (
                   <WatchingCard
                     key={cardId(card)}
@@ -1432,27 +1491,29 @@ export function CreativesBriefingPage() {
             subtitle={
               collapsed.healthy
                 ? "Stable keep + scale. Operator rarely opens this lane."
-                : "Compact list — name, label, ROAS only."
+                : "At target — no action needed today."
             }
             collapsed={collapsed.healthy}
             onToggle={handleToggleLane}
           />
           {collapsed.healthy ? null : (
-            <div className="rounded-xl border border-slate-200 bg-white overflow-hidden divide-y divide-slate-100 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-              {healthyItems.slice(0, 20).map((card) => (
-                <HealthyRow
-                  key={cardId(card)}
-                  card={card}
-                  selected={selectedSet.has(cardId(card))}
-                  onSelectChange={handleSelectChange}
-                />
-              ))}
-              {healthyItems.length > 20 ? (
-                <div className="px-3 py-2 text-[11px] text-slate-400 bg-slate-50 text-center">
-                  + {healthyItems.length - 20} more healthy creatives in{" "}
+            <div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {healthyItems.slice(0, 9).map((card) => (
+                  <HealthyRow
+                    key={cardId(card)}
+                    card={card}
+                    selected={selectedSet.has(cardId(card))}
+                    onSelectChange={handleSelectChange}
+                  />
+                ))}
+              </div>
+              {healthyItems.length > 9 ? (
+                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2 text-[11px] text-slate-500 text-center">
+                  + {healthyItems.length - 9} more healthy creatives in{" "}
                   <button
                     type="button"
-                    className="font-medium text-slate-600 underline decoration-slate-300 underline-offset-2 hover:text-slate-900"
+                    className="font-medium text-slate-700 underline decoration-slate-300 underline-offset-2 hover:text-slate-900"
                     onClick={() => handleWorkspaceModeChange("library")}
                   >
                     Asset Library
@@ -1476,7 +1537,7 @@ export function CreativesBriefingPage() {
       <section className="max-w-[1440px] mx-auto px-6 py-4" data-workspace-mode="library">
         <SectionErrorBoundary
           title="Asset Library is temporarily unavailable."
-          resetKey={`${businessId}:${libraryStart}:${todayIso}:${assetLibraryRows.length}`}
+          resetKey={`${businessId}:${libraryStart}:${libraryEnd}:${assetLibraryRows.length}`}
         >
           {assetLibraryError ? (
             <div className="mt-8 rounded-2xl border border-amber-200 bg-amber-50/70 px-5 py-4 text-[12.5px] text-amber-950">
@@ -1495,6 +1556,9 @@ export function CreativesBriefingPage() {
               onToggleRow={handleToggleLibraryRow}
               onToggleAll={handleToggleAllLibraryRows}
               onOpenRow={setLibraryHighlightedRowId}
+              dateRange={assetLibraryRange}
+              onDateRangeChange={setAssetLibraryRange}
+              isFetching={assetLibraryQuery.isFetching}
               onSortedRowsChange={(rows: MetaCreativeRow[]) => {
                 if (!libraryHighlightedRowId && rows[0])
                   setLibraryHighlightedRowId(rows[0].id);
@@ -1536,6 +1600,17 @@ export function CreativesBriefingPage() {
         sections={activeEvidenceCard ? buildEvidenceSections(activeEvidenceCard) : []}
         variant="creative"
         presentation="drawer"
+        preview={
+          activeEvidenceCard ? (
+            <PhonePreview
+              shape={deriveTileShape(activeEvidenceCard)}
+              format={deriveTileFormat(activeEvidenceCard)}
+              name={cardName(activeEvidenceCard)}
+              meta={`${activeEvidenceCard.campaign ?? activeEvidenceCard.campaignName ?? ""} · ${activeEvidenceCard.adset ?? activeEvidenceCard.adsetName ?? ""}`}
+              placement={resolvePhonePlacement(activeEvidenceCard.bestPlacement ?? null)}
+            />
+          ) : undefined
+        }
         onClose={() => setEvidenceDrawerState(CLOSED_EVIDENCE_DRAWER_STATE)}
       />
       <CompareDrawerHost
@@ -1544,6 +1619,10 @@ export function CreativesBriefingPage() {
         onClose={() => setCompareDrawerState(CLOSED_COMPARE_DRAWER_STATE)}
         onCutCards={handleBulkCutOpen}
         onLaunchpad={handleBulkLaunchpadTeleport}
+      />
+      <InsightsPanel
+        widgets={insightWidgets}
+        testId="creatives-insights-panel"
       />
       <BriefingToastViewport toast={toast} />
     </div>
@@ -1656,6 +1735,17 @@ function PulseScope() {
       />
     </button>
   );
+}
+
+function resolvePhonePlacement(
+  bestPlacement: string | null,
+): PhonePreviewPlacement | undefined {
+  if (!bestPlacement) return undefined;
+  const value = bestPlacement.toLowerCase();
+  if (value.includes("reels")) return "reels";
+  if (value.includes("story") || value.includes("stories")) return "stories";
+  if (value.includes("feed") || value.includes("home")) return "feed";
+  return undefined;
 }
 
 function BriefingToastViewport({ toast }: { toast: BriefingToast | null }) {

@@ -3,25 +3,24 @@
 import { useState } from "react";
 import { ArrowRight, ChevronDown, Clock, Eye, Plus } from "lucide-react";
 import {
-  ConfidencePill,
+  BriefingTile,
+  DecisionLabelChip,
   DeferChip,
   DeferTooltip,
-  DecisionLabelChip,
   EvidencePopover,
-  confidenceClass,
+  deriveTileFormat,
+  deriveTileShape,
+  type TileMetric,
 } from "@/components/common/briefing";
 import {
   BadgeChip,
   CampaignKindChip,
-  Sparkline,
-  Thumb,
   asDecisionLabel,
   buildEvidenceSections,
   cardAdset,
   cardCampaign,
   cardId,
   cardName,
-  confidenceValue,
   numberOrZero,
 } from "@/components/creatives/briefing/card-utils";
 import { getCreativeScopeId } from "@/components/creatives/briefing/action-handlers";
@@ -54,8 +53,6 @@ export function WatchingCard({
   onEvidenceOpen,
 }: WatchingCardProps) {
   const [localEvidenceOpen, setLocalEvidenceOpen] = useState(false);
-  const confidence = confidenceValue(card);
-  const conf = confidenceClass(confidence);
   const label = asDecisionLabel(card.label);
   const name = cardName(card);
   const watchingCardId = cardId(card);
@@ -70,105 +67,115 @@ export function WatchingCard({
     setLocalEvidenceOpen(true);
   };
 
+  const shape = deriveTileShape(card);
+  const format = deriveTileFormat(card);
+  const durationLabel = card.placements && card.placements > 1 ? `${card.placements} cards` : undefined;
+
+  const metrics: TileMetric[] = [
+    { key: "roas", label: "ROAS", value: formatRoas(card.roas) },
+    { key: "spend", label: "Spend", value: formatCurrency(card.spend) },
+    {
+      key: "purch",
+      label: "Purch",
+      value: String(numberOrZero(card.purchases)),
+    },
+  ];
+
+  const chips = (
+    <>
+      <DecisionLabelChip label={label} size="sm" />
+      <CampaignKindChip card={card} />
+      {badges.map((badge) => (
+        <BadgeChip key={String(badge)} label={badge} />
+      ))}
+    </>
+  );
+
+  const meta = `${cardCampaign(card)} · ${cardAdset(card)}${
+    card.ageDays != null ? ` · ${card.ageDays}d` : ""
+  }`;
+
+  const why = (
+    <>
+      {card.reason || "No engine reason supplied."}
+      {card.predictive ? (
+        <span className="ml-1 italic text-slate-500">· {card.predictive}</span>
+      ) : null}
+    </>
+  );
+
+  const primaryAction =
+    label === "test_more" ? (
+      <button
+        type="button"
+        className="inline-flex h-7 items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-3 text-[11.5px] font-medium text-blue-700 hover:bg-blue-100"
+        data-action="primary"
+        data-kind="fresh_test"
+        data-id={watchingCardId}
+        onClick={(event) => {
+          event.preventDefault();
+          onLaunchpadOpen?.({ card, mode: "fresh_test" });
+        }}
+      >
+        <Plus className="inline-block shrink-0" size={11} aria-hidden="true" />
+        Fresh test
+        <ArrowRight className="inline-block shrink-0" size={11} aria-hidden="true" />
+      </button>
+    ) : (
+      <button
+        type="button"
+        className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-300 bg-white px-3 text-[11.5px] font-medium text-slate-700 hover:bg-slate-50"
+        data-action="evidence"
+        data-id={watchingCardId}
+        aria-haspopup="dialog"
+        aria-expanded={isEvidenceOpen}
+        onClick={openEvidence}
+      >
+        <Eye className="inline-block shrink-0" size={11} aria-hidden="true" />
+        Open
+        <ChevronDown className="inline-block shrink-0" size={11} aria-hidden="true" />
+      </button>
+    );
+
+  const secondaryActions = (
+    <DeferTooltip>
+      <button
+        type="button"
+        className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-300 bg-white px-2 text-[11.5px] text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+        data-action="defer"
+        data-id={watchingCardId}
+        disabled={deferred}
+        onClick={(event) => {
+          event.preventDefault();
+          onDefer?.(scopeId);
+        }}
+      >
+        <Clock className="inline-block shrink-0" size={11} aria-hidden="true" />
+        Defer
+      </button>
+    </DeferTooltip>
+  );
+
   return (
-    <div
-      className={`rounded-xl ${conf.border} bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)] ${deferred ? "opacity-60" : ""}`}
-      data-card={watchingCardId}
-      data-lane="watching"
-    >
-      <div className="flex items-start gap-3">
-        <label className="flex items-start pt-0.5">
-          <input
-            type="checkbox"
-            data-select={watchingCardId}
-            data-lane="watching"
-            checked={selected}
-            onChange={(event) => onSelectChange?.(watchingCardId, event.currentTarget.checked)}
-            className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-          />
-        </label>
-        <Thumb name={name} size={conf.thumb} />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h4 className={`${conf.textWeight} text-slate-800 text-[13px] truncate`}>
-              {name}
-            </h4>
-            <CampaignKindChip card={card} />
-            <span className="text-[10px] uppercase tracking-wider text-slate-400">
-              {card.brand || "Brand"}
-            </span>
-            <DecisionLabelChip label={label} size="sm" />
-            {badges.map((badge) => (
-              <BadgeChip key={String(badge)} label={badge} />
-            ))}
-            <ConfidencePill confidence={confidence} size="sm" />
-          </div>
-          <div className="text-[11px] text-slate-500 mt-0.5">
-            {cardCampaign(card)} <span className="text-slate-300">·</span> {cardAdset(card)}
-          </div>
-          <div className="text-[11.5px] text-slate-600 mt-1 leading-snug">
-            {card.reason || "No engine reason supplied."}
-          </div>
-          <div className="flex items-center gap-3 mt-1.5 text-[10.5px] text-slate-500">
-            <span className="font-mono tabular-nums">{formatCurrency(card.spend)}</span>
-            <span className="text-slate-300">·</span>
-            <span className="font-mono tabular-nums">{formatRoas(card.roas)}</span>
-            <span className="text-slate-300">·</span>
-            <span className="font-mono tabular-nums">CTR {numberOrZero(card.ctr).toFixed(2)}%</span>
-            <span className="text-slate-300">·</span>
-            <span className="font-mono tabular-nums">Freq {numberOrZero(card.frequency).toFixed(1)}</span>
-            <Sparkline values={card.sparkline} tone="text-slate-400" width={50} height={14} />
-          </div>
-        </div>
-        <div className="flex flex-col gap-1 shrink-0">
-          <DeferTooltip>
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
-              data-action="defer"
-              data-id={watchingCardId}
-              disabled={deferred}
-              onClick={(event) => {
-                event.preventDefault();
-                onDefer?.(scopeId);
-              }}
-            >
-              <Clock className="inline-block shrink-0" size={11} aria-hidden="true" />
-              Defer 24h
-            </button>
-          </DeferTooltip>
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 text-[11px]"
-            data-action="evidence"
-            data-id={watchingCardId}
-            aria-haspopup="dialog"
-            aria-expanded={isEvidenceOpen}
-            onClick={openEvidence}
-          >
-            <Eye className="inline-block shrink-0" size={11} aria-hidden="true" />
-            Evidence
-            <ChevronDown className="inline-block shrink-0" size={11} aria-hidden="true" />
-          </button>
-          {label === "test_more" ? (
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 text-[11px]"
-              data-action="primary"
-              data-kind="fresh_test"
-              data-id={watchingCardId}
-              onClick={(event) => {
-                event.preventDefault();
-                onLaunchpadOpen?.({ card, mode: "fresh_test" });
-              }}
-            >
-              <Plus className="inline-block shrink-0" size={11} aria-hidden="true" />
-              Fresh test
-              <ArrowRight className="inline-block shrink-0" size={11} aria-hidden="true" />
-            </button>
-          ) : null}
-        </div>
-      </div>
+    <div className="relative" data-card={watchingCardId} data-lane="watching">
+      <BriefingTile
+        testId={`watching-card-${watchingCardId}`}
+        laneVariant="watch"
+        shape={shape}
+        format={format}
+        durationLabel={durationLabel}
+        chips={chips}
+        name={name}
+        meta={meta}
+        why={why}
+        metrics={metrics}
+        primaryAction={primaryAction}
+        secondaryActions={secondaryActions}
+        selected={selected}
+        onSelectChange={(next) => onSelectChange?.(watchingCardId, next)}
+        selectLabel={`Select ${name}`}
+        deferred={deferred}
+      />
       {deferred ? <DeferChip id={scopeId} onUndo={onUndefer} /> : null}
       {onEvidenceOpen ? null : (
         <EvidencePopover

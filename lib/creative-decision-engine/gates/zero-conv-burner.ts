@@ -1,5 +1,5 @@
 import { finalizeDecision, type GateContext, type GateResult } from "./types";
-import { maturitySpendThreshold } from "./maturity";
+import { commercialMaturitySpendThreshold } from "./maturity";
 
 export const ZERO_CONV_MIN_AGE_DAYS = 7;
 
@@ -13,8 +13,8 @@ export function zeroConvBurnerGate(ctx: GateContext): GateResult {
   const zeroConvThreshold = ctx.profile.thresholds.zeroConvBurnerSpend;
   const spendThreshold =
     zeroConvThreshold === null
-      ? maturitySpendThreshold(ctx)
-      : Math.max(zeroConvThreshold, maturitySpendThreshold(ctx));
+      ? commercialMaturitySpendThreshold(ctx)
+      : Math.max(zeroConvThreshold, commercialMaturitySpendThreshold(ctx));
 
   if (
     purchases === 0 &&

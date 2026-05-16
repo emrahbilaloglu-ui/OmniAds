@@ -3,6 +3,11 @@ import type {
   MetaCampaignKind,
   MetaCampaignTestDimension,
 } from "@/lib/meta/campaign-label-types";
+import type {
+  AccountDecisionProfile,
+  DataHealth,
+  DecisionLabelTransform,
+} from "@/lib/creative-decision-engine";
 
 export interface BriefingPrimaryAction {
   kind?: string | null;
@@ -74,6 +79,7 @@ export interface BriefingCreativeCard {
   campaignTestDimension?: MetaCampaignTestDimension | null;
   campaignLabelStatus?: "labeled" | "unlabeled" | "no_campaign" | null;
   blockedActionType?: DecisionLabel | string | null;
+  labelTransform?: DecisionLabelTransform | null;
   placementList?: BriefingPlacement[] | null;
   mixed?: boolean | null;
 }
@@ -109,6 +115,12 @@ export interface CreativesBriefingResponse {
   trackingBlocked?: boolean | null;
   trackingDetail?: string | null;
   trackingAnomalyDetail?: string | null;
+  source?: {
+    dataSource?: string | null;
+    asOf?: string | null;
+    dataHealth?: DataHealth | null;
+    accountProfile?: AccountDecisionProfile | null;
+  } | null;
 }
 
 export interface MetaSummaryPulseResponse {

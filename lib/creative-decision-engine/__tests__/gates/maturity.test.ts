@@ -20,6 +20,7 @@ function severeLoserBypassProfile(
     winnerPurchaseP50?: number | null;
     hardCutSpend?: number | null;
     severeLoserRatio?: number | null;
+    commercialMaturitySpend?: number | null;
   } = {},
 ) {
   return makeAccountDecisionProfile({
@@ -34,6 +35,10 @@ function severeLoserBypassProfile(
           : overrides.winnerPurchaseP50,
     }),
     thresholds: {
+      commercialMaturitySpend:
+        overrides.commercialMaturitySpend === undefined
+          ? 500
+          : overrides.commercialMaturitySpend,
       hardCutSpend:
         overrides.hardCutSpend === undefined ? 250 : overrides.hardCutSpend,
       severeLoserRatio:
@@ -50,7 +55,7 @@ describe("maturityGate", () => {
       maturityGate(
         makeGateContext({
           input: makeCreativeInput({
-            spend: 200,
+            spend: 150,
             purchases: 10,
           }),
         }),
@@ -59,26 +64,21 @@ describe("maturityGate", () => {
 
     expect(output.label).toBe("test_more");
     expect(output.reason).toBe(
-      "Thin data (28d spend $200, 10 purchases, age 21d) — let the creative accumulate signal.",
+      "Below commercial maturity (28d spend $150 < $200 loss-budget floor, 10 purchases, age 21d) — let the creative accumulate signal.",
     );
   });
 
-  it("returns test_more below purchase threshold", () => {
-    const output = terminalOutput(
-      maturityGate(
-        makeGateContext({
-          input: makeCreativeInput({
-            spend: 500,
-            purchases: 3,
-          }),
+  it("advances loss-budget mature creatives even below scale purchase depth", () => {
+    const result = maturityGate(
+      makeGateContext({
+        input: makeCreativeInput({
+          spend: 500,
+          purchases: 1,
         }),
-      ),
+      }),
     );
 
-    expect(output.label).toBe("test_more");
-    expect(output.reason).toBe(
-      "Thin data (28d spend $500, 3 purchases, age 21d) — let the creative accumulate signal.",
-    );
+    expect(result.kind).toBe("advance");
   });
 
   it("omits the age suffix when creative age is unavailable", () => {
@@ -86,7 +86,7 @@ describe("maturityGate", () => {
       maturityGate(
         makeGateContext({
           input: makeCreativeInput({
-            spend: 200,
+            spend: 150,
             purchases: 10,
             ageDays: null,
           }),
@@ -95,7 +95,7 @@ describe("maturityGate", () => {
     );
 
     expect(output.reason).toBe(
-      "Thin data (28d spend $200, 10 purchases) — let the creative accumulate signal.",
+      "Below commercial maturity (28d spend $150 < $200 loss-budget floor, 10 purchases) — let the creative accumulate signal.",
     );
   });
 
@@ -158,7 +158,7 @@ describe("maturityGate", () => {
     );
 
     expect(output.label).toBe("test_more");
-    expect(output.reason).toMatch(/^Thin data/);
+    expect(output.reason).toMatch(/^Below commercial maturity/);
   });
 
   it("does not bypass thin data when ratio is not severe", () => {
@@ -181,7 +181,7 @@ describe("maturityGate", () => {
     );
 
     expect(output.label).toBe("test_more");
-    expect(output.reason).toMatch(/^Thin data/);
+    expect(output.reason).toMatch(/^Below commercial maturity/);
   });
 
   it("does not bypass thin data without severe-loser calibration", () => {
@@ -206,7 +206,7 @@ describe("maturityGate", () => {
     );
 
     expect(output.label).toBe("test_more");
-    expect(output.reason).toMatch(/^Thin data/);
+    expect(output.reason).toMatch(/^Below commercial maturity/);
   });
 
   it("does not bypass thin data without hard-cut spend calibration", () => {
@@ -231,31 +231,33 @@ describe("maturityGate", () => {
     );
 
     expect(output.label).toBe("test_more");
-    expect(output.reason).toMatch(/^Thin data/);
+    expect(output.reason).toMatch(/^Below commercial maturity/);
   });
 
-  it("uses CPA-anchored maturity before legacy mature spend thresholds", () => {
-    const output = terminalOutput(
-      maturityGate(
-        makeGateContext({
-          input: makeCreativeInput({
-            spend: 450,
-            purchases: 10,
-          }),
-          profile: makeAccountDecisionProfile({
-            accountBaselines: makeAccountCalibration({
-              accountCpaP50: 100,
-              matureSpendP50: 100,
-              winnerPurchaseP50: 10,
-            }),
-          }),
+  it("uses loss-budget maturity instead of hard-cut x8 maturity", () => {
+    const result = maturityGate(
+      makeGateContext({
+        input: makeCreativeInput({
+          spend: 250,
+          purchases: 1,
         }),
-      ),
+        profile: makeAccountDecisionProfile({
+          accountBaselines: makeAccountCalibration({
+            accountCpaP50: 100,
+            matureSpendP50: 100,
+            winnerPurchaseP50: 10,
+          }),
+          multipliers: {
+            hardCut: 8,
+            lossBudget: 2,
+          },
+          thresholds: {
+            commercialMaturitySpend: null,
+          },
+        }),
+      }),
     );
 
-    expect(output.label).toBe("test_more");
-    expect(output.reason).toBe(
-      "Thin data (28d spend $450, 10 purchases, age 21d) — let the creative accumulate signal.",
-    );
+    expect(result.kind).toBe("advance");
   });
 });

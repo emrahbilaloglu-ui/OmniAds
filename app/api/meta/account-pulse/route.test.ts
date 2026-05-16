@@ -9,12 +9,17 @@ vi.mock("@/lib/meta/campaigns-source", () => ({
   getMetaCampaignsForRange: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/campaign-labels", () => ({
+  readMetaCampaignLabels: vi.fn(),
+}));
+
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
 }));
 
 const access = await import("@/lib/access");
 const campaigns = await import("@/lib/meta/campaigns-source");
+const campaignLabels = await import("@/lib/meta/campaign-labels");
 const db = await import("@/lib/db");
 const { GET } = await import("@/app/api/meta/account-pulse/route");
 
@@ -46,7 +51,7 @@ function mockSql(input: {
       return input.calibrationP50 == null ? [] : [{ p50: input.calibrationP50 }];
     }
     if (text.includes("meta_decision_snapshots_daily")) {
-      return [{ engine_last_run: "2026-05-07T03:00:00.000Z", engine_version: "v3.6.0-meta-taxonomy" }];
+      return [{ latest_snapshot_date: "2026-05-07", engine_last_run: new Date().toISOString(), engine_version: "v1.0.0" }];
     }
     if (text.includes("creative_lifecycle_daily")) {
       return [{ tracking_anomaly_score: input.trackingScore ?? 0.1 }];
@@ -71,6 +76,20 @@ describe("GET /api/meta/account-pulse", () => {
       notReadyReason: null,
       evidenceSource: "live",
     });
+    vi.mocked(campaignLabels.readMetaCampaignLabels).mockResolvedValue([
+      {
+        businessId: "biz_1",
+        campaignId: "cmp_1",
+        kind: "main",
+        testDimension: null,
+        source: "user",
+        providerAccountId: "act_1",
+        campaignName: "ASC",
+        labeledBy: "user_1",
+        labeledAt: "2026-05-15T10:00:00.000Z",
+        updatedAt: "2026-05-15T10:00:00.000Z",
+      },
+    ]);
     mockSql({ targetRoas: 2.4, calibrationP50: 3.1 });
   });
 
@@ -83,7 +102,14 @@ describe("GET /api/meta/account-pulse", () => {
     expect(payload.statusFilter).toBe("active");
     expect(payload.pacing.mtdSpend).toBe(1200);
     expect(payload.roas.d28).toBe(3);
-    expect(payload.engineVersion).toBe("v3.6.0-meta-taxonomy");
+    expect(payload.engineVersion).toBe("v1.0.0");
+    expect(payload.snapshotHealth.status).toBe("fresh");
+    expect(payload.labelCoverage).toMatchObject({
+      activeCampaigns: 1,
+      labeledCampaigns: 1,
+      unlabeledCampaigns: 0,
+    });
+    expect(payload.targetAnchor.configured).toBe(true);
     expect(payload.trackingHealth.status).toBe("healthy");
     expect(typeof payload.lastSyncAt).toBe("string");
   });

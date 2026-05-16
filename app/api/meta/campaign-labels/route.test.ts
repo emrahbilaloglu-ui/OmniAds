@@ -16,8 +16,13 @@ vi.mock("@/lib/meta/campaign-labels", async () => {
   };
 });
 
+vi.mock("@/lib/meta/snapshot-refresh", () => ({
+  requestMetaSnapshotRefreshForBusiness: vi.fn(),
+}));
+
 const access = await import("@/lib/access");
 const labels = await import("@/lib/meta/campaign-labels");
+const snapshotRefresh = await import("@/lib/meta/snapshot-refresh");
 const { GET, PUT } = await import("@/app/api/meta/campaign-labels/route");
 
 describe("/api/meta/campaign-labels", () => {
@@ -55,6 +60,15 @@ describe("/api/meta/campaign-labels", () => {
         updatedAt: "2026-05-15T10:00:00.000Z",
       },
     ]);
+    vi.mocked(snapshotRefresh.requestMetaSnapshotRefreshForBusiness).mockResolvedValue({
+      ok: true,
+      status: "ran",
+      businessId: "biz_1",
+      snapshotDate: "2026-05-16",
+      reason: "campaign_labels_updated",
+      cooldownUntil: "2026-05-16T00:05:00.000Z",
+      message: "Meta recommendation snapshot refreshed.",
+    });
   });
 
   it("reads campaign labels behind guest business access", async () => {
@@ -115,6 +129,11 @@ describe("/api/meta/campaign-labels", () => {
       }),
     );
     expect(payload.labels[0].kind).toBe("test");
+    expect(snapshotRefresh.requestMetaSnapshotRefreshForBusiness).toHaveBeenCalledWith({
+      businessId: "biz_1",
+      reason: "campaign_labels_updated",
+    });
+    expect(payload.decisionSnapshotRefresh.status).toBe("ran");
   });
 
   it("rejects empty write batches", async () => {

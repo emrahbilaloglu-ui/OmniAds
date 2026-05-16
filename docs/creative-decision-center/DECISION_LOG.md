@@ -176,3 +176,26 @@ code to compute `buyerAction`.
 Risk: adding new transform values later requires a schema migration to widen the
 constraint. That is intentional; a new semantic transform should be an explicit
 decision-log event rather than an untracked string extension.
+
+## D014 — Separate Commercial Maturity From Scale Readiness
+
+Decision: cut and scale share the same commercial spend maturity floor, but
+scale keeps separate purchase-depth and recent-hold guards. Commercial maturity
+is the loss-budget threshold derived from the resolved spend unit and the risk
+preset multiplier: aggressive `1.5`, balanced `2.0`, conservative `2.5`.
+
+Reason: cut asks whether enough money has been risked to judge a loser. Scale
+asks whether a winner is proven enough to replicate. A global `hardCut`
+multiplier such as conservative `8.0` is too strict for cut maturity and also
+incorrectly blocks scale evaluation before the scale-specific purchase and
+recent-performance checks can run.
+
+Scope: `maturityGate` now blocks only creatives below commercial spend
+maturity. It no longer requires a winner-pool purchase floor. `ratioZonesGate`
+uses the same commercial spend maturity for scale spend readiness, and still
+requires `scaleMinPurchases` plus recent 7d ROAS holding before emitting
+`scale`.
+
+Rejected alternative: keep `hardCut` as the generic maturity gate and add
+Test-only bypasses. That would mask the root issue for Main campaigns and keep
+cut/scale readiness coupled to the wrong threshold.

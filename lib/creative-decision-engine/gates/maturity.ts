@@ -8,18 +8,23 @@ function positiveFinite(value: number | null | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
-export function maturitySpendThreshold(ctx: GateContext): number {
+export function commercialMaturitySpendThreshold(ctx: GateContext): number {
   const minSpendFloor = ctx.profile.thresholds.recentSampleMinSpend ?? 50;
+  const configuredThreshold = ctx.profile.thresholds.commercialMaturitySpend;
+  if (positiveFinite(configuredThreshold)) {
+    return Math.max(minSpendFloor, configuredThreshold);
+  }
+
   const accountCpaP50 =
     ctx.profile.accountBaselines.accountCpaP50 ??
     ctx.profile.spendUnitEvidence.accountCpaP50;
 
   if (positiveFinite(accountCpaP50)) {
-    return Math.max(minSpendFloor, accountCpaP50 * ctx.profile.multipliers.hardCut);
+    return Math.max(minSpendFloor, accountCpaP50 * ctx.profile.multipliers.lossBudget);
   }
 
-  if (positiveFinite(ctx.profile.thresholds.hardCutSpend)) {
-    return Math.max(minSpendFloor, ctx.profile.thresholds.hardCutSpend);
+  if (positiveFinite(ctx.profile.thresholds.sustainedLoserSpend)) {
+    return Math.max(minSpendFloor, ctx.profile.thresholds.sustainedLoserSpend);
   }
 
   return (
@@ -29,38 +34,13 @@ export function maturitySpendThreshold(ctx: GateContext): number {
   );
 }
 
-function maturityPurchasesThreshold(ctx: GateContext): number {
-  const winnerPurchaseP50 = ctx.profile.accountBaselines.winnerPurchaseP50;
-  if (
-    typeof winnerPurchaseP50 === "number" &&
-    Number.isFinite(winnerPurchaseP50) &&
-    winnerPurchaseP50 > 0
-  ) {
-    return Math.max(
-      3,
-      Math.ceil(winnerPurchaseP50 * ctx.profile.multipliers.recentSample),
-    );
-  }
-  return Math.max(
-    3,
-    Math.ceil(
-      ctx.profile.thresholds.scaleMinPurchases *
-        ctx.profile.multipliers.recentSample,
-    ),
-  );
-}
-
 export function maturityGate(ctx: GateContext): GateResult {
   const purchases = ctx.input.purchases ?? 0;
   const ageDays = ctx.input.ageDays;
   const ageDaysSuffix = ageDays !== null ? `, age ${ageDays}d` : "";
-  const spendThreshold = maturitySpendThreshold(ctx);
-  const purchasesThreshold = maturityPurchasesThreshold(ctx);
+  const spendThreshold = commercialMaturitySpendThreshold(ctx);
 
-  if (
-    ctx.input.spend < spendThreshold ||
-    purchases < purchasesThreshold
-  ) {
+  if (ctx.input.spend < spendThreshold) {
     const ratio = ctx.ratioToTarget;
     const hardCutSpend = ctx.profile.thresholds.hardCutSpend;
     const severeLoserRatio = ctx.profile.thresholds.severeLoserRatio;
@@ -96,9 +76,11 @@ export function maturityGate(ctx: GateContext): GateResult {
       output: finalizeDecision(
         ctx,
         "test_more",
-        `Thin data (28d spend $${formatSpend(
+        `Below commercial maturity (28d spend $${formatSpend(
           ctx.input.spend,
-        )}, ${purchases} purchases${ageDaysSuffix}) — let the creative accumulate signal.`,
+        )} < $${formatSpend(
+          spendThreshold,
+        )} loss-budget floor, ${purchases} purchases${ageDaysSuffix}) — let the creative accumulate signal.`,
       ),
     };
   }

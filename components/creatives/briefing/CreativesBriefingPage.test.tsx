@@ -189,7 +189,7 @@ describe("CreativesBriefingPage", () => {
       ...briefing,
       pulse: {
         ...briefing.pulse,
-        engineVersion: "v3-2026-05-06-phase-8",
+        engineVersion: "v3-2026-05-16-phase-h2",
         calibratedAgo: "2026-05-04T12:00:00.000Z",
       },
     };

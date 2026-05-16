@@ -19,6 +19,88 @@ For Meta Decision Center work, start at
 context anchor and then to the Meta decisions, data-readiness matrix,
 invariants, golden cases, and Phase G closeout record.
 
+## Latest Live Creative Decision Audit
+
+- Audit date: 2026-05-16.
+- Scope: IwaStore, Grandmix, EMOLOS, TheSwaf after campaign Main/Test labels
+  were added by the operator.
+- Artifact:
+  `_analysis/live-creative-decision-audit/2026-05-16-endpoint-equivalent-iwastore-grandmix-emolos-theswaf.json`.
+- Important correction: endpoint-equivalent Creative Briefing tests must use the
+  route default `asOf` behavior (`toISODate(new Date())`) rather than
+  `MAX(meta_creative_daily.date)`. The earlier max-date local simulation is not
+  representative of UI output.
+- Endpoint-equivalent path verified:
+  `getMetaCreativesApiPayload(mediaMode: "metadata", groupBy: "creative")` for
+  `2026-04-17..2026-05-16`, `WarehouseDataSource.listCreativeInputs`,
+  `resolveEngineV3Flags`, `resolveAccountDecisionProfile`, `getDataHealth`,
+  default briefing status filter, `readMetaCampaignLabels`,
+  `withCreativeCampaignLabelContext`, `decideCreative`,
+  `applyCreativeCampaignLabelGuard`, and route lane mapping.
+- Grandmix corrected result matches Chrome UI: 88 creative rows, 81 hydrated
+  inputs, 35 scoped briefing inputs, lanes `action=2`, `watching=32`,
+  `healthy=1`.
+- Grandmix scoped campaign labels are complete (`4/4`, `main=2`, `test=2`), so
+  the current 2-cut output is not primarily a campaign-label coverage issue.
+- Grandmix buyer-persona comparison produced 8 consensus cut candidates versus
+  Adsecute's 2 action cuts. The 6 mismatches are Test creatives with high spend
+  and weak ROAS. Operator challenge after the audit exposed a more precise root
+  cause: Creative `maturityGate` still requires both spend maturity and a
+  purchase floor (`purchasesThreshold`), even though the latest Meta maturity ADR
+  defines purchase loss-budget maturity primarily as
+  `spend >= max(currency_floor, CPA_baseline * risk_multiplier)`.
+- Current confirmed model gap: Creative `maturityGate` conflates cut maturity
+  with scale readiness. Cut maturity should be loss-budget based; scale
+  readiness can keep the winner-pool purchase floor. The current gate blocks
+  both paths behind `spend >= CPA * hardCutMultiplier` and
+  `purchases >= purchasesThreshold`, so high-spend losers can be kept in
+  `test_more` solely because they have not reached winner-pool purchase depth.
+- EMOLOS result: 105 creative rows, 66 hydrated inputs, 62 scoped inputs, all
+  `watching/test_more`; buyer comparison found 5 cut candidates, but many are
+  age `0d`, so hard auto-cut would be riskier than a candidate/subreason tier.
+- TheSwaf result: 55 creative rows, 47 hydrated inputs, 27 scoped inputs, lanes
+  `action=2`, `watching=22`, `healthy=3`; buyer consensus also 2 cuts, so
+  current Creative output aligns on this sample.
+- IwaStore result: 42 creative rows, 34 hydrated inputs, 13 scoped inputs, no
+  Adsecute action cuts; buyer comparison found one mild Test cut candidate.
+  Scoped label coverage is partial (`2/4`), so observability remains incomplete.
+- Product implication: do not solve this by loosening a global hard-cut
+  threshold or adding a Test-only bypass first. Split cut maturity from scale
+  maturity. Cut maturity should use the same loss-budget posture as the Meta
+  model (`conservative=2.5`, `balanced=2.0`, `aggressive=1.5` against CPA
+  baseline, with currency floor); scale maturity should preserve the current
+  spend depth plus purchase-depth requirements.
+- Codex/Claude reconciliation: Grandmix is not a UI mapping bug and not a
+  missing-calibration bug. The Creative endpoint and Chrome UI both show the
+  engine's real output (`2` action cuts). After operator challenge, the current
+  stronger finding is that Creative maturity semantics are not fully aligned
+  with the latest loss-budget maturity model: high-spend losers can still be
+  terminally classified as `test_more` because the gate requires a purchase
+  floor before ratio-zone cut logic runs.
+- Corrected preferred ship order from the reconciliation:
+  1. Add ADR/invariant/golden-case coverage for split maturity semantics: cut
+     maturity uses loss-budget spend, while scale maturity keeps winner-pool
+     purchase depth. This must land before resolver behavior changes.
+  2. Refactor Creative `maturityGate` so cut-path maturity no longer requires
+     the scale/winner purchase floor. Preserve purchase-depth requirements for
+     scale and winner-memory decisions.
+  3. Add server-computed "buyer cut candidate" / "maturity-blocked"
+     observability for Watching rows, but treat it as explanation/QA support,
+     not the primary fix.
+  4. Only after the split-maturity fix, evaluate a separate Test zero-purchase
+     early-loser path for partial-loss-budget cases. This needs its own ADR and
+     stricter age/funnel safeguards.
+  5. Mirror the same kind-aware loss-budget semantics into Meta campaign/adset
+     recommendations after the Creative path is validated.
+- Expected Grandmix effect of step 1-2: current Adsecute action cuts should move
+  from `2` to about `6` on the audited sample. The four closed mismatches are
+  the high-spend, below-bottom-quartile Test losers that are loss-budget mature
+  (`$1081`, `$1048`, `$510`, `$366`) but currently blocked by the scale-style
+  purchase/spend gate. The remaining two buyer-cut disagreements are
+  zero-purchase partial-loss-budget cases (`$185`, `$107`) and should be treated
+  as a separate Test zero-conversion policy decision, not bundled into the core
+  maturity fix.
+
 ## Source Rules To Preserve
 
 - Read `docs/creative-decision-center/START_HERE.md` before Creative Decision
@@ -1084,6 +1166,200 @@ where coverage is weak.
   verification, deploy evidence, and documentation hygiene. It does not claim
   unsupported scenario families are automation-ready; those remain explicit
   post-closeout product limitations until their signals exist.
+
+### Phase H.1 - UI Readiness Visibility And Snapshot Freshness Follow-Up
+
+- Status: local implementation complete as of 2026-05-16. PR review, CI,
+  merge, deploy, and post-deploy smoke remain pending until this change is
+  shipped.
+- Claude coordination: Claude was given the canonical context anchor and asked
+  for read-only implementation coordination before code changes. The agreed
+  direction is to expose backend decision-readiness facts in UI instead of
+  letting UI compute decisions. A later one-piece implementation coordination
+  prompt was also sent to Claude; the visible Claude app state still showed only
+  a short repo-discovery progress message, not a final response, when this local
+  pass was closed.
+- P0 UI/readiness changes completed locally:
+  - `app/api/meta/account-pulse/route.ts` now prepares campaign label
+    coverage, commercial target-anchor presence, and snapshot health metadata
+    for the Meta page.
+  - `app/api/meta/lane-classify/route.ts` now classifies Watching rows into
+    server-side segments such as unlabeled, missing target, learning, recent
+    change, deferred, delivery issues, and insufficient signal.
+  - `components/meta/redesign/MetaPulse.tsx` and
+    `components/meta/redesign/MetaPlatformPage.tsx` now render those readiness
+    facts as chips, notices, and click-to-fix links rather than leaving the user
+    with an undifferentiated Watching lane.
+  - `app/api/creatives/briefing/route.ts` and the Creative briefing types now
+    carry `labelTransform` and `accountProfile`; the Creative briefing UI renders
+    the transform in evidence and a compact engine profile strip without
+    reintroducing the old standalone development surface.
+- P1/P2 freshness changes completed locally:
+  - `lib/meta/snapshot-refresh.ts` adds a shared, cooldown-limited,
+    per-business snapshot refresh helper that calls the real
+    `runMetaSnapshotForBusiness` path. This is intentionally not described as a
+    durable queue because no persistent queue/status table exists for this job.
+  - `app/api/meta/snapshot/run-now/route.ts` adds an auth-gated manual refresh
+    endpoint for "Refresh decisions now".
+  - `app/api/meta/campaign-labels/route.ts` triggers the same helper after
+    label writes.
+  - `app/api/business-commercial-settings/route.ts` triggers the same helper
+    after commercial truth/target pack writes.
+  - `lib/meta/scheduled.ts` now checks current
+    `META_RECOMMENDATION_ENGINE_VERSION` when deciding whether the daily Meta
+    snapshot already ran.
+- Local verification for the Phase H.1 implementation pass:
+  - Focused regression passed:
+    `npx vitest run app/api/meta/account-pulse/route.test.ts app/api/meta/lane-classify/route.test.ts app/api/meta/campaign-labels/route.test.ts app/api/meta/snapshot/run-now/route.test.ts app/api/business-commercial-settings/route.test.ts app/api/creatives/briefing/route.test.ts components/meta/redesign/MetaPulse.test.tsx components/meta/redesign/MetaPlatformPage.test.tsx components/creatives/briefing/WatchingCard.test.tsx components/creatives/briefing/CreativesBriefingPage.test.tsx`
+    = 10 files, 78 tests passed.
+  - `npx tsc --noEmit` passed.
+  - Broader Meta/Creative/API regression passed:
+    `npx vitest run lib/meta components/meta app/api/meta app/api/business-commercial-settings app/api/creatives/briefing components/creatives/briefing`
+    = 129 files, 1081 tests passed.
+  - `npm run lint` passed.
+  - `git diff --check` passed.
+  - Full regression passed: `npx vitest run` = 414 files passed, 4 skipped;
+    2973 tests passed, 49 skipped.
+  - `npm run build` passed and confirmed
+    `/api/meta/snapshot/run-now` is included in the Next route manifest.
+- Manual UI smoke: local `localhost:3000/platforms/meta` currently redirects to
+  `/login?next=%2Fplatforms%2Fmeta`; Browser plugin UI automation could not be
+  used because the required Node REPL browser tool was unavailable in this
+  session. UI coverage for this pass is therefore SSR/component-render tests and
+  production build, not an authenticated manual browser smoke.
+- Unknowns: GitHub review, CI, merge, deploy evidence, and post-deploy smoke
+  remain pending if this work is moved through the PR/deploy workflow.
+
+### Phase H.2 - Creative Commercial Maturity / Scale Readiness Alignment
+
+- Status: local implementation in progress as of 2026-05-16. PR review, CI,
+  merge, deploy, and post-deploy smoke are not started.
+- Trigger: user challenged the remaining `maturityGate` behavior after live
+  Grandmix review. The code still used `hardCut`/conservative `x8` plus a
+  purchase floor as a global maturity gate before ratio-zone evaluation.
+- Product decision:
+  - Generic creative maturity must be commercial loss-budget spend, not
+    winner-pool readiness.
+  - Cut and scale share the same spend maturity floor.
+  - Scale differs from cut by requiring purchase depth and recent 7d ROAS hold.
+  - `hardCut` remains a severe/scaled-loss threshold, not the generic maturity
+    gate.
+- Local code changes in progress:
+  - Added `lossBudget` preset multipliers:
+    aggressive `1.5`, balanced `2.0`, conservative `2.5`.
+  - Added `commercialMaturitySpend` to engine thresholds.
+  - Reworked `maturityGate` to block only below commercial spend maturity and
+    removed the old global purchase-depth block.
+  - Reworked scale spend readiness in `ratioZonesGate` to use commercial
+    maturity while preserving `scaleMinPurchases` and recent 7d hold.
+  - Added a loss-budget cut path before the old hard-cut threshold for losers
+    below the account bottom-quartile ratio.
+  - Updated zero-conversion burn to anchor on commercial maturity.
+  - Removed unused `BusinessConfig` maturity spend/purchase fields from the
+    test helper/config path.
+  - Removed the obsolete `scaleEvidence` multiplier and
+    `scaleMinEvidenceSpend` threshold from the engine contract/data-source
+    mapping because scale spend readiness now has one source:
+    `commercialMaturitySpend`.
+- Creative docs updated locally:
+  - `docs/creative-decision-center/DECISION_LOG.md` adds D014.
+  - `docs/creative-decision-center/INVARIANTS.md` records the new maturity
+    invariants.
+  - `docs/creative-decision-center/GOLDEN_CASES.md` adds GC-048 through GC-050.
+- Local verification so far:
+  - Focused regression passed:
+    `npx vitest run lib/creative-decision-engine/__tests__/gates/maturity.test.ts lib/creative-decision-engine/__tests__/gates/ratio-zones.test.ts lib/creative-decision-engine/__tests__/engine.test.ts lib/creative-decision-engine/__tests__/account-decision-profile.test.ts lib/creative-decision-engine/__tests__/gates/post-process.test.ts`
+    = 5 files, 115 tests passed.
+  - `npx tsc --noEmit` passed.
+  - Full regression passed: `npx vitest run` = 414 files passed, 4 skipped;
+    2974 tests passed, 49 skipped.
+  - `npm run lint` passed.
+  - `npm run build` passed.
+  - `git diff --check` passed.
+  - Cleanup search found no remaining `maturitySpendThreshold` or
+    `maturityPurchasesThreshold` references in Creative engine/app/component
+    code.
+  - Cleanup search found no remaining `scaleEvidence` or
+    `scaleMinEvidenceSpend` references in Creative engine/app/component code.
+
+### Phase H.3 - Post-H.2 Live Creative Output Recheck
+
+- Status: local read-only audit completed on 2026-05-16. Claude desktop review
+  also completed from one single prompt. The live endpoint-equivalent audit is
+  treated as authoritative where it disagrees with Claude's pre/post static
+  estimate.
+- Audit artifact:
+  `_analysis/live-creative-decision-audit/2026-05-16-h2-recheck.json`.
+- Audit script:
+  `_analysis/live-creative-decision-audit/2026-05-16-h2-recheck.ts`.
+- Command:
+  `LOG_LEVEL=error npx tsx _analysis/live-creative-decision-audit/2026-05-16-h2-recheck.ts 2026-05-16`.
+- Verification after adding the audit script:
+  `npx tsc --noEmit` passed.
+- Focused engine verification after the recheck:
+  `npx vitest run lib/creative-decision-engine/__tests__/gates/maturity.test.ts lib/creative-decision-engine/__tests__/gates/ratio-zones.test.ts lib/creative-decision-engine/__tests__/gates/zero-conv-burner.test.ts lib/creative-decision-engine/__tests__/engine.test.ts`
+  passed (`4` files, `77` tests).
+- Endpoint-equivalent route path used by the audit:
+  `WarehouseDataSource` + `resolveAccountDecisionProfile` +
+  `getMetaCreativesApiPayload(... groupBy=creative, mediaMode=metadata)` +
+  `withCreativeCampaignLabelContext` +
+  `applyCreativeCampaignLabelGuard` + `decideCreative`, matching
+  `/api/creatives/briefing` lane logic.
+- Current local engine + live/read-only data results:
+  - IwaStore: before H.2 audit had `0` action cuts; current recheck has
+    `1` action cut (`modern.cave`). Lanes: `1 action`, `10 watching`,
+    `2 healthy`. Previous buyer-cut mismatch is closed.
+  - Grandmix: before H.2 audit had `2` action cuts; current recheck has
+    `6` action cuts. The four newly emitted cuts are
+    `Claude-2TS-V2-42a59e88`, `Claude-2TS-I4-1cac0362`,
+    `Claude-2TS-I1-438391b8`, and `Claude-2TS-I2-1d2012fa`.
+    Remaining buyer-cut mismatches are the two zero-purchase/sub-loss-budget
+    rows: `Claude-2TS-I1-9874e7f0` and `Claude-2TS-I1-cc2c225e`.
+  - EMOLOS: current recheck still has `0` action cuts. Five previous
+    buyer-cut candidates remain non-action because hard actions are
+    `soft-only` under `threshold baseline meta_derived_aov has low confidence
+    (meta AOV low_sample)`, even when the internal reason says a cut would
+    otherwise be emitted.
+  - TheSwaf: current recheck has `1` action cut (`signature`) and one
+    prior buyer-cut mismatch (`EMB - AllRings`) now routes to `diagnose`
+    because the diagnostic gate found a landing-page issue. `EMB - Mix` has
+    `label=cut` but remains in Watching because confidence is `65`, below the
+    action lane threshold `70`.
+- Output/UI concerns discovered by the recheck:
+  - Some cards show grouped Meta creative spend while the decision reason is
+    based on the hydrated engine input spend; this can create visible spend
+    mismatches in card vs reason text (seen on TheSwaf `EMB - Mix`).
+  - Near-scale reason text can say a creative "needs spend or purchases" even
+    when spend and purchase gates are already met and the actual blocker is
+    ratio/recent hold. This is a copy/diagnostic precision issue, not a
+    decision-label issue.
+  - EMOLOS needs a separate hard-eligibility/commercial-truth discussion; H.2
+    correctly aligns maturity math but does not make low-confidence accounts
+    execute hard cuts.
+- Claude review reconciliation:
+  - Claude agrees that `/api/creatives/briefing` runs live engine decisions and
+    is not reading stale decision snapshots for the visible briefing lanes.
+  - Claude correctly flagged that `ENGINE_VERSION` was still
+    `v3-2026-05-06-phase-8` after the H.2 decision-behavior change. This was
+    fixed by bumping the Creative engine version to `v3-2026-05-16-phase-h2`
+    before PR review.
+  - Claude also flagged legacy `BusinessConfig.cutMaturitySpendThreshold: 1000`;
+    local search showed it was dormant in production code and only used by
+    `config.ts` plus test helpers. The field was removed from the public
+    `BusinessConfig` contract before PR review.
+  - Claude's static forecast expected Grandmix to move only `2 -> 4` action cuts
+    and EMOLOS to move `0 -> 5`; the live post-H.2 audit disproves both:
+    Grandmix is actually `2 -> 6`, while EMOLOS remains `0` because hard action
+    is blocked by low-confidence commercial truth.
+  - Shared conclusion: H.2 fixed the old purchase-floor maturity blocker for
+    loss-budget cuts. The remaining Grandmix disagreement is not a UI bug; it is
+    a product-policy question for sub-loss-budget, zero-purchase, age-1d Test
+    creatives (`Claude-2TS-I1-9874e7f0`, `Claude-2TS-I1-cc2c225e`).
+  - Shared scale conclusion: cut spend maturity and scale spend maturity should
+    both use `commercialMaturitySpend`, but scale still needs a separate
+    statistical purchase floor. Current `scaleMinPurchases` can be too low on
+    thin accounts (`TheSwaf` = `1`, `EMOLOS` = `3`); a future change should
+    consider a minimum floor such as `5` for scale only.
 
 ## Update Protocol
 

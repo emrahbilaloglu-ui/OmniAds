@@ -43,6 +43,7 @@ import type {
   MetaLanePayload,
   MetaLaunchMode,
   MetaPulsePayload,
+  MetaWatchingSegment,
   MetaWindowKey,
 } from "@/components/meta/redesign/types";
 
@@ -375,7 +376,18 @@ function MetaHealthyHierarchy({ groups }: { groups: HealthyCampaignGroup[] }) {
   );
 }
 
-function EmptyActionState({ anomaliesCount }: { anomaliesCount: number }) {
+function EmptyActionState({
+  anomaliesCount,
+  pulse,
+}: {
+  anomaliesCount: number;
+  pulse?: MetaPulsePayload | null;
+}) {
+  const coverage = pulse?.labelCoverage ?? null;
+  const targetAnchor = pulse?.targetAnchor ?? null;
+  const showLabelCta = Boolean(coverage && coverage.activeCampaigns > 0 && coverage.unlabeledCampaigns > 0);
+  const showTargetCta = Boolean(targetAnchor && !targetAnchor.configured);
+
   return (
     <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center" data-empty-action-state>
       <div className="mx-auto grid size-10 place-items-center rounded-full bg-slate-50 text-slate-500">
@@ -387,6 +399,119 @@ function EmptyActionState({ anomaliesCount }: { anomaliesCount: number }) {
           ? "Active anomalies are surfaced above while decision confidence stays below the act threshold."
           : "The engine is watching for stronger campaign or adset evidence before surfacing action."}
       </p>
+      {showLabelCta || showTargetCta ? (
+        <div className="mt-4 flex flex-wrap justify-center gap-2 text-left">
+          {showLabelCta ? (
+            <a
+              href="#campaign-labels"
+              className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-[12px] font-medium text-amber-800 hover:bg-amber-100"
+            >
+              <Target className="inline-block shrink-0" size={12} aria-hidden="true" />
+              Label {coverage!.unlabeledCampaigns} campaigns
+            </a>
+          ) : null}
+          {showTargetCta ? (
+            <a
+              href="/commercial-truth"
+              className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-[12px] font-medium text-blue-700 hover:bg-blue-100"
+            >
+              <SlidersHorizontal className="inline-block shrink-0" size={12} aria-hidden="true" />
+              Set target pack
+            </a>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function formatSnapshotAge(hours: number | null | undefined) {
+  if (hours == null || !Number.isFinite(hours)) return null;
+  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))}m`;
+  if (hours < 48) return `${Math.round(hours)}h`;
+  return `${Math.round(hours / 24)}d`;
+}
+
+function ReadinessNotice({
+  pulse,
+  onRefresh,
+  refreshing,
+}: {
+  pulse?: MetaPulsePayload | null;
+  onRefresh: () => void;
+  refreshing: boolean;
+}) {
+  if (!pulse) return null;
+  const coverage = pulse.labelCoverage ?? null;
+  const targetAnchor = pulse.targetAnchor ?? null;
+  const snapshot = pulse.snapshotHealth ?? null;
+  const needsLabels = Boolean(coverage && coverage.activeCampaigns > 0 && coverage.unlabeledCampaigns > 0);
+  const needsTarget = Boolean(targetAnchor && !targetAnchor.configured);
+  const staleSnapshot = Boolean(snapshot && snapshot.status !== "fresh");
+  if (!needsLabels && !needsTarget && !staleSnapshot) return null;
+
+  return (
+    <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-[12.5px] text-amber-950" data-meta-readiness-notice>
+      <div className="flex flex-wrap items-center gap-2">
+        <AlertTriangle className="inline-block shrink-0 text-amber-700" size={15} aria-hidden="true" />
+        <span className="font-semibold">Decision readiness needs attention</span>
+        {snapshot?.ageHours != null ? (
+          <span className="rounded-md border border-amber-200 bg-white/70 px-1.5 py-0.5 text-[10.5px] font-medium text-amber-800">
+            snapshot age {formatSnapshotAge(snapshot.ageHours)}
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {needsLabels ? (
+          <a href="#campaign-labels" className="rounded-md border border-amber-300 bg-white px-2.5 py-1.5 font-medium text-amber-800 hover:bg-amber-100">
+            {coverage!.labeledCampaigns}/{coverage!.activeCampaigns} active campaigns labeled
+          </a>
+        ) : null}
+        {needsTarget ? (
+          <a href="/commercial-truth" className="rounded-md border border-blue-200 bg-white px-2.5 py-1.5 font-medium text-blue-700 hover:bg-blue-50">
+            Target pack missing
+          </a>
+        ) : null}
+        {staleSnapshot ? (
+          <button
+            type="button"
+            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={refreshing}
+            onClick={onRefresh}
+          >
+            {refreshing ? "Refreshing..." : "Refresh decisions now"}
+          </button>
+        ) : null}
+      </div>
+      {snapshot?.staleReason ? <p className="mt-2 text-[11.5px] text-amber-800">{snapshot.staleReason}</p> : null}
+    </div>
+  );
+}
+
+function WatchingSegments({ segments }: { segments?: MetaWatchingSegment[] | null }) {
+  if (!segments?.length) return null;
+  return (
+    <div className="mb-3 flex flex-wrap gap-2" data-meta-watching-segments>
+      {segments.map((segment) => {
+        const content = (
+          <>
+            <span className="font-semibold">{segment.label}</span>
+            <span className="font-mono tabular-nums">{segment.count}</span>
+            {segment.ctaLabel ? <span className="text-slate-400">{segment.ctaLabel}</span> : null}
+          </>
+        );
+        const className =
+          "inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11.5px] text-slate-600 shadow-sm";
+        return segment.href ? (
+          <a key={segment.key} href={segment.href} className={className} title={segment.description} data-watch-segment={segment.key}>
+            {content}
+          </a>
+        ) : (
+          <span key={segment.key} className={className} title={segment.description} data-watch-segment={segment.key}>
+            {content}
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -475,6 +600,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   const [localResponseStates, setLocalResponseStates] = useState<Record<string, LocalResponseState>>({});
   const [trackingDismissed, setTrackingDismissed] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [refreshingSnapshot, setRefreshingSnapshot] = useState(false);
 
   const pulseQuery = useQuery({
     queryKey: ["meta-account-pulse", businessId, selectedWindow, selectedStatusFilter],
@@ -575,6 +701,37 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
       queryClient.invalidateQueries({ queryKey: ["meta-anomalies", businessId] }),
       queryClient.invalidateQueries({ queryKey: ["meta-account-pulse", businessId] }),
     ]);
+  };
+
+  const refreshSnapshotNow = async () => {
+    if (!businessId || refreshingSnapshot) return;
+    setRefreshingSnapshot(true);
+    setNotice(null);
+    try {
+      const response = await fetch("/api/meta/snapshot/run-now", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ businessId }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || payload?.ok === false) {
+        const message =
+          payload && typeof payload === "object" && "message" in payload
+            ? String((payload as { message?: unknown }).message)
+            : "Snapshot refresh failed.";
+        throw new Error(message);
+      }
+      const status = payload && typeof payload === "object" && "status" in payload
+        ? String((payload as { status?: unknown }).status)
+        : "ran";
+      setNotice(status === "cooldown" ? "Decision snapshot refresh is in cooldown." : "Decision snapshot refreshed.");
+      await refreshDecisionData();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Decision snapshot refresh failed.");
+    } finally {
+      setRefreshingSnapshot(false);
+    }
   };
 
   const markActed = async (rec: MetaRecommendation, subtype: string) => {
@@ -728,12 +885,29 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
             <h1 className="text-[18px] font-semibold text-slate-950">Meta Decision Center</h1>
             <div className="text-[12px] text-slate-500">{businessName ?? "Selected account"} · snapshot-first briefing</div>
           </div>
-          {notice ? (
-            <div className="ml-auto rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[12px] text-emerald-700">
-              {notice}
-            </div>
-          ) : null}
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+            {notice ? (
+              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[12px] text-emerald-700">
+                {notice}
+              </div>
+            ) : null}
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-[12px] font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={refreshingSnapshot}
+              onClick={refreshSnapshotNow}
+            >
+              <RefreshCw className="inline-block shrink-0" size={12} aria-hidden="true" />
+              {refreshingSnapshot ? "Refreshing..." : "Refresh decisions"}
+            </button>
+          </div>
         </div>
+
+        <ReadinessNotice
+          pulse={pulseQuery.data}
+          onRefresh={refreshSnapshotNow}
+          refreshing={refreshingSnapshot}
+        />
 
         {trackingBlocked ? (
           <TrackingBlockerBanner
@@ -812,7 +986,9 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                       onUndoDefer={undeferRec}
                     />
                   ))}
-                  {individualActionNow.length === 0 && rollups.length === 0 && anomalies.length === 0 ? <EmptyActionState anomaliesCount={0} /> : null}
+                  {individualActionNow.length === 0 && rollups.length === 0 && anomalies.length === 0 ? (
+                    <EmptyActionState anomaliesCount={0} pulse={pulseQuery.data} />
+                  ) : null}
                 </div>
               ) : null}
             </section>
@@ -829,6 +1005,9 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
               />
               {!collapsed.watching ? (
                 <div className="grid gap-3 lg:grid-cols-2">
+                  <div className="lg:col-span-2">
+                    <WatchingSegments segments={laneQuery.data?.watchingSegments} />
+                  </div>
                   {watching.map((rec) => (
                     <MetaWatchingCard
                       key={rec.id}

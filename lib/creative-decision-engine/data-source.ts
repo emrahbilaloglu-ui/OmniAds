@@ -72,7 +72,6 @@ export interface DecisionCalibrationProfileConfig {
   cutCandidateMultiplier: number | null;
   sustainedLoserMultiplier: number | null;
   hardCutMultiplier: number | null;
-  scaleEvidenceMultiplier: number | null;
   scalePurchaseMultiplier: number | null;
   winnerMemoryMultiplier: number | null;
   recentSampleMultiplier: number | null;
@@ -745,7 +744,6 @@ type DecisionCalibrationProfileRow = Record<string, unknown> & {
   cut_candidate_multiplier: unknown;
   sustained_loser_multiplier: unknown;
   hard_cut_multiplier: unknown;
-  scale_evidence_multiplier: unknown;
   scale_purchase_multiplier: unknown;
   winner_memory_multiplier: unknown;
   recent_sample_multiplier: unknown;
@@ -1648,7 +1646,6 @@ SELECT
   cut_candidate_multiplier,
   sustained_loser_multiplier,
   hard_cut_multiplier,
-  scale_evidence_multiplier,
   scale_purchase_multiplier,
   winner_memory_multiplier,
   recent_sample_multiplier,
@@ -3044,7 +3041,6 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
         row.sustained_loser_multiplier,
       ),
       hardCutMultiplier: toNumberOrNull(row.hard_cut_multiplier),
-      scaleEvidenceMultiplier: toNumberOrNull(row.scale_evidence_multiplier),
       scalePurchaseMultiplier: toNumberOrNull(row.scale_purchase_multiplier),
       winnerMemoryMultiplier: toNumberOrNull(row.winner_memory_multiplier),
       recentSampleMultiplier: toNumberOrNull(row.recent_sample_multiplier),

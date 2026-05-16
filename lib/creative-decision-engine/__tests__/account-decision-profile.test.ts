@@ -458,8 +458,8 @@ describe("resolveAccountDecisionProfile", () => {
     expect(profile.preset).toBe("balanced");
     expect(profile.multipliers).toMatchObject({
       zeroConvBurner: 3,
+      lossBudget: 2,
       hardCut: 5,
-      scaleEvidence: 3,
     });
     expect(profile.spendUnitSource).toBe("meta_derived_aov");
     expect(profile.spendUnit).toBeCloseTo(50 / 2.2, 5);

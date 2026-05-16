@@ -479,6 +479,12 @@ export function buildEvidenceSections(card: BriefingCreativeCard): EvidenceAccor
               Reason
             </div>
             <div className="text-slate-700 leading-snug">{reason}</div>
+            {card.labelTransform ? (
+              <div className="mt-1 inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10.5px] font-medium text-amber-800">
+                <SkipForward className="inline-block shrink-0" size={11} aria-hidden="true" />
+                Test campaign refresh was transformed to cut
+              </div>
+            ) : null}
             {predictive ? (
               <div className="text-slate-500 italic mt-1 flex items-center gap-1">
                 <Sparkles className="inline-block shrink-0" size={11} aria-hidden="true" />

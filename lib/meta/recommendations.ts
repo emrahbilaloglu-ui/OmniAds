@@ -239,6 +239,15 @@ export interface MetaRecommendation {
   campaignRole?: MetaCampaignRole;
   bidRegime?: MetaBidRegime;
   cohort?: MetaFunnelCohort | null;
+  watchSegment?:
+    | "unlabeled"
+    | "missing_target"
+    | "learning"
+    | "recently_changed"
+    | "deferred"
+    | "issues"
+    | "insufficient_signal"
+    | "other";
 }
 
 export interface MetaDecisionSummary {

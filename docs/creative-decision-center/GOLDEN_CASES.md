@@ -52,6 +52,9 @@ These cases must become executable fixtures before resolver behavior changes. Do
 | GC-045 | labeled Main creative with gate-emitted refresh signal | Refresh | refresh | review_only | fatigue | high | medium | fatigue_composite | mature | diagnose_data |
 | GC-046 | labeled Mixed creative with gate-emitted refresh signal | Refresh | refresh | review_only | fatigue | high | medium | fatigue_composite | mature | diagnose_data |
 | GC-047 | unlabeled creative with gate-emitted refresh signal | Diagnose | diagnose_data | review_only | data_quality | medium | low | campaign_label_missing | mature | diagnose_data |
+| GC-048 | spend reaches commercial loss-budget floor, purchases below scale floor, ROAS below account bottom quartile | Cut | cut | review_only | performance | high | medium | loss_budget_mature_loser | mature | diagnose_data |
+| GC-049 | spend reaches commercial loss-budget floor, purchases below scale floor, ROAS in working zone | Keep | review | review_only | performance | medium | medium | weak_zone_not_cut | mature | diagnose_data |
+| GC-050 | spend reaches commercial loss-budget floor and ROAS is above scale threshold, but purchases are below scale floor | Keep | review | review_only | performance | high | medium | near_scale_low_purchase_depth | mature | diagnose_data |
 
 ## Case Notes
 
@@ -112,6 +115,12 @@ These cases must become executable fixtures before resolver behavior changes. Do
 - GC-046 proves Mixed campaigns keep the existing refresh semantics.
 - GC-047 proves unlabeled creatives do not receive Test semantics and are still
   blocked by the campaign-label guard when the raw hard action is `refresh`.
+- GC-048 proves cut maturity does not require winner-pool purchase depth once
+  the commercial loss-budget spend floor is reached.
+- GC-049 proves commercial maturity alone does not force cut when performance is
+  weak but still above the account bottom-quartile cut zone.
+- GC-050 proves scale shares the same commercial spend maturity but still needs
+  purchase depth before emitting a hard scale decision.
 - P1b kind-segmented calibration was data-only. P1c consumes those
   baselines only through a strict profile selector: sufficient labeled kind
   data may change decisions; sparse, mixed-empty, or unlabeled rows must match

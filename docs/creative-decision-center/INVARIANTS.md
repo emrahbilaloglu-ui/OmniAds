@@ -11,6 +11,12 @@ These rules are hard gates for V2.1.
 - No high-confidence scale/cut on stale data.
 - No hard cut for new launch unless maturity threshold is met or severe-loss rule is explicit.
 - No high-confidence scale when benchmark/target is missing.
+- Cut maturity must use commercial loss-budget spend, not winner-pool purchase depth.
+- Scale spend maturity must use the same commercial loss-budget spend as cut.
+- Scale must additionally require purchase depth and recent performance hold;
+  commercial spend maturity alone must not emit `scale`.
+- `hardCut` multipliers are severe-loss / scaled-loss thresholds, not the
+  generic maturity gate.
 - Policy and delivery blockers override performance.
 - Campaign/adset paused must not become `fix_delivery`.
 - Missing required data must produce `diagnose_data` or confidence cap.

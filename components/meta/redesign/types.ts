@@ -35,9 +35,39 @@ export interface MetaPulsePayload {
   seasonalRegime: string;
   engineLastRun: string | null;
   engineVersion: string;
+  snapshotHealth?: MetaSnapshotHealth | null;
+  labelCoverage?: MetaLabelCoverage | null;
+  targetAnchor?: MetaTargetAnchor | null;
   trackingHealth: { status: "healthy" | "degraded" | "blocked" | "syncing" | "unknown"; detail: string };
   trackingAnomalyActive?: boolean;
   lastSyncAt?: string | null;
+}
+
+export interface MetaLabelCoverage {
+  activeCampaigns: number;
+  labeledCampaigns: number;
+  unlabeledCampaigns: number;
+  latestUpdatedAt: string | null;
+}
+
+export interface MetaTargetAnchor {
+  configured: boolean;
+  source: "configured_targets" | "none";
+  targetRoas: number | null;
+  breakEvenRoas: number | null;
+  targetCpa: number | null;
+  breakEvenCpa: number | null;
+}
+
+export interface MetaSnapshotHealth {
+  latestSnapshotDate: string | null;
+  lastRunAt: string | null;
+  engineVersion: string | null;
+  currentEngineVersion: string;
+  isCurrentEngineVersion: boolean;
+  ageHours: number | null;
+  status: "fresh" | "stale" | "missing" | "engine_version_mismatch";
+  staleReason: string | null;
 }
 
 export interface MetaHealthyEntity {
@@ -96,7 +126,28 @@ export interface MetaLanePayload {
   nonSales: MetaRecommendation[];
   archive: MetaArchivedEntity[];
   deferredIds: string[];
+  watchingSegments?: MetaWatchingSegment[];
+  snapshotHealth?: MetaSnapshotHealth | null;
   counts: { actionNow: number; watching: number; healthy: number; nonSales: number; archive: number };
+}
+
+export type MetaWatchingSegmentKey =
+  | "unlabeled"
+  | "missing_target"
+  | "learning"
+  | "recently_changed"
+  | "deferred"
+  | "issues"
+  | "insufficient_signal"
+  | "other";
+
+export interface MetaWatchingSegment {
+  key: MetaWatchingSegmentKey;
+  label: string;
+  count: number;
+  description: string;
+  ctaLabel: string | null;
+  href: string | null;
 }
 
 export type MetaDrillItem =

@@ -133,6 +133,7 @@ function cardForDecision(input: {
     campaignTestDimension: decision.campaignTestDimension ?? null,
     campaignLabelStatus: decision.campaignLabelStatus ?? null,
     blockedActionType: decision.blockedActionType ?? null,
+    labelTransform: decision.labelTransform ?? null,
   };
 }
 
@@ -373,6 +374,7 @@ export async function GET(request: NextRequest) {
         dataSource: dataSourceLabel,
         asOf,
         dataHealth,
+        accountProfile: profile,
       },
     },
     { headers: { "Cache-Control": "no-store" } },

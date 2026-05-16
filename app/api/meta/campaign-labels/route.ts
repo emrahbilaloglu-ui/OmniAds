@@ -5,6 +5,7 @@ import {
   writeMetaCampaignLabels,
   type MetaCampaignLabelInput,
 } from "@/lib/meta/campaign-labels";
+import { requestMetaSnapshotRefreshForBusiness } from "@/lib/meta/snapshot-refresh";
 
 export const dynamic = "force-dynamic";
 
@@ -102,8 +103,17 @@ export async function PUT(request: NextRequest) {
       labeledBy: access.session.user.id,
       labels,
     });
+    const decisionSnapshotRefresh = await requestMetaSnapshotRefreshForBusiness({
+      businessId: access.membership.businessId,
+      reason: "campaign_labels_updated",
+    });
     return NextResponse.json(
-      { ok: true, businessId: access.membership.businessId, labels: written },
+      {
+        ok: true,
+        businessId: access.membership.businessId,
+        labels: written,
+        decisionSnapshotRefresh,
+      },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {

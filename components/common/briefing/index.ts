@@ -19,3 +19,7 @@ export * from "@/components/common/briefing/InsightsWidgets";
 export * from "@/components/common/briefing/BriefingTile";
 export * from "@/components/common/briefing/DateRangePicker";
 export * from "@/components/common/briefing/PhonePreview";
+export * from "@/components/common/briefing/PresetBar";
+export * from "@/components/common/briefing/KpiSummaryTiles";
+export * from "@/components/common/briefing/CustomizeKpisModal";
+export * from "@/components/common/briefing/ShareViewModal";

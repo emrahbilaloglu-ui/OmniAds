@@ -83,7 +83,7 @@ function row(overrides: Partial<MetaCreativeRow> & Record<string, unknown>): Met
 }
 
 describe("AssetLibrarySection", () => {
-  it("renders filter chrome, search, sort, view toggle, and wrapped table rows", () => {
+  it("renders the preset bar, KPI summary tiles, share view button, and wrapped table rows", () => {
     const html = renderToStaticMarkup(
       <AssetLibrarySection
         rows={[row({ name: "Aphrodite Hook" })]}
@@ -97,14 +97,13 @@ describe("AssetLibrarySection", () => {
       />,
     );
 
-    expect(html).toContain("Asset Library");
-    expect(html).toContain("Status");
-    expect(html).toContain("Format");
-    expect(html).toContain("Engine v3 label");
-    expect(html).toContain("Badge");
+    expect(html).toContain('data-testid="asset-library-preset-bar"');
+    expect(html).toContain("Facebook Ecommerce");
+    expect(html).toContain("Median ROAS");
+    expect(html).toContain("Total spend");
+    expect(html).toContain("Share view");
     expect(html).toContain("Search creatives, campaigns, tags");
     expect(html).toContain("Sort: spend");
-    expect(html).toContain("aria-label=\"Grid view\"");
     expect(html).toContain("data-mocked-creatives-table");
     expect(html).toContain("Aphrodite Hook");
   });
@@ -124,6 +123,7 @@ describe("AssetLibrarySection", () => {
         formats: [],
         labels: ["cut"],
         badges: ["below_breakeven"],
+        campaignLabel: "all",
         search: "loser",
         sort: "spend_desc",
       }).map((item) => item.id),
@@ -146,7 +146,7 @@ describe("AssetLibrarySection", () => {
       />,
     );
 
-    expect(html).toContain("0 visible · 0 total");
+    expect(html).toContain("0 · 0 total");
     expect(html).toContain("No Meta ad account is assigned to this workspace.");
     expect(html).not.toContain("data-mocked-creatives-table");
   });
@@ -168,6 +168,7 @@ describe("AssetLibrarySection", () => {
         formats: [],
         labels: [],
         badges: ["fatigue"],
+        campaignLabel: "all",
         search: "",
         sort: "spend_desc",
       }),
@@ -178,6 +179,7 @@ describe("AssetLibrarySection", () => {
         formats: [],
         labels: [],
         badges: ["fatigue"],
+        campaignLabel: "all",
         search: "",
         sort: "spend_desc",
       }).map((item) => item.id),
@@ -187,7 +189,9 @@ describe("AssetLibrarySection", () => {
   });
 
   it("exposes count summary and view persistence key", () => {
-    expect(assetLibraryCountSummary(2, 8)).toBe("Showing 2 of 8");
-    expect(ASSET_LIBRARY_VIEW_STORAGE_KEY).toBe("creatives-briefing-asset-library-view");
+    expect(assetLibraryCountSummary(3, 7)).toBe("Showing 3 of 7");
+    expect(ASSET_LIBRARY_VIEW_STORAGE_KEY).toBe(
+      "creatives-briefing-asset-library-view",
+    );
   });
 });

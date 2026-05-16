@@ -185,6 +185,10 @@ describe("GET /api/creatives/briefing", () => {
       campaignLabelStatus: "labeled",
       label: "scale",
       primary: { kind: "scale_budget", label: "Scale budget" },
+      engineVersion: expect.any(String),
+      sourceAsOf: "2026-05-07",
+      sourceDataSource: expect.any(String),
+      profileScope: expect.stringContaining(":"),
     });
     expect(payload.pulse.engineVersion).toBeTruthy();
     expect(payload.statusFilter).toBe("active");

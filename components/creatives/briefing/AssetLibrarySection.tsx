@@ -100,7 +100,7 @@ export function isAssetLibraryFilterActive(filters: AssetLibraryFilters) {
 }
 
 export function assetLibraryCountSummary(filteredCount: number, originalCount: number) {
-  return `Showing ${filteredCount} of ${filteredCount} (filtered from ${originalCount})`;
+  return `Showing ${filteredCount} of ${originalCount}`;
 }
 
 export function filterAssetLibraryRows(

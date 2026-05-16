@@ -17,6 +17,8 @@ import {
 const mockState = vi.hoisted(() => ({
   queryKeys: [] as unknown[][],
   routerPush: vi.fn(),
+  routerReplace: vi.fn(),
+  searchParams: new URLSearchParams(),
   briefingData: {} as any,
   assetLibraryData: [] as any,
   metaStatusData: null as any,
@@ -85,7 +87,9 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: mockState.routerPush }),
+  usePathname: () => "/platforms/meta/creatives",
+  useRouter: () => ({ push: mockState.routerPush, replace: mockState.routerReplace }),
+  useSearchParams: () => mockState.searchParams,
 }));
 
 vi.mock("@/store/app-store", () => ({
@@ -176,6 +180,8 @@ describe("CreativesBriefingPage", () => {
   beforeEach(() => {
     mockState.queryKeys = [];
     mockState.routerPush.mockReset();
+    mockState.routerReplace.mockReset();
+    mockState.searchParams = new URLSearchParams();
     mockState.briefingData = makeBriefingData();
     mockState.assetLibraryData = [];
     mockState.metaStatusData = null;
@@ -198,8 +204,7 @@ describe("CreativesBriefingPage", () => {
     vi.useRealTimers();
 
     expect(html).toContain("account-pulse");
-    expect(html).not.toContain('id="account-pulse" class="sticky top-0');
-    expect(html).toContain('id="account-pulse" class="relative z-0 bg-white/95 backdrop-blur border-b border-slate-200"');
+    expect(html).toContain('id="account-pulse" class="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200"');
     expect(html).toContain('Scope:</span><span class="font-medium text-slate-900">Account</span>');
     expect(html).not.toContain(
       'Scope:</span><span class="font-medium text-slate-900">Account</span><span class="text-slate-400">TheSwaf',
@@ -213,6 +218,7 @@ describe("CreativesBriefingPage", () => {
     expect(html).toMatch(/data-pulse="tracking"[^>]*class="[^"]*whitespace-nowrap/);
     expect(html).toContain("Tracking anomaly detected — engine intelligence may be degraded. Resolve before acting on cuts.");
     expect(html).toContain("Decision briefing");
+    expect(html).toContain("Server-owned recommendations; UI does not calculate actions");
     expect(html).toContain("Action now");
     expect(html).toContain("3 deferred — back tomorrow 9am");
     expect(html).toContain("Scale Hero");
@@ -222,6 +228,17 @@ describe("CreativesBriefingPage", () => {
     expect(html).toContain("Low-confidence and diagnose cases. Click expand to triage.");
     expect(html).not.toContain("Watcher A");
     expect(html).not.toContain("Healthy A");
+    expect(html).toContain("Asset Library");
+  });
+
+  it("renders Asset Library as a URL-addressable workspace tab", () => {
+    mockState.searchParams = new URLSearchParams("tab=library");
+
+    const html = renderToStaticMarkup(<CreativesBriefingPage />);
+
+    expect(html).toContain('data-workspace-mode="library"');
+    expect(html).toContain("data-asset-library");
+    expect(html).not.toContain("Action now");
     expect(html).toContain("Asset Library");
   });
 
@@ -295,7 +312,6 @@ describe("CreativesBriefingPage", () => {
 
     expect(html).toContain("Meta ad account assignment is missing.");
     expect(html).toContain("no Meta ad account is assigned");
-    expect(html).toContain("No Meta ad account is assigned to this workspace.");
     expect(html).not.toContain("Nothing for you to do right now.");
     expect(html).not.toContain("Launch a new test");
   });

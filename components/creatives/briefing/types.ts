@@ -82,6 +82,10 @@ export interface BriefingCreativeCard {
   labelTransform?: DecisionLabelTransform | null;
   placementList?: BriefingPlacement[] | null;
   mixed?: boolean | null;
+  engineVersion?: string | null;
+  sourceAsOf?: string | null;
+  sourceDataSource?: string | null;
+  profileScope?: string | null;
 }
 
 export interface BriefingRollupItem {

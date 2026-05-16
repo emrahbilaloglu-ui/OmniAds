@@ -52,6 +52,8 @@ interface ActionNowCardProps extends CardSelectionProps {
   onUndefer?: (id: string) => void;
   onCut?: (card: BriefingCreativeCard) => void;
   onLaunchpadOpen?: (payload: LaunchpadOpenPayload) => void;
+  evidenceOpen?: boolean;
+  onEvidenceOpen?: (card: BriefingCreativeCard) => void;
 }
 
 export function ActionNowCard({
@@ -65,8 +67,10 @@ export function ActionNowCard({
   onUndefer,
   onCut,
   onLaunchpadOpen,
+  evidenceOpen,
+  onEvidenceOpen,
 }: ActionNowCardProps) {
-  const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [localEvidenceOpen, setLocalEvidenceOpen] = useState(false);
   const confidence = confidenceValue(card);
   const conf = confidenceClass(confidence);
   const label = asDecisionLabel(card.label);
@@ -77,6 +81,14 @@ export function ActionNowCard({
   const cutAction = isCutPrimaryAction(card);
   const primaryKind = cutAction ? card.primary?.kind || "cut" : card.primary?.kind;
   const primaryLabel = cutAction ? card.primary?.label || "Cut" : card.primary?.label;
+  const isEvidenceOpen = evidenceOpen ?? localEvidenceOpen;
+  const openEvidence = () => {
+    if (onEvidenceOpen) {
+      onEvidenceOpen(card);
+      return;
+    }
+    setLocalEvidenceOpen(true);
+  };
 
   const cardClasses = [
     "rounded-2xl bg-white p-4 transition-all relative",
@@ -183,7 +195,7 @@ export function ActionNowCard({
             }
             const mode = mapBriefingPrimaryToLaunchpadMode(card);
             if (mode) onLaunchpadOpen?.({ card, mode });
-            else setEvidenceOpen(true);
+            else openEvidence();
           }}
         />
         <DeferTooltip>
@@ -202,8 +214,8 @@ export function ActionNowCard({
           data-action="evidence"
           data-id={actionCardId}
           aria-haspopup="dialog"
-          aria-expanded={evidenceOpen}
-          onClick={() => setEvidenceOpen(true)}
+          aria-expanded={isEvidenceOpen}
+          onClick={openEvidence}
         >
           More evidence
           <ChevronDown className="inline-block shrink-0" size={12} aria-hidden="true" />
@@ -212,14 +224,16 @@ export function ActionNowCard({
 
       {deferred ? <DeferChip id={scopeId} onUndo={onUndefer} /> : null}
 
-      <EvidencePopover
-        open={evidenceOpen}
-        title="Evidence"
-        subtitle={name}
-        sections={buildEvidenceSections(card)}
-        variant="creative"
-        onClose={() => setEvidenceOpen(false)}
-      />
+      {onEvidenceOpen ? null : (
+        <EvidencePopover
+          open={localEvidenceOpen}
+          title="Evidence"
+          subtitle={name}
+          sections={buildEvidenceSections(card)}
+          variant="creative"
+          onClose={() => setLocalEvidenceOpen(false)}
+        />
+      )}
     </div>
   );
 }

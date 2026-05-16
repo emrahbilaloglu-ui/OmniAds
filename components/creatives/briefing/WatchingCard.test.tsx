@@ -29,7 +29,7 @@ describe("WatchingCard", () => {
 
     expect(html).toContain("Catalog DPA Spring 2026");
     expect(html).toContain("opacity-90");
-    expect(html).toContain("Let cook");
+    expect(html).toContain("Defer 24h");
     expect(html).toContain("What does Defer 24h do?");
     expect(html).toContain("Evidence");
     expect(html).toContain("aria-expanded=\"false\"");
@@ -46,7 +46,7 @@ describe("WatchingCard", () => {
     expect(html).not.toContain("Fresh test");
   });
 
-  it("renders deferred chip and opacity for Let cook state", () => {
+  it("renders deferred chip and opacity for Defer 24h state", () => {
     const html = renderToStaticMarkup(<WatchingCard card={card()} deferred />);
 
     expect(html).toContain("opacity-60");

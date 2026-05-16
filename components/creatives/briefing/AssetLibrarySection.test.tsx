@@ -187,7 +187,7 @@ describe("AssetLibrarySection", () => {
   });
 
   it("exposes count summary and view persistence key", () => {
-    expect(assetLibraryCountSummary(2, 8)).toBe("Showing 2 of 2 (filtered from 8)");
+    expect(assetLibraryCountSummary(2, 8)).toBe("Showing 2 of 8");
     expect(ASSET_LIBRARY_VIEW_STORAGE_KEY).toBe("creatives-briefing-asset-library-view");
   });
 });

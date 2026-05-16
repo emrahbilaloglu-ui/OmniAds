@@ -32,41 +32,40 @@ function card(overrides: Partial<BriefingCreativeCard> = {}): BriefingCreativeCa
 }
 
 describe("ActionNowCard", () => {
-  it("renders the default high-confidence action card", () => {
+  it("renders the tile shell with name, primary action, metrics and select control", () => {
     const html = renderToStaticMarkup(<ActionNowCard card={card()} selected />);
 
     expect(html).toContain("Aphrodite Necklace Hook v3");
-    expect(html).toContain("border-2 border-slate-300");
-    expect(html).toContain("width:88px;height:88px;font-size:22px");
     expect(html).toContain("Promote to main");
-    expect(html).toContain("What does Defer 24h do?");
-    expect(html).toContain("More evidence");
-    expect(html).toContain("aria-expanded=\"false\"");
-    expect(html).toContain("ring-2 ring-blue-500 ring-offset-1");
+    expect(html).toContain('data-tile-variant="action"');
+    expect(html).toContain('aria-checked="true"');
+    expect(html).toContain('data-action="defer"');
+    expect(html).toContain('data-action="evidence"');
+    expect(html).toContain("ROAS");
+    expect(html).toContain("3.42×");
   });
 
-  it("applies mid and low confidence visual weight", () => {
-    const midHtml = renderToStaticMarkup(
-      <ActionNowCard card={card({ confidence: 58, primary: { kind: "cut", label: "Cut" } })} />,
+  it("uses a portrait thumb shape when the best placement is Reels", () => {
+    const portrait = renderToStaticMarkup(
+      <ActionNowCard card={card({ bestPlacement: "instagram_reels" })} />,
     );
-    const lowHtml = renderToStaticMarkup(
-      <ActionNowCard card={card({ confidence: 42, primary: { kind: "cut", label: "Cut" } })} />,
+    const square = renderToStaticMarkup(
+      <ActionNowCard card={card({ bestPlacement: "facebook_feed" })} />,
     );
 
-    expect(midHtml).toContain("width:72px;height:72px;font-size:18px");
-    expect(midHtml).toContain("bg-rose-600 text-white border-rose-600");
-    expect(lowHtml).toContain("opacity-90");
-    expect(lowHtml).toContain("width:64px;height:64px;font-size:15px");
-    expect(lowHtml).toContain("border-rose-300 text-rose-700 hover:bg-rose-50");
+    expect(portrait).toContain("width:90px");
+    expect(portrait).toContain("9:16");
+    expect(square).toContain("width:140px");
+    expect(square).toContain("1:1");
   });
 
-  it("renders deferred chip and cut animation classes", () => {
+  it("renders deferred chip and cut-removing classes", () => {
     const deferredHtml = renderToStaticMarkup(<ActionNowCard card={card()} deferred />);
     const cuttingHtml = renderToStaticMarkup(<ActionNowCard card={card()} cutting />);
 
     expect(deferredHtml).toContain("opacity-60");
     expect(deferredHtml).toContain("Reappears tomorrow 9am ·");
-    expect(deferredHtml).toContain("data-action=\"undefer\"");
+    expect(deferredHtml).toContain('data-action="undefer"');
     expect(cuttingHtml).toContain("opacity-0 -translate-x-4 pointer-events-none");
   });
 
@@ -76,7 +75,6 @@ describe("ActionNowCard", () => {
     );
 
     expect(html).toContain(">Main<");
-    expect(html).toContain("bg-emerald-50");
   });
 
   it("renders non-promote scale actions from the server without relabeling them", () => {
@@ -91,7 +89,15 @@ describe("ActionNowCard", () => {
     );
 
     expect(html).toContain("Scale budget");
-    expect(html).toContain("data-kind=\"scale_budget\"");
+    expect(html).toContain('data-kind="scale_budget"');
     expect(html).not.toContain("Promote to main");
+  });
+
+  it("colors the ROAS metric warn when the decision is cut", () => {
+    const html = renderToStaticMarkup(
+      <ActionNowCard card={card({ label: "cut", primary: { kind: "cut", label: "Cut" } })} />,
+    );
+
+    expect(html).toContain("text-rose-700");
   });
 });

@@ -1348,7 +1348,7 @@ export function CreativesBriefingPage() {
             onToggle={handleToggleLane}
           />
           {collapsed.action ? null : (
-            <div className="space-y-3">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {isInitialLoading ? <LaneSkeleton /> : null}
               {!isInitialLoading &&
               !briefingError &&
@@ -1453,7 +1453,7 @@ export function CreativesBriefingPage() {
                 }
                 onClear={() => clearSelectedIdsForLane(watchingSelectedIds)}
               />
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 {watchingItems.map((card) => (
                   <WatchingCard
                     key={cardId(card)}
@@ -1481,27 +1481,29 @@ export function CreativesBriefingPage() {
             subtitle={
               collapsed.healthy
                 ? "Stable keep + scale. Operator rarely opens this lane."
-                : "Compact list — name, label, ROAS only."
+                : "At target — no action needed today."
             }
             collapsed={collapsed.healthy}
             onToggle={handleToggleLane}
           />
           {collapsed.healthy ? null : (
-            <div className="rounded-xl border border-slate-200 bg-white overflow-hidden divide-y divide-slate-100 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-              {healthyItems.slice(0, 20).map((card) => (
-                <HealthyRow
-                  key={cardId(card)}
-                  card={card}
-                  selected={selectedSet.has(cardId(card))}
-                  onSelectChange={handleSelectChange}
-                />
-              ))}
-              {healthyItems.length > 20 ? (
-                <div className="px-3 py-2 text-[11px] text-slate-400 bg-slate-50 text-center">
-                  + {healthyItems.length - 20} more healthy creatives in{" "}
+            <div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {healthyItems.slice(0, 9).map((card) => (
+                  <HealthyRow
+                    key={cardId(card)}
+                    card={card}
+                    selected={selectedSet.has(cardId(card))}
+                    onSelectChange={handleSelectChange}
+                  />
+                ))}
+              </div>
+              {healthyItems.length > 9 ? (
+                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2 text-[11px] text-slate-500 text-center">
+                  + {healthyItems.length - 9} more healthy creatives in{" "}
                   <button
                     type="button"
-                    className="font-medium text-slate-600 underline decoration-slate-300 underline-offset-2 hover:text-slate-900"
+                    className="font-medium text-slate-700 underline decoration-slate-300 underline-offset-2 hover:text-slate-900"
                     onClick={() => handleWorkspaceModeChange("library")}
                   >
                     Asset Library

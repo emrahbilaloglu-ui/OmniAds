@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { HealthyRow } from "@/components/creatives/briefing/HealthyRow";
 
 describe("HealthyRow", () => {
-  it("renders a compact healthy row with label, ROAS, and spend", () => {
+  it("renders the healthy tile with label, ROAS, spend, and a healthy primary chip", () => {
     const html = renderToStaticMarkup(
       <HealthyRow
         selected
@@ -15,15 +15,17 @@ describe("HealthyRow", () => {
           label: "keep",
           spend: 1200,
           roas: 2.42,
+          purchases: 17,
         }}
       />,
     );
 
     expect(html).toContain("Aphrodite Studs Set");
-    expect(html).toContain("keep");
+    expect(html).toContain('data-tile-variant="healthy"');
+    expect(html).toContain("ROAS");
     expect(html).toContain("2.42×");
     expect(html).toContain("$1,200");
-    expect(html).toContain("checked=\"\"");
-    expect(html).toContain("w-7 h-7");
+    expect(html).toContain("Healthy");
+    expect(html).toContain('aria-checked="true"');
   });
 });

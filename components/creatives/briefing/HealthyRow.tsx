@@ -1,12 +1,20 @@
 "use client";
 
-import { DecisionLabelChip } from "@/components/common/briefing";
+import {
+  BriefingTile,
+  DecisionLabelChip,
+  deriveTileFormat,
+  deriveTileShape,
+  type TileMetric,
+} from "@/components/common/briefing";
 import {
   CampaignKindChip,
-  Thumb,
   asDecisionLabel,
+  cardAdset,
+  cardCampaign,
   cardId,
   cardName,
+  numberOrZero,
 } from "@/components/creatives/briefing/card-utils";
 import type {
   BriefingCreativeCard,
@@ -26,32 +34,55 @@ export function HealthyRow({
   const rowId = cardId(card);
   const name = cardName(card);
   const label = asDecisionLabel(card.label, "keep");
+  const shape = deriveTileShape(card);
+  const format = deriveTileFormat(card);
+
+  const metrics: TileMetric[] = [
+    { key: "roas", label: "ROAS", value: formatRoas(card.roas), tone: "good" },
+    { key: "spend", label: "Spend", value: formatCurrency(card.spend) },
+    {
+      key: "purch",
+      label: "Purch",
+      value: String(numberOrZero(card.purchases)),
+    },
+  ];
+
+  const chips = (
+    <>
+      <DecisionLabelChip label={label} size="sm" />
+      <CampaignKindChip card={card} />
+    </>
+  );
+
+  const meta = `${cardCampaign(card)} · ${cardAdset(card)}${
+    card.ageDays != null ? ` · ${card.ageDays}d` : ""
+  }`;
+
+  const why = card.reason || "At target — no action needed today.";
+
+  const primaryAction = (
+    <span className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-[11.5px] text-slate-600">
+      Healthy
+    </span>
+  );
 
   return (
-    <div className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 text-[12px] border-b border-slate-100 last:border-b-0">
-      <input
-        type="checkbox"
-        data-select={rowId}
-        data-lane="healthy"
-        checked={selected}
-        onChange={(event) => onSelectChange?.(rowId, event.currentTarget.checked)}
-        className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600"
+    <div className="relative" data-card={rowId} data-lane="healthy">
+      <BriefingTile
+        testId={`healthy-card-${rowId}`}
+        laneVariant="healthy"
+        shape={shape}
+        format={format}
+        chips={chips}
+        name={name}
+        meta={meta}
+        why={why}
+        metrics={metrics}
+        primaryAction={primaryAction}
+        selected={selected}
+        onSelectChange={(next) => onSelectChange?.(rowId, next)}
+        selectLabel={`Select ${name}`}
       />
-      <Thumb name={name} size="xs" />
-      <div className="flex-1 min-w-0 flex items-center gap-2">
-        <span className="text-slate-800 truncate">{name}</span>
-        <CampaignKindChip card={card} />
-        <span className="text-[10px] uppercase tracking-wider text-slate-400">
-          {card.brand || "Brand"}
-        </span>
-      </div>
-      <DecisionLabelChip label={label} size="sm" />
-      <span className="font-mono tabular-nums text-slate-700 w-16 text-right font-medium">
-        {formatRoas(card.roas)}
-      </span>
-      <span className="font-mono tabular-nums text-slate-500 w-20 text-right">
-        {formatCurrency(card.spend)}
-      </span>
     </div>
   );
 }

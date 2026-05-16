@@ -47,7 +47,6 @@ describe("creative-decision-engine v3", () => {
       accountBaselines: calibration,
       spendUnit: 100,
       thresholds: {
-        scaleMinEvidenceSpend: 600,
         scaleMinPurchases: 10,
         zeroConvBurnerSpend: 200,
       },
@@ -112,7 +111,6 @@ describe("creative-decision-engine v3", () => {
     thresholdsByKind.all = input.base.thresholds;
     thresholdsByKind[input.kind] = {
       ...input.base.thresholds,
-      scaleMinEvidenceSpend: 300,
       scaleMinPurchases: 4,
       bottomQuartileRatio: calibration.roasRatioP25,
       severeLoserRatio: calibration.roasRatioP10,
@@ -239,7 +237,7 @@ describe("creative-decision-engine v3", () => {
 
     expect(out.label).toBe("keep");
     expect(out.reason).toBe(
-      "[near scale] ROAS 3.00 (28d) above target (136%) — spend $500 / purchases 8 below scale floor (need ≥$600, ≥10); observe.",
+      "[near scale] ROAS 3.00 (28d) above target (136%) — spend $500 / purchases 8 below scale floor (need ≥$200, ≥10); observe.",
     );
     expect(out.truthSource).toBe("commercial_truth");
     expect(out.effectiveTargetRoas).toBe(2.2);
@@ -252,14 +250,13 @@ describe("creative-decision-engine v3", () => {
     expect(out.confidence).toBe(77);
   });
 
-  it("GC-038 keeps a Main creative below scale when Main thresholds are stricter than canonical", async () => {
+  it("GC-038 keeps a Main creative below scale when Main purchase depth is stricter than canonical", async () => {
     const input = await getMockCreativeInput("c-1");
     const profile = await getMockProfile();
     const canonicalScaleProfile: AccountDecisionProfile = {
       ...profile,
       thresholds: {
         ...profile.thresholds,
-        scaleMinEvidenceSpend: 300,
         scaleMinPurchases: 4,
       },
     };
@@ -268,7 +265,6 @@ describe("creative-decision-engine v3", () => {
       kind: "main",
       calibration: {},
       thresholds: {
-        scaleMinEvidenceSpend: 600,
         scaleMinPurchases: 10,
       },
     });
@@ -298,7 +294,6 @@ describe("creative-decision-engine v3", () => {
       kind: "test",
       calibration: {},
       thresholds: {
-        scaleMinEvidenceSpend: 300,
         scaleMinPurchases: 4,
       },
     });
@@ -326,7 +321,6 @@ describe("creative-decision-engine v3", () => {
         matureSpendP50: null,
       },
       thresholds: {
-        scaleMinEvidenceSpend: 300,
         scaleMinPurchases: 4,
       },
     });
@@ -348,7 +342,6 @@ describe("creative-decision-engine v3", () => {
       kind: "main",
       calibration: {},
       thresholds: {
-        scaleMinEvidenceSpend: 300,
         scaleMinPurchases: 4,
       },
     });
@@ -369,7 +362,6 @@ describe("creative-decision-engine v3", () => {
       ...profile,
       thresholds: {
         ...profile.thresholds,
-        scaleMinEvidenceSpend: 300,
         scaleMinPurchases: 4,
       },
     };
@@ -684,7 +676,7 @@ describe("creative-decision-engine v3", () => {
 
     expect(out.label).toBe("cut");
     expect(out.reason).toBe(
-      "0 purchases on $300 spend (28d cumulative, age 14d) — sustained zero-conversion burn past CPA-anchored maturity threshold $290.",
+      "0 purchases on $300 spend (28d cumulative, age 14d) — sustained zero-conversion burn past CPA-anchored maturity threshold $200.",
     );
   });
 

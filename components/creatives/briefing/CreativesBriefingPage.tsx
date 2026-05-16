@@ -77,6 +77,7 @@ import type {
   CreativesBriefingResponse,
   MetaSummaryPulseResponse,
 } from "@/components/creatives/briefing/types";
+import type { AccountDecisionProfile } from "@/lib/creative-decision-engine";
 import {
   fetchMetaCreatives,
   mapApiRowToUiRow,
@@ -310,6 +311,79 @@ function formatTodayLabel() {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function formatProfileNumber(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value.toLocaleString(undefined, { maximumFractionDigits: 2 })
+    : "n/a";
+}
+
+function CreativeEngineProfileStrip({
+  profile,
+  dataSource,
+  asOf,
+}: {
+  profile?: AccountDecisionProfile | null;
+  dataSource?: string | null;
+  asOf?: string | null;
+}) {
+  if (!profile) return null;
+  const hardActions = [
+    profile.hardActionEligibility.scale ? "scale" : null,
+    profile.hardActionEligibility.cut ? "cut" : null,
+    profile.hardActionEligibility.refresh ? "refresh" : null,
+  ].filter(Boolean).join(", ") || "review only";
+  const quality = [
+    profile.quality.commercialTruthReady ? "truth ready" : "truth missing",
+    profile.quality.calibrationReady ? "calibration ready" : "calibration thin",
+  ].join(" / ");
+
+  return (
+    <div className="mb-4 rounded-xl border border-slate-200 bg-white px-4 py-3" data-creative-engine-profile-strip>
+      <div className="flex flex-wrap items-center gap-2 text-[12px] text-slate-600">
+        <ShieldCheck className="inline-block shrink-0 text-slate-500" size={14} aria-hidden="true" />
+        <span className="font-semibold text-slate-900">Engine profile</span>
+        <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10.5px] font-medium text-slate-600">
+          {profile.scope.type}:{profile.scope.id}
+        </span>
+        <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10.5px] font-medium text-slate-600">
+          preset {profile.preset}
+        </span>
+        {dataSource ? (
+          <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10.5px] font-medium text-slate-600">
+            {dataSource}
+          </span>
+        ) : null}
+        {asOf ? <span className="text-[11px] text-slate-400">as of {asOf}</span> : null}
+      </div>
+      <div className="mt-2 grid gap-2 text-[11.5px] text-slate-600 md:grid-cols-4">
+        <div>
+          <span className="text-slate-400">Hard actions</span>
+          <div className="font-medium text-slate-900">{hardActions}</div>
+        </div>
+        <div>
+          <span className="text-slate-400">Target / break-even ROAS</span>
+          <div className="font-mono text-slate-900">
+            {formatProfileNumber(profile.spendUnitEvidence.targetRoas)} / {formatProfileNumber(profile.spendUnitEvidence.breakEvenRoas)}
+          </div>
+        </div>
+        <div>
+          <span className="text-slate-400">Mature creatives</span>
+          <div className="font-mono text-slate-900">{profile.accountBaselines.matureCreativeCount}</div>
+        </div>
+        <div>
+          <span className="text-slate-400">Quality</span>
+          <div className="font-medium text-slate-900">{quality}</div>
+        </div>
+      </div>
+      {profile.scope.fallbackReason ? (
+        <div className="mt-2 text-[11.5px] text-amber-700">
+          Scope fallback: {profile.scope.fallbackReason.replace(/_/g, " ")}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function isCardRollup(card: BriefingCreativeCard) {
@@ -655,6 +729,7 @@ export function CreativesBriefingPage() {
       metaStatusQuery.data?.degradedServing,
   );
   const matureCount = normalizedBriefingData?.pulse?.matureCount ?? healthyItems.length;
+  const engineProfile = normalizedBriefingData?.source?.accountProfile ?? null;
   const isInitialLoading = briefingQuery.isLoading && !normalizedBriefingData;
   const briefingError = briefingQuery.error instanceof Error ? briefingQuery.error.message : null;
   const deferredCount = deferState.deferredCount || normalizedBriefingData?.deferredCount || 0;
@@ -948,6 +1023,12 @@ export function CreativesBriefingPage() {
         {creativeDataSetupNotice ? (
           <CreativeDataSetupNotice notice={creativeDataSetupNotice} />
         ) : null}
+
+        <CreativeEngineProfileStrip
+          profile={engineProfile}
+          dataSource={normalizedBriefingData?.source?.dataSource}
+          asOf={normalizedBriefingData?.source?.asOf}
+        />
 
         {briefingError ? (
           <div className="rounded-lg border border-rose-200 bg-rose-50/60 px-4 py-3 mb-4 flex items-start gap-3">

@@ -122,7 +122,7 @@ function makeProfileWithKind(input: {
   });
   const thresholds = {
     ...base.thresholds,
-    scaleMinEvidenceSpend: 123,
+    commercialMaturitySpend: 123,
     scaleMinPurchases: 2,
     bottomQuartileRatio: 0.55,
     ...input.thresholds,
@@ -151,7 +151,7 @@ describe("selectKindAwareDecisionProfile", () => {
   it("selects a kind-resolved profile when all required data is usable", () => {
     const profile = makeProfileWithKind({
       kind: "mixed",
-      thresholds: { scaleMinEvidenceSpend: 180 },
+      thresholds: { commercialMaturitySpend: 180 },
     });
 
     const selection = selectKindAwareDecisionProfile(
@@ -161,14 +161,14 @@ describe("selectKindAwareDecisionProfile", () => {
 
     expect(selection.profile).not.toBe(profile);
     expect(selection.decisionKindSource).toBe("kind_mixed");
-    expect(selection.profile.thresholds.scaleMinEvidenceSpend).toBe(180);
+    expect(selection.profile.thresholds.commercialMaturitySpend).toBe(180);
     expect(selection.profile.funnelCalibration.campaignKind).toBe("mixed");
   });
 
   it("falls back without inspecting byKind data when campaignKind is null", () => {
     const profile = makeProfileWithKind({
       kind: "main",
-      thresholds: { scaleMinEvidenceSpend: 1 },
+      thresholds: { commercialMaturitySpend: 1 },
     });
 
     const selection = selectKindAwareDecisionProfile(

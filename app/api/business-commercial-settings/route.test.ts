@@ -14,6 +14,10 @@ vi.mock("@/lib/demo-business", () => ({
   isDemoBusinessId: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/snapshot-refresh", () => ({
+  requestMetaSnapshotRefreshForBusiness: vi.fn(),
+}));
+
 vi.mock("@/lib/reviewer-access", () => ({
   isReviewerEmail: vi.fn(),
 }));
@@ -21,6 +25,7 @@ vi.mock("@/lib/reviewer-access", () => ({
 const access = await import("@/lib/access");
 const commercialTruth = await import("@/lib/business-commercial");
 const demoBusiness = await import("@/lib/demo-business");
+const snapshotRefresh = await import("@/lib/meta/snapshot-refresh");
 const reviewerAccess = await import("@/lib/reviewer-access");
 const { GET, PUT } = await import("@/app/api/business-commercial-settings/route");
 
@@ -85,6 +90,15 @@ describe("business commercial settings route", () => {
     );
     vi.mocked(demoBusiness.isDemoBusinessId).mockReturnValue(false);
     vi.mocked(reviewerAccess.isReviewerEmail).mockReturnValue(false);
+    vi.mocked(snapshotRefresh.requestMetaSnapshotRefreshForBusiness).mockResolvedValue({
+      ok: true,
+      status: "ran",
+      businessId: "biz",
+      snapshotDate: "2026-05-16",
+      reason: "commercial_truth_updated",
+      cooldownUntil: "2026-05-16T00:05:00.000Z",
+      message: "Meta recommendation snapshot refreshed.",
+    });
   });
 
   it("returns snapshot permissions for GET", async () => {
@@ -193,6 +207,10 @@ describe("business commercial settings route", () => {
           },
         ],
       },
+    });
+    expect(snapshotRefresh.requestMetaSnapshotRefreshForBusiness).toHaveBeenCalledWith({
+      businessId: "biz",
+      reason: "commercial_truth_updated",
     });
   });
 });

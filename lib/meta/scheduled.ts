@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
+import { META_RECOMMENDATION_ENGINE_VERSION } from "@/lib/meta/recommendations";
 import { runMetaSnapshotForAllBusinesses } from "@/lib/meta/snapshot";
 import { getActiveBusinesses } from "@/lib/sync/active-businesses";
 
@@ -28,6 +29,7 @@ async function alreadyRan(snapshotDate: string) {
     FROM meta_decision_snapshots_daily
     WHERE snapshot_date = ${snapshotDate}::date
       AND kind IN ('recommendation', 'anomaly')
+      AND engine_version = ${META_RECOMMENDATION_ENGINE_VERSION}
     GROUP BY business_id
   `) as Array<{
     business_id?: string | null;

@@ -120,7 +120,7 @@ describe("ratioZonesGate - scale zone", () => {
 
     expect(output.label).toBe("keep");
     expect(output.reason).toBe(
-      "[near scale] ROAS 3.00 (28d) above target (150%) — spend $600 / purchases 8 below scale floor (need ≥$600, ≥10); observe.",
+      "[near scale] ROAS 3.00 (28d) above target (150%) — spend $600 / purchases 8 below scale floor (need ≥$200, ≥10); observe.",
     );
     expect(output.reason.startsWith("[near scale]")).toBe(true);
     expect(output.reason).toContain("purchases 8 below scale floor");
@@ -131,7 +131,7 @@ describe("ratioZonesGate - scale zone", () => {
       ratioZonesGate(
         ratioContext(1.5, {
           input: {
-            spend: 500,
+            spend: 150,
             purchases: 15,
             recent7dRoas: 2.2,
           },
@@ -141,9 +141,9 @@ describe("ratioZonesGate - scale zone", () => {
 
     expect(output.label).toBe("keep");
     expect(output.reason).toBe(
-      "[near scale] ROAS 3.00 (28d) above target (150%) — spend $500 / purchases 15 below scale floor (need ≥$600, ≥10); observe.",
+      "[near scale] ROAS 3.00 (28d) above target (150%) — spend $150 / purchases 15 below scale floor (need ≥$200, ≥10); observe.",
     );
-    expect(output.reason).toContain("spend $500");
+    expect(output.reason).toContain("spend $150");
   });
 
   it("keeps scale-zone creatives when recent 7d ROAS is missing", () => {
@@ -214,7 +214,7 @@ describe("ratioZonesGate - target band", () => {
 
     expect(output.label).toBe("keep");
     expect(output.reason).toBe(
-      "[near scale] ROAS 2.40 (28d) approaching scale threshold (120%) — needs $600+ spend or 10+ purchases for full scale.",
+      "[near scale] ROAS 2.40 (28d) approaching scale threshold (120%) — needs $200+ spend or 10+ purchases for full scale.",
     );
     expect(output.reason.startsWith("[near scale]")).toBe(true);
   });
@@ -335,6 +335,8 @@ describe("ratioZonesGate - cut zone", () => {
         ratioContext(0.3, {
           input: {
             spend: 700,
+            ctr: 0.5,
+            thumbstop: 10,
           },
         }),
       ),
@@ -346,12 +348,32 @@ describe("ratioZonesGate - cut zone", () => {
     );
   });
 
+  it("cuts loss-budget mature losers before hard-cut spend", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.5, {
+          input: {
+            spend: 300,
+            purchases: 1,
+            ctr: 0.5,
+            thumbstop: 10,
+          },
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("cut");
+    expect(output.reason).toBe(
+      "ROAS 1.00 (28d) = 50% of target after $300 spend (28d) — loss-budget maturity reached at $200; cut underperforming creative.",
+    );
+  });
+
   it("returns test_more below cut maturity without fatigue", () => {
     const output = terminalOutput(
       ratioZonesGate(
         ratioContext(0.5, {
           input: {
-            spend: 700,
+            spend: 150,
           },
         }),
       ),
@@ -359,7 +381,7 @@ describe("ratioZonesGate - cut zone", () => {
 
     expect(output.label).toBe("test_more");
     expect(output.reason).toBe(
-      "ROAS 1.00 (28d) = 50% of target after $700 spend (28d) — underperforming but spend not yet mature for hard cut, observe or pause manually.",
+      "ROAS 1.00 (28d) = 50% of target after $150 spend (28d) — underperforming but spend not yet mature for hard cut, observe or pause manually.",
     );
   });
 
@@ -368,7 +390,7 @@ describe("ratioZonesGate - cut zone", () => {
       ratioZonesGate(
         ratioContext(0.5, {
           input: {
-            spend: 700,
+            spend: 150,
             fatigueStatus: "fatigued",
             lifecyclePosition: "plateau",
           },
@@ -583,7 +605,7 @@ describe("ratioZonesGate - below-breakeven demote-candidate branch", () => {
       ratioZonesGate(
         ratioContext(0.6, {
           input: {
-            spend: 200,
+            spend: 150,
           },
           profile: profileWithBreakeven({
             breakEvenRoas: TARGET_ROAS * 0.78,

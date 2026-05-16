@@ -148,6 +148,10 @@ describe("GET /api/meta/lane-classify", () => {
       previousBidValueCapturedAt: "2026-04-01T00:00:00.000Z",
     });
     expect(payload.deferredIds).toEqual(["rec_deferred"]);
+    expect(payload.watchingSegments).toEqual([
+      expect.objectContaining({ key: "deferred", count: 1 }),
+      expect.objectContaining({ key: "insufficient_signal", count: 1 }),
+    ]);
     expect(payload.counts.nonSales).toBe(0);
     expect(payload.counts.archive).toBe(0);
     expect(payload.statusFilter).toBe("active");

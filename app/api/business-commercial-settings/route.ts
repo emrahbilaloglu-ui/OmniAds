@@ -5,6 +5,7 @@ import {
   upsertBusinessCommercialTruthSnapshot,
 } from "@/lib/business-commercial";
 import { isDemoBusinessId } from "@/lib/demo-business";
+import { requestMetaSnapshotRefreshForBusiness } from "@/lib/meta/snapshot-refresh";
 import { isReviewerEmail } from "@/lib/reviewer-access";
 
 function readOnlyReasonForRequest(input: {
@@ -94,9 +95,14 @@ export async function PUT(request: NextRequest) {
         ? (body.snapshot as never)
         : null,
   });
+  const decisionSnapshotRefresh = await requestMetaSnapshotRefreshForBusiness({
+    businessId,
+    reason: "commercial_truth_updated",
+  });
 
   return NextResponse.json({
     snapshot,
+    decisionSnapshotRefresh,
     permissions: {
       canEdit: true,
       reason: null,

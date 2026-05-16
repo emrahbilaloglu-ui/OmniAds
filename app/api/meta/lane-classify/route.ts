@@ -8,6 +8,7 @@ import {
   META_RECOMMENDATION_ENGINE_VERSION,
   type MetaRecommendation,
 } from "@/lib/meta/recommendations";
+import type { MetaWatchingSegment, MetaWatchingSegmentKey } from "@/components/meta/redesign/types";
 import { resolveMetaFunnelCohort, type MetaFunnelCohort } from "@/lib/meta/funnel-cohort";
 import {
   briefingStatusForEntity,
@@ -357,6 +358,113 @@ function isWithIssuesRec(input: {
   return entity ? isWithIssuesEntity(entity) : false;
 }
 
+function hasAutomationBlocker(rec: MetaRecommendation, blocker: string) {
+  const blockers = rec.automationReadiness?.blockers;
+  return Array.isArray(blockers) && blockers.includes(blocker as never);
+}
+
+function hasSignalQualityValue(rec: MetaRecommendation, key: string, value: string) {
+  const signalQuality = rec.signalQuality;
+  if (!signalQuality || typeof signalQuality !== "object") return false;
+  return String(signalQuality[key] ?? "") === value;
+}
+
+function watchSegmentForRec(input: {
+  rec: MetaRecommendation;
+  deferredIds: Set<string>;
+  campaignsById: Map<string, CampaignRow>;
+  adsetsById: Map<string, AdsetRow>;
+}): MetaWatchingSegmentKey {
+  if (input.deferredIds.has(input.rec.id)) return "deferred";
+  if (
+    hasAutomationBlocker(input.rec, "missing_campaign_label") ||
+    input.rec.confidenceReason === "unlabeled_campaign_soft_only" ||
+    hasSignalQualityValue(input.rec, "label_status", "unlabeled")
+  ) {
+    return "unlabeled";
+  }
+  if (hasAutomationBlocker(input.rec, "missing_commercial_anchor")) return "missing_target";
+  if (isWithIssuesRec(input)) return "issues";
+  if (isInLearning(input.rec)) return "learning";
+  if (isRecentlyChanged(input.rec)) return "recently_changed";
+  if (isInsufficientSignal(input.rec)) return "insufficient_signal";
+  return "other";
+}
+
+const WATCH_SEGMENT_META: Record<
+  MetaWatchingSegmentKey,
+  Omit<MetaWatchingSegment, "key" | "count">
+> = {
+  unlabeled: {
+    label: "Unlabeled",
+    description: "Campaign label is missing, so hard actions stay soft-only.",
+    ctaLabel: "Label campaigns",
+    href: "#campaign-labels",
+  },
+  missing_target: {
+    label: "Missing target",
+    description: "Commercial target or break-even anchor is missing.",
+    ctaLabel: "Set targets",
+    href: "/commercial-truth",
+  },
+  learning: {
+    label: "Learning",
+    description: "Meta learning, thin data, or cook-time gate is active.",
+    ctaLabel: null,
+    href: null,
+  },
+  recently_changed: {
+    label: "Recent change",
+    description: "Recent edits make the current readout cooldown-bound.",
+    ctaLabel: null,
+    href: null,
+  },
+  deferred: {
+    label: "Deferred",
+    description: "Operator deferred this recommendation.",
+    ctaLabel: null,
+    href: null,
+  },
+  issues: {
+    label: "Delivery issues",
+    description: "Entity has status or delivery issues; action confidence is capped.",
+    ctaLabel: null,
+    href: null,
+  },
+  insufficient_signal: {
+    label: "Insufficient signal",
+    description: "Spend, purchase, or confidence evidence is not strong enough yet.",
+    ctaLabel: null,
+    href: null,
+  },
+  other: {
+    label: "Other watch",
+    description: "Watch-only recommendation not mapped to a narrower fix path.",
+    ctaLabel: null,
+    href: null,
+  },
+};
+
+function buildWatchingSegments(watching: MetaRecommendation[]): MetaWatchingSegment[] {
+  const counts = new Map<MetaWatchingSegmentKey, number>();
+  for (const rec of watching) {
+    const key = rec.watchSegment ?? "other";
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return ([
+    "unlabeled",
+    "missing_target",
+    "learning",
+    "recently_changed",
+    "deferred",
+    "issues",
+    "insufficient_signal",
+    "other",
+  ] as MetaWatchingSegmentKey[])
+    .map((key) => ({ key, count: counts.get(key) ?? 0, ...WATCH_SEGMENT_META[key] }))
+    .filter((segment) => segment.count > 0);
+}
+
 async function readDeferredRecIds(businessId: string) {
   const sql = getDb();
   const rows = (await sql`
@@ -634,15 +742,20 @@ export async function GET(request: NextRequest) {
       !isWithIssuesRec({ rec, campaignsById, adsetsById }) &&
       !deferredIds.has(rec.id),
   );
-  const watching = purchaseScopedRecs.filter(
-    (rec) =>
-      !actionNow.includes(rec) &&
-      (isWithIssuesRec({ rec, campaignsById, adsetsById }) ||
-        isInLearning(rec) ||
-        isRecentlyChanged(rec) ||
-        isInsufficientSignal(rec) ||
-        deferredIds.has(rec.id)),
-  );
+  const watching = purchaseScopedRecs
+    .filter(
+      (rec) =>
+        !actionNow.includes(rec) &&
+        (isWithIssuesRec({ rec, campaignsById, adsetsById }) ||
+          isInLearning(rec) ||
+          isRecentlyChanged(rec) ||
+          isInsufficientSignal(rec) ||
+          deferredIds.has(rec.id)),
+    )
+    .map((rec) => ({
+      ...rec,
+      watchSegment: watchSegmentForRec({ rec, deferredIds, campaignsById, adsetsById }),
+    }));
   const recommendedScopeIds = new Set(
     recommendations.flatMap((rec) => [rec.campaignId, rec.adsetId]).filter(Boolean) as string[],
   );
@@ -686,6 +799,7 @@ export async function GET(request: NextRequest) {
       nonSales,
       archive,
       deferredIds: [...deferredIds],
+      watchingSegments: buildWatchingSegments(watching),
       counts: {
         actionNow: actionNow.length,
         watching: watching.length,

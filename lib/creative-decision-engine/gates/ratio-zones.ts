@@ -11,6 +11,7 @@ import {
   hasUpperFunnelStrength,
 } from "../funnel";
 import { finalizeDecision, type GateContext, type GateResult } from "./types";
+import { commercialMaturitySpendThreshold } from "./maturity";
 
 const TARGET_BAND_MIN_RATIO = 0.85;
 const WEAK_TARGET_MAX_RATIO = 0.95;
@@ -319,7 +320,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
   }
 
   if (ratio >= scaleRatioThreshold(profile)) {
-    const scaleSpendThreshold = profile.thresholds.scaleMinEvidenceSpend;
+    const scaleSpendThreshold = commercialMaturitySpendThreshold(ctx);
     const scalePurchasesThreshold = profile.thresholds.scaleMinPurchases;
     const recent7dRoas = input.recent7dRoas;
     const hasScaleSpendDepth =
@@ -368,7 +369,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
   }
 
   if (ratio >= TARGET_BAND_MIN_RATIO) {
-    const scaleSpendThreshold = profile.thresholds.scaleMinEvidenceSpend;
+    const scaleSpendThreshold = commercialMaturitySpendThreshold(ctx);
     const scalePurchasesThreshold = profile.thresholds.scaleMinPurchases;
     const recentRatio = recentToTotalRoasRatio(input);
 
@@ -428,6 +429,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
   }
 
   if (ratio < workingZoneMinRatio) {
+    const commercialMaturitySpend = commercialMaturitySpendThreshold(ctx);
     const hardCutSpend = profile.thresholds.hardCutSpend;
     const sustainedLoserSpend = profile.thresholds.sustainedLoserSpend;
     const severeLoserRatio = profile.thresholds.severeLoserRatio;
@@ -456,6 +458,20 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
         `ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
           ratio,
         )}% of target after $${formatSpend(input.spend)} spend (28d) — sustained loser.`,
+      );
+    }
+
+    if (input.spend >= commercialMaturitySpend) {
+      return terminal(
+        ctx,
+        "cut",
+        `ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
+          ratio,
+        )}% of target after $${formatSpend(
+          input.spend,
+        )} spend (28d) — loss-budget maturity reached at $${formatSpend(
+          commercialMaturitySpend,
+        )}; cut underperforming creative.`,
       );
     }
 

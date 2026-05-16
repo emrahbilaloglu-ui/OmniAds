@@ -8,6 +8,7 @@ import {
   Info,
   RefreshCw,
   ShieldCheck,
+  Target,
   type LucideIcon,
 } from "lucide-react";
 import { PulseStrip } from "@/components/common/briefing";
@@ -247,21 +248,77 @@ function KpiTile({
 
 function EngineStatusPill({ pulse }: { pulse: MetaPulsePayload }) {
   const calibratedAgo = relativeTime(pulse.engineLastRun);
+  const health = pulse.snapshotHealth;
   const ageMs = pulse.engineLastRun ? Date.now() - new Date(pulse.engineLastRun).getTime() : null;
   const ageDays = ageMs == null || !Number.isFinite(ageMs) ? null : ageMs / 86_400_000;
-  const tone: ChipTone = ageDays == null ? "neutral" : ageDays <= 7 ? "success" : ageDays <= 14 ? "warning" : "danger";
-  const status = ageDays == null ? "Syncing" : ageDays <= 7 ? "Live" : "Stale";
+  const tone: ChipTone = health
+    ? health.status === "fresh"
+      ? "success"
+      : health.status === "stale" || health.status === "engine_version_mismatch"
+        ? "warning"
+        : "danger"
+    : ageDays == null ? "neutral" : ageDays <= 7 ? "success" : ageDays <= 14 ? "warning" : "danger";
+  const status = health
+    ? health.status === "fresh"
+      ? "Live"
+      : health.status === "engine_version_mismatch"
+        ? "Version stale"
+        : health.status === "missing"
+          ? "Missing"
+          : "Stale"
+    : ageDays == null ? "Syncing" : ageDays <= 7 ? "Live" : "Stale";
   const versionLabel = pulse.engineVersion?.trim() ? pulse.engineVersion : "Meta engine";
 
   return (
     <PulseTooltip
       title="Engine status"
-      body={`${pulse.engineVersion} · ${calibratedAgo ? `calibrated ${calibratedAgo}` : "calibration time unavailable"}`}
+      body={[
+        `${pulse.engineVersion} · ${calibratedAgo ? `calibrated ${calibratedAgo}` : "calibration time unavailable"}`,
+        health?.latestSnapshotDate ? `snapshot ${health.latestSnapshotDate}` : null,
+        health?.staleReason ?? null,
+      ].filter(Boolean).join(" · ")}
     >
       <span className={chipClassName(tone)}>
         <ShieldCheck className="inline-block shrink-0" size={11} aria-hidden="true" />
         {versionLabel} · {status}
       </span>
+    </PulseTooltip>
+  );
+}
+
+function LabelCoveragePill({ pulse }: { pulse: MetaPulsePayload }) {
+  const coverage = pulse.labelCoverage;
+  if (!coverage || coverage.activeCampaigns === 0) return null;
+  const complete = coverage.unlabeledCampaigns === 0;
+  return (
+    <PulseTooltip
+      title="Campaign label coverage"
+      body={`${coverage.labeledCampaigns}/${coverage.activeCampaigns} active campaigns have Main/Test/Mixed context.${coverage.latestUpdatedAt ? ` Last label update ${relativeTime(coverage.latestUpdatedAt) ?? coverage.latestUpdatedAt}.` : ""}`}
+    >
+      <a href="#campaign-labels" className={chipClassName(complete ? "success" : "warning")}>
+        <Info className="inline-block shrink-0" size={10} aria-hidden="true" />
+        Labels {coverage.labeledCampaigns}/{coverage.activeCampaigns}
+      </a>
+    </PulseTooltip>
+  );
+}
+
+function TargetAnchorPill({ pulse }: { pulse: MetaPulsePayload }) {
+  const target = pulse.targetAnchor;
+  const configured = target?.configured === true || pulse.roas.target_source === "commercial_truth";
+  return (
+    <PulseTooltip
+      title="Commercial target anchor"
+      body={
+        configured
+          ? "Commercial target or break-even anchor is configured for hard scale and cut calibration."
+          : "No target pack anchor is configured. Hard commercial actions remain capped or review-bound."
+      }
+    >
+      <a href="/commercial-truth" className={chipClassName(configured ? "success" : "warning")}>
+        <Target className="inline-block shrink-0" size={10} aria-hidden="true" />
+        {configured ? "Targets set" : "Targets missing"}
+      </a>
     </PulseTooltip>
   );
 }
@@ -516,6 +573,8 @@ export function MetaPulse({
         <div className="flex items-center gap-1.5 flex-wrap" data-pulse-band="status">
           <Divider />
           {pulse ? <EngineStatusPill pulse={pulse} /> : null}
+          {pulse ? <LabelCoveragePill pulse={pulse} /> : null}
+          {pulse ? <TargetAnchorPill pulse={pulse} /> : null}
           {pulse ? <TrackingHealthPill pulse={pulse} /> : null}
           {pulse?.operatingMode ? (
             <span className={chipClassName(modeTone(pulse.operatingMode))}>Mode: {titleCase(pulse.operatingMode)}</span>

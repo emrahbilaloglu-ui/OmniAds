@@ -8,6 +8,12 @@ import {
 } from "@/lib/meta/operating-mode";
 import { isInBriefing, parseBriefingStatusFilter } from "@/lib/meta/briefing-filter";
 import { META_RECOMMENDATION_ENGINE_VERSION } from "@/lib/meta/recommendations";
+import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
+import type {
+  MetaLabelCoverage,
+  MetaSnapshotHealth,
+  MetaTargetAnchor,
+} from "@/components/meta/redesign/types";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +86,38 @@ async function readCommercialTruthTargetRoas(businessId: string) {
   return positiveNumberOrNull(row?.target_roas);
 }
 
+async function readCommercialTruthTargetAnchor(businessId: string): Promise<MetaTargetAnchor> {
+  const sql = getDb();
+  const [row] = (await sql`
+    SELECT
+      target_roas,
+      break_even_roas,
+      target_cpa,
+      break_even_cpa
+    FROM business_target_packs
+    WHERE business_id = ${businessId}
+    LIMIT 1
+  `) as Array<{
+    target_roas: number | string | null;
+    break_even_roas: number | string | null;
+    target_cpa: number | string | null;
+    break_even_cpa: number | string | null;
+  }>;
+  const targetRoas = positiveNumberOrNull(row?.target_roas);
+  const breakEvenRoas = positiveNumberOrNull(row?.break_even_roas);
+  const targetCpa = positiveNumberOrNull(row?.target_cpa);
+  const breakEvenCpa = positiveNumberOrNull(row?.break_even_cpa);
+  const configured = Boolean(targetRoas || breakEvenRoas || targetCpa || breakEvenCpa);
+  return {
+    configured,
+    source: configured ? "configured_targets" : "none",
+    targetRoas,
+    breakEvenRoas,
+    targetCpa,
+    breakEvenCpa,
+  };
+}
+
 async function readAccountMedianRoas(businessId: string) {
   const sql = getDb();
   const rows = (await sql`
@@ -122,15 +160,105 @@ async function readEngineMetadata(businessId: string) {
   const sql = getDb();
   const [latest] = (await sql`
     SELECT
-      MAX(created_at)::text AS engine_last_run,
-      (ARRAY_AGG(engine_version ORDER BY created_at DESC))[1] AS engine_version
+      snapshot_date::text AS latest_snapshot_date,
+      created_at::text AS engine_last_run,
+      engine_version
     FROM meta_decision_snapshots_daily
     WHERE business_id = ${businessId}
       AND kind = 'recommendation'
+    ORDER BY created_at DESC
+    LIMIT 1
   `) as Array<{ engine_last_run: string | null; engine_version: string | null }>;
+  const engineLastRun = latest?.engine_last_run ?? null;
+  const engineVersion = latest?.engine_version ?? META_RECOMMENDATION_ENGINE_VERSION;
   return {
-    engineLastRun: latest?.engine_last_run ?? null,
-    engineVersion: latest?.engine_version ?? META_RECOMMENDATION_ENGINE_VERSION,
+    latestSnapshotDate: (latest as { latest_snapshot_date?: string | null } | undefined)?.latest_snapshot_date ?? null,
+    engineLastRun,
+    snapshotHealth: buildSnapshotHealth({
+      latestSnapshotDate: (latest as { latest_snapshot_date?: string | null } | undefined)?.latest_snapshot_date ?? null,
+      lastRunAt: engineLastRun,
+      engineVersion,
+    }),
+    engineVersion,
+  };
+}
+
+function buildSnapshotHealth(input: {
+  latestSnapshotDate: string | null;
+  lastRunAt: string | null;
+  engineVersion: string | null;
+}): MetaSnapshotHealth {
+  const parsed = input.lastRunAt ? Date.parse(input.lastRunAt) : NaN;
+  const ageHours = Number.isFinite(parsed) ? Math.max(0, (Date.now() - parsed) / 3_600_000) : null;
+  const isCurrentEngineVersion = input.engineVersion === META_RECOMMENDATION_ENGINE_VERSION;
+  let status: MetaSnapshotHealth["status"] = "fresh";
+  let staleReason: string | null = null;
+  if (!input.lastRunAt) {
+    status = "missing";
+    staleReason = "No persisted recommendation snapshot exists for this business.";
+  } else if (!isCurrentEngineVersion) {
+    status = "engine_version_mismatch";
+    staleReason = "Latest snapshot was produced by an older recommendation engine version.";
+  } else if (ageHours == null || ageHours > 26) {
+    status = "stale";
+    staleReason = "Latest recommendation snapshot is older than the 26 hour SLA.";
+  }
+  return {
+    latestSnapshotDate: input.latestSnapshotDate,
+    lastRunAt: input.lastRunAt,
+    engineVersion: input.engineVersion,
+    currentEngineVersion: META_RECOMMENDATION_ENGINE_VERSION,
+    isCurrentEngineVersion,
+    ageHours,
+    status,
+    staleReason,
+  };
+}
+
+function latestTimestamp(values: Array<string | null | undefined>) {
+  const latest = values
+    .map((value) => (value ? Date.parse(value) : NaN))
+    .filter(Number.isFinite)
+    .sort((left, right) => right - left)[0];
+  return latest == null ? null : new Date(latest).toISOString();
+}
+
+function isActiveCampaign(row: { status?: unknown; effective_status?: unknown; effectiveStatus?: unknown }) {
+  const status = String(row.status ?? row.effective_status ?? row.effectiveStatus ?? "").toUpperCase();
+  return status === "ACTIVE";
+}
+
+async function readCampaignLabelCoverage(input: {
+  businessId: string;
+  rows: Array<{ id: string; status?: unknown; effective_status?: unknown; effectiveStatus?: unknown }>;
+}): Promise<MetaLabelCoverage> {
+  const activeIds = Array.from(
+    new Set(
+      input.rows
+        .filter(isActiveCampaign)
+        .map((row) => row.id)
+        .filter(Boolean),
+    ),
+  );
+  if (activeIds.length === 0) {
+    return {
+      activeCampaigns: 0,
+      labeledCampaigns: 0,
+      unlabeledCampaigns: 0,
+      latestUpdatedAt: null,
+    };
+  }
+  const labels = await readMetaCampaignLabels({
+    businessId: input.businessId,
+    campaignIds: activeIds,
+  });
+  const activeSet = new Set(activeIds);
+  const labeledIds = new Set(labels.filter((label) => activeSet.has(label.campaignId)).map((label) => label.campaignId));
+  return {
+    activeCampaigns: activeIds.length,
+    labeledCampaigns: labeledIds.size,
+    unlabeledCampaigns: Math.max(0, activeIds.length - labeledIds.size),
+    latestUpdatedAt: latestTimestamp(labels.map((label) => label.updatedAt)),
   };
 }
 
@@ -177,7 +305,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const [current, previous, d7, d14, d28, engineMetadata, trackingHealth, roasBenchmark] =
+  const [current, previous, d7, d14, d28, engineMetadata, trackingHealth, roasBenchmark, targetAnchor] =
     await Promise.all([
       getMetaCampaignsForRange({ businessId, startDate, endDate }),
       getMetaCampaignsForRange({
@@ -203,12 +331,26 @@ export async function GET(request: NextRequest) {
       readEngineMetadata(businessId).catch(() => ({
         engineLastRun: null,
         engineVersion: META_RECOMMENDATION_ENGINE_VERSION,
+        latestSnapshotDate: null,
+        snapshotHealth: buildSnapshotHealth({
+          latestSnapshotDate: null,
+          lastRunAt: null,
+          engineVersion: META_RECOMMENDATION_ENGINE_VERSION,
+        }),
       })),
       readTrackingHealth(businessId).catch(() => ({
         status: "unknown" as const,
         detail: "Tracking health is unavailable.",
       })),
       resolveBusinessTargetRoas(businessId),
+      readCommercialTruthTargetAnchor(businessId).catch(() => ({
+        configured: false,
+        source: "none" as const,
+        targetRoas: null,
+        breakEvenRoas: null,
+        targetCpa: null,
+        breakEvenCpa: null,
+      })),
     ]);
 
   const currentRows = (current.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
@@ -216,6 +358,15 @@ export async function GET(request: NextRequest) {
   const d7Rows = (d7.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
   const d14Rows = (d14.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
   const d28Rows = (d28.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
+  const labelCoverage = await readCampaignLabelCoverage({
+    businessId,
+    rows: currentRows as Array<{ id: string; status?: unknown; effective_status?: unknown; effectiveStatus?: unknown }>,
+  }).catch(() => ({
+    activeCampaigns: 0,
+    labeledCampaigns: 0,
+    unlabeledCampaigns: 0,
+    latestUpdatedAt: null,
+  }));
 
   const currentTotals = totals(currentRows);
   const previousTotals = totals(previousRows);
@@ -279,6 +430,9 @@ export async function GET(request: NextRequest) {
       seasonalRegime,
       engineLastRun: engineMetadata.engineLastRun,
       engineVersion: engineMetadata.engineVersion,
+      snapshotHealth: engineMetadata.snapshotHealth,
+      labelCoverage,
+      targetAnchor,
       trackingHealth,
       lastSyncAt: new Date().toISOString(),
       trackingAnomalyActive:

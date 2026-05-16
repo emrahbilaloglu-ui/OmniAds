@@ -158,8 +158,8 @@ export function makeAccountDecisionProfile(
     zeroConvBurner: 3,
     cutCandidate: 2,
     sustainedLoser: 3,
+    lossBudget: 2,
     hardCut: 5,
-    scaleEvidence: 3,
     scalePurchase: 1,
     winnerMemory: 1.5,
     recentSample: 0.5,
@@ -170,9 +170,9 @@ export function makeAccountDecisionProfile(
     zeroConvBurnerSpend: 200,
     cutCandidateSpend: 300,
     sustainedLoserSpend: 500,
+    commercialMaturitySpend: 200,
     hardCutSpend: 1000,
     recentSampleMinSpend: 50,
-    scaleMinEvidenceSpend: 600,
     winnerMemoryMinSpend: 150,
     scaleMinPurchases: 10,
     winnerMemoryMinPurchases: 3,
@@ -284,18 +284,13 @@ export function makeGateContext(
     makeAccountDecisionProfile({
       accountBaselines: {
         ...calibration,
-        matureSpendP50: businessConfig.maturitySpendThreshold,
-        winnerPurchaseP50:
-          businessConfig.maturityPurchasesThreshold / 0.5,
+        matureSpendP50: 300,
+        winnerPurchaseP50: 10,
       },
       thresholds: {
         recentSampleMinSpend: businessConfig.recentSampleMinSpend,
-        scaleMinEvidenceSpend: Math.max(
-          500,
-          businessConfig.maturitySpendThreshold * 2,
-        ),
-        scaleMinPurchases: businessConfig.maturityPurchasesThreshold * 2,
-        hardCutSpend: businessConfig.cutMaturitySpendThreshold,
+        scaleMinPurchases: 10,
+        hardCutSpend: 1000,
       },
     });
 

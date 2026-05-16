@@ -95,11 +95,8 @@ function mergeMultipliers(input: {
       defaults.sustainedLoser,
       overrides?.sustainedLoserMultiplier,
     ),
+    lossBudget: defaults.lossBudget,
     hardCut: overrideMultiplier(defaults.hardCut, overrides?.hardCutMultiplier),
-    scaleEvidence: overrideMultiplier(
-      defaults.scaleEvidence,
-      overrides?.scaleEvidenceMultiplier,
-    ),
     scalePurchase: overrideMultiplier(
       defaults.scalePurchase,
       overrides?.scalePurchaseMultiplier,
@@ -161,6 +158,10 @@ function buildEngineThresholds(input: {
       input.spendUnit,
       input.multipliers.sustainedLoser,
     ),
+    commercialMaturitySpend: spendThreshold(
+      input.spendUnit,
+      input.multipliers.lossBudget,
+    ),
     hardCutSpend: spendThreshold(
       input.spendUnit,
       input.multipliers.hardCut,
@@ -168,10 +169,6 @@ function buildEngineThresholds(input: {
     recentSampleMinSpend: spendThreshold(
       input.spendUnit,
       input.multipliers.recentSample,
-    ),
-    scaleMinEvidenceSpend: spendThreshold(
-      input.spendUnit,
-      input.multipliers.scaleEvidence,
     ),
     winnerMemoryMinSpend: spendThreshold(
       input.spendUnit,

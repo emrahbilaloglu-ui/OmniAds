@@ -13,7 +13,7 @@ import type {
 import type { EngineV3Flags } from "./feature-flags";
 import type { OperatorResponseResult } from "./operator-response-detection";
 
-export const ENGINE_VERSION = "v3-2026-05-06-phase-8";
+export const ENGINE_VERSION = "v3-2026-05-16-phase-h2";
 
 /** Final decision label. */
 export type DecisionLabel =
@@ -105,8 +105,8 @@ export interface EngineMultiplierSet {
   zeroConvBurner: number;
   cutCandidate: number;
   sustainedLoser: number;
+  lossBudget: number;
   hardCut: number;
-  scaleEvidence: number;
   scalePurchase: number;
   winnerMemory: number;
   recentSample: number;
@@ -117,9 +117,9 @@ export interface EngineThresholdSet {
   zeroConvBurnerSpend: number | null;
   cutCandidateSpend: number | null;
   sustainedLoserSpend: number | null;
+  commercialMaturitySpend: number | null;
   hardCutSpend: number | null;
   recentSampleMinSpend: number | null;
-  scaleMinEvidenceSpend: number | null;
   winnerMemoryMinSpend: number | null;
   scaleMinPurchases: number;
   winnerMemoryMinPurchases: number;
@@ -310,13 +310,6 @@ export interface BusinessConfig {
   // Aggression preset -> scale ratio threshold
   aggression: AggressionPreset;
   scaleRatioThreshold: number;
-
-  // Maturity gates
-  maturitySpendThreshold: number;
-  maturityPurchasesThreshold: number;
-
-  // Cut maturity
-  cutMaturitySpendThreshold: number;
 
   // Recent window sample size
   recentSampleMinSpend: number;

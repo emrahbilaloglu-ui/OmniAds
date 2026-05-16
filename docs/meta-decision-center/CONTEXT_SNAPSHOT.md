@@ -1,6 +1,6 @@
 # Meta Decision Center Context Snapshot
 
-Last updated: 2026-05-15
+Last updated: 2026-05-16
 Owner: Codex/Claude collaborative planning context
 Status: canonical local context document for the Meta + Creative decision-model workstream
 
@@ -35,7 +35,7 @@ path and ask the model to read it before planning or changing code.
 ## Current Repo State
 
 - Current implementation branch:
-  `main`, after Phase F.4 merge.
+  `main`, after Phase F.4 merge and deploy closure.
 - Phase A PR: `#162` (`[codex] Unify Meta funnel cohort resolution`), merged.
 - Phase A implementation commit: `fc8a8d7` (`Unify Meta funnel cohort resolution`).
 - Phase A context commit: `2a49ef1` (`Record Phase A PR context`).
@@ -117,9 +117,13 @@ path and ask the model to read it before planning or changing code.
 - Phase F.4 implementation commit: `a8313fed`
   (`Attach Meta empirical outcome summaries`).
 - Phase F.4 merge commit on `main`: `5d48acf644441fda15bc361510b75b9ad424c68a`.
-- Latest `main` verified after Phase F.4 merge:
-  `5d48acf6` (`Merge pull request #173 from
-  erhanrdn/phase-f-meta-empirical-readiness-integration`).
+- Phase F.4 post-merge context commit on `main`: `64793f81`
+  (`Record Phase F empirical integration merge context`).
+- Phase F.4 deploy-trigger commit on `main`: `fe1a9f8a`
+  (`Document optional Meta outcome evidence`).
+- Latest `main` verified and deployed after Phase F.4 merge:
+  `fe1a9f8aedb971d66e669888a907d7d2fcbd7940`
+  (`Document optional Meta outcome evidence`).
 - Phase E.1 branch started from `main` context commit:
   `c5617d99822312923b2b9a5fd13239826a76db24`.
 - Phase E.2 branch started after Phase E.1 merge/context:
@@ -157,7 +161,6 @@ path and ask the model to read it before planning or changing code.
   - `.claude/`
   - `_analysis/db-normalization-cleanup-audit/`
   - `_analysis/phase-4-meta-archive/`
-  - `_analysis/phase-a-meta-decision-hygiene/`
   - `_analysis/phase-meta-goal-aware/`
   - `_analysis/phase-meta-rnd/`
   - `scripts/_phase-meta-rnd-claude-personas.ts`
@@ -431,7 +434,7 @@ path and ask the model to read it before planning or changing code.
 
 ### PR / Review / Deploy Closure
 
-- Merged final Meta chain through current main SHA `0b79c222`.
+- Merged final Meta chain through current main SHA `fe1a9f8a`.
 - Merged Phase A through current main SHA `49716c3` via PR `#162`.
 - Closed stale superseded PRs `#112`, `#114`, `#115`, `#116`, `#117`.
 - Phase A triaged and closed old draft/review PRs `#80`, `#79`, `#77`, `#76`,
@@ -639,6 +642,7 @@ path and ask the model to read it before planning or changing code.
    - Phase F.2 is complete and merged in PR `#171`.
    - Phase F.3 is complete and merged in PR `#172`.
    - Phase F.4 is complete and merged in PR `#173`.
+   - Phase F.4 deploy closure is complete on SHA `fe1a9f8a`.
    - Visible confidence is still heuristic; F.4 intentionally does not change
      confidence scores.
    - There is no per-scenario precision/recall or 14d/30d outcome correlation.
@@ -965,8 +969,29 @@ where coverage is weak.
   - GitHub thread-aware review check: no review threads, reviews, or
     conversation comments.
   - Merged to `main` at `5d48acf6`.
-  - CI runtime deploy jobs were skipped by the workflow; no production
-    post-deploy smoke was performed for this phase.
+  - Immediate PR CI runtime deploy jobs were skipped by the workflow because the
+    merge itself did not publish a new runtime image.
+  - Post-merge context commit `64793f81` was docs-only. A manual deploy attempt
+    for that SHA failed at `Prepare runtime images` because no GHCR image
+    existed for the docs-only SHA.
+  - Runtime deploy was then triggered intentionally by the behavior-neutral
+    runtime commit `fe1a9f8a` (`Document optional Meta outcome evidence`).
+  - Push CI run `25947123898` succeeded for `fe1a9f8a`: `typecheck`, `test`,
+    runtime-change detection, `publish-worker-image`, `publish-web-image`, and
+    `dispatch-deploy` all passed.
+  - Hetzner deploy workflow run `25947244447` succeeded for
+    `fe1a9f8aedb971d66e669888a907d7d2fcbd7940`; deploy job steps through
+    runtime image preparation, migrations, web/worker recreation, local runtime
+    readiness, public build propagation, public ingress smoke, and post-deploy
+    verification dispatch all passed.
+  - Post-deploy verification workflow run `25947265036` succeeded for
+    `fe1a9f8aedb971d66e669888a907d7d2fcbd7940`.
+  - Live public build-info verification for provider scope `meta` returned:
+    `buildId=fe1a9f8aedb971d66e669888a907d7d2fcbd7940`,
+    `nodeEnv=production`, `deployGate=pass`, `releaseGate=pass`,
+    `missingExact=[]`, `runtimeRegistry.contractValid=true`,
+    `web.healthState=healthy`, `worker.healthState=healthy`, and
+    `repairPlan.eligible=true`.
 
 ### Phase G - Final Regression, Deploy, Context, And Golden-Case Maintenance
 

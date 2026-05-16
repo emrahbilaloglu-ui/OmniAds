@@ -1501,10 +1501,26 @@ where coverage is weak.
     `/api/auth/demo-login` returned HTTP `500`. This is recorded as an auth
     smoke blocker, not as UI confirmation.
   - GitHub PR #176 review threads: none.
-  - GitHub PR #176 CI passed: `typecheck`, `test`, and `build`; runtime image
-    and deploy jobs were skipped because runtime changes were not detected.
+  - GitHub PR #176 CI passed: `typecheck`, `test`, and `build`.
   - PR #176 merged with merge commit
     `d117a600c5ead26198ee6ec278ca0684f811b929`.
+  - Follow-up docs-only context commit
+    `3160d38cec7336df066001e82cf39bce097ec9db` was pushed to `main`.
+  - Initial deploy attempt for `3160d38cec7336df066001e82cf39bce097ec9db`
+    failed because no GHCR runtime image existed for the docs-only SHA
+    (`manifest unknown`). Runtime diff between `d117a600` and `3160d38c` is
+    only `docs/meta-decision-center/CONTEXT_SNAPSHOT.md`.
+  - Rerun of the merge-commit CI published web/worker images for `d117a600`.
+  - Hetzner deploy succeeded for `d117a600c5ead26198ee6ec278ca0684f811b929`
+    with `run_migrations=false`; deploy run `25956504162`.
+  - Post-deploy verification succeeded; run `25956515152`.
+  - Public build-info after deploy:
+    `buildId=d117a600c5ead26198ee6ec278ca0684f811b929`,
+    `deployGate=pass`, `releaseGate=pass`, `controlPlaneExactRows=true`,
+    `repairEligible=true`, `degradedServing=false`,
+    `selfHealState=healthy`.
+  - Public `/platforms/meta/creatives` returns expected auth redirect to
+    `/login?next=%2Fplatforms%2Fmeta%2Fcreatives`.
 
 ## Update Protocol
 

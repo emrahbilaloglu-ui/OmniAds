@@ -27,6 +27,23 @@ Evolve V2 into V2.1. Do not create a new standalone core.
 
 Reason: V2 already has a cleaner primary decision contract and safety posture. The missing work is data enrichment, adapter mapping, aggregate separation, compatibility, and tests.
 
+## Latest Resolver Context
+
+- 2026-05-16: hard scale is now separated from blocked near-scale candidates.
+  `scaleMinPurchases` remains account-history based, but hard scale also
+  requires account scale benchmark readiness: enough calibration sample and a
+  positive winner purchase P50. If this benchmark is thin or missing, the
+  resolver keeps the row as near-scale `keep` with server-emitted readiness
+  badges. Raw `scale` rows downgraded by soft-only hard-action eligibility also
+  receive the readiness badge; the UI must render those badges and must not
+  compute the decision.
+- 2026-05-16: `scale` is now explicitly split from execution action in the
+  briefing API. Test campaign scale renders `Promote to main`, Main campaign
+  scale renders `Scale budget`, Mixed campaign scale renders
+  `Review structure & scale`, and unlabeled would-be scale remains blocked by
+  the campaign-label guard. UI fallback may only map generic scale to promote
+  when the card is explicitly from a Test campaign.
+
 ## Known Risks
 
 - V2 input likely lacks data for confident `fix_delivery`, `fix_policy`, `watch_launch`, and reliable fatigue decisions.
@@ -52,4 +69,3 @@ Reason: V2 already has a cleaner primary decision contract and safety posture. T
 - Seasonality
 - Hook library
 - Automated queue/apply actions
-

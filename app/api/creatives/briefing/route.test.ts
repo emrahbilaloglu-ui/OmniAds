@@ -56,6 +56,24 @@ function makeFlags(overrides: Partial<EngineV3Flags> = {}): EngineV3Flags {
   };
 }
 
+function campaignLabel(
+  kind: "main" | "test" | "mixed",
+  testDimension: "creative" | null = null,
+) {
+  return {
+    businessId: "biz_1",
+    campaignId: "mock-campaign-001",
+    kind,
+    testDimension,
+    source: "user" as const,
+    providerAccountId: null,
+    campaignName: "Mock Campaign",
+    labeledBy: "user_1",
+    labeledAt: "2026-05-07T00:00:00.000Z",
+    updatedAt: "2026-05-07T00:00:00.000Z",
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   process.env.DECISION_ENGINE_V3_DATA_SOURCE = "mock";
@@ -71,20 +89,7 @@ beforeEach(() => {
     },
   });
   vi.mocked(resolveEngineV3Flags).mockResolvedValue(makeFlags());
-  vi.mocked(readMetaCampaignLabels).mockResolvedValue([
-    {
-      businessId: "biz_1",
-      campaignId: "mock-campaign-001",
-      kind: "main",
-      testDimension: null,
-      source: "user",
-      providerAccountId: null,
-      campaignName: "Mock Campaign",
-      labeledBy: "user_1",
-      labeledAt: "2026-05-07T00:00:00.000Z",
-      updatedAt: "2026-05-07T00:00:00.000Z",
-    },
-  ]);
+  vi.mocked(readMetaCampaignLabels).mockResolvedValue([campaignLabel("main")]);
   vi.mocked(readTriageState).mockResolvedValue({ rows: [], deferredCount: 0 });
   vi.mocked(getMetaCreativesApiPayload).mockResolvedValue({
     status: "ok",
@@ -178,6 +183,8 @@ describe("GET /api/creatives/briefing", () => {
       addToCart: 80,
       campaignKind: "main",
       campaignLabelStatus: "labeled",
+      label: "scale",
+      primary: { kind: "scale_budget", label: "Scale budget" },
     });
     expect(payload.pulse.engineVersion).toBeTruthy();
     expect(payload.statusFilter).toBe("active");
@@ -187,6 +194,47 @@ describe("GET /api/creatives/briefing", () => {
       request: expect.any(NextRequest),
       businessId: "biz_1",
       minRole: "guest",
+    });
+  });
+
+  it("maps scale primary actions by campaign kind server-side", async () => {
+    vi.mocked(readMetaCampaignLabels).mockResolvedValue([campaignLabel("test", "creative")]);
+
+    const testResponse = await GET(
+      new NextRequest("http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07"),
+    );
+    const testPayload = await testResponse.json();
+    const testCards = [
+      ...testPayload.actionNow,
+      ...testPayload.watching,
+      ...testPayload.healthy,
+    ];
+
+    expect(testCards[0]).toMatchObject({
+      campaignKind: "test",
+      label: "scale",
+      primary: { kind: "promote", label: "Promote to main" },
+    });
+
+    vi.mocked(readMetaCampaignLabels).mockResolvedValue([campaignLabel("mixed")]);
+
+    const mixedResponse = await GET(
+      new NextRequest("http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07"),
+    );
+    const mixedPayload = await mixedResponse.json();
+    const mixedCards = [
+      ...mixedPayload.actionNow,
+      ...mixedPayload.watching,
+      ...mixedPayload.healthy,
+    ];
+
+    expect(mixedCards[0]).toMatchObject({
+      campaignKind: "mixed",
+      label: "scale",
+      primary: {
+        kind: "controlled_scale",
+        label: "Review structure & scale",
+      },
     });
   });
 
@@ -219,6 +267,8 @@ describe("GET /api/creatives/briefing", () => {
     expect(cards[0]).toMatchObject({
       campaignLabelStatus: "unlabeled",
       campaignKind: null,
+      blockedActionType: "scale",
+      primary: { kind: "review", label: "Open evidence" },
     });
   });
 

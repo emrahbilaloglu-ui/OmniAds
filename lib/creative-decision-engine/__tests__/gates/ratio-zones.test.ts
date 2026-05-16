@@ -124,6 +124,9 @@ describe("ratioZonesGate - scale zone", () => {
     );
     expect(output.reason.startsWith("[near scale]")).toBe(true);
     expect(output.reason).toContain("purchases 8 below scale floor");
+    expect(output.badges.map((badge) => badge.type)).toContain(
+      "scale_readiness_blocked",
+    );
   });
 
   it("keeps scale-zone creatives without enough spend for scale", () => {
@@ -161,6 +164,81 @@ describe("ratioZonesGate - scale zone", () => {
     expect(output.label).toBe("keep");
     expect(output.reason.startsWith("[near scale]")).toBe(true);
     expect(output.reason).toContain("recent 7d ROAS missing");
+    expect(output.badges.map((badge) => badge.type)).toContain(
+      "scale_readiness_blocked",
+    );
+  });
+
+  it("blocks hard scale when account calibration is too thin for scale", () => {
+    const profile = makeAccountDecisionProfile({
+      accountBaselines: makeAccountCalibration({
+        matureCreativeCount: 12,
+        winnerPurchaseP50: 3,
+      }),
+      quality: {
+        commercialTruthReady: true,
+        calibrationReady: false,
+        metaAovQuality: "ready",
+        thresholdQuality: "ready",
+      },
+      thresholds: {
+        scaleMinPurchases: 3,
+      },
+    });
+
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(1.5, {
+          input: {
+            purchases: 10,
+            recent7dRoas: 2.2,
+          },
+          profile,
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.reason).toContain("account scale calibration thin");
+    expect(output.badges.map((badge) => badge.type)).toEqual(
+      expect.arrayContaining([
+        "scale_readiness_blocked",
+        "scale_calibration_thin",
+      ]),
+    );
+  });
+
+  it("blocks hard scale when the account winner purchase benchmark is missing", () => {
+    const profile = makeAccountDecisionProfile({
+      accountBaselines: makeAccountCalibration({
+        matureCreativeCount: 35,
+        winnerPurchaseP50: null,
+      }),
+      thresholds: {
+        scaleMinPurchases: 1,
+      },
+    });
+
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(1.5, {
+          input: {
+            purchases: 10,
+            recent7dRoas: 2.2,
+          },
+          profile,
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.reason).toContain("winner purchase benchmark unavailable");
+    expect(output.badges.map((badge) => badge.type)).toEqual(
+      expect.arrayContaining([
+        "scale_readiness_blocked",
+        "scale_calibration_thin",
+      ]),
+    );
   });
 
   it("keeps scale label unchanged and adds fatigued badge", () => {

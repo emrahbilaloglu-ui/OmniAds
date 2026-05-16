@@ -8,6 +8,7 @@ import type {
   DecisionKindSource,
   FormatFunnelBaseline,
 } from "./types";
+import { MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE } from "./config";
 
 export const MIN_KIND_CALIBRATION_MATURE_COUNT = 10;
 
@@ -55,7 +56,10 @@ function selectKindFunnelCalibration(input: {
   const format = input.creativeFormat ?? "overall";
   const kindFormat = kindSpecific.byFormat[format];
   const kindOverall = kindSpecific.byFormat.overall;
-  if (!hasUsableFunnelBaseline(kindFormat) && !hasUsableFunnelBaseline(kindOverall)) {
+  if (
+    !hasUsableFunnelBaseline(kindFormat) &&
+    !hasUsableFunnelBaseline(kindOverall)
+  ) {
     return null;
   }
 
@@ -92,8 +96,7 @@ export function selectKindAwareDecisionProfile(
   const campaignKind = input.campaignKind;
   const accountBaselines =
     profile.accountBaselinesByKind?.[campaignKind] ?? null;
-  const spendUnitProfile =
-    profile.spendUnitByKind?.[campaignKind] ?? null;
+  const spendUnitProfile = profile.spendUnitByKind?.[campaignKind] ?? null;
   const thresholds = profile.thresholdsByKind?.[campaignKind] ?? null;
   const hardActionEligibility =
     profile.hardActionEligibilityByKind?.[campaignKind] ?? null;
@@ -130,7 +133,9 @@ export function selectKindAwareDecisionProfile(
       hardActionEligibility,
       quality: {
         ...profile.quality,
-        calibrationReady: accountBaselines.matureCreativeCount >= 30,
+        calibrationReady:
+          accountBaselines.matureCreativeCount >=
+          MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
         metaAovQuality: accountBaselines.metaAovQuality,
       },
     },

@@ -5,11 +5,11 @@ import type {
   DecisionLabel,
   FunnelStage,
 } from "../types";
-import { SCALE_RATIO_BY_PRESET } from "../config";
 import {
-  computeFunnelDiagnosis,
-  hasUpperFunnelStrength,
-} from "../funnel";
+  MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
+  SCALE_RATIO_BY_PRESET,
+} from "../config";
+import { computeFunnelDiagnosis, hasUpperFunnelStrength } from "../funnel";
 import { finalizeDecision, type GateContext, type GateResult } from "./types";
 import { commercialMaturitySpendThreshold } from "./maturity";
 
@@ -42,6 +42,22 @@ const BELOW_BREAKEVEN_BADGE: DecisionBadge = {
   severity: "warning",
 };
 
+const SCALE_READINESS_BLOCKED_BADGE: DecisionBadge = {
+  type: "scale_readiness_blocked",
+  label: "Scale readiness blocked",
+  severity: "info",
+};
+
+const SCALE_CALIBRATION_THIN_BADGE: DecisionBadge = {
+  type: "scale_calibration_thin",
+  label: "Scale calibration thin",
+  severity: "warning",
+};
+
+function positiveFinite(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
 function formatRoas(value: number): string {
   return value.toFixed(2);
 }
@@ -61,6 +77,7 @@ function buildNearScaleBlockers(input: {
   purchasesThreshold: number;
   recent7dRoas: number | null;
   targetRoas: number;
+  scaleBenchmarkBlockers?: readonly string[];
 }): string[] {
   const blockers: string[] = [];
 
@@ -87,11 +104,40 @@ function buildNearScaleBlockers(input: {
     );
   }
 
+  blockers.push(...(input.scaleBenchmarkBlockers ?? []));
+
   return blockers;
 }
 
 function scaleRatioThreshold(profile: AccountDecisionProfile): number {
   return SCALE_RATIO_BY_PRESET[profile.preset];
+}
+
+function scaleBenchmarkBlockers(profile: AccountDecisionProfile): string[] {
+  const blockers: string[] = [];
+  const matureCount = profile.accountBaselines.matureCreativeCount;
+
+  if (!profile.quality.calibrationReady) {
+    blockers.push(
+      `account scale calibration thin (${matureCount} mature creatives; need ${MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE}+)`,
+    );
+  }
+
+  if (!positiveFinite(profile.accountBaselines.winnerPurchaseP50)) {
+    blockers.push("winner purchase benchmark unavailable");
+  }
+
+  return blockers;
+}
+
+function scaleReadinessBadges(
+  benchmarkBlockers: readonly string[],
+): DecisionBadge[] {
+  if (benchmarkBlockers.length === 0) {
+    return [SCALE_READINESS_BLOCKED_BADGE];
+  }
+
+  return [SCALE_READINESS_BLOCKED_BADGE, SCALE_CALIBRATION_THIN_BADGE];
 }
 
 function recentToTotalRoasRatio(input: CreativeInput): number | null {
@@ -118,13 +164,9 @@ function withLifecycleHint(
 ): string {
   const position = ctx.input.lifecyclePosition;
   const daysSincePeak = ctx.input.daysSincePeak;
-  const peakAge =
-    daysSincePeak != null ? ` (peak ${daysSincePeak}d ago)` : "";
+  const peakAge = daysSincePeak != null ? ` (peak ${daysSincePeak}d ago)` : "";
 
-  if (
-    label === "scale" &&
-    (position === "rising" || position === "plateau")
-  ) {
+  if (label === "scale" && (position === "rising" || position === "plateau")) {
     return appendReasonSuffix(reason, `; momentum: ${position}${peakAge}`);
   }
 
@@ -155,7 +197,7 @@ function hasUsableFunnelCalibration(ctx: GateContext): boolean {
   const overall = ctx.profile.funnelCalibration.byFormat.overall;
   return Boolean(
     (specific && specific.qualityStatus !== "insufficient") ||
-      (overall && overall.qualityStatus !== "insufficient"),
+    (overall && overall.qualityStatus !== "insufficient"),
   );
 }
 
@@ -323,6 +365,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
     const scaleSpendThreshold = commercialMaturitySpendThreshold(ctx);
     const scalePurchasesThreshold = profile.thresholds.scaleMinPurchases;
     const recent7dRoas = input.recent7dRoas;
+    const benchmarkBlockers = scaleBenchmarkBlockers(profile);
     const hasScaleSpendDepth =
       scaleSpendThreshold !== null && input.spend >= scaleSpendThreshold;
     const hasScalePurchaseDepth = purchases >= scalePurchasesThreshold;
@@ -332,6 +375,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
     if (
       hasScaleSpendDepth &&
       hasScalePurchaseDepth &&
+      benchmarkBlockers.length === 0 &&
       recent7dRoas !== null &&
       recent7dRoas >= ctx.effectiveTargetRoas
     ) {
@@ -356,6 +400,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       purchasesThreshold: scalePurchasesThreshold,
       recent7dRoas,
       targetRoas: ctx.effectiveTargetRoas,
+      scaleBenchmarkBlockers: benchmarkBlockers,
     });
 
     return terminal(
@@ -364,7 +409,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       `[near scale] ROAS ${formatRoas(roas)} (28d) above target (${formatRatioPercent(
         ratio,
       )}%) — ${blockers.join("; ")}; observe.`,
-      fatigueBadges,
+      [...fatigueBadges, ...scaleReadinessBadges(benchmarkBlockers)],
     );
   }
 
@@ -497,10 +542,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
   }
 
   const recent7dRoas = input.recent7dRoas;
-  if (
-    shouldRefreshOnFatigue(input, profile) &&
-    recent7dRoas !== null
-  ) {
+  if (shouldRefreshOnFatigue(input, profile) && recent7dRoas !== null) {
     return terminal(
       ctx,
       "refresh",
@@ -523,11 +565,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
   const hardCutSpend = profile.thresholds.hardCutSpend;
   const matureSpend = hardCutSpend !== null && input.spend >= hardCutSpend;
 
-  if (
-    breakevenRatio !== null &&
-    ratio < breakevenRatio &&
-    matureSpend
-  ) {
+  if (breakevenRatio !== null && ratio < breakevenRatio && matureSpend) {
     return terminal(
       ctx,
       "keep",
@@ -537,9 +575,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
         profile.thresholds.bottomQuartileRatio ?? 0.7,
       )}%) but below breakeven (${formatRoas(
         breakevenRoas ?? 0,
-      )} = ${formatRatioPercent(
-        breakevenRatio,
-      )}% of target) at $${formatSpend(
+      )} = ${formatRatioPercent(breakevenRatio)}% of target) at $${formatSpend(
         input.spend,
       )} mature spend — consider demote to test placement or refresh creative concept.`,
       [BELOW_BREAKEVEN_BADGE, WEAK_PERFORMANCE_BADGE, ...fatigueBadges],

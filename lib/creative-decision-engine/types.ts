@@ -54,11 +54,7 @@ export type SpendUnitSource =
   | "break_even_aov"
   | "insufficient";
 
-export type SpendUnitConfidence =
-  | "high"
-  | "medium"
-  | "low"
-  | "insufficient";
+export type SpendUnitConfidence = "high" | "medium" | "low" | "insufficient";
 
 export type MetaAovQuality =
   | "unavailable"
@@ -392,7 +388,10 @@ export interface AccountDecisionProfile {
    * Resolver gates must continue reading accountBaselines/funnelCalibration
    * until the kind-aware decision phase is explicitly implemented.
    */
-  accountBaselinesByKind?: Record<CalibrationCampaignKind, AccountCalibration | null>;
+  accountBaselinesByKind?: Record<
+    CalibrationCampaignKind,
+    AccountCalibration | null
+  >;
   /**
    * @phase-1c-kind-aware
    * Precomputed spend-unit resolutions and thresholds keyed by campaign kind.
@@ -408,7 +407,10 @@ export interface AccountDecisionProfile {
    * @phase-1b-data-only
    * Kind-segmented funnel baselines are data-only in P1b.
    */
-  funnelCalibrationByKind?: Record<CalibrationCampaignKind, AccountFunnelCalibration | null>;
+  funnelCalibrationByKind?: Record<
+    CalibrationCampaignKind,
+    AccountFunnelCalibration | null
+  >;
   scope: DecisionProfileScope;
 
   hardActionEligibility: HardActionEligibility;
@@ -449,6 +451,8 @@ export interface DecisionBadge {
     | "landing_page_issue"
     | "checkout_breakdown"
     | "upper_funnel_strong_site_weak"
+    | "scale_readiness_blocked"
+    | "scale_calibration_thin"
     | "unlabeled_campaign_context";
   label: string;
   severity: "info" | "warning";
@@ -462,7 +466,10 @@ export const DECISION_BADGE_DISPLAY: Record<
   fatigue_fatigued: { label: "Fatigued", severity: "warning" },
   cut_candidate: { label: "Cut candidate", severity: "warning" },
   low_ctr: { label: "Low CTR", severity: "info" },
-  truth_account_baseline: { label: "Truth: account baseline", severity: "info" },
+  truth_account_baseline: {
+    label: "Truth: account baseline",
+    severity: "info",
+  },
   truth_account_baseline_thin: {
     label: "Truth: thin account baseline",
     severity: "warning",
@@ -527,6 +534,14 @@ export const DECISION_BADGE_DISPLAY: Record<
   upper_funnel_strong_site_weak: {
     label: "Upper funnel strong, site weak",
     severity: "info",
+  },
+  scale_readiness_blocked: {
+    label: "Scale readiness blocked",
+    severity: "info",
+  },
+  scale_calibration_thin: {
+    label: "Scale calibration thin",
+    severity: "warning",
   },
   unlabeled_campaign_context: {
     label: "Campaign label missing",

@@ -1,6 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { buildEvidenceSections } from "@/components/creatives/briefing/card-utils";
+import {
+  BadgeChip,
+  buildEvidenceSections,
+} from "@/components/creatives/briefing/card-utils";
 import type { BriefingCreativeCard } from "@/components/creatives/briefing/types";
 
 describe("buildEvidenceSections", () => {
@@ -26,7 +29,9 @@ describe("buildEvidenceSections", () => {
       ageDays: 0,
     };
 
-    const funnel = buildEvidenceSections(card).find((section) => section.key === "funnel");
+    const funnel = buildEvidenceSections(card).find(
+      (section) => section.key === "funnel",
+    );
     const html = renderToStaticMarkup(<>{funnel?.content}</>);
 
     expect(html).toContain("4,310");
@@ -34,5 +39,20 @@ describe("buildEvidenceSections", () => {
     expect(html).toContain("3");
     expect(html).toContain("1");
     expect(html).not.toContain("124,300");
+  });
+});
+
+describe("BadgeChip", () => {
+  it("renders engine scale-readiness badges without falling back to decision labels", () => {
+    const html = renderToStaticMarkup(
+      <>
+        <BadgeChip label="scale_readiness_blocked" />
+        <BadgeChip label="scale_calibration_thin" />
+      </>,
+    );
+
+    expect(html).toContain("near scale");
+    expect(html).toContain("scale sample");
+    expect(html).not.toContain("out of scope");
   });
 });

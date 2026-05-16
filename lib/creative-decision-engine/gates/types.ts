@@ -40,6 +40,12 @@ interface BuildDecisionOutputInput {
   labelTransform?: DecisionLabelTransform | null;
 }
 
+const SCALE_READINESS_BLOCKED_BADGE: DecisionBadge = {
+  type: "scale_readiness_blocked",
+  label: "Scale readiness blocked",
+  severity: "info",
+};
+
 export function clampConfidence(
   confidenceBase: number,
   confidenceDeltas: readonly number[],
@@ -284,7 +290,10 @@ function applySoftOnlyLabel(input: {
     return {
       label: "keep",
       reason: `[near scale, soft-only] ${input.reason} (Reason for soft mode: ${reason})`,
-      badges: input.badges,
+      badges: appendDecisionBadgeOnce(
+        input.badges,
+        SCALE_READINESS_BLOCKED_BADGE,
+      ),
     };
   }
 
@@ -383,6 +392,10 @@ export function enforceHardActionEligibility(
       ...decision,
       label: "keep",
       reason: `[near scale, soft-only] ${decision.reason} (Reason for soft mode: ${profile.hardActionEligibility.reason})`,
+      badges: appendDecisionBadgeOnce(
+        decision.badges,
+        SCALE_READINESS_BLOCKED_BADGE,
+      ),
     };
   }
   if (decision.label === "cut" && !profile.hardActionEligibility.cut) {

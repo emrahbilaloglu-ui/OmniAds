@@ -4,16 +4,16 @@ import type {
   CreativeDecisionDataSource,
   DecisionCalibrationProfileConfig,
 } from "./data-source";
-import { MIN_CAMPAIGN_CALIBRATION_SAMPLE } from "./config";
+import {
+  MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
+  MIN_CAMPAIGN_CALIBRATION_SAMPLE,
+} from "./config";
 import { ENGINE_PRESET_MULTIPLIERS } from "./engine-presets";
 import {
   classifyMetaAovQuality,
   resolveSpendUnit,
 } from "./spend-unit-resolver";
-import {
-  resolveEngineV3Flags,
-  type EngineV3Flags,
-} from "./feature-flags";
+import { resolveEngineV3Flags, type EngineV3Flags } from "./feature-flags";
 import type {
   AccountCalibration,
   AccountDecisionProfile,
@@ -162,10 +162,7 @@ function buildEngineThresholds(input: {
       input.spendUnit,
       input.multipliers.lossBudget,
     ),
-    hardCutSpend: spendThreshold(
-      input.spendUnit,
-      input.multipliers.hardCut,
-    ),
+    hardCutSpend: spendThreshold(input.spendUnit, input.multipliers.hardCut),
     recentSampleMinSpend: spendThreshold(
       input.spendUnit,
       input.multipliers.recentSample,
@@ -314,24 +311,24 @@ export async function resolveAccountDecisionProfile(input: {
     businessId: input.businessId,
     asOf: input.asOf,
   });
-  const accountBaselinesByKindPromise =
-    input.dataSource.getAccountCalibrationAllKinds
-      ? input.dataSource
-          .getAccountCalibrationAllKinds({
-            businessId: input.businessId,
-            asOf: input.asOf,
-          })
-          .catch(() => undefined)
-      : Promise.resolve(undefined);
-  const funnelCalibrationByKindPromise =
-    input.dataSource.getAccountFunnelCalibrationAllKinds
-      ? input.dataSource
-          .getAccountFunnelCalibrationAllKinds({
-            businessId: input.businessId,
-            asOf: input.asOf,
-          })
-          .catch(() => undefined)
-      : Promise.resolve(undefined);
+  const accountBaselinesByKindPromise = input.dataSource
+    .getAccountCalibrationAllKinds
+    ? input.dataSource
+        .getAccountCalibrationAllKinds({
+          businessId: input.businessId,
+          asOf: input.asOf,
+        })
+        .catch(() => undefined)
+    : Promise.resolve(undefined);
+  const funnelCalibrationByKindPromise = input.dataSource
+    .getAccountFunnelCalibrationAllKinds
+    ? input.dataSource
+        .getAccountFunnelCalibrationAllKinds({
+          businessId: input.businessId,
+          asOf: input.asOf,
+        })
+        .catch(() => undefined)
+    : Promise.resolve(undefined);
   const [accountBaselinesByKind, funnelCalibrationByKind] = await Promise.all([
     accountBaselinesByKindPromise,
     funnelCalibrationByKindPromise,
@@ -404,8 +401,7 @@ export async function resolveAccountDecisionProfile(input: {
     accountBaselines,
     attributionAovAdjustmentMultiplier,
   });
-  const flags =
-    input.flags ?? (await resolveEngineV3Flags(input.businessId));
+  const flags = input.flags ?? (await resolveEngineV3Flags(input.businessId));
 
   const { preset, presetSource } = resolvePreset({
     targetPack,
@@ -459,12 +455,11 @@ export async function resolveAccountDecisionProfile(input: {
         multipliers,
         accountBaselines: calibration,
       });
-      hardActionEligibilityByKind[campaignKind] =
-        resolveHardActionEligibility({
-          spendUnitProfile,
-          metaAovQuality: calibration.metaAovQuality,
-          shadowOnly: flags.shadowOnly,
-        });
+      hardActionEligibilityByKind[campaignKind] = resolveHardActionEligibility({
+        spendUnitProfile,
+        metaAovQuality: calibration.metaAovQuality,
+        shadowOnly: flags.shadowOnly,
+      });
     }
   }
 
@@ -492,7 +487,9 @@ export async function resolveAccountDecisionProfile(input: {
     hardActionEligibility: finalHardActionEligibility,
     quality: {
       commercialTruthReady: positiveFinite(targetPack?.targetRoas ?? null),
-      calibrationReady: accountBaselines.matureCreativeCount >= 30,
+      calibrationReady:
+        accountBaselines.matureCreativeCount >=
+        MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
       metaAovQuality,
       thresholdQuality: resolveThresholdQuality({
         spendUnit: canonicalSpendUnitProfile.spendUnit,

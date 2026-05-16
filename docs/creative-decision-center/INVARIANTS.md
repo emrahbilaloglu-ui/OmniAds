@@ -15,6 +15,21 @@ These rules are hard gates for V2.1.
 - Scale spend maturity must use the same commercial loss-budget spend as cut.
 - Scale must additionally require purchase depth and recent performance hold;
   commercial spend maturity alone must not emit `scale`.
+- Hard scale must additionally require account winner-benchmark readiness:
+  calibration sample ready and positive winner purchase benchmark.
+- A scale-zone creative blocked by spend, purchase, recent hold, or benchmark
+  readiness remains a near-scale `keep` decision and must not be displayed as a
+  healthy no-op row.
+- Raw `scale` decisions downgraded by soft-only hard-action eligibility must
+  keep a scale-readiness badge so UI lane mapping remains server-driven.
+- A `scale` verdict and the executable primary action are separate contracts:
+  the resolver owns the verdict; the server-side briefing adapter owns the
+  campaign-kind-aware action label.
+- Test campaign scale may show `Promote to main`; Main campaign scale must show
+  a scale/budget action, not `Promote to main`; Mixed campaign scale must ask
+  for structure review before execution.
+- UI fallback logic must not map generic `scale` to `Promote to main` unless the
+  card has explicit `campaignKind === "test"`.
 - `hardCut` multipliers are severe-loss / scaled-loss thresholds, not the
   generic maturity gate.
 - Policy and delivery blockers override performance.
@@ -47,13 +62,13 @@ These rules are hard gates for V2.1.
 
 ## Metamorphic Tests
 
-| Change | Expected behavior |
-|---|---|
-| dataFreshness becomes stale | confidence goes down or action becomes `diagnose_data` |
-| benchmarkReliability strong -> weak | confidence goes down |
-| campaignStatus active -> paused | `fix_delivery` disappears |
-| reviewStatus -> disapproved | policy overrides performance |
-| launch age under threshold | hard scale/cut becomes `watch_launch` / `test_more` unless maturity threshold is met |
+| Change                              | Expected behavior                                                                    |
+| ----------------------------------- | ------------------------------------------------------------------------------------ |
+| dataFreshness becomes stale         | confidence goes down or action becomes `diagnose_data`                               |
+| benchmarkReliability strong -> weak | confidence goes down                                                                 |
+| campaignStatus active -> paused     | `fix_delivery` disappears                                                            |
+| reviewStatus -> disapproved         | policy overrides performance                                                         |
+| launch age under threshold          | hard scale/cut becomes `watch_launch` / `test_more` unless maturity threshold is met |
 
 ## Test Placement
 

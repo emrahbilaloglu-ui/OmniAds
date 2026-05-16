@@ -215,6 +215,7 @@ export function CrossPlacementCard({
             }
             const mode = mapBriefingPrimaryToLaunchpadMode(card);
             if (mode) onLaunchpadOpen?.({ card, mode });
+            else setEvidenceOpen(true);
           }}
         />
         <DeferTooltip>

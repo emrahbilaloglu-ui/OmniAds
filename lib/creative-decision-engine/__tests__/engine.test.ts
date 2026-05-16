@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decideCreative,
-  ENGINE_VERSION,
-  MockDataSource,
-} from "..";
+import { decideCreative, ENGINE_VERSION, MockDataSource } from "..";
 import {
   makeAccountDecisionProfile,
   makeAccountFunnelCalibration,
@@ -569,6 +565,7 @@ describe("creative-decision-engine v3", () => {
 
     expect(out.label).toBe("keep");
     expect(out.badges.map((badge) => badge.type)).toEqual([
+      "scale_readiness_blocked",
       "stale_calibration",
       "stale_lifecycle",
       "stale_decision_context",
@@ -704,6 +701,9 @@ describe("creative-decision-engine v3", () => {
 
     expect(out.label).toBe("keep");
     expect(out.reason).toContain("[near scale, soft-only]");
+    expect(out.badges.map((badge) => badge.type)).toContain(
+      "scale_readiness_blocked",
+    );
   });
 
   it("downgrades cut decisions in soft-only mode", async () => {
@@ -772,9 +772,7 @@ describe("creative-decision-engine v3", () => {
     );
 
     expect(out.label).toBe("keep");
-    expect(out.badges.map((badge) => badge.type)).toContain(
-      "delivery_limited",
-    );
+    expect(out.badges.map((badge) => badge.type)).toContain("delivery_limited");
     expect(out.reason).not.toContain("check delivery");
   });
 });

@@ -19,6 +19,40 @@ For Meta Decision Center work, start at
 context anchor and then to the Meta decisions, data-readiness matrix,
 invariants, golden cases, and Phase G closeout record.
 
+## Latest Local Creative Decision Update
+
+- Update date: 2026-05-16.
+- Scope: Creative hard-scale readiness after the account-relative
+  `scaleMinPurchases` discussion.
+- User decision: do not replace `scaleMinPurchases` with a fixed purchase
+  constant. Keep it account-history based, but prevent hard scale when the
+  account winner benchmark is missing or the account calibration sample is too
+  thin.
+- Implemented locally:
+  - `scaleMinPurchases` still comes from the account winner purchase P50 and
+    risk preset multiplier.
+  - Hard scale now requires row-level spend maturity, row-level purchase depth,
+    recent 7d ROAS hold, account calibration readiness, and positive
+    `winnerPurchaseP50`.
+  - Scale-zone rows that fail only readiness gates stay `keep` but receive
+    `scale_readiness_blocked` and, when benchmark/sample is weak,
+    `scale_calibration_thin`.
+  - Raw `scale` rows downgraded by soft-only hard-action eligibility also
+    receive `scale_readiness_blocked`, so they do not collapse into Healthy.
+  - The Creative Briefing API routes these blocked near-scale rows to Watching
+    instead of Healthy.
+  - The UI renders explicit `near scale` and `scale sample` badges and the
+    profile strip displays the scale floor and winner P50 benchmark.
+- Product meaning: hard scale is now visually distinct from "healthy keep".
+  UI still does not compute buyer actions; it only renders server-emitted
+  labels, lanes, badges, and profile thresholds.
+- Documentation updated in Creative Decision Center:
+  `DECISION_LOG.md` D015, `INVARIANTS.md`, and `GOLDEN_CASES.md` GC-051 to
+  GC-053.
+- Follow-up still open: a richer winner purchase distribution can later replace
+  the current P50-only benchmark with winner count and P25/P75 purchase depth,
+  but that requires extending calibration outputs.
+
 ## Latest Live Creative Decision Audit
 
 - Audit date: 2026-05-16.
@@ -1114,8 +1148,8 @@ where coverage is weak.
 
 ### Phase G - Final Regression, Deploy, Context, And Golden-Case Maintenance
 
-- Run the full verification stack: focused tests, `npx vitest run`, `npx tsc
-  --noEmit`, `npm run lint`, `npm run build`, GitHub CI, deploy, and
+- Run the full verification stack: focused tests, `npx vitest run`,
+  `npx tsc --noEmit`, `npm run lint`, `npm run build`, GitHub CI, deploy, and
   post-deploy smoke.
 - Update this context file after each phase/PR.
 - Maintain docs, not just tests: prune obsolete fixtures, expand
@@ -1149,8 +1183,8 @@ where coverage is weak.
 - Claude read-only recheck after documentation closeout returned no blockers:
   "Phase G complete for implemented A-F.4 scope"; remaining items are
   Phase H/product-scope limitations.
-- Phase G docs closeout commit `ceda07e3` (`Complete Meta Phase G
-  documentation closeout`) was pushed to `main`.
+- Phase G docs closeout commit `ceda07e3`
+  (`Complete Meta Phase G documentation closeout`) was pushed to `main`.
 - GitHub CI run `25947833866` for `ceda07e3` succeeded:
   `detect-runtime-changes`, `typecheck`, and `test` passed; `build`,
   `publish-web-image`, `publish-worker-image`, and `dispatch-deploy` were
@@ -1318,7 +1352,7 @@ where coverage is weak.
   - EMOLOS: current recheck still has `0` action cuts. Five previous
     buyer-cut candidates remain non-action because hard actions are
     `soft-only` under `threshold baseline meta_derived_aov has low confidence
-    (meta AOV low_sample)`, even when the internal reason says a cut would
+(meta AOV low_sample)`, even when the internal reason says a cut would
     otherwise be emitted.
   - TheSwaf: current recheck has `1` action cut (`signature`) and one
     prior buyer-cut mismatch (`EMB - AllRings`) now routes to `diagnose`
@@ -1360,6 +1394,57 @@ where coverage is weak.
     statistical purchase floor. Current `scaleMinPurchases` can be too low on
     thin accounts (`TheSwaf` = `1`, `EMOLOS` = `3`); a future change should
     consider a minimum floor such as `5` for scale only.
+
+### Phase H.4 - Campaign-Kind Scale Action Adapter
+
+- Status: local implementation in progress on branch
+  `creative-briefing-action-transform` as of 2026-05-16.
+- Trigger: user asked whether `move to main` and `scale` are separated. The
+  briefing route still mapped every engine `scale` label to `Promote to main`,
+  which is wrong for Main campaigns and unsafe for Mixed/unlabeled contexts.
+- Product decision:
+  - Engine verdict `scale` means winner-readiness.
+  - Execution action depends on campaign role:
+    - Test scale -> `Promote to main`.
+    - Main scale -> `Scale budget`.
+    - Mixed scale -> `Review structure & scale`.
+    - Unlabeled would-be scale -> campaign-label diagnostic/review path.
+  - UI must render the server-supplied primary action and must not recompute
+    buyer actions.
+- Local code changes:
+  - `app/api/creatives/briefing/route.ts` maps scale primary actions by
+    `campaignKind` server-side.
+  - Briefing card button styling treats `scale_budget` and `controlled_scale`
+    as scale-style actions.
+  - Briefing Launchpad fallback no longer maps generic scale to promote unless
+    `campaignKind === "test"`.
+  - Non-launchpad primary actions open evidence instead of becoming dead
+    buttons.
+- Creative docs updated locally:
+  - `docs/creative-decision-center/DECISION_LOG.md` adds D016.
+  - `docs/creative-decision-center/INVARIANTS.md` records the new scale/action
+    separation invariant.
+  - `docs/creative-decision-center/GOLDEN_CASES.md` adds GC-054 through GC-056.
+- Verification status:
+  - Focused regression passed:
+    `npx vitest run app/api/creatives/briefing/route.test.ts components/creatives/briefing/launchpad-bridge.test.ts components/creatives/briefing/ActionNowCard.test.tsx components/creatives/briefing/card-utils.test.tsx`
+    = `4` files, `19` tests.
+  - `npx tsc --noEmit` passed.
+  - Full regression passed: `npx vitest run` = `414` files passed, `4`
+    skipped; `2979` tests passed, `49` skipped.
+  - `npm run lint` passed.
+  - `npm run build` passed.
+  - PR review, merge, deploy, and UI redesign are not completed yet for this
+    phase.
+- Claude coordination:
+  - Claude independently agreed that every `scale` mapping to
+    `Promote to main` violates the server-owned action contract and that D016
+    should be an atomic P0 fix.
+  - Claude recommended splitting the larger Creative page redesign into
+    reviewable phases rather than one mega-diff. Current local direction:
+    preserve backend contracts, avoid UI-side decisions, improve visual
+    hierarchy/copy/evidence ergonomics, then separate larger routing/library
+    changes only if still needed.
 
 ## Update Protocol
 

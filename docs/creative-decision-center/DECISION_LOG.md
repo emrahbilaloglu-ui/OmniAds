@@ -199,3 +199,59 @@ requires `scaleMinPurchases` plus recent 7d ROAS holding before emitting
 Rejected alternative: keep `hardCut` as the generic maturity gate and add
 Test-only bypasses. That would mask the root issue for Main campaigns and keep
 cut/scale readiness coupled to the wrong threshold.
+
+## D015 — Gate Hard Scale By Account Winner Benchmark Readiness
+
+Decision: `scaleMinPurchases` remains account-history based, but hard scale now
+requires the account winner benchmark to be trustworthy. The first production
+gate uses the existing account calibration readiness sample and requires a
+positive `winnerPurchaseP50`; if either is weak or missing, the scale-zone
+creative stays `keep` with near-scale blockers and scale-readiness badges.
+
+Reason: a fixed purchase floor such as `5` would violate account-relative
+calibration and penalize low-volume accounts whose real winner distribution is
+lower. But falling back to `1` when the account winner benchmark is missing can
+emit hard scale from noise. Scale asks whether a winner is proven enough to
+replicate, so missing or thin benchmark evidence must block hard scale without
+changing cut maturity.
+
+Scope: no UI-side decision logic. The resolver emits the `keep` label, reason,
+and `scale_readiness_blocked` / `scale_calibration_thin` badges. The briefing
+API routes those near-scale blocks to Watching instead of Healthy so hard scale
+and blocked scale candidates are visibly distinct. Raw `scale` decisions that
+are downgraded by soft-only hard-action eligibility also receive
+`scale_readiness_blocked`.
+
+Future improvement: replace the current P50-only purchase benchmark with a
+winner distribution that includes winner count and P25/P75 purchase depth. Until
+that data is available, hard scale is allowed only when the current P50
+benchmark and calibration sample are ready.
+
+## D016 — Separate Scale Verdict From Campaign-Kind Execution Action
+
+Decision: the engine may still emit the semantic verdict `scale`, but the
+briefing API must adapt the primary UI action by campaign kind. Explicit Test
+campaigns map scale to `Promote to main`; explicit Main campaigns map scale to
+`Scale budget`; Mixed campaigns map scale to `Review structure & scale`; missing
+campaign labels remain blocked by the campaign-label guard and must not show a
+hard scale execution action.
+
+Reason: `scale` answers "is this creative a winner?". It does not by itself
+answer "where should the operator execute the next move?". In a Test campaign,
+the commercially correct next action is usually moving the winner into the Main
+structure. In a Main campaign, the next action is budget/volume scaling, not
+another promote-to-main CTA. Mixed campaigns need structure review before an
+execution instruction.
+
+Scope: this is an API/action-adapter change, not resolver math. UI components
+render the server-supplied primary action and may only use conservative fallbacks
+for legacy cards. The UI fallback may map generic `scale` to promote only when
+`campaignKind === "test"`.
+
+Rejected alternative: keep mapping every `scale` to `Promote to main`. That
+mislabels Main campaign winners and creates a silent path where UI copy implies a
+different operational move than the engine evidence supports.
+
+Deferred: batch/cohort-level diagnostics such as "100 test creatives all failed
+to find a target/breakeven winner" require aggregate account/campaign context.
+They should not be implemented as row-level creative action logic.

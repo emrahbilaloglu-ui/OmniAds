@@ -89,7 +89,15 @@ describe("launchpad briefing bridge", () => {
     expect(mapBriefingPrimaryToLaunchpadMode(card({ primary: { kind: "promote", label: "Promote" } }))).toBe("promote");
     expect(mapBriefingPrimaryToLaunchpadMode(card({ primary: { kind: "demote", label: "Demote" } }))).toBe("demote");
     expect(mapBriefingPrimaryToLaunchpadMode(card({ primary: { kind: "fresh_test", label: "Add to fresh test" } }))).toBe("fresh_test");
-    expect(mapBriefingPrimaryToLaunchpadMode(card({ primary: null, label: "scale" }))).toBe("promote");
+    expect(
+      mapBriefingPrimaryToLaunchpadMode(card({ primary: null, label: "scale", campaignKind: "test" })),
+    ).toBe("promote");
+    expect(
+      mapBriefingPrimaryToLaunchpadMode(card({ primary: null, label: "scale", campaignKind: "main" })),
+    ).toBeNull();
+    expect(
+      mapBriefingPrimaryToLaunchpadMode(card({ primary: { kind: "scale_budget", label: "Scale budget" }, label: "scale" })),
+    ).toBeNull();
     expect(mapBriefingPrimaryToLaunchpadMode(card({ primary: null, label: "test_more" }))).toBe("fresh_test");
     expect(mapBriefingPrimaryToLaunchpadMode(card({ primary: null, label: "cut" }))).toBeNull();
     expect(mapBriefingPrimaryToLaunchpadMode(card({ primary: { kind: "review", label: "Review" }, label: "out_of_scope" }))).toBeNull();

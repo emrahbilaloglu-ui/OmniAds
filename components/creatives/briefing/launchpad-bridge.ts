@@ -68,7 +68,7 @@ export function mapBriefingPrimaryToLaunchpadMode(
   if (primaryLabel.includes("duplicate")) return "duplicate";
 
   const label = asDecisionLabel(card.label) as DecisionLabel;
-  if (label === "scale") return "promote";
+  if (label === "scale" && card.campaignKind === "test") return "promote";
   if (label === "test_more") return "fresh_test";
   if (label === "rebuild") return "rebuild";
 

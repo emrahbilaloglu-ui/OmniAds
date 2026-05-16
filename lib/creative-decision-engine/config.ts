@@ -12,6 +12,10 @@ export const SUPPORTED_OBJECTIVES: ReadonlySet<CampaignObjective> = new Set([
 // Campaign scope falls back to account scope; per-business overrides are future work.
 export const MIN_CAMPAIGN_CALIBRATION_SAMPLE = 8;
 
+// Hard scale needs a broader account sample than cut maturity. This is a data
+// reliability gate, not a purchase-count floor.
+export const MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE = 30;
+
 export const SCALE_RATIO_BY_PRESET: Record<AggressionPreset, number> = {
   aggressive: 1.2,
   balanced: 1.3,

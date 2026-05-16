@@ -78,4 +78,20 @@ describe("ActionNowCard", () => {
     expect(html).toContain(">Main<");
     expect(html).toContain("bg-emerald-50");
   });
+
+  it("renders non-promote scale actions from the server without relabeling them", () => {
+    const html = renderToStaticMarkup(
+      <ActionNowCard
+        card={card({
+          campaignKind: "main",
+          campaignLabelStatus: "labeled",
+          primary: { kind: "scale_budget", label: "Scale budget" },
+        })}
+      />,
+    );
+
+    expect(html).toContain("Scale budget");
+    expect(html).toContain("data-kind=\"scale_budget\"");
+    expect(html).not.toContain("Promote to main");
+  });
 });

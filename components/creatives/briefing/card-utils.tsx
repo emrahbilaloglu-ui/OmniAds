@@ -48,8 +48,12 @@ const VALID_DECISION_LABELS = new Set<DecisionLabel>([
   "out_of_scope",
 ]);
 
-export function asDecisionLabel(value: unknown, fallback: DecisionLabel = "out_of_scope"): DecisionLabel {
-  return typeof value === "string" && VALID_DECISION_LABELS.has(value as DecisionLabel)
+export function asDecisionLabel(
+  value: unknown,
+  fallback: DecisionLabel = "out_of_scope",
+): DecisionLabel {
+  return typeof value === "string" &&
+    VALID_DECISION_LABELS.has(value as DecisionLabel)
     ? (value as DecisionLabel)
     : fallback;
 }
@@ -58,15 +62,27 @@ export function cardId(card: Pick<BriefingCreativeCard, "id" | "creativeId">) {
   return safeCardText(card.id) || safeCardText(card.creativeId) || "creative";
 }
 
-export function cardName(card: Pick<BriefingCreativeCard, "name" | "creativeName">) {
-  return safeCardText(card.name) || safeCardText(card.creativeName) || "Untitled creative";
+export function cardName(
+  card: Pick<BriefingCreativeCard, "name" | "creativeName">,
+) {
+  return (
+    safeCardText(card.name) ||
+    safeCardText(card.creativeName) ||
+    "Untitled creative"
+  );
 }
 
-export function cardCampaign(card: Pick<BriefingCreativeCard, "campaign" | "campaignName">) {
-  return safeCardText(card.campaign) || safeCardText(card.campaignName) || "Campaign";
+export function cardCampaign(
+  card: Pick<BriefingCreativeCard, "campaign" | "campaignName">,
+) {
+  return (
+    safeCardText(card.campaign) || safeCardText(card.campaignName) || "Campaign"
+  );
 }
 
-export function cardAdset(card: Pick<BriefingCreativeCard, "adset" | "adsetName">) {
+export function cardAdset(
+  card: Pick<BriefingCreativeCard, "adset" | "adsetName">,
+) {
   return safeCardText(card.adset) || safeCardText(card.adsetName) || "Ad set";
 }
 
@@ -80,7 +96,9 @@ export function numberOrZero(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
-export function confidenceValue(card: Pick<BriefingCreativeCard, "confidence">) {
+export function confidenceValue(
+  card: Pick<BriefingCreativeCard, "confidence">,
+) {
   return Math.max(0, Math.min(100, Math.round(numberOrZero(card.confidence))));
 }
 
@@ -95,7 +113,8 @@ export function Thumb({
 }) {
   const [bg, fg] = tileFor(name);
   const dim = size === "lg" ? 88 : size === "md" ? 72 : size === "sm" ? 64 : 28;
-  const fontSize = size === "lg" ? 22 : size === "md" ? 18 : size === "sm" ? 15 : 10;
+  const fontSize =
+    size === "lg" ? 22 : size === "md" ? 18 : size === "sm" ? 15 : 10;
 
   return (
     <div
@@ -123,8 +142,44 @@ export function BadgeChip({ label }: { label: DecisionLabel | string }) {
         className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800"
         title="Campaign label missing. Mark this campaign as Main, Test, or Mixed before hard actions."
       >
-        <AlertTriangle className="inline-block shrink-0" size={11} aria-hidden="true" />
+        <AlertTriangle
+          className="inline-block shrink-0"
+          size={11}
+          aria-hidden="true"
+        />
         campaign label
+      </span>
+    );
+  }
+
+  if (label === "scale_readiness_blocked") {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700"
+        title="This is a scale-zone creative, but the engine withheld hard scale until all scale readiness gates are met."
+      >
+        <Target
+          className="inline-block shrink-0"
+          size={11}
+          aria-hidden="true"
+        />
+        near scale
+      </span>
+    );
+  }
+
+  if (label === "scale_calibration_thin") {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800"
+        title="Hard scale is blocked because the account winner benchmark is missing or the calibration sample is too thin."
+      >
+        <Database
+          className="inline-block shrink-0"
+          size={11}
+          aria-hidden="true"
+        />
+        scale sample
       </span>
     );
   }
@@ -145,7 +200,10 @@ export function CampaignKindChip({
 }: {
   card: Pick<
     BriefingCreativeCard,
-    "campaignKind" | "campaignLabelStatus" | "campaignTestDimension" | "blockedActionType"
+    | "campaignKind"
+    | "campaignLabelStatus"
+    | "campaignTestDimension"
+    | "blockedActionType"
   >;
 }) {
   if (card.campaignLabelStatus === "no_campaign") return null;
@@ -203,7 +261,8 @@ export function Sparkline({
   width?: number;
   height?: number;
 }) {
-  const normalizedValues = Array.isArray(values) && values.length > 0 ? values : [0, 0];
+  const normalizedValues =
+    Array.isArray(values) && values.length > 0 ? values : [0, 0];
 
   return (
     <svg
@@ -214,7 +273,12 @@ export function Sparkline({
       preserveAspectRatio="none"
       aria-hidden="true"
     >
-      <path d={sparklinePath(normalizedValues)} fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d={sparklinePath(normalizedValues)}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
     </svg>
   );
 }
@@ -239,7 +303,10 @@ export function CtrBar({
           className={`absolute inset-y-0 left-0 ${isAbove ? "bg-emerald-500" : "bg-rose-500"}`}
           style={{ width: `${pct}%` }}
         />
-        <div className="absolute inset-y-0 w-px bg-slate-400" style={{ left: "50%" }} />
+        <div
+          className="absolute inset-y-0 w-px bg-slate-400"
+          style={{ left: "50%" }}
+        />
       </div>
       <span
         className={`font-mono tabular-nums text-[10.5px] font-medium ${
@@ -262,7 +329,9 @@ export function FatigueDot({ active }: { active?: boolean | null }) {
         active ? "text-amber-700" : "text-slate-400"
       }`}
     >
-      <span className={`w-1.5 h-1.5 rounded-full ${active ? "bg-amber-500" : "bg-slate-300"}`} />
+      <span
+        className={`w-1.5 h-1.5 rounded-full ${active ? "bg-amber-500" : "bg-slate-300"}`}
+      />
       {active ? "Fatigued" : "Stable"}
     </span>
   );
@@ -287,7 +356,10 @@ export function PrimaryActionButton({
 }) {
   const actionKind = kind || "review";
   const actionLabel = label || "Review";
-  const teleports = actionKind === "promote" || actionKind === "demote" || actionKind === "fresh_test";
+  const teleports =
+    actionKind === "promote" ||
+    actionKind === "demote" ||
+    actionKind === "fresh_test";
   const isCut = actionKind === "cut" || actionKind === "pause";
   const isFilled = primaryStyle === "filled";
   let toneClass: string;
@@ -296,7 +368,12 @@ export function PrimaryActionButton({
     toneClass = isFilled
       ? "bg-rose-600 text-white border-rose-600 hover:bg-rose-700"
       : "border-rose-300 text-rose-700 hover:bg-rose-50";
-  } else if (actionKind === "promote" || actionKind === "scale") {
+  } else if (
+    actionKind === "promote" ||
+    actionKind === "scale" ||
+    actionKind === "scale_budget" ||
+    actionKind === "controlled_scale"
+  ) {
     toneClass = isFilled
       ? "bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700"
       : "border-emerald-300 text-emerald-700 hover:bg-emerald-50";
@@ -323,7 +400,13 @@ export function PrimaryActionButton({
       }}
     >
       {actionLabel}
-      {teleports ? <ArrowRight className="ml-1 -mr-0.5 inline-block shrink-0" size={13} aria-hidden="true" /> : null}
+      {teleports ? (
+        <ArrowRight
+          className="ml-1 -mr-0.5 inline-block shrink-0"
+          size={13}
+          aria-hidden="true"
+        />
+      ) : null}
     </button>
   );
 }
@@ -413,17 +496,36 @@ function FunnelBody({ card }: { card: BriefingCreativeCard }) {
   const linkClicks = wholeNumberOrZero(card.linkClicks);
   const addToCart = wholeNumberOrZero(card.addToCart);
   const purchases = wholeNumberOrZero(card.purchases);
-  const denominator = impressions > 0 ? impressions : Math.max(linkClicks, addToCart, purchases);
+  const denominator =
+    impressions > 0 ? impressions : Math.max(linkClicks, addToCart, purchases);
 
   if (denominator <= 0) {
-    return <p className="text-[12px] text-slate-500">Funnel counts unavailable.</p>;
+    return (
+      <p className="text-[12px] text-slate-500">Funnel counts unavailable.</p>
+    );
   }
 
   const stages = [
-    { name: "Impressions", value: impressions, pct: funnelBarPct(impressions, denominator) },
-    { name: "Link clicks", value: linkClicks, pct: funnelBarPct(linkClicks, denominator) },
-    { name: "Add to cart", value: addToCart, pct: funnelBarPct(addToCart, denominator) },
-    { name: "Purchases", value: purchases, pct: funnelBarPct(purchases, denominator) },
+    {
+      name: "Impressions",
+      value: impressions,
+      pct: funnelBarPct(impressions, denominator),
+    },
+    {
+      name: "Link clicks",
+      value: linkClicks,
+      pct: funnelBarPct(linkClicks, denominator),
+    },
+    {
+      name: "Add to cart",
+      value: addToCart,
+      pct: funnelBarPct(addToCart, denominator),
+    },
+    {
+      name: "Purchases",
+      value: purchases,
+      pct: funnelBarPct(purchases, denominator),
+    },
   ];
 
   return (
@@ -432,7 +534,10 @@ function FunnelBody({ card }: { card: BriefingCreativeCard }) {
         <div key={stage.name} className="flex items-center gap-2 text-[12px]">
           <span className="w-24 text-slate-500">{stage.name}</span>
           <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-            <div className="h-full bg-blue-500" style={{ width: `${stage.pct}%` }} />
+            <div
+              className="h-full bg-blue-500"
+              style={{ width: `${stage.pct}%` }}
+            />
           </div>
           <span className="font-mono tabular-nums text-slate-900 w-20 text-right">
             {stage.value.toLocaleString("en-US")}
@@ -443,7 +548,9 @@ function FunnelBody({ card }: { card: BriefingCreativeCard }) {
   );
 }
 
-export function buildEvidenceSections(card: BriefingCreativeCard): EvidenceAccordionSection[] {
+export function buildEvidenceSections(
+  card: BriefingCreativeCard,
+): EvidenceAccordionSection[] {
   const label = asDecisionLabel(card.label);
   const confidence = confidenceValue(card);
   const reason = card.reason || "No engine reason supplied.";
@@ -455,7 +562,13 @@ export function buildEvidenceSections(card: BriefingCreativeCard): EvidenceAccor
     {
       key: "decision",
       title: "Decision",
-      icon: <Target className="inline-block shrink-0" size={13} aria-hidden="true" />,
+      icon: (
+        <Target
+          className="inline-block shrink-0"
+          size={13}
+          aria-hidden="true"
+        />
+      ),
       defaultOpen: true,
       content: (
         <div className="grid grid-cols-2 gap-3 text-[12px]">
@@ -481,13 +594,21 @@ export function buildEvidenceSections(card: BriefingCreativeCard): EvidenceAccor
             <div className="text-slate-700 leading-snug">{reason}</div>
             {card.labelTransform ? (
               <div className="mt-1 inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10.5px] font-medium text-amber-800">
-                <SkipForward className="inline-block shrink-0" size={11} aria-hidden="true" />
+                <SkipForward
+                  className="inline-block shrink-0"
+                  size={11}
+                  aria-hidden="true"
+                />
                 Test campaign refresh was transformed to cut
               </div>
             ) : null}
             {predictive ? (
               <div className="text-slate-500 italic mt-1 flex items-center gap-1">
-                <Sparkles className="inline-block shrink-0" size={11} aria-hidden="true" />
+                <Sparkles
+                  className="inline-block shrink-0"
+                  size={11}
+                  aria-hidden="true"
+                />
                 {predictive}
               </div>
             ) : null}
@@ -498,7 +619,13 @@ export function buildEvidenceSections(card: BriefingCreativeCard): EvidenceAccor
     {
       key: "inputs",
       title: "Inputs",
-      icon: <Database className="inline-block shrink-0" size={13} aria-hidden="true" />,
+      icon: (
+        <Database
+          className="inline-block shrink-0"
+          size={13}
+          aria-hidden="true"
+        />
+      ),
       content: (
         <div className="grid grid-cols-4 gap-3 text-[12px]">
           <Kv label="28d Spend">{formatCurrency(card.spend)}</Kv>
@@ -515,13 +642,25 @@ export function buildEvidenceSections(card: BriefingCreativeCard): EvidenceAccor
     {
       key: "funnel",
       title: "Funnel",
-      icon: <PieChart className="inline-block shrink-0" size={13} aria-hidden="true" />,
+      icon: (
+        <PieChart
+          className="inline-block shrink-0"
+          size={13}
+          aria-hidden="true"
+        />
+      ),
       content: <FunnelBody card={card} />,
     },
     {
       key: "engine",
       title: "Engine trail",
-      icon: <Activity className="inline-block shrink-0" size={13} aria-hidden="true" />,
+      icon: (
+        <Activity
+          className="inline-block shrink-0"
+          size={13}
+          aria-hidden="true"
+        />
+      ),
       content: (
         <ol className="space-y-1.5 text-[12px] text-slate-600 relative pl-4 border-l border-slate-200">
           <TrailItem
@@ -548,24 +687,39 @@ export function buildEvidenceSections(card: BriefingCreativeCard): EvidenceAccor
     {
       key: "operator",
       title: "Operator response",
-      icon: <User className="inline-block shrink-0" size={13} aria-hidden="true" />,
+      icon: (
+        <User className="inline-block shrink-0" size={13} aria-hidden="true" />
+      ),
       content: (
         <div className="text-[12px] text-slate-600 space-y-1">
           <div className="flex items-center gap-2">
             <span className="text-slate-400">
-              <Clock className="inline-block shrink-0" size={11} aria-hidden="true" />
+              <Clock
+                className="inline-block shrink-0"
+                size={11}
+                aria-hidden="true"
+              />
             </span>
-            First seen by Erhan: <span className="font-mono tabular-nums">2026-05-01 09:14</span>
+            First seen by Erhan:{" "}
+            <span className="font-mono tabular-nums">2026-05-01 09:14</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-slate-400">
-              <SkipForward className="inline-block shrink-0" size={11} aria-hidden="true" />
+              <SkipForward
+                className="inline-block shrink-0"
+                size={11}
+                aria-hidden="true"
+              />
             </span>
             Deferred once on 2026-05-04 (24h)
           </div>
           <div className="flex items-center gap-2">
             <span className="text-slate-400">
-              <MoreHorizontal className="inline-block shrink-0" size={11} aria-hidden="true" />
+              <MoreHorizontal
+                className="inline-block shrink-0"
+                size={11}
+                aria-hidden="true"
+              />
             </span>
             Action pending
           </div>
@@ -575,7 +729,13 @@ export function buildEvidenceSections(card: BriefingCreativeCard): EvidenceAccor
     {
       key: "provenance",
       title: "Provenance",
-      icon: <FileText className="inline-block shrink-0" size={13} aria-hidden="true" />,
+      icon: (
+        <FileText
+          className="inline-block shrink-0"
+          size={13}
+          aria-hidden="true"
+        />
+      ),
       content: (
         <div className="grid grid-cols-2 gap-3 text-[12px]">
           <Kv label="Creative ID">

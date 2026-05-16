@@ -19,7 +19,10 @@ import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-fla
 import { resolveDataSource } from "@/app/api/creatives/decision-engine-v3/data-source";
 import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
-import { isInBriefing, parseBriefingStatusFilter } from "@/lib/meta/briefing-filter";
+import {
+  isInBriefing,
+  parseBriefingStatusFilter,
+} from "@/lib/meta/briefing-filter";
 import { nDaysAgo, toISODate } from "@/lib/meta/creatives-row-mappers";
 import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import { readTriageState } from "@/lib/triage-events";
@@ -35,18 +38,41 @@ type BriefingLane = "action" | "watching" | "healthy";
 function badgeLabels(badges: DecisionBadge[]) {
   return badges.flatMap((badge) => {
     if (badge.type === "below_breakeven") return ["below_breakeven"];
-    if (badge.type === "fatigue_watch" || badge.type === "fatigue_fatigued") return ["fatigue"];
-    if (badge.type === "unlabeled_campaign_context") return ["unlabeled_campaign_context"];
+    if (badge.type === "fatigue_watch" || badge.type === "fatigue_fatigued")
+      return ["fatigue"];
+    if (badge.type === "unlabeled_campaign_context")
+      return ["unlabeled_campaign_context"];
+    if (badge.type === "scale_readiness_blocked")
+      return ["scale_readiness_blocked"];
+    if (badge.type === "scale_calibration_thin")
+      return ["scale_calibration_thin"];
     return [];
   });
 }
 
-function primaryActionForDecision(decision: DecisionOutput): { kind: string; label: string } {
+function primaryActionForDecision(decision: DecisionOutput): {
+  kind: string;
+  label: string;
+} {
   if (decision.label === "cut") return { kind: "cut", label: "Cut" };
-  if (decision.label === "scale") return { kind: "promote", label: "Promote to main" };
-  if (decision.label === "refresh") return { kind: "fresh_test", label: "Launch fresh test" };
-  if (decision.label === "test_more") return { kind: "fresh_test", label: "Launch new test" };
-  if (decision.label === "diagnose") return { kind: "review", label: "Open evidence" };
+  if (decision.label === "scale") {
+    if (decision.campaignKind === "test") {
+      return { kind: "promote", label: "Promote to main" };
+    }
+    if (decision.campaignKind === "main") {
+      return { kind: "scale_budget", label: "Scale budget" };
+    }
+    if (decision.campaignKind === "mixed") {
+      return { kind: "controlled_scale", label: "Review structure & scale" };
+    }
+    return { kind: "review", label: "Label campaign before scaling" };
+  }
+  if (decision.label === "refresh")
+    return { kind: "fresh_test", label: "Launch fresh test" };
+  if (decision.label === "test_more")
+    return { kind: "fresh_test", label: "Launch new test" };
+  if (decision.label === "diagnose")
+    return { kind: "review", label: "Open evidence" };
   return { kind: "review", label: "Review" };
 }
 
@@ -54,12 +80,23 @@ function safeNumber(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
-function decisionLane(decision: DecisionOutput, deferred: boolean): BriefingLane {
+function decisionLane(
+  decision: DecisionOutput,
+  deferred: boolean,
+): BriefingLane {
   if (deferred) return "watching";
+  if (
+    decision.label === "keep" &&
+    decision.badges.some((badge) => badge.type === "scale_readiness_blocked")
+  ) {
+    return "watching";
+  }
   if (decision.label === "keep") return "healthy";
   if (
     decision.confidence >= 70 &&
-    (decision.label === "scale" || decision.label === "cut" || decision.label === "refresh")
+    (decision.label === "scale" ||
+      decision.label === "cut" ||
+      decision.label === "refresh")
   ) {
     return "action";
   }
@@ -85,7 +122,11 @@ function cardForDecision(input: {
 }): BriefingCreativeCard {
   const { decision, creativeInput, row } = input;
   const label = decision.label as DecisionLabel;
-  const name = row?.name || decision.creativeName || creativeInput?.creativeName || decision.creativeId;
+  const name =
+    row?.name ||
+    decision.creativeName ||
+    creativeInput?.creativeName ||
+    decision.creativeId;
   const spend = safeNumber(row?.spend ?? decision.metrics.spend);
   const purchases = safeNumber(row?.purchases ?? decision.metrics.purchases);
   const roas = row?.roas ?? decision.metrics.roas ?? 0;
@@ -99,7 +140,11 @@ function cardForDecision(input: {
     realAdId: row?.real_ad_id ?? null,
     accountId: row?.account_id ?? null,
     providerAccountId: row?.account_id ?? null,
-    campaign: row?.campaign_name ?? row?.campaign_id ?? creativeInput?.campaignId ?? null,
+    campaign:
+      row?.campaign_name ??
+      row?.campaign_id ??
+      creativeInput?.campaignId ??
+      null,
     campaignName: row?.campaign_name ?? null,
     adset: row?.adset_name ?? row?.adset_id ?? null,
     adsetName: row?.adset_name ?? null,
@@ -185,10 +230,15 @@ function buildRowMap(rows: MetaCreativeApiRow[]) {
 }
 
 export async function GET(request: NextRequest) {
-  const businessId = request.nextUrl.searchParams.get("businessId")?.trim() ?? "";
-  const asOf = request.nextUrl.searchParams.get("asOf")?.trim() || toISODate(new Date());
-  const campaignId = request.nextUrl.searchParams.get("campaignId")?.trim() || undefined;
-  const statusFilter = parseBriefingStatusFilter(request.nextUrl.searchParams.get("status_filter"));
+  const businessId =
+    request.nextUrl.searchParams.get("businessId")?.trim() ?? "";
+  const asOf =
+    request.nextUrl.searchParams.get("asOf")?.trim() || toISODate(new Date());
+  const campaignId =
+    request.nextUrl.searchParams.get("campaignId")?.trim() || undefined;
+  const statusFilter = parseBriefingStatusFilter(
+    request.nextUrl.searchParams.get("status_filter"),
+  );
 
   if (!businessId) {
     return NextResponse.json(
@@ -248,7 +298,9 @@ export async function GET(request: NextRequest) {
       scopeType: "creative",
     }).catch(() => ({ rows: [], deferredCount: 0 })),
   ]);
-  const creativeIds = creativeRows.map((row) => row.creative_id).filter(Boolean);
+  const creativeIds = creativeRows
+    .map((row) => row.creative_id)
+    .filter(Boolean);
   const inputs = await dataSource.listCreativeInputs({
     businessId: resolvedBusinessId,
     asOf,
@@ -269,14 +321,22 @@ export async function GET(request: NextRequest) {
       statusFilter,
     );
   });
-  const scopedInputByCreativeId = new Map(scopedInputs.map((input) => [input.creativeId, input]));
+  const scopedInputByCreativeId = new Map(
+    scopedInputs.map((input) => [input.creativeId, input]),
+  );
   const creativeRowsById = buildRowMap(
     creativeRows.filter((row) =>
       isInBriefing(
         {
-          status: row.effective_status ?? scopedInputByCreativeId.get(row.creative_id)?.effectiveStatus ?? null,
+          status:
+            row.effective_status ??
+            scopedInputByCreativeId.get(row.creative_id)?.effectiveStatus ??
+            null,
           effective_status: row.effective_status ?? null,
-          effectiveStatus: row.effective_status ?? scopedInputByCreativeId.get(row.creative_id)?.effectiveStatus ?? null,
+          effectiveStatus:
+            row.effective_status ??
+            scopedInputByCreativeId.get(row.creative_id)?.effectiveStatus ??
+            null,
         },
         statusFilter,
       ),
@@ -284,7 +344,9 @@ export async function GET(request: NextRequest) {
   );
   const deferredIds = new Set(
     triageState.rows
-      .filter((row) => row.action === "deferred" && row.scopeType === "creative")
+      .filter(
+        (row) => row.action === "deferred" && row.scopeType === "creative",
+      )
       .map((row) => row.scopeId),
   );
   const campaignIds = Array.from(
@@ -356,7 +418,8 @@ export async function GET(request: NextRequest) {
         spendTarget: null,
         spendHistory: null,
         rolling7dRoasTarget: profile.spendUnitEvidence.targetRoas,
-        engineVersion: decisions[0]?.engineVersion ?? flags.presetOverride ?? "Engine v3",
+        engineVersion:
+          decisions[0]?.engineVersion ?? flags.presetOverride ?? "Engine v3",
         calibratedAgo: dataHealth.calibration.computedAt ?? null,
         trackingAnomalyActive,
         trackingDetail: trackingAnomalyActive

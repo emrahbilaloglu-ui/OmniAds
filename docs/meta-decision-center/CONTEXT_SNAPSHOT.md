@@ -14,6 +14,11 @@ smoke, or plan revision.
 When handing work to Claude or another AI session, explicitly provide this file
 path and ask the model to read it before planning or changing code.
 
+For Meta Decision Center work, start at
+`docs/meta-decision-center/START_HERE.md`. It points back here as the canonical
+context anchor and then to the Meta decisions, data-readiness matrix,
+invariants, golden cases, and Phase G closeout record.
+
 ## Source Rules To Preserve
 
 - Read `docs/creative-decision-center/START_HERE.md` before Creative Decision
@@ -157,6 +162,15 @@ path and ask the model to read it before planning or changing code.
   - `_analysis/phase-d-meta-signal-substrate/2026-05-15-signal-coverage.md`
 - Context preservation file:
   - `docs/meta-decision-center/CONTEXT_SNAPSHOT.md`
+- Phase G Meta docs:
+  - `docs/meta-decision-center/START_HERE.md`
+  - `docs/meta-decision-center/DECISION_LOG.md`
+  - `docs/meta-decision-center/DATA_READINESS.md`
+  - `docs/meta-decision-center/INVARIANTS.md`
+  - `docs/meta-decision-center/GOLDEN_CASES.md`
+  - `docs/meta-decision-center/PHASE_G_CLOSEOUT.md`
+- Phase G local artifacts:
+  - `_analysis/phase-g-meta-closeout/2026-05-16-fixture-prune-audit.md`
 - Untracked local artifacts exist and should not be deleted casually:
   - `.claude/`
   - `_analysis/db-normalization-cleanup-audit/`
@@ -451,6 +465,23 @@ path and ask the model to read it before planning or changing code.
 - Hetzner deploy passed.
 - Post-deploy verification passed.
 
+### Phase G - Final Regression, Deploy, Context, And Golden-Case Maintenance
+
+- Added Meta-specific canonical documentation:
+  - `docs/meta-decision-center/START_HERE.md`
+  - `docs/meta-decision-center/DECISION_LOG.md`
+  - `docs/meta-decision-center/DATA_READINESS.md`
+  - `docs/meta-decision-center/INVARIANTS.md`
+  - `docs/meta-decision-center/GOLDEN_CASES.md`
+  - `docs/meta-decision-center/PHASE_G_CLOSEOUT.md`
+- Recorded fixture prune evidence at
+  `_analysis/phase-g-meta-closeout/2026-05-16-fixture-prune-audit.md`.
+- Phase G explicitly defers unsupported scenario-library families to Phase H or
+  later when source signals are not reliable enough for safe hard actions.
+- Phase G does not change runtime behavior. It closes documentation,
+  verification, deploy-evidence, and context-preservation requirements for the
+  implemented A-F.4 chain.
+
 ### Phase A - Hygiene, Evidence, And Single-Source Cleanup
 
 - Branch: `phase-a-meta-decision-hygiene`.
@@ -659,6 +690,10 @@ path and ask the model to read it before planning or changing code.
    - Remaining scenario-library IDs are still unimplemented, especially
      audience/overlap, placement, cross-campaign, seasonal, and deeper
      controlled-scale variants.
+   - Phase G decision: these remaining IDs are deferred to Phase H or later
+     unless their required signals become populated and testable. They are not
+     hidden Phase G blockers because forcing hard actions without data would
+     violate the signal and automation invariants.
 
 3. Signal coverage gaps that still block additional scenario families:
    - Audience overlap, audience size/stage, lookalike, and entity-scoped
@@ -677,6 +712,7 @@ path and ask the model to read it before planning or changing code.
    - Controlled scale is anchored more safely after Phases B/D/E.1/E.2, but it
      still lacks enough ROAS trend, volatility, placement, and post-action
      outcome awareness for auto-execute.
+   - Phase G decision: deeper C1 automation/refactor remains Phase H or later.
 
 6. Meta-side refresh/cut semantics and Test-to-Main promotion:
    - Creative Test `refresh -> cut` semantics exist.
@@ -1004,6 +1040,33 @@ where coverage is weak.
   appropriate Meta Decision Center docs.
 - Acceptance: no phase is considered complete until code, tests, review, CI,
   deploy evidence, post-deploy evidence, and this context file are current.
+- Status: documentation closeout is now covered by:
+  - `docs/meta-decision-center/START_HERE.md`
+  - `docs/meta-decision-center/DECISION_LOG.md`
+  - `docs/meta-decision-center/DATA_READINESS.md`
+  - `docs/meta-decision-center/INVARIANTS.md`
+  - `docs/meta-decision-center/GOLDEN_CASES.md`
+  - `docs/meta-decision-center/PHASE_G_CLOSEOUT.md`
+- Obsolete fixture audit:
+  `_analysis/phase-g-meta-closeout/2026-05-16-fixture-prune-audit.md` records
+  that no current Creative/Meta fixture should be deleted in Phase G. Existing
+  tests still protect active kind-aware, label-transform, scenario, empirical,
+  and automation-readiness contracts.
+- Phase G local verification after documentation closeout:
+  - `npx vitest run lib/meta/empirical-outcomes.test.ts lib/meta/empirical-outcome-integration.test.ts lib/meta/decision-outcomes.test.ts lib/meta/automation-readiness.test.ts`
+    passed: 4 files, 21 tests.
+  - `npx tsc --noEmit` passed.
+  - `npx vitest run lib/meta components/meta app/api/meta` passed: 113 files,
+    1017 tests.
+  - `npx vitest run` passed: 413 files passed, 4 skipped; 2970 tests passed,
+    49 skipped.
+  - `npm run lint` passed.
+  - `npm run build` passed.
+  - `git diff --check` passed.
+- Phase G scope note: this closeout confirms implemented A-F.4 behavior,
+  verification, deploy evidence, and documentation hygiene. It does not claim
+  unsupported scenario families are automation-ready; those remain explicit
+  post-closeout product limitations until their signals exist.
 
 ## Update Protocol
 

@@ -29,14 +29,18 @@ import {
   InsightsPanel,
   LaunchpadOverlay,
   LaneHeader,
+  PhonePreview,
   PulseStrip,
   TrackingBlockerBanner,
   TrackingConfirmModal,
   buildAnomaliesWidget,
   buildEngineStatusWidget,
   buildTargetAnchorWidget,
+  deriveTileFormat,
+  deriveTileShape,
   type BulkAction,
   type InsightWidget,
+  type PhonePreviewPlacement,
 } from "@/components/common/briefing";
 import type { LaunchpadOverlayMode } from "@/components/common/briefing/LaunchpadOverlay";
 import type { LaneKey } from "@/components/common/briefing/types";
@@ -1587,6 +1591,17 @@ export function CreativesBriefingPage() {
         sections={activeEvidenceCard ? buildEvidenceSections(activeEvidenceCard) : []}
         variant="creative"
         presentation="drawer"
+        preview={
+          activeEvidenceCard ? (
+            <PhonePreview
+              shape={deriveTileShape(activeEvidenceCard)}
+              format={deriveTileFormat(activeEvidenceCard)}
+              name={cardName(activeEvidenceCard)}
+              meta={`${activeEvidenceCard.campaign ?? activeEvidenceCard.campaignName ?? ""} · ${activeEvidenceCard.adset ?? activeEvidenceCard.adsetName ?? ""}`}
+              placement={resolvePhonePlacement(activeEvidenceCard.bestPlacement ?? null)}
+            />
+          ) : undefined
+        }
         onClose={() => setEvidenceDrawerState(CLOSED_EVIDENCE_DRAWER_STATE)}
       />
       <CompareDrawerHost
@@ -1711,6 +1726,17 @@ function PulseScope() {
       />
     </button>
   );
+}
+
+function resolvePhonePlacement(
+  bestPlacement: string | null,
+): PhonePreviewPlacement | undefined {
+  if (!bestPlacement) return undefined;
+  const value = bestPlacement.toLowerCase();
+  if (value.includes("reels")) return "reels";
+  if (value.includes("story") || value.includes("stories")) return "stories";
+  if (value.includes("feed") || value.includes("home")) return "feed";
+  return undefined;
 }
 
 function BriefingToastViewport({ toast }: { toast: BriefingToast | null }) {

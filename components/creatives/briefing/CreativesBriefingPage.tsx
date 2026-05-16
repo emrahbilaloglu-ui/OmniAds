@@ -26,12 +26,17 @@ import {
   useDeferState,
   BulkToolbar,
   EvidencePopover,
+  InsightsPanel,
   LaunchpadOverlay,
   LaneHeader,
   PulseStrip,
   TrackingBlockerBanner,
   TrackingConfirmModal,
+  buildAnomaliesWidget,
+  buildEngineStatusWidget,
+  buildTargetAnchorWidget,
   type BulkAction,
+  type InsightWidget,
 } from "@/components/common/briefing";
 import type { LaunchpadOverlayMode } from "@/components/common/briefing/LaunchpadOverlay";
 import type { LaneKey } from "@/components/common/briefing/types";
@@ -884,6 +889,50 @@ export function CreativesBriefingPage() {
     normalizedBriefingData?.pulse?.trackingDetail ||
     normalizedBriefingData?.pulse?.trackingAnomalyDetail ||
     undefined;
+
+  const insightWidgets = useMemo<InsightWidget[]>(() => {
+    const widgets: InsightWidget[] = [];
+    const targetRoas = engineProfile?.spendUnitEvidence?.targetRoas ?? null;
+    const breakEvenRoas = engineProfile?.spendUnitEvidence?.breakEvenRoas ?? null;
+    const targetWidget = buildTargetAnchorWidget(
+      engineProfile
+        ? {
+            configured: targetRoas != null || breakEvenRoas != null,
+            targetRoas,
+            breakEvenRoas,
+            setAnchorHref: "/commercial-truth",
+          }
+        : null,
+    );
+    if (targetWidget) widgets.push(targetWidget);
+
+    const engineWidget = buildEngineStatusWidget(
+      normalizedBriefingData?.pulse
+        ? {
+            version: normalizedBriefingData.pulse.engineVersion ?? null,
+            lastRunAt: null,
+            operatingMode: normalizedBriefingData.pulse.calibratedAgo
+              ? `calibrated ${normalizedBriefingData.pulse.calibratedAgo}`
+              : null,
+            snapshotStatus: null,
+          }
+        : null,
+    );
+    if (engineWidget) widgets.push(engineWidget);
+
+    const anomaliesWidget = buildAnomaliesWidget({
+      activeCount: trackingAnomalyActive ? 1 : 0,
+      detail: trackingBlockerDetail,
+    });
+    if (anomaliesWidget) widgets.push(anomaliesWidget);
+
+    return widgets;
+  }, [
+    engineProfile,
+    normalizedBriefingData?.pulse,
+    trackingAnomalyActive,
+    trackingBlockerDetail,
+  ]);
   const assetLibraryPayload = assetLibraryQuery.data;
   const assetLibraryRows = Array.isArray(assetLibraryPayload)
     ? assetLibraryPayload
@@ -1544,6 +1593,10 @@ export function CreativesBriefingPage() {
         onClose={() => setCompareDrawerState(CLOSED_COMPARE_DRAWER_STATE)}
         onCutCards={handleBulkCutOpen}
         onLaunchpad={handleBulkLaunchpadTeleport}
+      />
+      <InsightsPanel
+        widgets={insightWidgets}
+        testId="creatives-insights-panel"
       />
       <BriefingToastViewport toast={toast} />
     </div>

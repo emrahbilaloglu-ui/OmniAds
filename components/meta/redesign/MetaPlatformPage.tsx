@@ -7,11 +7,17 @@ import { AlertTriangle, GitCompare, Plus, RefreshCw, Rocket, SlidersHorizontal, 
 import {
   BulkToolbar,
   CompareDrawer,
+  InsightsPanel,
   LaneHeader,
   TrackingConfirmModal,
   TrackingBlockerBanner,
+  buildAnomaliesWidget,
+  buildEngineStatusWidget,
+  buildLabelsCoverageWidget,
+  buildTargetAnchorWidget,
   useDeferState,
   type CompareDrawerItem,
+  type InsightWidget,
 } from "@/components/common/briefing";
 import type { MetaAnomaly } from "@/lib/meta/anomalies";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
@@ -666,6 +672,62 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
           pulseQuery.data?.trackingHealth.status === "degraded"),
     );
 
+  const insightWidgets = useMemo<InsightWidget[]>(() => {
+    const pulse = pulseQuery.data;
+    const widgets: InsightWidget[] = [];
+    const labels = buildLabelsCoverageWidget(
+      pulse?.labelCoverage
+        ? {
+            activeCampaigns: pulse.labelCoverage.activeCampaigns,
+            labeledCampaigns: pulse.labelCoverage.labeledCampaigns,
+            unlabeledCampaigns: pulse.labelCoverage.unlabeledCampaigns,
+            fixHref: "#campaign-labels",
+          }
+        : null,
+    );
+    if (labels) widgets.push(labels);
+
+    const targetAnchor = buildTargetAnchorWidget(
+      pulse?.targetAnchor
+        ? {
+            configured:
+              pulse.targetAnchor.configured ||
+              pulse.roas.target_source === "commercial_truth",
+            targetRoas: pulse.targetAnchor.targetRoas,
+            breakEvenRoas: pulse.targetAnchor.breakEvenRoas,
+            median: pulse.roas.median ?? null,
+            setAnchorHref: "/commercial-truth",
+          }
+        : null,
+    );
+    if (targetAnchor) widgets.push(targetAnchor);
+
+    const engine = buildEngineStatusWidget(
+      pulse
+        ? {
+            version: pulse.engineVersion ?? null,
+            lastRunAt: pulse.engineLastRun ?? null,
+            operatingMode: pulse.operatingMode ?? null,
+            snapshotStatus: pulse.snapshotHealth?.status ?? null,
+          }
+        : null,
+    );
+    if (engine) widgets.push(engine);
+
+    const anomaliesWidget = buildAnomaliesWidget({
+      activeCount: anomalies.length,
+      detail: pulseQuery.data?.trackingHealth?.detail,
+      onView: () => {
+        if (anomalies[0]) {
+          setDrillItem({ mode: "anomaly", anomaly: anomalies[0] });
+        }
+      },
+    });
+    if (anomaliesWidget) widgets.push(anomaliesWidget);
+
+    return widgets;
+  }, [pulseQuery.data, anomalies]);
+
   const setWindow = (next: MetaWindowKey) => {
     const params = new URLSearchParams(searchParams.toString());
     if (next === "28d") {
@@ -1186,6 +1248,8 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
           </>
         }
       />
+
+      <InsightsPanel widgets={insightWidgets} testId="meta-insights-panel" />
 
       <TrackingConfirmModal
         open={pendingPrimaryRec != null}

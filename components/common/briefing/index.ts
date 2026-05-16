@@ -14,3 +14,5 @@ export * from "@/components/common/briefing/DeferChip";
 export * from "@/components/common/briefing/DeferTooltip";
 export * from "@/components/common/briefing/PulseStrip";
 export * from "@/components/common/briefing/BulkToolbar";
+export * from "@/components/common/briefing/InsightsPanel";
+export * from "@/components/common/briefing/InsightsWidgets";

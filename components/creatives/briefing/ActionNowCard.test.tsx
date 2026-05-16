@@ -32,7 +32,7 @@ function card(overrides: Partial<BriefingCreativeCard> = {}): BriefingCreativeCa
 }
 
 describe("ActionNowCard", () => {
-  it("renders the tile shell with name, primary action, metrics and select control", () => {
+  it("renders the tile shell with name, primary action, metrics, confidence pill, and select control", () => {
     const html = renderToStaticMarkup(<ActionNowCard card={card()} selected />);
 
     expect(html).toContain("Aphrodite Necklace Hook v3");
@@ -43,6 +43,7 @@ describe("ActionNowCard", () => {
     expect(html).toContain('data-action="evidence"');
     expect(html).toContain("ROAS");
     expect(html).toContain("3.42×");
+    expect(html).toContain(">88%<");
   });
 
   it("uses a portrait thumb shape when the best placement is Reels", () => {

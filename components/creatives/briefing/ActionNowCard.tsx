@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ChevronDown, Clock } from "lucide-react";
 import {
   BriefingTile,
+  ConfidencePill,
   DecisionLabelChip,
   DeferChip,
   DeferTooltip,
@@ -23,6 +24,7 @@ import {
   cardCampaign,
   cardId,
   cardName,
+  confidenceValue,
   numberOrZero,
 } from "@/components/creatives/briefing/card-utils";
 import {
@@ -69,6 +71,7 @@ export function ActionNowCard({
   const [localEvidenceOpen, setLocalEvidenceOpen] = useState(false);
   const label = asDecisionLabel(card.label);
   const name = cardName(card);
+  const confidence = confidenceValue(card);
   const badges = Array.isArray(card.badges) ? card.badges : [];
   const actionCardId = cardId(card);
   const scopeId = getCreativeScopeId(card);
@@ -108,6 +111,7 @@ export function ActionNowCard({
       {badges.map((badge) => (
         <BadgeChip key={String(badge)} label={badge} />
       ))}
+      <ConfidencePill confidence={confidence} size="sm" />
     </>
   );
 

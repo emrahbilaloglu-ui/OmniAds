@@ -36,9 +36,11 @@ import {
   buildAnomaliesWidget,
   buildEngineStatusWidget,
   buildTargetAnchorWidget,
+  computeRangeFromPreset,
   deriveTileFormat,
   deriveTileShape,
   type BulkAction,
+  type DateRangeValue,
   type InsightWidget,
   type PhonePreviewPlacement,
 } from "@/components/common/briefing";
@@ -698,11 +700,15 @@ export function CreativesBriefingPage() {
     [activeBusiness?.timezone],
   );
   const sevenDayStart = useMemo(() => addDaysToIso(todayIso, -6), [todayIso]);
-  const libraryStart = useMemo(() => addDaysToIso(todayIso, -29), [todayIso]);
   const tabParam = searchParams?.get("tab") ?? null;
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(
     workspaceModeFromTab(tabParam),
   );
+  const [assetLibraryRange, setAssetLibraryRange] = useState<DateRangeValue>(
+    () => ({ preset: "28d", ...computeRangeFromPreset("28d") }),
+  );
+  const libraryStart = assetLibraryRange.startDate;
+  const libraryEnd = assetLibraryRange.endDate;
 
   const briefingQuery = useQuery({
     queryKey: ["creatives-briefing", businessId],
@@ -738,7 +744,7 @@ export function CreativesBriefingPage() {
       "creatives-briefing-asset-library",
       businessId,
       libraryStart,
-      todayIso,
+      libraryEnd,
     ],
     enabled: Boolean(businessId),
     staleTime: 60 * 1000,
@@ -746,7 +752,7 @@ export function CreativesBriefingPage() {
       fetchAssetLibraryRows({
         businessId,
         startDate: libraryStart,
-        endDate: todayIso,
+        endDate: libraryEnd,
       }),
   });
 
@@ -1531,7 +1537,7 @@ export function CreativesBriefingPage() {
       <section className="max-w-[1440px] mx-auto px-6 py-4" data-workspace-mode="library">
         <SectionErrorBoundary
           title="Asset Library is temporarily unavailable."
-          resetKey={`${businessId}:${libraryStart}:${todayIso}:${assetLibraryRows.length}`}
+          resetKey={`${businessId}:${libraryStart}:${libraryEnd}:${assetLibraryRows.length}`}
         >
           {assetLibraryError ? (
             <div className="mt-8 rounded-2xl border border-amber-200 bg-amber-50/70 px-5 py-4 text-[12.5px] text-amber-950">
@@ -1550,6 +1556,9 @@ export function CreativesBriefingPage() {
               onToggleRow={handleToggleLibraryRow}
               onToggleAll={handleToggleAllLibraryRows}
               onOpenRow={setLibraryHighlightedRowId}
+              dateRange={assetLibraryRange}
+              onDateRangeChange={setAssetLibraryRange}
+              isFetching={assetLibraryQuery.isFetching}
               onSortedRowsChange={(rows: MetaCreativeRow[]) => {
                 if (!libraryHighlightedRowId && rows[0])
                   setLibraryHighlightedRowId(rows[0].id);

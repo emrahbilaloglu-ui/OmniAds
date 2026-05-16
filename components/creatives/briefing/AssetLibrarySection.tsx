@@ -57,6 +57,9 @@ interface AssetLibrarySectionProps {
   onToggleAll: () => void;
   onOpenRow: (rowId: string) => void;
   onSortedRowsChange?: (rows: MetaCreativeRow[]) => void;
+  dateRange?: DateRangeValue;
+  onDateRangeChange?: (next: DateRangeValue) => void;
+  isFetching?: boolean;
 }
 
 const LABEL_FILTERS: ReadonlyArray<{ key: LabelFilterKey; label: string }> = [
@@ -247,15 +250,25 @@ export function AssetLibrarySection({
   onToggleAll,
   onOpenRow,
   onSortedRowsChange,
+  dateRange: controlledDateRange,
+  onDateRangeChange,
+  isFetching = false,
 }: AssetLibrarySectionProps) {
   const [filters, setFilters] = useState<AssetLibraryFilters>(DEFAULT_FILTERS);
   const [activePreset, setActivePreset] = useState<string>("facebook_ecom");
   const [customizeOpen, setCustomizeOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
-  const [dateRange, setDateRange] = useState<DateRangeValue>(() => ({
-    preset: "14d",
-    ...computeRangeFromPreset("14d"),
-  }));
+  const [uncontrolledDateRange, setUncontrolledDateRange] = useState<DateRangeValue>(
+    () => ({ preset: "14d", ...computeRangeFromPreset("14d") }),
+  );
+  const dateRange = controlledDateRange ?? uncontrolledDateRange;
+  const setDateRange = (next: DateRangeValue) => {
+    if (onDateRangeChange) {
+      onDateRangeChange(next);
+    } else {
+      setUncontrolledDateRange(next);
+    }
+  };
 
   const filteredRows = useMemo(
     () => sortAssetLibraryRows(filterAssetLibraryRows(rows, filters), filters.sort),
@@ -390,6 +403,16 @@ export function AssetLibrarySection({
       ) : null}
 
       <KpiSummaryTiles tiles={summaryTiles} testId="asset-library-kpi-summary" />
+
+      {isFetching ? (
+        <div
+          className="text-[11.5px] text-slate-500"
+          aria-live="polite"
+          data-asset-library-fetching
+        >
+          Refreshing for {dateRange.startDate} → {dateRange.endDate}…
+        </div>
+      ) : null}
 
       <div className="rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-hidden">
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50/70 px-4 py-2.5">

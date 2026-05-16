@@ -1397,8 +1397,7 @@ where coverage is weak.
 
 ### Phase H.4 - Campaign-Kind Scale Action Adapter
 
-- Status: local implementation in progress on branch
-  `creative-briefing-action-transform` as of 2026-05-16.
+- Status: merged to `main` via PR #175 on 2026-05-16.
 - Trigger: user asked whether `move to main` and `scale` are separated. The
   briefing route still mapped every engine `scale` label to `Promote to main`,
   which is wrong for Main campaigns and unsafe for Mixed/unlabeled contexts.
@@ -1434,8 +1433,13 @@ where coverage is weak.
     skipped; `2979` tests passed, `49` skipped.
   - `npm run lint` passed.
   - `npm run build` passed.
-  - PR review, merge, deploy, and UI redesign are not completed yet for this
-    phase.
+  - GitHub PR #175 CI passed: `typecheck`, `test`, and `build`.
+  - GitHub review threads: none.
+  - PR #175 merged with merge commit
+    `b38e916d63855bd1e8cdbf637954e7ff241bf1fb`.
+  - Runtime deploy was skipped by CI because this PR did not trigger runtime
+    image/deploy changes.
+  - UI redesign is continuing separately on branch `creative-page-ux-refactor`.
 - Claude coordination:
   - Claude independently agreed that every `scale` mapping to
     `Promote to main` violates the server-owned action contract and that D016
@@ -1445,6 +1449,58 @@ where coverage is weak.
     preserve backend contracts, avoid UI-side decisions, improve visual
     hierarchy/copy/evidence ergonomics, then separate larger routing/library
     changes only if still needed.
+
+### Phase H.5 - Creative Page UI/UX Refactor, Evidence Truthfulness
+
+- Status: local implementation and verification complete on branch
+  `creative-page-ux-refactor`; PR review/CI/merge pending.
+- Trigger: user observed that the Creative page still felt visually amateur and
+  that backend decision reforms were not clearly reflected in the UI. User asked
+  Codex and Claude to act as a joint UI/UX + frontend/backend + media buyer team.
+- Scope chosen for this slice:
+  - Keep server-owned decision/action contracts intact; no UI-side buyer action
+    computation.
+  - Add a URL-addressable workspace split on `/platforms/meta/creatives`:
+    default `Decision briefing`, `?tab=library` for `Asset Library`.
+  - Make `PulseStrip` sticky and remove the "Daily 5-minute triage" hype copy.
+  - Move Creative evidence from per-card modal state to one page-level drawer.
+  - Remove fake evidence/provenance strings from briefing cards:
+    no invented dates, operator names, calibration cohorts, Graph API versions,
+    or pixel/CAPI claims.
+  - Add real per-card provenance fields from the briefing API:
+    `engineVersion`, `sourceAsOf`, `sourceDataSource`, `profileScope`.
+  - Change Watching copy from `Let cook` to `Defer 24h`.
+  - Fix Asset Library filtered-count copy from `Showing X of X (filtered from Y)`
+    to `Showing X of Y`.
+  - Add a secondary empty-state CTA to browse `Asset Library` before launching
+    a new test.
+- Claude coordination:
+  - Claude agreed with the base plan and added implementation risks:
+    `BulkToolbar` sticky offset must account for sticky Pulse, tab state should
+    be URL/deep-link aware, evidence drawer should be page-global rather than
+    card-local, drawer mobile/accessibility behavior must not regress,
+    per-card evidence should use real provenance fields, no fake evidence
+    strings should be protected by tests, and the empty-state should offer an
+    `Asset Library` path.
+  - Current implementation uses a CSS custom property for bulk toolbar top
+    offset, `?tab=library` URL state, and one page-level `EvidencePopover`
+    drawer while preserving modal fallback for standalone card tests.
+- Verification status:
+  - Focused regression passed after the final empty-state CTA change:
+    `npx vitest run components/creatives/briefing/EmptyActionState.test.tsx components/creatives/briefing/CreativesBriefingPage.test.tsx components/common/briefing/EvidencePopover.test.tsx components/creatives/briefing/AssetLibrarySection.test.tsx components/creatives/briefing/card-utils.test.tsx components/creatives/briefing/ActionNowCard.test.tsx components/creatives/briefing/WatchingCard.test.tsx components/creatives/briefing/CrossPlacementCard.test.tsx app/api/creatives/briefing/route.test.ts`
+    = `9` files, `45` tests.
+  - `npx tsc --noEmit` passed.
+  - `git diff --check` passed.
+  - Full regression passed: `npx vitest run` = `415` files passed, `4`
+    skipped; `2983` tests passed, `49` skipped.
+  - `npm run lint` passed.
+  - `npm run build` passed.
+  - Browser plugin smoke was unavailable in this session because the required
+    browser-control execution tool was not exposed after discovery attempts.
+  - Playwright fallback against `http://localhost:3000` was blocked by auth:
+    `/platforms/meta/creatives` and `?tab=library` redirected to `/login`, and
+    `/api/auth/demo-login` returned HTTP `500`. This is recorded as an auth
+    smoke blocker, not as UI confirmation.
 
 ## Update Protocol
 

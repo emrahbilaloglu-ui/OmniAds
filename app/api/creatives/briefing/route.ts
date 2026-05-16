@@ -119,6 +119,9 @@ function cardForDecision(input: {
   decision: DecisionOutput;
   creativeInput?: CreativeInput;
   row?: MetaCreativeApiRow | null;
+  sourceAsOf?: string | null;
+  sourceDataSource?: string | null;
+  profileScope?: string | null;
 }): BriefingCreativeCard {
   const { decision, creativeInput, row } = input;
   const label = decision.label as DecisionLabel;
@@ -179,6 +182,10 @@ function cardForDecision(input: {
     campaignLabelStatus: decision.campaignLabelStatus ?? null,
     blockedActionType: decision.blockedActionType ?? null,
     labelTransform: decision.labelTransform ?? null,
+    engineVersion: decision.engineVersion ?? null,
+    sourceAsOf: input.sourceAsOf ?? null,
+    sourceDataSource: input.sourceDataSource ?? null,
+    profileScope: input.profileScope ?? null,
   };
 }
 
@@ -387,7 +394,14 @@ export async function GET(request: NextRequest) {
   for (const decision of decisions) {
     const creativeInput = inputByCreativeId.get(decision.creativeId);
     const row = rowForDecision(decision, creativeInput, creativeRowsById);
-    const card = cardForDecision({ decision, creativeInput, row });
+    const card = cardForDecision({
+      decision,
+      creativeInput,
+      row,
+      sourceAsOf: asOf,
+      sourceDataSource: dataSourceLabel,
+      profileScope: `${profile.scope.type}:${profile.scope.id}`,
+    });
     const deferred =
       deferredIds.has(decision.creativeId) ||
       deferredIds.has(card.id) ||

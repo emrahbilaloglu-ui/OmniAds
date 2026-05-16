@@ -6,11 +6,12 @@ import {
   useEffect,
   useMemo,
   useState,
+  type CSSProperties,
   type ErrorInfo,
   type ReactNode,
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   ChevronDown,
@@ -24,6 +25,7 @@ import {
 import {
   useDeferState,
   BulkToolbar,
+  EvidencePopover,
   LaunchpadOverlay,
   LaneHeader,
   PulseStrip,
@@ -55,7 +57,9 @@ import {
 import { HealthyRow } from "@/components/creatives/briefing/HealthyRow";
 import { WatchingCard } from "@/components/creatives/briefing/WatchingCard";
 import {
+  buildEvidenceSections,
   cardId,
+  cardName,
   numberOrZero,
 } from "@/components/creatives/briefing/card-utils";
 import {
@@ -125,6 +129,13 @@ interface BulkCutModalState {
 interface CompareDrawerState {
   open: boolean;
   cards: BriefingCreativeCard[];
+}
+
+type WorkspaceMode = "briefing" | "library";
+
+interface EvidenceDrawerState {
+  open: boolean;
+  card: BriefingCreativeCard | null;
 }
 
 interface SectionErrorBoundaryProps {
@@ -206,6 +217,15 @@ const CLOSED_COMPARE_DRAWER_STATE: CompareDrawerState = {
   open: false,
   cards: [],
 };
+
+const CLOSED_EVIDENCE_DRAWER_STATE: EvidenceDrawerState = {
+  open: false,
+  card: null,
+};
+
+function workspaceModeFromTab(value: string | null | undefined): WorkspaceMode {
+  return value === "library" ? "library" : "briefing";
+}
 
 function relativeTime(value: string | null | undefined) {
   if (!value) return null;
@@ -656,6 +676,8 @@ function usePersistentSelectedIds(businessId: string) {
 
 export function CreativesBriefingPage() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
@@ -668,6 +690,10 @@ export function CreativesBriefingPage() {
   );
   const sevenDayStart = useMemo(() => addDaysToIso(todayIso, -6), [todayIso]);
   const libraryStart = useMemo(() => addDaysToIso(todayIso, -29), [todayIso]);
+  const tabParam = searchParams?.get("tab") ?? null;
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(
+    workspaceModeFromTab(tabParam),
+  );
 
   const briefingQuery = useQuery({
     queryKey: ["creatives-briefing", businessId],
@@ -734,6 +760,8 @@ export function CreativesBriefingPage() {
   );
   const [compareDrawerState, setCompareDrawerState] =
     useState<CompareDrawerState>(CLOSED_COMPARE_DRAWER_STATE);
+  const [evidenceDrawerState, setEvidenceDrawerState] =
+    useState<EvidenceDrawerState>(CLOSED_EVIDENCE_DRAWER_STATE);
   const [trackingCutCard, setTrackingCutCard] =
     useState<BriefingCreativeCard | null>(null);
   const [librarySelectedRowIds, setLibrarySelectedRowIds] = useState<string[]>(
@@ -750,6 +778,9 @@ export function CreativesBriefingPage() {
   ]);
   const [selectedIds, setSelectedIds] = usePersistentSelectedIds(businessId);
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  useEffect(() => {
+    setWorkspaceMode(workspaceModeFromTab(tabParam));
+  }, [tabParam]);
   const showToast = useCallback((nextToast: BriefingToast) => {
     setToast(nextToast);
   }, []);
@@ -877,11 +908,41 @@ export function CreativesBriefingPage() {
     status: assetLibraryStatus,
     message: assetLibraryMessage,
   });
+  const pageStyle = {
+    "--briefing-bulk-top": trackingAnomalyActive ? "112px" : "96px",
+  } as CSSProperties;
+  const activeEvidenceCard = evidenceDrawerState.open
+    ? evidenceDrawerState.card
+    : null;
+  const activeEvidenceCardId = activeEvidenceCard ? cardId(activeEvidenceCard) : null;
   const launchpadOverlayItem = launchpadOverlayState.card
     ? buildLaunchpadOverlayItem(launchpadOverlayState.card)
     : null;
 
+  const handleWorkspaceModeChange = useCallback(
+    (nextMode: WorkspaceMode) => {
+      setWorkspaceMode(nextMode);
+      const params = new URLSearchParams(searchParams?.toString() ?? "");
+      if (nextMode === "library") {
+        params.set("tab", "library");
+      } else {
+        params.delete("tab");
+      }
+      const query = params.toString();
+      router.replace(`${pathname}${query ? `?${query}` : ""}`, {
+        scroll: false,
+      });
+    },
+    [pathname, router, searchParams],
+  );
+
+  const handleEvidenceOpen = useCallback((card: BriefingCreativeCard) => {
+    setCompareDrawerState(CLOSED_COMPARE_DRAWER_STATE);
+    setEvidenceDrawerState({ open: true, card });
+  }, []);
+
   const handleLaunchpadOpen = useCallback((payload: LaunchpadOpenPayload) => {
+    setEvidenceDrawerState(CLOSED_EVIDENCE_DRAWER_STATE);
     setLaunchpadOverlayState(openLaunchpadOverlayState(payload));
   }, []);
 
@@ -1034,6 +1095,7 @@ export function CreativesBriefingPage() {
     (cards: BriefingCreativeCard[], mode: LaunchpadBridgeMode) => {
       if (cards.length === 0) return;
       setCompareDrawerState(CLOSED_COMPARE_DRAWER_STATE);
+      setEvidenceDrawerState(CLOSED_EVIDENCE_DRAWER_STATE);
       router.push(buildBulkLaunchpadHref(cards, mode));
     },
     [router],
@@ -1042,6 +1104,7 @@ export function CreativesBriefingPage() {
   const handleCompareOpen = useCallback(
     (cards: BriefingCreativeCard[] = selectedActionCards) => {
       if (cards.length === 0) return;
+      setEvidenceDrawerState(CLOSED_EVIDENCE_DRAWER_STATE);
       setCompareDrawerState({ open: true, cards: cards.slice(0, 5) });
     },
     [selectedActionCards],
@@ -1108,9 +1171,9 @@ export function CreativesBriefingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
+    <div className="min-h-screen bg-slate-50 text-slate-900" style={pageStyle}>
       <PulseStrip
-        sticky={false}
+        sticky={true}
         left={<PulseScope />}
         center={
           <PulseCenter
@@ -1133,19 +1196,29 @@ export function CreativesBriefingPage() {
         jumpNav={<PulseJumpNav />}
       />
 
-      <div className="max-w-[1440px] mx-auto px-6 pt-6 pb-2">
-        <div className="flex items-baseline gap-3">
-          <h1 className="text-[22px] font-semibold text-slate-900 tracking-tight">
-            Creatives
-          </h1>
-          <span className="text-[12.5px] text-slate-500">
-            Daily 5-minute triage. Engine v3 has done the thinking — confirm or
-            redirect.
-          </span>
+      <div className="max-w-[1440px] mx-auto px-6 pt-5 pb-2">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h1 className="text-[22px] font-semibold text-slate-900 tracking-tight">
+              Creatives
+            </h1>
+            <div className="mt-0.5 text-[12.5px] text-slate-500">
+              Meta creative decisions and asset inventory · {formatTodayLabel()}
+            </div>
+          </div>
+          <WorkspaceSwitcher
+            mode={workspaceMode}
+            actionCount={visibleActionItems.length}
+            watchingCount={watchingItems.length}
+            healthyCount={healthyItems.length}
+            assetCount={assetLibraryRows.length}
+            onChange={handleWorkspaceModeChange}
+          />
         </div>
       </div>
 
-      <section className="max-w-[1440px] mx-auto px-6 py-4">
+      {workspaceMode === "briefing" ? (
+      <section className="max-w-[1440px] mx-auto px-6 py-4" data-workspace-mode="briefing">
         <div className="flex items-baseline gap-3 mb-3">
           <h2 className="text-[15px] font-semibold text-slate-900">
             Decision briefing
@@ -1154,7 +1227,7 @@ export function CreativesBriefingPage() {
             Today · {formatTodayLabel()}
           </span>
           <span className="ml-auto text-[11.5px] text-slate-500">
-            Engine v3 confidence ≥ 70 surfaces here
+            Server-owned recommendations; UI does not calculate actions
           </span>
         </div>
 
@@ -1205,7 +1278,7 @@ export function CreativesBriefingPage() {
           ]}
           trackingBlocked={trackingAnomalyActive}
           trackingConfirmBehavior="consumer"
-          stickyTop={trackingAnomalyActive ? "170px" : "126px"}
+          stickyTop="var(--briefing-bulk-top)"
           onAction={(action) =>
             handleBulkToolbarAction(action, selectedActionCards)
           }
@@ -1237,6 +1310,9 @@ export function CreativesBriefingPage() {
                   matureCount={matureCount}
                   watchingCount={watchingItems.length}
                   onLaunchNewTest={handleLaunchEmptyNewTest}
+                  onBrowseAssetLibrary={() =>
+                    handleWorkspaceModeChange("library")
+                  }
                 />
               ) : null}
               {!isInitialLoading &&
@@ -1262,6 +1338,8 @@ export function CreativesBriefingPage() {
                         rollup={item.rollup}
                         selected={selectedSet.has(actionItemId(item))}
                         onSelectChange={handleSelectChange}
+                        evidenceOpen={activeEvidenceCardId === actionItemId(item)}
+                        onEvidenceOpen={handleEvidenceOpen}
                         deferred={deferState.isDeferred(
                           getCreativeScopeId(item.rollup.primaryRec),
                         )}
@@ -1288,6 +1366,8 @@ export function CreativesBriefingPage() {
                         onUndefer={handleUndefer}
                         onCut={handleCutRequest}
                         onLaunchpadOpen={handleLaunchpadOpen}
+                        evidenceOpen={activeEvidenceCardId === cardId(item.card)}
+                        onEvidenceOpen={handleEvidenceOpen}
                       />
                     ) : null,
                   )
@@ -1304,7 +1384,7 @@ export function CreativesBriefingPage() {
             subtitle={
               collapsed.watching
                 ? "Low-confidence and diagnose cases. Click expand to triage."
-                : "Low-confidence cases · let cook or open evidence."
+                : "Low-confidence cases · defer 24h or open evidence."
             }
             collapsed={collapsed.watching}
             onToggle={handleToggleLane}
@@ -1318,7 +1398,7 @@ export function CreativesBriefingPage() {
                 actions={["launch_new", "add_existing", "compare", "clear"]}
                 trackingBlocked={trackingAnomalyActive}
                 trackingConfirmBehavior="consumer"
-                stickyTop={trackingAnomalyActive ? "170px" : "126px"}
+                stickyTop="var(--briefing-bulk-top)"
                 onAction={(action) =>
                   handleBulkToolbarAction(action, selectedWatchingCards)
                 }
@@ -1335,6 +1415,8 @@ export function CreativesBriefingPage() {
                     onDefer={handleDefer}
                     onUndefer={handleUndefer}
                     onLaunchpadOpen={handleLaunchpadOpen}
+                    evidenceOpen={activeEvidenceCardId === cardId(card)}
+                    onEvidenceOpen={handleEvidenceOpen}
                   />
                 ))}
               </div>
@@ -1368,7 +1450,13 @@ export function CreativesBriefingPage() {
               {healthyItems.length > 20 ? (
                 <div className="px-3 py-2 text-[11px] text-slate-400 bg-slate-50 text-center">
                   + {healthyItems.length - 20} more healthy creatives in{" "}
-                  <span className="text-slate-500">Library</span>
+                  <button
+                    type="button"
+                    className="font-medium text-slate-600 underline decoration-slate-300 underline-offset-2 hover:text-slate-900"
+                    onClick={() => handleWorkspaceModeChange("library")}
+                  >
+                    Asset Library
+                  </button>
                 </div>
               ) : null}
             </div>
@@ -1381,6 +1469,11 @@ export function CreativesBriefingPage() {
         <span className="sr-only">
           {watchingIds.length + healthyIds.length} non-action lane rows loaded
         </span>
+      </section>
+      ) : null}
+
+      {workspaceMode === "library" ? (
+      <section className="max-w-[1440px] mx-auto px-6 py-4" data-workspace-mode="library">
         <SectionErrorBoundary
           title="Asset Library is temporarily unavailable."
           resetKey={`${businessId}:${libraryStart}:${todayIso}:${assetLibraryRows.length}`}
@@ -1410,6 +1503,7 @@ export function CreativesBriefingPage() {
           )}
         </SectionErrorBoundary>
       </section>
+      ) : null}
       <LaunchpadOverlay
         open={launchpadOverlayState.open && Boolean(launchpadOverlayItem)}
         mode={launchpadOverlayState.mode ?? "fresh_test"}
@@ -1435,6 +1529,15 @@ export function CreativesBriefingPage() {
           if (card) void handleCut(card);
         }}
       />
+      <EvidencePopover
+        open={Boolean(activeEvidenceCard)}
+        title="Evidence"
+        subtitle={activeEvidenceCard ? cardName(activeEvidenceCard) : null}
+        sections={activeEvidenceCard ? buildEvidenceSections(activeEvidenceCard) : []}
+        variant="creative"
+        presentation="drawer"
+        onClose={() => setEvidenceDrawerState(CLOSED_EVIDENCE_DRAWER_STATE)}
+      />
       <CompareDrawerHost
         open={compareDrawerState.open}
         cards={compareDrawerState.cards}
@@ -1444,6 +1547,85 @@ export function CreativesBriefingPage() {
       />
       <BriefingToastViewport toast={toast} />
     </div>
+  );
+}
+
+function WorkspaceSwitcher({
+  mode,
+  actionCount,
+  watchingCount,
+  healthyCount,
+  assetCount,
+  onChange,
+}: {
+  mode: WorkspaceMode;
+  actionCount: number;
+  watchingCount: number;
+  healthyCount: number;
+  assetCount: number;
+  onChange: (nextMode: WorkspaceMode) => void;
+}) {
+  return (
+    <div
+      className="inline-flex w-full rounded-lg border border-slate-200 bg-white p-1 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:w-auto"
+      aria-label="Creatives workspace"
+    >
+      <WorkspaceButton
+        active={mode === "briefing"}
+        icon={<ShieldCheck className="inline-block shrink-0" size={14} aria-hidden="true" />}
+        label="Decision briefing"
+        summary={`${actionCount} action · ${watchingCount} watch · ${healthyCount} healthy`}
+        onClick={() => onChange("briefing")}
+      />
+      <WorkspaceButton
+        active={mode === "library"}
+        icon={<Layers className="inline-block shrink-0" size={14} aria-hidden="true" />}
+        label="Asset Library"
+        summary={`${assetCount} assets`}
+        onClick={() => onChange("library")}
+      />
+    </div>
+  );
+}
+
+function WorkspaceButton({
+  active,
+  icon,
+  label,
+  summary,
+  onClick,
+}: {
+  active: boolean;
+  icon: ReactNode;
+  label: string;
+  summary: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      className={[
+        "min-w-0 rounded-md px-3 py-2 text-left transition-colors",
+        active
+          ? "bg-slate-900 text-white"
+          : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",
+      ].join(" ")}
+      onClick={onClick}
+    >
+      <span className="flex items-center gap-1.5 text-[12.5px] font-semibold">
+        {icon}
+        {label}
+      </span>
+      <span
+        className={[
+          "mt-0.5 block whitespace-nowrap font-mono text-[10.5px]",
+          active ? "text-slate-300" : "text-slate-400",
+        ].join(" ")}
+      >
+        {summary}
+      </span>
+    </button>
   );
 }
 

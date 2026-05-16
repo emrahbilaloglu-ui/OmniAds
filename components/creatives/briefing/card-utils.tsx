@@ -6,7 +6,6 @@ import {
   Clock,
   Database,
   FileText,
-  MoreHorizontal,
   PieChart,
   SkipForward,
   Sparkles,
@@ -474,7 +473,7 @@ function TrailItem({
       <div className="text-[11px] text-slate-500 flex items-center gap-2">
         <span className="font-mono tabular-nums">{date}</span>
         <span className="text-slate-300">·</span>
-        <span>Engine {version}</span>
+        <span>{version}</span>
         <span className="text-slate-300">·</span>
         <span className="italic">{why}</span>
       </div>
@@ -556,7 +555,10 @@ export function buildEvidenceSections(
   const reason = card.reason || "No engine reason supplied.";
   const predictive = card.predictive;
   const primaryLabel = card.primary?.label || "—";
-  const today = "2026-05-04";
+  const engineVersion = safeCardText(card.engineVersion) || "Engine v3";
+  const sourceAsOf = safeCardText(card.sourceAsOf) || "Current request";
+  const sourceDataSource = safeCardText(card.sourceDataSource) || "Briefing API";
+  const profileScope = safeCardText(card.profileScope) || "Account profile";
 
   return [
     {
@@ -653,7 +655,7 @@ export function buildEvidenceSections(
     },
     {
       key: "engine",
-      title: "Engine trail",
+      title: "Engine snapshot",
       icon: (
         <Activity
           className="inline-block shrink-0"
@@ -664,22 +666,10 @@ export function buildEvidenceSections(
       content: (
         <ol className="space-y-1.5 text-[12px] text-slate-600 relative pl-4 border-l border-slate-200">
           <TrailItem
-            version="v3.2"
-            date="2026-04-28"
-            label={`Initial label assigned: ${label}`}
-            why="Threshold breach: 28d ROAS"
-          />
-          <TrailItem
-            version="v3.2"
-            date="2026-05-01"
-            label={`Confidence raised ${Math.max(40, confidence - 12)}% → ${Math.max(50, confidence - 6)}%`}
-            why="Sample size grew"
-          />
-          <TrailItem
-            version="v3.2"
-            date={today}
-            label={`Confidence raised ${Math.max(50, confidence - 6)}% → ${confidence}%`}
-            why="Trend confirmed across 3 dailies"
+            version={engineVersion}
+            date={sourceAsOf}
+            label={`Current label: ${label}`}
+            why={`Confidence ${confidence}%`}
           />
         </ol>
       ),
@@ -700,28 +690,7 @@ export function buildEvidenceSections(
                 aria-hidden="true"
               />
             </span>
-            First seen by Erhan:{" "}
-            <span className="font-mono tabular-nums">2026-05-01 09:14</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-slate-400">
-              <SkipForward
-                className="inline-block shrink-0"
-                size={11}
-                aria-hidden="true"
-              />
-            </span>
-            Deferred once on 2026-05-04 (24h)
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-slate-400">
-              <MoreHorizontal
-                className="inline-block shrink-0"
-                size={11}
-                aria-hidden="true"
-              />
-            </span>
-            Action pending
+            No operator response recorded in this briefing view.
           </div>
         </div>
       ),
@@ -741,11 +710,11 @@ export function buildEvidenceSections(
           <Kv label="Creative ID">
             <span className="font-mono">{cardId(card)}</span>
           </Kv>
-          <Kv label="Engine version">v3.2.4</Kv>
-          <Kv label="Last sync">—</Kv>
-          <Kv label="Calibration cohort">Q2-2026 e-com mid</Kv>
-          <Kv label="Source">Meta Ads API · graph v19</Kv>
-          <Kv label="Pixel events">Standard + Conversions API</Kv>
+          <Kv label="Engine version">{engineVersion}</Kv>
+          <Kv label="Decision as of">{sourceAsOf}</Kv>
+          <Kv label="Profile scope">{profileScope}</Kv>
+          <Kv label="Data source">{sourceDataSource}</Kv>
+          <Kv label="Campaign">{cardCampaign(card)}</Kv>
         </div>
       ),
     },

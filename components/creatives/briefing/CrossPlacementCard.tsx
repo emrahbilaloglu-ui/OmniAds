@@ -52,6 +52,8 @@ interface CrossPlacementCardProps extends CardSelectionProps {
   onDefer?: (id: string) => void;
   onUndefer?: (id: string) => void;
   onLaunchpadOpen?: (payload: LaunchpadOpenPayload) => void;
+  evidenceOpen?: boolean;
+  onEvidenceOpen?: (card: BriefingCreativeCard) => void;
 }
 
 export function isCrossPlacementRollup(value: unknown): value is BriefingRollupItem {
@@ -69,8 +71,10 @@ export function CrossPlacementCard({
   onDefer,
   onUndefer,
   onLaunchpadOpen,
+  evidenceOpen,
+  onEvidenceOpen,
 }: CrossPlacementCardProps) {
-  const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [localEvidenceOpen, setLocalEvidenceOpen] = useState(false);
   const [placementsExpanded, setPlacementsExpanded] = useState(true);
   const placementList = Array.isArray(rollup.placementList) ? rollup.placementList : [];
   const mixed =
@@ -97,6 +101,14 @@ export function CrossPlacementCard({
   const bestPlacement = card.bestPlacement || placementList[0]?.adset || placementList[0]?.adsetName || "Placement";
   const actionCardId = cardId(card);
   const scopeId = getCreativeScopeId(card);
+  const isEvidenceOpen = evidenceOpen ?? localEvidenceOpen;
+  const openEvidence = () => {
+    if (onEvidenceOpen) {
+      onEvidenceOpen(card);
+      return;
+    }
+    setLocalEvidenceOpen(true);
+  };
 
   const cardClasses = [
     "rounded-2xl bg-white p-4 transition-all relative",
@@ -215,7 +227,7 @@ export function CrossPlacementCard({
             }
             const mode = mapBriefingPrimaryToLaunchpadMode(card);
             if (mode) onLaunchpadOpen?.({ card, mode });
-            else setEvidenceOpen(true);
+            else openEvidence();
           }}
         />
         <DeferTooltip>
@@ -234,8 +246,8 @@ export function CrossPlacementCard({
           data-action="evidence"
           data-id={actionCardId}
           aria-haspopup="dialog"
-          aria-expanded={evidenceOpen}
-          onClick={() => setEvidenceOpen(true)}
+          aria-expanded={isEvidenceOpen}
+          onClick={openEvidence}
         >
           More evidence
           <ChevronDown className="inline-block shrink-0" size={12} aria-hidden="true" />
@@ -246,14 +258,16 @@ export function CrossPlacementCard({
 
       {deferred ? <DeferChip id={scopeId} onUndo={onUndefer} /> : null}
 
-      <EvidencePopover
-        open={evidenceOpen}
-        title="Evidence"
-        subtitle={name}
-        sections={buildEvidenceSections(card)}
-        variant="creative"
-        onClose={() => setEvidenceOpen(false)}
-      />
+      {onEvidenceOpen ? null : (
+        <EvidencePopover
+          open={localEvidenceOpen}
+          title="Evidence"
+          subtitle={name}
+          sections={buildEvidenceSections(card)}
+          variant="creative"
+          onClose={() => setLocalEvidenceOpen(false)}
+        />
+      )}
     </div>
   );
 }

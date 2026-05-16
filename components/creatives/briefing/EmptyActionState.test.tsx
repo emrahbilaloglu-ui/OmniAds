@@ -13,6 +13,7 @@ describe("EmptyActionState", () => {
         matureCount={18}
         watchingCount={4}
         onLaunchNewTest={() => undefined}
+        onBrowseAssetLibrary={() => undefined}
       />,
     );
 
@@ -20,6 +21,8 @@ describe("EmptyActionState", () => {
     expect(html).toContain("18 mature creatives · 4 watching · Data is loaded in the lanes below");
     expect(html).toContain("Triage clear");
     expect(html).toContain("Expand Watching below");
+    expect(html).toContain("Browse Asset Library");
+    expect(html).toContain('data-empty-action="browse-asset-library"');
     expect(html).toContain("Launch a new test");
     expect(html).toContain("data-empty-action-state");
   });

@@ -38,6 +38,8 @@ interface WatchingCardProps extends CardSelectionProps {
   onDefer?: (id: string) => void;
   onUndefer?: (id: string) => void;
   onLaunchpadOpen?: (payload: LaunchpadOpenPayload) => void;
+  evidenceOpen?: boolean;
+  onEvidenceOpen?: (card: BriefingCreativeCard) => void;
 }
 
 export function WatchingCard({
@@ -48,8 +50,10 @@ export function WatchingCard({
   onDefer,
   onUndefer,
   onLaunchpadOpen,
+  evidenceOpen,
+  onEvidenceOpen,
 }: WatchingCardProps) {
-  const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [localEvidenceOpen, setLocalEvidenceOpen] = useState(false);
   const confidence = confidenceValue(card);
   const conf = confidenceClass(confidence);
   const label = asDecisionLabel(card.label);
@@ -57,6 +61,14 @@ export function WatchingCard({
   const watchingCardId = cardId(card);
   const scopeId = getCreativeScopeId(card);
   const badges = Array.isArray(card.badges) ? card.badges : [];
+  const isEvidenceOpen = evidenceOpen ?? localEvidenceOpen;
+  const openEvidence = () => {
+    if (onEvidenceOpen) {
+      onEvidenceOpen(card);
+      return;
+    }
+    setLocalEvidenceOpen(true);
+  };
 
   return (
     <div
@@ -122,7 +134,7 @@ export function WatchingCard({
               }}
             >
               <Clock className="inline-block shrink-0" size={11} aria-hidden="true" />
-              Let cook
+              Defer 24h
             </button>
           </DeferTooltip>
           <button
@@ -131,8 +143,8 @@ export function WatchingCard({
             data-action="evidence"
             data-id={watchingCardId}
             aria-haspopup="dialog"
-            aria-expanded={evidenceOpen}
-            onClick={() => setEvidenceOpen(true)}
+            aria-expanded={isEvidenceOpen}
+            onClick={openEvidence}
           >
             <Eye className="inline-block shrink-0" size={11} aria-hidden="true" />
             Evidence
@@ -158,14 +170,16 @@ export function WatchingCard({
         </div>
       </div>
       {deferred ? <DeferChip id={scopeId} onUndo={onUndefer} /> : null}
-      <EvidencePopover
-        open={evidenceOpen}
-        title="Evidence"
-        subtitle={name}
-        sections={buildEvidenceSections(card)}
-        variant="creative"
-        onClose={() => setEvidenceOpen(false)}
-      />
+      {onEvidenceOpen ? null : (
+        <EvidencePopover
+          open={localEvidenceOpen}
+          title="Evidence"
+          subtitle={name}
+          sections={buildEvidenceSections(card)}
+          variant="creative"
+          onClose={() => setLocalEvidenceOpen(false)}
+        />
+      )}
     </div>
   );
 }

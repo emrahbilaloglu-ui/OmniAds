@@ -40,6 +40,35 @@ describe("buildEvidenceSections", () => {
     expect(html).toContain("1");
     expect(html).not.toContain("124,300");
   });
+
+  it("renders provenance from real card fields without fake audit strings", () => {
+    const card: BriefingCreativeCard = {
+      id: "creative_1",
+      creativeId: "creative_1",
+      name: "Creative One",
+      campaign: "ASC Main",
+      label: "scale",
+      confidence: 88,
+      reason: "Above account winner benchmark.",
+      primary: { kind: "scale_budget", label: "Scale budget" },
+      engineVersion: "v3-2026-05-16-phase-h2",
+      sourceAsOf: "2026-05-16",
+      sourceDataSource: "warehouse",
+      profileScope: "account:biz_1",
+    };
+
+    const html = renderToStaticMarkup(
+      <>{buildEvidenceSections(card).map((section) => section.content)}</>,
+    );
+
+    expect(html).toContain("v3-2026-05-16-phase-h2");
+    expect(html).toContain("2026-05-16");
+    expect(html).toContain("warehouse");
+    expect(html).toContain("account:biz_1");
+    expect(html).not.toMatch(
+      /Erhan|2026-04-28|2026-05-01|v3\.2\.4|Q2-2026|graph v19|Standard \+ Conversions API/,
+    );
+  });
 });
 
 describe("BadgeChip", () => {

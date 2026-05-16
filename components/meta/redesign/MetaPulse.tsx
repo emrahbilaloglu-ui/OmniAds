@@ -11,7 +11,13 @@ import {
   Target,
   type LucideIcon,
 } from "lucide-react";
-import { PulseStrip } from "@/components/common/briefing";
+import {
+  DateRangePicker,
+  PulseStrip,
+  computeRangeFromPreset,
+  type DateRangePresetKey,
+  type DateRangeValue,
+} from "@/components/common/briefing";
 import { DECISION_LABEL_PALETTE, TONE_CLASS } from "@/components/common/briefing/decision-label-palette";
 import type { MetaPulsePayload, MetaWindowKey } from "@/components/meta/redesign/types";
 import {
@@ -33,7 +39,31 @@ interface MetaPulseProps {
 type TextTone = "neutral" | "success" | "warning" | "danger" | "dangerStrong";
 type ChipTone = "neutral" | "success" | "warning" | "danger" | "info";
 
-const WINDOWS: MetaWindowKey[] = ["7d", "14d", "28d", "90d", "custom"];
+const WINDOW_PRESET_MAP: Record<
+  Exclude<MetaWindowKey, "custom">,
+  Exclude<DateRangePresetKey, "custom">
+> = {
+  "7d": "7d",
+  "14d": "14d",
+  "28d": "28d",
+  "90d": "90d",
+};
+
+function windowToRangeValue(window: MetaWindowKey): DateRangeValue {
+  if (window === "custom") {
+    const range = computeRangeFromPreset("28d");
+    return { preset: "custom", ...range };
+  }
+  const preset = WINDOW_PRESET_MAP[window];
+  return { preset, ...computeRangeFromPreset(preset) };
+}
+
+function rangeValueToWindow(value: DateRangeValue): MetaWindowKey {
+  if (value.preset === "7d" || value.preset === "14d" || value.preset === "28d" || value.preset === "90d") {
+    return value.preset;
+  }
+  return "custom";
+}
 
 const TEXT_TONE_CLASSES: Record<TextTone, string> = {
   neutral: "text-slate-500",
@@ -517,22 +547,15 @@ export function MetaPulse({
             Scope: Account
             <ChevronDown className="inline-block shrink-0" size={12} aria-hidden="true" />
           </label>
-          <label className="relative inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[12px] text-slate-700">
-            <span>Date: {selectedWindowLabel}</span>
-            <ChevronDown className="inline-block shrink-0" size={12} aria-hidden="true" />
-            <select
-              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-              value={window}
-              aria-label="Meta briefing date range"
-              onChange={(event) => onWindowChange(event.currentTarget.value as MetaWindowKey)}
-            >
-              {WINDOWS.map((item) => (
-                <option key={item} value={item}>
-                  {item === "custom" ? "Custom" : item}
-                </option>
-              ))}
-            </select>
-          </label>
+          <DateRangePicker
+            label="Meta briefing date range"
+            testId="meta-date-range-picker"
+            value={windowToRangeValue(window)}
+            onChange={(next) => onWindowChange(rangeValueToWindow(next))}
+          />
+          {selectedWindowLabel === "Custom" ? (
+            <span className="text-[10.5px] text-slate-400">custom</span>
+          ) : null}
           <div
             className="inline-flex items-center rounded-md border border-slate-200 bg-white p-0.5"
             data-meta-status-filter

@@ -17,3 +17,4 @@ export * from "@/components/common/briefing/BulkToolbar";
 export * from "@/components/common/briefing/InsightsPanel";
 export * from "@/components/common/briefing/InsightsWidgets";
 export * from "@/components/common/briefing/BriefingTile";
+export * from "@/components/common/briefing/DateRangePicker";

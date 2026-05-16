@@ -1452,8 +1452,7 @@ where coverage is weak.
 
 ### Phase H.5 - Creative Page UI/UX Refactor, Evidence Truthfulness
 
-- Status: local implementation and verification complete on branch
-  `creative-page-ux-refactor`; PR review/CI/merge pending.
+- Status: merged to `main` via PR #176 on 2026-05-16.
 - Trigger: user observed that the Creative page still felt visually amateur and
   that backend decision reforms were not clearly reflected in the UI. User asked
   Codex and Claude to act as a joint UI/UX + frontend/backend + media buyer team.
@@ -1501,6 +1500,11 @@ where coverage is weak.
     `/platforms/meta/creatives` and `?tab=library` redirected to `/login`, and
     `/api/auth/demo-login` returned HTTP `500`. This is recorded as an auth
     smoke blocker, not as UI confirmation.
+  - GitHub PR #176 review threads: none.
+  - GitHub PR #176 CI passed: `typecheck`, `test`, and `build`; runtime image
+    and deploy jobs were skipped because runtime changes were not detected.
+  - PR #176 merged with merge commit
+    `d117a600c5ead26198ee6ec278ca0684f811b929`.
 
 ## Update Protocol
 

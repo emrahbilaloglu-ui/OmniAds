@@ -36,28 +36,33 @@ describe("ActionNowCard", () => {
     const html = renderToStaticMarkup(<ActionNowCard card={card()} selected />);
 
     expect(html).toContain("Aphrodite Necklace Hook v3");
+    expect(html).toContain("ccard-tile");
+    expect(html).toContain("tile-thumb");
+    expect(html).toContain('aria-label="Open evidence for Aphrodite Necklace Hook v3"');
+    expect(html).toContain("creative-evidence-trigger--media");
+    expect(html).toContain("creative-evidence-trigger--name");
+    expect(html).toContain("data-media-shape=\"feed\"");
+    expect(html).toContain(">4:5<");
+    expect(html).toContain("tile-metrics");
     expect(html).toContain("Promote to main");
-    expect(html).toContain('data-tile-variant="action"');
-    expect(html).toContain('aria-checked="true"');
-    expect(html).toContain('data-action="defer"');
-    expect(html).toContain('data-action="evidence"');
-    expect(html).toContain("ROAS");
-    expect(html).toContain("3.42×");
-    expect(html).toContain(">88%<");
+    expect(html).toContain("What does Defer 24h do?");
+    expect(html).toContain("aria-expanded=\"false\"");
+    expect(html).toContain("ring-2 ring-blue-500 ring-offset-1");
   });
 
-  it("uses a portrait thumb shape when the best placement is Reels", () => {
-    const portrait = renderToStaticMarkup(
-      <ActionNowCard card={card({ bestPlacement: "instagram_reels" })} />,
-    );
-    const square = renderToStaticMarkup(
-      <ActionNowCard card={card({ bestPlacement: "facebook_feed" })} />,
+  it("renders cut actions as destructive primary controls", () => {
+    const cutHtml = renderToStaticMarkup(
+      <ActionNowCard
+        card={card({
+          label: "cut",
+          primary: { kind: "cut", label: "Cut" },
+        })}
+      />,
     );
 
-    expect(portrait).toContain("width:90px");
-    expect(portrait).toContain("9:16");
-    expect(square).toContain("width:140px");
-    expect(square).toContain("1:1");
+    expect(cutHtml).toContain("btn--danger");
+    expect(cutHtml).toContain('data-kind="cut"');
+    expect(cutHtml).toContain("Cut");
   });
 
   it("renders deferred chip and cut-removing classes", () => {
@@ -76,6 +81,7 @@ describe("ActionNowCard", () => {
     );
 
     expect(html).toContain(">Main<");
+    expect(html).toContain("tile-chips");
   });
 
   it("renders non-promote scale actions from the server without relabeling them", () => {
@@ -94,11 +100,42 @@ describe("ActionNowCard", () => {
     expect(html).not.toContain("Promote to main");
   });
 
-  it("colors the ROAS metric warn when the decision is cut", () => {
-    const html = renderToStaticMarkup(
-      <ActionNowCard card={card({ label: "cut", primary: { kind: "cut", label: "Cut" } })} />,
+  it("keeps video and carousel cards in their native media frames", () => {
+    const videoHtml = renderToStaticMarkup(
+      <ActionNowCard
+        card={card({
+          name: "Founder Story",
+          format: "image",
+          creativeVisualFormat: "video",
+          creativePrimaryType: "video",
+          creativePrimaryLabel: "Video",
+          preview: {
+            render_mode: "image",
+            image_url: "https://example.com/poster.jpg",
+            video_url: null,
+            poster_url: "https://example.com/poster.jpg",
+            source: "thumbnail_url",
+            is_catalog: false,
+          },
+        })}
+      />,
+    );
+    const carouselHtml = renderToStaticMarkup(
+      <ActionNowCard
+        card={card({
+          name: "Product Set",
+          creativeVisualFormat: "carousel",
+          creativePrimaryType: "carousel",
+          creativePrimaryLabel: "Carousel",
+        })}
+      />,
     );
 
-    expect(html).toContain("text-rose-700");
+    expect(videoHtml).toContain("data-media-shape=\"portrait\"");
+    expect(videoHtml).toContain(">VID<");
+    expect(videoHtml).toContain(">9:16<");
+    expect(carouselHtml).toContain("data-media-shape=\"square\"");
+    expect(carouselHtml).toContain(">CAR<");
+    expect(carouselHtml).toContain(">1:1<");
   });
 });

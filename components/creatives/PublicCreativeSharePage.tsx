@@ -21,6 +21,7 @@ import {
 type TopMetricLabelMap = Record<ShareMetricKey, string>;
 
 type PublicShareCreative = SharedCreative & {
+  mediaPreviewUrl?: string | null;
   cardPreviewUrl?: string | null;
   tableThumbnailUrl?: string | null;
   cachedThumbnailUrl?: string | null;
@@ -34,22 +35,55 @@ const TOP_METRIC_LABELS: TopMetricLabelMap = {
   purchaseValue: "Purchase value",
   roas: "ROAS",
   cpa: "CPA",
+  cpcLink: "CPC link",
+  cpm: "CPM",
   ctrAll: "CTR",
+  linkCtr: "Link CTR",
   purchases: "Purchases",
+  impressions: "Impressions",
+  clicks: "Clicks",
+  linkClicks: "Link clicks",
+  addToCart: "Add to cart",
+  thumbstop: "Thumbstop",
+  clickToAddToCart: "Click to ATC",
+  clickToPurchase: "Click to purchase",
+  video25: "25% views",
+  video50: "50% views",
+  video75: "75% views",
+  video100: "100% views",
+  atcToPurchaseRatio: "ATC to purchase",
+  leads: "Leads",
+  messages: "Messages",
 };
 
 function formatTopMetric(key: ShareMetricKey, value: number): string {
   switch (key) {
     case "spend":
     case "purchaseValue":
+    case "cpcLink":
+    case "cpm":
+    case "cpa":
       return `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
     case "roas":
       return value.toFixed(2);
-    case "cpa":
-      return `$${value.toFixed(2)}`;
     case "ctrAll":
+    case "linkCtr":
+    case "thumbstop":
+    case "clickToAddToCart":
+    case "clickToPurchase":
+    case "video25":
+    case "video50":
+    case "video75":
+    case "video100":
+    case "atcToPurchaseRatio":
       return `${value.toFixed(2)}%`;
     case "purchases":
+    case "impressions":
+    case "clicks":
+    case "linkClicks":
+    case "addToCart":
+    case "leads":
+    case "messages":
       return value.toLocaleString();
     default:
       return String(value);
@@ -57,7 +91,8 @@ function formatTopMetric(key: ShareMetricKey, value: number): string {
 }
 
 function topMetricValue(creative: SharedCreative, key: ShareMetricKey): number {
-  return creative[key];
+  const value = creative[key as keyof SharedCreative];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 function actionClasses(actionLabel: string) {
@@ -196,16 +231,26 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
     selectedRowIds,
     totalRows,
     createdAt,
+    audience,
+    includeCampaignNames,
+    includeDecisionLanguage,
   } = payload;
 
   const displayRows = creatives as PublicShareCreative[];
+  const showDecisionLanguage =
+    includeDecisionLanguage !== false &&
+    audience !== "creative_team" &&
+    audience !== "external";
+  const showCampaignNames = includeCampaignNames !== false;
   const analysisRows = useMemo(
     () =>
-      displayRows.filter(
-        (creative): creative is PublicShareCreative & { analysis: SharedCreativeAnalysis } =>
-          Boolean(creative.analysis),
-      ),
-    [displayRows],
+      showDecisionLanguage
+        ? displayRows.filter(
+            (creative): creative is PublicShareCreative & { analysis: SharedCreativeAnalysis } =>
+              Boolean(creative.analysis),
+          )
+        : [],
+    [displayRows, showDecisionLanguage],
   );
   const benchmarkRows = useMemo(
     () => ((benchmarkCreatives && benchmarkCreatives.length > 0 ? benchmarkCreatives : creatives) as PublicShareCreative[]),
@@ -271,7 +316,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
             </span>
             {typeof totalRows === "number" ? <span>{totalRows} rows in snapshot</span> : null}
             <span>{benchmarkRows.length} rows in benchmark</span>
-            {groupBy ? <span>Group by: {groupBy}</span> : null}
+            {showCampaignNames && groupBy ? <span>Group by: {groupBy}</span> : null}
             {selectedRowIds && selectedRowIds.length > 0 ? <span>Selection: {selectedRowIds.length}</span> : null}
             <span>Generated: {createdAtLabel}</span>
           </div>
@@ -305,6 +350,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                     size="card"
                     mode="asset"
                     assetFallbacks={[
+                      creative.mediaPreviewUrl,
                       creative.cardPreviewUrl,
                       creative.imageUrl,
                       creative.preview?.image_url,
@@ -386,6 +432,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                           assetFallbacks={[
                             creative.tableThumbnailUrl,
                             creative.cachedThumbnailUrl,
+                            creative.mediaPreviewUrl,
                             creative.thumbnailUrl,
                             creative.imageUrl,
                             creative.preview?.image_url,
@@ -393,7 +440,9 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                             creative.previewUrl,
                           ]}
                         />
-                        <span className="line-clamp-2 text-[11px] text-[#111827]">{creative.name}</span>
+                        <span className="line-clamp-2 text-[11px] text-[#111827]">
+                          {showCampaignNames ? creative.name : "Creative asset"}
+                        </span>
                       </div>
                     </td>
                     {SHARE_TABLE_COLUMNS.map((column) => {

@@ -11,7 +11,7 @@ interface EvidencePopoverProps {
   sections: EvidenceAccordionSection[];
   variant?: "creative" | "meta";
   presentation?: "modal" | "drawer";
-  preview?: ReactNode;
+  media?: ReactNode;
   onClose: () => void;
 }
 
@@ -22,7 +22,7 @@ export function EvidencePopover({
   sections,
   variant = "creative",
   presentation = "modal",
-  preview,
+  media,
   onClose,
 }: EvidencePopoverProps) {
   useEffect(() => {
@@ -34,14 +34,14 @@ export function EvidencePopover({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose, open]);
 
-  if (!open || sections.length === 0) return null;
+  if (!open) return null;
 
   const tone =
     variant === "meta"
       ? "border-blue-100 bg-blue-50/60 text-blue-700"
       : "border-slate-200 bg-slate-50 text-slate-700";
   const drawer = presentation === "drawer";
-  const hasPreview = drawer && Boolean(preview);
+  const hasPreview = drawer && Boolean(media);
   const rootClassName = drawer
     ? "fixed inset-0 z-50"
     : "fixed inset-0 z-50 flex items-center justify-center p-4";
@@ -81,37 +81,31 @@ export function EvidencePopover({
           </button>
         </div>
         <div className={bodyClassName}>
-          <div
-            className={
-              hasPreview
-                ? "grid gap-4 md:grid-cols-[260px_minmax(0,1fr)] md:items-start"
-                : ""
-            }
-          >
-            {hasPreview ? (
-              <div
-                className="hidden flex-col items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-4 md:flex"
-                data-evidence-preview
-              >
-                {preview}
-              </div>
-            ) : null}
-            <div className="space-y-3">
-              {sections.map((section) => (
-                <section key={section.key} className="rounded-xl border border-slate-200 bg-white">
-                  <div className={`flex items-center gap-2 rounded-t-xl border-b px-3 py-2 ${tone}`}>
-                    {section.icon ? <span className="text-slate-400">{section.icon}</span> : null}
-                    <h3 className="text-[12px] font-semibold text-slate-800">{section.title}</h3>
-                    {section.count != null ? (
-                      <span className="ml-auto font-mono text-[10.5px] text-slate-500">{section.count}</span>
-                    ) : null}
-                  </div>
-                  <div className="px-3 py-3 text-[12px] leading-snug text-slate-600">
-                    {section.content}
-                  </div>
-                </section>
-              ))}
-            </div>
+          {media ? <div className="mb-3">{media}</div> : null}
+          <div className="space-y-3">
+            {sections.length === 0 ? (
+              <section className="rounded-xl border border-slate-200 bg-white">
+                <div className={`flex items-center gap-2 rounded-t-xl border-b px-3 py-2 ${tone}`}>
+                  <h3 className="text-[12px] font-semibold text-slate-800">Evidence unavailable</h3>
+                </div>
+                <div className="px-3 py-3 text-[12px] leading-snug text-slate-600">
+                  No server evidence was returned for this item. The drawer opens intentionally so missing evidence is visible instead of silently failing.
+                </div>
+              </section>
+            ) : sections.map((section) => (
+              <section key={section.key} className="rounded-xl border border-slate-200 bg-white">
+                <div className={`flex items-center gap-2 rounded-t-xl border-b px-3 py-2 ${tone}`}>
+                  {section.icon ? <span className="text-slate-400">{section.icon}</span> : null}
+                  <h3 className="text-[12px] font-semibold text-slate-800">{section.title}</h3>
+                  {section.count != null ? (
+                    <span className="ml-auto font-mono text-[10.5px] text-slate-500">{section.count}</span>
+                  ) : null}
+                </div>
+                <div className="px-3 py-3 text-[12px] leading-snug text-slate-600">
+                  {section.content}
+                </div>
+              </section>
+            ))}
           </div>
         </div>
       </div>

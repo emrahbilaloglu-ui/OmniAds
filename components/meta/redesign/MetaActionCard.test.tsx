@@ -11,10 +11,9 @@ describe("MetaActionCard", () => {
     expect(html).toContain("Prospecting Scale");
     expect(html).toContain("Lowest Cost");
     expect(html).toContain("82%");
-    expect(html).toContain("Calibration");
     expect(html).toContain("account · 28d_history");
-    expect(html).toContain("Signals");
     expect(html).toContain("ready · cap high");
+    expect(html).toContain("metric-strip");
     expect(html).toContain("What does Defer 24h do?");
   });
 
@@ -26,6 +25,47 @@ describe("MetaActionCard", () => {
     const ignored = renderToStaticMarkup(<MetaActionCard rec={metaRec()} responseState="ignored" />);
     expect(ignored).toContain('data-operator-response="ignored"');
     expect(ignored).toContain("Ignored");
+  });
+
+  it("disables the primary action after a verified acted response", () => {
+    const html = renderToStaticMarkup(
+      <MetaActionCard rec={metaRec({ type: "adset_cut_spend" })} responseState="acted" />,
+    );
+
+    expect(html).toContain('disabled=""');
+    expect(html).toContain("Paused");
+  });
+
+  it("offers resume for a paused ad set response when a resume handler is available", () => {
+    const html = renderToStaticMarkup(
+      <MetaActionCard
+        rec={metaRec({
+          level: "adset",
+          adsetId: "adset_1",
+          adsetName: "Paused Adset",
+          type: "adset_cut_spend",
+          operatorResponseSubtype: "pause",
+        })}
+        responseState="acted"
+        onResume={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("Resume adset");
+    expect(html).not.toContain('disabled=""');
+  });
+
+  it("renders action feedback next to the primary controls", () => {
+    const html = renderToStaticMarkup(
+      <MetaActionCard
+        rec={metaRec({ type: "adset_cut_spend" })}
+        actionFeedback={{ tone: "success", title: "Ad set paused in Meta.", detail: "Meta verified the ad set status." }}
+      />,
+    );
+
+    expect(html).toContain('data-meta-action-feedback="success"');
+    expect(html).toContain("Ad set paused in Meta.");
+    expect(html).toContain("Meta verified the ad set status.");
   });
 
   it("renders backend-provided automation readiness without deriving the action in UI", () => {
@@ -44,7 +84,6 @@ describe("MetaActionCard", () => {
     })} />);
 
     expect(html).toContain('data-automation-readiness');
-    expect(html).toContain("Auto");
     expect(html).toContain("Backtest needed");
   });
 
@@ -60,7 +99,7 @@ describe("MetaActionCard", () => {
 
   it("renders non-purchase cohort chips on recommendation cards", () => {
     const html = renderToStaticMarkup(<MetaActionCard rec={metaRec({ cohort: "upper_funnel" })} />);
-    expect(html).toContain("Upper-funnel");
+    expect(html).toContain("Upper Funnel");
     expect(html).toContain('data-cohort-chip="upper_funnel"');
   });
 

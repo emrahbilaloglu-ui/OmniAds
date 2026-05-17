@@ -24,15 +24,17 @@ import {
   PrimaryActionButton,
   SecondaryButton,
   Sparkline,
-  Thumb,
   asDecisionLabel,
   buildEvidenceSections,
+  briefingMediaFallbacks,
+  briefingPreviewPayload,
   cardId,
   cardName,
   confidenceValue,
   numberOrZero,
 } from "@/components/creatives/briefing/card-utils";
 import { getCreativeScopeId } from "@/components/creatives/briefing/action-handlers";
+import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import {
   mapBriefingPrimaryToLaunchpadMode,
   type LaunchpadOpenPayload,
@@ -137,13 +139,35 @@ export function CrossPlacementCard({
             className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
           />
         </label>
-        <Thumb name={name} size={conf.thumb} />
+        <button
+          type="button"
+          className="cross-thumb creative-evidence-trigger creative-evidence-trigger--thumb"
+          aria-label={`Open evidence for ${name}`}
+          onClick={openEvidence}
+        >
+          <CreativeRenderSurface
+            id={actionCardId}
+            name={name}
+            preview={briefingPreviewPayload(card)}
+            mode="asset"
+            size="thumb"
+            assetFallbacks={briefingMediaFallbacks(card, "thumb")}
+            className="h-full w-full rounded-[var(--r-xs)]"
+          />
+        </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className={`${conf.textWeight} text-slate-900 text-[14px] truncate`}>
-                  {name}
+                  <button
+                    type="button"
+                    className="creative-evidence-trigger creative-evidence-trigger--inline-name"
+                    aria-label={`Open evidence for ${name}`}
+                    onClick={openEvidence}
+                  >
+                    {name}
+                  </button>
                 </h3>
                 <span className="text-[10.5px] uppercase tracking-wider text-slate-400 font-medium">
                   {card.brand || "Brand"}

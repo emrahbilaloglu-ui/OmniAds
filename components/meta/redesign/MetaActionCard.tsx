@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowRight, Check, Clock, ExternalLink, Eye, Pause, Sliders, SquareStack } from "lucide-react";
+import { ArrowRight, Check, Clock, ExternalLink, Eye, Pause, Play, Sliders, SquareStack } from "lucide-react";
 import {
   ConfidencePill,
   DecisionLabelChip,
@@ -32,9 +32,12 @@ interface MetaActionCardProps {
   selected?: boolean;
   deferred?: boolean;
   responseState?: "acted" | "deferred" | "ignored" | null;
+  primaryPending?: boolean;
+  actionFeedback?: { tone: "success" | "error"; title: string; detail?: string | null } | null;
   evidenceWindow?: string;
   onSelect?: (id: string, selected: boolean) => void;
   onPrimary?: (rec: MetaRecommendation) => void;
+  onResume?: (rec: MetaRecommendation) => void;
   onOpenDrill?: (item: MetaRecommendation | MetaAnomaly) => void;
   onDefer?: (rec: MetaRecommendation) => void;
   onUndoDefer?: (rec: MetaRecommendation) => void;
@@ -75,6 +78,7 @@ function EvidenceTags({ rec, evidenceWindow = "28d" }: { rec: MetaRecommendation
 }
 
 function PrimaryIcon({ rec }: { rec: MetaRecommendation }) {
+  if (rec.decisionState === "watch") return <Clock className="inline-block shrink-0" size={13} aria-hidden="true" />;
   if (rec.kind === "state") return <ExternalLink className="inline-block shrink-0" size={13} aria-hidden="true" />;
   if (rec.type === "adset_cut_spend") return <Pause className="inline-block shrink-0" size={13} aria-hidden="true" />;
   if (rec.type === "bid_strategy_fit" || rec.type === "bid_value_guidance" || rec.type === "bid_band_from_history") {
@@ -124,6 +128,82 @@ function responseStateLabel(responseState: "acted" | "deferred" | "ignored") {
   if (responseState === "acted") return "Acted";
   if (responseState === "deferred") return "Deferred";
   return "Ignored";
+}
+
+function completedPrimaryLabel(rec: MetaRecommendation) {
+  if (rec.type === "adset_cut_spend") return "Paused";
+  if (rec.type === "bid_strategy_fit" || rec.type === "bid_value_guidance" || rec.type === "bid_band_from_history") return "Applied";
+  return "Acted";
+}
+
+function canResumeCompletedPrimary(rec: MetaRecommendation, primaryCompleted: boolean) {
+  if (!primaryCompleted) return false;
+  const subtype = (rec.operatorResponseSubtype ?? "").toLowerCase();
+  const pauseLike = subtype.includes("pause") || (!subtype && rec.type === "adset_cut_spend");
+  if (!pauseLike) return false;
+  return (rec.level === "adset" && Boolean(rec.adsetId)) || (rec.level === "campaign" && Boolean(rec.campaignId));
+}
+
+function resumePrimaryLabel(rec: MetaRecommendation) {
+  return rec.level === "campaign" ? "Resume campaign" : "Resume adset";
+}
+
+function evidenceValue(rec: MetaRecommendation, pattern: RegExp) {
+  return rec.evidence.find((item) => pattern.test(item.label))?.value ?? null;
+}
+
+function numericEvidenceValue(rec: MetaRecommendation, pattern: RegExp) {
+  const raw = evidenceValue(rec, pattern);
+  if (!raw) return null;
+  const parsed = Number(raw.replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function decisionChipClass(label: string) {
+  if (["cut", "below_breakeven", "rebuild", "diagnose"].includes(label)) return "chip--action";
+  if (["scale", "switch", "tune", "swap"].includes(label)) return "chip--action";
+  if (["refresh", "test_more", "review_adsets", "review_placements"].includes(label)) return "chip--watch";
+  if (label === "keep") return "chip--healthy";
+  return "chip--ghost";
+}
+
+function decisionChipLabel(label: string) {
+  if (label === "below_breakeven") return "Cut candidate";
+  if (label === "test_more") return "Fresh test";
+  if (label === "review_adsets") return "Review ad sets";
+  if (label === "review_placements") return "Review placements";
+  return label.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function compactLabel(value: string) {
+  return value.replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function metricTone(label: string, value: string | null) {
+  const numeric = value ? Number(value.replace(/[^0-9.-]/g, "")) : null;
+  if (!Number.isFinite(numeric)) return "";
+  if (/roas/i.test(label) && numeric != null) {
+    if (numeric < 1) return "warn";
+    if (numeric >= 2) return "good";
+  }
+  if (/cpa|freq/i.test(label) && numeric != null && numeric > 4) return "warn";
+  return "";
+}
+
+function cardMetricRows(rec: MetaRecommendation, evidenceWindow: string) {
+  const spend = evidenceValue(rec, /spend/i);
+  const roas = evidenceValue(rec, /roas/i);
+  const cpa = evidenceValue(rec, /cpa/i);
+  const purchases = evidenceValue(rec, /purchase/i);
+  const frequency = evidenceValue(rec, /freq/i);
+  const confidence = confidencePercent(rec);
+  return [
+    { key: "Spend", value: spend ?? "—" },
+    { key: `ROAS ${evidenceWindow}`, value: roas ?? "—" },
+    { key: "CPA", value: cpa ?? "—" },
+    { key: purchases ? "Purchases" : "Confidence", value: purchases ?? `${confidence}%` },
+    { key: frequency ? "Freq" : "Priority", value: frequency ?? rec.priority },
+  ];
 }
 
 function TrendSnapshot({ rec }: { rec: MetaRecommendation }) {
@@ -182,9 +262,12 @@ export function MetaActionCard({
   selected = false,
   deferred = false,
   responseState = null,
+  primaryPending = false,
+  actionFeedback = null,
   evidenceWindow = "28d",
   onSelect,
   onPrimary,
+  onResume,
   onOpenDrill,
   onDefer,
   onUndoDefer,
@@ -193,46 +276,37 @@ export function MetaActionCard({
 
   if (anomaly) {
     return (
-      <article className={cn("rounded-2xl bg-white p-4 transition-all relative shadow-[0_1px_2px_rgba(15,23,42,0.04)]", cardBorder(undefined, anomaly))} data-card="anomaly">
-        <div className="flex items-start gap-3">
-          <div className="mt-0.5 rounded-lg bg-rose-50 p-2 text-rose-600">
-            <SquareStack className="inline-block shrink-0" size={16} aria-hidden="true" />
+      <article className="dcard" data-card="anomaly">
+        <div className="check" />
+        <div>
+          <div className="meta-line">
+            <span className="chip chip--action"><span className="dot" />Tracking</span>
+            <span className="chip chip--ghost"><span className="dot" />{anomaly.scopeType}</span>
+            <b>{anomaly.scopeLabel}</b>
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <MetaScopeChip level="anomaly" label={anomaly.scopeType} />
-              <span className="rounded-md border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wider text-rose-700">
-                {anomaly.severity}
-              </span>
-            </div>
-            <h4 className="mt-2 text-[14px] font-semibold leading-snug text-slate-900">{anomaly.title}</h4>
-            <p className="mt-1 text-[12.5px] leading-snug text-slate-600">{anomaly.detail}</p>
-            {anomaly.diagnosticLadder && anomaly.diagnosticLadder.length > 0 ? (
-              <ol className="mt-3 grid gap-1.5">
-                {anomaly.diagnosticLadder.slice(0, 3).map((step) => (
-                  <li key={`${anomaly.id}-${step.step}`} className="flex items-start gap-2 text-[11.5px] text-slate-600">
-                    <span className="mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-rose-100 text-[9px] font-semibold text-rose-700">
-                      {step.step}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="font-semibold text-slate-700">{step.label}</span>: {step.detail}
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            ) : null}
-            <div className="mt-3 flex items-center gap-2">
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 rounded-md bg-rose-600 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-rose-700"
-                onClick={() => onOpenDrill?.(anomaly)}
-              >
-                Open diagnostic
-                <ArrowRight className="inline-block shrink-0" size={13} aria-hidden="true" />
-              </button>
-              <span className="text-[11px] text-slate-500">{anomaly.scopeLabel}</span>
-            </div>
+          <div className="title">{anomaly.title}</div>
+          <div className="why">
+            {anomaly.detail}
+            {anomaly.diagnosticLadder?.[0] ? (
+              <span className="from">source · {anomaly.diagnosticLadder[0].label} · severity {anomaly.severity}</span>
+            ) : (
+              <span className="from">source · anomalies · severity {anomaly.severity}</span>
+            )}
           </div>
+          {anomaly.diagnosticLadder?.length ? (
+            <div className="badges-row">
+              {anomaly.diagnosticLadder.slice(0, 3).map((step) => (
+                <span key={`${anomaly.id}-${step.step}`} className="chip chip--ghost" title={step.detail}><span className="dot" />{step.label}</span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <div className="actions-col">
+          <span className="why-action">Recommended</span>
+          <button type="button" className="btn btn--primary" onClick={() => onOpenDrill?.(anomaly)}>
+            Open diagnostic
+            <ArrowRight className="inline-block shrink-0" size={13} aria-hidden="true" />
+          </button>
         </div>
       </article>
     );
@@ -249,155 +323,120 @@ export function MetaActionCard({
   const calibration = calibrationScopeText(rec);
   const signalQuality = signalQualityText(rec);
   const automationReadiness = automationReadinessText(rec);
+  const metricRows = cardMetricRows(rec, evidenceWindow);
+  const primaryActionLabel = rec.decisionState === "watch" ? "Let cook" : primaryLabelForRec(rec);
+  const primaryCompleted = effectiveResponseState === "acted";
+  const primaryCanResume = Boolean(onResume) && canResumeCompletedPrimary(rec, primaryCompleted);
 
   return (
     <article
       className={cn(
-        "rounded-2xl bg-white p-4 transition-all relative shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
-        cardBorder(rec),
+        "dcard",
         selected ? "ring-2 ring-blue-200" : "",
         deferred ? "opacity-75" : "",
       )}
       data-card="meta-action"
       data-rec-id={id}
     >
-      <div className="flex items-start gap-3">
-        {onSelect ? (
-          <label className="mt-1 inline-flex items-center">
-            <input
-              type="checkbox"
-              className="size-4 rounded border-slate-300"
-              checked={selected}
-              aria-label={`Select ${scopeName}`}
-              onChange={(event) => onSelect(id, event.currentTarget.checked)}
-            />
-          </label>
-        ) : null}
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <MetaScopeChip level={rec.level} />
-            <DecisionLabelChip label={label} surface="meta" size="sm" />
-            {rec.level === "campaign" && rec.campaignRole ? <MetaCampaignRoleChip role={rec.campaignRole} /> : null}
-            {rec.bidRegime ? <MetaBidRegimeChip regime={rec.bidRegime} /> : null}
-            <MetaCohortChip cohort={rec.cohort} />
-            <ConfidencePill confidence={confidence} size="sm" className="ml-auto" />
-          </div>
-
-          <h4 className="mt-2 text-[14px] font-semibold leading-snug text-slate-900">{rec.title}</h4>
-          <p className="mt-1 text-[12.5px] leading-snug text-slate-600">{rec.summary}</p>
-
-          <EvidenceTags rec={rec} evidenceWindow={evidenceWindow} />
-          <TrendSnapshot rec={rec} />
-          <DeploymentQueue rec={rec} />
-
-          {rec.level === "adset" && bidValue ? (
-            <div className="mt-2 inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10.5px] text-blue-700">
-              <Sliders className="inline-block shrink-0" size={11} aria-hidden="true" />
-              Proposed bid {formatCurrency(bidValue)}
-            </div>
+      {onSelect ? (
+        <label>
+          <input
+            type="checkbox"
+            className="sr-only"
+            checked={selected}
+            aria-label={`Select ${scopeName}`}
+            onChange={(event) => onSelect(id, event.currentTarget.checked)}
+          />
+          <span className={cn("check", selected ? "on" : "")} aria-hidden="true" />
+        </label>
+      ) : (
+        <div className={cn("check", selected ? "on" : "")} />
+      )}
+      <div>
+        <div className="meta-line">
+          <span className={cn("chip", decisionChipClass(label))}><span className="dot" />{decisionChipLabel(label)}</span>
+          {rec.campaignRole ? <span className="chip"><span className="dot" />{compactLabel(rec.campaignRole)}</span> : null}
+          {rec.bidRegime ? <span className="chip chip--warn"><span className="dot" />{compactLabel(rec.bidRegime)}</span> : null}
+          {rec.cohort && rec.cohort !== "purchase" ? (
+            <span className="chip chip--ghost" data-cohort-chip={rec.cohort}><span className="dot" />{compactLabel(rec.cohort)}</span>
           ) : null}
+          <span>{rec.level}</span> · <b>{scopeName}</b>
+          {rec.timeframeContext?.selectedRangeOverlay ? <span>· {rec.timeframeContext.selectedRangeOverlay}</span> : null}
+        </div>
 
-          <div className="mt-3 flex items-center gap-2 flex-wrap">
-            <button
-              type="button"
-              className={cn(
-                "inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-[12px] font-medium",
-                confidence >= 70
-                  ? "bg-slate-900 text-white hover:bg-slate-800"
-                  : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
-              )}
-              onClick={() => onPrimary?.(rec)}
-            >
-              <PrimaryIcon rec={rec} />
-              {primaryLabelForRec(rec)}
-            </button>
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] text-slate-700 hover:bg-slate-50"
-              aria-haspopup="dialog"
-              aria-expanded={evidenceOpen}
-              onClick={() => setEvidenceOpen(true)}
-            >
-              <Eye className="inline-block shrink-0" size={12} aria-hidden="true" />
-              Evidence
-            </button>
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] text-slate-700 hover:bg-slate-50"
-              onClick={() => onOpenDrill?.(rec)}
-            >
-              Drilldown
-              <ArrowRight className="inline-block shrink-0" size={12} aria-hidden="true" />
-            </button>
-            <DeferTooltip>
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                onClick={() => onDefer?.(rec)}
-              >
-                <Clock className="inline-block shrink-0" size={12} aria-hidden="true" />
-                Let cook
-              </button>
-            </DeferTooltip>
-            <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-slate-500">
-              <Check className="inline-block shrink-0 text-emerald-600" size={12} aria-hidden="true" />
-              {rec.engineVersion ?? "Meta engine"}
+        <div className="title">{rec.title}</div>
+        <div className="why">
+          {rec.summary || rec.why || rec.decision}
+          <span className="from">
+            source · {rec.decisionState} · {calibration ? `${calibration} · ` : ""}{signalQuality ? `${signalQuality} · ` : ""}{rec.engineVersion ?? "meta engine"}
+          </span>
+        </div>
+
+        <div className="metric-strip">
+          {metricRows.map((metric) => (
+            <div key={metric.key} className="m">
+              <span className="k">{metric.key}</span>
+              <span className={cn("v", metricTone(metric.key, metric.value))}>{metric.value}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="badges-row">
+          {automationReadiness ? (
+            <span className={cn("chip", automationReadiness === "Eligible" ? "chip--auto" : "chip--ghost")} title={rec.automationReadiness?.reason} data-automation-readiness>
+              <span className="dot" />{automationReadiness === "Eligible" ? "Auto-ready" : automationReadiness}
+            </span>
+          ) : null}
+          <span className="chip"><span className="dot" />Confidence {rec.confidence}</span>
+          <span className="conf"><span className="bar"><i style={{ width: `${Math.max(2, Math.min(100, confidence))}%` }} /></span>{(confidence / 100).toFixed(2)}</span>
+          {effectiveResponseState ? (
+            <span className="chip chip--ghost" data-operator-response={effectiveResponseState}><span className="dot" />{responseStateLabel(effectiveResponseState)}</span>
+          ) : null}
+          {bidValue ? <span className="chip chip--info"><span className="dot" />Bid {formatCurrency(bidValue)}</span> : null}
+        </div>
+        <DeferChip id={scopeIdForRec(rec)} deferred={deferred} onUndo={() => onUndoDefer?.(rec)} />
+      </div>
+      <div className="actions-col">
+        <span className="why-action">Recommended</span>
+        <button
+          type="button"
+          className="btn btn--primary"
+          disabled={primaryPending || (primaryCompleted && !primaryCanResume)}
+          onClick={() => (primaryCanResume ? onResume?.(rec) : onPrimary?.(rec))}
+        >
+          {primaryCanResume ? <Play className="inline-block shrink-0" size={13} aria-hidden="true" /> : <PrimaryIcon rec={rec} />}
+          {primaryPending ? "Working..." : primaryCanResume ? resumePrimaryLabel(rec) : primaryCompleted ? completedPrimaryLabel(rec) : primaryActionLabel}
+        </button>
+        {actionFeedback ? (
+          <div className={cn("meta-action-feedback", `meta-action-feedback--${actionFeedback.tone}`)} role="status" data-meta-action-feedback={actionFeedback.tone}>
+            <span className="dot" aria-hidden="true" />
+            <span>
+              <b>{actionFeedback.title}</b>
+              {actionFeedback.detail ? <small>{actionFeedback.detail}</small> : null}
             </span>
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10.5px]">
-            {effectiveResponseState ? (
-              <span
-                className={cn(
-                  "inline-flex items-center rounded-md border px-1.5 py-0.5 font-medium",
-                  responseStateTone(effectiveResponseState),
-                )}
-                data-operator-response={effectiveResponseState}
-              >
-                {responseStateLabel(effectiveResponseState)}
-              </span>
-            ) : null}
-            {calibration ? (
-              <span
-                className="inline-flex max-w-full items-center rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-slate-600"
-                title={`Calibration scope: ${calibration}`}
-                data-calibration-scope
-              >
-                <span className="shrink-0 text-slate-400">Calibration</span>
-                <span className="ml-1 truncate font-medium text-slate-700">{calibration}</span>
-              </span>
-            ) : null}
-            {signalQuality ? (
-              <span
-                className="inline-flex max-w-full items-center rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-slate-600"
-                title={`Signal quality: ${signalQuality}`}
-                data-signal-quality
-              >
-                <span className="shrink-0 text-slate-400">Signals</span>
-                <span className="ml-1 truncate font-medium text-slate-700">{signalQuality}</span>
-              </span>
-            ) : null}
-            {automationReadiness ? (
-              <span
-                className="inline-flex max-w-full items-center rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-slate-600"
-                title={rec.automationReadiness?.reason}
-                data-automation-readiness
-              >
-                <span className="shrink-0 text-slate-400">Auto</span>
-                <span className="ml-1 truncate font-medium text-slate-700">{automationReadiness}</span>
-              </span>
-            ) : null}
-          </div>
-          <DeferChip id={scopeIdForRec(rec)} deferred={deferred} onUndo={() => onUndoDefer?.(rec)} />
-          <EvidencePopover
-            open={evidenceOpen}
-            title="Evidence"
-            subtitle={scopeName}
-            sections={buildMetaEvidenceSections(rec)}
-            variant="meta"
-            onClose={() => setEvidenceOpen(false)}
-          />
+        ) : null}
+        <button type="button" className="btn" onClick={() => onOpenDrill?.(rec)}>
+          {rec.level === "adset" ? "View ad set" : "View ad sets"}
+          <ArrowRight className="inline-block shrink-0" size={12} aria-hidden="true" />
+        </button>
+        <div className="flex gap-1.5">
+          <DeferTooltip>
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => onDefer?.(rec)}>
+              Defer
+            </button>
+          </DeferTooltip>
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setEvidenceOpen(true)}>Evidence</button>
         </div>
       </div>
+      <EvidencePopover
+        open={evidenceOpen}
+        title="Evidence"
+        subtitle={scopeName}
+        sections={buildMetaEvidenceSections(rec)}
+        variant="meta"
+        onClose={() => setEvidenceOpen(false)}
+      />
     </article>
   );
 }

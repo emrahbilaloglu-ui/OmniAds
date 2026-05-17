@@ -28,11 +28,14 @@ describe("WatchingCard", () => {
     const html = renderToStaticMarkup(<WatchingCard card={card()} selected />);
 
     expect(html).toContain("Catalog DPA Spring 2026");
-    expect(html).toContain('data-tile-variant="watch"');
-    expect(html).toContain("Defer");
+    expect(html).toContain('aria-label="Open evidence for Catalog DPA Spring 2026"');
+    expect(html).toContain("creative-evidence-trigger--watch-thumb");
+    expect(html).toContain("creative-evidence-trigger--inline-name");
+    expect(html).toContain("opacity-90");
+    expect(html).toContain("Defer 24h");
     expect(html).toContain("What does Defer 24h do?");
     expect(html).toContain("Fresh test");
-    expect(html).toContain('aria-checked="true"');
+    expect(html).toContain('checked=""');
   });
 
   it("falls back to Open evidence for non-test-more labels", () => {

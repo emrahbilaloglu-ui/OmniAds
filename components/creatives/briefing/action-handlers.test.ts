@@ -3,6 +3,7 @@ import {
   buildCutSuccessToast,
   buildLaunchpadOpenToast,
   buildMetaAdsManagerUrlForBriefingCard,
+  getBriefingAdActionCandidateIds,
   getBriefingAdActionInputId,
   getCreativeScopeId,
   isCutPrimaryAction,
@@ -27,6 +28,16 @@ describe("briefing action handlers", () => {
     expect(getCreativeScopeId(card())).toBe("creative_1");
     expect(getBriefingAdActionInputId(card())).toBe("creative_1");
     expect(getBriefingAdActionInputId(card({ realAdId: "1200" }))).toBe("1200");
+    expect(
+      getBriefingAdActionCandidateIds(
+        card({
+          realAdId: "1200",
+          metaAdId: "1200",
+          effectiveAdId: "1201",
+          adId: "row_ad",
+        }),
+      ),
+    ).toEqual(["1200", "1201", "row_ad", "creative_1", "creative_synth_1"]);
     expect(isCutPrimaryAction(card())).toBe(true);
     expect(isCutPrimaryAction(card({ primary: { kind: "demote", label: "Demote to test" } }))).toBe(false);
     expect(isCutPrimaryAction(card({ label: "scale", primary: { kind: "promote", label: "Promote" } }))).toBe(false);
@@ -49,8 +60,48 @@ describe("briefing action handlers", () => {
       "/api/meta/ads/1200/pause",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ businessId: "biz_1" }),
+        body: JSON.stringify({ businessId: "biz_1", recIdOrigin: "creative_1" }),
       }),
+    );
+  });
+
+  it("tries the next action id when the first Briefing id is not resolvable", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        json: async () => ({
+          ok: false,
+          error: { code: "ad_not_found", message: "Ad not found for this business." },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, adId: "real_ad_1", status: "PAUSED" }),
+      }) as unknown as typeof fetch;
+
+    const result = await pauseBriefingCard({
+      businessId: "biz_1",
+      card: card({ realAdId: "stale_ad_1", metaAdId: "real_ad_1" }),
+      fetchImpl,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      adId: "real_ad_1",
+      attemptedIds: ["stale_ad_1", "real_ad_1"],
+    });
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      1,
+      "/api/meta/ads/stale_ad_1/pause",
+      expect.any(Object),
+    );
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      2,
+      "/api/meta/ads/real_ad_1/pause",
+      expect.any(Object),
     );
   });
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { resolveMetaCredentials } from "@/lib/api/meta";
 import { getDb } from "@/lib/db";
 import { getMetaAdSetsForRange } from "@/lib/meta/adsets-source";
 import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
@@ -22,9 +23,28 @@ import {
 
 export const dynamic = "force-dynamic";
 
+const META_LIVE_STATUS_PROBE_TIMEOUT_MS = 5_000;
+
 type PulseWindow = "7d" | "14d" | "28d" | "90d" | "custom";
 type CampaignRow = Awaited<ReturnType<typeof getMetaCampaignsForRange>>["rows"][number];
 type AdsetRow = Awaited<ReturnType<typeof getMetaAdSetsForRange>>["rows"][number];
+type OperatorResponseState = NonNullable<MetaRecommendation["operatorResponseState"]>;
+
+interface OperatorRecState {
+  state: OperatorResponseState;
+  subtype: string | null;
+  occurredAt: string | null;
+}
+
+interface LiveMetaEntityStatus {
+  id: string;
+  status: string | null;
+  effectiveStatus: string | null;
+  deliveryStatus: string | null;
+  configuredStatus: string | null;
+  updatedAt: string | null;
+  fetchedAt: string;
+}
 
 interface HealthyMetaRow {
   id: string;
@@ -399,7 +419,7 @@ const WATCH_SEGMENT_META: Record<
     label: "Unlabeled",
     description: "Campaign label is missing, so hard actions stay soft-only.",
     ctaLabel: "Label campaigns",
-    href: "#campaign-labels",
+    href: null,
   },
   missing_target: {
     label: "Missing target",
@@ -465,24 +485,307 @@ function buildWatchingSegments(watching: MetaRecommendation[]): MetaWatchingSegm
     .filter((segment) => segment.count > 0);
 }
 
-async function readDeferredRecIds(businessId: string) {
+async function readOperatorRecStates(businessId: string) {
   const sql = getDb();
   const rows = (await sql`
-    WITH ranked AS (
+    WITH events AS (
       SELECT
         rec_id,
         action,
-        ROW_NUMBER() OVER (PARTITION BY rec_id ORDER BY timestamp DESC) AS row_number
+        action_subtype,
+        timestamp AS occurred_at
       FROM meta_decision_responses
       WHERE business_id = ${businessId}
-        AND action IN ('deferred', 'undeferred')
+        AND action IN ('acted', 'deferred', 'undeferred', 'ignored')
+
+      UNION ALL
+
+      SELECT
+        rec_id_origin AS rec_id,
+        'acted'::text AS action,
+        action::text AS action_subtype,
+        COALESCE(verified_at, updated_at, requested_at, created_at) AS occurred_at
+      FROM meta_ads_action_log
+      WHERE business_id = ${businessId}
+        AND status = 'success'
+        AND rec_id_origin IS NOT NULL
+        AND btrim(rec_id_origin) <> ''
+    ),
+    ranked AS (
+      SELECT
+        rec_id,
+        action,
+        action_subtype,
+        occurred_at,
+        ROW_NUMBER() OVER (PARTITION BY rec_id ORDER BY occurred_at DESC NULLS LAST) AS row_number
+      FROM events
     )
-    SELECT rec_id
+    SELECT
+      rec_id,
+      action,
+      action_subtype,
+      occurred_at::text AS occurred_at
     FROM ranked
     WHERE row_number = 1
-      AND action = 'deferred'
-  `) as Array<{ rec_id: string }>;
-  return new Set(rows.map((row) => row.rec_id));
+  `) as Array<{
+    rec_id: string;
+    action: "acted" | "deferred" | "undeferred" | "ignored";
+    action_subtype: string | null;
+    occurred_at: string | null;
+  }>;
+  const states = new Map<string, OperatorRecState>();
+  for (const row of rows) {
+    if (!row.rec_id || row.action === "undeferred") continue;
+    states.set(row.rec_id, {
+      state: row.action,
+      subtype: row.action_subtype ?? null,
+      occurredAt: row.occurred_at ?? null,
+    });
+  }
+  return states;
+}
+
+function annotateOperatorState(
+  rec: MetaRecommendation,
+  operatorStates: Map<string, OperatorRecState>,
+  context: {
+    campaignsById: Map<string, CampaignRow>;
+    adsetsById: Map<string, AdsetRow>;
+    liveStatusesById: Map<string, LiveMetaEntityStatus>;
+  },
+): MetaRecommendation {
+  const state = operatorStates.get(rec.id);
+  if (!state) return rec;
+  if (isStaleOperatorActedState({ rec, state, ...context })) return rec;
+  return {
+    ...rec,
+    operatorResponseState: state.state,
+    operatorResponseSubtype: state.subtype,
+    operatorResponseAt: state.occurredAt,
+  };
+}
+
+function isPauseActedState(rec: MetaRecommendation, state: OperatorRecState) {
+  if (state.state !== "acted") return false;
+  const subtype = (state.subtype ?? "").toLowerCase();
+  if (subtype.includes("resume")) return false;
+  return subtype ? subtype.includes("pause") : rec.type === "adset_cut_spend";
+}
+
+function isResumeActedState(state: OperatorRecState) {
+  if (state.state !== "acted") return false;
+  const subtype = (state.subtype ?? "").toLowerCase();
+  return subtype.includes("resume");
+}
+
+function recEntityId(rec: MetaRecommendation) {
+  return rec.adsetId ?? rec.campaignId ?? null;
+}
+
+function normalizeStatus(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim().toUpperCase() : "";
+}
+
+function parseTimestampMs(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function entityStatusUpdatedAt(entity: unknown) {
+  if (!entity || typeof entity !== "object") return null;
+  const row = entity as {
+    statusUpdatedAt?: unknown;
+    sourceUpdatedAt?: unknown;
+    updatedAt?: unknown;
+    status_updated_at?: unknown;
+    source_updated_at?: unknown;
+    updated_at?: unknown;
+  };
+  return (
+    row.statusUpdatedAt ??
+    row.sourceUpdatedAt ??
+    row.updatedAt ??
+    row.status_updated_at ??
+    row.source_updated_at ??
+    row.updated_at ??
+    null
+  );
+}
+
+function isStatusNewerThanOperatorState(entity: unknown, state: OperatorRecState) {
+  const statusAt = parseTimestampMs(entityStatusUpdatedAt(entity));
+  if (statusAt == null) return false;
+  const actionAt = parseTimestampMs(state.occurredAt);
+  if (actionAt == null) return true;
+  return statusAt > actionAt;
+}
+
+function liveStatusReversesOperatorState(status: LiveMetaEntityStatus, rec: MetaRecommendation, state: OperatorRecState) {
+  const liveStatusAt = parseTimestampMs(status.updatedAt);
+  const actionAt = parseTimestampMs(state.occurredAt);
+  if (liveStatusAt != null && actionAt != null && liveStatusAt <= actionAt) {
+    return false;
+  }
+  const configuredStatus = normalizeStatus(status.configuredStatus);
+  const deliveryStatus = normalizeStatus(status.deliveryStatus);
+  if (isPauseActedState(rec, state)) {
+    return configuredStatus === "ACTIVE" || (!configuredStatus && deliveryStatus === "ACTIVE");
+  }
+  if (isResumeActedState(state)) {
+    return configuredStatus === "PAUSED" || (!configuredStatus && deliveryStatus === "PAUSED");
+  }
+  return false;
+}
+
+function isStaleOperatorActedState(input: {
+  rec: MetaRecommendation;
+  state: OperatorRecState;
+  campaignsById: Map<string, CampaignRow>;
+  adsetsById: Map<string, AdsetRow>;
+  liveStatusesById: Map<string, LiveMetaEntityStatus>;
+}) {
+  const liveStatus = input.liveStatusesById.get(recEntityId(input.rec) ?? "");
+  if (liveStatus && liveStatusReversesOperatorState(liveStatus, input.rec, input.state)) {
+    return true;
+  }
+  const entity = recScopeEntity(input);
+  const status = normalizeStatus(entity?.status);
+  if (isPauseActedState(input.rec, input.state) && status === "ACTIVE") {
+    return isStatusNewerThanOperatorState(entity, input.state);
+  }
+  return isResumeActedState(input.state) && status === "PAUSED"
+    ? isStatusNewerThanOperatorState(entity, input.state)
+    : false;
+}
+
+function collectLiveStatusProbeIds(
+  recommendations: MetaRecommendation[],
+  operatorStates: Map<string, OperatorRecState>,
+) {
+  const ids = new Set<string>();
+  for (const rec of recommendations) {
+    const state = operatorStates.get(rec.id);
+    if (!state || (!isPauseActedState(rec, state) && !isResumeActedState(state))) continue;
+    const entityId = recEntityId(rec);
+    if (entityId) ids.add(entityId);
+  }
+  return [...ids];
+}
+
+function chunkIds(ids: string[], size: number) {
+  const chunks: string[][] = [];
+  for (let index = 0; index < ids.length; index += size) {
+    chunks.push(ids.slice(index, index + size));
+  }
+  return chunks;
+}
+
+async function readLiveMetaEntityStatuses(businessId: string, entityIds: string[]) {
+  const uniqueIds = [...new Set(entityIds.filter(Boolean))];
+  const statuses = new Map<string, LiveMetaEntityStatus>();
+  if (uniqueIds.length === 0) return statuses;
+  let credentials: Awaited<ReturnType<typeof resolveMetaCredentials>> | null = null;
+  try {
+    credentials = await resolveMetaCredentials(businessId);
+  } catch (error) {
+    console.warn("[meta-lane-classify] live status probe credential lookup failed", {
+      businessId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return statuses;
+  }
+  const accessToken = credentials?.accessToken;
+  if (!accessToken) return statuses;
+
+  const fetchedAt = new Date().toISOString();
+  await Promise.all(
+    chunkIds(uniqueIds, 50).map(async (ids) => {
+      const url = new URL("https://graph.facebook.com/v25.0/");
+      url.searchParams.set("ids", ids.join(","));
+      url.searchParams.set("fields", "id,name,effective_status,status,updated_time");
+      url.searchParams.set("access_token", accessToken);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), META_LIVE_STATUS_PROBE_TIMEOUT_MS);
+      try {
+        const response = await fetch(url.toString(), { cache: "no-store", signal: controller.signal });
+        if (!response.ok) {
+          console.warn("[meta-lane-classify] live status probe returned non-OK response", {
+            businessId,
+            status: response.status,
+            entityCount: ids.length,
+          });
+          return;
+        }
+        const payload = (await response.json()) as Record<
+          string,
+          {
+            id?: string;
+            effective_status?: string | null;
+            status?: string | null;
+            updated_time?: string | null;
+            error?: unknown;
+          }
+        >;
+        for (const requestedId of ids) {
+          const row = payload[requestedId];
+          if (!row) continue;
+          if (row.error) {
+            console.warn("[meta-lane-classify] live status probe returned an entity error", {
+              businessId,
+              entityId: requestedId,
+            });
+            continue;
+          }
+          const status = row.status ?? null;
+          const effectiveStatus = row.effective_status ?? null;
+          statuses.set(requestedId, {
+            id: row.id ?? requestedId,
+            status,
+            effectiveStatus,
+            deliveryStatus: effectiveStatus ?? status,
+            configuredStatus: status ?? effectiveStatus,
+            updatedAt: row.updated_time ?? null,
+            fetchedAt,
+          });
+        }
+      } catch (error) {
+        // Live reconciliation is a source-of-truth improvement, not an availability dependency.
+        console.warn("[meta-lane-classify] live status probe request failed", {
+          businessId,
+          entityCount: ids.length,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+    }),
+  );
+  return statuses;
+}
+
+function applyLiveStatusesToRows<Row extends { id: string; status?: string | null; statusUpdatedAt?: string | null }>(
+  rows: Row[],
+  liveStatusesById: Map<string, LiveMetaEntityStatus>,
+) {
+  if (liveStatusesById.size === 0) return rows;
+  return rows.map((row) => {
+    const liveStatus = liveStatusesById.get(row.id);
+    if (!liveStatus) return row;
+    return {
+      ...row,
+      status: liveStatus.deliveryStatus ?? row.status ?? null,
+      statusUpdatedAt: liveStatus.updatedAt ?? liveStatus.fetchedAt,
+    };
+  });
+}
+
+function deferredIdsFromOperatorStates(operatorStates: Map<string, OperatorRecState>) {
+  const ids = new Set<string>();
+  for (const [recId, response] of operatorStates.entries()) {
+    if (response.state === "deferred") ids.add(recId);
+  }
+  return ids;
 }
 
 function healthyCampaignRows(input: {
@@ -699,9 +1002,9 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const [snapshot, deferredIds, campaigns, adsets, upperFunnelCostPerThruplayP50] = await Promise.all([
+  const [snapshot, operatorStates, campaigns, adsets, upperFunnelCostPerThruplayP50] = await Promise.all([
     readMetaDecisionSnapshotForRange({ businessId, startDate, endDate }),
-    readDeferredRecIds(businessId).catch(() => new Set<string>()),
+    readOperatorRecStates(businessId).catch(() => new Map<string, OperatorRecState>()),
     getMetaCampaignsForRange({
       businessId,
       startDate,
@@ -719,11 +1022,21 @@ export async function GET(request: NextRequest) {
     readUpperFunnelCostPerThruplayP50(businessId).catch(() => null),
   ]);
 
-  const campaignsById = new Map((campaigns.rows ?? []).map((row) => [row.id, row]));
-  const adsetsById = new Map((adsets.rows ?? []).map((row) => [row.id, row]));
-  const recommendations = (snapshot?.recommendations ?? []).filter((rec) =>
-    isRecommendationInScope({ rec, statusFilter, campaignsById, adsetsById }),
+  const snapshotRecommendations = snapshot?.recommendations ?? [];
+  const liveStatusesById = await readLiveMetaEntityStatuses(
+    businessId,
+    collectLiveStatusProbeIds(snapshotRecommendations, operatorStates),
   );
+  const campaignRows = applyLiveStatusesToRows(campaigns.rows ?? [], liveStatusesById);
+  const adsetRows = applyLiveStatusesToRows(adsets.rows ?? [], liveStatusesById);
+  const deferredIds = deferredIdsFromOperatorStates(operatorStates);
+  const campaignsById = new Map(campaignRows.map((row) => [row.id, row]));
+  const adsetsById = new Map(adsetRows.map((row) => [row.id, row]));
+  const recommendations = snapshotRecommendations
+    .filter((rec) =>
+      isRecommendationInScope({ rec, statusFilter, campaignsById, adsetsById }),
+    )
+    .map((rec) => annotateOperatorState(rec, operatorStates, { campaignsById, adsetsById, liveStatusesById }));
   const purchaseScopedRecs = recommendations.filter((rec) => isPurchaseScopedCohort(rec.cohort));
   const nonSalesRecs = recommendations
     .filter((rec) => isNonSalesCohort(rec.cohort))
@@ -759,21 +1072,21 @@ export async function GET(request: NextRequest) {
   const recommendedScopeIds = new Set(
     recommendations.flatMap((rec) => [rec.campaignId, rec.adsetId]).filter(Boolean) as string[],
   );
-  const campaignNamesById = new Map((campaigns.rows ?? []).map((row) => [row.id, row.name]));
+  const campaignNamesById = new Map(campaignRows.map((row) => [row.id, row.name]));
   const healthy = [
-    ...healthyCampaignRows({ rows: campaigns.rows ?? [], recommendedScopeIds, statusFilter }),
-    ...healthyAdsetRows({ rows: adsets.rows ?? [], recommendedScopeIds, campaignNamesById, statusFilter }),
+    ...healthyCampaignRows({ rows: campaignRows, recommendedScopeIds, statusFilter }),
+    ...healthyAdsetRows({ rows: adsetRows, recommendedScopeIds, campaignNamesById, statusFilter }),
   ].slice(0, 18);
   const nonSales = [
     ...nonSalesRecs,
     ...nonSalesCampaignRows({
-      rows: campaigns.rows ?? [],
+      rows: campaignRows,
       recommendedScopeIds,
       statusFilter,
       costPerThruplayP50: upperFunnelCostPerThruplayP50,
     }),
     ...nonSalesAdsetRows({
-      rows: adsets.rows ?? [],
+      rows: adsetRows,
       recommendedScopeIds,
       campaignNamesById,
       statusFilter,
@@ -781,8 +1094,8 @@ export async function GET(request: NextRequest) {
     }),
   ].slice(0, 30);
   const archive = [
-    ...archiveCampaignRows({ rows: campaigns.rows ?? [], statusFilter, window }),
-    ...archiveAdsetRows({ rows: adsets.rows ?? [], statusFilter, window, campaignNamesById }),
+    ...archiveCampaignRows({ rows: campaignRows, statusFilter, window }),
+    ...archiveAdsetRows({ rows: adsetRows, statusFilter, window, campaignNamesById }),
   ].sort((left, right) => right.spend - left.spend);
 
   return NextResponse.json(

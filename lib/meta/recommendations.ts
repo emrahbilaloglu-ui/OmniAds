@@ -239,6 +239,9 @@ export interface MetaRecommendation {
   campaignRole?: MetaCampaignRole;
   bidRegime?: MetaBidRegime;
   cohort?: MetaFunnelCohort | null;
+  operatorResponseState?: "acted" | "deferred" | "ignored";
+  operatorResponseSubtype?: string | null;
+  operatorResponseAt?: string | null;
   watchSegment?:
     | "unlabeled"
     | "missing_target"

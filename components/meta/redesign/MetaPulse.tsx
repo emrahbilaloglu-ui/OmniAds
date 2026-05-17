@@ -34,6 +34,7 @@ interface MetaPulseProps {
   onWindowChange: (window: MetaWindowKey) => void;
   statusFilter: BriefingStatusFilter;
   onStatusFilterChange: (filter: BriefingStatusFilter) => void;
+  onManageLabels?: () => void;
 }
 
 type TextTone = "neutral" | "success" | "warning" | "danger" | "dangerStrong";
@@ -316,19 +317,35 @@ function EngineStatusPill({ pulse }: { pulse: MetaPulsePayload }) {
   );
 }
 
-function LabelCoveragePill({ pulse }: { pulse: MetaPulsePayload }) {
+function LabelCoveragePill({
+  pulse,
+  onManageLabels,
+}: {
+  pulse: MetaPulsePayload;
+  onManageLabels?: () => void;
+}) {
   const coverage = pulse.labelCoverage;
   if (!coverage || coverage.activeCampaigns === 0) return null;
   const complete = coverage.unlabeledCampaigns === 0;
+  const className = chipClassName(complete ? "success" : "warning");
+  const content = (
+    <>
+      <Info className="inline-block shrink-0" size={10} aria-hidden="true" />
+      Labels {coverage.labeledCampaigns}/{coverage.activeCampaigns}
+    </>
+  );
   return (
     <PulseTooltip
       title="Campaign label coverage"
       body={`${coverage.labeledCampaigns}/${coverage.activeCampaigns} active campaigns have Main/Test/Mixed context.${coverage.latestUpdatedAt ? ` Last label update ${relativeTime(coverage.latestUpdatedAt) ?? coverage.latestUpdatedAt}.` : ""}`}
     >
-      <a href="#campaign-labels" className={chipClassName(complete ? "success" : "warning")}>
-        <Info className="inline-block shrink-0" size={10} aria-hidden="true" />
-        Labels {coverage.labeledCampaigns}/{coverage.activeCampaigns}
-      </a>
+      {onManageLabels ? (
+        <button type="button" className={className} onClick={onManageLabels}>
+          {content}
+        </button>
+      ) : (
+        <span className={className}>{content}</span>
+      )}
     </PulseTooltip>
   );
 }
@@ -529,6 +546,7 @@ export function MetaPulse({
   onWindowChange,
   statusFilter,
   onStatusFilterChange,
+  onManageLabels,
 }: MetaPulseProps) {
   const selectedWindowLabel = window === "custom" ? "Custom" : window;
   const revenueDelta = pulse ? kpiDeltaValue(pulse.revenue.current, pulse.revenue.prev) : null;
@@ -596,7 +614,7 @@ export function MetaPulse({
         <div className="flex items-center gap-1.5 flex-wrap" data-pulse-band="status">
           <Divider />
           {pulse ? <EngineStatusPill pulse={pulse} /> : null}
-          {pulse ? <LabelCoveragePill pulse={pulse} /> : null}
+          {pulse ? <LabelCoveragePill pulse={pulse} onManageLabels={onManageLabels} /> : null}
           {pulse ? <TargetAnchorPill pulse={pulse} /> : null}
           {pulse ? <TrackingHealthPill pulse={pulse} /> : null}
           {pulse?.operatingMode ? (

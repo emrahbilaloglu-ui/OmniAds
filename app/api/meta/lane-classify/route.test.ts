@@ -10,6 +10,10 @@ vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
 }));
 
+vi.mock("@/lib/api/meta", () => ({
+  resolveMetaCredentials: vi.fn(),
+}));
+
 vi.mock("@/lib/meta/snapshot", () => ({
   readMetaDecisionSnapshotForRange: vi.fn(),
 }));
@@ -23,20 +27,36 @@ vi.mock("@/lib/meta/adsets-source", () => ({
 }));
 
 const access = await import("@/lib/access");
+const apiMeta = await import("@/lib/api/meta");
 const db = await import("@/lib/db");
 const snapshot = await import("@/lib/meta/snapshot");
 const campaigns = await import("@/lib/meta/campaigns-source");
 const adsets = await import("@/lib/meta/adsets-source");
 const { GET } = await import("@/app/api/meta/lane-classify/route");
 
+function mockSql(rows: Array<Record<string, unknown>> = []) {
+  vi.mocked(db.getDb).mockReturnValue(
+    vi.fn(async (strings: TemplateStringsArray) => {
+      const query = Array.from(strings).join(" ");
+      if (query.includes("meta_decision_responses") || query.includes("meta_ads_action_log")) {
+        return rows;
+      }
+      return [];
+    }) as never,
+  );
+}
+
 describe("GET /api/meta/lane-classify", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
     vi.mocked(access.requireBusinessAccess).mockResolvedValue({
       session: {} as never,
       membership: { businessId: "biz_1" } as never,
     });
-    vi.mocked(db.getDb).mockReturnValue(vi.fn(async () => [{ rec_id: "rec_deferred" }]) as never);
+    vi.mocked(apiMeta.resolveMetaCredentials).mockResolvedValue(null);
+    mockSql([{ rec_id: "rec_deferred", action: "deferred", action_subtype: "let_cook_24h", occurred_at: "2026-05-07T00:00:00.000Z" }]);
     vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
       status: "ok",
       businessId: "biz_1",
@@ -148,6 +168,7 @@ describe("GET /api/meta/lane-classify", () => {
       previousBidValueCapturedAt: "2026-04-01T00:00:00.000Z",
     });
     expect(payload.deferredIds).toEqual(["rec_deferred"]);
+    expect(payload.watching[0]).toMatchObject({ id: "rec_deferred", operatorResponseState: "deferred" });
     expect(payload.watchingSegments).toEqual([
       expect.objectContaining({ key: "deferred", count: 1 }),
       expect.objectContaining({ key: "insufficient_signal", count: 1 }),
@@ -155,6 +176,545 @@ describe("GET /api/meta/lane-classify", () => {
     expect(payload.counts.nonSales).toBe(0);
     expect(payload.counts.archive).toBe(0);
     expect(payload.statusFilter).toBe("active");
+  });
+
+  it("clears stale pause acted state when the current ad set is active again", async () => {
+    mockSql([{ rec_id: "rec_acted", action: "acted", action_subtype: "paused", occurred_at: "2026-05-17T07:39:24.000Z" }]);
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 1,
+      },
+      recommendations: [
+        metaRec({
+          id: "rec_acted",
+          level: "adset",
+          adsetId: "adset_acted",
+          adsetName: "Paused Adset",
+          type: "adset_cut_spend",
+          confidenceScore: 0.95,
+          decisionState: "act",
+        }),
+      ],
+    });
+    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [{
+        id: "adset_acted",
+        name: "Paused Adset",
+        campaignId: "cmp_1",
+        status: "ACTIVE",
+        statusUpdatedAt: "2026-05-17T08:00:00.000Z",
+        spend: 900,
+        purchases: 1,
+        roas: 0.17,
+        cpa: null,
+      }] as never,
+      evidenceSource: "live",
+    });
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d"));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.actionNow[0]).toMatchObject({ id: "rec_acted" });
+    expect(payload.actionNow[0]).not.toHaveProperty("operatorResponseState");
+    expect(payload.actionNow[0]).not.toHaveProperty("operatorResponseSubtype");
+  });
+
+  it("keeps a verified pause action when the active status snapshot is older than the action", async () => {
+    mockSql([{ rec_id: "rec_acted", action: "acted", action_subtype: "pause", occurred_at: "2026-05-17T08:52:43.585Z" }]);
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 1,
+      },
+      recommendations: [
+        metaRec({
+          id: "rec_acted",
+          level: "adset",
+          adsetId: "adset_acted",
+          adsetName: "Paused Adset",
+          type: "adset_cut_spend",
+          confidenceScore: 0.95,
+          decisionState: "act",
+        }),
+      ],
+    });
+    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [{
+        id: "adset_acted",
+        name: "Paused Adset",
+        campaignId: "cmp_1",
+        status: "ACTIVE",
+        statusUpdatedAt: "2026-05-17T08:52:14.234Z",
+        spend: 900,
+        purchases: 1,
+        roas: 0.17,
+        cpa: null,
+      }] as never,
+      evidenceSource: "live",
+    });
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d&status_filter=all"));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.actionNow[0]).toMatchObject({
+      id: "rec_acted",
+      operatorResponseState: "acted",
+      operatorResponseSubtype: "pause",
+      operatorResponseAt: "2026-05-17T08:52:43.585Z",
+    });
+  });
+
+  it("clears acted pause state when live Meta status shows the ad set was reactivated externally", async () => {
+    mockSql([{ rec_id: "rec_acted", action: "acted", action_subtype: "pause", occurred_at: "2026-05-17T08:52:43.585Z" }]);
+    vi.mocked(apiMeta.resolveMetaCredentials).mockResolvedValue({
+      accessToken: "token",
+      accountIds: ["act_1"],
+      accountProfiles: {},
+    } as never);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            adset_acted: {
+              id: "adset_acted",
+              effective_status: "ACTIVE",
+              status: "ACTIVE",
+              updated_time: "2026-05-17T09:10:00+0000",
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 1,
+      },
+      recommendations: [
+        metaRec({
+          id: "rec_acted",
+          level: "adset",
+          adsetId: "adset_acted",
+          adsetName: "Externally Reactivated Adset",
+          type: "adset_cut_spend",
+          confidenceScore: 0.95,
+          decisionState: "act",
+        }),
+      ],
+    });
+    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [{
+        id: "adset_acted",
+        name: "Externally Reactivated Adset",
+        campaignId: "cmp_1",
+        status: "PAUSED",
+        statusUpdatedAt: "2026-05-17T08:52:14.234Z",
+        spend: 900,
+        purchases: 1,
+        roas: 0.17,
+        cpa: null,
+      }] as never,
+      evidenceSource: "live",
+    });
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d"));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.actionNow[0]).toMatchObject({ id: "rec_acted" });
+    expect(payload.actionNow[0]).not.toHaveProperty("operatorResponseState");
+    expect(payload.actionNow[0]).not.toHaveProperty("operatorResponseSubtype");
+    expect(payload.archive.map((row: { id: string }) => row.id)).not.toContain("adset_acted");
+  });
+
+  it("keeps acted pause state when live Meta active status is older than the successful action", async () => {
+    mockSql([{ rec_id: "rec_acted", action: "acted", action_subtype: "pause", occurred_at: "2026-05-17T08:52:43.585Z" }]);
+    vi.mocked(apiMeta.resolveMetaCredentials).mockResolvedValue({
+      accessToken: "token",
+      accountIds: ["act_1"],
+      accountProfiles: {},
+    } as never);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            adset_acted: {
+              id: "adset_acted",
+              effective_status: "ACTIVE",
+              status: "ACTIVE",
+              updated_time: "2026-05-17T08:52:14+0000",
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 1,
+      },
+      recommendations: [
+        metaRec({
+          id: "rec_acted",
+          level: "adset",
+          adsetId: "adset_acted",
+          adsetName: "Newly Paused Adset",
+          type: "adset_cut_spend",
+          confidenceScore: 0.95,
+          decisionState: "act",
+        }),
+      ],
+    });
+    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [{
+        id: "adset_acted",
+        name: "Newly Paused Adset",
+        campaignId: "cmp_1",
+        status: "ACTIVE",
+        statusUpdatedAt: "2026-05-17T08:52:14.234Z",
+        spend: 900,
+        purchases: 1,
+        roas: 0.17,
+        cpa: null,
+      }] as never,
+      evidenceSource: "live",
+    });
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d&status_filter=all"));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.actionNow[0]).toMatchObject({
+      id: "rec_acted",
+      operatorResponseState: "acted",
+      operatorResponseSubtype: "pause",
+      operatorResponseAt: "2026-05-17T08:52:43.585Z",
+    });
+  });
+
+  it("falls back to warehouse timestamp reconciliation when live Meta status probing fails", async () => {
+    mockSql([{ rec_id: "rec_acted", action: "acted", action_subtype: "pause", occurred_at: "2026-05-17T08:52:43.585Z" }]);
+    vi.mocked(apiMeta.resolveMetaCredentials).mockResolvedValue({
+      accessToken: "token",
+      accountIds: ["act_1"],
+      accountProfiles: {},
+    } as never);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("graph unavailable");
+      }),
+    );
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 1,
+      },
+      recommendations: [
+        metaRec({
+          id: "rec_acted",
+          level: "adset",
+          adsetId: "adset_acted",
+          adsetName: "Warehouse Reactivated Adset",
+          type: "adset_cut_spend",
+          confidenceScore: 0.95,
+          decisionState: "act",
+        }),
+      ],
+    });
+    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [{
+        id: "adset_acted",
+        name: "Warehouse Reactivated Adset",
+        campaignId: "cmp_1",
+        status: "ACTIVE",
+        statusUpdatedAt: "2026-05-17T09:10:00.000Z",
+        spend: 900,
+        purchases: 1,
+        roas: 0.17,
+        cpa: null,
+      }] as never,
+      evidenceSource: "live",
+    });
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d"));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.actionNow[0]).toMatchObject({ id: "rec_acted" });
+    expect(payload.actionNow[0]).not.toHaveProperty("operatorResponseState");
+    expect(payload.actionNow[0]).not.toHaveProperty("operatorResponseSubtype");
+    expect(console.warn).toHaveBeenCalledWith(
+      "[meta-lane-classify] live status probe request failed",
+      expect.objectContaining({ businessId: "biz_1", entityCount: 1, error: "graph unavailable" }),
+    );
+  });
+
+  it("persists acted pause state from successful Meta action logs while the ad set is paused", async () => {
+    mockSql([{ rec_id: "rec_acted", action: "acted", action_subtype: "pause", occurred_at: "2026-05-17T07:39:24.000Z" }]);
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 1,
+      },
+      recommendations: [
+        metaRec({
+          id: "rec_acted",
+          level: "adset",
+          adsetId: "adset_acted",
+          adsetName: "Paused Adset",
+          type: "adset_cut_spend",
+          confidenceScore: 0.95,
+          decisionState: "act",
+        }),
+      ],
+    });
+    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [{
+        id: "adset_acted",
+        name: "Paused Adset",
+        campaignId: "cmp_1",
+        status: "PAUSED",
+        spend: 900,
+        purchases: 1,
+        roas: 0.17,
+        cpa: null,
+      }] as never,
+      evidenceSource: "live",
+    });
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d&status_filter=all"));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.actionNow[0]).toMatchObject({
+      id: "rec_acted",
+      operatorResponseState: "acted",
+      operatorResponseSubtype: "pause",
+    });
+  });
+
+  it("reconciles acted resume state against the current ad set status", async () => {
+    mockSql([
+      { rec_id: "rec_resume_active", action: "acted", action_subtype: "resume", occurred_at: "2026-05-17T07:39:24.000Z" },
+      { rec_id: "rec_resume_paused", action: "acted", action_subtype: "resumed", occurred_at: "2026-05-17T07:39:24.000Z" },
+    ]);
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 2,
+      },
+      recommendations: [
+        metaRec({
+          id: "rec_resume_active",
+          level: "adset",
+          adsetId: "adset_resume_active",
+          adsetName: "Resumed Active Adset",
+          type: "adset_cut_spend",
+          confidenceScore: 0.95,
+          decisionState: "act",
+        }),
+        metaRec({
+          id: "rec_resume_paused",
+          level: "adset",
+          adsetId: "adset_resume_paused",
+          adsetName: "Paused Again Adset",
+          type: "adset_cut_spend",
+          confidenceScore: 0.95,
+          decisionState: "act",
+        }),
+      ],
+    });
+    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        {
+          id: "adset_resume_active",
+          name: "Resumed Active Adset",
+          campaignId: "cmp_1",
+          status: "ACTIVE",
+          spend: 900,
+          purchases: 1,
+          roas: 0.17,
+          cpa: null,
+        },
+        {
+          id: "adset_resume_paused",
+          name: "Paused Again Adset",
+          campaignId: "cmp_1",
+          status: "PAUSED",
+          statusUpdatedAt: "2026-05-17T08:00:00.000Z",
+          spend: 900,
+          purchases: 1,
+          roas: 0.17,
+          cpa: null,
+        },
+      ] as never,
+      evidenceSource: "live",
+    });
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d&status_filter=all"));
+    const payload = await response.json();
+    const recs = new Map(payload.actionNow.map((rec: { id: string }) => [rec.id, rec]));
+
+    expect(response.status).toBe(200);
+    expect(recs.get("rec_resume_active")).toMatchObject({
+      operatorResponseState: "acted",
+      operatorResponseSubtype: "resume",
+    });
+    expect(recs.get("rec_resume_paused")).not.toHaveProperty("operatorResponseState");
+    expect(recs.get("rec_resume_paused")).not.toHaveProperty("operatorResponseSubtype");
+  });
+
+  it("uses campaign status timestamps for campaign-level pause reconciliation", async () => {
+    mockSql([
+      { rec_id: "rec_campaign_stale", action: "acted", action_subtype: "pause", occurred_at: "2026-05-17T07:39:24.000Z" },
+      { rec_id: "rec_campaign_recent", action: "acted", action_subtype: "pause", occurred_at: "2026-05-17T08:52:43.585Z" },
+    ]);
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 2,
+      },
+      recommendations: [
+        metaRec({
+          id: "rec_campaign_stale",
+          level: "campaign",
+          campaignId: "cmp_stale",
+          campaignName: "Stale Campaign",
+          confidenceScore: 0.95,
+          decisionState: "act",
+        }),
+        metaRec({
+          id: "rec_campaign_recent",
+          level: "campaign",
+          campaignId: "cmp_recent",
+          campaignName: "Recent Campaign",
+          confidenceScore: 0.95,
+          decisionState: "act",
+        }),
+      ],
+    });
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        {
+          id: "cmp_stale",
+          name: "Stale Campaign",
+          status: "ACTIVE",
+          statusUpdatedAt: "2026-05-17T08:00:00.000Z",
+          spend: 900,
+          purchases: 1,
+          roas: 0.17,
+          cpa: null,
+        },
+        {
+          id: "cmp_recent",
+          name: "Recent Campaign",
+          status: "ACTIVE",
+          statusUpdatedAt: "2026-05-17T08:52:14.234Z",
+          spend: 900,
+          purchases: 1,
+          roas: 0.17,
+          cpa: null,
+        },
+      ] as never,
+      evidenceSource: "live",
+    });
+    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [] as never,
+      evidenceSource: "live",
+    });
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d&status_filter=all"));
+    const payload = await response.json();
+    const recs = new Map(payload.actionNow.map((rec: { id: string }) => [rec.id, rec]));
+
+    expect(response.status).toBe(200);
+    expect(recs.get("rec_campaign_stale")).not.toHaveProperty("operatorResponseState");
+    expect(recs.get("rec_campaign_stale")).not.toHaveProperty("operatorResponseSubtype");
+    expect(recs.get("rec_campaign_recent")).toMatchObject({
+      operatorResponseState: "acted",
+      operatorResponseSubtype: "pause",
+    });
   });
 
   it("routes non-purchase recommendations into nonSales only", async () => {

@@ -101,6 +101,10 @@ describe("GET /api/meta/account-pulse", () => {
     expect(payload.businessId).toBe("biz_1");
     expect(payload.statusFilter).toBe("active");
     expect(payload.pacing.mtdSpend).toBe(1200);
+    expect(payload.pacing.spendToday).toBe(1200);
+    expect(payload.pacing.avg7dSpend).toBeCloseTo(1200 / 7);
+    expect(payload.pacing.conversionsToday).toBe(50);
+    expect(payload.pacing.avg7dConversions).toBeCloseTo(50 / 7);
     expect(payload.roas.d28).toBe(3);
     expect(payload.engineVersion).toBe("v1.0.0");
     expect(payload.snapshotHealth.status).toBe("fresh");
@@ -112,6 +116,48 @@ describe("GET /api/meta/account-pulse", () => {
     expect(payload.targetAnchor.configured).toBe(true);
     expect(payload.trackingHealth.status).toBe("healthy");
     expect(typeof payload.lastSyncAt).toBe("string");
+  });
+
+  it("returns today spend and 7 day daily average for the pulse comparison tile", async () => {
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockImplementation(async (input) => {
+      if (input.startDate === "2026-05-17" && input.endDate === "2026-05-17") {
+        return {
+          status: "ok",
+          rows: [campaign({ id: "today_cmp", spend: 401, revenue: 1000, purchases: 1 })] as never,
+          isPartial: false,
+          notReadyReason: null,
+          evidenceSource: "live",
+        };
+      }
+      if (input.startDate === "2026-05-11" && input.endDate === "2026-05-17") {
+        return {
+          status: "ok",
+          rows: [campaign({ id: "d7_cmp", spend: 2800, revenue: 7000, purchases: 14 })] as never,
+          isPartial: false,
+          notReadyReason: null,
+          evidenceSource: "live",
+        };
+      }
+      return {
+        status: "ok",
+        rows: [campaign({ id: "current_cmp", spend: 1700, revenue: 5100, purchases: 21 })] as never,
+        isPartial: false,
+        notReadyReason: null,
+        evidenceSource: "live",
+      };
+    });
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/account-pulse?businessId=biz_1&window=28d&endDate=2026-05-17"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.pacing.spendToday).toBe(401);
+    expect(payload.pacing.avg7dSpend).toBe(400);
+    expect(payload.pacing.conversionsToday).toBe(1);
+    expect(payload.pacing.avg7dConversions).toBe(2);
+    expect(payload.pacing.dailyTarget).toBeCloseTo(payload.pacing.mtdTarget / 30);
   });
 
   it("uses Commercial Truth target ROAS as the target provenance", async () => {

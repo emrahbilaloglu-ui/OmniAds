@@ -25,7 +25,7 @@ export function CompareDrawerHost({
   onCutCards,
   onLaunchpad,
 }: CompareDrawerHostProps) {
-  const drawerCards = cards.slice(0, 5);
+  const drawerCards = cards.slice(0, 4);
   const weakest = weakestByRoas(drawerCards);
   const strongest = strongestByRoas(drawerCards);
 
@@ -62,9 +62,8 @@ export function CompareDrawerHost({
             data-compare-action="launch-test"
             onClick={() => onLaunchpad(drawerCards, "fresh_test")}
           >
-            <Rocket className="inline-block shrink-0" size={13} aria-hidden="true" /> Launch test with these <ArrowRight className="inline-block shrink-0" size={13} aria-hidden="true" />
+            <Rocket className="inline-block shrink-0" size={13} aria-hidden="true" /> Send selected to Launchpad <ArrowRight className="inline-block shrink-0" size={13} aria-hidden="true" />
           </button>
-          <span className="ml-auto text-[11.5px] text-slate-500">Tip: compare 2–5 selected action cards</span>
         </>
       }
     />

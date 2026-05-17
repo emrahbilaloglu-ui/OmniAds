@@ -6,8 +6,25 @@ export const SHARE_METRIC_KEYS = [
   "purchaseValue",
   "roas",
   "cpa",
+  "cpcLink",
+  "cpm",
   "ctrAll",
+  "linkCtr",
   "purchases",
+  "impressions",
+  "clicks",
+  "linkClicks",
+  "addToCart",
+  "thumbstop",
+  "clickToAddToCart",
+  "clickToPurchase",
+  "video25",
+  "video50",
+  "video75",
+  "video100",
+  "atcToPurchaseRatio",
+  "leads",
+  "messages",
 ] as const;
 
 export type ShareMetricKey = (typeof SHARE_METRIC_KEYS)[number];
@@ -71,6 +88,7 @@ export interface SharedCreative {
   thumbnailUrl: string | null;
 
   /** optional optimized sources used by UI renderers */
+  mediaPreviewUrl?: string | null;
   cardPreviewUrl?: string | null;
   tableThumbnailUrl?: string | null;
   cachedThumbnailUrl?: string | null;
@@ -96,6 +114,9 @@ export interface SharedCreative {
   clicks?: number;
   linkClicks?: number;
   addToCart?: number;
+  initiateCheckout?: number;
+  leads?: number;
+  messages?: number;
   thumbstop?: number;
   clickToAddToCart?: number;
   clickToPurchase?: number;
@@ -117,6 +138,11 @@ export interface ShareLinkConfig {
   metrics: ShareMetricKey[];
   includeNotes: boolean;
   passwordProtection: boolean;
+  audience?: "buyer" | "creative_team" | "external";
+  includeCampaignNames?: boolean;
+  includeDecisionLanguage?: boolean;
+  allowCsv?: boolean;
+  snapshotOnly?: boolean;
 }
 
 /**
@@ -148,6 +174,11 @@ export interface SharePayload {
 
   metrics: ShareMetricKey[];
   includeNotes: boolean;
+  audience?: "buyer" | "creative_team" | "external";
+  includeCampaignNames?: boolean;
+  includeDecisionLanguage?: boolean;
+  allowCsv?: boolean;
+  snapshotOnly?: boolean;
 
   creatives: SharedCreative[];
   benchmarkCreatives?: SharedCreative[];

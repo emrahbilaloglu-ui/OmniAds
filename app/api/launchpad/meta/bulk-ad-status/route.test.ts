@@ -157,6 +157,7 @@ describe("POST /api/launchpad/meta/bulk-ad-status", () => {
         adId: "ad_1",
         creativeId: "creative_1",
         ok: false,
+        attemptedIds: ["ad_1"],
         error: { code: "100", message: "Cannot pause ad." },
       },
       {
@@ -165,8 +166,85 @@ describe("POST /api/launchpad/meta/bulk-ad-status", () => {
         creativeId: "creative_2",
         ok: true,
         status: "PAUSED",
+        attemptedIds: ["ad_2"],
       },
     ]);
+  });
+
+  it("resolves bulk pause through fallback candidate ids before mutating Meta", async () => {
+    vi.mocked(actionLog.resolveMetaAdActionTarget).mockImplementation(async (input) => {
+      if (input.adId === "stale_row_id") {
+        return { ok: false, reason: "ad_not_found" } as never;
+      }
+      return {
+        ok: true,
+        target: {
+          businessId: BUSINESS_ID,
+          adId: "real_ad_1",
+          creativeId: "creative_1",
+          providerAccountId: "act_123",
+        },
+      } as never;
+    });
+    vi.mocked(adsWrite.pauseAd).mockReset().mockResolvedValueOnce({
+      ok: true,
+      verifiedStatus: "PAUSED",
+      responsePayload: { success: true },
+      verificationPayload: { id: "real_ad_1", status: "PAUSED" },
+    } as never);
+
+    const response = await POST(
+      request({
+        businessId: BUSINESS_ID,
+        action: "pause",
+        ads: [
+          {
+            adId: "stale_row_id",
+            candidateAdIds: ["stale_row_id", "real_ad_1", "creative_1"],
+            creativeId: "creative_1",
+            name: "Creative 1",
+          },
+        ],
+        idempotencyKey: "bulk_fallback",
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      ok: true,
+      results: [
+        {
+          inputAdId: "stale_row_id",
+          adId: "real_ad_1",
+          creativeId: "creative_1",
+          ok: true,
+          attemptedIds: ["stale_row_id", "real_ad_1"],
+        },
+      ],
+    });
+    expect(actionLog.resolveMetaAdActionTarget).toHaveBeenNthCalledWith(1, {
+      businessId: BUSINESS_ID,
+      adId: "stale_row_id",
+    });
+    expect(actionLog.resolveMetaAdActionTarget).toHaveBeenNthCalledWith(2, {
+      businessId: BUSINESS_ID,
+      adId: "real_ad_1",
+    });
+    expect(adsWrite.pauseAd).toHaveBeenCalledWith(
+      expect.objectContaining({ providerAccountId: "act_123" }),
+      "real_ad_1",
+    );
+    expect(actionLog.createMetaAdsActionLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adId: "real_ad_1",
+        payloadRequest: expect.objectContaining({
+          input_ad_id: "stale_row_id",
+          resolved_from_input_id: "real_ad_1",
+          candidate_ad_ids: ["stale_row_id", "real_ad_1", "creative_1"],
+        }),
+      }),
+    );
   });
 
   it("resumes selected ads", async () => {

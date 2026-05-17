@@ -360,6 +360,9 @@ describe("mapApiRowToUiRow", () => {
         link_clicks: 80,
         impressions: 2000,
         add_to_cart: 24,
+        initiate_checkout: 10,
+        leads: 3,
+        messages: 2,
         purchases: 12,
         click_to_atc: 30,
       })
@@ -369,9 +372,13 @@ describe("mapApiRowToUiRow", () => {
 
     expect(shared.clicks).toBe(120);
     expect(shared.linkClicks).toBe(80);
+    expect(shared.mediaPreviewUrl).toBe("https://example.com/card.jpg");
     expect(shared.linkCtr).toBe(4);
     expect(shared.clickToAddToCart).toBe(30);
     expect(shared.clickToPurchase).toBe(15);
+    expect(shared.initiateCheckout).toBe(10);
+    expect(shared.leads).toBe(3);
+    expect(shared.messages).toBe(2);
   });
 
   it("exports truthful CSV headers and values without misleading duplicate columns", () => {

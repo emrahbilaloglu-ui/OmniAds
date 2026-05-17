@@ -14,14 +14,13 @@ import {
   calculateCreativePurchaseValueShare,
   hasCreativeVideoEvidence,
 } from "@/components/creatives/creative-truth";
-import type {
-  ShareMetricKey,
-  SharedCreative,
-  SharedCreativeAnalysis,
-} from "@/components/creatives/shareCreativeTypes";
 import {
-  getLegacyCreativeTypeLabel,
-} from "@/lib/meta/creative-taxonomy";
+  SHARE_METRIC_KEYS,
+  type ShareMetricKey,
+  type SharedCreative,
+  type SharedCreativeAnalysis,
+} from "@/components/creatives/shareCreativeTypes";
+import { getLegacyCreativeTypeLabel } from "@/lib/meta/creative-taxonomy";
 import { getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 import type {
   AiCreativeHistoricalWindow as CreativeHistoricalWindow,
@@ -51,6 +50,8 @@ export interface MetaCreativeDetailResponse {
   status?: string;
   detail_preview?: {
     creative_id?: string;
+    target_id?: string | null;
+    target_type?: "ad" | "creative" | string | null;
     mode?: "html" | "unavailable";
     source?: string | null;
     ad_format?: string | null;
@@ -70,7 +71,7 @@ export const PLATFORM_LABELS: Record<string, string> = {
   snapchat: "Snapchat",
 };
 
-export const SHARE_METRIC_IDS = new Set<ShareMetricKey>(["spend", "purchaseValue", "roas", "cpa", "ctrAll", "purchases"]);
+export const SHARE_METRIC_IDS = new Set<ShareMetricKey>(SHARE_METRIC_KEYS);
 
 export function hasRenderablePreview(row: MetaCreativeRow): boolean {
   return getCreativeStaticPreviewState(row, "grid") === "ready";
@@ -183,9 +184,13 @@ export function toSharedCreative(
     format: row.format,
     previewState: row.previewState,
     isCatalog: row.isCatalog,
+    mediaPreviewUrl: row.cardPreviewUrl ?? row.imageUrl ?? row.previewUrl ?? row.cachedThumbnailUrl ?? row.thumbnailUrl ?? row.tableThumbnailUrl ?? null,
     previewUrl: row.previewUrl ?? null,
     imageUrl: row.imageUrl ?? null,
     thumbnailUrl: row.thumbnailUrl ?? null,
+    cardPreviewUrl: row.cardPreviewUrl ?? null,
+    tableThumbnailUrl: row.tableThumbnailUrl ?? null,
+    cachedThumbnailUrl: row.cachedThumbnailUrl ?? null,
     preview: row.preview,
     launchDate: row.launchDate,
     tags: row.tags ?? [],
@@ -202,6 +207,9 @@ export function toSharedCreative(
     clicks: row.clicks,
     linkClicks: row.linkClicks,
     addToCart: row.addToCart,
+    initiateCheckout: row.initiateCheckout,
+    leads: row.leads,
+    messages: row.messages,
     thumbstop: row.thumbstop,
     clickToAddToCart: row.clickToAddToCart,
     clickToPurchase: row.clickToPurchase,
@@ -297,11 +305,15 @@ export async function fetchMetaCreativesHistory(params: {
 export async function fetchMetaCreativeDetailPreview(params: {
   businessId: string;
   creativeId: string;
+  adId?: string | null;
+  adFormat?: string | null;
 }): Promise<MetaCreativeDetailResponse> {
   const query = new URLSearchParams({
     businessId: params.businessId,
     creativeId: params.creativeId,
   });
+  if (params.adId?.trim()) query.set("adId", params.adId.trim());
+  if (params.adFormat?.trim()) query.set("adFormat", params.adFormat.trim());
 
   const response = await fetch(`/api/meta/creatives/detail?${query.toString()}`, {
     headers: { Accept: "application/json" },
@@ -493,7 +505,12 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
         ? row.preview_manifest
         : null,
     isCatalog,
-    previewState: row.preview_state === "preview" || row.preview_state === "catalog" ? row.preview_state : "unavailable",
+    previewState:
+      row.preview_state === "preview" || row.preview_state === "catalog"
+        ? row.preview_state
+        : row.card_preview_url || row.table_thumbnail_url || row.cached_thumbnail_url || row.preview_url || row.thumbnail_url || row.image_url
+          ? "preview"
+          : "unavailable",
     preview,
     launchDate: safeString(row.launch_date),
     tags: safeStringArray(row.tags),

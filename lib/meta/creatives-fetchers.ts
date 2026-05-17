@@ -926,22 +926,39 @@ export async function fetchAdCreativeMediaDirectByAdIds(
   return map;
 }
 
+export const META_DETAIL_PREVIEW_AD_FORMATS = [
+  "INSTAGRAM_REELS",
+  "MOBILE_FEED_STANDARD",
+  "INSTAGRAM_STORY",
+  "INSTAGRAM_STANDARD",
+  "DESKTOP_FEED_STANDARD",
+] as const;
+
+export type MetaDetailPreviewAdFormat =
+  (typeof META_DETAIL_PREVIEW_AD_FORMATS)[number];
+
 export async function fetchCreativeDetailPreviewHtml(
-  creativeId: string,
-  accessToken: string
+  targetId: string,
+  accessToken: string,
+  options: { adFormats?: string[] } = {},
 ): Promise<{ html: string; adFormat: string; source: "meta_creative_previews" } | null> {
-  const adFormats = [
-    "DESKTOP_FEED_STANDARD",
-    "MOBILE_FEED_STANDARD",
-    "INSTAGRAM_STANDARD",
-  ];
+  const adFormats = Array.from(
+    new Set(
+      (options.adFormats && options.adFormats.length > 0
+        ? options.adFormats
+        : META_DETAIL_PREVIEW_AD_FORMATS
+      )
+        .map((format) => format.trim())
+        .filter(Boolean),
+    ),
+  );
 
   for (const adFormat of adFormats) {
-    const url = new URL(`https://graph.facebook.com/v25.0/${creativeId}/previews`);
+    const url = new URL(`https://graph.facebook.com/v25.0/${targetId}/previews`);
     url.searchParams.set("ad_format", adFormat);
     url.searchParams.set("access_token", accessToken);
 
-    const payload = await metaGet<MetaCreativePreviewHtmlResponse>(url);
+    const payload = await metaGet<MetaCreativePreviewHtmlResponse>(url).catch(() => null);
     const body = payload?.data?.find((item) => typeof item?.body === "string" && item.body.trim().length > 0)?.body?.trim();
     if (!body) continue;
     return {

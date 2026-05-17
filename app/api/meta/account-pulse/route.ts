@@ -305,13 +305,18 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const [current, previous, d7, d14, d28, engineMetadata, trackingHealth, roasBenchmark, targetAnchor] =
+  const [current, previous, today, d7, d14, d28, engineMetadata, trackingHealth, roasBenchmark, targetAnchor] =
     await Promise.all([
       getMetaCampaignsForRange({ businessId, startDate, endDate }),
       getMetaCampaignsForRange({
         businessId,
         startDate: previousStart,
         endDate: previousEnd,
+      }),
+      getMetaCampaignsForRange({
+        businessId,
+        startDate: endDate,
+        endDate,
       }),
       getMetaCampaignsForRange({
         businessId,
@@ -355,6 +360,7 @@ export async function GET(request: NextRequest) {
 
   const currentRows = (current.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
   const previousRows = (previous.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
+  const todayRows = (today.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
   const d7Rows = (d7.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
   const d14Rows = (d14.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
   const d28Rows = (d28.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
@@ -379,6 +385,9 @@ export async function GET(request: NextRequest) {
   const d7Totals = totals(d7Rows);
   const d14Totals = totals(d14Rows);
   const d28Totals = totals(d28Rows);
+  const todayTotals = totals(todayRows);
+  const avg7dSpend = d7Totals.spend / 7;
+  const avg7dConversions = d7Totals.purchases / 7;
   const targetForMode = roasBenchmark.target ?? roasBenchmark.median ?? currentTotals.roas ?? 1;
   const constrainedBidShare =
     currentRows.length > 0
@@ -412,6 +421,11 @@ export async function GET(request: NextRequest) {
         mtdSpend: currentTotals.spend,
         mtdTarget,
         dayPace: mtdTarget > 0 ? currentTotals.spend / mtdTarget : 0,
+        spendToday: todayTotals.spend,
+        dailyTarget: mtdTarget / 30,
+        avg7dSpend,
+        conversionsToday: todayTotals.purchases,
+        avg7dConversions,
       },
       roas: {
         d7: d7Totals.roas,

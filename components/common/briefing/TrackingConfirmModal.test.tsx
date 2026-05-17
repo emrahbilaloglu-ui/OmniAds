@@ -20,6 +20,21 @@ describe("TrackingConfirmModal", () => {
     expect(html).toContain("Confirm cut 3");
   });
 
+  it("accepts action-specific tracking risk copy", () => {
+    const html = renderToStaticMarkup(
+      <TrackingConfirmModal
+        open
+        primaryLabel="Resume anyway"
+        description="Resuming during a tracking anomaly may reopen spend with incomplete attribution."
+        onClose={() => undefined}
+        onConfirm={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("Resume anyway");
+    expect(html).toContain("Resuming during a tracking anomaly may reopen spend with incomplete attribution.");
+  });
+
   it("hides when closed", () => {
     const html = renderToStaticMarkup(
       <TrackingConfirmModal open={false} onClose={() => undefined} onConfirm={() => undefined} />,

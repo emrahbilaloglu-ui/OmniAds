@@ -95,6 +95,63 @@ export function numberOrZero(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+function mediaUrl(value: unknown) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+export function briefingPreviewPayload(card: BriefingCreativeCard) {
+  const preview = card.preview;
+  if (preview) {
+    return {
+      render_mode: preview.render_mode,
+      image_url: mediaUrl(preview.image_url),
+      video_url: mediaUrl(preview.video_url),
+      poster_url: mediaUrl(preview.poster_url),
+      source: preview.source,
+      is_catalog: Boolean(preview.is_catalog),
+    };
+  }
+  const image = mediaUrl(card.mediaPreviewUrl) ?? mediaUrl(card.cardPreviewUrl) ?? mediaUrl(card.imageUrl) ?? mediaUrl(card.previewUrl) ?? mediaUrl(card.thumbnailUrl);
+  return {
+    render_mode: image ? "image" as const : "unavailable" as const,
+    image_url: image,
+    video_url: null,
+    poster_url: mediaUrl(card.tableThumbnailUrl) ?? mediaUrl(card.cachedThumbnailUrl) ?? image,
+    source: image ? "briefing_media" : null,
+    is_catalog: Boolean(card.isCatalog),
+  };
+}
+
+export function briefingMediaFallbacks(card: BriefingCreativeCard, mode: "card" | "thumb" = "card") {
+  const candidates =
+    mode === "thumb"
+      ? [
+          card.tableThumbnailUrl,
+          card.cachedThumbnailUrl,
+          card.thumbnailUrl,
+          card.mediaPreviewUrl,
+          card.cardPreviewUrl,
+          card.imageUrl,
+          card.previewUrl,
+          card.preview?.poster_url,
+          card.preview?.image_url,
+        ]
+      : [
+          card.mediaPreviewUrl,
+          card.cardPreviewUrl,
+          card.imageUrl,
+          card.preview?.image_url,
+          card.preview?.poster_url,
+          card.previewUrl,
+          card.cachedThumbnailUrl,
+          card.thumbnailUrl,
+          card.tableThumbnailUrl,
+        ];
+  return candidates.map(mediaUrl).filter((value): value is string => Boolean(value));
+}
+
 export function confidenceValue(
   card: Pick<BriefingCreativeCard, "confidence">,
 ) {

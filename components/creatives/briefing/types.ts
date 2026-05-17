@@ -19,6 +19,15 @@ export interface BriefingCtrFunnel {
   p50?: number | null;
 }
 
+export interface BriefingCreativePreview {
+  render_mode: "video" | "image" | "unavailable";
+  image_url: string | null;
+  video_url: string | null;
+  poster_url: string | null;
+  source: string | null;
+  is_catalog: boolean;
+}
+
 export interface BriefingPlacement {
   id?: string | null;
   creativeId?: string | null;
@@ -86,6 +95,25 @@ export interface BriefingCreativeCard {
   sourceAsOf?: string | null;
   sourceDataSource?: string | null;
   profileScope?: string | null;
+  mediaPreviewUrl?: string | null;
+  thumbnailUrl?: string | null;
+  tableThumbnailUrl?: string | null;
+  cardPreviewUrl?: string | null;
+  previewUrl?: string | null;
+  imageUrl?: string | null;
+  cachedThumbnailUrl?: string | null;
+  preview?: BriefingCreativePreview | null;
+  previewState?: "preview" | "catalog" | "unavailable" | null;
+  isCatalog?: boolean | null;
+  format?: "image" | "video" | "catalog" | string | null;
+  creativeDeliveryType?: string | null;
+  creativeVisualFormat?: string | null;
+  creativePrimaryType?: string | null;
+  creativePrimaryLabel?: string | null;
+  creativeSecondaryType?: string | null;
+  creativeSecondaryLabel?: string | null;
+  taxonomySource?: string | null;
+  taxonomyReconciledByVideoEvidence?: boolean | null;
 }
 
 export interface BriefingRollupItem {

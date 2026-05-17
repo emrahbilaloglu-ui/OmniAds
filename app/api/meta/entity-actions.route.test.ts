@@ -21,7 +21,9 @@ vi.mock("@/lib/meta/ads-action-log", () => ({
 
 vi.mock("@/lib/meta/ads-write", () => ({
   pauseCampaign: vi.fn(),
+  resumeCampaign: vi.fn(),
   pauseAdset: vi.fn(),
+  resumeAdset: vi.fn(),
   updateAdsetBidAmount: vi.fn(),
 }));
 
@@ -31,7 +33,9 @@ const integrations = await import("@/lib/integrations");
 const logs = await import("@/lib/meta/ads-action-log");
 const writes = await import("@/lib/meta/ads-write");
 const campaignPause = await import("@/app/api/meta/campaigns/[campaignId]/pause/route");
+const campaignResume = await import("@/app/api/meta/campaigns/[campaignId]/resume/route");
 const adsetPause = await import("@/app/api/meta/adsets/[adsetId]/pause/route");
+const adsetResume = await import("@/app/api/meta/adsets/[adsetId]/resume/route");
 const applyBid = await import("@/app/api/meta/adsets/[adsetId]/apply-bid/route");
 
 function request(body: Record<string, unknown>) {
@@ -63,11 +67,23 @@ describe("Meta entity write routes", () => {
       responsePayload: { success: true },
       verificationPayload: { status: "PAUSED" },
     });
+    vi.mocked(writes.resumeCampaign).mockResolvedValue({
+      ok: true,
+      verifiedStatus: "ACTIVE",
+      responsePayload: { success: true },
+      verificationPayload: { status: "ACTIVE" },
+    });
     vi.mocked(writes.pauseAdset).mockResolvedValue({
       ok: true,
       verifiedStatus: "PAUSED",
       responsePayload: { success: true },
       verificationPayload: { status: "PAUSED" },
+    });
+    vi.mocked(writes.resumeAdset).mockResolvedValue({
+      ok: true,
+      verifiedStatus: "ACTIVE",
+      responsePayload: { success: true },
+      verificationPayload: { status: "ACTIVE" },
     });
     vi.mocked(writes.updateAdsetBidAmount).mockResolvedValue({
       ok: true,
@@ -108,6 +124,86 @@ describe("Meta entity write routes", () => {
     );
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({ action: "pause", recIdOrigin: "rec_2", adId: "adset_1" }),
+    );
+  });
+
+  it("resumes campaigns with verify-after-write infrastructure", async () => {
+    const response = await campaignResume.POST(
+      request({ businessId: "biz_1" }),
+      { params: Promise.resolve({ campaignId: "cmp_1" }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ ok: true, action: "resume", scopeType: "campaign", status: "ACTIVE" });
+    expect(writes.resumeCampaign).toHaveBeenCalledWith(
+      { businessId: "biz_1", providerAccountId: "act_1", accessToken: "token" },
+      "cmp_1",
+    );
+    expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "resume",
+        recIdOrigin: null,
+        adId: "cmp_1",
+        payloadRequest: expect.objectContaining({ body: { status: "ACTIVE" } }),
+      }),
+    );
+  });
+
+  it("resumes adsets with verify-after-write infrastructure", async () => {
+    const response = await adsetResume.POST(
+      request({ businessId: "biz_1" }),
+      { params: Promise.resolve({ adsetId: "adset_1" }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ ok: true, action: "resume", scopeType: "adset", status: "ACTIVE" });
+    expect(writes.resumeAdset).toHaveBeenCalledWith(
+      { businessId: "biz_1", providerAccountId: "act_1", accessToken: "token" },
+      "adset_1",
+    );
+    expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "resume",
+        recIdOrigin: null,
+        adId: "adset_1",
+        payloadRequest: expect.objectContaining({ body: { status: "ACTIVE" } }),
+      }),
+    );
+  });
+
+  it("surfaces resume silent_failure without marking the route successful", async () => {
+    vi.mocked(writes.resumeAdset).mockResolvedValueOnce({
+      ok: false,
+      httpStatus: 502,
+      error: {
+        code: "silent_failure",
+        message: "Meta returned success but ad set status verified as PAUSED instead of ACTIVE.",
+      },
+      responsePayload: { success: true },
+      verificationPayload: { status: "PAUSED" },
+    } as never);
+
+    const response = await adsetResume.POST(
+      request({ businessId: "biz_1" }),
+      { params: Promise.resolve({ adsetId: "adset_1" }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(payload).toMatchObject({
+      ok: false,
+      error: {
+        code: "silent_failure",
+      },
+    });
+    expect(logs.completeMetaAdsActionLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "log_1",
+        status: "silent_failure",
+        errorCode: "silent_failure",
+      }),
     );
   });
 

@@ -43,10 +43,46 @@ describe("bulk briefing actions", () => {
       action: "pause",
       idempotencyKey: "bulk-1",
       ads: [
-        { adId: "ad_1", creativeId: "creative_1", name: "Aphrodite Hook" },
-        { adId: "ad_2", creativeId: "creative_dup", name: "Duplicate" },
+        {
+          adId: "ad_1",
+          candidateAdIds: ["ad_1", "creative_1", "row_1"],
+          creativeId: "creative_1",
+          name: "Aphrodite Hook",
+        },
+        {
+          adId: "ad_2",
+          candidateAdIds: ["ad_2", "creative_dup", "row_dup"],
+          creativeId: "creative_dup",
+          name: "Duplicate",
+        },
       ],
     });
+  });
+
+  it("keeps fallback ids in the bulk pause request body", () => {
+    expect(
+      buildBulkPauseRequestBody({
+        businessId: "biz_1",
+        idempotencyKey: "bulk-2",
+        cards: [
+          card({
+            id: "synthetic_row_1",
+            creativeId: "creative_1",
+            realAdId: null,
+            metaAdId: "meta_ad_1",
+            effectiveAdId: "meta_ad_1",
+            adId: "warehouse_ad_1",
+          }),
+        ],
+      }).ads,
+    ).toEqual([
+      {
+        adId: "meta_ad_1",
+        candidateAdIds: ["meta_ad_1", "warehouse_ad_1", "creative_1", "synthetic_row_1"],
+        creativeId: "creative_1",
+        name: "Aphrodite Hook",
+      },
+    ]);
   });
 
   it("posts bulk cut through the existing bulk-ad-status endpoint", async () => {
@@ -80,8 +116,18 @@ describe("bulk briefing actions", () => {
           action: "pause",
           idempotencyKey: "bulk-1",
           ads: [
-            { adId: "ad_1", creativeId: "creative_1", name: "Aphrodite Hook" },
-            { adId: "ad_2", creativeId: "creative_2", name: "Aphrodite Hook" },
+            {
+              adId: "ad_1",
+              candidateAdIds: ["ad_1", "creative_1", "row_1"],
+              creativeId: "creative_1",
+              name: "Aphrodite Hook",
+            },
+            {
+              adId: "ad_2",
+              candidateAdIds: ["ad_2", "creative_2", "row_2"],
+              creativeId: "creative_2",
+              name: "Aphrodite Hook",
+            },
           ],
         }),
       }),
@@ -133,7 +179,22 @@ describe("bulk briefing actions", () => {
   });
 
   it("maps selected cards into CompareDrawer metrics", () => {
-    expect(buildCompareDrawerItems([card()])).toEqual([
+    expect(buildCompareDrawerItems([card({
+      mediaPreviewUrl: "https://cdn.example.test/card.jpg",
+      tableThumbnailUrl: "https://cdn.example.test/thumb.jpg",
+      format: "image",
+      creativeVisualFormat: "video",
+      creativePrimaryType: "video",
+      creativePrimaryLabel: "Video",
+      preview: {
+        render_mode: "image",
+        image_url: "https://cdn.example.test/preview.jpg",
+        video_url: null,
+        poster_url: null,
+        source: "test",
+        is_catalog: false,
+      },
+    })])).toEqual([
       {
         id: "creative_1",
         name: "Aphrodite Hook",
@@ -146,6 +207,29 @@ describe("bulk briefing actions", () => {
         purchases: 30,
         frequency: 1.6,
         sparkline: [2.8, 3.1, 3.4],
+        mediaPreviewUrl: "https://cdn.example.test/card.jpg",
+        thumbnailUrl: null,
+        tableThumbnailUrl: "https://cdn.example.test/thumb.jpg",
+        cardPreviewUrl: null,
+        previewUrl: null,
+        imageUrl: null,
+        cachedThumbnailUrl: null,
+        format: "image",
+        creativeVisualFormat: "video",
+        creativePrimaryType: "video",
+        creativePrimaryLabel: "Video",
+        creativeSecondaryType: null,
+        creativeSecondaryLabel: null,
+        creativeDeliveryType: null,
+        isCatalog: null,
+        preview: {
+          render_mode: "image",
+          image_url: "https://cdn.example.test/preview.jpg",
+          video_url: null,
+          poster_url: null,
+          source: "test",
+          is_catalog: false,
+        },
       },
     ]);
   });

@@ -184,6 +184,7 @@ export interface MetaWarehouseCampaignResponse {
     campaignId: string;
     campaignName: string | null;
     campaignStatus: string | null;
+    statusUpdatedAt?: string | null;
     objective: string | null;
     buyingType: string | null;
     optimizationGoal?: string | null;
@@ -218,6 +219,7 @@ export interface MetaWarehouseCampaignTableRow {
   accountId: string;
   name: string;
   status: string;
+  statusUpdatedAt?: string | null;
   objective?: string | null;
   budgetLevel?: "campaign" | "adset" | null;
   spend: number;
@@ -316,6 +318,7 @@ export interface MetaWarehouseAdSetTableRow {
   name: string;
   campaignId: string;
   status: string;
+  statusUpdatedAt?: string | null;
   budgetLevel?: "campaign" | "adset" | null;
   dailyBudget: number | null;
   lifetimeBudget: number | null;
@@ -1053,6 +1056,7 @@ export async function getMetaWarehouseCampaigns(input: {
       campaignId: latest.campaignId,
       campaignName: latest.campaignNameCurrent ?? latest.campaignNameHistorical,
       campaignStatus: latest.campaignStatus,
+      statusUpdatedAt: latest.updatedAt ?? null,
       objective: latest.objective,
       buyingType: latest.buyingType,
       optimizationGoal: latest.optimizationGoal ?? null,
@@ -1118,6 +1122,7 @@ export async function getMetaWarehouseCampaigns(input: {
         dimension?.campaignNameHistorical ??
         row.campaignName,
       campaignStatus: dimension?.campaignStatus ?? row.campaignStatus,
+      statusUpdatedAt: dimension?.sourceUpdatedAt ?? row.statusUpdatedAt ?? null,
       objective: currentConfig?.objective ?? row.objective,
       buyingType: dimension?.buyingType ?? row.buyingType,
       optimizationGoal: currentConfig?.optimizationGoal ?? null,
@@ -1723,6 +1728,7 @@ function buildCampaignTableRow(input: {
     accountId: input.row.providerAccountId,
     name: input.row.campaignName ?? "Unknown Campaign",
     status: input.row.campaignStatus ?? "UNKNOWN",
+    statusUpdatedAt: input.row.statusUpdatedAt ?? null,
     objective: latest?.objective ?? null,
     budgetLevel: latest?.dailyBudget != null || latest?.lifetimeBudget != null ? "campaign" : null,
     spend: input.row.spend,
@@ -1818,8 +1824,12 @@ export async function getMetaWarehouseCampaignTable(input: {
   );
 }
 
+type MetaAdSetDailyRowWithStatusUpdatedAt = MetaAdSetDailyRow & {
+  statusUpdatedAt?: string | null;
+};
+
 function buildAdSetTableRow(input: {
-  row: MetaAdSetDailyRow;
+  row: MetaAdSetDailyRowWithStatusUpdatedAt;
   latestConfig?: MetaWarehouseCurrentConfig | null;
   previousConfig?: MetaWarehousePreviousConfig | null;
   funnelEvents?: MetaAdSetFunnelEventTotals | null;
@@ -1833,6 +1843,7 @@ function buildAdSetTableRow(input: {
     name: input.row.adsetNameCurrent ?? input.row.adsetNameHistorical ?? "Unknown Ad Set",
     campaignId: input.row.campaignId ?? "",
     status: input.row.adsetStatus ?? "UNKNOWN",
+    statusUpdatedAt: input.row.statusUpdatedAt ?? input.row.updatedAt ?? null,
     budgetLevel: latest?.dailyBudget != null || latest?.lifetimeBudget != null ? "adset" : null,
     dailyBudget: latest?.dailyBudget ?? null,
     lifetimeBudget: latest?.lifetimeBudget ?? null,
@@ -2109,6 +2120,7 @@ export async function getMetaWarehouseAdSets(input: {
           adsetNameHistorical:
             dimensions.get(row.adsetId)?.adsetNameHistorical ?? row.adsetNameHistorical,
           adsetStatus: dimensions.get(row.adsetId)?.adsetStatus ?? row.adsetStatus,
+          statusUpdatedAt: dimensions.get(row.adsetId)?.sourceUpdatedAt ?? row.updatedAt ?? null,
         },
         latestConfig: latestConfigHistory.get(row.adsetId)
           ? buildCurrentConfigFromSnapshot(latestConfigHistory.get(row.adsetId)!)

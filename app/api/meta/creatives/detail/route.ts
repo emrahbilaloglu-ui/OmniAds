@@ -7,6 +7,9 @@ export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const businessId = params.get("businessId");
   const creativeId = params.get("creativeId")?.trim() ?? "";
+  const adId = params.get("adId")?.trim() ?? "";
+  const adFormat = params.get("adFormat")?.trim() ?? "";
+  const adFormats = parseAdFormats(params.get("adFormats"));
 
   if (!businessId) {
     return NextResponse.json(
@@ -40,7 +43,23 @@ export async function GET(request: NextRequest) {
   const result = await getMetaCreativeDetailPayload({
     businessId,
     creativeId,
+    adId: adId || null,
+    adFormat: adFormat || null,
+    adFormats,
   });
 
   return NextResponse.json(result);
+}
+
+function parseAdFormats(value: string | null) {
+  if (!value) return null;
+  const formats = Array.from(
+    new Set(
+      value
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  );
+  return formats.length > 0 ? formats : null;
 }

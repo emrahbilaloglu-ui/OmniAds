@@ -1,11 +1,19 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   CrossPlacementCard,
   isCrossPlacementRollup,
 } from "@/components/creatives/briefing/CrossPlacementCard";
 import type { BriefingRollupItem } from "@/components/creatives/briefing/types";
+
+vi.mock("@/components/creatives/CreativeRenderSurface", () => ({
+  CreativeRenderSurface: (props: { assetFallbacks?: Array<string | null | undefined> }) => (
+    <div data-testid="creative-render-surface">
+      {(props.assetFallbacks ?? []).filter(Boolean).join("|")}
+    </div>
+  ),
+}));
 
 function rollup(overrides: Partial<BriefingRollupItem> = {}): BriefingRollupItem {
   return {
@@ -29,6 +37,8 @@ function rollup(overrides: Partial<BriefingRollupItem> = {}): BriefingRollupItem
       ctrFunnel: { value: 1.45, p50: 1.1 },
       primary: { kind: "promote", label: "Promote best placement" },
       bestPlacement: "Lookalike-1%",
+      mediaPreviewUrl: "https://example.com/card.jpg",
+      thumbnailUrl: "https://example.com/thumb.jpg",
     },
     placementList: [
       {
@@ -67,9 +77,13 @@ describe("CrossPlacementCard", () => {
 
     expect(html).toContain("data-rollup=\"cross-placement\"");
     expect(html).toContain("absolute -bottom-1 left-3 right-3");
+    expect(html).toContain('aria-label="Open evidence for WallArtCatalog"');
+    expect(html).toContain("creative-evidence-trigger--thumb");
+    expect(html).toContain("creative-evidence-trigger--inline-name");
     expect(html).toContain("2 placements");
     expect(html).toContain("mixed");
     expect(html).toContain("Review placements");
+    expect(html).toContain("https://example.com/thumb.jpg");
     expect(html).toContain("Placements (2)");
     expect(html).toContain("Lookalike-1%");
     expect(html).toContain("Interest stack | Home decor");

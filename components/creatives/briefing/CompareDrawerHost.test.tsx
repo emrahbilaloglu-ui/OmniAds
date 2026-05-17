@@ -32,13 +32,15 @@ describe("CompareDrawerHost", () => {
       />,
     );
 
-    expect(html).toContain("Compare 3 creatives");
+    expect(html).toContain("3 creatives");
+    expect(html).toContain("aligned metrics and media previews");
+    expect(html).not.toContain("adsecute.app");
     expect(html).toContain("Creative 1");
     expect(html).toContain("Creative 3");
     expect(html).toContain("data-compare-action=\"cut-weakest\"");
     expect(html).toContain("data-compare-action=\"scale-strongest\"");
     expect(html).toContain("data-compare-action=\"launch-test\"");
-    expect(html).toContain("Launch test with these");
+    expect(html).toContain("Send selected to Launchpad");
   });
 
   it("hides when closed", () => {

@@ -8,6 +8,7 @@ vi.mock("@/lib/integrations", () => ({
 vi.mock("@/lib/meta/creatives-fetchers", () => ({
   fetchAssignedAccountIds: vi.fn(),
   fetchCreativeDetailPreviewHtml: vi.fn(),
+  fetchCreativeThumbnailMap: vi.fn(),
 }));
 
 vi.mock("@/lib/meta/creatives-service", () => ({
@@ -46,7 +47,7 @@ const service = await import("@/lib/meta/creatives-service");
 const warehousePayloads = await import("@/lib/meta/creatives-warehouse");
 const readiness = await import("@/lib/meta/readiness");
 const warehouse = await import("@/lib/meta/warehouse");
-const { getMetaCreativesApiPayload } = await import("@/lib/meta/creatives-api");
+const { getMetaCreativeDetailPayload, getMetaCreativesApiPayload } = await import("@/lib/meta/creatives-api");
 
 function buildInput(request = new NextRequest("http://localhost/api/meta/creatives?businessId=biz")) {
   return {
@@ -77,6 +78,113 @@ function buildInput(request = new NextRequest("http://localhost/api/meta/creativ
   };
 }
 
+describe("getMetaCreativeDetailPayload", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("tries the ad preview first and falls back to the creative preview", async () => {
+    vi.mocked(integrations.getIntegration).mockResolvedValue({
+      status: "connected",
+      access_token: "token",
+    } as never);
+    vi.mocked(fetchers.fetchCreativeDetailPreviewHtml)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        html: "<iframe />",
+        adFormat: "MOBILE_FEED_STANDARD",
+        source: "meta_creative_previews",
+      });
+
+    const payload = await getMetaCreativeDetailPayload({
+      businessId: "biz",
+      creativeId: "cr_1",
+      adId: "ad_1",
+      adFormat: "MOBILE_FEED_STANDARD",
+    });
+
+    expect(fetchers.fetchCreativeDetailPreviewHtml).toHaveBeenNthCalledWith(
+      1,
+      "ad_1",
+      "token",
+      { adFormats: ["MOBILE_FEED_STANDARD"] },
+    );
+    expect(fetchers.fetchCreativeDetailPreviewHtml).toHaveBeenNthCalledWith(
+      2,
+      "cr_1",
+      "token",
+      { adFormats: ["MOBILE_FEED_STANDARD"] },
+    );
+    expect(payload.detail_preview).toMatchObject({
+      creative_id: "cr_1",
+      target_id: "cr_1",
+      target_type: "creative",
+      mode: "html",
+      ad_format: "MOBILE_FEED_STANDARD",
+      html: "<iframe />",
+    });
+  });
+
+  it("returns the ad preview when the ad edge supplies html", async () => {
+    vi.mocked(integrations.getIntegration).mockResolvedValue({
+      status: "connected",
+      access_token: "token",
+    } as never);
+    vi.mocked(fetchers.fetchCreativeDetailPreviewHtml).mockResolvedValueOnce({
+      html: "<iframe />",
+      adFormat: "INSTAGRAM_STORY",
+      source: "meta_creative_previews",
+    });
+
+    const payload = await getMetaCreativeDetailPayload({
+      businessId: "biz",
+      creativeId: "cr_1",
+      adId: "ad_1",
+      adFormat: "INSTAGRAM_STORY",
+    });
+
+    expect(fetchers.fetchCreativeDetailPreviewHtml).toHaveBeenCalledTimes(1);
+    expect(payload.detail_preview).toMatchObject({
+      creative_id: "cr_1",
+      target_id: "ad_1",
+      target_type: "ad",
+      mode: "html",
+      ad_format: "INSTAGRAM_STORY",
+      html: "<iframe />",
+    });
+  });
+
+  it("uses ordered placement fallback formats when provided", async () => {
+    vi.mocked(integrations.getIntegration).mockResolvedValue({
+      status: "connected",
+      access_token: "token",
+    } as never);
+    vi.mocked(fetchers.fetchCreativeDetailPreviewHtml).mockResolvedValueOnce({
+      html: "<iframe />",
+      adFormat: "FACEBOOK_REELS_MOBILE",
+      source: "meta_creative_previews",
+    });
+
+    const payload = await getMetaCreativeDetailPayload({
+      businessId: "biz",
+      creativeId: "cr_1",
+      adId: "ad_1",
+      adFormats: ["INSTAGRAM_REELS", "FACEBOOK_REELS_MOBILE"],
+    });
+
+    expect(fetchers.fetchCreativeDetailPreviewHtml).toHaveBeenCalledWith(
+      "ad_1",
+      "token",
+      { adFormats: ["INSTAGRAM_REELS", "FACEBOOK_REELS_MOBILE"] },
+    );
+    expect(payload.detail_preview).toMatchObject({
+      target_type: "ad",
+      ad_format: "FACEBOOK_REELS_MOBILE",
+      html: "<iframe />",
+    });
+  });
+});
+
 describe("getMetaCreativesApiPayload", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -85,6 +193,7 @@ describe("getMetaCreativesApiPayload", () => {
       access_token: "token",
     } as never);
     vi.mocked(fetchers.fetchAssignedAccountIds).mockResolvedValue(["act_1"]);
+    vi.mocked(fetchers.fetchCreativeThumbnailMap).mockResolvedValue(new Map());
     vi.mocked(warehouse.getMetaCreativeDailyCoverage).mockResolvedValue({
       completed_days: 0,
       ready_through_date: null,
@@ -133,6 +242,76 @@ describe("getMetaCreativesApiPayload", () => {
         mediaMode: "full",
       }),
     );
+    expect(service.buildCreativesResponse).not.toHaveBeenCalled();
+  });
+
+  it("refreshes warehouse media URLs before serving full-media creative rows", async () => {
+    vi.mocked(warehouse.getMetaCreativeDailyCoverage).mockResolvedValue({
+      completed_days: 31,
+      ready_through_date: "2026-03-31",
+      latest_updated_at: "2026-04-01T03:00:00.000Z",
+    } as never);
+    vi.mocked(warehousePayloads.getMetaCreativesWarehousePayload).mockResolvedValue({
+      status: "ok",
+      media_mode: "full",
+      media_hydrated: true,
+      rows: [
+        {
+          id: "creative_row_1",
+          creative_id: "cr_1",
+          name: "Creative 1",
+          thumbnail_url: "https://old.example/thumb.jpg",
+          table_thumbnail_url: "https://old.example/table.jpg",
+          card_preview_url: "https://old.example/card.jpg",
+          preview_url: "https://old.example/preview.jpg",
+          image_url: "https://old.example/image.jpg",
+          cached_thumbnail_url: null,
+          preview_state: "preview",
+          preview_origin: "snapshot",
+          preview: {
+            render_mode: "image",
+            image_url: "https://old.example/image.jpg",
+            video_url: null,
+            poster_url: "https://old.example/table.jpg",
+            source: "thumbnail_url",
+            is_catalog: false,
+          },
+        },
+      ],
+      snapshot_source: "persisted",
+    } as never);
+    vi.mocked(fetchers.fetchCreativeThumbnailMap)
+      .mockResolvedValueOnce(new Map([["cr_1", "https://fresh.example/table.jpg"]]))
+      .mockResolvedValueOnce(new Map([["cr_1", "https://fresh.example/card.jpg"]]));
+
+    const result = await getMetaCreativesApiPayload(buildInput());
+    const row = result.rows[0];
+
+    expect((result as { readSource?: string }).readSource).toBe("warehouse");
+    expect((result as { media_hydrated?: boolean }).media_hydrated).toBe(true);
+    expect(fetchers.fetchCreativeThumbnailMap).toHaveBeenNthCalledWith(
+      1,
+      ["cr_1"],
+      "token",
+      150,
+      120,
+      false,
+    );
+    expect(fetchers.fetchCreativeThumbnailMap).toHaveBeenNthCalledWith(
+      2,
+      ["cr_1"],
+      "token",
+      640,
+      640,
+      false,
+    );
+    expect(row.table_thumbnail_url).toBe("https://fresh.example/table.jpg");
+    expect(row.thumbnail_url).toBe("https://fresh.example/table.jpg");
+    expect(row.card_preview_url).toBe("https://fresh.example/card.jpg");
+    expect(row.image_url).toBe("https://fresh.example/card.jpg");
+    expect(row.preview.image_url).toBe("https://fresh.example/card.jpg");
+    expect(row.preview.poster_url).toBe("https://fresh.example/table.jpg");
+    expect(row.preview_origin).toBe("live");
     expect(service.buildCreativesResponse).not.toHaveBeenCalled();
   });
 

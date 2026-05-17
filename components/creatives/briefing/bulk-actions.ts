@@ -6,6 +6,7 @@ import {
   type LaunchpadBridgeMode,
 } from "@/components/creatives/briefing/launchpad-bridge";
 import {
+  getBriefingAdActionCandidateIds,
   getBriefingAdActionInputId,
   getCreativeScopeId,
 } from "@/components/creatives/briefing/action-handlers";
@@ -30,6 +31,7 @@ export interface BulkPauseResult {
     creativeId?: string | null;
     ok: boolean;
     status?: string;
+    attemptedIds?: string[];
     error?: { code: string; message: string };
   }>;
   errors?: Array<{ code?: string; message: string }>;
@@ -40,12 +42,21 @@ export function buildBulkPauseRequestBody(input: {
   cards: BriefingCreativeCard[];
   idempotencyKey?: string;
 }) {
-  const adsById = new Map<string, { adId: string; creativeId: string | null; name: string | null }>();
+  const adsById = new Map<
+    string,
+    {
+      adId: string;
+      candidateAdIds: string[];
+      creativeId: string | null;
+      name: string | null;
+    }
+  >();
   input.cards.forEach((card) => {
     const adId = getBriefingAdActionInputId(card).trim();
     if (!adId) return;
     adsById.set(adId, {
       adId,
+      candidateAdIds: getBriefingAdActionCandidateIds(card),
       creativeId: getCreativeScopeId(card),
       name: cardName(card),
     });
@@ -122,6 +133,22 @@ export function buildCompareDrawerItems(cards: BriefingCreativeCard[]): CompareD
     purchases: numberOrZero(card.purchases),
     frequency: numberOrZero(card.frequency),
     sparkline: card.sparkline ?? undefined,
+    mediaPreviewUrl: card.mediaPreviewUrl ?? null,
+    thumbnailUrl: card.thumbnailUrl ?? null,
+    tableThumbnailUrl: card.tableThumbnailUrl ?? null,
+    cardPreviewUrl: card.cardPreviewUrl ?? null,
+    previewUrl: card.previewUrl ?? null,
+    imageUrl: card.imageUrl ?? null,
+    cachedThumbnailUrl: card.cachedThumbnailUrl ?? null,
+    preview: card.preview ?? null,
+    format: card.format ?? null,
+    creativeVisualFormat: card.creativeVisualFormat ?? null,
+    creativePrimaryType: card.creativePrimaryType ?? null,
+    creativePrimaryLabel: card.creativePrimaryLabel ?? null,
+    creativeSecondaryType: card.creativeSecondaryType ?? null,
+    creativeSecondaryLabel: card.creativeSecondaryLabel ?? null,
+    creativeDeliveryType: card.creativeDeliveryType ?? null,
+    isCatalog: card.isCatalog ?? null,
   }));
 }
 

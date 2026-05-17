@@ -41,11 +41,15 @@ export function EvidencePopover({
       ? "border-blue-100 bg-blue-50/60 text-blue-700"
       : "border-slate-200 bg-slate-50 text-slate-700";
   const drawer = presentation === "drawer";
+  const hasPreview = drawer && Boolean(preview);
   const rootClassName = drawer
     ? "fixed inset-0 z-50"
     : "fixed inset-0 z-50 flex items-center justify-center p-4";
+  const drawerWidth = hasPreview
+    ? "md:w-[min(960px,calc(100vw-48px))]"
+    : "md:w-[min(640px,calc(100vw-48px))]";
   const panelClassName = drawer
-    ? "absolute inset-x-0 bottom-0 z-10 max-h-[90vh] overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl md:inset-y-0 md:left-auto md:right-0 md:h-full md:max-h-none md:w-[min(640px,calc(100vw-48px))] md:rounded-none md:rounded-l-2xl md:border-y-0 md:border-r-0 md:border-l"
+    ? `absolute inset-x-0 bottom-0 z-10 max-h-[90vh] overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl md:inset-y-0 md:left-auto md:right-0 md:h-full md:max-h-none ${drawerWidth} md:rounded-none md:rounded-l-2xl md:border-y-0 md:border-r-0 md:border-l`
     : "relative z-10 w-full max-w-[620px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl";
   const bodyClassName = drawer
     ? "max-h-[calc(90vh-56px)] overflow-y-auto px-4 py-3 md:max-h-none md:h-[calc(100vh-56px)]"

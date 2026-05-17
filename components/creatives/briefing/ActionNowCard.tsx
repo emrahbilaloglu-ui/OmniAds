@@ -4,19 +4,19 @@ import { useState } from "react";
 import { ChevronDown, Clock, Sparkles } from "lucide-react";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import {
+  BriefingTile,
   ConfidencePill,
+  DecisionLabelChip,
   DeferChip,
   DeferTooltip,
-  DecisionLabelChip,
   EvidencePopover,
-  confidenceClass,
+  deriveTileFormat,
+  deriveTileShape,
+  type TileMetric,
 } from "@/components/common/briefing";
 import {
   BadgeChip,
   CampaignKindChip,
-  CtrBar,
-  FatigueDot,
-  MetricDivider,
   PrimaryActionButton,
   SecondaryButton,
   Sparkline,
@@ -102,16 +102,17 @@ export function ActionNowCard({
   onEvidenceOpen,
 }: ActionNowCardProps) {
   const [localEvidenceOpen, setLocalEvidenceOpen] = useState(false);
-  const confidence = confidenceValue(card);
-  const conf = confidenceClass(confidence);
   const label = asDecisionLabel(card.label);
   const name = cardName(card);
+  const confidence = confidenceValue(card);
   const badges = Array.isArray(card.badges) ? card.badges : [];
   const actionCardId = cardId(card);
   const scopeId = getCreativeScopeId(card);
   const cutAction = isCutPrimaryAction(card);
   const primaryKind = cutAction ? card.primary?.kind || "cut" : card.primary?.kind;
-  const primaryLabel = cutAction ? card.primary?.label || "Cut" : card.primary?.label;
+  const primaryLabel = cutAction
+    ? card.primary?.label || "Cut"
+    : card.primary?.label;
   const isEvidenceOpen = evidenceOpen ?? localEvidenceOpen;
   const kindLabel = campaignKindLabel(card);
   const preview = briefingPreviewPayload(card);
@@ -230,7 +231,6 @@ export function ActionNowCard({
       </div>
 
       {deferred ? <DeferChip id={scopeId} onUndo={onUndefer} /> : null}
-
       {onEvidenceOpen ? null : (
         <EvidencePopover
           open={localEvidenceOpen}

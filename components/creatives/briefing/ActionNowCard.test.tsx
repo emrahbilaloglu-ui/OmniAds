@@ -32,7 +32,7 @@ function card(overrides: Partial<BriefingCreativeCard> = {}): BriefingCreativeCa
 }
 
 describe("ActionNowCard", () => {
-  it("renders the default high-confidence action card", () => {
+  it("renders the tile shell with name, primary action, metrics, confidence pill, and select control", () => {
     const html = renderToStaticMarkup(<ActionNowCard card={card()} selected />);
 
     expect(html).toContain("Aphrodite Necklace Hook v3");
@@ -50,12 +50,12 @@ describe("ActionNowCard", () => {
     expect(html).toContain("ring-2 ring-blue-500 ring-offset-1");
   });
 
-  it("applies mid and low confidence visual weight", () => {
-    const midHtml = renderToStaticMarkup(
-      <ActionNowCard card={card({ confidence: 58, primary: { kind: "cut", label: "Cut" } })} />,
+  it("uses a portrait thumb shape when the best placement is Reels", () => {
+    const portrait = renderToStaticMarkup(
+      <ActionNowCard card={card({ bestPlacement: "instagram_reels" })} />,
     );
-    const lowHtml = renderToStaticMarkup(
-      <ActionNowCard card={card({ confidence: 42, primary: { kind: "cut", label: "Cut" } })} />,
+    const square = renderToStaticMarkup(
+      <ActionNowCard card={card({ bestPlacement: "facebook_feed" })} />,
     );
 
     expect(midHtml).toContain("btn--danger");
@@ -64,13 +64,13 @@ describe("ActionNowCard", () => {
     expect(lowHtml).toContain("Cut");
   });
 
-  it("renders deferred chip and cut animation classes", () => {
+  it("renders deferred chip and cut-removing classes", () => {
     const deferredHtml = renderToStaticMarkup(<ActionNowCard card={card()} deferred />);
     const cuttingHtml = renderToStaticMarkup(<ActionNowCard card={card()} cutting />);
 
     expect(deferredHtml).toContain("opacity-60");
     expect(deferredHtml).toContain("Reappears tomorrow 9am ·");
-    expect(deferredHtml).toContain("data-action=\"undefer\"");
+    expect(deferredHtml).toContain('data-action="undefer"');
     expect(cuttingHtml).toContain("opacity-0 -translate-x-4 pointer-events-none");
   });
 
@@ -95,7 +95,7 @@ describe("ActionNowCard", () => {
     );
 
     expect(html).toContain("Scale budget");
-    expect(html).toContain("data-kind=\"scale_budget\"");
+    expect(html).toContain('data-kind="scale_budget"');
     expect(html).not.toContain("Promote to main");
   });
 

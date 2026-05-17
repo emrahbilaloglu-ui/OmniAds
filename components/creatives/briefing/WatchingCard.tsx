@@ -3,25 +3,24 @@
 import { useState } from "react";
 import { ArrowRight, ChevronDown, Clock, Eye, Plus } from "lucide-react";
 import {
-  ConfidencePill,
+  BriefingTile,
+  DecisionLabelChip,
   DeferChip,
   DeferTooltip,
-  DecisionLabelChip,
   EvidencePopover,
-  confidenceClass,
+  deriveTileFormat,
+  deriveTileShape,
+  type TileMetric,
 } from "@/components/common/briefing";
 import {
   BadgeChip,
   CampaignKindChip,
-  Sparkline,
-  Thumb,
   asDecisionLabel,
   buildEvidenceSections,
   cardAdset,
   cardCampaign,
   cardId,
   cardName,
-  confidenceValue,
   numberOrZero,
 } from "@/components/creatives/briefing/card-utils";
 import { getCreativeScopeId } from "@/components/creatives/briefing/action-handlers";
@@ -54,8 +53,6 @@ export function WatchingCard({
   onEvidenceOpen,
 }: WatchingCardProps) {
   const [localEvidenceOpen, setLocalEvidenceOpen] = useState(false);
-  const confidence = confidenceValue(card);
-  const conf = confidenceClass(confidence);
   const label = asDecisionLabel(card.label);
   const name = cardName(card);
   const watchingCardId = cardId(card);
@@ -69,6 +66,95 @@ export function WatchingCard({
     }
     setLocalEvidenceOpen(true);
   };
+
+  const shape = deriveTileShape(card);
+  const format = deriveTileFormat(card);
+  const durationLabel = card.placements && card.placements > 1 ? `${card.placements} cards` : undefined;
+
+  const metrics: TileMetric[] = [
+    { key: "roas", label: "ROAS", value: formatRoas(card.roas) },
+    { key: "spend", label: "Spend", value: formatCurrency(card.spend) },
+    {
+      key: "purch",
+      label: "Purch",
+      value: String(numberOrZero(card.purchases)),
+    },
+  ];
+
+  const chips = (
+    <>
+      <DecisionLabelChip label={label} size="sm" />
+      <CampaignKindChip card={card} />
+      {badges.map((badge) => (
+        <BadgeChip key={String(badge)} label={badge} />
+      ))}
+    </>
+  );
+
+  const meta = `${cardCampaign(card)} · ${cardAdset(card)}${
+    card.ageDays != null ? ` · ${card.ageDays}d` : ""
+  }`;
+
+  const why = (
+    <>
+      {card.reason || "No engine reason supplied."}
+      {card.predictive ? (
+        <span className="ml-1 italic text-slate-500">· {card.predictive}</span>
+      ) : null}
+    </>
+  );
+
+  const primaryAction =
+    label === "test_more" ? (
+      <button
+        type="button"
+        className="inline-flex h-7 items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-3 text-[11.5px] font-medium text-blue-700 hover:bg-blue-100"
+        data-action="primary"
+        data-kind="fresh_test"
+        data-id={watchingCardId}
+        onClick={(event) => {
+          event.preventDefault();
+          onLaunchpadOpen?.({ card, mode: "fresh_test" });
+        }}
+      >
+        <Plus className="inline-block shrink-0" size={11} aria-hidden="true" />
+        Fresh test
+        <ArrowRight className="inline-block shrink-0" size={11} aria-hidden="true" />
+      </button>
+    ) : (
+      <button
+        type="button"
+        className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-300 bg-white px-3 text-[11.5px] font-medium text-slate-700 hover:bg-slate-50"
+        data-action="evidence"
+        data-id={watchingCardId}
+        aria-haspopup="dialog"
+        aria-expanded={isEvidenceOpen}
+        onClick={openEvidence}
+      >
+        <Eye className="inline-block shrink-0" size={11} aria-hidden="true" />
+        Open
+        <ChevronDown className="inline-block shrink-0" size={11} aria-hidden="true" />
+      </button>
+    );
+
+  const secondaryActions = (
+    <DeferTooltip>
+      <button
+        type="button"
+        className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-300 bg-white px-2 text-[11.5px] text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+        data-action="defer"
+        data-id={watchingCardId}
+        disabled={deferred}
+        onClick={(event) => {
+          event.preventDefault();
+          onDefer?.(scopeId);
+        }}
+      >
+        <Clock className="inline-block shrink-0" size={11} aria-hidden="true" />
+        Defer
+      </button>
+    </DeferTooltip>
+  );
 
   return (
     <div

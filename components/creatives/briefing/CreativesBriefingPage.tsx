@@ -28,10 +28,20 @@ import {
   BulkToolbar,
   LaunchpadOverlay,
   LaneHeader,
+  PhonePreview,
   PulseStrip,
   TrackingBlockerBanner,
   TrackingConfirmModal,
+  buildAnomaliesWidget,
+  buildEngineStatusWidget,
+  buildTargetAnchorWidget,
+  computeRangeFromPreset,
+  deriveTileFormat,
+  deriveTileShape,
   type BulkAction,
+  type DateRangeValue,
+  type InsightWidget,
+  type PhonePreviewPlacement,
 } from "@/components/common/briefing";
 import type { LaunchpadOverlayMode } from "@/components/common/briefing/LaunchpadOverlay";
 import type { LaneKey } from "@/components/common/briefing/types";
@@ -1130,6 +1140,50 @@ export function CreativesBriefingPage() {
     normalizedBriefingData?.pulse?.trackingDetail ||
     normalizedBriefingData?.pulse?.trackingAnomalyDetail ||
     undefined;
+
+  const insightWidgets = useMemo<InsightWidget[]>(() => {
+    const widgets: InsightWidget[] = [];
+    const targetRoas = engineProfile?.spendUnitEvidence?.targetRoas ?? null;
+    const breakEvenRoas = engineProfile?.spendUnitEvidence?.breakEvenRoas ?? null;
+    const targetWidget = buildTargetAnchorWidget(
+      engineProfile
+        ? {
+            configured: targetRoas != null || breakEvenRoas != null,
+            targetRoas,
+            breakEvenRoas,
+            setAnchorHref: "/commercial-truth",
+          }
+        : null,
+    );
+    if (targetWidget) widgets.push(targetWidget);
+
+    const engineWidget = buildEngineStatusWidget(
+      normalizedBriefingData?.pulse
+        ? {
+            version: normalizedBriefingData.pulse.engineVersion ?? null,
+            lastRunAt: null,
+            operatingMode: normalizedBriefingData.pulse.calibratedAgo
+              ? `calibrated ${normalizedBriefingData.pulse.calibratedAgo}`
+              : null,
+            snapshotStatus: null,
+          }
+        : null,
+    );
+    if (engineWidget) widgets.push(engineWidget);
+
+    const anomaliesWidget = buildAnomaliesWidget({
+      activeCount: trackingAnomalyActive ? 1 : 0,
+      detail: trackingBlockerDetail,
+    });
+    if (anomaliesWidget) widgets.push(anomaliesWidget);
+
+    return widgets;
+  }, [
+    engineProfile,
+    normalizedBriefingData?.pulse,
+    trackingAnomalyActive,
+    trackingBlockerDetail,
+  ]);
   const assetLibraryPayload = assetLibraryQuery.data;
   const assetLibraryRows = Array.isArray(assetLibraryPayload)
     ? assetLibraryPayload
@@ -1798,6 +1852,10 @@ export function CreativesBriefingPage() {
         onCutCards={handleBulkCutOpen}
         onLaunchpad={handleBulkLaunchpadTeleport}
       />
+      <InsightsPanel
+        widgets={insightWidgets}
+        testId="creatives-insights-panel"
+      />
       <BriefingToastViewport toast={toast} />
     </div>
   );
@@ -1909,6 +1967,17 @@ function PulseScope() {
       />
     </button>
   );
+}
+
+function resolvePhonePlacement(
+  bestPlacement: string | null,
+): PhonePreviewPlacement | undefined {
+  if (!bestPlacement) return undefined;
+  const value = bestPlacement.toLowerCase();
+  if (value.includes("reels")) return "reels";
+  if (value.includes("story") || value.includes("stories")) return "stories";
+  if (value.includes("feed") || value.includes("home")) return "feed";
+  return undefined;
 }
 
 function BriefingToastViewport({ toast }: { toast: BriefingToast | null }) {

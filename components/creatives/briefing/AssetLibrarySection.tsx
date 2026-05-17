@@ -8,6 +8,19 @@ import type { DecisionLabel } from "@/components/common/briefing/types";
 import type { ShareLinkConfig } from "@/components/creatives/shareCreativeTypes";
 import { getCreativeFormatPresentation } from "@/components/creatives/briefing/creative-format";
 import type { AiCreativeHistoricalWindows as CreativeHistoricalWindows } from "@/lib/meta/creative-scoring";
+import {
+  CustomizeKpisModal,
+  DateRangePicker,
+  KpiSummaryTiles,
+  PresetBar,
+  ShareViewModal,
+  computeRangeFromPreset,
+  type AssetLibraryPreset,
+  type DateRangeValue,
+  type KpiCatalogEntry,
+  type KpiSummaryTile,
+  type ShareViewState,
+} from "@/components/common/briefing";
 
 type AssetLibraryStatusFilter = "all" | "active" | "closed_30d";
 type AssetLibraryFormatFilter = "image" | "video" | "catalog" | "carousel";
@@ -88,7 +101,7 @@ interface AssetLibrarySectionProps {
   onPresetChange?: (presetId: string) => void;
 }
 
-const STATUS_FILTERS: Array<{ key: AssetLibraryStatusFilter; label: string }> = [
+const LABEL_FILTERS: ReadonlyArray<{ key: LabelFilterKey; label: string }> = [
   { key: "all", label: "All" },
   { key: "active", label: "Active" },
   { key: "closed_30d", label: "Closed 30d" },
@@ -103,6 +116,108 @@ const DEFAULT_FILTERS: AssetLibraryFilters = {
   search: "",
   sort: "spend_desc",
 };
+
+const PRESETS: ReadonlyArray<AssetLibraryPreset & { metrics: string[] }> = [
+  {
+    key: "facebook_ecom",
+    label: "Facebook Ecommerce",
+    description:
+      "Buyer view — spend, ROAS, CPA, frequency. Works on existing endpoints today.",
+    metricsCount: 6,
+    metricChips: ["Spend", "ROAS", "CPA", "Freq", "CTR", "Purch"],
+    metrics: ["spend", "roas", "cpa", "frequency", "ctr", "purchases"],
+  },
+  {
+    key: "video",
+    label: "Video",
+    description: "Buyer + video efficiency framing.",
+    metricsCount: 6,
+    metricChips: ["Spend", "ROAS", "Thumbstop", "Hold", "VTR", "CPM"],
+    metrics: ["spend", "roas", "thumbstop", "videoHold", "vtr", "cpm"],
+  },
+  {
+    key: "saas",
+    label: "SaaS",
+    description: "Lead/sub efficiency framing for SaaS accounts.",
+    metricsCount: 5,
+    metricChips: ["Spend", "CTR", "Leads", "CPL", "CPM"],
+    metrics: ["spend", "ctr", "leads", "cpl", "cpm"],
+  },
+  {
+    key: "creative_teams",
+    label: "Creative teams",
+    description: "0–100 scores per concept · Hook / CTA / Offer / Click / Watch.",
+    metricsCount: 6,
+    metricChips: ["Hook", "CTA", "Offer", "Click", "Watch", "Gap"],
+    metrics: ["hookScore", "ctaScore", "offerScore", "clickScore", "watchScore", "gap"],
+    unavailable: true,
+    unavailableReason:
+      "Backend-dependent — Creative scoring pipeline ships separately.",
+  },
+];
+
+const KPI_CATALOG: ReadonlyArray<KpiCatalogEntry> = [
+  { key: "spend", label: "Spend", group: "Performance", description: "Total spend for the selected window." },
+  { key: "roas", label: "ROAS", group: "Performance", description: "Return on ad spend. Compared against account anchor." },
+  { key: "cpa", label: "CPA", group: "Performance", description: "Cost per acquisition." },
+  { key: "purchases", label: "Purchases", group: "Performance", description: "Total purchases in the window." },
+  { key: "frequency", label: "Frequency", group: "Delivery", description: "Average impressions per reached user." },
+  { key: "ctr", label: "CTR", group: "Engagement", description: "Click-through rate." },
+  { key: "cpm", label: "CPM", group: "Delivery", description: "Cost per thousand impressions." },
+  { key: "leads", label: "Leads", group: "Performance", description: "Lead conversions for SaaS accounts." },
+  { key: "cpl", label: "CPL", group: "Performance", description: "Cost per lead." },
+  { key: "thumbstop", label: "Thumbstop", group: "Video", description: "3s view rate — does the creative stop the scroll?" },
+  { key: "videoHold", label: "Video hold", group: "Video", description: "% of viewers who watch past 15s." },
+  { key: "vtr", label: "VTR", group: "Video", description: "View-through rate." },
+  {
+    key: "hookScore",
+    label: "Hook score",
+    group: "Creative scores",
+    description: "0–100 score derived from thumbstop + retention vs account baseline.",
+    unavailable: true,
+    unavailableReason: "Requires the creative scoring pipeline.",
+  },
+  {
+    key: "ctaScore",
+    label: "CTA score",
+    group: "Creative scores",
+    description: "0–100 score for call-to-action clarity.",
+    unavailable: true,
+    unavailableReason: "Requires the creative scoring pipeline.",
+  },
+  {
+    key: "offerScore",
+    label: "Offer score",
+    group: "Creative scores",
+    description: "0–100 score for offer relevance.",
+    unavailable: true,
+    unavailableReason: "Requires the creative scoring pipeline.",
+  },
+  {
+    key: "clickScore",
+    label: "Click score",
+    group: "Creative scores",
+    description: "0–100 score for click momentum.",
+    unavailable: true,
+    unavailableReason: "Requires the creative scoring pipeline.",
+  },
+  {
+    key: "watchScore",
+    label: "Watch score",
+    group: "Creative scores",
+    description: "0–100 score for video watch behavior.",
+    unavailable: true,
+    unavailableReason: "Requires the creative scoring pipeline.",
+  },
+  {
+    key: "aiTag_hook",
+    label: "AI tag · hook style",
+    group: "AI tags",
+    description: "Tagged hook style: UGC / Demo / Promise.",
+    unavailable: true,
+    unavailableReason: "Requires AI tag generation backend.",
+  },
+];
 
 export const ASSET_LIBRARY_VIEW_STORAGE_KEY = "creatives-briefing-asset-library-view";
 
@@ -1160,8 +1275,18 @@ function rowEngineLabel(row: AssetLibraryRow) {
   return row.engineLabel ?? row.decisionLabel ?? row.briefingLabel ?? null;
 }
 
+function rowCampaignLabel(row: AssetLibraryRow): LabelFilterKey {
+  const value = String((row as { campaignKind?: string | null }).campaignKind ?? "").toLowerCase();
+  if (value === "main") return "main";
+  if (value === "test") return "test";
+  if (value === "mixed") return "mixed";
+  return "all";
+}
+
 function safeRows(rows: unknown): MetaCreativeRow[] {
-  return Array.isArray(rows) ? rows.filter((row): row is MetaCreativeRow => Boolean(row && typeof row === "object")) : [];
+  return Array.isArray(rows)
+    ? rows.filter((row): row is MetaCreativeRow => Boolean(row && typeof row === "object"))
+    : [];
 }
 
 function safeText(value: unknown) {
@@ -1273,8 +1398,7 @@ function rowMatchesBadge(row: AssetLibraryRow, badge: AssetLibraryBadgeFilter) {
     ...safeStringArray(row.engineBadges),
     ...safeStringArray(row.badges),
     ...safeStringArray(row.tags),
-  ]
-    .map((item) => item.toLowerCase().replace(/\s+/g, "_"));
+  ].map((item) => item.toLowerCase().replace(/\s+/g, "_"));
   return badges.includes(badge);
 }
 
@@ -1286,4 +1410,18 @@ function rowMatchesSearch(row: AssetLibraryRow, search: string) {
     row.accountName,
     ...safeStringArray(row.tags),
   ].some((value) => safeText(value).toLowerCase().includes(search));
+}
+
+function formatCurrency(value: number, currency: string | null): string {
+  if (!Number.isFinite(value) || value <= 0) return "—";
+  const isoCurrency = (currency ?? "USD").toUpperCase();
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: isoCurrency,
+      maximumFractionDigits: 0,
+    }).format(value);
+  } catch {
+    return `$${Math.round(value).toLocaleString()}`;
+  }
 }

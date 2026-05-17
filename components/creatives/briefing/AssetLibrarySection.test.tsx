@@ -92,7 +92,7 @@ function row(overrides: Partial<MetaCreativeRow> & Record<string, unknown>): Met
 }
 
 describe("AssetLibrarySection", () => {
-  it("renders filter chrome, search, sort, view toggle, and wrapped table rows", () => {
+  it("renders the preset bar, KPI summary tiles, share view button, and wrapped table rows", () => {
     const html = renderToStaticMarkup(
       <AssetLibrarySection
         rows={[row({ name: "Aphrodite Hook" })]}
@@ -235,6 +235,7 @@ describe("AssetLibrarySection", () => {
         formats: [],
         labels: ["cut"],
         badges: ["below_breakeven"],
+        campaignLabel: "all",
         search: "loser",
         sort: "spend_desc",
       }).map((item) => item.id),
@@ -279,6 +280,7 @@ describe("AssetLibrarySection", () => {
         formats: [],
         labels: [],
         badges: ["fatigue"],
+        campaignLabel: "all",
         search: "",
         sort: "spend_desc",
       }),
@@ -289,6 +291,7 @@ describe("AssetLibrarySection", () => {
         formats: [],
         labels: [],
         badges: ["fatigue"],
+        campaignLabel: "all",
         search: "",
         sort: "spend_desc",
       }).map((item) => item.id),
@@ -298,7 +301,9 @@ describe("AssetLibrarySection", () => {
   });
 
   it("exposes count summary and view persistence key", () => {
-    expect(assetLibraryCountSummary(2, 8)).toBe("Showing 2 of 8");
-    expect(ASSET_LIBRARY_VIEW_STORAGE_KEY).toBe("creatives-briefing-asset-library-view");
+    expect(assetLibraryCountSummary(3, 7)).toBe("Showing 3 of 7");
+    expect(ASSET_LIBRARY_VIEW_STORAGE_KEY).toBe(
+      "creatives-briefing-asset-library-view",
+    );
   });
 });

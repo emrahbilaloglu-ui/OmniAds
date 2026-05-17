@@ -24,7 +24,7 @@ function card(overrides: Partial<BriefingCreativeCard> = {}): BriefingCreativeCa
 }
 
 describe("WatchingCard", () => {
-  it("renders the low-confidence watching card with read-only actions", () => {
+  it("renders the watching tile with name, defer button, and fresh-test primary on test_more", () => {
     const html = renderToStaticMarkup(<WatchingCard card={card()} selected />);
 
     expect(html).toContain("Catalog DPA Spring 2026");
@@ -34,30 +34,28 @@ describe("WatchingCard", () => {
     expect(html).toContain("opacity-90");
     expect(html).toContain("Defer 24h");
     expect(html).toContain("What does Defer 24h do?");
-    expect(html).toContain("Evidence");
-    expect(html).toContain("aria-expanded=\"false\"");
     expect(html).toContain("Fresh test");
-    expect(html).toContain("checked=\"\"");
+    expect(html).toContain('aria-checked="true"');
   });
 
-  it("hides fresh-test action for non-test-more labels and keeps mid confidence weight", () => {
+  it("falls back to Open evidence for non-test-more labels", () => {
     const html = renderToStaticMarkup(
-      <WatchingCard card={card({ label: "refresh", confidence: 56 })} />,
+      <WatchingCard card={card({ label: "refresh" })} />,
     );
 
-    expect(html).toContain("width:72px;height:72px;font-size:18px");
     expect(html).not.toContain("Fresh test");
+    expect(html).toContain('data-action="evidence"');
   });
 
-  it("renders deferred chip and opacity for Defer 24h state", () => {
+  it("renders deferred chip when deferred", () => {
     const html = renderToStaticMarkup(<WatchingCard card={card()} deferred />);
 
     expect(html).toContain("opacity-60");
     expect(html).toContain("Reappears tomorrow 9am ·");
-    expect(html).toContain("data-action=\"undefer\"");
+    expect(html).toContain('data-action="undefer"');
   });
 
-  it("renders unlabeled campaign context without creating an action", () => {
+  it("renders unlabeled campaign context without creating a structural action", () => {
     const html = renderToStaticMarkup(
       <WatchingCard
         card={card({
@@ -70,6 +68,6 @@ describe("WatchingCard", () => {
 
     expect(html).toContain(">Unlabeled<");
     expect(html).toContain("campaign label");
-    expect(html).not.toContain("data-kind=\"scale\"");
+    expect(html).not.toContain('data-kind="scale"');
   });
 });

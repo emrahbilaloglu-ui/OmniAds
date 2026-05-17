@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   duplicateAd,
   pauseAd,
+  resumeAdset,
+  resumeCampaign,
   type MetaAdsWriteContext,
 } from "@/lib/meta/ads-write";
 
@@ -92,6 +94,69 @@ describe("Meta ads write client", () => {
 
     expect(result).toMatchObject({ ok: true, verifiedStatus: "PAUSED" });
     expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("resumeCampaign writes ACTIVE and verifies the campaign status", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+      .mockResolvedValueOnce(
+        jsonResponse({ id: "cmp_1", status: "ACTIVE", effective_status: "ACTIVE" }),
+      );
+
+    const result = await resumeCampaign(ctx, "cmp_1");
+
+    expect(result).toMatchObject({ ok: true, verifiedStatus: "ACTIVE" });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v22.0/cmp_1?");
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "POST" });
+    expect((fetchMock.mock.calls[0]?.[1]?.body as URLSearchParams).get("status")).toBe("ACTIVE");
+  });
+
+  it("resumeCampaign returns silent_failure when verification does not reach ACTIVE", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+      .mockResolvedValueOnce(
+        jsonResponse({ id: "cmp_1", status: "PAUSED", effective_status: "PAUSED" }),
+      );
+
+    const result = await resumeCampaign(ctx, "cmp_1");
+
+    expect(result).toMatchObject({
+      ok: false,
+      httpStatus: 502,
+      error: { code: "silent_failure" },
+    });
+  });
+
+  it("resumeAdset writes ACTIVE and verifies the ad set status", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+      .mockResolvedValueOnce(
+        jsonResponse({ id: "adset_1", status: "ACTIVE", effective_status: "ACTIVE" }),
+      );
+
+    const result = await resumeAdset(ctx, "adset_1");
+
+    expect(result).toMatchObject({ ok: true, verifiedStatus: "ACTIVE" });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v22.0/adset_1?");
+    expect((fetchMock.mock.calls[0]?.[1]?.body as URLSearchParams).get("status")).toBe("ACTIVE");
+  });
+
+  it("resumeAdset returns silent_failure when verification does not reach ACTIVE", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+      .mockResolvedValueOnce(
+        jsonResponse({ id: "adset_1", status: "PAUSED", effective_status: "PAUSED" }),
+      );
+
+    const result = await resumeAdset(ctx, "adset_1");
+
+    expect(result).toMatchObject({
+      ok: false,
+      httpStatus: 502,
+      error: { code: "silent_failure" },
+    });
   });
 
   it("duplicateAd manually rebuilds the ad and verifies status, ad set, and creative", async () => {

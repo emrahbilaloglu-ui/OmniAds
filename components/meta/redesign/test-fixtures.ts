@@ -86,7 +86,16 @@ export function metaPulse(overrides: Partial<MetaPulsePayload> = {}): MetaPulseP
     statusFilter: "active",
     startDate: "2026-04-10",
     endDate: "2026-05-07",
-    pacing: { mtdSpend: 1200, mtdTarget: 2400, dayPace: 0.5 },
+    pacing: {
+      mtdSpend: 1200,
+      mtdTarget: 2400,
+      dayPace: 0.5,
+      spendToday: 401,
+      dailyTarget: 80,
+      avg7dSpend: 350,
+      conversionsToday: 1,
+      avg7dConversions: 2,
+    },
     roas: {
       d7: 2.8,
       d14: 3,

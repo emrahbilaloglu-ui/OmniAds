@@ -11,12 +11,15 @@ import {
 import {
   pauseAdset,
   pauseCampaign,
+  resumeAdset,
+  resumeCampaign,
   updateAdsetBidAmount,
   type MetaAdsWriteContext,
   type MetaAdsWriteFailure,
 } from "@/lib/meta/ads-write";
 
 type MetaEntityScopeType = "campaign" | "adset";
+type MetaEntityStatusAction = "pause" | "resume";
 type RouteParams = { params: Promise<Record<string, string | undefined>> };
 
 interface EntityActionBody {
@@ -309,6 +312,28 @@ export async function handleMetaEntityPauseAction(
   context: RouteParams,
   input: { scopeType: MetaEntityScopeType; paramName: string },
 ) {
+  return handleMetaEntityStatusAction(request, context, {
+    ...input,
+    action: "pause",
+  });
+}
+
+export async function handleMetaEntityResumeAction(
+  request: NextRequest,
+  context: RouteParams,
+  input: { scopeType: MetaEntityScopeType; paramName: string },
+) {
+  return handleMetaEntityStatusAction(request, context, {
+    ...input,
+    action: "resume",
+  });
+}
+
+async function handleMetaEntityStatusAction(
+  request: NextRequest,
+  context: RouteParams,
+  input: { scopeType: MetaEntityScopeType; paramName: string; action: MetaEntityStatusAction },
+) {
   const params = await context.params;
   const entityId = params[input.paramName]?.trim() ?? "";
   const body = await readActionBody(request);
@@ -324,14 +349,14 @@ export async function handleMetaEntityPauseAction(
     businessId: prepared.businessId,
     adId: prepared.target.entityId,
     creativeId: null,
-    action: "pause",
+    action: input.action,
     requestedBy: prepared.requestedBy,
     recIdOrigin: recIdOriginFromBody(body),
     payloadRequest: {
       method: "POST",
       endpoint: `/${prepared.target.entityId}`,
       scope_type: input.scopeType,
-      body: { status: "PAUSED" },
+      body: { status: input.action === "pause" ? "PAUSED" : "ACTIVE" },
       rec_id_origin: recIdOriginFromBody(body),
     },
   });
@@ -340,8 +365,12 @@ export async function handleMetaEntityPauseAction(
   try {
     const result =
       input.scopeType === "campaign"
-        ? await pauseCampaign(prepared.ctx, prepared.target.entityId)
-        : await pauseAdset(prepared.ctx, prepared.target.entityId);
+        ? input.action === "pause"
+          ? await pauseCampaign(prepared.ctx, prepared.target.entityId)
+          : await resumeCampaign(prepared.ctx, prepared.target.entityId)
+        : input.action === "pause"
+          ? await pauseAdset(prepared.ctx, prepared.target.entityId)
+          : await resumeAdset(prepared.ctx, prepared.target.entityId);
 
     if (!result.ok) {
       await completeFailure({ logId: log.id, startedAt, result });
@@ -362,7 +391,7 @@ export async function handleMetaEntityPauseAction(
 
     return NextResponse.json({
       ok: true,
-      action: "pause",
+      action: input.action,
       scopeType: input.scopeType,
       entityId: prepared.target.entityId,
       status: result.verifiedStatus,

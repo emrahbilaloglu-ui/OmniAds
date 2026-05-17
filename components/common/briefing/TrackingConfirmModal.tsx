@@ -3,6 +3,7 @@ import { AlertTriangle } from "lucide-react";
 interface TrackingConfirmModalProps {
   open: boolean;
   primaryLabel?: string;
+  description?: string;
   onClose: () => void;
   onConfirm: () => void;
 }
@@ -10,6 +11,7 @@ interface TrackingConfirmModalProps {
 export function TrackingConfirmModal({
   open,
   primaryLabel = "Cut anyway",
+  description = "Cuts during a tracking anomaly may be based on incomplete data. Continue anyway, or resolve tracking first?",
   onClose,
   onConfirm,
 }: TrackingConfirmModalProps) {
@@ -33,7 +35,7 @@ export function TrackingConfirmModal({
               Tracking is degraded.
             </div>
             <div className="text-[12.5px] text-slate-600 mt-1">
-              Cuts during a tracking anomaly may be based on incomplete data. Continue anyway, or resolve tracking first?
+              {description}
             </div>
           </div>
         </div>

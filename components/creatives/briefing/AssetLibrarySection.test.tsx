@@ -2,6 +2,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
+  ASSET_PRESETS,
   ASSET_LIBRARY_VIEW_STORAGE_KEY,
   AssetLibrarySection,
   assetLibraryCountSummary,
@@ -17,6 +18,14 @@ vi.mock("@/components/creatives/CreativesTableSection", () => ({
       {rows.map((row) => (
         <span key={row.id}>{row.name}</span>
       ))}
+    </div>
+  ),
+}));
+
+vi.mock("@/components/creatives/CreativeRenderSurface", () => ({
+  CreativeRenderSurface: (props: { assetFallbacks?: Array<string | null | undefined> }) => (
+    <div data-testid="creative-render-surface">
+      {(props.assetFallbacks ?? []).filter(Boolean).join("|")}
     </div>
   ),
 }));
@@ -97,16 +106,118 @@ describe("AssetLibrarySection", () => {
       />,
     );
 
-    expect(html).toContain("Asset Library");
-    expect(html).toContain("Status");
-    expect(html).toContain("Format");
-    expect(html).toContain("Engine v3 label");
-    expect(html).toContain("Badge");
-    expect(html).toContain("Search creatives, campaigns, tags");
-    expect(html).toContain("Sort: spend");
-    expect(html).toContain("aria-label=\"Grid view\"");
-    expect(html).toContain("data-mocked-creatives-table");
+    expect(html).toContain("preset-bar");
+    expect(html).toContain("Customize columns");
+    expect(html).toContain("· 2 KPIs");
+    expect(html).toContain("creative / campaign / ad set");
+    expect(html).toContain("Closed 30d");
+    expect(html).toContain("Total Spend");
+    expect(html).toContain("asset-table");
     expect(html).toContain("Aphrodite Hook");
+  });
+
+  it("recognizes preset-specific KPI selections instead of collapsing every preset to the same metrics", () => {
+    const videoPreset = ASSET_PRESETS.find((preset) => preset.id === "video");
+    const html = renderToStaticMarkup(
+      <AssetLibrarySection
+        rows={[
+          row({
+            name: "Video Hook",
+            format: "video",
+            creativeVisualFormat: "video",
+            spend: 120,
+            thumbstop: 66,
+            video25: 45,
+            video50: 28,
+            video100: 12,
+            ctrAll: 2.5,
+          }),
+        ]}
+        defaultCurrency="USD"
+        selectedMetricIds={videoPreset?.metricIds ?? []}
+        onSelectedMetricIdsChange={() => undefined}
+        selectedRowIds={[]}
+        onToggleRow={() => undefined}
+        onToggleAll={() => undefined}
+        onOpenRow={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("Facebook Video");
+    expect(html).toContain("· 6 KPIs");
+    expect(html).toContain("Thumbstop");
+    expect(html).toContain("25% views");
+    expect(html).not.toContain("Avg CPA");
+  });
+
+  it("renders Asset Library thumbnails from optimized media fallbacks", () => {
+    const html = renderToStaticMarkup(
+      <AssetLibrarySection
+        rows={[
+          row({
+            name: "Media Ready",
+            tableThumbnailUrl: "https://example.com/table.jpg",
+            thumbnailUrl: "https://example.com/thumb.jpg",
+            previewState: "preview",
+          }),
+        ]}
+        defaultCurrency="USD"
+        selectedMetricIds={["spend", "roas"]}
+        onSelectedMetricIdsChange={() => undefined}
+        selectedRowIds={[]}
+        onToggleRow={() => undefined}
+        onToggleAll={() => undefined}
+        onOpenRow={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("row-thumb--media");
+    expect(html).toContain("https://example.com/table.jpg");
+  });
+
+  it("uses canonical creative taxonomy for format labels even when legacy format is image", () => {
+    const videoRow = row({
+      id: "video-taxonomy",
+      name: "Taxonomy Video",
+      format: "image",
+      creativeVisualFormat: "video",
+      creativePrimaryType: "video",
+      creativePrimaryLabel: "Video",
+      preview: {
+        render_mode: "image",
+        image_url: "https://example.com/poster.jpg",
+        video_url: null,
+        poster_url: "https://example.com/poster.jpg",
+        source: "thumbnail_url",
+        is_catalog: false,
+      },
+    });
+    const html = renderToStaticMarkup(
+      <AssetLibrarySection
+        rows={[videoRow]}
+        defaultCurrency="USD"
+        selectedMetricIds={["spend", "roas"]}
+        onSelectedMetricIdsChange={() => undefined}
+        selectedRowIds={[]}
+        onToggleRow={() => undefined}
+        onToggleAll={() => undefined}
+        onOpenRow={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("Taxonomy Video");
+    expect(html).toContain(">VID<");
+    expect(html).toContain("2026-05-01 · Video");
+    expect(
+      filterAssetLibraryRows([videoRow], {
+        status: "all",
+        formats: ["video"],
+        labels: [],
+        badges: [],
+        search: "",
+        sort: "spend_desc",
+      }).map((item) => item.id),
+    ).toEqual(["video-taxonomy"]);
   });
 
   it("filters rows by chips/search and sorts rows", () => {
@@ -146,9 +257,9 @@ describe("AssetLibrarySection", () => {
       />,
     );
 
-    expect(html).toContain("0 visible · 0 total");
+    expect(html).toContain("0 · 0 sel");
     expect(html).toContain("No Meta ad account is assigned to this workspace.");
-    expect(html).not.toContain("data-mocked-creatives-table");
+    expect(html).toContain("asset-table");
   });
 
   it("tolerates malformed runtime row fields from live Meta data", () => {

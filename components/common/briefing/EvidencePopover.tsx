@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { X } from "lucide-react";
 import type { EvidenceAccordionSection } from "@/components/common/briefing/EvidenceAccordion";
 
@@ -11,6 +11,7 @@ interface EvidencePopoverProps {
   sections: EvidenceAccordionSection[];
   variant?: "creative" | "meta";
   presentation?: "modal" | "drawer";
+  media?: ReactNode;
   onClose: () => void;
 }
 
@@ -21,6 +22,7 @@ export function EvidencePopover({
   sections,
   variant = "creative",
   presentation = "modal",
+  media,
   onClose,
 }: EvidencePopoverProps) {
   useEffect(() => {
@@ -32,7 +34,7 @@ export function EvidencePopover({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose, open]);
 
-  if (!open || sections.length === 0) return null;
+  if (!open) return null;
 
   const tone =
     variant === "meta"
@@ -75,8 +77,18 @@ export function EvidencePopover({
           </button>
         </div>
         <div className={bodyClassName}>
+          {media ? <div className="mb-3">{media}</div> : null}
           <div className="space-y-3">
-            {sections.map((section) => (
+            {sections.length === 0 ? (
+              <section className="rounded-xl border border-slate-200 bg-white">
+                <div className={`flex items-center gap-2 rounded-t-xl border-b px-3 py-2 ${tone}`}>
+                  <h3 className="text-[12px] font-semibold text-slate-800">Evidence unavailable</h3>
+                </div>
+                <div className="px-3 py-3 text-[12px] leading-snug text-slate-600">
+                  No server evidence was returned for this item. The drawer opens intentionally so missing evidence is visible instead of silently failing.
+                </div>
+              </section>
+            ) : sections.map((section) => (
               <section key={section.key} className="rounded-xl border border-slate-200 bg-white">
                 <div className={`flex items-center gap-2 rounded-t-xl border-b px-3 py-2 ${tone}`}>
                   {section.icon ? <span className="text-slate-400">{section.icon}</span> : null}

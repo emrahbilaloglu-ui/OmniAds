@@ -203,29 +203,19 @@ describe("CreativesBriefingPage", () => {
     const html = renderToStaticMarkup(<CreativesBriefingPage />);
     vi.useRealTimers();
 
-    expect(html).toContain("account-pulse");
-    expect(html).toContain('id="account-pulse" class="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200"');
-    expect(html).toContain('Scope:</span><span class="font-medium text-slate-900">Account</span>');
-    expect(html).not.toContain(
-      'Scope:</span><span class="font-medium text-slate-900">Account</span><span class="text-slate-400">TheSwaf',
-    );
-    expect(html).toContain("Spend today");
-    expect(html).toContain("Tracking anomaly active");
+    expect(html).toContain('data-testid="creative-platform-page"');
+    expect(html).toContain("Creative · Decision Center");
+    expect(html).toContain("Spend · today");
+    expect(html).toContain("Action gated");
     expect(html).not.toContain("2026-05-04T12:00:00");
-    expect(html).toContain("calibrated 5d ago");
+    expect(html).toContain("Account profile");
     expect(html).not.toContain("Saved 2s ago");
-    expect(html).toMatch(/data-pulse="engine"[^>]*class="[^"]*whitespace-nowrap/);
-    expect(html).toMatch(/data-pulse="tracking"[^>]*class="[^"]*whitespace-nowrap/);
-    expect(html).toContain("Tracking anomaly detected — engine intelligence may be degraded. Resolve before acting on cuts.");
-    expect(html).toContain("Decision briefing");
-    expect(html).toContain("Server-owned recommendations; UI does not calculate actions");
-    expect(html).toContain("Action now");
-    expect(html).toContain("3 deferred — back tomorrow 9am");
+    expect(html).toContain("Tracking is currently in anomaly.");
+    expect(html).toContain("Action Now");
+    expect(html).toContain("Deferred 3");
     expect(html).toContain("Scale Hero");
     expect(html).toContain("Mixed Catalog");
-    expect(html).toContain("Review placements");
     expect(html).toContain("Watching");
-    expect(html).toContain("Low-confidence and diagnose cases. Click expand to triage.");
     expect(html).not.toContain("Watcher A");
     expect(html).not.toContain("Healthy A");
     expect(html).toContain("Asset Library");
@@ -236,10 +226,9 @@ describe("CreativesBriefingPage", () => {
 
     const html = renderToStaticMarkup(<CreativesBriefingPage />);
 
-    expect(html).toContain('data-workspace-mode="library"');
-    expect(html).toContain("data-asset-library");
-    expect(html).not.toContain("Action now");
     expect(html).toContain("Asset Library");
+    expect(html).toContain("data-asset-library");
+    expect(html).not.toContain("ccard-grid");
   });
 
   it("uses the briefing and existing pulse endpoints", () => {
@@ -329,6 +318,7 @@ describe("CreativesBriefingPage", () => {
 
     const html = renderToStaticMarkup(<CreativesBriefingPage />);
 
+    expect(html).toContain("Tracking is currently in anomaly.");
     expect(html).toContain("Tracking needs attention before action triage.");
     expect(html).not.toContain("Nothing for you to do right now.");
     expect(html).toContain("data-tracking-blocker");

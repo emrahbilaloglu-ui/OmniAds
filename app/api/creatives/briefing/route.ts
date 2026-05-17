@@ -80,6 +80,40 @@ function safeNumber(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+function safeString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function previewForRow(row: MetaCreativeApiRow | null | undefined) {
+  const source =
+    row?.preview && typeof row.preview === "object" && !Array.isArray(row.preview)
+      ? (row.preview as unknown as Record<string, unknown>)
+      : null;
+  const image =
+    safeString(source?.image_url) ??
+    safeString(source?.poster_url) ??
+    safeString(row?.card_preview_url) ??
+    safeString(row?.image_url) ??
+    safeString(row?.preview_url) ??
+    safeString(row?.cached_thumbnail_url) ??
+    safeString(row?.thumbnail_url) ??
+    safeString(row?.table_thumbnail_url);
+  const video = safeString(source?.video_url);
+  return {
+    render_mode: video ? ("video" as const) : image ? ("image" as const) : ("unavailable" as const),
+    image_url: image,
+    video_url: video,
+    poster_url:
+      safeString(source?.poster_url) ??
+      safeString(row?.table_thumbnail_url) ??
+      safeString(row?.cached_thumbnail_url) ??
+      safeString(row?.thumbnail_url) ??
+      image,
+    source: safeString(source?.source) ?? (image ? "briefing_row" : null),
+    is_catalog: Boolean(row?.is_catalog ?? source?.is_catalog),
+  };
+}
+
 function decisionLane(
   decision: DecisionOutput,
   deferred: boolean,
@@ -186,6 +220,44 @@ function cardForDecision(input: {
     sourceAsOf: input.sourceAsOf ?? null,
     sourceDataSource: input.sourceDataSource ?? null,
     profileScope: input.profileScope ?? null,
+    mediaPreviewUrl:
+      row?.card_preview_url ??
+      row?.image_url ??
+      row?.preview_url ??
+      row?.cached_thumbnail_url ??
+      row?.thumbnail_url ??
+      row?.table_thumbnail_url ??
+      null,
+    thumbnailUrl: row?.thumbnail_url ?? null,
+    tableThumbnailUrl: row?.table_thumbnail_url ?? row?.thumbnail_url ?? null,
+    cardPreviewUrl:
+      row?.card_preview_url ??
+      row?.image_url ??
+      row?.cached_thumbnail_url ??
+      row?.thumbnail_url ??
+      row?.preview_url ??
+      null,
+    previewUrl: row?.preview_url ?? null,
+    imageUrl: row?.image_url ?? null,
+    cachedThumbnailUrl: row?.cached_thumbnail_url ?? null,
+    preview: previewForRow(row),
+    previewState:
+      row?.preview_state === "preview" || row?.preview_state === "catalog"
+        ? row.preview_state
+        : row?.card_preview_url || row?.preview_url || row?.thumbnail_url || row?.image_url || row?.cached_thumbnail_url || row?.table_thumbnail_url
+          ? "preview"
+          : "unavailable",
+    isCatalog: row?.is_catalog ?? false,
+    format: row?.format ?? null,
+    creativeDeliveryType: row?.creative_delivery_type ?? null,
+    creativeVisualFormat: row?.creative_visual_format ?? null,
+    creativePrimaryType: row?.creative_primary_type ?? null,
+    creativePrimaryLabel: row?.creative_primary_label ?? null,
+    creativeSecondaryType: row?.creative_secondary_type ?? null,
+    creativeSecondaryLabel: row?.creative_secondary_label ?? null,
+    taxonomySource: row?.taxonomy_source ?? null,
+    taxonomyReconciledByVideoEvidence:
+      row?.taxonomy_reconciled_by_video_evidence ?? null,
   };
 }
 
@@ -202,7 +274,7 @@ async function readCreativeRows(input: {
     request: input.request,
     requestStartedAt: Date.now(),
     businessId: input.businessId,
-    mediaMode: "metadata",
+    mediaMode: "full",
     groupBy: "creative",
     format: "all",
     sort: "spend",
@@ -216,10 +288,10 @@ async function readCreativeRows(input: {
     enableCopyRecovery: false,
     enableCreativeBasicsFallback: false,
     enableCreativeDetails: false,
-    enableThumbnailBackfill: false,
-    enableCardThumbnailBackfill: false,
-    enableImageHashLookup: false,
-    enableMediaRecovery: false,
+    enableThumbnailBackfill: true,
+    enableCardThumbnailBackfill: true,
+    enableImageHashLookup: true,
+    enableMediaRecovery: true,
     enableMediaCache: true,
     enableDeepAudit: false,
     perAccountSampleLimit: 5,

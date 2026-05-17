@@ -214,6 +214,7 @@ export interface MetaCampaignData extends MetaMetricsData {
   accountId?: string;
   name: string;
   status: string; // "ACTIVE" | "PAUSED" | "ARCHIVED" | "UNKNOWN"
+  statusUpdatedAt?: string | null;
   objective?: string | null;
   buyingType?: string | null;
   budgetLevel?: "campaign" | "adset" | null;
@@ -247,6 +248,7 @@ export interface MetaAdSetData extends MetaMetricsData {
   name: string;
   campaignId: string;
   status: string;
+  statusUpdatedAt?: string | null;
   budgetLevel?: "campaign" | "adset" | null;
   dailyBudget: number | null;    // USD, null when lifetime budget is used
   lifetimeBudget: number | null; // USD, null when daily budget is used
@@ -318,6 +320,7 @@ interface RawCampaign {
   name: string;
   status?: string;
   effective_status?: string;
+  updated_time?: string;
   objective?: string;
   buying_type?: string;
   daily_budget?: string;
@@ -330,7 +333,7 @@ interface RawCampaign {
 }
 
 const META_CAMPAIGN_CONFIG_FIELDS =
-  "id,name,objective,effective_status,status,buying_type,daily_budget,lifetime_budget,bid_strategy,bid_amount,bid_constraints{roas_average_floor}";
+  "id,name,objective,effective_status,status,updated_time,buying_type,daily_budget,lifetime_budget,bid_strategy,bid_amount,bid_constraints{roas_average_floor}";
 
 interface RawAdSetInsight {
   adset_id?: string;
@@ -353,6 +356,7 @@ interface RawAdSet {
   campaign_id?: string;
   status?: string;
   effective_status?: string;
+  updated_time?: string;
   daily_budget?: string;
   lifetime_budget?: string;
   optimization_goal?: string;
@@ -3923,7 +3927,7 @@ async function fetchCampaignStatuses(
   const url = new URL(
     `https://graph.facebook.com/v25.0/${accountId}/campaigns`
   );
-  url.searchParams.set("fields", "id,name,effective_status,status");
+  url.searchParams.set("fields", "id,name,effective_status,status,updated_time");
   url.searchParams.set("limit", "200");
   url.searchParams.set("access_token", accessToken);
 
@@ -3938,7 +3942,7 @@ async function fetchCampaignStatuses(
       until: new Date().toISOString().slice(0, 10),
       payload: jsonRows,
       status: "fetched",
-      requestContext: { fields: "id,name,effective_status,status" },
+      requestContext: { fields: "id,name,effective_status,status,updated_time" },
     });
     return new Map(
       jsonRows.map((c) => [
@@ -3956,7 +3960,7 @@ async function fetchCampaignStatuses(
       until: new Date().toISOString().slice(0, 10),
       payload: [],
       status: "failed",
-      requestContext: { fields: "id,name,effective_status,status" },
+      requestContext: { fields: "id,name,effective_status,status,updated_time" },
     });
     return new Map();
   }
@@ -4215,6 +4219,7 @@ export async function getCampaigns(
               accountId,
               name: insight.campaign_name ?? "Unknown Campaign",
               status: statusMap.get(campaignId) ?? "UNKNOWN",
+              statusUpdatedAt: campaignConfig?.updated_time ?? null,
               objective: campaignConfig?.objective ?? null,
               buyingType: campaignConfig?.buying_type ?? null,
               budgetLevel: null,
@@ -4450,7 +4455,7 @@ export async function getAdSets(
       );
       statusUrl.searchParams.set(
         "fields",
-        "id,name,campaign_id,effective_status,status,daily_budget,lifetime_budget,optimization_goal,promoted_object{pixel_id,custom_event_type,custom_conversion_id},bid_strategy,bid_amount,bid_constraints{roas_average_floor}"
+        "id,name,campaign_id,effective_status,status,updated_time,daily_budget,lifetime_budget,optimization_goal,promoted_object{pixel_id,custom_event_type,custom_conversion_id},bid_strategy,bid_amount,bid_constraints{roas_average_floor}"
       );
       statusUrl.searchParams.set("limit", "200");
       statusUrl.searchParams.set("access_token", credentials.accessToken);
@@ -4502,7 +4507,7 @@ export async function getAdSets(
           payload: statusJson.data ?? [],
           status: statusRes.ok ? "fetched" : "failed",
           providerHttpStatus: statusRes.status,
-          requestContext: { campaignId, fields: "id,name,campaign_id,effective_status,status,daily_budget,lifetime_budget,optimization_goal,promoted_object{pixel_id,custom_event_type,custom_conversion_id},bid_strategy,bid_amount,bid_constraints{roas_average_floor}" },
+          requestContext: { campaignId, fields: "id,name,campaign_id,effective_status,status,updated_time,daily_budget,lifetime_budget,optimization_goal,promoted_object{pixel_id,custom_event_type,custom_conversion_id},bid_strategy,bid_amount,bid_constraints{roas_average_floor}" },
         });
         await recordMetaRawSnapshot({
           credentials,
@@ -4617,6 +4622,7 @@ export async function getAdSets(
               campaignConfig?.effective_status ??
               campaignConfig?.status ??
               "UNKNOWN",
+            statusUpdatedAt: meta?.updated_time ?? null,
             budgetLevel: usesCampaignBudgetFallback ? "campaign" : "adset",
             dailyBudget: config.dailyBudget,
             lifetimeBudget: config.lifetimeBudget,

@@ -16,6 +16,9 @@ export interface MetaPulsePayload {
     dayPace: number;
     spendToday?: number;
     dailyTarget?: number;
+    avg7dSpend?: number;
+    conversionsToday?: number;
+    avg7dConversions?: number;
   };
   roas: {
     d7: number;

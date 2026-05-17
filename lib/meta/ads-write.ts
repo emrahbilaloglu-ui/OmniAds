@@ -666,11 +666,25 @@ export async function pauseCampaign(
   return updateEntityStatus(ctx, campaignId, "PAUSED", "campaign");
 }
 
+export async function resumeCampaign(
+  ctx: MetaAdsWriteContext,
+  campaignId: string,
+): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
+  return updateEntityStatus(ctx, campaignId, "ACTIVE", "campaign");
+}
+
 export async function pauseAdset(
   ctx: MetaAdsWriteContext,
   adsetId: string,
 ): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
   return updateEntityStatus(ctx, adsetId, "PAUSED", "ad set");
+}
+
+export async function resumeAdset(
+  ctx: MetaAdsWriteContext,
+  adsetId: string,
+): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
+  return updateEntityStatus(ctx, adsetId, "ACTIVE", "ad set");
 }
 
 export async function updateAdsetBidAmount(

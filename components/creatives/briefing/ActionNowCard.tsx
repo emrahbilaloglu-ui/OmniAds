@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ChevronDown, Clock, Sparkles } from "lucide-react";
+import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import {
   ConfidencePill,
   DeferChip,
@@ -19,9 +20,10 @@ import {
   PrimaryActionButton,
   SecondaryButton,
   Sparkline,
-  Thumb,
   asDecisionLabel,
   buildEvidenceSections,
+  briefingMediaFallbacks,
+  briefingPreviewPayload,
   cardAdset,
   cardCampaign,
   cardId,
@@ -33,6 +35,7 @@ import {
   getCreativeScopeId,
   isCutPrimaryAction,
 } from "@/components/creatives/briefing/action-handlers";
+import { getCreativeFormatPresentation } from "@/components/creatives/briefing/creative-format";
 import {
   mapBriefingPrimaryToLaunchpadMode,
   type LaunchpadOpenPayload,
@@ -54,6 +57,34 @@ interface ActionNowCardProps extends CardSelectionProps {
   onLaunchpadOpen?: (payload: LaunchpadOpenPayload) => void;
   evidenceOpen?: boolean;
   onEvidenceOpen?: (card: BriefingCreativeCard) => void;
+}
+
+function creativeChipClass(label: string) {
+  if (label === "cut" || label === "below_breakeven" || label === "diagnose") return "chip--action";
+  if (label === "scale" || label === "switch" || label === "promote") return "chip--action";
+  if (label === "refresh" || label === "test_more") return "chip--watch";
+  if (label === "keep") return "chip--healthy";
+  return "chip--ghost";
+}
+
+function creativeChipLabel(label: string) {
+  if (label === "test_more") return "Fresh test";
+  if (label === "below_breakeven") return "Cut";
+  return label.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function campaignKindLabel(card: BriefingCreativeCard) {
+  if (card.campaignLabelStatus === "unlabeled") return "Unlabeled";
+  if (card.campaignKind === "main") return "Main";
+  if (card.campaignKind === "test") return "Test";
+  if (card.campaignKind === "mixed") return "Mixed";
+  return null;
+}
+
+function campaignKindClass(label: string | null) {
+  if (label === "Test") return "chip--info";
+  if (label === "Mixed" || label === "Unlabeled") return "chip--warn";
+  return "";
 }
 
 export function ActionNowCard({
@@ -82,6 +113,11 @@ export function ActionNowCard({
   const primaryKind = cutAction ? card.primary?.kind || "cut" : card.primary?.kind;
   const primaryLabel = cutAction ? card.primary?.label || "Cut" : card.primary?.label;
   const isEvidenceOpen = evidenceOpen ?? localEvidenceOpen;
+  const kindLabel = campaignKindLabel(card);
+  const preview = briefingPreviewPayload(card);
+  const format = getCreativeFormatPresentation({ ...card, preview });
+  const mediaFallbacks = briefingMediaFallbacks(card);
+  const hasMedia = mediaFallbacks.length > 0 || Boolean(preview.image_url || preview.poster_url || preview.video_url);
   const openEvidence = () => {
     if (onEvidenceOpen) {
       onEvidenceOpen(card);
@@ -91,135 +127,106 @@ export function ActionNowCard({
   };
 
   const cardClasses = [
-    "rounded-2xl bg-white p-4 transition-all relative",
-    conf.border,
+    "ccard-tile",
     selected ? "ring-2 ring-blue-500 ring-offset-1" : "",
     deferred ? "opacity-60" : "",
     cutting ? "opacity-0 -translate-x-4 pointer-events-none" : "",
-    "shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
   ]
     .filter(Boolean)
     .join(" ");
 
   return (
     <div className={cardClasses} data-card={actionCardId} data-lane="action">
-      <div className="flex items-start gap-3">
-        <label className="flex items-start pt-1">
+      <div className="tile-thumb">
+        <span className="fmt">{format.tag}</span>
+        <label className="corner-check-wrap">
           <input
             type="checkbox"
             data-select={actionCardId}
             data-lane="action"
             checked={selected}
             onChange={(event) => onSelectChange?.(actionCardId, event.currentTarget.checked)}
-            className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+            className="sr-only"
           />
+          <span className={`corner-check ${selected ? "on" : ""}`} aria-hidden="true" />
         </label>
-        <Thumb name={name} size={conf.thumb} />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className={`${conf.textWeight} text-slate-900 text-[14px] truncate`}>
-                  {name}
-                </h3>
-                <CampaignKindChip card={card} />
-                <span className="text-[10.5px] uppercase tracking-wider text-slate-400 font-medium">
-                  {card.brand || "Brand"}
-                </span>
-              </div>
-              <div className="text-[11.5px] text-slate-500 truncate mt-0.5">
-                {cardCampaign(card)} <span className="text-slate-300">·</span> {cardAdset(card)}
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5 shrink-0">
-              <DecisionLabelChip label={label} />
-              {badges.map((badge) => (
-                <BadgeChip key={String(badge)} label={badge} />
-              ))}
-              <ConfidencePill confidence={confidence} />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-3 pl-[44px] grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5 items-center">
-        <div className="space-y-1">
-          <div className="text-[12.5px] text-slate-700 leading-snug">
-            {card.reason || "No engine reason supplied."}
-          </div>
-          {card.predictive ? (
-            <div className="text-[11.5px] text-slate-500 italic flex items-center gap-1 mt-0.5">
-              <Sparkles className="inline-block shrink-0 text-slate-400" size={11} aria-hidden="true" />
-              <span>{card.predictive}</span>
-            </div>
-          ) : (
-            <div className="h-4" />
-          )}
-        </div>
-        <div className="flex flex-col items-end gap-1.5">
-          <div className="flex items-center gap-3 flex-wrap">
-            <CtrBar value={card.ctrFunnel?.value ?? card.ctr} p50={card.ctrFunnel?.p50} />
-            <MetricDivider />
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10.5px] text-slate-500">28d ROAS</span>
-              <Sparkline
-                values={card.sparkline}
-                tone={label === "scale" ? "text-emerald-500" : "text-rose-500"}
-                width={60}
-                height={18}
-              />
-              <span className="font-mono tabular-nums text-[11px] font-medium text-slate-900">
-                {formatRoas(card.roas)}
-              </span>
-            </div>
-            <MetricDivider />
-            <FatigueDot active={card.fatigue} />
-            <MetricDivider />
-            <span className="font-mono tabular-nums text-[11px] text-slate-500">
-              {formatCurrency(card.spend)} spend · {numberOrZero(card.purchases)} purch.
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-1.5 flex-wrap mt-2 pt-2 border-t border-slate-100">
-        <PrimaryActionButton
-          kind={primaryKind}
-          label={primaryLabel}
-          primaryStyle={conf.primaryStyle}
-          disabled={cutPending}
-          onClick={() => {
-            if (cutAction) {
-              onCut?.(card);
-              return;
-            }
-            const mode = mapBriefingPrimaryToLaunchpadMode(card);
-            if (mode) onLaunchpadOpen?.({ card, mode });
-            else openEvidence();
-          }}
-        />
-        <DeferTooltip>
-          <SecondaryButton
-            data-action="defer"
-            disabled={deferred}
-            icon={<Clock className="inline-block shrink-0" size={12} aria-hidden="true" />}
-            onClick={() => onDefer?.(scopeId)}
-          >
-            Defer 24h
-          </SecondaryButton>
-        </DeferTooltip>
         <button
           type="button"
-          className="ml-auto inline-flex items-center gap-1 text-[11.5px] text-slate-500 hover:text-slate-900"
-          data-action="evidence"
-          data-id={actionCardId}
-          aria-haspopup="dialog"
-          aria-expanded={isEvidenceOpen}
+          className={`ad-shape creative-evidence-trigger creative-evidence-trigger--media ${format.shape} ${hasMedia ? "ad-shape--media" : ""}`}
+          data-media-shape={format.shape}
+          aria-label={`Open evidence for ${name}`}
           onClick={openEvidence}
         >
-          More evidence
-          <ChevronDown className="inline-block shrink-0" size={12} aria-hidden="true" />
+          {hasMedia ? (
+            <CreativeRenderSurface
+              id={actionCardId}
+              name={name}
+              preview={preview}
+              mode="asset"
+              size="card"
+              assetFallbacks={mediaFallbacks}
+              className="h-full w-full rounded-[var(--r-sm)]"
+            />
+          ) : format.shape === "portrait" ? <div className="play-c">▶</div> : <span>{format.icon}</span>}
+          <span className="ratio-tag">{format.ratio}</span>
         </button>
+      </div>
+      <div className="tile-body">
+        <div className="tile-chips">
+          <span className={`chip ${creativeChipClass(label)}`}><span className="dot" />{creativeChipLabel(label)}</span>
+          {kindLabel ? <span className={`chip ${campaignKindClass(kindLabel)}`}><span className="dot" />{kindLabel}</span> : null}
+          {card.fatigue ? <span className="chip chip--warn"><span className="dot" />Fatigue {numberOrZero(card.frequency).toFixed(1)}</span> : null}
+          {badges.slice(0, 1).map((badge) => (
+            <span key={String(badge)} className="chip chip--ghost"><span className="dot" />{String(badge).replace(/_/g, " ")}</span>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="tile-name creative-evidence-trigger creative-evidence-trigger--name"
+          aria-label={`Open evidence for ${name}`}
+          onClick={openEvidence}
+        >
+          {name}
+        </button>
+        <div className="tile-meta">
+          {cardCampaign(card)} / {cardAdset(card)} · {numberOrZero(card.ageDays)}d · {card.bestPlacement ?? card.status ?? "active"}
+        </div>
+        <div className="tile-why">
+          <b>{card.reason ? card.reason.split("·")[0] : "Engine reason"}</b>
+          {card.reason?.includes("·") ? ` · ${card.reason.split("·").slice(1).join("·").trim()}` : card.reason ? "" : " · No engine reason supplied."}
+        </div>
+        <div className="tile-metrics">
+          <div className="m"><span className="k">ROAS</span><span className={`v ${numberOrZero(card.roas) < 1 ? "warn" : numberOrZero(card.roas) >= 2 ? "good" : ""}`}>{formatRoas(card.roas)}</span></div>
+          <div className="m"><span className="k">Spend</span><span className="v">{formatCurrency(card.spend)}</span></div>
+          <div className="m"><span className="k">{card.fatigue ? "Freq" : "Purch"}</span><span className={`v ${card.fatigue ? "warn" : ""}`}>{card.fatigue ? numberOrZero(card.frequency).toFixed(1) : numberOrZero(card.purchases)}</span></div>
+        </div>
+        <div className="tile-foot">
+          <button
+            type="button"
+            className={`btn ${cutAction ? "btn--danger" : conf.primaryStyle === "filled" ? "btn--primary" : ""}`}
+            data-kind={primaryKind}
+            disabled={cutPending}
+            onClick={() => {
+              if (cutAction) {
+                onCut?.(card);
+                return;
+              }
+              const mode = mapBriefingPrimaryToLaunchpadMode(card);
+              if (mode) onLaunchpadOpen?.({ card, mode });
+              else openEvidence();
+            }}
+          >
+            {primaryLabel || "Open detail"}{cutAction ? "" : " ↗"}
+          </button>
+          <div className="actions">
+            <DeferTooltip>
+              <button type="button" className="btn btn--ghost btn--sm" disabled={deferred} onClick={() => onDefer?.(scopeId)}>
+                Defer
+              </button>
+            </DeferTooltip>
+            <button type="button" className="btn btn--ghost btn--sm" aria-haspopup="dialog" aria-expanded={isEvidenceOpen} onClick={openEvidence}>▾</button>
+          </div>
+        </div>
       </div>
 
       {deferred ? <DeferChip id={scopeId} onUndo={onUndefer} /> : null}

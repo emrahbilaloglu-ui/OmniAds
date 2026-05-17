@@ -36,11 +36,16 @@ describe("ActionNowCard", () => {
     const html = renderToStaticMarkup(<ActionNowCard card={card()} selected />);
 
     expect(html).toContain("Aphrodite Necklace Hook v3");
-    expect(html).toContain("border-2 border-slate-300");
-    expect(html).toContain("width:88px;height:88px;font-size:22px");
+    expect(html).toContain("ccard-tile");
+    expect(html).toContain("tile-thumb");
+    expect(html).toContain('aria-label="Open evidence for Aphrodite Necklace Hook v3"');
+    expect(html).toContain("creative-evidence-trigger--media");
+    expect(html).toContain("creative-evidence-trigger--name");
+    expect(html).toContain("data-media-shape=\"feed\"");
+    expect(html).toContain(">4:5<");
+    expect(html).toContain("tile-metrics");
     expect(html).toContain("Promote to main");
     expect(html).toContain("What does Defer 24h do?");
-    expect(html).toContain("More evidence");
     expect(html).toContain("aria-expanded=\"false\"");
     expect(html).toContain("ring-2 ring-blue-500 ring-offset-1");
   });
@@ -53,11 +58,10 @@ describe("ActionNowCard", () => {
       <ActionNowCard card={card({ confidence: 42, primary: { kind: "cut", label: "Cut" } })} />,
     );
 
-    expect(midHtml).toContain("width:72px;height:72px;font-size:18px");
-    expect(midHtml).toContain("bg-rose-600 text-white border-rose-600");
-    expect(lowHtml).toContain("opacity-90");
-    expect(lowHtml).toContain("width:64px;height:64px;font-size:15px");
-    expect(lowHtml).toContain("border-rose-300 text-rose-700 hover:bg-rose-50");
+    expect(midHtml).toContain("btn--danger");
+    expect(midHtml).toContain('data-kind="cut"');
+    expect(lowHtml).toContain("btn--danger");
+    expect(lowHtml).toContain("Cut");
   });
 
   it("renders deferred chip and cut animation classes", () => {
@@ -76,7 +80,7 @@ describe("ActionNowCard", () => {
     );
 
     expect(html).toContain(">Main<");
-    expect(html).toContain("bg-emerald-50");
+    expect(html).toContain("tile-chips");
   });
 
   it("renders non-promote scale actions from the server without relabeling them", () => {
@@ -93,5 +97,44 @@ describe("ActionNowCard", () => {
     expect(html).toContain("Scale budget");
     expect(html).toContain("data-kind=\"scale_budget\"");
     expect(html).not.toContain("Promote to main");
+  });
+
+  it("keeps video and carousel cards in their native media frames", () => {
+    const videoHtml = renderToStaticMarkup(
+      <ActionNowCard
+        card={card({
+          name: "Founder Story",
+          format: "image",
+          creativeVisualFormat: "video",
+          creativePrimaryType: "video",
+          creativePrimaryLabel: "Video",
+          preview: {
+            render_mode: "image",
+            image_url: "https://example.com/poster.jpg",
+            video_url: null,
+            poster_url: "https://example.com/poster.jpg",
+            source: "thumbnail_url",
+            is_catalog: false,
+          },
+        })}
+      />,
+    );
+    const carouselHtml = renderToStaticMarkup(
+      <ActionNowCard
+        card={card({
+          name: "Product Set",
+          creativeVisualFormat: "carousel",
+          creativePrimaryType: "carousel",
+          creativePrimaryLabel: "Carousel",
+        })}
+      />,
+    );
+
+    expect(videoHtml).toContain("data-media-shape=\"portrait\"");
+    expect(videoHtml).toContain(">VID<");
+    expect(videoHtml).toContain(">9:16<");
+    expect(carouselHtml).toContain("data-media-shape=\"square\"");
+    expect(carouselHtml).toContain(">CAR<");
+    expect(carouselHtml).toContain(">1:1<");
   });
 });

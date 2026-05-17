@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, GitCompare, Plus, RefreshCw, Rocket, SlidersHorizontal, Target, TrendingUp } from "lucide-react";
+import { AlertTriangle, ChevronDown, Info, Play, Plus, RefreshCw, RotateCcw, Rocket, SlidersHorizontal, Tags, Target, TrendingUp } from "lucide-react";
 import {
   BulkToolbar,
   CompareDrawer,
@@ -13,6 +13,13 @@ import {
   useDeferState,
   type CompareDrawerItem,
 } from "@/components/common/briefing";
+import {
+  HtmlDateRangePicker,
+  rangeForWindow,
+  windowLabel,
+  type HtmlDateRangeValue,
+  type HtmlDateWindowKey,
+} from "@/components/common/briefing/HtmlDateRangePicker";
 import type { MetaAnomaly } from "@/lib/meta/anomalies";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import { cn } from "@/lib/utils";
@@ -34,8 +41,13 @@ import {
   scopeIdForRec,
   scopeNameForRec,
 } from "@/components/meta/redesign/meta-card-utils";
-import { formatCurrency, formatRoas } from "@/lib/briefing/utils";
-import { parseBriefingStatusFilter, type BriefingStatusFilter } from "@/lib/meta/briefing-filter";
+import { formatCurrency, formatRoas, sparklinePath } from "@/lib/briefing/utils";
+import {
+  BRIEFING_STATUS_FILTER_LABELS,
+  BRIEFING_STATUS_FILTERS,
+  parseBriefingStatusFilter,
+  type BriefingStatusFilter,
+} from "@/lib/meta/briefing-filter";
 import type {
   MetaArchivedEntity,
   MetaDrillItem,
@@ -67,6 +79,115 @@ interface OverlayState {
 
 const EMPTY_OVERLAY: OverlayState = { open: false, mode: "rebuild", rec: null };
 type LocalResponseState = "acted" | "deferred" | "ignored";
+type PrimaryActionFeedback = {
+  recId: string;
+  tone: "success" | "error";
+  title: string;
+  detail?: string | null;
+};
+type ArchiveActionFeedback = {
+  key: string;
+  tone: "success" | "error";
+  title: string;
+  detail?: string | null;
+};
+type PendingResumeIntent =
+  | { kind: "recommendation"; rec: MetaRecommendation }
+  | { kind: "archive"; row: MetaArchivedEntity };
+type MetaLaneView = "action" | "watching" | "healthy" | "nonSales" | "archive";
+type MetaLevelFilter = "campaign" | "adset";
+type MetaAutomationFilter = "all" | "auto" | "manual";
+type MetaLabelFilter = "all" | "main" | "test" | "mixed";
+type MetaSecondaryMenu = "campaign" | "automation" | "label";
+
+const META_AUTOMATION_FILTERS: Array<{ value: MetaAutomationFilter; label: string; description: string }> = [
+  { value: "all", label: "All", description: "Show every recommendation in the current server lane." },
+  { value: "auto", label: "Auto-ready", description: "Show recommendations already eligible for the primary action." },
+  { value: "manual", label: "Manual only", description: "Show recommendations that still require buyer review." },
+];
+
+const META_LABEL_FILTERS: Array<{ value: MetaLabelFilter; label: string; description: string }> = [
+  { value: "all", label: "All labels", description: "Do not narrow by Main, Test, or Mixed context." },
+  { value: "main", label: "Main", description: "Campaigns currently treated as mainline buying." },
+  { value: "test", label: "Test", description: "Campaigns currently treated as testing context." },
+  { value: "mixed", label: "Mixed", description: "Campaigns with mixed or unresolved context." },
+];
+
+function parseMetaLaneView(value: string | null): MetaLaneView {
+  if (value === "watching" || value === "healthy" || value === "nonSales" || value === "archive") return value;
+  return "action";
+}
+
+function parseMetaWindow(value: string | null): MetaWindowKey {
+  if (value === "7d" || value === "14d" || value === "28d" || value === "90d" || value === "custom") return value;
+  return "28d";
+}
+
+function metaDateRangeFromParams(params: URLSearchParams): HtmlDateRangeValue {
+  const selected = parseMetaWindow(params.get("window"));
+  if (selected === "custom") {
+    const start = params.get("startDate") ?? "";
+    const end = params.get("endDate") ?? "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(start) && /^\d{4}-\d{2}-\d{2}$/.test(end)) {
+      return { window: "custom", start, end };
+    }
+  }
+  return rangeForWindow(selected as HtmlDateWindowKey);
+}
+
+function recMatchesMetaFilters(rec: MetaRecommendation, input: {
+  level: MetaLevelFilter;
+  campaignId: string;
+  automation: MetaAutomationFilter;
+  label: MetaLabelFilter;
+}) {
+  if (input.level === "adset" && rec.level !== "adset") return false;
+  if (input.campaignId !== "all" && rec.campaignId !== input.campaignId) return false;
+  if (input.automation !== "all") {
+    const tier = rec.automationReadiness?.tier ?? "manual_review";
+    const autoReady = tier === "auto_execute" || tier === "backtest_candidate";
+    if (input.automation === "auto" && !autoReady) return false;
+    if (input.automation === "manual" && autoReady) return false;
+  }
+  if (input.label !== "all") {
+    const text = [rec.campaignRole, rec.campaignName, rec.title, rec.summary, rec.why].filter(Boolean).join(" ").toLowerCase();
+    if (!text.includes(input.label)) return false;
+  }
+  return true;
+}
+
+function textMatchesLabel(text: string, label: MetaLabelFilter) {
+  if (label === "all") return true;
+  return text.toLowerCase().includes(label);
+}
+
+function healthyMatchesMetaFilters(row: MetaHealthyEntity, input: {
+  level: MetaLevelFilter;
+  campaignId: string;
+  label: MetaLabelFilter;
+}) {
+  if (input.level === "adset" && row.level !== "adset") return false;
+  if (input.campaignId !== "all") {
+    const rowCampaignId = row.level === "campaign" ? row.id : row.campaignId;
+    if (rowCampaignId !== input.campaignId) return false;
+  }
+  const text = [row.name, row.campaignName].filter(Boolean).join(" ");
+  return textMatchesLabel(text, input.label);
+}
+
+function archivedMatchesMetaFilters(row: MetaArchivedEntity, input: {
+  level: MetaLevelFilter;
+  campaignId: string;
+  label: MetaLabelFilter;
+}) {
+  if (input.level === "adset" && row.level !== "adset") return false;
+  if (input.campaignId !== "all") {
+    const rowCampaignId = row.level === "campaign" ? row.id : row.campaignId;
+    if (rowCampaignId !== input.campaignId) return false;
+  }
+  const text = [row.name, row.campaignName, row.diagnosticNote].filter(Boolean).join(" ");
+  return textMatchesLabel(text, input.label);
+}
 
 function todayPlusHours(hours: number) {
   return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
@@ -88,13 +209,21 @@ async function readJson<T>(url: string): Promise<T> {
   return payload as T;
 }
 
-function fetchPulse(businessId: string, window: MetaWindowKey, statusFilter: BriefingStatusFilter) {
+function fetchPulse(businessId: string, window: MetaWindowKey, statusFilter: BriefingStatusFilter, range?: Pick<HtmlDateRangeValue, "start" | "end">) {
   const params = new URLSearchParams({ businessId, window, status_filter: statusFilter });
+  if (window === "custom" && range) {
+    params.set("startDate", range.start);
+    params.set("endDate", range.end);
+  }
   return readJson<MetaPulsePayload>(`/api/meta/account-pulse?${params.toString()}`);
 }
 
-function fetchLanes(businessId: string, window: MetaWindowKey, statusFilter: BriefingStatusFilter) {
+function fetchLanes(businessId: string, window: MetaWindowKey, statusFilter: BriefingStatusFilter, range?: Pick<HtmlDateRangeValue, "start" | "end">) {
   const params = new URLSearchParams({ businessId, window, status_filter: statusFilter });
+  if (window === "custom" && range) {
+    params.set("startDate", range.start);
+    params.set("endDate", range.end);
+  }
   return readJson<MetaLanePayload>(`/api/meta/lane-classify?${params.toString()}`);
 }
 
@@ -116,6 +245,33 @@ function postResponse(input: {
     cache: "no-store",
     body: JSON.stringify(input),
   });
+}
+
+async function assertActionResponse(response: Response, fallbackMessage: string) {
+  const payload = await response.json().catch(() => null);
+  if (response.ok && payload?.ok !== false) return payload;
+  const message =
+    payload && typeof payload === "object"
+      ? "message" in payload
+        ? String((payload as { message?: unknown }).message)
+        : "error" in payload && payload.error && typeof payload.error === "object" && "message" in payload.error
+          ? String((payload.error as { message?: unknown }).message)
+          : fallbackMessage
+      : fallbackMessage;
+  throw new Error(message);
+}
+
+export function metaAdsetPauseNotice(status: unknown) {
+  const normalized = typeof status === "string" ? status.trim().toUpperCase() : "";
+  if (!normalized || normalized === "PAUSED") return "Ad set paused in Meta.";
+  return `Ad set pause verified with status ${normalized}.`;
+}
+
+function metaEntityResumeNotice(level: "campaign" | "adset" | "ad", status: unknown) {
+  const normalized = typeof status === "string" ? status.trim().toUpperCase() : "";
+  const label = level === "campaign" ? "Campaign" : level === "adset" ? "Ad set" : "Ad";
+  if (!normalized || normalized === "ACTIVE") return `${label} resumed in Meta.`;
+  return `${label} resume verified with status ${normalized}.`;
 }
 
 function launchpadHrefForRec(rec: MetaRecommendation, mode: MetaLaunchMode) {
@@ -379,9 +535,11 @@ function MetaHealthyHierarchy({ groups }: { groups: HealthyCampaignGroup[] }) {
 function EmptyActionState({
   anomaliesCount,
   pulse,
+  onManageLabels,
 }: {
   anomaliesCount: number;
   pulse?: MetaPulsePayload | null;
+  onManageLabels: () => void;
 }) {
   const coverage = pulse?.labelCoverage ?? null;
   const targetAnchor = pulse?.targetAnchor ?? null;
@@ -402,13 +560,14 @@ function EmptyActionState({
       {showLabelCta || showTargetCta ? (
         <div className="mt-4 flex flex-wrap justify-center gap-2 text-left">
           {showLabelCta ? (
-            <a
-              href="#campaign-labels"
+            <button
+              type="button"
               className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-[12px] font-medium text-amber-800 hover:bg-amber-100"
+              onClick={onManageLabels}
             >
               <Target className="inline-block shrink-0" size={12} aria-hidden="true" />
               Label {coverage!.unlabeledCampaigns} campaigns
-            </a>
+            </button>
           ) : null}
           {showTargetCta ? (
             <a
@@ -436,10 +595,12 @@ function ReadinessNotice({
   pulse,
   onRefresh,
   refreshing,
+  onManageLabels,
 }: {
   pulse?: MetaPulsePayload | null;
   onRefresh: () => void;
   refreshing: boolean;
+  onManageLabels: () => void;
 }) {
   if (!pulse) return null;
   const coverage = pulse.labelCoverage ?? null;
@@ -463,9 +624,13 @@ function ReadinessNotice({
       </div>
       <div className="mt-2 flex flex-wrap gap-2">
         {needsLabels ? (
-          <a href="#campaign-labels" className="rounded-md border border-amber-300 bg-white px-2.5 py-1.5 font-medium text-amber-800 hover:bg-amber-100">
+          <button
+            type="button"
+            className="rounded-md border border-amber-300 bg-white px-2.5 py-1.5 font-medium text-amber-800 hover:bg-amber-100"
+            onClick={onManageLabels}
+          >
             {coverage!.labeledCampaigns}/{coverage!.activeCampaigns} active campaigns labeled
-          </a>
+          </button>
         ) : null}
         {needsTarget ? (
           <a href="/commercial-truth" className="rounded-md border border-blue-200 bg-white px-2.5 py-1.5 font-medium text-blue-700 hover:bg-blue-50">
@@ -488,7 +653,13 @@ function ReadinessNotice({
   );
 }
 
-function WatchingSegments({ segments }: { segments?: MetaWatchingSegment[] | null }) {
+function WatchingSegments({
+  segments,
+  onManageLabels,
+}: {
+  segments?: MetaWatchingSegment[] | null;
+  onManageLabels: () => void;
+}) {
   if (!segments?.length) return null;
   return (
     <div className="mb-3 flex flex-wrap gap-2" data-meta-watching-segments>
@@ -502,6 +673,20 @@ function WatchingSegments({ segments }: { segments?: MetaWatchingSegment[] | nul
         );
         const className =
           "inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11.5px] text-slate-600 shadow-sm";
+        if (segment.key === "unlabeled") {
+          return (
+            <button
+              key={segment.key}
+              type="button"
+              className={className}
+              title={segment.description}
+              data-watch-segment={segment.key}
+              onClick={onManageLabels}
+            >
+              {content}
+            </button>
+          );
+        }
         return segment.href ? (
           <a key={segment.key} href={segment.href} className={className} title={segment.description} data-watch-segment={segment.key}>
             {content}
@@ -583,34 +768,351 @@ function MetaArchiveTable({ rows }: { rows: MetaArchivedEntity[] }) {
   );
 }
 
+function shortRelativeTime(value: string | null | undefined) {
+  if (!value) return null;
+  const parsed = new Date(value).getTime();
+  if (!Number.isFinite(parsed)) return null;
+  const diffSeconds = Math.max(0, Math.round((Date.now() - parsed) / 1000));
+  if (diffSeconds < 60) return `${Math.max(1, diffSeconds)}s ago`;
+  const diffMinutes = Math.round(diffSeconds / 60);
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 48) return `${diffHours}h ago`;
+  return `${Math.round(diffHours / 24)}d ago`;
+}
+
+function formatCompactCurrency(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  if (Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(value >= 10_000 ? 1 : 2).replace(/\.0$/, "")}k`;
+  return formatCurrency(value);
+}
+
+function formatSignedPercent(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return null;
+  const rounded = Math.round(value);
+  if (rounded === 0) return "0%";
+  return `${rounded > 0 ? "+" : ""}${rounded}%`;
+}
+
+function percentDelta(current: number | null | undefined, previous: number | null | undefined) {
+  if (current == null || previous == null || !Number.isFinite(current) || !Number.isFinite(previous) || previous <= 0) {
+    return null;
+  }
+  return ((current - previous) / previous) * 100;
+}
+
+function formatAverageCount(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return value >= 10 ? String(Math.round(value)) : value.toFixed(value >= 1 ? 1 : 2).replace(/\.0$/, "");
+}
+
+function labelCoveragePercent(pulse?: MetaPulsePayload | null) {
+  const coverage = pulse?.labelCoverage;
+  if (!coverage || coverage.activeCampaigns <= 0) return null;
+  return Math.round((coverage.labeledCampaigns / coverage.activeCampaigns) * 100);
+}
+
+function snapshotStatusClass(status: NonNullable<MetaPulsePayload["snapshotHealth"]>["status"] | undefined) {
+  if (status === "fresh") return "chip--healthy";
+  if (status === "stale" || status === "engine_version_mismatch") return "chip--watch";
+  return "chip--ghost";
+}
+
+function trackingClass(status: MetaPulsePayload["trackingHealth"]["status"] | undefined) {
+  if (status === "healthy") return "chip--healthy";
+  if (status === "degraded" || status === "blocked") return "chip--action";
+  return "chip--ghost";
+}
+
+function titleCaseCompact(value: string | null | undefined) {
+  if (!value) return "—";
+  return value
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function automationFilterLabel(value: MetaAutomationFilter) {
+  return META_AUTOMATION_FILTERS.find((option) => option.value === value)?.label ?? "All";
+}
+
+function labelFilterLabel(value: MetaLabelFilter) {
+  return META_LABEL_FILTERS.find((option) => option.value === value)?.label ?? "All labels";
+}
+
+function MetaCompactFilter({
+  id,
+  label,
+  value,
+  active,
+  open,
+  onToggle,
+  children,
+}: {
+  id: MetaSecondaryMenu;
+  label: string;
+  value: string;
+  active: boolean;
+  open: boolean;
+  onToggle: (id: MetaSecondaryMenu) => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="filter-menu-wrap">
+      <button
+        type="button"
+        className={cn("filter-trigger", active && "is-active", open && "is-open")}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={`meta-filter-${id}`}
+        onClick={() => onToggle(id)}
+      >
+        <span className="k">{label}</span>
+        <span className="v">{value}</span>
+        <ChevronDown className="chev" size={14} aria-hidden="true" />
+      </button>
+      {open ? (
+        <div id={`meta-filter-${id}`} className="filter-popover" role="menu" aria-label={`${label} filter`}>
+          {children}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function MetaStatusControls({
+  selectedStatusFilter,
+  onStatusFilterChange,
+}: {
+  selectedStatusFilter: BriefingStatusFilter;
+  onStatusFilterChange: (filter: BriefingStatusFilter) => void;
+}) {
+  return (
+    <div className="group" aria-label="Meta status selector">
+      {BRIEFING_STATUS_FILTERS.map((filter) => (
+        <button
+          key={filter}
+          type="button"
+          className={selectedStatusFilter === filter ? "on" : ""}
+          data-status-filter-option={filter}
+          onClick={() => onStatusFilterChange(filter)}
+        >
+          {BRIEFING_STATUS_FILTER_LABELS[filter]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function MetaLaneTab({
+  active,
+  className,
+  label,
+  count,
+  onClick,
+}: {
+  active: boolean;
+  className?: string;
+  label: string;
+  count: number;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" className={cn("tab", className, active ? "active" : "")} onClick={onClick}>
+      {label} <span className="count">{count}</span>
+    </button>
+  );
+}
+
+function FinalMetaPulse({
+  pulse,
+  window,
+  onManageLabels,
+}: {
+  pulse?: MetaPulsePayload | null;
+  window: MetaWindowKey;
+  onManageLabels: () => void;
+}) {
+  const labelPercent = labelCoveragePercent(pulse);
+  const snapshotAge =
+    pulse?.snapshotHealth?.ageHours != null
+      ? formatSnapshotAge(pulse.snapshotHealth.ageHours)
+      : shortRelativeTime(pulse?.engineLastRun);
+  const snapshotStatus = pulse?.snapshotHealth?.status ?? "missing";
+  const dailySpend =
+    pulse?.pacing.spendToday ??
+    (pulse?.pacing.dayPace != null && pulse?.pacing.dailyTarget != null
+      ? pulse.pacing.dayPace * pulse.pacing.dailyTarget
+      : null);
+  const avg7dSpend = pulse?.pacing.avg7dSpend ?? null;
+  const spendVs7dAvg = formatSignedPercent(percentDelta(dailySpend, avg7dSpend));
+  const conversionsToday = pulse?.pacing.conversionsToday ?? null;
+  const avg7dConversions = pulse?.pacing.avg7dConversions ?? null;
+  const roasValue = window === "7d" ? pulse?.roas.d7 : window === "14d" ? pulse?.roas.d14 : pulse?.roas.d28;
+
+  return (
+    <div className="pulse pulse--five">
+      <div className="cell">
+        <div className="label">
+          <span>Spend · today</span>
+          <span style={{ color: "var(--muted)" }}>vs 7d avg</span>
+        </div>
+        <div className="value">
+          {dailySpend == null ? "—" : formatCurrency(dailySpend)}
+          <span className="sub">
+            {avg7dSpend == null
+              ? " avg —"
+              : ` avg ${formatCurrency(avg7dSpend)}/day${spendVs7dAvg ? ` · ${spendVs7dAvg}` : ""}`}
+          </span>
+        </div>
+        <div className="micro">
+          conversions · {conversionsToday == null ? "—" : formatAverageCount(conversionsToday)}
+          {avg7dConversions == null ? "" : ` · 7d avg ${formatAverageCount(avg7dConversions)}/day`}
+        </div>
+      </div>
+      <div className="cell">
+        <div className="label">
+          <span>ROAS · {window === "90d" ? "28d" : window}</span>
+          <span style={{ color: "var(--ok)" }}>{pulse?.roas.target && roasValue && roasValue >= pulse.roas.target ? "↑ vs target" : "vs target"}</span>
+        </div>
+        <div className="value">
+          {formatRoas(roasValue)} <span className="sub">tgt {pulse?.roas.target == null ? "—" : formatRoas(pulse.roas.target)}</span>
+        </div>
+        {pulse?.roasHistory?.length ? (
+          <svg className="spark" viewBox="0 0 60 16" preserveAspectRatio="none" aria-hidden="true">
+            <path d={sparklinePath(pulse.roasHistory.slice(-28))} fill="none" stroke="#047857" strokeWidth="1.8" strokeLinecap="round" />
+          </svg>
+        ) : null}
+      </div>
+      <div className="cell">
+        <div className="label">
+          <span>Snapshot</span>
+          <span className={cn("chip", snapshotStatusClass(snapshotStatus))} style={{ height: 16, padding: "0 6px", fontSize: 9.5 }}>
+            <span className="dot" />
+            {snapshotStatus === "engine_version_mismatch" ? "version" : snapshotStatus}
+          </span>
+        </div>
+        <div className="value">{snapshotAge ?? "—"}</div>
+        <div className="micro">engine {pulse?.engineVersion ?? "—"} · ran {pulse?.engineLastRun ? new Date(pulse.engineLastRun).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}</div>
+      </div>
+      <div className="cell">
+        <div className="label">
+          <span>Labels</span>
+          {labelPercent != null ? (
+            <span className={cn("chip", labelPercent >= 90 ? "chip--healthy" : "chip--watch")} style={{ height: 16, padding: "0 6px", fontSize: 9.5 }}>
+              <span className="dot" />
+              {labelPercent}%
+            </span>
+          ) : null}
+        </div>
+        <div className="value">
+          {pulse?.labelCoverage ? `${pulse.labelCoverage.labeledCampaigns} / ${pulse.labelCoverage.activeCampaigns}` : "—"}
+        </div>
+        <div className="micro">
+          {pulse?.labelCoverage ? `${pulse.labelCoverage.unlabeledCampaigns} unlabeled · ` : "coverage unavailable · "}
+          <button
+            type="button"
+            className="linklike"
+            aria-label="Manage campaign labels"
+            onClick={onManageLabels}
+          >
+            Manage labels
+          </button>
+        </div>
+      </div>
+      <div className="cell">
+        <div className="label"><span>Mode</span></div>
+        <div className="value" style={{ fontSize: 14 }}>{titleCaseCompact(pulse?.operatingMode || "Manual review")}</div>
+        <div className="status-row">
+          <span className="chip chip--ghost"><span className="dot" />{titleCaseCompact(pulse?.seasonalRegime || "normal")}</span>
+          <span className={cn("chip", trackingClass(pulse?.trackingHealth?.status))}><span className="dot" />{pulse?.trackingHealth?.status ?? "unknown"}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function MetaPlatformPage({ businessId, businessName, currency = "USD" }: MetaPlatformPageProps) {
   void currency;
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
-  const selectedWindow = (searchParams.get("window") as MetaWindowKey | null) ?? "28d";
+  const selectedWindow = parseMetaWindow(searchParams.get("window"));
+  const selectedDateRange = metaDateRangeFromParams(searchParams);
   const selectedStatusFilter = parseBriefingStatusFilter(searchParams.get("status_filter"));
+  const initialLane = parseMetaLaneView(searchParams.get("lane"));
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ nonSales: true });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [drillItem, setDrillItem] = useState<MetaDrillItem | null>(null);
   const [overlay, setOverlay] = useState<OverlayState>(EMPTY_OVERLAY);
   const [compareOpen, setCompareOpen] = useState(false);
   const [pendingPrimaryRec, setPendingPrimaryRec] = useState<MetaRecommendation | null>(null);
+  const [pendingResumeIntent, setPendingResumeIntent] = useState<PendingResumeIntent | null>(null);
   const [localDeferredIds, setLocalDeferredIds] = useState<Set<string>>(new Set());
   const [localResponseStates, setLocalResponseStates] = useState<Record<string, LocalResponseState>>({});
   const [trackingDismissed, setTrackingDismissed] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [primaryActionFeedback, setPrimaryActionFeedback] = useState<PrimaryActionFeedback | null>(null);
+  const [archiveActionFeedback, setArchiveActionFeedback] = useState<ArchiveActionFeedback | null>(null);
+  const [pendingActionRecId, setPendingActionRecId] = useState<string | null>(null);
+  const [pendingArchiveEntityKey, setPendingArchiveEntityKey] = useState<string | null>(null);
   const [refreshingSnapshot, setRefreshingSnapshot] = useState(false);
+  const [activeLane, setActiveLane] = useState<MetaLaneView>(initialLane);
+  const [levelFilter, setLevelFilter] = useState<MetaLevelFilter>("campaign");
+  const [campaignFilter, setCampaignFilter] = useState("all");
+  const [automationFilter, setAutomationFilter] = useState<MetaAutomationFilter>("all");
+  const [labelFilter, setLabelFilter] = useState<MetaLabelFilter>("all");
+  const [labelModalOpen, setLabelModalOpen] = useState(false);
+  const [openSecondaryMenu, setOpenSecondaryMenu] = useState<MetaSecondaryMenu | null>(null);
+  const latestSearchParamsRef = useRef(searchParams.toString());
+  const secondaryControlsRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    latestSearchParamsRef.current = searchParams.toString();
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!labelModalOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setLabelModalOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [labelModalOpen]);
+
+  useEffect(() => {
+    if (!openSecondaryMenu) return;
+    const closeWhenOutside = (event: MouseEvent | PointerEvent | TouchEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (target instanceof Element && target.closest(".filter-menu-wrap")) return;
+      setOpenSecondaryMenu(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpenSecondaryMenu(null);
+    };
+    document.addEventListener("pointerdown", closeWhenOutside);
+    document.addEventListener("mousedown", closeWhenOutside);
+    document.addEventListener("touchstart", closeWhenOutside);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", closeWhenOutside);
+      document.removeEventListener("mousedown", closeWhenOutside);
+      document.removeEventListener("touchstart", closeWhenOutside);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [openSecondaryMenu]);
 
   const pulseQuery = useQuery({
-    queryKey: ["meta-account-pulse", businessId, selectedWindow, selectedStatusFilter],
+    queryKey: ["meta-account-pulse", businessId, selectedWindow, selectedStatusFilter, selectedDateRange.start, selectedDateRange.end],
     enabled: Boolean(businessId),
-    queryFn: () => fetchPulse(businessId, selectedWindow, selectedStatusFilter),
+    queryFn: () => fetchPulse(businessId, selectedWindow, selectedStatusFilter, selectedDateRange),
   });
   const laneQuery = useQuery({
-    queryKey: ["meta-lanes", businessId, selectedWindow, selectedStatusFilter],
+    queryKey: ["meta-lanes", businessId, selectedWindow, selectedStatusFilter, selectedDateRange.start, selectedDateRange.end],
     enabled: Boolean(businessId),
-    queryFn: () => fetchLanes(businessId, selectedWindow, selectedStatusFilter),
+    queryFn: () => fetchLanes(businessId, selectedWindow, selectedStatusFilter, selectedDateRange),
   });
   const anomalyQuery = useQuery({
     queryKey: ["meta-anomalies", businessId],
@@ -634,17 +1136,91 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   const nonSales = laneQuery.data?.nonSales ?? [];
   const archive = laneQuery.data?.archive ?? [];
   const anomalies = anomalyQuery.data?.anomalies ?? [];
-  const healthyGroups = useMemo(() => groupHealthyEntities(healthy), [healthy]);
-  const rollups = useMemo(() => groupAdsetRollups(actionNow), [actionNow]);
+
+  useEffect(() => {
+    const payload = laneQuery.data;
+    if (!payload) return;
+    const serverRecs = new Map(
+      [...payload.actionNow, ...payload.watching, ...payload.nonSales].map((rec) => [rec.id, rec]),
+    );
+    setLocalResponseStates((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const [recId, localState] of Object.entries(current)) {
+        const serverRec = serverRecs.get(recId);
+        if (!serverRec) continue;
+        if (serverRec.operatorResponseState === localState || (localState === "acted" && !serverRec.operatorResponseState)) {
+          delete next[recId];
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [laneQuery.data]);
+
+  const campaignOptions = useMemo(() => {
+    const rows = [
+      ...actionNow.map((rec) => ({ id: rec.campaignId ?? "", name: rec.campaignName ?? rec.title })),
+      ...watching.map((rec) => ({ id: rec.campaignId ?? "", name: rec.campaignName ?? rec.title })),
+      ...healthy.map((row) => ({ id: row.level === "campaign" ? row.id : row.campaignId ?? "", name: row.level === "campaign" ? row.name : row.campaignName ?? row.name })),
+      ...nonSales.map((rec) => ({ id: rec.campaignId ?? "", name: rec.campaignName ?? rec.title })),
+    ]
+      .filter((item) => item.id);
+    return Array.from(new Map(rows.map((item) => [item.id, item])).values()).slice(0, 12);
+  }, [actionNow, healthy, nonSales, watching]);
+  const selectedCampaignLabel = useMemo(() => {
+    if (campaignFilter === "all") return "All campaigns";
+    return campaignOptions.find((campaign) => campaign.id === campaignFilter)?.name ?? "Selected campaign";
+  }, [campaignFilter, campaignOptions]);
+  const toggleSecondaryMenu = (menu: MetaSecondaryMenu) => {
+    setOpenSecondaryMenu((current) => (current === menu ? null : menu));
+  };
+  const resetMetaFilters = () => {
+    setLevelFilter("campaign");
+    setCampaignFilter("all");
+    setAutomationFilter("all");
+    setLabelFilter("all");
+    setOpenSecondaryMenu(null);
+  };
+  const metaFilterInput = useMemo(
+    () => ({ level: levelFilter, campaignId: campaignFilter, automation: automationFilter, label: labelFilter }),
+    [automationFilter, campaignFilter, labelFilter, levelFilter],
+  );
+  const metaFiltersActive =
+    levelFilter !== "campaign" ||
+    campaignFilter !== "all" ||
+    automationFilter !== "all" ||
+    labelFilter !== "all";
+  const filteredActionNow = useMemo(() => actionNow.filter((rec) => recMatchesMetaFilters(rec, metaFilterInput)), [actionNow, metaFilterInput]);
+  const filteredWatching = useMemo(() => watching.filter((rec) => recMatchesMetaFilters(rec, metaFilterInput)), [metaFilterInput, watching]);
+  const filteredHealthy = useMemo(
+    () => healthy.filter((row) => healthyMatchesMetaFilters(row, {
+      level: levelFilter,
+      campaignId: campaignFilter,
+      label: labelFilter,
+    })),
+    [campaignFilter, healthy, labelFilter, levelFilter],
+  );
+  const filteredNonSales = useMemo(() => nonSales.filter((rec) => recMatchesMetaFilters(rec, metaFilterInput)), [metaFilterInput, nonSales]);
+  const filteredArchive = useMemo(
+    () => archive.filter((row) => archivedMatchesMetaFilters(row, {
+      level: levelFilter,
+      campaignId: campaignFilter,
+      label: labelFilter,
+    })),
+    [archive, campaignFilter, labelFilter, levelFilter],
+  );
+  const healthyGroups = useMemo(() => groupHealthyEntities(filteredHealthy), [filteredHealthy]);
+  const rollups = useMemo(() => groupAdsetRollups(filteredActionNow), [filteredActionNow]);
   const rollupRecIds = useMemo(
     () => new Set(rollups.flatMap((rollup) => rollup.items.map((rec) => rec.id))),
     [rollups],
   );
   const individualActionNow = useMemo(
-    () => actionNow.filter((rec) => !rollupRecIds.has(rec.id)),
-    [actionNow, rollupRecIds],
+    () => filteredActionNow.filter((rec) => !rollupRecIds.has(rec.id)),
+    [filteredActionNow, rollupRecIds],
   );
-  const allRecs = useMemo(() => [...actionNow, ...watching], [actionNow, watching]);
+  const allRecs = useMemo(() => [...filteredActionNow, ...filteredWatching], [filteredActionNow, filteredWatching]);
   const adsetRecsByCampaign = useMemo(() => {
     const next = new Map<string, MetaRecommendation[]>();
     for (const rec of allRecs) {
@@ -666,24 +1242,65 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
           pulseQuery.data?.trackingHealth.status === "degraded"),
     );
 
+  const currentUrlParams = () =>
+    new URLSearchParams(
+      latestSearchParamsRef.current ||
+        (typeof window === "undefined" ? searchParams.toString() : window.location.search),
+    );
+
+  const replaceMetaParams = (params: URLSearchParams) => {
+    const query = params.toString();
+    latestSearchParamsRef.current = query;
+    router.replace(`/platforms/meta${query ? `?${query}` : ""}`);
+  };
+
   const setWindow = (next: MetaWindowKey) => {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = currentUrlParams();
     if (next === "28d") {
       params.delete("window");
     } else {
       params.set("window", next);
     }
-    router.replace(`/platforms/meta${params.toString() ? `?${params.toString()}` : ""}`);
+    params.delete("startDate");
+    params.delete("endDate");
+    replaceMetaParams(params);
+  };
+
+  const setDateRange = (next: HtmlDateRangeValue) => {
+    const params = currentUrlParams();
+    const nextWindow: MetaWindowKey =
+      next.window === "7d" || next.window === "14d" || next.window === "28d" || next.window === "90d"
+        ? next.window
+        : "custom";
+    if (nextWindow === "28d") {
+      params.delete("window");
+    } else {
+      params.set("window", nextWindow);
+    }
+    if (nextWindow === "custom") {
+      params.set("startDate", next.start);
+      params.set("endDate", next.end);
+    } else {
+      params.delete("startDate");
+      params.delete("endDate");
+    }
+    const query = params.toString();
+    const nextHref = `/platforms/meta${query ? `?${query}` : ""}`;
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", nextHref);
+    }
+    latestSearchParamsRef.current = query;
+    router.replace(nextHref);
   };
 
   const setStatusFilter = (next: BriefingStatusFilter) => {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = currentUrlParams();
     if (next === "active") {
       params.delete("status_filter");
     } else {
       params.set("status_filter", next);
     }
-    router.replace(`/platforms/meta${params.toString() ? `?${params.toString()}` : ""}`);
+    replaceMetaParams(params);
   };
 
   const selectRec = (id: string, selected: boolean) => {
@@ -701,6 +1318,20 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
       queryClient.invalidateQueries({ queryKey: ["meta-anomalies", businessId] }),
       queryClient.invalidateQueries({ queryKey: ["meta-account-pulse", businessId] }),
     ]);
+  };
+
+  const refreshDecisionDataInBackground = (recId?: string) => {
+    void refreshDecisionData().catch((error) => {
+      const message = error instanceof Error ? error.message : "unknown error";
+      if (recId) {
+        setPrimaryActionFeedback({
+          recId,
+          tone: "success",
+          title: "Meta action succeeded.",
+          detail: `Decision data refresh failed: ${message}`,
+        });
+      }
+    });
   };
 
   const refreshSnapshotNow = async () => {
@@ -778,11 +1409,11 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
 
   const isDeferred = (rec: MetaRecommendation) => {
     const state = rec.level === "adset" ? adsetDefer : campaignDefer;
-    return localDeferredIds.has(rec.id) || state.isDeferred(scopeIdForRec(rec));
+    return rec.operatorResponseState === "deferred" || localDeferredIds.has(rec.id) || state.isDeferred(scopeIdForRec(rec));
   };
 
   const responseStateForRec = (rec: MetaRecommendation): LocalResponseState | null => {
-    return localResponseStates[rec.id] ?? (isDeferred(rec) ? "deferred" : null);
+    return localResponseStates[rec.id] ?? rec.operatorResponseState ?? (isDeferred(rec) ? "deferred" : null);
   };
 
   const openOverlayForRec = (rec: MetaRecommendation, mode: MetaLaunchMode) => {
@@ -802,15 +1433,35 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   };
 
   const performPrimary = async (rec: MetaRecommendation) => {
+    setPrimaryActionFeedback(null);
     if (rec.type === "adset_cut_spend" && rec.adsetId) {
-      await fetch(`/api/meta/adsets/${encodeURIComponent(rec.adsetId)}/pause`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ businessId, recId: rec.id }),
-      });
-      await markActed(rec, "paused");
-      setNotice("Adset pause requested.");
-      await refreshDecisionData();
+      setPendingActionRecId(rec.id);
+      try {
+        const response = await fetch(`/api/meta/adsets/${encodeURIComponent(rec.adsetId)}/pause`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ businessId, recId: rec.id }),
+        });
+        const payload = await assertActionResponse(response, "Ad set pause failed.");
+        setPendingActionRecId(null);
+        void markActed(rec, "paused");
+        setPrimaryActionFeedback({
+          recId: rec.id,
+          tone: "success",
+          title: metaAdsetPauseNotice(payload?.status),
+          detail: "Meta verified the ad set status.",
+        });
+        refreshDecisionDataInBackground(rec.id);
+      } catch (error) {
+        setPrimaryActionFeedback({
+          recId: rec.id,
+          tone: "error",
+          title: "Meta action failed.",
+          detail: error instanceof Error ? error.message : "Ad set pause failed.",
+        });
+      } finally {
+        setPendingActionRecId(null);
+      }
       return;
     }
     const mode = launchModeForRec(rec);
@@ -819,6 +1470,132 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
       return;
     }
     openDrillForRec(rec);
+  };
+
+  const resumeEndpointForEntity = (level: "campaign" | "adset" | "ad", entityId: string) => {
+    if (level === "campaign") return `/api/meta/campaigns/${encodeURIComponent(entityId)}/resume`;
+    if (level === "adset") return `/api/meta/adsets/${encodeURIComponent(entityId)}/resume`;
+    return `/api/meta/ads/${encodeURIComponent(entityId)}/resume`;
+  };
+
+  const resumeRecommendation = async (rec: MetaRecommendation) => {
+    const entityId = rec.level === "campaign" ? rec.campaignId : rec.level === "adset" ? rec.adsetId : null;
+    if (!entityId || (rec.level !== "campaign" && rec.level !== "adset")) return;
+    setPrimaryActionFeedback(null);
+    setPendingActionRecId(rec.id);
+    try {
+      const response = await fetch(resumeEndpointForEntity(rec.level, entityId), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ businessId }),
+      });
+      const payload = await assertActionResponse(response, `${rec.level === "campaign" ? "Campaign" : "Ad set"} resume failed.`);
+      setLocalResponseStates((current) => {
+        const next = { ...current };
+        delete next[rec.id];
+        return next;
+      });
+      setPrimaryActionFeedback({
+        recId: rec.id,
+        tone: "success",
+        title: metaEntityResumeNotice(rec.level, payload?.status),
+        detail: `Meta verified the ${rec.level === "campaign" ? "campaign" : "ad set"} status.`,
+      });
+      refreshDecisionDataInBackground(rec.id);
+    } catch (error) {
+      setPrimaryActionFeedback({
+        recId: rec.id,
+        tone: "error",
+        title: "Meta action failed.",
+        detail: error instanceof Error ? error.message : `${rec.level === "campaign" ? "Campaign" : "Ad set"} resume failed.`,
+      });
+    } finally {
+      setPendingActionRecId(null);
+    }
+  };
+
+  const resumeArchivedEntity = async (row: MetaArchivedEntity) => {
+    if (row.status !== "PAUSED") return;
+    const key = `${row.level}-${row.id}`;
+    setArchiveActionFeedback(null);
+    setPendingArchiveEntityKey(key);
+    try {
+      const response = await fetch(resumeEndpointForEntity(row.level, row.id), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ businessId }),
+      });
+      const payload = await assertActionResponse(response, `${row.level === "campaign" ? "Campaign" : "Ad set"} resume failed.`);
+      setArchiveActionFeedback({
+        key,
+        tone: "success",
+        title: metaEntityResumeNotice(row.level, payload?.status),
+        detail: "Meta verified the active status.",
+      });
+      clearLocalResponseStatesForEntity(row.level, row.id);
+      refreshDecisionDataInBackground();
+    } catch (error) {
+      setArchiveActionFeedback({
+        key,
+        tone: "error",
+        title: "Meta action failed.",
+        detail: error instanceof Error ? error.message : `${row.level === "campaign" ? "Campaign" : "Ad set"} resume failed.`,
+      });
+    } finally {
+      setPendingArchiveEntityKey(null);
+    }
+  };
+
+  const clearLocalResponseStatesForEntity = (level: "campaign" | "adset", entityId: string) => {
+    const matchingRecIds = new Set(
+      [...actionNow, ...watching, ...nonSales]
+        .filter((rec) => {
+          if (level === "campaign") return rec.level === "campaign" && rec.campaignId === entityId;
+          return rec.level === "adset" && rec.adsetId === entityId;
+        })
+        .map((rec) => rec.id),
+    );
+    if (matchingRecIds.size === 0) return;
+    setLocalResponseStates((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const recId of matchingRecIds) {
+        if (recId in next) {
+          delete next[recId];
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  };
+
+  const requestResumeRecommendation = (rec: MetaRecommendation) => {
+    if (trackingBlocked && (rec.level === "campaign" || rec.level === "adset")) {
+      setPendingResumeIntent({ kind: "recommendation", rec });
+      return;
+    }
+    void resumeRecommendation(rec);
+  };
+
+  const requestResumeArchivedEntity = (row: MetaArchivedEntity) => {
+    if (trackingBlocked) {
+      setPendingResumeIntent({ kind: "archive", row });
+      return;
+    }
+    void resumeArchivedEntity(row);
+  };
+
+  const confirmResumeIntent = () => {
+    const intent = pendingResumeIntent;
+    setPendingResumeIntent(null);
+    if (!intent) return;
+    if (intent.kind === "recommendation") {
+      void resumeRecommendation(intent.rec);
+      return;
+    }
+    void resumeArchivedEntity(intent.row);
   };
 
   const handlePrimary = async (rec: MetaRecommendation) => {
@@ -832,17 +1609,38 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   const confirmOverlay = async () => {
     const rec = overlay.rec;
     if (!rec) return;
+    setPrimaryActionFeedback(null);
     if (overlay.mode === "apply_bid" && rec.adsetId) {
       const proposed = proposedBidValue(rec) ?? 0;
-      await fetch(`/api/meta/adsets/${encodeURIComponent(rec.adsetId)}/apply-bid`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ businessId, bidValue: proposed, recId: rec.id }),
-      });
-      await markActed(rec, "bid_applied");
-      setNotice("Bid cap apply requested.");
-      setOverlay(EMPTY_OVERLAY);
-      await refreshDecisionData();
+      setPendingActionRecId(rec.id);
+      try {
+        const response = await fetch(`/api/meta/adsets/${encodeURIComponent(rec.adsetId)}/apply-bid`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ businessId, bidValue: proposed, recId: rec.id }),
+        });
+        const payload = await assertActionResponse(response, "Bid cap apply failed.");
+        setPendingActionRecId(null);
+        void markActed(rec, "bid_applied");
+        const bidAmountMinor = typeof payload?.bidAmountMinor === "number" ? payload.bidAmountMinor : null;
+        setPrimaryActionFeedback({
+          recId: rec.id,
+          tone: "success",
+          title: bidAmountMinor ? `Bid cap applied at ${formatCurrency(bidAmountMinor / 100)}.` : "Bid cap applied.",
+          detail: "Meta verified the ad set bid.",
+        });
+        setOverlay(EMPTY_OVERLAY);
+        refreshDecisionDataInBackground(rec.id);
+      } catch (error) {
+        setPrimaryActionFeedback({
+          recId: rec.id,
+          tone: "error",
+          title: "Meta action failed.",
+          detail: error instanceof Error ? error.message : "Bid cap apply failed.",
+        });
+      } finally {
+        setPendingActionRecId(null);
+      }
       return;
     }
     const href = launchpadHrefForRec(rec, overlay.mode);
@@ -866,205 +1664,360 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
     if (action === "apply_bid") openOverlayForRec(first, "apply_bid");
   };
 
+  const selectedRecByRoas = (direction: "weakest" | "strongest") => {
+    const ranked = selectedRecs
+      .map((rec) => ({ rec, roas: compareItemForRec(rec).roas ?? 0 }))
+      .sort((left, right) => left.roas - right.roas);
+    const item = direction === "strongest" ? ranked.at(-1) : ranked[0];
+    return item?.rec ?? selectedRecs[0] ?? null;
+  };
+
+  const openLaunchpadForSelectedRecs = () => {
+    if (selectedRecs.length === 0) return;
+    const params = new URLSearchParams({
+      mode: "duplicate",
+      fromMetaBriefing: "true",
+    });
+    const campaignIds = selectedRecs.map((rec) => rec.campaignId).filter((id): id is string => Boolean(id));
+    const adsetIds = selectedRecs.map((rec) => rec.adsetId).filter((id): id is string => Boolean(id));
+    if (campaignIds.length > 0) params.set("campaignIds", Array.from(new Set(campaignIds)).join(","));
+    if (adsetIds.length > 0) params.set("adsetIds", Array.from(new Set(adsetIds)).join(","));
+    router.push(`/platforms/meta/launchpad?${params.toString()}`);
+  };
+
+  const handleCompareDrawerAction = async (action: "pause_weakest" | "scale_strongest" | "launch_selected") => {
+    if (action === "launch_selected") {
+      openLaunchpadForSelectedRecs();
+      return;
+    }
+    const rec = selectedRecByRoas(action === "scale_strongest" ? "strongest" : "weakest");
+    if (!rec) return;
+    await handlePrimary(rec);
+  };
+
   const loading = pulseQuery.isLoading || laneQuery.isLoading;
   const error = pulseQuery.error ?? laneQuery.error ?? anomalyQuery.error;
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900" data-testid="meta-platform-page">
-      <MetaPulse
+    <div className="ad-final" data-testid="meta-platform-page">
+      <div className="topbar">
+        <div>
+          <div className="crumbs">Platforms · <b>Meta</b> · Decision Center</div>
+          <h1 className="page-title">Meta · Decision Center</h1>
+        </div>
+        <div className="right-tools">
+          <div className="controls" style={{ border: "none", padding: 0 }}>
+            <HtmlDateRangePicker value={selectedDateRange} onApply={setDateRange} />
+            <MetaStatusControls selectedStatusFilter={selectedStatusFilter} onStatusFilterChange={setStatusFilter} />
+          </div>
+          <button type="button" className="btn" disabled={refreshingSnapshot} onClick={refreshSnapshotNow}>
+            <RefreshCw className="inline-block shrink-0" size={13} aria-hidden="true" />
+            {refreshingSnapshot ? "Running..." : "Run snapshot"}
+          </button>
+          <a className="btn btn--primary" href="/platforms/meta/launchpad?fromMetaBriefing=true&mode=duplicate">+ New campaign</a>
+        </div>
+      </div>
+
+      <FinalMetaPulse
         pulse={pulseQuery.data ?? null}
         window={selectedWindow}
-        onWindowChange={setWindow}
-        statusFilter={selectedStatusFilter}
-        onStatusFilterChange={setStatusFilter}
+        onManageLabels={() => setLabelModalOpen(true)}
       />
 
-      <main className="mx-auto max-w-[1440px] px-6 py-5">
-        <div className="mb-4 flex items-center gap-3">
-          <div>
-            <h1 className="text-[18px] font-semibold text-slate-950">Meta Decision Center</h1>
-            <div className="text-[12px] text-slate-500">{businessName ?? "Selected account"} · snapshot-first briefing</div>
+      {notice ? (
+        <div className="banner warn">
+          <div className="icon">i</div>
+          <div className="msg"><b>{notice}</b><span className="sub">{businessName ?? "Selected account"}</span></div>
+        </div>
+      ) : null}
+
+      {trackingBlocked ? (
+        <div className="banner danger">
+          <div className="icon">!</div>
+          <div className="msg">
+            <b>Tracking anomaly active.</b>
+            <span className="sub">{pulseQuery.data?.trackingHealth.detail ?? "Hard actions are gated until tracking is checked."}</span>
           </div>
-          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-            {notice ? (
-              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[12px] text-emerald-700">
-                {notice}
-              </div>
-            ) : null}
+          <button type="button" className="btn btn--sm" onClick={() => setDrillItem(anomalies[0] ? { mode: "anomaly", anomaly: anomalies[0] } : null)}>View details</button>
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setTrackingDismissed(true)}>Dismiss</button>
+        </div>
+      ) : null}
+
+      <div className="lane-tabs">
+        <MetaLaneTab active={activeLane === "action"} className="action" label="Action Now" count={filteredActionNow.length + anomalies.length} onClick={() => setActiveLane("action")} />
+        <MetaLaneTab active={activeLane === "watching"} className="watch" label="Watching" count={filteredWatching.length} onClick={() => setActiveLane("watching")} />
+        <MetaLaneTab active={activeLane === "healthy"} className="healthy" label="Healthy" count={filteredHealthy.length} onClick={() => setActiveLane("healthy")} />
+        <MetaLaneTab active={activeLane === "nonSales"} label="Non-sales" count={filteredNonSales.length} onClick={() => setActiveLane("nonSales")} />
+        <MetaLaneTab active={activeLane === "archive"} label="Archive" count={filteredArchive.length} onClick={() => setActiveLane("archive")} />
+        <div style={{ flex: 1 }} />
+        <div className="tab" style={{ color: "var(--muted)" }}>
+          <span className="chip chip--ghost"><span className="dot" />Deferred {localDeferredIds.size + campaignDefer.deferredCount + adsetDefer.deferredCount}</span>
+        </div>
+      </div>
+
+      <div className="controls meta-filterbar" data-meta-secondary-controls ref={secondaryControlsRef}>
+        <div className="group level-switch" aria-label="Meta entity level">
+          <button type="button" className={levelFilter === "campaign" ? "on" : ""} onClick={() => setLevelFilter("campaign")}>Campaigns</button>
+          <button type="button" className={levelFilter === "adset" ? "on" : ""} onClick={() => setLevelFilter("adset")}>Ad sets</button>
+        </div>
+        <MetaCompactFilter
+          id="campaign"
+          label="Campaign"
+          value={selectedCampaignLabel}
+          active={campaignFilter !== "all"}
+          open={openSecondaryMenu === "campaign"}
+          onToggle={toggleSecondaryMenu}
+        >
+          <div className="filter-popover-head">
+            <b>Campaign</b>
+            <span>{campaignOptions.length > 0 ? `${campaignOptions.length} available` : "No active campaign options"}</span>
+          </div>
+          <div className="filter-option-list campaign-list">
             <button
               type="button"
-              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-[12px] font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={refreshingSnapshot}
-              onClick={refreshSnapshotNow}
+              role="menuitemradio"
+              aria-checked={campaignFilter === "all"}
+              className={cn("filter-option", campaignFilter === "all" && "is-selected")}
+              onClick={() => {
+                setCampaignFilter("all");
+                setOpenSecondaryMenu(null);
+              }}
             >
-              <RefreshCw className="inline-block shrink-0" size={12} aria-hidden="true" />
-              {refreshingSnapshot ? "Refreshing..." : "Refresh decisions"}
+              <span>
+                <b>All campaigns</b>
+                <small>Keep every campaign in the selected server lanes.</small>
+              </span>
+            </button>
+            {campaignOptions.map((campaign) => (
+              <button
+                key={campaign.id}
+                type="button"
+                role="menuitemradio"
+                aria-checked={campaignFilter === campaign.id}
+                className={cn("filter-option", campaignFilter === campaign.id && "is-selected")}
+                onClick={() => {
+                  setCampaignFilter(campaign.id);
+                  setOpenSecondaryMenu(null);
+                }}
+              >
+                <span>
+                  <b>{campaign.name}</b>
+                  <small>{campaign.id}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+        </MetaCompactFilter>
+        <MetaCompactFilter
+          id="automation"
+          label="Readiness"
+          value={automationFilterLabel(automationFilter)}
+          active={automationFilter !== "all"}
+          open={openSecondaryMenu === "automation"}
+          onToggle={toggleSecondaryMenu}
+        >
+          <div className="filter-popover-head">
+            <b>Readiness</b>
+            <span>Client-side narrowing only</span>
+          </div>
+          <div className="filter-option-list">
+            {META_AUTOMATION_FILTERS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                role="menuitemradio"
+                aria-checked={automationFilter === option.value}
+                className={cn("filter-option", automationFilter === option.value && "is-selected")}
+                onClick={() => {
+                  setAutomationFilter(option.value);
+                  setOpenSecondaryMenu(null);
+                }}
+              >
+                <span>
+                  <b>{option.label}</b>
+                  <small>{option.description}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+        </MetaCompactFilter>
+        <MetaCompactFilter
+          id="label"
+          label="Labels"
+          value={labelFilterLabel(labelFilter)}
+          active={labelFilter !== "all"}
+          open={openSecondaryMenu === "label"}
+          onToggle={toggleSecondaryMenu}
+        >
+          <div className="filter-popover-head">
+            <b>Labels</b>
+            <span>Main, Test, Mixed context</span>
+          </div>
+          <div className="filter-option-list">
+            {META_LABEL_FILTERS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                role="menuitemradio"
+                aria-checked={labelFilter === option.value}
+                className={cn("filter-option", labelFilter === option.value && "is-selected")}
+                onClick={() => {
+                  setLabelFilter(option.value);
+                  setOpenSecondaryMenu(null);
+                }}
+              >
+                <span>
+                  <b>{option.label}</b>
+                  <small>{option.description}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="filter-popover-foot">
+            <button
+              type="button"
+              className="filter-footer-action"
+              aria-label="Manage campaign labels"
+              onClick={() => {
+                setOpenSecondaryMenu(null);
+                setLabelModalOpen(true);
+              }}
+            >
+              <Tags className="inline-block shrink-0" size={13} aria-hidden="true" />
+              Manage labels
             </button>
           </div>
-        </div>
-
-        <ReadinessNotice
-          pulse={pulseQuery.data}
-          onRefresh={refreshSnapshotNow}
-          refreshing={refreshingSnapshot}
-        />
-
-        {trackingBlocked ? (
-          <TrackingBlockerBanner
-            detail={pulseQuery.data?.trackingHealth.detail}
-            onViewDetails={() => setDrillItem(anomalies[0] ? { mode: "anomaly", anomaly: anomalies[0] } : null)}
-            onDismiss={() => setTrackingDismissed(true)}
-          />
+        </MetaCompactFilter>
+        {metaFiltersActive ? (
+          <button type="button" className="filter-reset" onClick={resetMetaFilters}>
+            <RotateCcw className="inline-block shrink-0" size={13} aria-hidden="true" />
+            Reset
+          </button>
         ) : null}
+        <div className="spacer" />
+        <span
+          className="filter-info-chip"
+          title="These controls narrow server-provided lanes. They do not recompute recommendation lanes in the UI."
+        >
+          <span>{windowLabel(selectedDateRange.window)}</span>
+          <Info className="inline-block shrink-0" size={13} aria-hidden="true" />
+        </span>
+      </div>
 
-        <MetaAlertsStrip
-          anomalies={anomalies}
-          snapshotDate={anomalyQuery.data?.snapshotDate}
-          onOpenDiagnostic={(anomaly) => setDrillItem({ mode: "anomaly", anomaly })}
-        />
-
-        <BulkToolbar
-          selectedCount={selectedRecs.length}
-          variant="meta"
-          trackingBlocked={trackingBlocked}
-          stickyTop="132px"
-          onAction={handleBulkAction}
-          onClear={() => setSelectedIds(new Set())}
-        />
-
+      <div className="workspace workspace-rel">
         {loading ? (
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            {Array.from({ length: 4 }).map((_, index) => (
-              <div key={index} className="h-48 animate-pulse rounded-2xl border border-slate-200 bg-white" />
+          <div className="lane-stack">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <div key={index} className="dcard animate-pulse">
+                <div className="check" />
+                <div className="min-h-[150px]" />
+                <div className="actions-col" />
+              </div>
             ))}
           </div>
         ) : error ? (
-          <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-[13px] text-rose-700">
-            {error instanceof Error ? error.message : "Meta briefing failed."}
+          <div className="lane-stack">
+            <div className="lane-empty">{error instanceof Error ? error.message : "Meta briefing failed."}</div>
           </div>
         ) : (
-          <div className="mt-4 grid gap-5">
-            <section id="action-now" className="scroll-mt-40">
-              <LaneHeader
-                laneKey="action"
-                title="Action Now"
-                count={individualActionNow.length + rollups.length + anomalies.length}
-                subtitle="confidence >= 70%, excluding deferred and learning"
-                variant="meta"
-                collapsed={collapsed.action}
-                onToggle={() => setCollapsed((current) => ({ ...current, action: !current.action }))}
-              />
-              {!collapsed.action ? (
-                <div className={cn("grid gap-3", individualActionNow.length + rollups.length > 1 || anomalies.length > 0 ? "lg:grid-cols-2" : "")}>
-                  {anomalies.map((anomaly) => (
-                    <MetaActionCard
-                      key={anomaly.id}
-                      anomaly={anomaly}
-                      onOpenDrill={(item) => setDrillItem({ mode: "anomaly", anomaly: item as MetaAnomaly })}
-                    />
-                  ))}
-                  {rollups.map((rollup) => (
-                    <CrossAdsetRollupCard
-                      key={rollup.campaignId}
-                      campaignName={rollup.campaignName}
-                      recs={rollup.items}
-                      onOpenRec={openDrillForRec}
-                    />
-                  ))}
-                  {individualActionNow.map((rec) => (
-                    <MetaActionCard
-                      key={rec.id}
-                      rec={rec}
-                      selected={selectedIds.has(rec.id)}
-                      deferred={isDeferred(rec)}
-                      responseState={responseStateForRec(rec)}
-                      evidenceWindow={selectedWindow}
-                      onSelect={selectRec}
-                      onPrimary={handlePrimary}
-                      onOpenDrill={(item) => openDrillForRec(item as MetaRecommendation)}
-                      onDefer={deferRec}
-                      onUndoDefer={undeferRec}
-                    />
-                  ))}
-                  {individualActionNow.length === 0 && rollups.length === 0 && anomalies.length === 0 ? (
-                    <EmptyActionState anomaliesCount={0} pulse={pulseQuery.data} />
-                  ) : null}
-                </div>
-              ) : null}
-            </section>
-
-            <section id="watching" className="scroll-mt-40">
-              <LaneHeader
-                laneKey="watching"
-                title="Watching"
-                count={watching.length}
-                subtitle="learning, recent changes, or insufficient signal"
-                variant="meta"
-                collapsed={collapsed.watching}
-                onToggle={() => setCollapsed((current) => ({ ...current, watching: !current.watching }))}
-              />
-              {!collapsed.watching ? (
-                <div className="grid gap-3 lg:grid-cols-2">
-                  <div className="lg:col-span-2">
-                    <WatchingSegments segments={laneQuery.data?.watchingSegments} />
-                  </div>
-                  {watching.map((rec) => (
-                    <MetaWatchingCard
-                      key={rec.id}
-                      rec={rec}
-                      deferred={isDeferred(rec)}
-                      responseState={responseStateForRec(rec)}
-                      evidenceWindow={selectedWindow}
-                      onOpenDrill={openDrillForRec}
-                      onDefer={deferRec}
-                      onUndoDefer={undeferRec}
-                    />
-                  ))}
-                  {watching.length === 0 ? (
-                    <div className="rounded-xl border border-slate-200 bg-white p-4 text-[12.5px] text-slate-500">
-                      No watchlist items in the latest snapshot.
+          <div className="lane-stack">
+            {activeLane === "action" ? (
+              <>
+                {anomalies.map((anomaly) => (
+                  <MetaActionCard key={anomaly.id} anomaly={anomaly} onOpenDrill={(item) => setDrillItem({ mode: "anomaly", anomaly: item as MetaAnomaly })} />
+                ))}
+                {rollups.map((rollup) => (
+                  <article key={rollup.campaignId} className="dcard" data-card="cross-adset-rollup">
+                    <div className="check" />
+                    <div>
+                      <div className="meta-line">
+                        <span className="chip chip--watch"><span className="dot" />Review adsets</span>
+                        <span className="chip chip--ghost"><span className="dot" />Mixed</span>
+                        <b>{rollup.campaignName}</b>
+                      </div>
+                      <div className="title">{rollup.campaignName} has mixed ad set decisions</div>
+                      <div className="why">
+                        {rollup.items.length} ad sets are pulling in different directions.
+                        <span className="from">source · grouped adset decisions · review before campaign move</span>
+                      </div>
+                      <div className="metric-strip">
+                        {rollup.items.slice(0, 5).map((rec) => (
+                          <div key={rec.id} className="m">
+                            <span className="k">{rec.adsetName ?? rec.title}</span>
+                            <span className="v">{titleCaseCompact(decisionLabelForRec(rec))}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  ) : null}
-                </div>
-              ) : null}
-            </section>
-
-            <MetaCampaignLabelsSection businessId={businessId} />
-
-            <section id="healthy" className="scroll-mt-40">
-              <LaneHeader
-                laneKey="healthy"
-                title="Healthy"
-                count={healthy.length}
-                subtitle="stable mature campaigns and adsets without triggered recs"
-                variant="meta"
-                collapsed={collapsed.healthy}
-                onToggle={() => setCollapsed((current) => ({ ...current, healthy: !current.healthy }))}
-              />
-              {!collapsed.healthy ? (
-                <div className="grid gap-2">
-                  <MetaHealthyHierarchy groups={healthyGroups} />
-                  {healthy.length === 0 ? (
-                    <div className="rounded-xl border border-slate-200 bg-white p-4 text-[12.5px] text-slate-500">
-                      Healthy entities will appear after the latest snapshot has enough stable mature rows.
+                    <div className="actions-col">
+                      <span className="why-action">Recommended</span>
+                      <button type="button" className="btn btn--primary" onClick={() => rollup.items[0] ? openDrillForRec(rollup.items[0]) : undefined}>
+                        Review ad sets
+                      </button>
                     </div>
-                  ) : null}
-                </div>
-              ) : null}
-            </section>
-
-            <section id="non-sales" className="scroll-mt-40">
-              <LaneHeader
-                laneKey="nonSales"
-                title="Out of Sales Scope"
-                count={nonSales.length}
-                subtitle="Non-purchase adsets and campaigns (cohort-segregated)"
-                variant="meta"
-                collapsed={collapsed.nonSales}
-                onToggle={() => setCollapsed((current) => ({ ...current, nonSales: !current.nonSales }))}
-              />
-              <div hidden={collapsed.nonSales} className="grid gap-3">
-                {nonSales.map((rec) =>
+                  </article>
+                ))}
+                {individualActionNow.map((rec) => (
+                  <MetaActionCard
+                    key={rec.id}
+                    rec={rec}
+                    selected={selectedIds.has(rec.id)}
+                    deferred={isDeferred(rec)}
+                    responseState={responseStateForRec(rec)}
+                    primaryPending={pendingActionRecId === rec.id}
+                    actionFeedback={primaryActionFeedback?.recId === rec.id ? primaryActionFeedback : null}
+                    evidenceWindow={selectedWindow}
+                    onSelect={selectRec}
+                    onPrimary={handlePrimary}
+                    onResume={requestResumeRecommendation}
+                    onOpenDrill={(item) => openDrillForRec(item as MetaRecommendation)}
+                    onDefer={deferRec}
+                    onUndoDefer={undeferRec}
+                  />
+                ))}
+                {filteredActionNow.length === 0 && anomalies.length === 0 ? (
+                  <EmptyActionState
+                    anomaliesCount={0}
+                    pulse={pulseQuery.data}
+                    onManageLabels={() => setLabelModalOpen(true)}
+                  />
+                ) : null}
+              </>
+            ) : activeLane === "watching" ? (
+              <>
+                <WatchingSegments
+                  segments={laneQuery.data?.watchingSegments}
+                  onManageLabels={() => setLabelModalOpen(true)}
+                />
+                {filteredWatching.map((rec) => (
+                  <MetaActionCard
+                    key={rec.id}
+                    rec={rec}
+                    selected={selectedIds.has(rec.id)}
+                    deferred={isDeferred(rec)}
+                    responseState={responseStateForRec(rec)}
+                    primaryPending={pendingActionRecId === rec.id}
+                    actionFeedback={primaryActionFeedback?.recId === rec.id ? primaryActionFeedback : null}
+                    evidenceWindow={selectedWindow}
+                    onSelect={selectRec}
+                    onPrimary={handlePrimary}
+                    onResume={requestResumeRecommendation}
+                    onOpenDrill={(item) => openDrillForRec(item as MetaRecommendation)}
+                    onDefer={deferRec}
+                    onUndoDefer={undeferRec}
+                  />
+                ))}
+                {filteredWatching.length === 0 ? <div className="lane-empty">{metaFiltersActive ? "No watchlist items match the current filters." : "No watchlist items in the latest snapshot."}</div> : null}
+              </>
+            ) : activeLane === "healthy" ? (
+              healthyGroups.length > 0 ? (
+                <MetaHealthyHierarchy groups={healthyGroups} />
+              ) : (
+                <div className="lane-empty">Healthy entities will appear after the latest snapshot has enough stable mature rows.</div>
+              )
+            ) : activeLane === "nonSales" ? (
+              <>
+                {filteredNonSales.map((rec) => (
                   rec.cohort === "upper_funnel" ? (
                     <MetaUpperFunnelInformationalCard
                       key={rec.id}
@@ -1078,64 +2031,135 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                       selected={selectedIds.has(rec.id)}
                       deferred={isDeferred(rec)}
                       responseState={responseStateForRec(rec)}
+                      primaryPending={pendingActionRecId === rec.id}
+                      actionFeedback={primaryActionFeedback?.recId === rec.id ? primaryActionFeedback : null}
                       evidenceWindow={selectedWindow}
                       onPrimary={handlePrimary}
+                      onResume={requestResumeRecommendation}
                       onOpenDrill={(item) => openDrillForRec(item as MetaRecommendation)}
                       onDefer={deferRec}
                       onUndoDefer={undeferRec}
                     />
-                  ),
-                )}
-                {nonSales.length === 0 ? (
-                  <p className="px-1 py-1 text-[12.5px] text-slate-500">
-                    No non-purchase entities in the current window.
-                  </p>
-                ) : null}
+                  )
+                ))}
+                {filteredNonSales.length === 0 ? <div className="lane-empty">{metaFiltersActive ? "No non-purchase entities match the current filters." : "No non-purchase entities in the current window."}</div> : null}
+              </>
+            ) : filteredArchive.length > 0 ? (
+              <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white" data-meta-archive>
+                <table className="asset-table">
+                  <thead>
+                    <tr>
+                      <th>Entity</th>
+                      <th>Status</th>
+                      <th className="num">Spend</th>
+                      <th className="num">ROAS</th>
+                      <th className="num">CPA</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredArchive.slice(0, 30).map((row) => {
+                      const key = `${row.level}-${row.id}`;
+                      const canResume = row.status === "PAUSED";
+                      const pending = pendingArchiveEntityKey === key;
+                      const feedback = archiveActionFeedback?.key === key ? archiveActionFeedback : null;
+                      return (
+                        <tr key={key}>
+                          <td>
+                            <span className="row-name">
+                              <span className="row-thumb">{row.level === "campaign" ? "C" : "A"}<span className="micro-fmt">{row.level === "campaign" ? "CMP" : "ADS"}</span></span>
+                              <span className="name-text"><b>{row.name}</b><span>{row.diagnosticNote ?? row.lastKnownWindow}</span></span>
+                            </span>
+                          </td>
+                          <td><span className="chip chip--ghost"><span className="dot" />{row.statusLabel}</span></td>
+                          <td className="num">{formatCurrency(row.spend)}</td>
+                          <td className="num">{formatRoas(row.roas)}</td>
+                          <td className="num">{row.cpa == null ? "—" : formatCurrency(row.cpa)}</td>
+                          <td>
+                            {canResume ? (
+                              <div className="archive-action-cell">
+                                <button
+                                  type="button"
+                                  className="btn btn--sm"
+                                  disabled={pending}
+                                  onClick={() => requestResumeArchivedEntity(row)}
+                                >
+                                  <Play className="inline-block shrink-0" size={12} aria-hidden="true" />
+                                  {pending ? "Working..." : row.level === "campaign" ? "Resume campaign" : "Resume adset"}
+                                </button>
+                                {feedback ? (
+                                  <div className={cn("meta-action-feedback", `meta-action-feedback--${feedback.tone}`)} role="status" data-archive-action-feedback={feedback.tone}>
+                                    <span className="dot" aria-hidden="true" />
+                                    <span>
+                                      <b>{feedback.title}</b>
+                                      {feedback.detail ? <small>{feedback.detail}</small> : null}
+                                    </span>
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <span className="muted">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
-            </section>
+            ) : (
+              <div className="lane-empty">No closed entities in this briefing scope.</div>
+            )}
 
-            <section id="archive" className="scroll-mt-40">
-              <LaneHeader
-                laneKey="archive"
-                title="Archive"
-                count={archive.length}
-                subtitle="closed entities, last-known performance only"
-                variant="meta"
-                collapsed={collapsed.archive}
-                onToggle={() => setCollapsed((current) => ({ ...current, archive: !current.archive }))}
-              />
-              {!collapsed.archive ? <MetaArchiveTable rows={archive} /> : null}
-            </section>
-
-            <section id="audience-builder" className="scroll-mt-40 opacity-80">
-              <LaneHeader
-                laneKey="audience"
-                title="Audience Builder"
-                count={0}
-                subtitle="reserved slot for audience clustering and Meta Launchpad handoff"
-                variant="meta"
-                collapsed={collapsed.audience}
-                onToggle={() => setCollapsed((current) => ({ ...current, audience: !current.audience }))}
-              />
-              {!collapsed.audience ? (
-                <div className="rounded-2xl border border-dashed border-violet-200 bg-white/70 p-4" data-meta-audience-builder>
-                  <div className="flex items-start gap-3">
-                    <div className="rounded-lg bg-violet-50 p-2 text-violet-700">
-                      <Target className="inline-block shrink-0" size={16} aria-hidden="true" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-[13px] font-semibold text-slate-900">Audience builder</div>
-                      <p className="mt-1 text-[12.5px] leading-snug text-slate-500">
-                        Future Meta audience clusters will land here before they are bridged into Launchpad. Current live decisions continue to use campaign and adset lanes above.
-                      </p>
-                    </div>
-                  </div>
+            {selectedRecs.length > 0 ? (
+              <div className="bulkbar">
+                <span>{selectedRecs.length} selected · {selectedRecs.slice(0, 2).map(scopeNameForRec).join(", ")}</span>
+                <div className="acts">
+                  <button type="button" className="btn" onClick={() => handleBulkAction("compare")}>Compare</button>
+                  <button type="button" className="btn" onClick={() => handleBulkAction("duplicate")}>Send to Launchpad</button>
+                  <button type="button" className="btn btn--danger" onClick={() => handleBulkAction("rebuild")}>Rebuild</button>
+                  <button type="button" className="btn btn--ghost" onClick={() => handleBulkAction("clear")}>×</button>
                 </div>
-              ) : null}
-            </section>
+              </div>
+            ) : null}
           </div>
         )}
-      </main>
+
+      </div>
+
+      {labelModalOpen ? (
+        <div
+          className="modal-backdrop meta-label-modal-backdrop"
+          data-meta-label-management-modal
+          onMouseDown={() => setLabelModalOpen(false)}
+        >
+          <div
+            className="meta-label-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="meta-label-modal-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="meta-label-modal-head">
+              <div>
+                <h2 id="meta-label-modal-title">Manage campaign labels</h2>
+                <p>Main, Test, or Mixed context is used by the Meta decision lanes.</p>
+              </div>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                aria-label="Close campaign label manager"
+                onClick={() => setLabelModalOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="meta-label-modal-body">
+              <MetaCampaignLabelsSection businessId={businessId} />
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <MetaDrillDrawer
         item={drillItem}
@@ -1170,19 +2194,27 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
         trendLabel={`${selectedWindow === "custom" ? "Custom" : selectedWindow} ROAS trend`}
         actionBar={
           <>
-            <button type="button" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-rose-600 text-white border border-rose-600 hover:bg-rose-700 text-[12.5px] font-medium">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-rose-600 text-white border border-rose-600 hover:bg-rose-700 text-[12.5px] font-medium"
+              onClick={() => void handleCompareDrawerAction("pause_weakest")}
+            >
               <AlertTriangle className="inline-block shrink-0" size={13} aria-hidden="true" /> Pause weakest
             </button>
-            <button type="button" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-emerald-600 text-white border border-emerald-600 hover:bg-emerald-700 text-[12.5px] font-medium">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-emerald-600 text-white border border-emerald-600 hover:bg-emerald-700 text-[12.5px] font-medium"
+              onClick={() => void handleCompareDrawerAction("scale_strongest")}
+            >
               <TrendingUp className="inline-block shrink-0" size={13} aria-hidden="true" /> Scale strongest
             </button>
-            <button type="button" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-blue-200 bg-white text-blue-700 hover:bg-blue-50 text-[12.5px] font-medium">
-              <Rocket className="inline-block shrink-0" size={13} aria-hidden="true" /> Launch test with these
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-blue-200 bg-white text-blue-700 hover:bg-blue-50 text-[12.5px] font-medium"
+              onClick={() => void handleCompareDrawerAction("launch_selected")}
+            >
+              <Rocket className="inline-block shrink-0" size={13} aria-hidden="true" /> Send selected to Launchpad
             </button>
-            <span className="ml-auto inline-flex items-center gap-1 text-[11.5px] text-slate-500">
-              <GitCompare className="inline-block shrink-0" size={12} aria-hidden="true" />
-              Meta metrics: spend, ROAS, CPA, CPM, frequency, conversions
-            </span>
           </>
         }
       />
@@ -1197,25 +2229,13 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
           if (rec) void performPrimary(rec);
         }}
       />
-
-      <a
-        href="/platforms/meta/launchpad?fromMetaBriefing=true&mode=duplicate"
-        className="fixed bottom-5 right-5 inline-flex items-center gap-1 rounded-full bg-slate-900 px-4 py-2 text-[12.5px] font-medium text-white shadow-lg hover:bg-slate-800"
-      >
-        <Plus className="inline-block shrink-0" size={14} aria-hidden="true" />
-        Launch test
-      </a>
-      <button
-        type="button"
-        className="fixed bottom-5 right-[150px] inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-2 text-[12.5px] font-medium text-slate-700 shadow-lg hover:bg-slate-50"
-        onClick={() => {
-          const first = actionNow[0];
-          if (first) openOverlayForRec(first, "rebuild");
-        }}
-      >
-        <RefreshCw className="inline-block shrink-0" size={14} aria-hidden="true" />
-        Rebuild
-      </button>
+      <TrackingConfirmModal
+        open={pendingResumeIntent != null}
+        primaryLabel="Resume anyway"
+        description="Resuming during a tracking anomaly may reopen spend with incomplete attribution. Continue anyway, or resolve tracking first?"
+        onClose={() => setPendingResumeIntent(null)}
+        onConfirm={confirmResumeIntent}
+      />
     </div>
   );
 }

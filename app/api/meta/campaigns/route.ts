@@ -9,6 +9,7 @@ export interface MetaCampaignRow {
   accountId: string;
   name: string;
   status: string;
+  statusUpdatedAt?: string | null;
   objective?: string | null;
   budgetLevel: "campaign" | "adset" | null;
   spend: number;

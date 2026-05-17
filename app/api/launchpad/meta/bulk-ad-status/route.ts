@@ -27,6 +27,7 @@ type BulkAdStatusBody = {
   action?: BulkAdStatusAction;
   ads?: Array<{
     adId?: string | null;
+    candidateAdIds?: Array<string | null | undefined> | null;
     creativeId?: string | null;
     name?: string | null;
   }>;
@@ -37,6 +38,16 @@ export const dynamic = "force-dynamic";
 
 function ensureRecord(value: Record<string, unknown> | null | undefined) {
   return value ?? null;
+}
+
+function uniqueIds(ids: Array<string | null | undefined>) {
+  const seen = new Set<string>();
+  return ids.flatMap((id) => {
+    const normalized = id?.trim();
+    if (!normalized || seen.has(normalized)) return [];
+    seen.add(normalized);
+    return [normalized];
+  });
 }
 
 function getFailureLogStatus(result: MetaAdsWriteFailure): Exclude<MetaAdsActionStatus, "pending" | "success"> {
@@ -64,17 +75,53 @@ async function completeFailure(input: {
 }
 
 function normalizeAds(body: BulkAdStatusBody | null) {
-  const byAdId = new Map<string, { adId: string; creativeId: string | null; name: string | null }>();
+  const byAdId = new Map<
+    string,
+    {
+      adId: string;
+      candidateAdIds: string[];
+      creativeId: string | null;
+      name: string | null;
+    }
+  >();
   (body?.ads ?? []).forEach((ad) => {
-    const adId = ad.adId?.trim() ?? "";
+    const candidateAdIds = uniqueIds([
+      ad.adId,
+      ...(Array.isArray(ad.candidateAdIds) ? ad.candidateAdIds : []),
+    ]);
+    const adId = candidateAdIds[0] ?? "";
     if (!adId) return;
     byAdId.set(adId, {
       adId,
+      candidateAdIds,
       creativeId: ad.creativeId?.trim() || null,
       name: ad.name?.trim() || null,
     });
   });
   return Array.from(byAdId.values());
+}
+
+async function resolveBulkAdActionTarget(input: {
+  businessId: string;
+  candidateAdIds: string[];
+}) {
+  const attemptedIds: string[] = [];
+  for (const adId of input.candidateAdIds) {
+    attemptedIds.push(adId);
+    const targetResult = await resolveMetaAdActionTarget({
+      businessId: input.businessId,
+      adId,
+    });
+    if (targetResult.ok) {
+      return {
+        ok: true as const,
+        inputAdId: adId,
+        attemptedIds,
+        target: targetResult.target,
+      };
+    }
+  }
+  return { ok: false as const, attemptedIds };
 }
 
 export async function POST(request: NextRequest) {
@@ -111,6 +158,7 @@ export async function POST(request: NextRequest) {
     creativeId?: string | null;
     ok: boolean;
     status?: string;
+    attemptedIds?: string[];
     error?: { code: string; message: string };
   }> = [];
   const steps: Array<{
@@ -129,9 +177,9 @@ export async function POST(request: NextRequest) {
       const ad = ads[index];
       if (!ad) continue;
       const stepName = ad.name || ad.adId;
-      const targetResult = await resolveMetaAdActionTarget({
+      const targetResult = await resolveBulkAdActionTarget({
         businessId: access.businessId,
-        adId: ad.adId,
+        candidateAdIds: ad.candidateAdIds,
       });
       if (!targetResult.ok) {
         const error = {
@@ -142,6 +190,7 @@ export async function POST(request: NextRequest) {
           inputAdId: ad.adId,
           creativeId: ad.creativeId,
           ok: false,
+          attemptedIds: targetResult.attemptedIds,
           error,
         });
         steps.push({
@@ -171,6 +220,7 @@ export async function POST(request: NextRequest) {
           adId: resolvedAdId,
           creativeId: targetResult.target.creativeId ?? ad.creativeId,
           ok: false,
+          attemptedIds: targetResult.attemptedIds,
           error,
         });
         steps.push({
@@ -200,6 +250,8 @@ export async function POST(request: NextRequest) {
           endpoint: `/${resolvedAdId}`,
           body: { status: statusOption },
           input_ad_id: ad.adId,
+          resolved_from_input_id: targetResult.inputAdId,
+          candidate_ad_ids: ad.candidateAdIds,
         },
       });
 
@@ -217,6 +269,7 @@ export async function POST(request: NextRequest) {
           adId: resolvedAdId,
           creativeId: targetResult.target.creativeId ?? ad.creativeId,
           ok: false,
+          attemptedIds: targetResult.attemptedIds,
           error: result.error,
         });
         steps.push({
@@ -245,6 +298,7 @@ export async function POST(request: NextRequest) {
         creativeId: targetResult.target.creativeId ?? ad.creativeId,
         ok: true,
         status: result.verifiedStatus,
+        attemptedIds: targetResult.attemptedIds,
       });
       steps.push({
         kind: "ad",

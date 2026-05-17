@@ -50,6 +50,7 @@ interface RawCampaign {
   objective?: string;
   status?: string;
   effective_status?: string;
+  updated_time?: string;
   daily_budget?: string;
   lifetime_budget?: string;
   bid_strategy?: string;
@@ -156,7 +157,7 @@ export async function getMetaLiveCampaignRows(input: {
       const configUrl = new URL(`https://graph.facebook.com/v25.0/${accountId}/campaigns`);
       configUrl.searchParams.set(
         "fields",
-        "id,name,objective,effective_status,status,daily_budget,lifetime_budget,bid_strategy,bid_amount,bid_constraints{roas_average_floor}"
+        "id,name,objective,effective_status,status,updated_time,daily_budget,lifetime_budget,bid_strategy,bid_amount,bid_constraints{roas_average_floor}"
       );
       configUrl.searchParams.set("limit", "500");
       configUrl.searchParams.set("access_token", accessToken);
@@ -331,6 +332,7 @@ export async function getMetaLiveCampaignRows(input: {
           accountId,
           name: insight.campaign_name ?? rawCampaign?.name ?? "Unknown Campaign",
           status: statusMap.get(campaignId) ?? "UNKNOWN",
+          statusUpdatedAt: rawCampaign?.updated_time ?? null,
           objective: rawCampaign?.objective ?? latestSnapshot?.objective ?? null,
           budgetLevel:
             config.dailyBudget != null || config.lifetimeBudget != null ? "campaign" : null,

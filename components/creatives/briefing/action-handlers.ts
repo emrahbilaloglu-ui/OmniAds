@@ -20,6 +20,7 @@ export interface PauseBriefingCardResult {
   adId?: string | null;
   status?: string | null;
   adsManagerUrl?: string | null;
+  attemptedIds?: string[];
 }
 
 type FetchLike = typeof fetch;
@@ -28,15 +29,34 @@ export function getCreativeScopeId(card: BriefingCreativeCard) {
   return card.creativeId?.trim() || card.id;
 }
 
+function nonEmptyId(value: string | null | undefined) {
+  const id = value?.trim();
+  return id ? id : null;
+}
+
+function uniqueIds(ids: Array<string | null | undefined>) {
+  const seen = new Set<string>();
+  return ids.flatMap((id) => {
+    const normalized = nonEmptyId(id);
+    if (!normalized || seen.has(normalized)) return [];
+    seen.add(normalized);
+    return [normalized];
+  });
+}
+
+export function getBriefingAdActionCandidateIds(card: BriefingCreativeCard) {
+  return uniqueIds([
+    card.realAdId,
+    card.metaAdId,
+    card.effectiveAdId,
+    card.adId,
+    card.creativeId,
+    card.id,
+  ]);
+}
+
 export function getBriefingAdActionInputId(card: BriefingCreativeCard) {
-  return (
-    card.realAdId?.trim() ||
-    card.adId?.trim() ||
-    card.metaAdId?.trim() ||
-    card.effectiveAdId?.trim() ||
-    card.creativeId?.trim() ||
-    card.id
-  );
+  return getBriefingAdActionCandidateIds(card)[0] ?? "";
 }
 
 export function isCutPrimaryAction(card: BriefingCreativeCard) {
@@ -107,22 +127,42 @@ export async function pauseBriefingCard(input: {
   card: BriefingCreativeCard;
   fetchImpl?: FetchLike;
 }): Promise<PauseBriefingCardResult> {
-  const targetId = getBriefingAdActionInputId(input.card);
+  const candidateIds = getBriefingAdActionCandidateIds(input.card);
   const fetcher = input.fetchImpl ?? fetch;
-  const response = await fetcher(`/api/meta/ads/${encodeURIComponent(targetId)}/pause`, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    cache: "no-store",
-    body: JSON.stringify({ businessId: input.businessId }),
-  });
-  const payload = (await response.json().catch(() => null)) as
-    | (PauseBriefingCardResult & { error?: { message?: string } })
-    | null;
-  if (!response.ok || !payload?.ok) {
-    throw new Error(payload?.error?.message ?? `Pause failed (${response.status})`);
+  if (candidateIds.length === 0) {
+    throw new Error("No actionable Meta ad id was available for this creative.");
   }
-  return payload;
+
+  const attemptedIds: string[] = [];
+  let lastMessage = "Pause failed.";
+  for (const targetId of candidateIds) {
+    attemptedIds.push(targetId);
+    const response = await fetcher(`/api/meta/ads/${encodeURIComponent(targetId)}/pause`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      cache: "no-store",
+      body: JSON.stringify({
+        businessId: input.businessId,
+        recIdOrigin: getCreativeScopeId(input.card),
+      }),
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | (PauseBriefingCardResult & { error?: { code?: string; message?: string } })
+      | null;
+    if (response.ok && payload?.ok) {
+      return { ...payload, attemptedIds };
+    }
+
+    const message = payload?.error?.message ?? `Pause failed (${response.status})`;
+    lastMessage = message;
+    if (response.status === 404 && payload?.error?.code === "ad_not_found") {
+      continue;
+    }
+    throw new Error(message);
+  }
+
+  throw new Error(`${lastMessage} Tried ${attemptedIds.join(", ")}.`);
 }

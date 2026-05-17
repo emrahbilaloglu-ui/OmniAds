@@ -87,11 +87,25 @@ export function WatchingCard({
             className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
           />
         </label>
-        <Thumb name={name} size={conf.thumb} />
+        <button
+          type="button"
+          className="creative-evidence-trigger creative-evidence-trigger--watch-thumb"
+          aria-label={`Open evidence for ${name}`}
+          onClick={openEvidence}
+        >
+          <Thumb name={name} size={conf.thumb} />
+        </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h4 className={`${conf.textWeight} text-slate-800 text-[13px] truncate`}>
-              {name}
+              <button
+                type="button"
+                className="creative-evidence-trigger creative-evidence-trigger--inline-name"
+                aria-label={`Open evidence for ${name}`}
+                onClick={openEvidence}
+              >
+                {name}
+              </button>
             </h4>
             <CampaignKindChip card={card} />
             <span className="text-[10px] uppercase tracking-wider text-slate-400">

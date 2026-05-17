@@ -18,6 +18,7 @@ import {
   ExternalLink,
   Layers,
   RefreshCw,
+  Search,
   ShieldCheck,
   TrendingDown,
   TrendingUp,
@@ -25,7 +26,6 @@ import {
 import {
   useDeferState,
   BulkToolbar,
-  EvidencePopover,
   LaunchpadOverlay,
   LaneHeader,
   PulseStrip,
@@ -43,9 +43,14 @@ import {
 } from "@/lib/briefing/utils";
 import { useAppStore } from "@/store/app-store";
 import { ActionNowCard } from "@/components/creatives/briefing/ActionNowCard";
-import { AssetLibrarySection } from "@/components/creatives/briefing/AssetLibrarySection";
+import {
+  ASSET_PRESETS,
+  AssetLibrarySection,
+  DEFAULT_VISIBLE_METRIC_IDS,
+} from "@/components/creatives/briefing/AssetLibrarySection";
 import { BulkCutConfirmModal } from "@/components/creatives/briefing/BulkCutConfirmModal";
 import { CompareDrawerHost } from "@/components/creatives/briefing/CompareDrawerHost";
+import { CreativeEvidenceDrawer } from "@/components/creatives/briefing/CreativeEvidenceDrawer";
 import {
   CrossPlacementCard,
   isCrossPlacementRollup,
@@ -57,7 +62,6 @@ import {
 import { HealthyRow } from "@/components/creatives/briefing/HealthyRow";
 import { WatchingCard } from "@/components/creatives/briefing/WatchingCard";
 import {
-  buildEvidenceSections,
   cardId,
   cardName,
   numberOrZero,
@@ -86,11 +90,24 @@ import type {
   MetaSummaryPulseResponse,
 } from "@/components/creatives/briefing/types";
 import type { AccountDecisionProfile } from "@/lib/creative-decision-engine";
+import type { DecisionLabel } from "@/components/common/briefing/types";
 import {
   fetchMetaCreatives,
   mapApiRowToUiRow,
+  toSharedCreative,
 } from "@/app/(dashboard)/platforms/meta/creatives/page-support";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
+import {
+  SHARE_METRIC_KEYS,
+  type ShareMetricKey,
+} from "@/components/creatives/shareCreativeTypes";
+import {
+  HtmlDateRangePicker,
+  rangeForWindow,
+  windowLabel,
+  type HtmlDateRangeValue,
+  type HtmlDateWindowKey,
+} from "@/components/common/briefing/HtmlDateRangePicker";
 
 type LaneCollapseState = Record<
   Extract<LaneKey, "action" | "watching" | "healthy">,
@@ -132,6 +149,9 @@ interface CompareDrawerState {
 }
 
 type WorkspaceMode = "briefing" | "library";
+type CreativeLaneView = "action" | "watching" | "healthy";
+type CreativeActionFilter = "all" | "promote" | "scale" | "cut" | "fresh_test" | "add_existing";
+type CreativeCampaignFilter = "all" | "main" | "test" | "mixed";
 
 interface EvidenceDrawerState {
   open: boolean;
@@ -559,6 +579,104 @@ export function getAssetLibraryEmptyMessage(input: {
   );
 }
 
+function supportedShareMetrics(metricIds: string[]): ShareMetricKey[] {
+  const allowed = new Set<string>(SHARE_METRIC_KEYS);
+  const selected = metricIds.filter((metricId): metricId is ShareMetricKey => allowed.has(metricId));
+  return selected.length > 0 ? selected : ["spend", "roas", "cpa", "ctrAll"];
+}
+
+function creativeDateRangeFromParams(params: URLSearchParams | null, todayIso: string): HtmlDateRangeValue {
+  const rawWindow = params?.get("window");
+  const windowKey: HtmlDateWindowKey =
+    rawWindow === "7d" || rawWindow === "14d" || rawWindow === "28d" || rawWindow === "90d"
+      ? rawWindow
+      : rawWindow === "today" || rawWindow === "yesterday" || rawWindow === "this_month" || rawWindow === "last_month" || rawWindow === "custom"
+        ? rawWindow
+        : "14d";
+  if (windowKey === "custom") {
+    const start = params?.get("start") ?? "";
+    const end = params?.get("end") ?? "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(start) && /^\d{4}-\d{2}-\d{2}$/.test(end)) {
+      return { window: "custom", start, end };
+    }
+  }
+  return rangeForWindow(windowKey, new Date(`${todayIso}T00:00:00`));
+}
+
+function assetMetricIdsFromPresetParam(value: string | null | undefined) {
+  const preset = ASSET_PRESETS.find((item) => item.id === value && !item.unavailable);
+  return preset ? preset.metricIds : DEFAULT_VISIBLE_METRIC_IDS;
+}
+
+function cardMatchesCreativeFilters(card: BriefingCreativeCard, input: {
+  actionFilter: CreativeActionFilter;
+  campaignFilter: CreativeCampaignFilter;
+  search: string;
+}) {
+  if (input.actionFilter !== "all") {
+    const kind = String(card.primary?.kind ?? card.label ?? "").toLowerCase();
+    const label = String(card.primary?.label ?? card.label ?? "").toLowerCase();
+    const matches =
+      input.actionFilter === "promote"
+        ? kind.includes("promote") || label.includes("promote")
+        : input.actionFilter === "scale"
+          ? kind.includes("scale") || label.includes("scale")
+          : input.actionFilter === "cut"
+            ? kind.includes("cut") || label.includes("cut") || kind.includes("pause")
+            : input.actionFilter === "fresh_test"
+              ? kind.includes("fresh") || kind.includes("test") || label.includes("fresh")
+              : kind.includes("existing") || label.includes("existing");
+    if (!matches) return false;
+  }
+  if (input.campaignFilter !== "all" && card.campaignKind !== input.campaignFilter) return false;
+  const search = input.search.trim().toLowerCase();
+  if (!search) return true;
+  return [card.name, card.creativeName, card.campaign, card.campaignName, card.adset, card.adsetName]
+    .some((value) => typeof value === "string" && value.toLowerCase().includes(search));
+}
+
+function briefingCardFromAssetRow(row: MetaCreativeRow): BriefingCreativeCard {
+  const engineLabel = (row as MetaCreativeRow & { engineLabel?: string | null }).engineLabel;
+  return {
+    id: row.id,
+    creativeId: row.creativeId,
+    realAdId: row.realAdId,
+    accountId: row.accountId,
+    name: row.name,
+    campaign: row.campaignName,
+    campaignName: row.campaignName,
+    adset: row.adSetName,
+    adsetName: row.adSetName,
+    label: (engineLabel as DecisionLabel | string | null) ?? "keep",
+    confidence: null,
+    reason: "Selected from Asset Library.",
+    spend: row.spend,
+    roas: row.roas,
+    ctr: row.ctrAll,
+    cpa: row.cpa,
+    purchases: row.purchases,
+    impressions: row.impressions,
+    linkClicks: row.linkClicks,
+    addToCart: row.addToCart,
+    frequency: row.frequency,
+    fatigue: Array.isArray(row.tags) ? row.tags.some((tag) => String(tag).toLowerCase().includes("fatigue")) : false,
+    primary: { kind: "promote", label: "Send to Launchpad" },
+    status: row.effectiveStatus,
+    campaignLabelStatus: "labeled",
+    mediaPreviewUrl: row.cardPreviewUrl ?? row.imageUrl ?? row.previewUrl ?? row.thumbnailUrl ?? null,
+    thumbnailUrl: row.thumbnailUrl ?? null,
+    tableThumbnailUrl: row.tableThumbnailUrl ?? row.thumbnailUrl ?? null,
+    cardPreviewUrl: row.cardPreviewUrl ?? row.imageUrl ?? row.thumbnailUrl ?? row.previewUrl ?? null,
+    previewUrl: row.previewUrl ?? null,
+    imageUrl: row.imageUrl ?? null,
+    cachedThumbnailUrl: row.cachedThumbnailUrl ?? null,
+    preview: row.preview ?? null,
+    previewState: row.previewState ?? null,
+    isCatalog: row.isCatalog ?? null,
+    format: row.format ?? null,
+  };
+}
+
 function normalizeActionItems(items: unknown): NormalizedActionItem[] {
   return safeArray<BriefingActionItem>(items).flatMap<NormalizedActionItem>(
     (item, index) => {
@@ -674,6 +792,93 @@ function usePersistentSelectedIds(businessId: string) {
   return [selectedIds, setSelectedIds] as const;
 }
 
+function CreativeLaneTab({
+  active,
+  className,
+  label,
+  count,
+  onClick,
+}: {
+  active: boolean;
+  className?: string;
+  label: string;
+  count: number;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" className={["tab", className, active ? "active" : ""].filter(Boolean).join(" ")} onClick={onClick}>
+      {label} <span className="count">{count}</span>
+    </button>
+  );
+}
+
+function CreativePulseFinal({
+  spendToday,
+  conversions,
+  roas7d,
+  roasTarget,
+  topCreative,
+  profile,
+  deferredCount,
+  trackingAnomalyActive,
+  engineVersion,
+}: {
+  spendToday?: number | null;
+  conversions?: number | null;
+  roas7d?: number | null;
+  roasTarget?: number | null;
+  topCreative?: BriefingCreativeCard | null;
+  profile?: AccountDecisionProfile | null;
+  deferredCount: number;
+  trackingAnomalyActive: boolean;
+  engineVersion?: string | null;
+}) {
+  const roas = numberOrZero(roas7d);
+  const target = numberOrZero(roasTarget) || roas || 1;
+  const topName = topCreative ? cardName(topCreative) : "—";
+  const labelStatus = trackingAnomalyActive ? "Action gated" : "Meta connected";
+  const profileLabel = profile
+    ? `${profile.accountBaselines.matureCreativeCount} mature · ${profile.preset}`
+    : "Account profile";
+
+  return (
+    <div className="pulse">
+      <div className="cell">
+        <div className="label"><span>Spend · today</span><span>vs 7d avg</span></div>
+        <div className="value">{formatCurrency(spendToday)} <span className="sub">{conversions == null ? "" : `${conversions} conv`}</span></div>
+        <div className="micro">conversions · {conversions ?? "—"}</div>
+      </div>
+      <div className="cell">
+        <div className="label"><span>ROAS · 7d</span><span style={{ color: "var(--ok)" }}>{roas >= target ? "↑" : "↓"}</span></div>
+        <div className="value">{formatRoas(roas)} <span className="sub">tgt {formatRoas(target)}</span></div>
+        <svg className="spark" viewBox="0 0 60 16" preserveAspectRatio="none" aria-hidden="true">
+          <path d={sparklinePath([roas * 0.8, roas * 0.92, roas * 0.86, roas, roas * 0.96, roas * 1.04, roas * 1.08])} fill="none" stroke="#047857" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
+      </div>
+      <div className="cell">
+        <div className="label"><span>Top creative · 7d</span><span style={{ color: "var(--ok)" }}>▲ winning</span></div>
+        <div className="value" style={{ fontSize: 14 }}>{topName}</div>
+        <div className="micro">ROAS <b>{formatRoas(topCreative?.roas)}</b> · spend {formatCurrency(topCreative?.spend)} · {topCreative?.bestPlacement ?? "placement"}</div>
+      </div>
+      <div className="cell">
+        <div className="label"><span>Account profile</span><span className="chip chip--info" style={{ height: 16, padding: "0 6px", fontSize: 9.5 }}><span className="dot" />scoped</span></div>
+        <div className="value" style={{ fontSize: 14 }}>{profileLabel}</div>
+        <div className="micro">scale floor · {profile?.thresholds.scaleMinPurchases ?? "—"} purchases / 7d</div>
+      </div>
+      <div className="cell">
+        <div className="label"><span>Parent labels</span><span className="chip chip--healthy" style={{ height: 16, padding: "0 6px", fontSize: 9.5 }}><span className="dot" />server</span></div>
+        <div className="value" style={{ fontSize: 14 }}>{labelStatus}</div>
+        <div className="micro">{trackingAnomalyActive ? "tracking confirmation required" : "briefing payload active"}</div>
+      </div>
+      <div className="cell">
+        <div className="label"><span>Deferred</span></div>
+        <div className="value" style={{ fontSize: 14 }}>{deferredCount} hidden</div>
+        <div className="status-row"><span className="chip"><span className="dot" />view</span><span className="chip"><span className="dot" />{engineVersion ?? "engine"}</span></div>
+      </div>
+    </div>
+  );
+}
+
 export function CreativesBriefingPage() {
   const router = useRouter();
   const pathname = usePathname();
@@ -688,12 +893,20 @@ export function CreativesBriefingPage() {
     () => getTodayIsoForTimeZone(activeBusiness?.timezone ?? "UTC"),
     [activeBusiness?.timezone],
   );
+  const [dateRange, setDateRange] = useState<HtmlDateRangeValue>(() =>
+    creativeDateRangeFromParams(searchParams, todayIso),
+  );
   const sevenDayStart = useMemo(() => addDaysToIso(todayIso, -6), [todayIso]);
-  const libraryStart = useMemo(() => addDaysToIso(todayIso, -29), [todayIso]);
+  const libraryStart = dateRange.start;
+  const libraryEnd = dateRange.end;
   const tabParam = searchParams?.get("tab") ?? null;
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(
     workspaceModeFromTab(tabParam),
   );
+  const [activeLane, setActiveLane] = useState<CreativeLaneView>("action");
+  const [actionFilter, setActionFilter] = useState<CreativeActionFilter>("all");
+  const [campaignFilter, setCampaignFilter] = useState<CreativeCampaignFilter>("all");
+  const [briefingSearch, setBriefingSearch] = useState("");
 
   const briefingQuery = useQuery({
     queryKey: ["creatives-briefing", businessId],
@@ -729,7 +942,7 @@ export function CreativesBriefingPage() {
       "creatives-briefing-asset-library",
       businessId,
       libraryStart,
-      todayIso,
+      libraryEnd,
     ],
     enabled: Boolean(businessId),
     staleTime: 60 * 1000,
@@ -737,7 +950,7 @@ export function CreativesBriefingPage() {
       fetchAssetLibraryRows({
         businessId,
         startDate: libraryStart,
-        endDate: todayIso,
+        endDate: libraryEnd,
       }),
   });
 
@@ -770,17 +983,19 @@ export function CreativesBriefingPage() {
   const [libraryHighlightedRowId, setLibraryHighlightedRowId] = useState<
     string | null
   >(null);
-  const [libraryMetricIds, setLibraryMetricIds] = useState<string[]>([
-    "spend",
-    "roas",
-    "cpa",
-    "ctrAll",
-  ]);
+  const presetParam = searchParams?.get("preset") ?? null;
+  const [libraryMetricIds, setLibraryMetricIds] = useState<string[]>(() =>
+    assetMetricIdsFromPresetParam(presetParam),
+  );
   const [selectedIds, setSelectedIds] = usePersistentSelectedIds(businessId);
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   useEffect(() => {
     setWorkspaceMode(workspaceModeFromTab(tabParam));
   }, [tabParam]);
+  useEffect(() => {
+    if (!presetParam) return;
+    setLibraryMetricIds(assetMetricIdsFromPresetParam(presetParam));
+  }, [presetParam]);
   const showToast = useCallback((nextToast: BriefingToast) => {
     setToast(nextToast);
   }, []);
@@ -863,6 +1078,37 @@ export function CreativesBriefingPage() {
     () => selectedCardsForCards(watchingItems, watchingSelectedIds),
     [watchingItems, watchingSelectedIds],
   );
+  const actionCards = useMemo(
+    () =>
+      visibleActionItems
+        .map(briefingCardForActionItem)
+        .filter((card): card is BriefingCreativeCard => Boolean(card)),
+    [visibleActionItems],
+  );
+  const healthySelectedIds = useMemo(
+    () => filterSelectedIdsForLane(selectedIds, healthyIds),
+    [healthyIds, selectedIds],
+  );
+  const selectedHealthyCards = useMemo(
+    () => selectedCardsForCards(healthyItems, healthySelectedIds),
+    [healthyItems, healthySelectedIds],
+  );
+  const creativeFilterInput = useMemo(
+    () => ({ actionFilter, campaignFilter, search: briefingSearch }),
+    [actionFilter, briefingSearch, campaignFilter],
+  );
+  const filteredActionCards = useMemo(
+    () => actionCards.filter((card) => cardMatchesCreativeFilters(card, creativeFilterInput)),
+    [actionCards, creativeFilterInput],
+  );
+  const filteredWatchingItems = useMemo(
+    () => watchingItems.filter((card) => cardMatchesCreativeFilters(card, creativeFilterInput)),
+    [creativeFilterInput, watchingItems],
+  );
+  const filteredHealthyItems = useMemo(
+    () => healthyItems.filter((card) => cardMatchesCreativeFilters(card, creativeFilterInput)),
+    [creativeFilterInput, healthyItems],
+  );
 
   const trackingAnomalyActive = Boolean(
     normalizedBriefingData?.trackingAnomalyActive ||
@@ -922,7 +1168,9 @@ export function CreativesBriefingPage() {
   const handleWorkspaceModeChange = useCallback(
     (nextMode: WorkspaceMode) => {
       setWorkspaceMode(nextMode);
-      const params = new URLSearchParams(searchParams?.toString() ?? "");
+      const params = new URLSearchParams(
+        typeof window === "undefined" ? (searchParams?.toString() ?? "") : window.location.search,
+      );
       if (nextMode === "library") {
         params.set("tab", "library");
       } else {
@@ -934,6 +1182,66 @@ export function CreativesBriefingPage() {
       });
     },
     [pathname, router, searchParams],
+  );
+
+  const handleDateRangeApply = useCallback(
+    (nextRange: HtmlDateRangeValue) => {
+      setDateRange(nextRange);
+      const params = new URLSearchParams(
+        typeof window === "undefined" ? (searchParams?.toString() ?? "") : window.location.search,
+      );
+      params.set("window", nextRange.window);
+      if (nextRange.window === "custom") {
+        params.set("start", nextRange.start);
+        params.set("end", nextRange.end);
+      } else {
+        params.delete("start");
+        params.delete("end");
+      }
+      const query = params.toString();
+      const nextHref = `${pathname}${query ? `?${query}` : ""}`;
+      if (typeof window !== "undefined") {
+        window.history.replaceState(null, "", nextHref);
+      }
+      router.replace(nextHref, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
+
+  const replaceCreativeQueryParam = useCallback(
+    (mutate: (params: URLSearchParams) => void) => {
+      const params = new URLSearchParams(
+        typeof window === "undefined" ? (searchParams?.toString() ?? "") : window.location.search,
+      );
+      mutate(params);
+      const query = params.toString();
+      const nextHref = `${pathname}${query ? `?${query}` : ""}`;
+      if (typeof window !== "undefined") {
+        window.history.replaceState(null, "", nextHref);
+      }
+      router.replace(nextHref, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
+
+  const handleLibraryMetricIdsChange = useCallback(
+    (nextIds: string[]) => {
+      setLibraryMetricIds(nextIds);
+      replaceCreativeQueryParam((params) => {
+        params.delete("preset");
+      });
+    },
+    [replaceCreativeQueryParam],
+  );
+
+  const handleLibraryPresetChange = useCallback(
+    (presetId: string) => {
+      replaceCreativeQueryParam((params) => {
+        params.set("tab", "library");
+        params.set("preset", presetId);
+      });
+    },
+    [replaceCreativeQueryParam],
   );
 
   const handleEvidenceOpen = useCallback((card: BriefingCreativeCard) => {
@@ -1105,7 +1413,7 @@ export function CreativesBriefingPage() {
     (cards: BriefingCreativeCard[] = selectedActionCards) => {
       if (cards.length === 0) return;
       setEvidenceDrawerState(CLOSED_EVIDENCE_DRAWER_STATE);
-      setCompareDrawerState({ open: true, cards: cards.slice(0, 5) });
+      setCompareDrawerState({ open: true, cards: cards.slice(0, 4) });
     },
     [selectedActionCards],
   );
@@ -1162,6 +1470,64 @@ export function CreativesBriefingPage() {
     );
   }, [assetLibraryRows]);
 
+  const handleCompareLibraryRows = useCallback((rows: MetaCreativeRow[]) => {
+    if (rows.length < 2) return;
+    setEvidenceDrawerState(CLOSED_EVIDENCE_DRAWER_STATE);
+    setCompareDrawerState({
+      open: true,
+      cards: rows.slice(0, 4).map(briefingCardFromAssetRow),
+    });
+  }, []);
+
+  const handleShareLibraryRows = useCallback(
+    async (rows: MetaCreativeRow[], metricIds: string[], config?: {
+      title?: string;
+      expiration?: "3" | "7" | "14";
+      includeNotes?: boolean;
+      audience?: "buyer" | "creative_team" | "external";
+      includeCampaignNames?: boolean;
+      includeDecisionLanguage?: boolean;
+      allowCsv?: boolean;
+      snapshotOnly?: boolean;
+    }) => {
+      const metrics = supportedShareMetrics(metricIds);
+      const days = Number(config?.expiration ?? "7");
+      const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+      const response = await fetch("/api/creatives/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          title: config?.title ?? "Asset Library view",
+          businessId,
+          dateRange: `${libraryStart} - ${libraryEnd}`,
+          expiresAt,
+          metrics,
+          includeNotes: Boolean(config?.includeNotes),
+          audience: config?.audience ?? "buyer",
+          includeCampaignNames: config?.includeCampaignNames ?? true,
+          includeDecisionLanguage: config?.includeDecisionLanguage ?? true,
+          allowCsv: Boolean(config?.allowCsv),
+          snapshotOnly: config?.snapshotOnly ?? true,
+          filters: ["Asset Library", rows.length === librarySelectedRowIds.length ? "selected rows" : "visible rows"],
+          selectedRowIds: rows.map((row) => row.id),
+          totalRows: assetLibraryRows.length,
+          creatives: rows.map((row) => toSharedCreative(row)),
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.url) {
+        const message = payload && typeof payload === "object" && "message" in payload
+          ? String((payload as { message?: unknown }).message)
+          : "Share link could not be created.";
+        throw new Error(message);
+      }
+      const url = `${window.location.origin}${payload.url}`;
+      showToast({ type: "success", message: "Asset Library share link copied." });
+      return { url };
+    },
+    [assetLibraryRows.length, businessId, libraryEnd, librarySelectedRowIds.length, libraryStart, showToast],
+  );
+
   const handleLaunchEmptyNewTest = useCallback(() => {
     router.push(EMPTY_ACTION_LAUNCH_HREF);
   }, [router]);
@@ -1170,340 +1536,218 @@ export function CreativesBriefingPage() {
     return <div className="min-h-screen bg-slate-50 text-slate-900" />;
   }
 
-  return (
-    <div className="min-h-screen bg-slate-50 text-slate-900" style={pageStyle}>
-      <PulseStrip
-        sticky={true}
-        left={<PulseScope />}
-        center={
-          <PulseCenter
-            spendToday={todaySummaryQuery.data?.totals?.spend}
-            spendTarget={normalizedBriefingData?.pulse?.spendTarget}
-            spendHistory={normalizedBriefingData?.pulse?.spendHistory}
-            roas7d={sevenDaySummaryQuery.data?.totals?.roas}
-            roasTarget={normalizedBriefingData?.pulse?.rolling7dRoasTarget}
-            matureCount={matureCount}
-          />
-        }
-        right={
-          <PulseRight
-            metaStatus={metaStatusQuery.data}
-            trackingAnomalyActive={trackingAnomalyActive}
-            engineVersion={normalizedBriefingData?.pulse?.engineVersion}
-            calibratedAgo={normalizedBriefingData?.pulse?.calibratedAgo}
-          />
-        }
-        jumpNav={<PulseJumpNav />}
-      />
+  const activeCards =
+    activeLane === "action"
+      ? filteredActionCards
+      : activeLane === "watching"
+        ? filteredWatchingItems
+        : filteredHealthyItems;
+  const activeSelectedIds =
+    activeLane === "action"
+      ? actionSelectedIds
+      : activeLane === "watching"
+        ? watchingSelectedIds
+        : healthySelectedIds;
+  const activeSelectedCards =
+    activeLane === "action"
+      ? selectedActionCards.filter((card) => activeCards.some((item) => cardId(item) === cardId(card)))
+      : activeLane === "watching"
+        ? selectedWatchingCards.filter((card) => activeCards.some((item) => cardId(item) === cardId(card)))
+        : selectedHealthyCards.filter((card) => activeCards.some((item) => cardId(item) === cardId(card)));
+  const topCreative = [...actionCards, ...watchingItems, ...healthyItems]
+    .filter((card) => Number.isFinite(card.roas ?? Number.NaN))
+    .sort((a, b) => numberOrZero(b.roas) - numberOrZero(a.roas))[0] ?? null;
 
-      <div className="max-w-[1440px] mx-auto px-6 pt-5 pb-2">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <h1 className="text-[22px] font-semibold text-slate-900 tracking-tight">
-              Creatives
-            </h1>
-            <div className="mt-0.5 text-[12.5px] text-slate-500">
-              Meta creative decisions and asset inventory · {formatTodayLabel()}
-            </div>
+  return (
+    <div className="ad-final" style={pageStyle} data-testid="creative-platform-page">
+      <div className="topbar">
+        <div>
+          <div className="crumbs">Platforms · Meta · <b>Creatives</b></div>
+          <h1 className="page-title">{workspaceMode === "library" ? "Asset Library" : "Creative · Decision Center"}</h1>
+        </div>
+        <div className="right-tools">
+          <div className="lane-tabs" style={{ border: "1px solid var(--border-2)", borderRadius: "var(--r)", padding: 0, background: "#fff" }}>
+            <button type="button" className={`tab ${workspaceMode === "briefing" ? "active" : ""}`} style={{ padding: "8px 14px" }} onClick={() => handleWorkspaceModeChange("briefing")}>Briefing</button>
+            <button type="button" className={`tab ${workspaceMode === "library" ? "active" : ""}`} style={{ padding: "8px 14px" }} onClick={() => handleWorkspaceModeChange("library")}>Asset Library</button>
           </div>
-          <WorkspaceSwitcher
-            mode={workspaceMode}
-            actionCount={visibleActionItems.length}
-            watchingCount={watchingItems.length}
-            healthyCount={healthyItems.length}
-            assetCount={assetLibraryRows.length}
-            onChange={handleWorkspaceModeChange}
-          />
+          <HtmlDateRangePicker value={dateRange} onApply={handleDateRangeApply} />
+          <span className={`chip ${trackingAnomalyActive ? "chip--action" : "chip--healthy"}`}><span className="dot" />{trackingAnomalyActive ? "Action gated" : "Meta connected"}</span>
         </div>
       </div>
 
-      {workspaceMode === "briefing" ? (
-      <section className="max-w-[1440px] mx-auto px-6 py-4" data-workspace-mode="briefing">
-        <div className="flex items-baseline gap-3 mb-3">
-          <h2 className="text-[15px] font-semibold text-slate-900">
-            Decision briefing
-          </h2>
-          <span className="text-[12px] text-slate-500">
-            Today · {formatTodayLabel()}
-          </span>
-          <span className="ml-auto text-[11.5px] text-slate-500">
-            Server-owned recommendations; UI does not calculate actions
-          </span>
+      <CreativePulseFinal
+        spendToday={todaySummaryQuery.data?.totals?.spend}
+        conversions={todaySummaryQuery.data?.totals?.conversions}
+        roas7d={sevenDaySummaryQuery.data?.totals?.roas}
+        roasTarget={normalizedBriefingData?.pulse?.rolling7dRoasTarget}
+        topCreative={topCreative}
+        profile={engineProfile}
+        deferredCount={deferredCount}
+        trackingAnomalyActive={trackingAnomalyActive}
+        engineVersion={normalizedBriefingData?.pulse?.engineVersion}
+      />
+
+      {trackingAnomalyActive ? (
+        <div className="banner danger" data-tracking-blocker>
+          <div className="icon">!</div>
+          <div className="msg"><b>Tracking is currently in anomaly.</b><span className="sub">{trackingBlockerDetail ?? "Confirm tracking before pause or duplicate actions."}</span></div>
         </div>
+      ) : null}
 
-        <TrackingBlockerBanner
-          visible={trackingAnomalyActive}
-          detail={trackingBlockerDetail}
-        />
+      {creativeDataSetupNotice ? (
+        <div className="banner warn">
+          <div className="icon">i</div>
+          <div className="msg"><b>{creativeDataSetupNotice.title}</b><span className="sub">{creativeDataSetupNotice.body}</span></div>
+        </div>
+      ) : null}
 
-        {creativeDataSetupNotice ? (
-          <CreativeDataSetupNotice notice={creativeDataSetupNotice} />
-        ) : null}
+      {briefingError ? (
+        <div className="banner danger">
+          <div className="icon">!</div>
+          <div className="msg"><b>Briefing could not load.</b><span className="sub">{briefingError}</span></div>
+        </div>
+      ) : null}
 
-        <CreativeEngineProfileStrip
-          profile={engineProfile}
-          dataSource={normalizedBriefingData?.source?.dataSource}
-          asOf={normalizedBriefingData?.source?.asOf}
-        />
-
-        {briefingError ? (
-          <div className="rounded-lg border border-rose-200 bg-rose-50/60 px-4 py-3 mb-4 flex items-start gap-3">
-            <AlertTriangle
-              className="text-rose-600 mt-0.5 inline-block shrink-0"
-              size={18}
-              aria-hidden="true"
-            />
-            <div className="flex-1 min-w-0">
-              <div className="text-[13px] font-semibold text-rose-900 leading-snug">
-                Briefing could not load.
-              </div>
-              <div className="text-[12px] text-rose-800/80 mt-0.5">
-                {briefingError}
-              </div>
-            </div>
+      {workspaceMode === "briefing" ? (
+        <>
+          <div className="lane-tabs">
+            <CreativeLaneTab active={activeLane === "action"} className="action" label="Action Now" count={filteredActionCards.length} onClick={() => setActiveLane("action")} />
+            <CreativeLaneTab active={activeLane === "watching"} className="watch" label="Watching" count={filteredWatchingItems.length} onClick={() => setActiveLane("watching")} />
+            <CreativeLaneTab active={activeLane === "healthy"} className="healthy" label="Healthy" count={filteredHealthyItems.length} onClick={() => setActiveLane("healthy")} />
+            <div style={{ flex: 1 }} />
+            <div className="tab" style={{ color: "var(--muted)" }}><span className="chip chip--ghost"><span className="dot" />Deferred {deferredCount}</span></div>
           </div>
-        ) : null}
 
-        <BulkToolbar
-          selectedCount={actionSelectedIds.length}
-          variant="creative"
-          scope="action"
-          actions={[
-            "cut",
-            "demote",
-            "launch_new",
-            "add_existing",
-            "compare",
-            "clear",
-          ]}
-          trackingBlocked={trackingAnomalyActive}
-          trackingConfirmBehavior="consumer"
-          stickyTop="var(--briefing-bulk-top)"
-          onAction={(action) =>
-            handleBulkToolbarAction(action, selectedActionCards)
-          }
-          onClear={() => clearSelectedIdsForLane(actionSelectedIds)}
-        />
+          <div className="controls" data-creative-secondary-controls>
+            <div className="group" role="group" aria-label="Creative action filter">
+              {([
+                ["all", "All"],
+                ["promote", "Promote"],
+                ["scale", "Scale"],
+                ["cut", "Cut"],
+                ["fresh_test", "Fresh test"],
+                ["add_existing", "Add existing"],
+              ] as Array<[CreativeActionFilter, string]>).map(([value, label]) => (
+                <button key={value} type="button" className={actionFilter === value ? "on" : ""} onClick={() => setActionFilter(value)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="group" role="group" aria-label="Campaign label filter">
+              {([
+                ["all", "All campaigns"],
+                ["main", "Main"],
+                ["test", "Test"],
+                ["mixed", "Mixed"],
+              ] as Array<[CreativeCampaignFilter, string]>).map(([value, label]) => (
+                <button key={value} type="button" className={campaignFilter === value ? "on" : ""} onClick={() => setCampaignFilter(value)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="spacer" />
+            <label className="search">
+              <Search className="inline-block shrink-0" size={14} aria-hidden="true" />
+              <input
+                type="search"
+                value={briefingSearch}
+                onChange={(event) => setBriefingSearch(event.currentTarget.value)}
+                placeholder="creative / campaign / ad set"
+              />
+            </label>
+          </div>
 
-        <div className="mb-6" data-lane-section="action" id="lane-action">
-          <LaneHeader
-            laneKey="action"
-            title="Action now"
-            count={visibleActionItems.length}
-            subtitle={
-              deferredCount > 0
-                ? `${deferredCount} deferred — back tomorrow 9am`
-                : "High-confidence engine recommendations awaiting your call."
-            }
-            collapsed={collapsed.action}
-            onToggle={handleToggleLane}
-          />
-          {collapsed.action ? null : (
-            <div className="space-y-3">
-              {isInitialLoading ? <LaneSkeleton /> : null}
-              {!isInitialLoading &&
-              !briefingError &&
-              visibleActionItems.length === 0 &&
-              !trackingAnomalyActive &&
-              !creativeDataSetupNotice ? (
+          <div className="workspace workspace-rel">
+            <div className="lane-stack">
+              {isInitialLoading ? (
+                <div className="ccard-grid">
+                  {Array.from({ length: 6 }).map((_, index) => (
+                    <div key={index} className="ccard-tile animate-pulse"><div className="tile-thumb" /><div className="tile-body" /></div>
+                  ))}
+                </div>
+              ) : activeCards.length === 0 && trackingAnomalyActive && !briefingError && !creativeDataSetupNotice ? (
+                <div className="lane-empty" data-tracking-blocker>
+                  Tracking needs attention before action triage.
+                </div>
+              ) : activeCards.length === 0 && !briefingError && !creativeDataSetupNotice ? (
                 <EmptyActionState
                   matureCount={matureCount}
                   watchingCount={watchingItems.length}
                   onLaunchNewTest={handleLaunchEmptyNewTest}
-                  onBrowseAssetLibrary={() =>
-                    handleWorkspaceModeChange("library")
-                  }
+                  onBrowseAssetLibrary={() => handleWorkspaceModeChange("library")}
                 />
-              ) : null}
-              {!isInitialLoading &&
-              !briefingError &&
-              visibleActionItems.length === 0 &&
-              trackingAnomalyActive ? (
-                <div className="rounded-2xl border border-rose-200 bg-rose-50/60 px-5 py-4 text-[12.5px] text-rose-900">
-                  <div className="font-semibold">
-                    Tracking needs attention before action triage.
-                  </div>
-                  <div className="mt-1 text-rose-800/80">
-                    No high-confidence action cards are shown while tracking is
-                    degraded. Resolve the blocker or open Watching for
-                    diagnostic cases.
+              ) : (
+                <div className="ccard-grid">
+                  {activeCards.map((card) => (
+                    <ActionNowCard
+                      key={cardId(card)}
+                      card={card}
+                      selected={selectedSet.has(cardId(card))}
+                      onSelectChange={handleSelectChange}
+                      deferred={deferState.isDeferred(getCreativeScopeId(card))}
+                      cutting={cuttingIds.has(cardId(card))}
+                      cutPending={cutPendingIds.has(cardId(card)) || bulkPendingIds.has(cardId(card))}
+                      onDefer={handleDefer}
+                      onUndefer={handleUndefer}
+                      onCut={handleCutRequest}
+                      onLaunchpadOpen={handleLaunchpadOpen}
+                      evidenceOpen={activeEvidenceCardId === cardId(card)}
+                      onEvidenceOpen={handleEvidenceOpen}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {activeSelectedCards.length > 0 ? (
+                <div className="bulkbar">
+                  <span>{activeSelectedCards.length} selected · {activeSelectedCards.slice(0, 2).map(cardName).join(", ")}</span>
+                  <div className="acts">
+                    <button type="button" className="btn" onClick={() => handleBulkToolbarAction("compare", activeSelectedCards)}>Compare</button>
+                    <button type="button" className="btn" onClick={() => handleBulkToolbarAction("demote", activeSelectedCards)}>Send as Promote ↗</button>
+                    <button type="button" className="btn" onClick={() => handleBulkToolbarAction("launch_new", activeSelectedCards)}>Send as Fresh test ↗</button>
+                    <button type="button" className="btn btn--danger" onClick={() => handleBulkToolbarAction("cut", activeSelectedCards)}>Pause</button>
+                    <button type="button" className="btn btn--ghost" onClick={() => clearSelectedIdsForLane(activeSelectedIds)}>×</button>
                   </div>
                 </div>
               ) : null}
-              {visibleActionItems.length > 0
-                ? visibleActionItems.map((item) =>
-                    item.type === "rollup" && item.rollup ? (
-                      <CrossPlacementCard
-                        key={item.key}
-                        rollup={item.rollup}
-                        selected={selectedSet.has(actionItemId(item))}
-                        onSelectChange={handleSelectChange}
-                        evidenceOpen={activeEvidenceCardId === actionItemId(item)}
-                        onEvidenceOpen={handleEvidenceOpen}
-                        deferred={deferState.isDeferred(
-                          getCreativeScopeId(item.rollup.primaryRec),
-                        )}
-                        onDefer={handleDefer}
-                        onUndefer={handleUndefer}
-                        onLaunchpadOpen={handleLaunchpadOpen}
-                        cutting={cuttingIds.has(actionItemId(item))}
-                      />
-                    ) : item.card ? (
-                      <ActionNowCard
-                        key={item.key}
-                        card={item.card}
-                        selected={selectedSet.has(cardId(item.card))}
-                        onSelectChange={handleSelectChange}
-                        deferred={deferState.isDeferred(
-                          getCreativeScopeId(item.card),
-                        )}
-                        cutting={cuttingIds.has(cardId(item.card))}
-                        cutPending={
-                          cutPendingIds.has(cardId(item.card)) ||
-                          bulkPendingIds.has(cardId(item.card))
-                        }
-                        onDefer={handleDefer}
-                        onUndefer={handleUndefer}
-                        onCut={handleCutRequest}
-                        onLaunchpadOpen={handleLaunchpadOpen}
-                        evidenceOpen={activeEvidenceCardId === cardId(item.card)}
-                        onEvidenceOpen={handleEvidenceOpen}
-                      />
-                    ) : null,
-                  )
-                : null}
             </div>
-          )}
-        </div>
-
-        <div className="mb-6" data-lane-section="watching" id="lane-watching">
-          <LaneHeader
-            laneKey="watching"
-            title="Watching"
-            count={watchingItems.length}
-            subtitle={
-              collapsed.watching
-                ? "Low-confidence and diagnose cases. Click expand to triage."
-                : "Low-confidence cases · defer 24h or open evidence."
-            }
-            collapsed={collapsed.watching}
-            onToggle={handleToggleLane}
-          />
-          {collapsed.watching ? null : (
-            <>
-              <BulkToolbar
-                selectedCount={watchingSelectedIds.length}
-                variant="creative"
-                scope="watching"
-                actions={["launch_new", "add_existing", "compare", "clear"]}
-                trackingBlocked={trackingAnomalyActive}
-                trackingConfirmBehavior="consumer"
-                stickyTop="var(--briefing-bulk-top)"
-                onAction={(action) =>
-                  handleBulkToolbarAction(action, selectedWatchingCards)
-                }
-                onClear={() => clearSelectedIdsForLane(watchingSelectedIds)}
-              />
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
-                {watchingItems.map((card) => (
-                  <WatchingCard
-                    key={cardId(card)}
-                    card={card}
-                    selected={selectedSet.has(cardId(card))}
-                    onSelectChange={handleSelectChange}
-                    deferred={deferState.isDeferred(getCreativeScopeId(card))}
-                    onDefer={handleDefer}
-                    onUndefer={handleUndefer}
-                    onLaunchpadOpen={handleLaunchpadOpen}
-                    evidenceOpen={activeEvidenceCardId === cardId(card)}
-                    onEvidenceOpen={handleEvidenceOpen}
-                  />
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className="mb-2" data-lane-section="healthy" id="lane-healthy">
-          <LaneHeader
-            laneKey="healthy"
-            title="Healthy"
-            count={healthyItems.length}
-            subtitle={
-              collapsed.healthy
-                ? "Stable keep + scale. Operator rarely opens this lane."
-                : "Compact list — name, label, ROAS only."
-            }
-            collapsed={collapsed.healthy}
-            onToggle={handleToggleLane}
-          />
-          {collapsed.healthy ? null : (
-            <div className="rounded-xl border border-slate-200 bg-white overflow-hidden divide-y divide-slate-100 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-              {healthyItems.slice(0, 20).map((card) => (
-                <HealthyRow
-                  key={cardId(card)}
-                  card={card}
-                  selected={selectedSet.has(cardId(card))}
-                  onSelectChange={handleSelectChange}
-                />
-              ))}
-              {healthyItems.length > 20 ? (
-                <div className="px-3 py-2 text-[11px] text-slate-400 bg-slate-50 text-center">
-                  + {healthyItems.length - 20} more healthy creatives in{" "}
-                  <button
-                    type="button"
-                    className="font-medium text-slate-600 underline decoration-slate-300 underline-offset-2 hover:text-slate-900"
-                    onClick={() => handleWorkspaceModeChange("library")}
-                  >
-                    Asset Library
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          )}
-        </div>
-
-        <span className="sr-only">
-          {actionSelectedIds.length} action selections prepared for Phase 3.4
-        </span>
-        <span className="sr-only">
-          {watchingIds.length + healthyIds.length} non-action lane rows loaded
-        </span>
-      </section>
-      ) : null}
-
-      {workspaceMode === "library" ? (
-      <section className="max-w-[1440px] mx-auto px-6 py-4" data-workspace-mode="library">
+          </div>
+        </>
+      ) : (
         <SectionErrorBoundary
           title="Asset Library is temporarily unavailable."
-          resetKey={`${businessId}:${libraryStart}:${todayIso}:${assetLibraryRows.length}`}
+          resetKey={`${businessId}:${libraryStart}:${libraryEnd}:${assetLibraryRows.length}`}
         >
           {assetLibraryError ? (
-            <div className="mt-8 rounded-2xl border border-amber-200 bg-amber-50/70 px-5 py-4 text-[12.5px] text-amber-950">
-              <div className="font-semibold">Asset Library could not load.</div>
-              <div className="mt-1 text-amber-900/80">{assetLibraryError}</div>
-            </div>
+            <div className="lane-stack"><div className="lane-empty">{assetLibraryError}</div></div>
           ) : (
             <AssetLibrarySection
               rows={assetLibraryRows}
               emptyMessage={assetLibraryEmptyMessage}
               defaultCurrency={activeBusiness?.currency ?? null}
               selectedMetricIds={libraryMetricIds}
-              onSelectedMetricIdsChange={setLibraryMetricIds}
+              onSelectedMetricIdsChange={handleLibraryMetricIdsChange}
+              onPresetChange={handleLibraryPresetChange}
               selectedRowIds={librarySelectedRowIds}
               highlightedRowId={libraryHighlightedRowId}
               onToggleRow={handleToggleLibraryRow}
               onToggleAll={handleToggleAllLibraryRows}
               onOpenRow={setLibraryHighlightedRowId}
+              onCompareRows={handleCompareLibraryRows}
+              onShareRows={handleShareLibraryRows}
+              dateRangeLabel={windowLabel(dateRange.window)}
+              dateRangeDetail={`${libraryStart} - ${libraryEnd}`}
+              onDateRangeClick={() => {
+                const trigger = document.querySelector<HTMLButtonElement>(".date-picker-wrap .date-chip");
+                trigger?.click();
+              }}
               onSortedRowsChange={(rows: MetaCreativeRow[]) => {
-                if (!libraryHighlightedRowId && rows[0])
-                  setLibraryHighlightedRowId(rows[0].id);
+                if (!libraryHighlightedRowId && rows[0]) setLibraryHighlightedRowId(rows[0].id);
               }}
             />
           )}
         </SectionErrorBoundary>
-      </section>
-      ) : null}
+      )}
       <LaunchpadOverlay
         open={launchpadOverlayState.open && Boolean(launchpadOverlayItem)}
         mode={launchpadOverlayState.mode ?? "fresh_test"}
@@ -1529,14 +1773,23 @@ export function CreativesBriefingPage() {
           if (card) void handleCut(card);
         }}
       />
-      <EvidencePopover
+      <CreativeEvidenceDrawer
         open={Boolean(activeEvidenceCard)}
-        title="Evidence"
-        subtitle={activeEvidenceCard ? cardName(activeEvidenceCard) : null}
-        sections={activeEvidenceCard ? buildEvidenceSections(activeEvidenceCard) : []}
-        variant="creative"
-        presentation="drawer"
+        card={activeEvidenceCard}
+        businessId={businessId}
+        deferred={activeEvidenceCard ? deferState.isDeferred(getCreativeScopeId(activeEvidenceCard)) : false}
+        cutPending={activeEvidenceCardId ? cutPendingIds.has(activeEvidenceCardId) : false}
         onClose={() => setEvidenceDrawerState(CLOSED_EVIDENCE_DRAWER_STATE)}
+        onCut={handleCutRequest}
+        onDefer={handleDefer}
+        onUndefer={handleUndefer}
+        onLaunchpad={(card, mode) => {
+          if (mode === "add_existing") {
+            handleBulkLaunchpadTeleport([card], mode);
+            return;
+          }
+          handleLaunchpadOpen({ card, mode });
+        }}
       />
       <CompareDrawerHost
         open={compareDrawerState.open}
@@ -1723,9 +1976,9 @@ function PulseCenter({
   return (
     <>
       <div className="h-5 w-px bg-slate-200" />
-      <button
+      <div
         data-pulse="spend"
-        className="flex items-center gap-2 hover:bg-slate-50 rounded-md px-1.5 py-1"
+        className="flex items-center gap-2 rounded-md px-1.5 py-1"
       >
         <span className="text-slate-500">Spend today</span>
         <span className="font-mono tabular-nums font-semibold text-slate-900">
@@ -1749,10 +2002,10 @@ function PulseCenter({
         <span className="text-slate-500 font-mono tabular-nums">
           {spendPct}%
         </span>
-      </button>
-      <button
+      </div>
+      <div
         data-pulse="roas"
-        className="flex items-center gap-2 hover:bg-slate-50 rounded-md px-1.5 py-1"
+        className="flex items-center gap-2 rounded-md px-1.5 py-1"
       >
         <span className="text-slate-500">7d ROAS</span>
         <span className="font-mono tabular-nums font-semibold text-slate-900">
@@ -1772,16 +2025,16 @@ function PulseCenter({
           </span>
         </span>
         <span className="text-slate-400">vs {formatRoas(targetRoas)}</span>
-      </button>
-      <button
+      </div>
+      <div
         data-pulse="mature"
-        className="flex items-center gap-1.5 hover:bg-slate-50 rounded-md px-1.5 py-1"
+        className="flex items-center gap-1.5 rounded-md px-1.5 py-1"
       >
         <span className="text-slate-500">Mature</span>
         <span className="font-mono tabular-nums font-semibold text-slate-900">
           {matureCount}
         </span>
-      </button>
+      </div>
       <div className="h-5 w-px bg-slate-200" />
     </>
   );
@@ -1807,9 +2060,9 @@ function PulseRight({
 
   return (
     <div className="flex flex-wrap items-center gap-3 text-slate-500">
-      <button
+      <div
         data-pulse="engine"
-        className="flex flex-shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 whitespace-nowrap hover:bg-slate-50"
+        className="flex flex-shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 whitespace-nowrap"
       >
         <span
           className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider ${
@@ -1827,10 +2080,10 @@ function PulseRight({
           {engineVersion || "Engine v3"}
         </span>
         <span className="text-slate-400">· calibrated {calibratedLabel}</span>
-      </button>
-      <button
+      </div>
+      <div
         data-pulse="tracking"
-        className="flex flex-shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 whitespace-nowrap hover:bg-slate-50"
+        className="flex flex-shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 whitespace-nowrap"
         id="pulse-tracking"
       >
         {trackingAnomalyActive ? (
@@ -1853,7 +2106,7 @@ function PulseRight({
             ? "Tracking anomaly active"
             : "Tracking healthy"}
         </span>
-      </button>
+      </div>
       <span className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap">
         <span className="text-slate-400">
           <RefreshCw

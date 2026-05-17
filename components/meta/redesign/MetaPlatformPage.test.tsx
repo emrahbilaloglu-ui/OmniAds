@@ -2,13 +2,16 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { metaAnomaly, metaHealthy, metaLanePayload, metaPulse, metaRec } from "@/components/meta/redesign/test-fixtures";
-import { MetaPlatformPage } from "@/components/meta/redesign/MetaPlatformPage";
+import { MetaPlatformPage, metaAdsetPauseNotice } from "@/components/meta/redesign/MetaPlatformPage";
 
 const state = vi.hoisted(() => ({
   routerPush: vi.fn(),
   routerReplace: vi.fn(),
   queryKeys: [] as unknown[][],
   lanePayload: null as any,
+  pulsePayload: null as any,
+  labelCampaigns: [] as any[],
+  campaignLabels: [] as any[],
   search: "window=28d",
 }));
 
@@ -31,11 +34,13 @@ vi.mock("@tanstack/react-query", () => ({
   useQuery: (input: { queryKey: unknown[] }) => {
     state.queryKeys.push(input.queryKey);
     const key = String(input.queryKey[0]);
-    if (key === "meta-account-pulse") return queryState(metaPulse());
+    if (key === "meta-account-pulse") return queryState(state.pulsePayload ?? metaPulse());
     if (key === "meta-lanes") return queryState(state.lanePayload ?? metaLanePayload());
     if (key === "meta-anomalies") {
       return queryState({ anomalies: [metaAnomaly()], snapshotDate: "2026-05-07", count: 1 });
     }
+    if (key === "meta-campaigns-for-labels") return queryState({ rows: state.labelCampaigns });
+    if (key === "meta-campaign-labels") return queryState({ labels: state.campaignLabels });
     if (key === "triage-state") return queryState({ rows: [], deferredCount: 0 });
     return queryState(null);
   },
@@ -55,6 +60,9 @@ describe("MetaPlatformPage", () => {
   beforeEach(() => {
     state.queryKeys = [];
     state.lanePayload = null;
+    state.pulsePayload = null;
+    state.labelCampaigns = [];
+    state.campaignLabels = [];
     state.search = "window=28d";
     state.routerPush.mockClear();
     state.routerReplace.mockClear();
@@ -64,19 +72,110 @@ describe("MetaPlatformPage", () => {
     const html = renderToStaticMarkup(
       <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
     );
-    expect(html).toContain("Meta Decision Center");
+    expect(html).toContain("Meta · Decision Center");
     expect(html).toContain("Policy delivery block");
     expect(html).toContain("Action Now");
     expect(html).toContain("Watching");
-    expect(html).toContain("Healthy ASC");
-    expect(html).toContain('id="non-sales"');
-    expect(html).toContain("Out of Sales Scope");
+    expect(html).toContain("Healthy");
+    expect(html).toContain("Non-sales");
     expect(html).toContain("Archive");
-    expect(html).toContain("Audience Builder");
-    expect(html).toContain("data-meta-audience-builder");
+    expect(html).toContain("Spend · today");
+    expect(html).toContain("avg $350/day");
+    expect(html).toContain("+15%");
+    expect(html).toContain("7d avg 2/day");
+    expect(html).toContain("Run snapshot");
     expect(state.queryKeys.map((key) => key[0])).toContain("meta-lanes");
-    expect(state.queryKeys).toContainEqual(["meta-account-pulse", "biz_1", "28d", "active"]);
-    expect(state.queryKeys).toContainEqual(["meta-lanes", "biz_1", "28d", "active"]);
+    expect(state.queryKeys).toContainEqual(["meta-account-pulse", "biz_1", "28d", "active", expect.any(String), expect.any(String)]);
+    expect(state.queryKeys).toContainEqual(["meta-lanes", "biz_1", "28d", "active", expect.any(String), expect.any(String)]);
+  });
+
+  it("exposes campaign label management as a modal trigger without rendering the manager inline", () => {
+    state.pulsePayload = metaPulse({
+      labelCoverage: {
+        activeCampaigns: 2,
+        labeledCampaigns: 1,
+        unlabeledCampaigns: 1,
+        latestUpdatedAt: "2026-05-15T10:00:00.000Z",
+      },
+    });
+    state.labelCampaigns = [
+      {
+        id: "cmp_main",
+        accountId: "act_1",
+        name: "Main ASC",
+        status: "ACTIVE",
+        spend: 1200,
+        roas: 3.1,
+      },
+      {
+        id: "cmp_test",
+        accountId: "act_1",
+        name: "Creative Test",
+        status: "ACTIVE",
+        spend: 240,
+        roas: 1.4,
+      },
+    ];
+    state.campaignLabels = [
+      {
+        businessId: "biz_1",
+        campaignId: "cmp_main",
+        kind: "main",
+        testDimension: null,
+        source: "user",
+        providerAccountId: "act_1",
+        campaignName: "Main ASC",
+        labeledBy: "user_1",
+        labeledAt: "2026-05-15T10:00:00.000Z",
+        updatedAt: "2026-05-15T10:00:00.000Z",
+      },
+    ];
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+
+    expect(html).toContain("Manage labels");
+    expect(html).toContain('aria-label="Manage campaign labels"');
+    expect(html).not.toContain('href="#campaign-labels"');
+    expect(html).not.toContain("data-meta-campaign-labels-section");
+    expect(html).not.toContain("data-meta-label-management-modal");
+    expect(html).not.toContain("Main ASC");
+    expect(html).not.toContain("Creative Test");
+    expect(html).toContain("1 unlabeled");
+    expect(state.queryKeys.map((key) => key[0])).not.toContain("meta-campaigns-for-labels");
+    expect(state.queryKeys.map((key) => key[0])).not.toContain("meta-campaign-labels");
+  });
+
+  it("formats verified ad set pause success without duplicating the action name", () => {
+    expect(metaAdsetPauseNotice("PAUSED")).toBe("Ad set paused in Meta.");
+    expect(metaAdsetPauseNotice(undefined)).toBe("Ad set paused in Meta.");
+    expect(metaAdsetPauseNotice("ACTIVE")).toBe("Ad set pause verified with status ACTIVE.");
+  });
+
+  it("renders persisted acted ad set recommendations with a resume affordance", () => {
+    state.lanePayload = metaLanePayload({
+      actionNow: [
+        metaRec({
+          id: "rec_acted",
+          level: "adset",
+          adsetId: "adset_1",
+          adsetName: "Paused Adset",
+          type: "adset_cut_spend",
+          operatorResponseState: "acted",
+        }),
+      ],
+      watching: [],
+      counts: { actionNow: 1, watching: 0, healthy: 1, nonSales: 0, archive: 0 },
+    });
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+
+    expect(html).toContain('data-operator-response="acted"');
+    expect(html).toContain("Resume adset");
+    expect(html).not.toContain('disabled=""');
   });
 
   it("threads the selected status filter into Pulse and lane queries", () => {
@@ -87,11 +186,12 @@ describe("MetaPlatformPage", () => {
     );
 
     expect(html).toContain('data-status-filter-option="all"');
-    expect(state.queryKeys).toContainEqual(["meta-account-pulse", "biz_1", "28d", "all"]);
-    expect(state.queryKeys).toContainEqual(["meta-lanes", "biz_1", "28d", "all"]);
+    expect(state.queryKeys).toContainEqual(["meta-account-pulse", "biz_1", "28d", "all", expect.any(String), expect.any(String)]);
+    expect(state.queryKeys).toContainEqual(["meta-lanes", "biz_1", "28d", "all", expect.any(String), expect.any(String)]);
   });
 
   it("renders closed entities in the archive surface without action cards", () => {
+    state.search = "window=28d&lane=archive";
     state.lanePayload = metaLanePayload({
       archive: [
         {
@@ -107,8 +207,23 @@ describe("MetaPlatformPage", () => {
           lastKnownWindow: "28d",
           diagnosticNote: null,
         },
+        {
+          id: "adset_archived",
+          level: "adset",
+          name: "Archived Adset",
+          campaignId: "cmp_paused",
+          campaignName: "Paused ASC",
+          status: "ARCHIVED",
+          statusLabel: "Archived",
+          spend: 0,
+          roas: 0,
+          cpa: null,
+          purchases: 0,
+          lastKnownWindow: "28d",
+          diagnosticNote: null,
+        },
       ],
-      counts: { actionNow: 1, watching: 1, healthy: 1, nonSales: 0, archive: 1 },
+      counts: { actionNow: 1, watching: 1, healthy: 1, nonSales: 0, archive: 2 },
     });
 
     const html = renderToStaticMarkup(
@@ -118,10 +233,14 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain("data-meta-archive");
     expect(html).toContain("Paused ASC");
     expect(html).toContain("Paused 12d");
+    expect(html).toContain("Resume campaign");
+    expect(html).toContain("Archived Adset");
+    expect(html).not.toContain("Resume adset");
     expect(html).toContain("$640");
   });
 
   it("renders the Out of Sales Scope lane when nonSales entries are present", () => {
+    state.search = "window=28d&lane=nonSales";
     state.lanePayload = metaLanePayload({
       nonSales: [
         metaRec({
@@ -138,15 +257,13 @@ describe("MetaPlatformPage", () => {
     const html = renderToStaticMarkup(
       <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
     );
-    const nonSalesSection = sectionHtml(html, "non-sales", "archive");
-
-    expect(nonSalesSection).toContain('id="non-sales"');
-    expect(nonSalesSection).toContain("Out of Sales Scope");
-    expect(nonSalesSection).toContain("Video Views");
-    expect(nonSalesSection).not.toContain('type="checkbox"');
+    expect(html).toContain("Non-sales");
+    expect(html).toContain("Video Views");
+    expect(html).not.toContain('type="checkbox"');
   });
 
   it("renders an empty Out of Sales Scope lane with a zero count", () => {
+    state.search = "window=28d&lane=nonSales";
     state.lanePayload = metaLanePayload({
       nonSales: [],
       counts: { actionNow: 1, watching: 1, healthy: 1, nonSales: 0, archive: 0 },
@@ -155,14 +272,13 @@ describe("MetaPlatformPage", () => {
     const html = renderToStaticMarkup(
       <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
     );
-    const nonSalesSection = sectionHtml(html, "non-sales", "archive");
-
-    expect(nonSalesSection).toContain("Out of Sales Scope");
-    expect(nonSalesSection).toContain(">0</span>");
-    expect(nonSalesSection).toContain("No non-purchase entities in the current window.");
+    expect(html).toContain("Non-sales");
+    expect(html).toContain(">0</span>");
+    expect(html).toContain("No non-purchase entities in the current window.");
   });
 
   it("renders the cohort chip inside the Out of Sales Scope lane", () => {
+    state.search = "window=28d&lane=nonSales";
     state.lanePayload = metaLanePayload({
       nonSales: [
         metaRec({
@@ -178,12 +294,11 @@ describe("MetaPlatformPage", () => {
     const html = renderToStaticMarkup(
       <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
     );
-    const nonSalesSection = sectionHtml(html, "non-sales", "archive");
-
-    expect(nonSalesSection).toContain('data-cohort-chip="upper_funnel"');
+    expect(html).toContain('data-cohort-chip="upper_funnel"');
   });
 
   it("renders upper-funnel nonSales entries with the informational card", () => {
+    state.search = "window=28d&lane=nonSales";
     state.lanePayload = metaLanePayload({
       nonSales: [
         metaRec({
@@ -209,12 +324,11 @@ describe("MetaPlatformPage", () => {
     const html = renderToStaticMarkup(
       <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
     );
-    const nonSalesSection = sectionHtml(html, "non-sales", "archive");
-
-    expect(nonSalesSection).toContain('data-card="meta-upper-funnel-informational"');
+    expect(html).toContain('data-card="meta-upper-funnel-informational"');
   });
 
   it("keeps non-upper-funnel nonSales entries on MetaActionCard", () => {
+    state.search = "window=28d&lane=nonSales";
     state.lanePayload = metaLanePayload({
       nonSales: [
         metaRec({
@@ -233,10 +347,8 @@ describe("MetaPlatformPage", () => {
     const html = renderToStaticMarkup(
       <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
     );
-    const nonSalesSection = sectionHtml(html, "non-sales", "archive");
-
-    expect(nonSalesSection).toContain('data-card="meta-action"');
-    expect(nonSalesSection).not.toContain('data-card="meta-upper-funnel-informational"');
+    expect(html).toContain('data-card="meta-action"');
+    expect(html).not.toContain('data-card="meta-upper-funnel-informational"');
   });
 
   it("rolls mixed adset decisions up without duplicating individual cards", () => {
@@ -277,6 +389,7 @@ describe("MetaPlatformPage", () => {
   });
 
   it("nests healthy adsets under their campaign group", () => {
+    state.search = "window=28d&lane=healthy";
     state.lanePayload = metaLanePayload({
       healthy: [
         {
@@ -328,6 +441,7 @@ describe("MetaPlatformPage", () => {
   });
 
   it("shows uniform optimization and bid strategy only on the campaign row while keeping adset bid values", () => {
+    state.search = "window=28d&lane=healthy";
     state.lanePayload = metaLanePayload({
       healthy: [
         metaHealthy({
@@ -382,6 +496,7 @@ describe("MetaPlatformPage", () => {
   });
 
   it("marks mixed optimization at campaign level and shows each adset event", () => {
+    state.search = "window=28d&lane=healthy";
     state.lanePayload = metaLanePayload({
       healthy: [
         metaHealthy({
@@ -428,6 +543,7 @@ describe("MetaPlatformPage", () => {
   });
 
   it("marks mixed bid strategy at campaign level and keeps adset strategy details", () => {
+    state.search = "window=28d&lane=healthy";
     state.lanePayload = metaLanePayload({
       healthy: [
         metaHealthy({
@@ -480,6 +596,7 @@ describe("MetaPlatformPage", () => {
   });
 
   it("shows uniform optimization on synthetic campaign headers inferred from adsets", () => {
+    state.search = "window=28d&lane=healthy";
     state.lanePayload = metaLanePayload({
       healthy: [
         metaHealthy({

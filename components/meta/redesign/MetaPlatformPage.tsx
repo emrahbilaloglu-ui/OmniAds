@@ -7,17 +7,11 @@ import { AlertTriangle, ChevronDown, Info, Play, Plus, RefreshCw, RotateCcw, Roc
 import {
   BulkToolbar,
   CompareDrawer,
-  InsightsPanel,
   LaneHeader,
   TrackingConfirmModal,
   TrackingBlockerBanner,
-  buildAnomaliesWidget,
-  buildEngineStatusWidget,
-  buildLabelsCoverageWidget,
-  buildTargetAnchorWidget,
   useDeferState,
   type CompareDrawerItem,
-  type InsightWidget,
 } from "@/components/common/briefing";
 import {
   HtmlDateRangePicker,
@@ -2224,8 +2218,6 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
           </>
         }
       />
-
-      <InsightsPanel widgets={insightWidgets} testId="meta-insights-panel" />
 
       <TrackingConfirmModal
         open={pendingPrimaryRec != null}

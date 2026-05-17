@@ -35,7 +35,7 @@ describe("WatchingCard", () => {
     expect(html).toContain("Defer 24h");
     expect(html).toContain("What does Defer 24h do?");
     expect(html).toContain("Fresh test");
-    expect(html).toContain('aria-checked="true"');
+    expect(html).toContain('checked=""');
   });
 
   it("falls back to Open evidence for non-test-more labels", () => {

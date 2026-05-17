@@ -8,6 +8,8 @@ import {
   DeferChip,
   DeferTooltip,
   EvidencePopover,
+  ConfidencePill,
+  confidenceClass,
   deriveTileFormat,
   deriveTileShape,
   type TileMetric,
@@ -21,7 +23,10 @@ import {
   cardCampaign,
   cardId,
   cardName,
+  confidenceValue,
   numberOrZero,
+  Sparkline,
+  Thumb,
 } from "@/components/creatives/briefing/card-utils";
 import { getCreativeScopeId } from "@/components/creatives/briefing/action-handlers";
 import type { LaunchpadOpenPayload } from "@/components/creatives/briefing/launchpad-bridge";
@@ -55,6 +60,8 @@ export function WatchingCard({
   const [localEvidenceOpen, setLocalEvidenceOpen] = useState(false);
   const label = asDecisionLabel(card.label);
   const name = cardName(card);
+  const confidence = confidenceValue(card);
+  const conf = confidenceClass(confidence);
   const watchingCardId = cardId(card);
   const scopeId = getCreativeScopeId(card);
   const badges = Array.isArray(card.badges) ? card.badges : [];

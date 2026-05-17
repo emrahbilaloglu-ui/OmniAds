@@ -10,6 +10,7 @@ import {
   DeferChip,
   DeferTooltip,
   EvidencePopover,
+  confidenceClass,
   deriveTileFormat,
   deriveTileShape,
   type TileMetric,
@@ -105,6 +106,7 @@ export function ActionNowCard({
   const label = asDecisionLabel(card.label);
   const name = cardName(card);
   const confidence = confidenceValue(card);
+  const conf = confidenceClass(confidence);
   const badges = Array.isArray(card.badges) ? card.badges : [];
   const actionCardId = cardId(card);
   const scopeId = getCreativeScopeId(card);

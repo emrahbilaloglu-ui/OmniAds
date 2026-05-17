@@ -41,7 +41,7 @@ export function EvidencePopover({
       ? "border-blue-100 bg-blue-50/60 text-blue-700"
       : "border-slate-200 bg-slate-50 text-slate-700";
   const drawer = presentation === "drawer";
-  const hasPreview = drawer && Boolean(preview);
+  const hasPreview = drawer && Boolean(media);
   const rootClassName = drawer
     ? "fixed inset-0 z-50"
     : "fixed inset-0 z-50 flex items-center justify-center p-4";

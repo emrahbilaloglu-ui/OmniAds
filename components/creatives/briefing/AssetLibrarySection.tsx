@@ -13,7 +13,6 @@ import {
   DateRangePicker,
   KpiSummaryTiles,
   PresetBar,
-  ShareViewModal,
   computeRangeFromPreset,
   type AssetLibraryPreset,
   type DateRangeValue,
@@ -101,7 +100,7 @@ interface AssetLibrarySectionProps {
   onPresetChange?: (presetId: string) => void;
 }
 
-const LABEL_FILTERS: ReadonlyArray<{ key: LabelFilterKey; label: string }> = [
+const STATUS_FILTERS: ReadonlyArray<{ key: AssetLibraryStatusFilter; label: string }> = [
   { key: "all", label: "All" },
   { key: "active", label: "Active" },
   { key: "closed_30d", label: "Closed 30d" },
@@ -1275,7 +1274,7 @@ function rowEngineLabel(row: AssetLibraryRow) {
   return row.engineLabel ?? row.decisionLabel ?? row.briefingLabel ?? null;
 }
 
-function rowCampaignLabel(row: AssetLibraryRow): LabelFilterKey {
+function rowCampaignLabel(row: AssetLibraryRow): AssetLibraryCampaignLabelFilter {
   const value = String((row as { campaignKind?: string | null }).campaignKind ?? "").toLowerCase();
   if (value === "main") return "main";
   if (value === "test") return "test";

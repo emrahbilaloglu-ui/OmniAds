@@ -50,18 +50,19 @@ describe("ActionNowCard", () => {
     expect(html).toContain("ring-2 ring-blue-500 ring-offset-1");
   });
 
-  it("uses a portrait thumb shape when the best placement is Reels", () => {
-    const portrait = renderToStaticMarkup(
-      <ActionNowCard card={card({ bestPlacement: "instagram_reels" })} />,
-    );
-    const square = renderToStaticMarkup(
-      <ActionNowCard card={card({ bestPlacement: "facebook_feed" })} />,
+  it("renders cut actions as destructive primary controls", () => {
+    const cutHtml = renderToStaticMarkup(
+      <ActionNowCard
+        card={card({
+          label: "cut",
+          primary: { kind: "cut", label: "Cut" },
+        })}
+      />,
     );
 
-    expect(midHtml).toContain("btn--danger");
-    expect(midHtml).toContain('data-kind="cut"');
-    expect(lowHtml).toContain("btn--danger");
-    expect(lowHtml).toContain("Cut");
+    expect(cutHtml).toContain("btn--danger");
+    expect(cutHtml).toContain('data-kind="cut"');
+    expect(cutHtml).toContain("Cut");
   });
 
   it("renders deferred chip and cut-removing classes", () => {

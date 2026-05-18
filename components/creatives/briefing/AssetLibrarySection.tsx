@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
@@ -25,7 +25,7 @@ type AssetLibraryStatusFilter = "all" | "active" | "closed_30d";
 type AssetLibraryFormatFilter = "image" | "video" | "catalog" | "carousel";
 type AssetLibraryBadgeFilter = "below_breakeven" | "fatigue";
 type AssetLibrarySort = "spend_desc" | "roas_desc" | "roas_asc" | "name_asc" | "launch_desc";
-type AssetLibraryActionStatus = "idle" | "csv" | "share" | "copied" | "error";
+type AssetLibraryActionStatus = "idle" | "csv" | "share" | "saved" | "copied" | "error";
 type AssetLibraryCampaignLabelFilter = "all" | "main" | "test" | "mixed";
 type ShareAudience = NonNullable<ShareLinkConfig["audience"]>;
 type AssetMetricGroup =
@@ -35,8 +35,10 @@ type AssetMetricGroup =
   | "funnel"
   | "video"
   | "lead"
+  | "creative_scores"
   | "ai_tags";
 type MetricSummaryMode = "sum" | "avg" | "weighted_roas";
+type CreativeScoreKey = "hook" | "cta" | "offer" | "click" | "watch";
 
 type AssetMetricColumn = {
   id: string;
@@ -47,10 +49,22 @@ type AssetMetricColumn = {
   source: string;
   summaryMode: MetricSummaryMode;
   className?: string;
-  value: (row: MetaCreativeRow) => string;
+  value: (row: MetaCreativeRow) => ReactNode;
+  csvValue?: (row: MetaCreativeRow) => string;
   rawValue: (row: MetaCreativeRow) => number;
   format: (value: number) => string;
   shareKey?: ShareLinkConfig["metrics"][number];
+};
+
+type CreativeTeamGapState = {
+  label: string;
+  severity: "none" | "watch" | "action" | "missing";
+};
+
+type ShareAudiencePreset = {
+  id: string;
+  title: string;
+  metricIds: string[];
 };
 
 type BackendDependentMetric = {
@@ -145,13 +159,10 @@ const PRESETS: ReadonlyArray<AssetLibraryPreset & { metrics: string[] }> = [
   {
     key: "creative_teams",
     label: "Creative teams",
-    description: "0–100 scores per concept · Hook / CTA / Offer / Click / Watch.",
+    description: "0-100 scores per concept · Hook / CTA / Offer / Click / Watch.",
     metricsCount: 6,
-    metricChips: ["Hook", "CTA", "Offer", "Click", "Watch", "Gap"],
-    metrics: ["hookScore", "ctaScore", "offerScore", "clickScore", "watchScore", "gap"],
-    unavailable: true,
-    unavailableReason:
-      "Backend-dependent — Creative scoring pipeline ships separately.",
+    metricChips: ["Spend", "Hook", "CTA", "Offer", "Click", "Watch"],
+    metrics: ["spend", "score.hook", "score.cta", "score.offer", "score.click", "score.watch"],
   },
 ];
 
@@ -169,44 +180,34 @@ const KPI_CATALOG: ReadonlyArray<KpiCatalogEntry> = [
   { key: "videoHold", label: "Video hold", group: "Video", description: "% of viewers who watch past 15s." },
   { key: "vtr", label: "VTR", group: "Video", description: "View-through rate." },
   {
-    key: "hookScore",
+    key: "score.hook",
     label: "Hook score",
     group: "Creative scores",
     description: "0–100 score derived from thumbstop + retention vs account baseline.",
-    unavailable: true,
-    unavailableReason: "Requires the creative scoring pipeline.",
   },
   {
-    key: "ctaScore",
+    key: "score.cta",
     label: "CTA score",
     group: "Creative scores",
     description: "0–100 score for call-to-action clarity.",
-    unavailable: true,
-    unavailableReason: "Requires the creative scoring pipeline.",
   },
   {
-    key: "offerScore",
+    key: "score.offer",
     label: "Offer score",
     group: "Creative scores",
     description: "0–100 score for offer relevance.",
-    unavailable: true,
-    unavailableReason: "Requires the creative scoring pipeline.",
   },
   {
-    key: "clickScore",
+    key: "score.click",
     label: "Click score",
     group: "Creative scores",
     description: "0–100 score for click momentum.",
-    unavailable: true,
-    unavailableReason: "Requires the creative scoring pipeline.",
   },
   {
-    key: "watchScore",
+    key: "score.watch",
     label: "Watch score",
     group: "Creative scores",
     description: "0–100 score for video watch behavior.",
-    unavailable: true,
-    unavailableReason: "Requires the creative scoring pipeline.",
   },
   {
     key: "aiTag_hook",
@@ -248,6 +249,11 @@ const ASSET_METRIC_COLUMNS: AssetMetricColumn[] = [
   metric("video100", "100% views", "video", "Video plays reaching completion.", "Meta video insights · 100% plays", "avg", (row) => safeNumber(row.video100), formatPercent2, "video100"),
   metric("leads", "Leads", "lead", "Lead actions attributed to this creative.", "Meta insights · leads", "sum", (row) => safeNumber(row.leads), formatInteger),
   metric("messages", "Messages", "lead", "Messaging conversation starts or message actions attributed to this creative.", "Meta insights · messaging actions", "sum", (row) => safeNumber(row.messages), formatInteger),
+  scoreMetric("score.hook", "Hook", "0-100 account-relative hook read from the creative scoring pipeline.", "Creative scoring · hook", "hook", "hookScore"),
+  scoreMetric("score.cta", "CTA", "0-100 account-relative call-to-action read from the creative scoring pipeline.", "Creative scoring · cta", "cta", "ctaScore"),
+  scoreMetric("score.offer", "Offer", "0-100 account-relative offer read from the creative scoring pipeline.", "Creative scoring · offer", "offer", "offerScore"),
+  scoreMetric("score.click", "Click", "0-100 account-relative click quality read from the creative scoring pipeline.", "Creative scoring · click", "click", "clickScore"),
+  scoreMetric("score.watch", "Watch", "0-100 account-relative watch quality read from the creative scoring pipeline.", "Creative scoring · watch", "watch", "watchScore"),
 ];
 
 export const DEFAULT_VISIBLE_METRIC_IDS = ["spend", "purchaseValue", "roas", "purchases", "cpa", "ctrAll"];
@@ -258,11 +264,6 @@ const BACKEND_DEPENDENT_METRICS: BackendDependentMetric[] = [
   { id: "ai.messagingAngle", label: "Messaging Angle", group: "ai_tags", reason: "needs tagger", description: "Server-side AI tag for the core message angle." },
   { id: "ai.hookTactic", label: "Hook Tactic", group: "ai_tags", reason: "needs tagger", description: "Server-side AI tag for the opening hook tactic." },
   { id: "ai.headlineTactic", label: "Headline Tactic", group: "ai_tags", reason: "needs tagger", description: "Server-side AI tag for headline structure." },
-  { id: "score.hook", label: "Hook score", group: "creative_scores", reason: "needs scoring", description: "0-100 account-relative hook score. Hidden until scoring pipeline fields exist." },
-  { id: "score.cta", label: "CTA score", group: "creative_scores", reason: "needs scoring", description: "0-100 account-relative call-to-action score. Hidden until scoring pipeline fields exist." },
-  { id: "score.offer", label: "Offer score", group: "creative_scores", reason: "needs scoring", description: "0-100 account-relative offer score. Hidden until scoring pipeline fields exist." },
-  { id: "score.click", label: "Click score", group: "creative_scores", reason: "needs scoring", description: "0-100 account-relative click quality score. Hidden until scoring pipeline fields exist." },
-  { id: "score.watch", label: "Watch score", group: "creative_scores", reason: "needs scoring", description: "0-100 account-relative watch quality score. Hidden until scoring pipeline fields exist." },
 ];
 
 export const ASSET_PRESETS: Array<{
@@ -301,11 +302,10 @@ export const ASSET_PRESETS: Array<{
   {
     id: "creative_teams",
     title: "Creative teams",
-    detail: "Requires creative score pipeline. No buyer decision language in this preset.",
-    metricIds: ["score.hook", "score.cta", "score.offer", "score.click", "score.watch"],
+    detail: "Creative feedback view. No buyer decision language in this preset.",
+    metricIds: ["spend", "score.hook", "score.cta", "score.offer", "score.click", "score.watch"],
     sort: "spend_desc",
-    chips: ["Hook score", "CTA score", "Offer score", "Click score", "Watch score"],
-    unavailable: true,
+    chips: ["Spend", "Hook", "CTA", "Offer", "Click", "Watch"],
   },
 ];
 
@@ -318,6 +318,12 @@ const CUSTOM_PRESET = {
   chips: [],
 };
 
+const EXTERNAL_SHARE_PRESET: ShareAudiencePreset = {
+  id: "external_public",
+  title: "External party",
+  metricIds: ["spend", "roas", "purchases", "ctrAll"],
+};
+
 const METRIC_GROUP_LABELS: Record<AssetMetricGroup, string> = {
   commerce: "Commerce metrics",
   efficiency: "Efficiency metrics",
@@ -325,6 +331,7 @@ const METRIC_GROUP_LABELS: Record<AssetMetricGroup, string> = {
   funnel: "Post-click funnel",
   video: "Video and fatigue",
   lead: "Lead and messaging",
+  creative_scores: "Creative scores",
   ai_tags: "AI tags",
 };
 
@@ -371,6 +378,34 @@ function metric(
     rawValue,
     format: formatter,
     value: (row) => formatter(rawValue(row)),
+    csvValue: (row) => formatter(rawValue(row)),
+    shareKey,
+  };
+}
+
+function scoreMetric(
+  id: string,
+  label: string,
+  description: string,
+  source: string,
+  scoreKey: CreativeScoreKey,
+  shareKey: ShareLinkConfig["metrics"][number],
+): AssetMetricColumn {
+  return {
+    id,
+    label,
+    group: "creative_scores",
+    description,
+    source,
+    summaryMode: "avg",
+    className: "num",
+    rawValue: (row) => readCreativeScore(row, scoreKey) ?? Number.NaN,
+    format: formatScoreValue,
+    value: (row) => <CreativeScoreCell score={readCreativeScore(row, scoreKey)} label={label} />,
+    csvValue: (row) => {
+      const score = readCreativeScore(row, scoreKey);
+      return score == null ? "unavailable" : formatScoreValue(score);
+    },
     shareKey,
   };
 }
@@ -393,6 +428,36 @@ function columnsForMetricIds(metricIds: string[]) {
         .filter((column): column is AssetMetricColumn => Boolean(column));
 }
 
+function sharePresetForAudience(
+  audience: ShareAudience,
+  activePreset: ShareAudiencePreset,
+): ShareAudiencePreset {
+  if (audience === "creative_team") {
+    return ASSET_PRESETS.find((preset) => preset.id === "creative_teams") ?? activePreset;
+  }
+  if (audience === "external") return EXTERNAL_SHARE_PRESET;
+  return ASSET_PRESETS.find((preset) => preset.id === "ecommerce") ?? activePreset;
+}
+
+function shareDefaultsForAudience(audience: ShareAudience) {
+  return {
+    includeCampaignNames: audience === "buyer",
+    includeDecisionLanguage: audience === "buyer",
+    allowCsv: false,
+  };
+}
+
+function shareMetricKeysFromColumns(columns: AssetMetricColumn[]): ShareLinkConfig["metrics"] {
+  const keys = columns
+    .map((column) => column.shareKey)
+    .filter((key): key is ShareLinkConfig["metrics"][number] => Boolean(key));
+  return keys.length > 0 ? keys : ["spend", "roas", "cpa", "ctrAll"];
+}
+
+function formatShareSnapshotTime(value: Date) {
+  return value.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
 function metricMatchesSearch(metric: AssetMetricColumn, search: string) {
   if (!search) return true;
   return [
@@ -413,6 +478,7 @@ function groupMetrics(metrics: AssetMetricColumn[]) {
     "funnel",
     "video",
     "lead",
+    "creative_scores",
     "ai_tags",
   ];
   return groupOrder
@@ -454,25 +520,39 @@ function summarizeMetric(column: AssetMetricColumn, rows: MetaCreativeRow[], cur
   const count = rows.length;
   const values = rows.map((row) => column.rawValue(row)).filter((value) => Number.isFinite(value));
   const total = values.reduce((sum, value) => sum + value, 0);
+  const effectiveCount = column.group === "creative_scores" ? values.length : count;
   const value =
     column.summaryMode === "weighted_roas"
       ? weightedRoas(rows)
       : column.summaryMode === "avg"
-        ? count > 0
-          ? total / count
-          : 0
+        ? effectiveCount > 0
+          ? total / effectiveCount
+          : Number.NaN
         : total;
+  const scoreMissing = column.group === "creative_scores" && values.length === 0;
   return {
     title: column.summaryMode === "sum" ? `Total ${column.label}` : `Avg ${column.label}`,
-    scope: count > 0 ? `scope · ${count}` : "scope",
+    scope: column.group === "creative_scores"
+      ? values.length > 0
+        ? `scope · ${values.length}`
+        : "score unavailable"
+      : count > 0
+        ? `scope · ${count}`
+        : "scope",
     value: column.format(value) || formatDecimal2(value),
-    sub: column.id === "spend" || column.id === "purchaseValue" || column.id === "cpa" || column.id === "cpcLink" || column.id === "cpm" || column.id === "aov"
+    sub: column.group === "creative_scores"
+      ? "/ 100"
+      : column.id === "spend" || column.id === "purchaseValue" || column.id === "cpa" || column.id === "cpcLink" || column.id === "cpm" || column.id === "aov"
       ? currency ?? "USD"
       : column.summaryMode === "sum"
         ? "total"
         : "avg",
     micro:
-      column.summaryMode === "weighted_roas"
+      scoreMissing
+        ? "scoring fields not emitted for this scope"
+        : column.group === "creative_scores"
+          ? "backend score average across scored creatives"
+          : column.summaryMode === "weighted_roas"
         ? "purchase value divided by spend"
         : column.summaryMode === "sum"
           ? `${count} creatives in current scope`
@@ -552,6 +632,7 @@ export function AssetLibrarySection({
   const [includeDecisionLanguage, setIncludeDecisionLanguage] = useState(true);
   const [allowCsv, setAllowCsv] = useState(false);
   const [generatedShareUrl, setGeneratedShareUrl] = useState<string | null>(null);
+  const [shareCreatedAt, setShareCreatedAt] = useState<Date | null>(null);
   const [actionStatus, setActionStatus] = useState<AssetLibraryActionStatus>("idle");
 
   const filteredRows = useMemo(
@@ -573,6 +654,11 @@ export function AssetLibrarySection({
     () => columnsForMetricIds(selectedMetricIds),
     [selectedMetricIds],
   );
+  const visibleMetricIds = useMemo(
+    () => visibleMetricColumns.map((column) => column.id),
+    [visibleMetricColumns],
+  );
+  const isCreativeTeamPreset = visibleMetricIds.some((metricId) => metricId.startsWith("score."));
   const draftMetricColumns = useMemo(
     () => columnsForMetricIds(draftMetricIds),
     [draftMetricIds],
@@ -580,8 +666,23 @@ export function AssetLibrarySection({
   const actionRowsLabel = selectedRows.length > 0 ? "selected" : "visible";
   const activePreset = ASSET_PRESETS.find((preset) =>
     !preset.unavailable &&
-    preset.metricIds.join("|") === visibleMetricColumns.map((column) => column.id).join("|"),
+    preset.metricIds.join("|") === visibleMetricIds.join("|"),
   ) ?? CUSTOM_PRESET;
+  const sharePreset = useMemo(
+    () => sharePresetForAudience(shareAudience, activePreset),
+    [activePreset, shareAudience],
+  );
+  const shareMetricColumns = useMemo(
+    () => columnsForMetricIds(sharePreset.metricIds),
+    [sharePreset.metricIds],
+  );
+  const shareMetricKeys = useMemo(
+    () => shareMetricKeysFromColumns(shareMetricColumns),
+    [shareMetricColumns],
+  );
+  const shareSnapshotLabel = shareCreatedAt
+    ? `frozen at ${formatShareSnapshotTime(shareCreatedAt)}`
+    : "freezes when link is created";
   const metricSearchText = metricSearch.trim().toLowerCase();
   const metricCatalog = ASSET_METRIC_COLUMNS.filter((metric) =>
     metricMatchesSearch(metric, metricSearchText),
@@ -660,28 +761,76 @@ export function AssetLibrarySection({
     window.setTimeout(() => setActionStatus("idle"), 1800);
   };
 
-  const shareRows = async () => {
+  const resetGeneratedShareLink = () => {
+    setGeneratedShareUrl(null);
+    setShareCreatedAt(null);
+  };
+
+  const openShareModal = () => {
+    const inferredAudience: ShareAudience = activePreset.id === "creative_teams" ? "creative_team" : "buyer";
+    const defaults = shareDefaultsForAudience(inferredAudience);
+    setShareAudience(inferredAudience);
+    setIncludeCampaignNames(defaults.includeCampaignNames);
+    setIncludeDecisionLanguage(defaults.includeDecisionLanguage);
+    setAllowCsv(defaults.allowCsv);
+    setActionStatus("idle");
+    resetGeneratedShareLink();
+    setShareOpen(true);
+  };
+
+  const updateShareAudience = (audience: ShareAudience) => {
+    const defaults = shareDefaultsForAudience(audience);
+    setShareAudience(audience);
+    setIncludeCampaignNames(defaults.includeCampaignNames);
+    setIncludeDecisionLanguage(defaults.includeDecisionLanguage);
+    setAllowCsv(defaults.allowCsv);
+    resetGeneratedShareLink();
+  };
+
+  const copyShareUrl = async (url: string) => {
+    await navigator.clipboard?.writeText(url).catch(() => null);
+  };
+
+  const shareRows = async ({
+    copy,
+    closeAfter = false,
+  }: {
+    copy: boolean;
+    closeAfter?: boolean;
+  }) => {
     if (!onShareRows || actionRows.length === 0) return;
+    if (generatedShareUrl) {
+      if (copy) {
+        await copyShareUrl(generatedShareUrl);
+        setActionStatus("copied");
+      } else {
+        setActionStatus("saved");
+      }
+      if (closeAfter) setShareOpen(false);
+      window.setTimeout(() => setActionStatus("idle"), 1800);
+      return;
+    }
     setActionStatus("share");
-    const shareMetrics = visibleMetricColumns
-      .map((column) => column.shareKey)
-      .filter((id): id is ShareLinkConfig["metrics"][number] => Boolean(id));
     try {
-      const result = await onShareRows(actionRows, visibleMetricColumns.map((column) => column.id), {
+      const result = await onShareRows(actionRows, sharePreset.metricIds, {
         title: "Asset Library view",
         expiration: "7",
-        metrics: shareMetrics.length > 0 ? shareMetrics : ["spend", "roas", "cpa", "ctrAll"],
+        metrics: shareMetricKeys,
         includeNotes: false,
         passwordProtection: false,
         audience: shareAudience,
+        presetId: sharePreset.id,
+        presetLabel: sharePreset.title,
         includeCampaignNames,
         includeDecisionLanguage: shareAudience === "buyer" && includeDecisionLanguage,
         allowCsv,
         snapshotOnly: true,
       });
       setGeneratedShareUrl(result.url);
-      await navigator.clipboard?.writeText(result.url).catch(() => null);
-      setActionStatus("copied");
+      setShareCreatedAt(new Date());
+      if (copy) await copyShareUrl(result.url);
+      setActionStatus(copy ? "copied" : "saved");
+      if (closeAfter) setShareOpen(false);
     } catch {
       setActionStatus("error");
     } finally {
@@ -801,9 +950,9 @@ export function AssetLibrarySection({
           className="btn btn--primary"
           disabled={actionRows.length === 0 || !onShareRows || actionStatus === "share"}
           title={`Create and copy a share link for ${actionRows.length} ${actionRowsLabel} assets.`}
-          onClick={() => setShareOpen(true)}
+          onClick={openShareModal}
         >
-          {actionStatus === "share" ? "Sharing..." : actionStatus === "copied" ? "Copied link" : actionStatus === "error" ? "Share failed" : "↗ Share view…"}
+          {actionStatus === "share" ? "Sharing..." : actionStatus === "copied" ? "Copied link" : actionStatus === "saved" ? "Link created" : actionStatus === "error" ? "Share failed" : "↗ Share view…"}
         </button>
       </div>
 
@@ -849,7 +998,7 @@ export function AssetLibrarySection({
       </div>
 
       <div style={{ overflowX: "auto" }}>
-        <table className="asset-table">
+        <table className={`asset-table ${isCreativeTeamPreset ? "asset-table--creative-team" : ""}`}>
           <thead>
             <tr>
               <th style={{ width: 24 }}>
@@ -872,13 +1021,18 @@ export function AssetLibrarySection({
             ) : (
               filteredRows.map((row) => {
                 const selected = selectedRowIds.includes(row.id);
-                const label = rowEngineLabel(row as AssetLibraryRow);
+                const label = isCreativeTeamPreset
+                  ? creativeTeamLabel(row as AssetLibraryRow)
+                  : rowEngineLabel(row as AssetLibraryRow);
                 const format = getCreativeFormatPresentation(row);
-                const gap = rowMatchesBadge(row as AssetLibraryRow, "below_breakeven")
-                  ? "Below breakeven"
-                  : rowMatchesBadge(row as AssetLibraryRow, "fatigue")
-                    ? "Fatigue"
-                    : "no gap";
+                const gap = isCreativeTeamPreset
+                  ? creativeTeamGap(row)
+                  : buyerGap(row as AssetLibraryRow);
+                const rowMeta = [formatLaunchAge(row.launchDate), format.detailLabel].filter(Boolean).join(" · ");
+                const labelClass = creativeLabelChipClass(label);
+                const gapClass = typeof gap === "string"
+                  ? buyerGapChipClass(gap)
+                  : creativeGapChipClass(gap);
                 return (
                   <tr key={row.id} className={selected || highlightedRowId === row.id ? "sel" : ""} onClick={() => onOpenRow(row.id)}>
                     <td>
@@ -906,14 +1060,14 @@ export function AssetLibrarySection({
                           />
                           <span className="micro-fmt">{format.tag}</span>
                         </span>
-                        <span className="name-text"><b>{row.name}</b><span>{row.launchDate || "—"} · {format.detailLabel}</span></span>
+                        <span className="name-text"><b>{row.name}</b><span>{rowMeta || "—"}</span></span>
                       </span>
                     </td>
-                    <td><span className={label === "test_more" ? "chip chip--info" : label === "cut" || label === "below_breakeven" ? "chip chip--action" : "chip"}><span className="dot" />{safeText(label) || "Main"}</span></td>
+                    <td><span className={labelClass}><span className="dot" />{safeText(label) || "Main"}</span></td>
                     {visibleMetricColumns.map((column) => (
                       <td key={column.id} className={column.className}>{column.value(row)}</td>
                     ))}
-                    <td><span className={`chip ${gap === "no gap" ? "chip--ghost" : gap === "Fatigue" ? "chip--watch" : "chip--action"}`} style={{ fontSize: 9.5 }}>{gap}</span></td>
+                    <td><span className={gapClass} style={{ fontSize: 9.5 }}>{typeof gap === "string" ? gap : gap.label}</span></td>
                     <td style={{ textAlign: "right" }}>
                       <button
                         type="button"
@@ -941,16 +1095,30 @@ export function AssetLibrarySection({
           includeDecisionLanguage={includeDecisionLanguage}
           allowCsv={allowCsv}
           generatedShareUrl={generatedShareUrl}
+          presetTitle={sharePreset.title}
+          rowScopeLabel={actionRowsLabel}
+          dateRangeLabel={dateRangeLabel}
+          dateRangeDetail={dateRangeDetail}
+          snapshotLabel={shareSnapshotLabel}
           actionStatus={actionStatus}
           rowCount={actionRows.length}
-          onAudienceChange={(audience) => {
-            setShareAudience(audience);
-            if (audience !== "buyer") setIncludeDecisionLanguage(false);
+          onAudienceChange={updateShareAudience}
+          onToggleCampaignNames={() => {
+            setIncludeCampaignNames((value) => !value);
+            resetGeneratedShareLink();
           }}
-          onToggleCampaignNames={() => setIncludeCampaignNames((value) => !value)}
-          onToggleDecisionLanguage={() => setIncludeDecisionLanguage((value) => !value)}
-          onToggleCsv={() => setAllowCsv((value) => !value)}
-          onGenerate={() => void shareRows()}
+          onToggleDecisionLanguage={() => {
+            if (shareAudience !== "buyer") return;
+            setIncludeDecisionLanguage((value) => !value);
+            resetGeneratedShareLink();
+          }}
+          onToggleCsv={() => {
+            setAllowCsv((value) => !value);
+            resetGeneratedShareLink();
+          }}
+          onSaveLink={() => void shareRows({ copy: false })}
+          onCopyLink={() => void shareRows({ copy: true })}
+          onCopyAndClose={() => void shareRows({ copy: true, closeAfter: true })}
           onClose={() => setShareOpen(false)}
         />
       ) : null}
@@ -1144,19 +1312,26 @@ function KpiCustomizeModal({
   );
 }
 
-function ShareViewModal({
+export function ShareViewModal({
   audience,
   includeCampaignNames,
   includeDecisionLanguage,
   allowCsv,
   generatedShareUrl,
+  presetTitle,
+  rowScopeLabel,
+  dateRangeLabel,
+  dateRangeDetail,
+  snapshotLabel,
   actionStatus,
   rowCount,
   onAudienceChange,
   onToggleCampaignNames,
   onToggleDecisionLanguage,
   onToggleCsv,
-  onGenerate,
+  onSaveLink,
+  onCopyLink,
+  onCopyAndClose,
   onClose,
 }: {
   audience: ShareAudience;
@@ -1164,13 +1339,20 @@ function ShareViewModal({
   includeDecisionLanguage: boolean;
   allowCsv: boolean;
   generatedShareUrl: string | null;
+  presetTitle: string;
+  rowScopeLabel: string;
+  dateRangeLabel: string;
+  dateRangeDetail?: string;
+  snapshotLabel: string;
   actionStatus: AssetLibraryActionStatus;
   rowCount: number;
   onAudienceChange: (audience: ShareAudience) => void;
   onToggleCampaignNames: () => void;
   onToggleDecisionLanguage: () => void;
   onToggleCsv: () => void;
-  onGenerate: () => void;
+  onSaveLink: () => void;
+  onCopyLink: () => void;
+  onCopyAndClose: () => void;
   onClose: () => void;
 }) {
   useEffect(() => {
@@ -1198,7 +1380,11 @@ function ShareViewModal({
         onMouseDown={(event) => event.stopPropagation()}
       >
         <h3>Share Asset Library view</h3>
-        <p className="text-[12px] text-slate-500">{rowCount} creatives · snapshot link</p>
+        <p className="share-modal__sub">
+          {rowCount} {rowScopeLabel} creatives · preset = {presetTitle} · window = {dateRangeLabel}
+        </p>
+        {dateRangeDetail ? <p className="share-modal__hint">{dateRangeDetail}</p> : null}
+        <div className="share-modal__section-label">Who is this for?</div>
         <div className="seg" role="tablist" aria-label="Share audience">
           {([
             ["buyer", "Buyer / client"],
@@ -1210,33 +1396,52 @@ function ShareViewModal({
             </button>
           ))}
         </div>
+        <p className="share-modal__hint">Preset auto-switches to match audience. Buyer = Ecommerce. Creative = Creative teams. External = no labels, no campaign IDs.</p>
+        <div className="share-modal__section-label">What gets shared</div>
+        <div className="check-row">
+          <span className="cb on" /> {rowCount} {rowScopeLabel} creatives (thumbs · scores · gaps)
+        </div>
+        <div className="check-row">
+          <span className="cb on" /> KPI summary (account benchmark only · no goal numbers)
+        </div>
         <button type="button" className="check-row" onClick={onToggleCampaignNames}>
-          <span className={`cb ${includeCampaignNames ? "on" : ""}`} /> Include campaign/ad set names
+          <span className={`cb ${includeCampaignNames ? "on" : ""}`} /> Show campaign names
+        </button>
+        <button type="button" className="check-row" onClick={onToggleCsv}>
+          <span className={`cb ${allowCsv ? "on" : ""}`} /> Allow recipient to download CSV
         </button>
         {audience === "buyer" ? (
           <button type="button" className="check-row" onClick={onToggleDecisionLanguage}>
-            <span className={`cb ${includeDecisionLanguage ? "on" : ""}`} /> Include buyer decision language
+            <span className={`cb ${!includeDecisionLanguage ? "on" : ""}`} /> Hide all decision language (Cut / Scale / Promote)
           </button>
         ) : (
-          <div className="check-row check-row--disabled">
-            <span className="cb" /> Buyer decision language hidden for this audience
+          <div className="check-row check-row--disabled check-row--locked">
+            <span className="cb on" /> Hide all decision language (Cut / Scale / Promote)
           </div>
         )}
-        <button type="button" className="check-row" onClick={onToggleCsv}>
-          <span className={`cb ${allowCsv ? "on" : ""}`} /> Allow CSV download
-        </button>
+        <div className="share-modal__section-label share-modal__section-label--link">Link</div>
         <div className="url-field">
-          <input readOnly value={generatedShareUrl ?? "Generate a link to copy"} aria-label="Generated share URL" />
-          <button type="button" className="copy" onClick={onGenerate}>
-            {actionStatus === "share" ? "Creating..." : actionStatus === "copied" ? "Copied!" : "Copy"}
+          <input readOnly value={generatedShareUrl ?? "Link will be created after Save link"} aria-label="Generated share URL" />
+          <button type="button" className="copy" onClick={onCopyLink} disabled={actionStatus === "share"}>
+            {actionStatus === "share" ? "Creating..." : actionStatus === "copied" ? "Copied!" : generatedShareUrl ? "Copy" : "Create & copy"}
           </button>
         </div>
+        <div className="share-modal__meta">
+          <span>Expires · <b>7 days</b></span>
+          <span>Snapshot · <b>{snapshotLabel}</b></span>
+          <span>Open count · <b>0</b></span>
+        </div>
         {actionStatus === "error" ? <p className="mt-2 text-[12px] text-rose-700">Share link could not be created.</p> : null}
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="share-modal__footer">
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
-          <button type="button" className="btn btn--primary" onClick={generatedShareUrl ? onClose : onGenerate}>
-            {generatedShareUrl ? "Done" : "Save link"}
-          </button>
+          <div className="share-modal__footer-actions">
+            <button type="button" className="btn" onClick={onSaveLink} disabled={actionStatus === "share"}>
+              {generatedShareUrl || actionStatus === "saved" ? "Saved" : "Save link"}
+            </button>
+            <button type="button" className="btn btn--primary" onClick={onCopyAndClose} disabled={actionStatus === "share"}>
+              {actionStatus === "share" ? "Creating..." : "Copy & close"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -1245,20 +1450,21 @@ function ShareViewModal({
 
 function buildAssetLibraryCsv(rows: MetaCreativeRow[], metricColumns: AssetMetricColumn[]) {
   const headers = ["Creative", "Campaign", "Ad set", "Label", ...metricColumns.map((column) => column.label), "Gap"];
+  const isCreativeTeamCsv = metricColumns.some((column) => column.id.startsWith("score."));
   const body = rows.map((row) => {
-    const label = rowEngineLabel(row as AssetLibraryRow) ?? "";
-    const gap = rowMatchesBadge(row as AssetLibraryRow, "below_breakeven")
-      ? "Below breakeven"
-      : rowMatchesBadge(row as AssetLibraryRow, "fatigue")
-        ? "Fatigue"
-        : "no gap";
+    const label = isCreativeTeamCsv
+      ? creativeTeamLabel(row as AssetLibraryRow)
+      : rowEngineLabel(row as AssetLibraryRow) ?? "";
+    const gap = isCreativeTeamCsv
+      ? creativeTeamGap(row)
+      : buyerGap(row as AssetLibraryRow);
     return [
       row.name,
       row.campaignName ?? "",
       row.adSetName ?? "",
       label,
-      ...metricColumns.map((column) => column.value(row)),
-      gap,
+      ...metricColumns.map((column) => column.csvValue?.(row) ?? column.value(row)),
+      typeof gap === "string" ? gap : gap.label,
     ].map(csvEscape).join(",");
   });
   return [headers.map(csvEscape).join(","), ...body].join("\n");
@@ -1270,8 +1476,50 @@ function csvEscape(value: unknown) {
   return text;
 }
 
+function CreativeScoreCell({
+  score,
+  label,
+}: {
+  score: number | null;
+  label: string;
+}) {
+  if (score == null) {
+    return (
+      <span className="score missing" aria-label={`${label} score unavailable`}>
+        <span className="gauge" aria-hidden="true"><i style={{ width: "0%" }} /></span>
+        —
+      </span>
+    );
+  }
+  const normalized = clamp(score, 0, 100);
+  const tone = normalized < 40 ? "lo" : normalized < 65 ? "mid" : "hi";
+  return (
+    <span className={`score ${tone}`} aria-label={`${label} score ${Math.round(normalized)} of 100`}>
+      <span className="gauge" aria-hidden="true"><i style={{ width: `${normalized}%` }} /></span>
+      {Math.round(normalized)}
+    </span>
+  );
+}
+
 function rowEngineLabel(row: AssetLibraryRow) {
   return row.engineLabel ?? row.decisionLabel ?? row.briefingLabel ?? null;
+}
+
+function creativeTeamLabel(row: AssetLibraryRow) {
+  const label = rowCampaignLabel(row);
+  if (label === "main") return "Main";
+  if (label === "test") return "Test";
+  if (label === "mixed") return "Mixed";
+  return "Unlabeled";
+}
+
+function creativeLabelChipClass(label: string | null) {
+  const normalized = safeText(label).toLowerCase();
+  if (normalized === "test" || normalized === "test_more") return "chip chip--info";
+  if (normalized === "mixed") return "chip chip--warn";
+  if (normalized === "cut" || normalized === "below_breakeven") return "chip chip--action";
+  if (normalized === "unlabeled") return "chip chip--ghost";
+  return "chip";
 }
 
 function rowCampaignLabel(row: AssetLibraryRow): AssetLibraryCampaignLabelFilter {
@@ -1280,6 +1528,36 @@ function rowCampaignLabel(row: AssetLibraryRow): AssetLibraryCampaignLabelFilter
   if (value === "test") return "test";
   if (value === "mixed") return "mixed";
   return "all";
+}
+
+function buyerGap(row: AssetLibraryRow) {
+  return rowMatchesBadge(row, "below_breakeven")
+    ? "Below breakeven"
+    : rowMatchesBadge(row, "fatigue")
+      ? "Fatigue"
+      : "no gap";
+}
+
+function creativeTeamGap(row: MetaCreativeRow): CreativeTeamGapState {
+  const serverGap = readCreativeScoreGap(row);
+  if (serverGap) return serverGap;
+  const hasScores = (["hook", "cta", "offer", "click", "watch"] as CreativeScoreKey[])
+    .some((scoreKey) => readCreativeScore(row, scoreKey) != null);
+  return hasScores
+    ? { label: "gap pending", severity: "missing" }
+    : { label: "score unavailable", severity: "missing" };
+}
+
+function buyerGapChipClass(gap: string) {
+  if (gap === "no gap") return "chip chip--ghost";
+  if (gap === "Fatigue") return "chip chip--watch";
+  return "chip chip--action";
+}
+
+function creativeGapChipClass(gap: CreativeTeamGapState) {
+  if (gap.severity === "action") return "chip chip--action";
+  if (gap.severity === "watch") return "chip chip--watch";
+  return "chip chip--ghost";
 }
 
 function safeRows(rows: unknown): MetaCreativeRow[] {
@@ -1301,6 +1579,120 @@ function safeNumber(value: unknown) {
     return Number.isFinite(parsed) ? parsed : 0;
   }
   return 0;
+}
+
+function safeScoreNumber(value: unknown): number | null {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim() !== ""
+        ? Number(value)
+        : Number.NaN;
+  if (!Number.isFinite(parsed)) return null;
+  return clamp(parsed, 0, 100);
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function formatScoreValue(value: number) {
+  return Number.isFinite(value) ? String(Math.round(clamp(value, 0, 100))) : "—";
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readNestedScore(source: Record<string, unknown>, key: CreativeScoreKey): number | null {
+  const nestedContainers = [
+    "creativeScores",
+    "creative_scores",
+    "scores",
+    "score",
+    "aiScores",
+    "ai_scores",
+    "creativeScore",
+    "creative_score",
+  ];
+  const nestedKeys: Record<CreativeScoreKey, string[]> = {
+    hook: ["hook", "hookScore", "hook_score"],
+    cta: ["cta", "ctaScore", "cta_score"],
+    offer: ["offer", "offerScore", "offer_score"],
+    click: ["click", "clickScore", "click_score"],
+    watch: ["watch", "watchScore", "watch_score"],
+  };
+  for (const containerKey of nestedContainers) {
+    const container = asRecord(source[containerKey]);
+    if (!container) continue;
+    for (const nestedKey of nestedKeys[key]) {
+      const parsed = safeScoreNumber(container[nestedKey]);
+      if (parsed != null) return parsed;
+    }
+  }
+  return null;
+}
+
+function normalizeCreativeGapSeverity(value: unknown): CreativeTeamGapState["severity"] {
+  const text = safeText(value).toLowerCase();
+  if (text === "action" || text === "critical" || text === "gap") return "action";
+  if (text === "watch" || text === "soft" || text === "warning") return "watch";
+  if (text === "none" || text === "ok") return "none";
+  return "missing";
+}
+
+function readCreativeScoreGap(row: MetaCreativeRow): CreativeTeamGapState | null {
+  const source = row as MetaCreativeRow & Record<string, unknown>;
+  const objectCandidates = [
+    source.creativeScoreGap,
+    source.creative_score_gap,
+    source.scoreGap,
+    source.score_gap,
+    source.gap,
+  ];
+  for (const candidate of objectCandidates) {
+    const gap = asRecord(candidate);
+    if (!gap) continue;
+    const label = safeText(gap.label ?? gap.name ?? gap.value).trim();
+    if (!label) continue;
+    return {
+      label,
+      severity: normalizeCreativeGapSeverity(gap.severity ?? gap.tone ?? gap.kind),
+    };
+  }
+  const directLabel = [
+    source.creativeScoreGapLabel,
+    source.creative_score_gap_label,
+    source.scoreGapLabel,
+    source.score_gap_label,
+    source.gapLabel,
+    source.gap_label,
+  ]
+    .map((value) => safeText(value).trim())
+    .find(Boolean);
+  if (!directLabel) return null;
+  return {
+    label: directLabel,
+    severity: normalizeCreativeGapSeverity(source.creativeScoreGapSeverity ?? source.scoreGapSeverity ?? source.gapSeverity),
+  };
+}
+
+function readCreativeScore(row: MetaCreativeRow, key: CreativeScoreKey): number | null {
+  const source = row as MetaCreativeRow & Record<string, unknown>;
+  const directKeys: Record<CreativeScoreKey, string[]> = {
+    hook: ["hookScore", "hook_score", "scoreHook", "score_hook", "creativeHookScore", "creative_hook_score"],
+    cta: ["ctaScore", "cta_score", "scoreCta", "score_cta", "creativeCtaScore", "creative_cta_score"],
+    offer: ["offerScore", "offer_score", "scoreOffer", "score_offer", "creativeOfferScore", "creative_offer_score"],
+    click: ["clickScore", "click_score", "scoreClick", "score_click", "creativeClickScore", "creative_click_score"],
+    watch: ["watchScore", "watch_score", "scoreWatch", "score_watch", "creativeWatchScore", "creative_watch_score"],
+  };
+  for (const directKey of directKeys[key]) {
+    const parsed = safeScoreNumber(source[directKey]);
+    if (parsed != null) return parsed;
+  }
+  return readNestedScore(source, key);
 }
 
 function formatMoney0(value: number) {
@@ -1326,6 +1718,15 @@ function formatDecimal2(value: number) {
 function safeTime(value: unknown) {
   const parsed = Date.parse(safeText(value));
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatLaunchAge(value: unknown) {
+  const time = safeTime(value);
+  if (!time) return "";
+  const days = Math.max(0, Math.floor((Date.now() - time) / 86_400_000));
+  if (days < 1) return "today";
+  if (days <= 90) return `${days}d`;
+  return safeText(value).slice(0, 10);
 }
 
 function safeStringArray(value: unknown): string[] {

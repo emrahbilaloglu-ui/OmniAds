@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PublicCreativeSharePage } from "@/components/creatives/PublicCreativeSharePage";
 import { MOCK_SHARE_PAYLOAD } from "@/components/creatives/shareCreativeMock";
+import type { SharePayload } from "@/components/creatives/shareCreativeTypes";
 
 vi.mock("@/components/creatives/CreativeRenderSurface", () => ({
   CreativeRenderSurface: () =>
@@ -21,5 +22,37 @@ describe("PublicCreativeSharePage", () => {
     expect(html).toContain("Send this to the media buyer for a controlled scale review.");
     expect(html).toContain("Do not scale from ROAS alone without buyer confirmation.");
     expect(html).toContain("Leave the creative active and monitor weekly movement.");
+  });
+
+  it("honors creative-team share controls without leaking decision language or unrelated columns", () => {
+    const payload: SharePayload = {
+      ...MOCK_SHARE_PAYLOAD,
+      audience: "creative_team" as const,
+      presetLabel: "Creative teams",
+      includeCampaignNames: false,
+      includeDecisionLanguage: false,
+      metrics: ["spend", "hookScore", "ctaScore", "offerScore"],
+      creatives: MOCK_SHARE_PAYLOAD.creatives.slice(0, 1).map((creative) => ({
+        ...creative,
+        hookScore: 88,
+        ctaScore: 72,
+        offerScore: 61,
+        creativeScoreGap: { label: "Offer gap", severity: "watch" as const },
+      })),
+    };
+
+    const html = renderToStaticMarkup(
+      <PublicCreativeSharePage payload={payload} />,
+    );
+
+    expect(html).toContain("Preset: Creative teams");
+    expect(html).toContain("Offer gap");
+    expect(html).toContain(">Hook<");
+    expect(html).toContain(">CTA<");
+    expect(html).toContain(">Offer<");
+    expect(html).not.toContain("Creative action plan");
+    expect(html).not.toContain("Scale review: UGC Reel");
+    expect(html).not.toContain("Purchase value</th>");
+    expect(html).not.toContain("Cost per purchase");
   });
 });

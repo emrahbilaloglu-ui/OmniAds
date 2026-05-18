@@ -5,6 +5,9 @@ import { CalendarRange, Copy, Rows3 } from "lucide-react";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import {
   SHARE_TABLE_COLUMNS,
+  SHARE_TABLE_COLUMN_MAP,
+  type ShareTableColumnDefinition,
+  type ShareTableColumnKey,
   buildShareDistributions,
   buildShareTableCalcContext,
   evaluateShareMetricCell,
@@ -54,9 +57,28 @@ const TOP_METRIC_LABELS: TopMetricLabelMap = {
   atcToPurchaseRatio: "ATC to purchase",
   leads: "Leads",
   messages: "Messages",
+  hookScore: "Hook",
+  ctaScore: "CTA",
+  offerScore: "Offer",
+  clickScore: "Click",
+  watchScore: "Watch",
 };
 
-function formatTopMetric(key: ShareMetricKey, value: number): string {
+const SHARE_METRIC_TO_TABLE_COLUMN: Partial<Record<ShareMetricKey, ShareTableColumnKey>> = {
+  clickToAddToCart: "clickToAtcRatio",
+  clickToPurchase: "clickToPurchaseRatio",
+  video25: "video25Rate",
+  video50: "video50Rate",
+  video75: "video75Rate",
+  video100: "video100Rate",
+};
+
+function tableColumnForMetric(key: ShareMetricKey) {
+  return SHARE_TABLE_COLUMN_MAP[SHARE_METRIC_TO_TABLE_COLUMN[key] ?? (key as ShareTableColumnKey)] ?? null;
+}
+
+function formatTopMetric(key: ShareMetricKey, value: number | null): string {
+  if (value == null) return "—";
   switch (key) {
     case "spend":
     case "purchaseValue":
@@ -85,14 +107,24 @@ function formatTopMetric(key: ShareMetricKey, value: number): string {
     case "leads":
     case "messages":
       return value.toLocaleString();
+    case "hookScore":
+    case "ctaScore":
+    case "offerScore":
+    case "clickScore":
+    case "watchScore":
+      return `${Math.round(value)}/100`;
     default:
       return String(value);
   }
 }
 
-function topMetricValue(creative: SharedCreative, key: ShareMetricKey): number {
+function topMetricValue(creative: SharedCreative, key: ShareMetricKey): number | null {
   const value = creative[key as keyof SharedCreative];
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (key === "hookScore" || key === "ctaScore" || key === "offerScore" || key === "clickScore" || key === "watchScore") {
+    return null;
+  }
+  return 0;
 }
 
 function actionClasses(actionLabel: string) {
@@ -107,6 +139,12 @@ function actionClasses(actionLabel: string) {
 
 function compactLabel(value: string | null | undefined) {
   return value?.replaceAll("_", " ").trim() || null;
+}
+
+function csvEscape(value: unknown) {
+  const text = String(value ?? "");
+  if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
+  return text;
 }
 
 function AnalysisPill({ label }: { label: string | null | undefined }) {
@@ -231,9 +269,13 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
     selectedRowIds,
     totalRows,
     createdAt,
+    frozenAt,
+    openCount,
     audience,
+    presetLabel,
     includeCampaignNames,
     includeDecisionLanguage,
+    allowCsv,
   } = payload;
 
   const displayRows = creatives as PublicShareCreative[];
@@ -271,12 +313,17 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
 
   const roasDistribution = distributions.value.roas;
 
+  const visibleTableColumns = useMemo(() => {
+    const mapped = metrics.map(tableColumnForMetric).filter((column): column is ShareTableColumnDefinition => Boolean(column));
+    return mapped.length > 0 ? mapped : SHARE_TABLE_COLUMNS.slice(0, 6);
+  }, [metrics]);
+
   const tableMinWidth = useMemo(() => {
     const staticWidth = 300;
-    return staticWidth + SHARE_TABLE_COLUMNS.reduce((sum, column) => sum + column.minWidth, 0);
-  }, []);
+    return staticWidth + visibleTableColumns.reduce((sum, column) => sum + column.minWidth, 0);
+  }, [visibleTableColumns]);
 
-  const createdAtLabel = useMemo(() => new Date(createdAt).toLocaleString(), [createdAt]);
+  const frozenAtLabel = useMemo(() => new Date(frozenAt ?? createdAt).toLocaleString(), [createdAt, frozenAt]);
 
   const copyLink = async () => {
     if (typeof window === "undefined") return;
@@ -285,6 +332,31 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
     } catch {
       // no-op
     }
+  };
+
+  const downloadCsv = () => {
+    if (typeof window === "undefined") return;
+    const headers = ["Creative", ...visibleTableColumns.map((column) => column.label), "Gap"];
+    const lines = displayRows.map((creative, index) => {
+      const ctx = displayCtx;
+      return [
+        showCampaignNames ? creative.name : `Creative asset ${index + 1}`,
+        ...visibleTableColumns.map((column) => {
+          const value = column.getValue(creative, ctx);
+          return isShareMetricApplicable(column.key, creative) ? column.format(value, creative) : "";
+        }),
+        creative.creativeScoreGap?.label ?? "",
+      ].map(csvEscape).join(",");
+    });
+    const blob = new Blob([[headers.map(csvEscape).join(","), ...lines].join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `adsecute-shared-creatives-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -299,14 +371,25 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                 {dateRange}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={copyLink}
-              className="inline-flex items-center gap-1.5 rounded-md border border-[#D1D5DB] px-2.5 py-1.5 text-xs text-[#374151] hover:bg-[#F9FAFB]"
-            >
-              <Copy className="h-3.5 w-3.5" />
-              Copy link
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {allowCsv ? (
+                <button
+                  type="button"
+                  onClick={downloadCsv}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-[#D1D5DB] px-2.5 py-1.5 text-xs text-[#374151] hover:bg-[#F9FAFB]"
+                >
+                  Download CSV
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={copyLink}
+                className="inline-flex items-center gap-1.5 rounded-md border border-[#D1D5DB] px-2.5 py-1.5 text-xs text-[#374151] hover:bg-[#F9FAFB]"
+              >
+                <Copy className="h-3.5 w-3.5" />
+                Copy link
+              </button>
+            </div>
           </div>
 
           <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-[#6B7280]">
@@ -317,8 +400,10 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
             {typeof totalRows === "number" ? <span>{totalRows} rows in snapshot</span> : null}
             <span>{benchmarkRows.length} rows in benchmark</span>
             {showCampaignNames && groupBy ? <span>Group by: {groupBy}</span> : null}
+            {presetLabel ? <span>Preset: {presetLabel}</span> : null}
             {selectedRowIds && selectedRowIds.length > 0 ? <span>Selection: {selectedRowIds.length}</span> : null}
-            <span>Generated: {createdAtLabel}</span>
+            <span>Snapshot frozen: {frozenAtLabel}</span>
+            {typeof openCount === "number" ? <span>Open count: {openCount}</span> : null}
           </div>
 
           {filters && filters.length > 0 && (
@@ -377,6 +462,11 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                         </div>
                       ))}
                     </div>
+                    {creative.creativeScoreGap?.label ? (
+                      <span className="inline-flex rounded-full border border-[#E5E7EB] bg-[#F9FAFB] px-2 py-0.5 text-[10px] font-medium text-[#4B5563]">
+                        {creative.creativeScoreGap.label}
+                      </span>
+                    ) : null}
                   </div>
                 </article>
               ))}
@@ -410,7 +500,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
               <thead className="bg-[#F9FAFB]">
                 <tr className="border-b border-[#E5E7EB]">
                   <th className="px-3 py-2 text-left font-medium text-[#6B7280]">Creative</th>
-                  {SHARE_TABLE_COLUMNS.map((column) => (
+                  {visibleTableColumns.map((column) => (
                     <th key={column.key} className="whitespace-nowrap px-3 py-2 text-right font-medium text-[#6B7280]">
                       {column.label}
                     </th>
@@ -445,7 +535,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                         </span>
                       </div>
                     </td>
-                    {SHARE_TABLE_COLUMNS.map((column) => {
+                    {visibleTableColumns.map((column) => {
                       const value = column.getValue(creative, displayCtx);
                       const distribution = distributions.value[column.key];
                       const spendDistribution = distributions.spend[column.key];

@@ -66,9 +66,15 @@ export function isCutPrimaryAction(card: BriefingCreativeCard) {
   return (
     primaryKind === "cut" ||
     primaryKind === "pause" ||
+    primaryKind?.includes("pause") ||
     primaryLabel === "cut" ||
+    primaryLabel?.includes("pause") ||
     (!primaryKind && label === "cut")
   );
+}
+
+function isAdNotFoundResponse(payload: { error?: { code?: string } } | null) {
+  return payload?.error?.code === "ad_not_found";
 }
 
 export function buildMetaAdsManagerUrlForBriefingCard(
@@ -158,7 +164,7 @@ export async function pauseBriefingCard(input: {
 
     const message = payload?.error?.message ?? `Pause failed (${response.status})`;
     lastMessage = message;
-    if (response.status === 404 && payload?.error?.code === "ad_not_found") {
+    if (isAdNotFoundResponse(payload)) {
       continue;
     }
     throw new Error(message);

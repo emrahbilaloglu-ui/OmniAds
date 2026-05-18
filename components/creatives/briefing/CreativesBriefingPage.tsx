@@ -87,6 +87,8 @@ import {
 import {
   buildBulkLaunchpadHref,
   pauseBriefingCardsBulk,
+  successfulBulkPauseCardIds,
+  summarizeBulkPauseFailure,
 } from "@/components/creatives/briefing/bulk-actions";
 import type {
   BriefingActionItem,
@@ -105,6 +107,7 @@ import {
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import {
   SHARE_METRIC_KEYS,
+  type ShareLinkConfig,
   type ShareMetricKey,
 } from "@/components/creatives/shareCreativeTypes";
 import {
@@ -610,7 +613,7 @@ function creativeDateRangeFromParams(params: URLSearchParams | null, todayIso: s
 }
 
 function assetMetricIdsFromPresetParam(value: string | null | undefined) {
-  const preset = ASSET_PRESETS.find((item) => item.id === value && !item.unavailable);
+  const preset = ASSET_PRESETS.find((item) => item.id === value);
   return preset ? preset.metricIds : DEFAULT_VISIBLE_METRIC_IDS;
 }
 
@@ -1335,6 +1338,8 @@ export function CreativesBriefingPage() {
   const handleBulkCutOpen = useCallback(
     (cards: BriefingCreativeCard[] = selectedActionCards) => {
       if (cards.length === 0) return;
+      setCompareDrawerState(CLOSED_COMPARE_DRAWER_STATE);
+      setEvidenceDrawerState(CLOSED_EVIDENCE_DRAWER_STATE);
       setBulkCutModalState({ open: true, cards });
     },
     [selectedActionCards],
@@ -1356,34 +1361,38 @@ export function CreativesBriefingPage() {
           cards,
           trackingBlocked: trackingAnomalyActive,
         });
+        const successfulIds = successfulBulkPauseCardIds(cards, result);
         if (!result.ok) {
-          throw new Error(
-            result.failedCount
-              ? `Bulk cut failed for ${result.failedCount} creatives.`
-              : "Bulk cut failed.",
-          );
+          if (successfulIds.length === 0) {
+            throw new Error(summarizeBulkPauseFailure(result));
+          }
+          showToast({
+            type: "error",
+            message: `${successfulIds.length} cut applied, ${result.failedCount ?? cards.length - successfulIds.length} failed · ${summarizeBulkPauseFailure(result)}`,
+          });
+        } else {
+          showToast({
+            type: "success",
+            message: `Cut ${successfulIds.length} creatives`,
+          });
         }
-        showToast({
-          type: "success",
-          message: `Cut ${cards.length} creatives`,
-        });
         setCuttingIds((current) => {
           const next = new Set(current);
-          itemIds.forEach((id) => next.add(id));
+          successfulIds.forEach((id) => next.add(id));
           return next;
         });
         window.setTimeout(() => {
           setRemovedActionIds((current) => {
             const next = new Set(current);
-            itemIds.forEach((id) => next.add(id));
+            successfulIds.forEach((id) => next.add(id));
             return next;
           });
           setSelectedIds((current) =>
-            current.filter((id) => !itemIds.includes(id)),
+            current.filter((id) => !successfulIds.includes(id)),
           );
           setCuttingIds((current) => {
             const next = new Set(current);
-            itemIds.forEach((id) => next.delete(id));
+            successfulIds.forEach((id) => next.delete(id));
             return next;
           });
           void queryClient.invalidateQueries({
@@ -1423,6 +1432,14 @@ export function CreativesBriefingPage() {
       setCompareDrawerState({ open: true, cards: cards.slice(0, 4) });
     },
     [selectedActionCards],
+  );
+
+  const handleCompareCutWeakest = useCallback(
+    (card: BriefingCreativeCard) => {
+      setCompareDrawerState(CLOSED_COMPARE_DRAWER_STATE);
+      handleCutRequest(card);
+    },
+    [handleCutRequest],
   );
 
   const handleBulkToolbarAction = useCallback(
@@ -1487,17 +1504,8 @@ export function CreativesBriefingPage() {
   }, []);
 
   const handleShareLibraryRows = useCallback(
-    async (rows: MetaCreativeRow[], metricIds: string[], config?: {
-      title?: string;
-      expiration?: "3" | "7" | "14";
-      includeNotes?: boolean;
-      audience?: "buyer" | "creative_team" | "external";
-      includeCampaignNames?: boolean;
-      includeDecisionLanguage?: boolean;
-      allowCsv?: boolean;
-      snapshotOnly?: boolean;
-    }) => {
-      const metrics = supportedShareMetrics(metricIds);
+    async (rows: MetaCreativeRow[], metricIds: string[], config?: ShareLinkConfig) => {
+      const metrics = supportedShareMetrics(config?.metrics?.length ? config.metrics : metricIds);
       const days = Number(config?.expiration ?? "7");
       const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
       const response = await fetch("/api/creatives/share", {
@@ -1511,6 +1519,8 @@ export function CreativesBriefingPage() {
           metrics,
           includeNotes: Boolean(config?.includeNotes),
           audience: config?.audience ?? "buyer",
+          presetId: config?.presetId,
+          presetLabel: config?.presetLabel,
           includeCampaignNames: config?.includeCampaignNames ?? true,
           includeDecisionLanguage: config?.includeDecisionLanguage ?? true,
           allowCsv: Boolean(config?.allowCsv),
@@ -1529,7 +1539,7 @@ export function CreativesBriefingPage() {
         throw new Error(message);
       }
       const url = `${window.location.origin}${payload.url}`;
-      showToast({ type: "success", message: "Asset Library share link copied." });
+      showToast({ type: "success", message: "Asset Library share link created." });
       return { url };
     },
     [assetLibraryRows.length, businessId, libraryEnd, librarySelectedRowIds.length, libraryStart, showToast],
@@ -1802,7 +1812,7 @@ export function CreativesBriefingPage() {
         open={compareDrawerState.open}
         cards={compareDrawerState.cards}
         onClose={() => setCompareDrawerState(CLOSED_COMPARE_DRAWER_STATE)}
-        onCutCards={handleBulkCutOpen}
+        onCutCard={handleCompareCutWeakest}
         onLaunchpad={handleBulkLaunchpadTeleport}
       />
       <BriefingToastViewport toast={toast} />

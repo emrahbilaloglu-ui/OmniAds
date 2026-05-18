@@ -27,7 +27,7 @@ describe("CompareDrawerHost", () => {
         open
         cards={[card(1, 0.7), card(2, 3.1), card(3, 2.2)]}
         onClose={() => undefined}
-        onCutCards={() => undefined}
+        onCutCard={() => undefined}
         onLaunchpad={() => undefined}
       />,
     );
@@ -50,7 +50,7 @@ describe("CompareDrawerHost", () => {
           open={false}
           cards={[card(1, 0.7)]}
           onClose={() => undefined}
-          onCutCards={() => undefined}
+          onCutCard={() => undefined}
           onLaunchpad={() => undefined}
         />,
       ),

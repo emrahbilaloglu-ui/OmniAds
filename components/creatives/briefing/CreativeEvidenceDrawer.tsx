@@ -61,13 +61,10 @@ interface EvidencePreviewPlacementConfig {
   viewport: {
     width: number;
     height: number;
+    aspect: string;
   };
+  fitMode: "cover" | "contain";
 }
-
-const EVIDENCE_PREVIEW_VIEWPORT = {
-  width: 430,
-  height: 932,
-} as const;
 
 const EVIDENCE_PREVIEW_PLACEMENTS: EvidencePreviewPlacementConfig[] = [
   {
@@ -79,7 +76,12 @@ const EVIDENCE_PREVIEW_PLACEMENTS: EvidencePreviewPlacementConfig[] = [
       "FACEBOOK_PROFILE_REELS",
       "INSTAGRAM_PROFILE_REELS",
     ],
-    viewport: EVIDENCE_PREVIEW_VIEWPORT,
+    viewport: {
+      width: 540,
+      height: 960,
+      aspect: "9 / 16",
+    },
+    fitMode: "cover",
   },
   {
     key: "feed",
@@ -89,7 +91,12 @@ const EVIDENCE_PREVIEW_PLACEMENTS: EvidencePreviewPlacementConfig[] = [
       "INSTAGRAM_STANDARD",
       "INSTAGRAM_FEED_WEB_M_SITE",
     ],
-    viewport: EVIDENCE_PREVIEW_VIEWPORT,
+    viewport: {
+      width: 540,
+      height: 675,
+      aspect: "4 / 5",
+    },
+    fitMode: "contain",
   },
   {
     key: "stories",
@@ -99,7 +106,12 @@ const EVIDENCE_PREVIEW_PLACEMENTS: EvidencePreviewPlacementConfig[] = [
       "FACEBOOK_STORY_MOBILE",
       "MESSENGER_MOBILE_STORY_MEDIA",
     ],
-    viewport: EVIDENCE_PREVIEW_VIEWPORT,
+    viewport: {
+      width: 540,
+      height: 960,
+      aspect: "9 / 16",
+    },
+    fitMode: "cover",
   },
 ];
 
@@ -236,9 +248,10 @@ function getPreviewAdId(card: BriefingCreativeCard) {
 
 function buildEvidenceLivePreviewSrcDoc(
   html: string | null,
-  viewport: { width: number; height: number },
+  placement: EvidencePreviewPlacementConfig,
 ) {
   if (!html) return null;
+  const { viewport, fitMode } = placement;
   const injectedHead = `
     <meta name="viewport" content="width=${viewport.width}, initial-scale=1, maximum-scale=1" />
     <style>
@@ -277,7 +290,7 @@ function buildEvidenceLivePreviewSrcDoc(
         overflow: hidden !important;
       }
       body > iframe,
-      #adsecute-meta-preview-fit > iframe {
+      #adsecute-meta-preview-fit iframe {
         display: block !important;
       }
       [style*="overflow: scroll"],
@@ -305,7 +318,15 @@ function buildEvidenceLivePreviewSrcDoc(
         transform-origin: top left !important;
         will-change: transform !important;
       }
-      #adsecute-meta-preview-fit > iframe {
+      #adsecute-meta-preview-content {
+        position: absolute !important;
+        top: 0 !important;
+        left: 0 !important;
+        overflow: hidden !important;
+        transform-origin: top left !important;
+        will-change: transform !important;
+      }
+      #adsecute-meta-preview-fit iframe {
         position: absolute !important;
         top: 0 !important;
         left: 0 !important;
@@ -319,7 +340,9 @@ function buildEvidenceLivePreviewSrcDoc(
       (() => {
         const VIEWPORT_WIDTH = ${viewport.width};
         const VIEWPORT_HEIGHT = ${viewport.height};
+        const FIT_MODE = "${fitMode}";
         const FIT_ID = "adsecute-meta-preview-fit";
+        const CONTENT_ID = "adsecute-meta-preview-content";
         let fitting = false;
 
         const applyViewport = () => {
@@ -366,39 +389,90 @@ function buildEvidenceLivePreviewSrcDoc(
         const ensureFitWrapper = () => {
           if (!document.body) return null;
           let wrapper = document.getElementById(FIT_ID);
-          if (wrapper) return wrapper;
-          wrapper = document.createElement("div");
-          wrapper.id = FIT_ID;
-          const nodes = Array.from(document.body.childNodes).filter((node) => {
-            return node !== wrapper && !(node.nodeType === Node.ELEMENT_NODE && node.tagName === "SCRIPT");
-          });
-          document.body.insertBefore(wrapper, document.body.firstChild);
-          nodes.forEach((node) => wrapper.appendChild(node));
-          return wrapper;
+          let content = document.getElementById(CONTENT_ID);
+          if (!wrapper) {
+            wrapper = document.createElement("div");
+            wrapper.id = FIT_ID;
+            content = document.createElement("div");
+            content.id = CONTENT_ID;
+            wrapper.appendChild(content);
+            const nodes = Array.from(document.body.childNodes).filter((node) => {
+              return node !== wrapper && !(node.nodeType === Node.ELEMENT_NODE && node.tagName === "SCRIPT");
+            });
+            document.body.insertBefore(wrapper, document.body.firstChild);
+            nodes.forEach((node) => content.appendChild(node));
+          } else if (!content) {
+            content = document.createElement("div");
+            content.id = CONTENT_ID;
+            const nodes = Array.from(wrapper.childNodes).filter((node) => {
+              return node !== content && !(node.nodeType === Node.ELEMENT_NODE && node.tagName === "SCRIPT");
+            });
+            wrapper.appendChild(content);
+            nodes.forEach((node) => content.appendChild(node));
+          }
+          return { wrapper, content };
         };
 
         const readFrameDimension = (frame, name, fallback) => {
           const stored = Number.parseFloat(frame.dataset[name] || "");
-          if (Number.isFinite(stored) && stored > 0) return stored;
+          const axis = name === "adsecuteNativeWidth" ? "width" : "height";
           const attr = Number.parseFloat(frame.getAttribute(name === "adsecuteNativeWidth" ? "width" : "height") || "");
-          if (Number.isFinite(attr) && attr > 0) {
-            frame.dataset[name] = String(attr);
-            return attr;
-          }
           const rect = frame.getBoundingClientRect();
-          const measured = name === "adsecuteNativeWidth" ? rect.width : rect.height;
-          const value = Number.isFinite(measured) && measured > 0 ? measured : fallback;
+          const measured = axis === "width" ? rect.width : rect.height;
+          let content = 0;
+          try {
+            const doc = frame.contentDocument;
+            const body = doc?.body;
+            const root = doc?.documentElement;
+            content = axis === "width"
+              ? Math.max(
+                  body?.scrollWidth || 0,
+                  root?.scrollWidth || 0,
+                  body?.offsetWidth || 0,
+                  root?.offsetWidth || 0
+                )
+              : Math.max(
+                  body?.scrollHeight || 0,
+                  root?.scrollHeight || 0,
+                  body?.offsetHeight || 0,
+                  root?.offsetHeight || 0
+                );
+          } catch {
+            content = 0;
+          }
+          const value = Math.max(
+            Number.isFinite(stored) && stored > 0 ? stored : 0,
+            Number.isFinite(content) && content > 0 ? content : 0,
+            Number.isFinite(attr) && attr > 0 ? attr : 0,
+            Number.isFinite(measured) && measured > 0 ? measured : 0,
+            fallback
+          );
           frame.dataset[name] = String(value);
           return value;
         };
 
+        const fitScaleFor = (width, height) => {
+          const ratioWidth = VIEWPORT_WIDTH / width;
+          const ratioHeight = VIEWPORT_HEIGHT / height;
+          const scale = FIT_MODE === "cover"
+            ? Math.max(ratioWidth, ratioHeight)
+            : Math.min(ratioWidth, ratioHeight);
+          return Number.isFinite(scale) && scale > 0 ? scale : 1;
+        };
+
         const fitNestedPreviewFrames = (wrapper) => {
-          const frames = Array.from(wrapper.children).filter((node) => node.tagName === "IFRAME");
+          const frames = Array.from(wrapper.querySelectorAll("iframe"));
           if (frames.length === 0) return false;
-          frames.forEach((frame) => {
+          frames.forEach((frame, index) => {
+            if (frame.parentElement !== wrapper) {
+              wrapper.appendChild(frame);
+            }
+            frame.style.setProperty("z-index", index === 0 ? "1" : "0", "important");
+            frame.style.setProperty("visibility", index === 0 ? "visible" : "hidden", "important");
+            frame.style.setProperty("pointer-events", index === 0 ? "auto" : "none", "important");
             const nativeWidth = readFrameDimension(frame, "adsecuteNativeWidth", VIEWPORT_WIDTH);
             const nativeHeight = readFrameDimension(frame, "adsecuteNativeHeight", VIEWPORT_HEIGHT);
-            const scale = Math.max(VIEWPORT_WIDTH / nativeWidth, VIEWPORT_HEIGHT / nativeHeight);
+            const scale = fitScaleFor(nativeWidth, nativeHeight);
             const x = (VIEWPORT_WIDTH - nativeWidth * scale) / 2;
             const y = (VIEWPORT_HEIGHT - nativeHeight * scale) / 2;
             frame.setAttribute("scrolling", "no");
@@ -414,8 +488,48 @@ function buildEvidenceLivePreviewSrcDoc(
             frame.style.setProperty("transform-origin", "top left", "important");
             frame.style.setProperty("transform", "translate(" + x + "px, " + y + "px) scale(" + scale + ")", "important");
             frame.style.setProperty("overflow", "hidden", "important");
+            frame.style.setProperty("overflow-x", "hidden", "important");
+            frame.style.setProperty("overflow-y", "hidden", "important");
+            frame.style.setProperty("scrollbar-width", "none", "important");
           });
           return true;
+        };
+
+        const readContentDimension = (content, axis) => {
+          const rect = content.getBoundingClientRect();
+          const measured = axis === "width" ? rect.width : rect.height;
+          const scroll = axis === "width" ? content.scrollWidth : content.scrollHeight;
+          const offset = axis === "width" ? content.offsetWidth : content.offsetHeight;
+          const childExtent = Array.from(content.children).reduce((max, child) => {
+            const childRect = child.getBoundingClientRect();
+            return Math.max(max, axis === "width" ? childRect.right - rect.left : childRect.bottom - rect.top);
+          }, 0);
+          return Math.max(
+            Number.isFinite(scroll) && scroll > 0 ? scroll : 0,
+            Number.isFinite(offset) && offset > 0 ? offset : 0,
+            Number.isFinite(measured) && measured > 0 ? measured : 0,
+            Number.isFinite(childExtent) && childExtent > 0 ? childExtent : 0,
+            axis === "width" ? VIEWPORT_WIDTH : VIEWPORT_HEIGHT
+          );
+        };
+
+        const fitContentLayer = (content) => {
+          content.style.setProperty("position", "absolute", "important");
+          content.style.setProperty("top", "0", "important");
+          content.style.setProperty("left", "0", "important");
+          content.style.setProperty("transform", "none", "important");
+          const width = readContentDimension(content, "width");
+          const height = readContentDimension(content, "height");
+          const scale = fitScaleFor(width, height);
+          const x = (VIEWPORT_WIDTH - width * scale) / 2;
+          const y = (VIEWPORT_HEIGHT - height * scale) / 2;
+          content.style.setProperty("width", width + "px", "important");
+          content.style.setProperty("height", height + "px", "important");
+          content.style.setProperty("min-width", width + "px", "important");
+          content.style.setProperty("min-height", height + "px", "important");
+          content.style.setProperty("transform-origin", "top left", "important");
+          content.style.setProperty("transform", "translate(" + x + "px, " + y + "px) scale(" + scale + ")", "important");
+          content.style.setProperty("overflow", "hidden", "important");
         };
 
         const fitPreview = () => {
@@ -423,11 +537,12 @@ function buildEvidenceLivePreviewSrcDoc(
           fitting = true;
           requestAnimationFrame(() => {
             applyViewport();
-            const wrapper = ensureFitWrapper();
-            if (!wrapper) {
+            const fitNodes = ensureFitWrapper();
+            if (!fitNodes) {
               fitting = false;
               return;
             }
+            const { wrapper, content } = fitNodes;
             forceNoScroll();
             wrapper.style.removeProperty("transform");
             wrapper.style.setProperty("width", VIEWPORT_WIDTH + "px", "important");
@@ -437,15 +552,7 @@ function buildEvidenceLivePreviewSrcDoc(
               fitting = false;
               return;
             }
-            const rect = wrapper.getBoundingClientRect();
-            const width = Math.max(wrapper.scrollWidth, rect.width, 1);
-            const height = Math.max(wrapper.scrollHeight, rect.height, 1);
-            const scale = Math.min(VIEWPORT_WIDTH / width, VIEWPORT_HEIGHT / height);
-            const x = Math.max((VIEWPORT_WIDTH - width * scale) / 2, 0);
-            const y = Math.max((VIEWPORT_HEIGHT - height * scale) / 2, 0);
-            wrapper.style.setProperty("width", width + "px", "important");
-            wrapper.style.setProperty("height", height + "px", "important");
-            wrapper.style.setProperty("transform", "translate(" + x + "px, " + y + "px) scale(" + scale + ")", "important");
+            if (content) fitContentLayer(content);
             fitting = false;
           });
         };
@@ -628,15 +735,14 @@ function CreativeEvidenceDrawerContent({
   const livePreviewQuery = livePreviewQueries[selectedPreviewIndex];
   const livePreviewHtml = livePreviewQuery?.data?.html ?? null;
   const livePreviewSrcDoc = useMemo(
-    () => buildEvidenceLivePreviewSrcDoc(livePreviewHtml, selectedPlacementConfig.viewport),
-    [livePreviewHtml, selectedPlacementConfig.viewport],
+    () => buildEvidenceLivePreviewSrcDoc(livePreviewHtml, selectedPlacementConfig),
+    [livePreviewHtml, selectedPlacementConfig],
   );
   const previewScale = useMemo(() => {
     if (previewScreenSize.width <= 0 || previewScreenSize.height <= 0) return 1;
     const scale = Math.min(
       previewScreenSize.width / selectedPlacementConfig.viewport.width,
       previewScreenSize.height / selectedPlacementConfig.viewport.height,
-      1,
     );
     return Number.isFinite(scale) && scale > 0 ? scale : 1;
   }, [
@@ -645,14 +751,6 @@ function CreativeEvidenceDrawerContent({
     selectedPlacementConfig.viewport.height,
     selectedPlacementConfig.viewport.width,
   ]);
-  const previewScaledSize = useMemo(
-    () => ({
-      width: Math.max(1, selectedPlacementConfig.viewport.width * previewScale),
-      height: Math.max(1, selectedPlacementConfig.viewport.height * previewScale),
-    }),
-    [previewScale, selectedPlacementConfig.viewport.height, selectedPlacementConfig.viewport.width],
-  );
-
   useEffect(() => {
     const node = previewScreenRef.current;
     if (!node) return;
@@ -721,8 +819,16 @@ function CreativeEvidenceDrawerContent({
                   </button>
                 ))}
               </div>
-              <div className="creative-evidence-phone creative-evidence-phone--live" data-media-shape={format.shape}>
-                <span className="creative-evidence-notch" aria-hidden="true" />
+              <div
+                className="creative-evidence-preview-slot creative-evidence-preview-slot--live"
+                data-media-shape={format.shape}
+                data-preview-placement={selectedPlacementConfig.key}
+                style={
+                  {
+                    "--preview-aspect": selectedPlacementConfig.viewport.aspect,
+                  } as CSSProperties
+                }
+              >
                 <div ref={previewScreenRef} className="creative-evidence-screen-inner">
                   {livePreviewSrcDoc ? (
                     <div
@@ -731,9 +837,8 @@ function CreativeEvidenceDrawerContent({
                         {
                           "--preview-native-width": `${selectedPlacementConfig.viewport.width}px`,
                           "--preview-native-height": `${selectedPlacementConfig.viewport.height}px`,
-                          "--preview-scaled-width": `${previewScaledSize.width}px`,
-                          "--preview-scaled-height": `${previewScaledSize.height}px`,
                           "--preview-scale": previewScale,
+                          "--preview-aspect": selectedPlacementConfig.viewport.aspect,
                         } as CSSProperties
                       }
                     >

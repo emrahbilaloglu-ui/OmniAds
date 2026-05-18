@@ -12,6 +12,7 @@ import {
 } from "@/components/creatives/briefing/action-handlers";
 import {
   asDecisionLabel,
+  cardId,
   cardName,
   numberOrZero,
 } from "@/components/creatives/briefing/card-utils";
@@ -35,6 +36,56 @@ export interface BulkPauseResult {
     error?: { code: string; message: string };
   }>;
   errors?: Array<{ code?: string; message: string }>;
+}
+
+function cleanErrorMessage(value: string | null | undefined) {
+  const message = value?.trim();
+  return message ? message : null;
+}
+
+export function summarizeBulkPauseFailure(result: BulkPauseResult) {
+  const failedResults = (result.results ?? []).filter((item) => !item.ok);
+  const firstFailure = failedResults[0];
+  const firstResultMessage = cleanErrorMessage(firstFailure?.error?.message);
+  if (firstResultMessage) {
+    const suffix =
+      failedResults.length > 1 ? ` (+${failedResults.length - 1} more)` : "";
+    return `${firstResultMessage}${suffix}`;
+  }
+  const firstErrorMessage = cleanErrorMessage(result.errors?.[0]?.message);
+  if (firstErrorMessage) return firstErrorMessage;
+  if (result.failedCount) return `Bulk cut failed for ${result.failedCount} creatives.`;
+  return "Bulk cut failed.";
+}
+
+export function successfulBulkPauseCardIds(
+  cards: BriefingCreativeCard[],
+  result: BulkPauseResult,
+) {
+  if (result.ok) return cards.map(cardId);
+  const successfulIds = new Set(
+    (result.results ?? [])
+      .filter((item) => item.ok)
+      .flatMap((item) => [
+        item.inputAdId,
+        item.adId,
+        item.creativeId,
+        ...(item.attemptedIds ?? []),
+      ])
+      .flatMap((id) => {
+        const normalized = id?.trim();
+        return normalized ? [normalized] : [];
+      }),
+  );
+  if (successfulIds.size === 0) return [];
+  return cards.flatMap((card) => {
+    const ids = [
+      cardId(card),
+      getCreativeScopeId(card),
+      ...getBriefingAdActionCandidateIds(card),
+    ];
+    return ids.some((id) => successfulIds.has(id)) ? [cardId(card)] : [];
+  });
 }
 
 export function buildBulkPauseRequestBody(input: {

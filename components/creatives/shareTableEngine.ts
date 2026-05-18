@@ -39,6 +39,8 @@ export const SHARE_TABLE_COLUMN_KEYS = [
   "video100Rate",
   "holdRate",
   "hookScore",
+  "ctaScore",
+  "offerScore",
   "purchaseValueShare",
   "watchScore",
   "clickScore",
@@ -153,8 +155,10 @@ const METRIC_CONFIG: Partial<Record<ShareTableColumnKey, ShareTableMetricConfig>
   video100Rate: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, heatStrength: "soft", applicableFormats: VIDEO_ONLY_FORMATS, minConfidenceThreshold: VIDEO_CONFIDENCE_THRESHOLD },
   holdRate: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, heatStrength: "soft", applicableFormats: VIDEO_ONLY_FORMATS, minConfidenceThreshold: VIDEO_CONFIDENCE_THRESHOLD },
   hookScore: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, heatStrength: "soft", applicableFormats: STANDARD_FORMATS },
+  ctaScore: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, heatStrength: "soft", applicableFormats: STANDARD_FORMATS },
+  offerScore: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, heatStrength: "soft", applicableFormats: STANDARD_FORMATS },
   purchaseValueShare: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, heatStrength: "soft", applicableFormats: STANDARD_FORMATS },
-  watchScore: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, heatStrength: "soft", applicableFormats: VIDEO_ONLY_FORMATS, minConfidenceThreshold: VIDEO_CONFIDENCE_THRESHOLD },
+  watchScore: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, heatStrength: "soft", applicableFormats: STANDARD_FORMATS },
   clickScore: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, heatStrength: "soft", applicableFormats: STANDARD_FORMATS },
   convertScore: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, heatStrength: "soft", applicableFormats: STANDARD_FORMATS },
   averageOrderValueWebsite: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, heatStrength: "soft", applicableFormats: STANDARD_FORMATS },
@@ -189,9 +193,31 @@ const fmtCurrency = (n: number, row: SharedCreative) =>
 const fmtPercent = (n: number) => `${n.toFixed(2)}%`;
 const fmtInteger = (n: number) => Math.round(n).toLocaleString();
 const fmtDecimal = (n: number) => n.toFixed(2);
+const fmtScore = (n: number) => Number.isFinite(n) ? Math.round(n).toLocaleString() : "—";
 
 const safeDivide = (numerator: number, denominator: number): number =>
   denominator > 0 ? numerator / denominator : 0;
+
+const SCORE_COLUMNS = new Set<ShareTableColumnKey>([
+  "hookScore",
+  "ctaScore",
+  "offerScore",
+  "clickScore",
+  "watchScore",
+]);
+
+function scoreValue(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : Number.NaN;
+}
+
+function hasScoreValue(row: SharedCreative, key: ShareTableColumnKey): boolean {
+  if (key === "hookScore") return Number.isFinite(scoreValue(row.hookScore));
+  if (key === "ctaScore") return Number.isFinite(scoreValue(row.ctaScore));
+  if (key === "offerScore") return Number.isFinite(scoreValue(row.offerScore));
+  if (key === "clickScore") return Number.isFinite(scoreValue(row.clickScore));
+  if (key === "watchScore") return Number.isFinite(scoreValue(row.watchScore));
+  return false;
+}
 
 export const SHARE_TABLE_COLUMNS: ShareTableColumnDefinition[] = [
   { key: "spend", label: "Spend", minWidth: 130, align: "right", format: fmtCurrency, getValue: (r) => r.spend },
@@ -215,10 +241,12 @@ export const SHARE_TABLE_COLUMNS: ShareTableColumnDefinition[] = [
   { key: "video75Rate", label: "75% video plays (rate)", minWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.video75 ?? 0 },
   { key: "video100Rate", label: "100% video plays (rate)", minWidth: 170, align: "right", format: fmtPercent, getValue: (r) => r.video100 ?? 0 },
   { key: "holdRate", label: "Completion proxy (100% plays)", minWidth: 190, align: "right", format: fmtPercent, getValue: (r) => r.video100 ?? 0 },
-  { key: "hookScore", label: "Hook proxy (thumbstop)", minWidth: 160, align: "right", format: fmtPercent, getValue: (r) => r.thumbstop ?? 0 },
+  { key: "hookScore", label: "Hook", minWidth: 110, align: "right", format: fmtScore, getValue: (r) => scoreValue(r.hookScore) },
+  { key: "ctaScore", label: "CTA", minWidth: 100, align: "right", format: fmtScore, getValue: (r) => scoreValue(r.ctaScore) },
+  { key: "offerScore", label: "Offer", minWidth: 110, align: "right", format: fmtScore, getValue: (r) => scoreValue(r.offerScore) },
   { key: "purchaseValueShare", label: "% purchase value", minWidth: 145, align: "right", format: fmtPercent, getValue: (r, c) => calculateCreativePurchaseValueShare(r, c.totalPurchaseValue) },
-  { key: "watchScore", label: "Watch proxy (50% plays)", minWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.video50 ?? 0 },
-  { key: "clickScore", label: "Click proxy (CTR all x10)", minWidth: 165, align: "right", format: fmtDecimal, getValue: (r) => r.ctrAll * 10 },
+  { key: "watchScore", label: "Watch", minWidth: 110, align: "right", format: fmtScore, getValue: (r) => scoreValue(r.watchScore) },
+  { key: "clickScore", label: "Click", minWidth: 110, align: "right", format: fmtScore, getValue: (r) => scoreValue(r.clickScore) },
   { key: "convertScore", label: "Conversion proxy (ROAS x10)", minWidth: 185, align: "right", format: fmtDecimal, getValue: (r) => r.roas * 10 },
   { key: "averageOrderValueWebsite", label: "Average order value (website)", minWidth: 195, align: "right", format: fmtCurrency, getValue: (r) => calculateCreativeAverageOrderValue(r) },
   { key: "averageOrderValueShop", label: "Average order value (Shop)", minWidth: 185, align: "right", format: fmtCurrency, getValue: (r) => calculateCreativeAverageOrderValue(r) },
@@ -273,6 +301,10 @@ function hasVideoEvidence(row: SharedCreative): boolean {
 
 export function isShareMetricApplicable(key: ShareTableColumnKey, row: SharedCreative): boolean {
   const cfg = metricConfig(key);
+
+  if (SCORE_COLUMNS.has(key)) {
+    return hasScoreValue(row, key);
+  }
 
   if (cfg.applicableFormats.includes("video") && cfg.applicableFormats.length === 1) {
     return hasVideoEvidence(row);

@@ -1932,6 +1932,14 @@
     font-feature-settings: "tnum";
   }
 
+  .ad-final .asset-table--creative-team thead th {
+    min-width: 82px;
+  }
+
+  .ad-final .asset-table--creative-team thead th:nth-child(2) {
+    min-width: 250px;
+  }
+
   .ad-final .archive-action-cell {
     align-items: flex-start;
     display: inline-flex;
@@ -2067,6 +2075,15 @@
 
   .ad-final .score.hi .gauge i {
     background: var(--ok);
+  }
+
+  .ad-final .score.missing {
+    color: var(--muted);
+    font-weight: 600;
+  }
+
+  .ad-final .score.missing .gauge i {
+    background: transparent;
   }
 
   .ad-final .modal-backdrop {
@@ -2801,6 +2818,31 @@
     margin: 0 0 6px;
   }
 
+  .ad-final .share-modal__sub {
+    color: var(--pencil);
+    font-size: 13px;
+    margin: 0;
+  }
+
+  .ad-final .share-modal__hint {
+    color: var(--muted);
+    font-size: 12px;
+    margin: 0 0 14px;
+  }
+
+  .ad-final .share-modal__section-label {
+    color: var(--pencil);
+    font-family: var(--font-geist-mono), "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.6px;
+    margin: 14px 0 6px;
+    text-transform: uppercase;
+  }
+
+  .ad-final .share-modal__section-label--link {
+    margin-top: 14px;
+  }
+
   .ad-final .share-modal .seg {
     display: flex;
     overflow: hidden;
@@ -2903,6 +2945,38 @@
     color: var(--muted);
   }
 
+  .ad-final .share-modal .check-row--locked {
+    cursor: default;
+  }
+
+  .ad-final .share-modal__meta {
+    color: var(--pencil);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    font-size: 12px;
+    margin-top: 12px;
+  }
+
+  .ad-final .share-modal__meta b {
+    color: var(--ink);
+    font-weight: 700;
+  }
+
+  .ad-final .share-modal__footer {
+    align-items: center;
+    border-top: 1px dashed var(--rule-soft);
+    display: flex;
+    justify-content: space-between;
+    margin-top: 18px;
+    padding-top: 14px;
+  }
+
+  .ad-final .share-modal__footer-actions {
+    display: flex;
+    gap: 8px;
+  }
+
   .ad-final .creative-evidence-drawer-shell {
     position: fixed;
     inset: 0;
@@ -2992,40 +3066,28 @@
     font-weight: 700;
   }
 
-  .ad-final .creative-evidence-phone {
+  .ad-final .creative-evidence-preview-slot {
     position: relative;
     display: flex;
     flex-direction: column;
-    width: 240px;
-    height: 480px;
+    width: min(100%, 312px);
+    height: auto;
+    aspect-ratio: var(--preview-aspect, 9 / 16);
+    flex: 0 0 auto;
     overflow: hidden;
-    border-radius: 36px;
-    background: #0a0a0a;
-    box-shadow: var(--shadow-xl);
-    padding: 8px;
-  }
-
-  .ad-final .creative-evidence-notch {
-    position: absolute;
-    top: 12px;
-    left: 50%;
-    z-index: 4;
-    width: 90px;
-    height: 22px;
-    transform: translateX(-50%);
-    border-radius: 0 0 14px 14px;
-    background: #000;
+    background: transparent;
   }
 
   .ad-final .creative-evidence-screen-inner {
     position: relative;
-    flex: 1;
+    flex: 0 0 auto;
     display: flex;
     align-items: center;
     justify-content: center;
+    width: 100%;
+    height: 100%;
     overflow: hidden;
-    border-radius: 28px;
-    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    background: transparent;
     color: #fff;
   }
 
@@ -3045,26 +3107,26 @@
   }
 
   .ad-final .creative-evidence-preview-frame-shell {
-    position: relative;
-    width: var(--preview-scaled-width);
-    height: var(--preview-scaled-height);
-    flex: 0 0 auto;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
     overflow: hidden;
     background: transparent;
   }
 
   .ad-final .creative-evidence-live-frame {
     position: absolute;
-    top: 0;
-    left: 0;
+    top: 50%;
+    left: 50%;
     display: block;
     width: var(--preview-native-width);
     height: var(--preview-native-height);
     border: 0;
     background: transparent;
     overflow: hidden;
-    transform: scale(var(--preview-scale));
-    transform-origin: top left;
+    transform: translate(-50%, -50%) scale(var(--preview-scale));
+    transform-origin: center;
   }
 
   .ad-final .creative-evidence-preview-state {
@@ -3580,9 +3642,9 @@
       padding: 24px 18px;
     }
 
-    .ad-final .creative-evidence-phone {
-      width: 210px;
-      height: 420px;
+    .ad-final .creative-evidence-preview-slot {
+      width: min(100%, 280px);
+      height: auto;
     }
 
     .ad-final .creative-evidence-drawer {

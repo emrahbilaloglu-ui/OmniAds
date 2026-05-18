@@ -56,6 +56,19 @@ export interface MetaCreativePreview {
   is_catalog: boolean;
 }
 
+export interface MetaCreativeScoreBreakdown {
+  hook?: number | null;
+  cta?: number | null;
+  offer?: number | null;
+  click?: number | null;
+  watch?: number | null;
+}
+
+export interface MetaCreativeScoreGap {
+  label?: string | null;
+  severity?: "none" | "watch" | "action" | null;
+}
+
 export interface MetaCreativeRow {
   id: string;
   creativeId: string;
@@ -115,6 +128,13 @@ export interface MetaCreativeRow {
   launchDate: string;
   tags: string[];
   aiTags: MetaAiTags;
+  creativeScores?: MetaCreativeScoreBreakdown | null;
+  creativeScoreGap?: MetaCreativeScoreGap | null;
+  hookScore?: number | null;
+  ctaScore?: number | null;
+  offerScore?: number | null;
+  clickScore?: number | null;
+  watchScore?: number | null;
   spend: number;
   purchaseValue: number;
   roas: number;

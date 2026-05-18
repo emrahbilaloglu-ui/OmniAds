@@ -13,8 +13,6 @@ export const metadata: Metadata = {
 
 /**
  * Public share page — no auth required.
- * In production: fetch share payload from backend using `token`.
- * For now, renders mock data.
  */
 export default async function ShareCreativePage({
   params,
@@ -25,7 +23,7 @@ export default async function ShareCreativePage({
   const { token } = await params;
   const payload = token === MOCK_SHARE_PAYLOAD.token
     ? MOCK_SHARE_PAYLOAD
-    : await getCreativeShareSnapshot(token);
+    : await getCreativeShareSnapshot(token, { recordOpen: true });
   if (!payload) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-background px-6">

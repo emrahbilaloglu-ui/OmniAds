@@ -3,6 +3,8 @@ import type { SharePayload } from "@/components/creatives/shareCreativeTypes";
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 
+type CreateCreativeSharePayload = Omit<SharePayload, "token" | "createdAt">;
+
 async function ensureShareTable() {
   await assertDbSchemaReady({
     tables: ["creative_share_snapshots"],
@@ -10,16 +12,54 @@ async function ensureShareTable() {
   });
 }
 
+function normalizeShareAudience(value: SharePayload["audience"]): NonNullable<SharePayload["audience"]> {
+  return value === "creative_team" || value === "external" ? value : "buyer";
+}
+
+function safeNumber(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : 0;
+}
+
+export function sanitizeCreativeSharePayloadForStorage(
+  payload: CreateCreativeSharePayload,
+  now = new Date(),
+): CreateCreativeSharePayload & Pick<SharePayload, "createdAt" | "frozenAt" | "openCount"> {
+  const audience = normalizeShareAudience(payload.audience);
+  const allowDecisionLanguage = audience === "buyer" && payload.includeDecisionLanguage !== false;
+  const allowCampaignNames = audience === "buyer" && payload.includeCampaignNames !== false;
+  const createdAt = now.toISOString();
+  const sanitizeCreative = (creative: SharePayload["creatives"][number]) => ({
+    ...creative,
+    analysis: allowDecisionLanguage ? creative.analysis ?? null : null,
+  });
+
+  return {
+    ...payload,
+    audience,
+    createdAt,
+    frozenAt: createdAt,
+    openCount: safeNumber(payload.openCount),
+    includeDecisionLanguage: allowDecisionLanguage,
+    includeCampaignNames: allowCampaignNames,
+    filters: audience === "external" ? [] : payload.filters,
+    selectedRowIds: audience === "external" ? undefined : payload.selectedRowIds,
+    groupBy: allowCampaignNames ? payload.groupBy : undefined,
+    creatives: payload.creatives.map(sanitizeCreative),
+    benchmarkCreatives: payload.benchmarkCreatives?.map(sanitizeCreative),
+  };
+}
+
 export async function createCreativeShareSnapshot(
-  payload: Omit<SharePayload, "token" | "createdAt">
+  payload: CreateCreativeSharePayload
 ): Promise<{ token: string; payload: SharePayload }> {
   await ensureShareTable();
   const sql = getDb();
   const token = randomUUID().replace(/-/g, "");
   const snapshot: SharePayload = {
-    ...payload,
+    ...sanitizeCreativeSharePayloadForStorage(payload),
     token,
-    createdAt: new Date().toISOString(),
   };
   await sql`
     INSERT INTO creative_share_snapshots (token, payload, expires_at)
@@ -29,7 +69,22 @@ export async function createCreativeShareSnapshot(
   return { token, payload: snapshot };
 }
 
-export async function getCreativeShareSnapshot(token: string): Promise<SharePayload | null> {
+function parseSharePayload(payload: unknown): SharePayload | null {
+  if (typeof payload === "string") {
+    try {
+      return JSON.parse(payload) as SharePayload;
+    } catch {
+      return null;
+    }
+  }
+  if (payload && typeof payload === "object") return payload as SharePayload;
+  return null;
+}
+
+export async function getCreativeShareSnapshot(
+  token: string,
+  options: { recordOpen?: boolean } = {},
+): Promise<SharePayload | null> {
   const readiness = await getDbSchemaReadiness({
     tables: ["creative_share_snapshots"],
   });
@@ -51,12 +106,18 @@ export async function getCreativeShareSnapshot(token: string): Promise<SharePayl
     return null;
   }
 
-  if (typeof row.payload === "string") {
-    try {
-      return JSON.parse(row.payload) as SharePayload;
-    } catch {
-      return null;
-    }
-  }
-  return row.payload as SharePayload;
+  const payload = parseSharePayload(row.payload);
+  if (!payload) return null;
+  if (!options.recordOpen) return payload;
+
+  const openedPayload: SharePayload = {
+    ...payload,
+    openCount: safeNumber(payload.openCount) + 1,
+  };
+  await sql`
+    UPDATE creative_share_snapshots
+    SET payload = ${JSON.stringify(openedPayload)}::jsonb
+    WHERE token = ${token}
+  `;
+  return openedPayload;
 }

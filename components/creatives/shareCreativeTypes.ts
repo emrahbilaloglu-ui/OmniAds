@@ -25,6 +25,11 @@ export const SHARE_METRIC_KEYS = [
   "atcToPurchaseRatio",
   "leads",
   "messages",
+  "hookScore",
+  "ctaScore",
+  "offerScore",
+  "clickScore",
+  "watchScore",
 ] as const;
 
 export type ShareMetricKey = (typeof SHARE_METRIC_KEYS)[number];
@@ -67,6 +72,11 @@ export interface SharedCreativeAnalysis {
   nextObservation: string[];
   invalidActions: string[];
   factors: SharedCreativeAnalysisFactor[];
+}
+
+export interface SharedCreativeScoreGap {
+  label: string;
+  severity?: "none" | "watch" | "action" | "missing" | null;
 }
 
 /**
@@ -125,6 +135,12 @@ export interface SharedCreative {
   video75?: number;
   video100?: number;
   atcToPurchaseRatio?: number;
+  hookScore?: number | null;
+  ctaScore?: number | null;
+  offerScore?: number | null;
+  clickScore?: number | null;
+  watchScore?: number | null;
+  creativeScoreGap?: SharedCreativeScoreGap | null;
 
   analysis?: SharedCreativeAnalysis | null;
 }
@@ -139,6 +155,8 @@ export interface ShareLinkConfig {
   includeNotes: boolean;
   passwordProtection: boolean;
   audience?: "buyer" | "creative_team" | "external";
+  presetId?: string;
+  presetLabel?: string;
   includeCampaignNames?: boolean;
   includeDecisionLanguage?: boolean;
   allowCsv?: boolean;
@@ -163,7 +181,9 @@ export interface SharePayload {
 
   dateRange: string;
   createdAt: string;
+  frozenAt?: string;
   expiresAt: string;
+  openCount?: number;
 
   businessId?: string;
   groupBy?: string;
@@ -175,6 +195,8 @@ export interface SharePayload {
   metrics: ShareMetricKey[];
   includeNotes: boolean;
   audience?: "buyer" | "creative_team" | "external";
+  presetId?: string;
+  presetLabel?: string;
   includeCampaignNames?: boolean;
   includeDecisionLanguage?: boolean;
   allowCsv?: boolean;

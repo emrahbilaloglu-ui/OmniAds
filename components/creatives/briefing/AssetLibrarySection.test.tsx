@@ -5,6 +5,7 @@ import {
   ASSET_PRESETS,
   ASSET_LIBRARY_VIEW_STORAGE_KEY,
   AssetLibrarySection,
+  ShareViewModal,
   assetLibraryCountSummary,
   filterAssetLibraryRows,
   sortAssetLibraryRows,
@@ -150,6 +151,106 @@ describe("AssetLibrarySection", () => {
     expect(html).not.toContain("Avg CPA");
   });
 
+  it("renders the Creative teams table with score columns and creative-team language", () => {
+    const creativeTeamsPreset = ASSET_PRESETS.find((preset) => preset.id === "creative_teams");
+    const html = renderToStaticMarkup(
+      <AssetLibrarySection
+        rows={[
+          row({
+            id: "scored-static",
+            name: "Static-Promo-B",
+            campaignKind: "test",
+            hookScore: 28,
+            ctaScore: 34,
+            offerScore: 52,
+            clickScore: 31,
+            watchScore: 22,
+            creativeScoreGap: { label: "Hook + Click gap", severity: "action" },
+          }),
+        ]}
+        defaultCurrency="USD"
+        selectedMetricIds={creativeTeamsPreset?.metricIds ?? []}
+        onSelectedMetricIdsChange={() => undefined}
+        selectedRowIds={[]}
+        onToggleRow={() => undefined}
+        onToggleAll={() => undefined}
+        onOpenRow={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("Creative teams");
+    expect(html).toContain("· 6 KPIs");
+    expect(html).toContain(">Hook<");
+    expect(html).toContain(">CTA<");
+    expect(html).toContain(">Offer<");
+    expect(html).toContain(">Click<");
+    expect(html).toContain(">Watch<");
+    expect(html).toContain("Hook + Click gap");
+    expect(html).toContain(">Test<");
+    expect(html).not.toContain("Below breakeven");
+  });
+
+  it("does not invent Creative teams scores when backend score fields are absent", () => {
+    const creativeTeamsPreset = ASSET_PRESETS.find((preset) => preset.id === "creative_teams");
+    const html = renderToStaticMarkup(
+      <AssetLibrarySection
+        rows={[row({ id: "unscored", name: "Needs Scoring", campaignKind: "main" })]}
+        defaultCurrency="USD"
+        selectedMetricIds={creativeTeamsPreset?.metricIds ?? []}
+        onSelectedMetricIdsChange={() => undefined}
+        selectedRowIds={[]}
+        onToggleRow={() => undefined}
+        onToggleAll={() => undefined}
+        onOpenRow={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("score unavailable");
+    expect(html).toContain("Hook score unavailable");
+    expect(html).toContain(">Main<");
+  });
+
+  it("renders the Share view create-link modal with audience, leak controls, link metadata, and footer actions", () => {
+    const html = renderToStaticMarkup(
+      <ShareViewModal
+        audience="creative_team"
+        includeCampaignNames={false}
+        includeDecisionLanguage={false}
+        allowCsv={false}
+        generatedShareUrl={null}
+        presetTitle="Creative teams"
+        rowScopeLabel="selected"
+        dateRangeLabel="Last 14d"
+        dateRangeDetail="2026-05-05 - 2026-05-18"
+        snapshotLabel="freezes when link is created"
+        actionStatus="idle"
+        rowCount={4}
+        onAudienceChange={() => undefined}
+        onToggleCampaignNames={() => undefined}
+        onToggleDecisionLanguage={() => undefined}
+        onToggleCsv={() => undefined}
+        onSaveLink={() => undefined}
+        onCopyLink={() => undefined}
+        onCopyAndClose={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("Share Asset Library view");
+    expect(html).toContain("4 selected creatives · preset = Creative teams · window = Last 14d");
+    expect(html).toContain("Who is this for?");
+    expect(html).toContain("Preset auto-switches to match audience");
+    expect(html).toContain("What gets shared");
+    expect(html).toContain("4 selected creatives (thumbs · scores · gaps)");
+    expect(html).toContain("Show campaign names");
+    expect(html).toContain("Hide all decision language (Cut / Scale / Promote)");
+    expect(html).toContain("Link will be created after Save link");
+    expect(html).toContain("Expires");
+    expect(html).toContain("Open count");
+    expect(html).toContain("Save link");
+    expect(html).toContain("Copy &amp; close");
+  });
+
   it("renders Asset Library thumbnails from optimized media fallbacks", () => {
     const html = renderToStaticMarkup(
       <AssetLibrarySection
@@ -207,7 +308,7 @@ describe("AssetLibrarySection", () => {
 
     expect(html).toContain("Taxonomy Video");
     expect(html).toContain(">VID<");
-    expect(html).toContain("2026-05-01 · Video");
+    expect(html).toMatch(/<span>(?:today|\d+d|2026-05-01) · Video<\/span>/);
     expect(
       filterAssetLibraryRows([videoRow], {
         status: "all",

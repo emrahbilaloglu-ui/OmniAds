@@ -80,14 +80,16 @@ function renderDrawer(
 }
 
 describe("CreativeEvidenceDrawer", () => {
-  it("renders the product drawer pattern with phone preview and evidence actions", () => {
+  it("renders the product drawer pattern with a chrome-free placement preview and evidence actions", () => {
     const html = renderDrawer(
       <CreativeEvidenceDrawer open card={card()} {...noopProps} />,
     );
 
     expect(html).toContain("creative-evidence-drawer-shell");
     expect(html).toContain("creative-evidence-stage");
-    expect(html).toContain("creative-evidence-phone");
+    expect(html).toContain("creative-evidence-preview-slot");
+    expect(html).not.toContain("creative-evidence-phone");
+    expect(html).not.toContain("creative-evidence-notch");
     expect(html).toContain("creative-evidence-drawer");
     expect(html).toContain("Promote to main");
     expect(html).toContain("Evidence");
@@ -116,17 +118,26 @@ describe("CreativeEvidenceDrawer", () => {
 
     expect(html).toContain("creative-evidence-live-frame");
     expect(html).toContain("creative-evidence-preview-frame-shell");
-    expect(html).toContain("--preview-native-width:430px");
-    expect(html).toContain("--preview-native-height:932px");
-    expect(html).toContain("--preview-scaled-width:430px");
-    expect(html).toContain("--preview-scaled-height:932px");
+    expect(html).toContain("data-preview-placement=\"feed\"");
+    expect(html).toContain("--preview-aspect:4 / 5");
+    expect(html).toContain("--preview-native-width:540px");
+    expect(html).toContain("--preview-native-height:675px");
+    expect(html).not.toContain("--preview-scaled-width");
+    expect(html).not.toContain("--preview-scaled-height");
     expect(html).toContain("adsecute-meta-preview-fit");
+    expect(html).toContain("adsecute-meta-preview-content");
     expect(html).toContain("body &gt; iframe");
     expect(html).toContain("fitNestedPreviewFrames");
+    expect(html).toContain("fitContentLayer");
+    expect(html).toContain("readContentDimension");
     expect(html).toContain("adsecuteNativeWidth");
-    expect(html).toContain("Math.max(VIEWPORT_WIDTH / nativeWidth, VIEWPORT_HEIGHT / nativeHeight)");
+    expect(html).toContain("fitScaleFor");
+    expect(html).toContain("FIT_MODE === &quot;cover&quot;");
+    expect(html).toContain("Math.min(ratioWidth, ratioHeight)");
+    expect(html).toContain("wrapper.querySelectorAll(&quot;iframe&quot;)");
     expect(html).toContain("setAttribute(&quot;scrolling&quot;, &quot;no&quot;)");
     expect(html).toContain("setProperty(&quot;overflow&quot;, &quot;hidden&quot;, &quot;important&quot;)");
+    expect(html).toContain("setProperty(&quot;scrollbar-width&quot;, &quot;none&quot;, &quot;important&quot;)");
     expect(html).toContain("Real Meta ad preview");
     expect(html).toContain("Meta preview - mobile feed standard");
     expect(html).not.toContain("creative-evidence-phone-surface");
@@ -156,7 +167,8 @@ describe("CreativeEvidenceDrawer", () => {
 
     expect(html).toContain("Evidence unavailable");
     expect(html).toContain("missing evidence fields");
-    expect(html).toContain("creative-evidence-phone");
+    expect(html).toContain("creative-evidence-preview-slot");
+    expect(html).not.toContain("creative-evidence-phone");
   });
 
   it("hides when closed", () => {

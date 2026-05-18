@@ -4,6 +4,8 @@ import {
   buildBulkPauseRequestBody,
   buildCompareDrawerItems,
   pauseBriefingCardsBulk,
+  successfulBulkPauseCardIds,
+  summarizeBulkPauseFailure,
 } from "@/components/creatives/briefing/bulk-actions";
 import type { BriefingCreativeCard } from "@/components/creatives/briefing/types";
 
@@ -148,6 +150,38 @@ describe("bulk briefing actions", () => {
         fetchImpl,
       }),
     ).rejects.toThrow("bulk failed");
+  });
+
+  it("maps partial bulk pause successes back to card ids and keeps the failure reason", () => {
+    const cards = [
+      card({ id: "row_1", creativeId: "creative_1", realAdId: "stale_ad_1" }),
+      card({ id: "row_2", creativeId: "creative_2", realAdId: "ad_2" }),
+    ];
+    const result = {
+      ok: false,
+      successCount: 1,
+      failedCount: 1,
+      results: [
+        {
+          inputAdId: "stale_ad_1",
+          adId: "real_ad_1",
+          creativeId: "creative_1",
+          ok: true,
+          status: "PAUSED",
+          attemptedIds: ["stale_ad_1", "real_ad_1"],
+        },
+        {
+          inputAdId: "ad_2",
+          creativeId: "creative_2",
+          ok: false,
+          error: { code: "ad_not_found", message: "Ad was not found for this business." },
+          attemptedIds: ["ad_2", "creative_2"],
+        },
+      ],
+    };
+
+    expect(successfulBulkPauseCardIds(cards, result)).toEqual(["row_1"]);
+    expect(summarizeBulkPauseFailure(result)).toBe("Ad was not found for this business.");
   });
 
   it("builds bulk Launchpad URLs for 1, 3, and 5 selected creatives", () => {

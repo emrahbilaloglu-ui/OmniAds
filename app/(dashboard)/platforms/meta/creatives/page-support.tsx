@@ -218,6 +218,14 @@ export function toSharedCreative(
     video75: row.video75,
     video100: row.video100,
     atcToPurchaseRatio: row.atcToPurchaseRatio,
+    hookScore: row.hookScore ?? row.creativeScores?.hook ?? null,
+    ctaScore: row.ctaScore ?? row.creativeScores?.cta ?? null,
+    offerScore: row.offerScore ?? row.creativeScores?.offer ?? null,
+    clickScore: row.clickScore ?? row.creativeScores?.click ?? null,
+    watchScore: row.watchScore ?? row.creativeScores?.watch ?? null,
+    creativeScoreGap: row.creativeScoreGap?.label
+      ? { label: row.creativeScoreGap.label, severity: row.creativeScoreGap.severity ?? null }
+      : null,
     analysis: analysis ?? null,
   };
 }

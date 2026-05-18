@@ -119,60 +119,87 @@ export async function resolveMetaAdActionTarget(input: {
       COALESCE(
         dim_direct.provider_account_id,
         daily_direct.provider_account_id,
+        creative_daily_direct.provider_account_id,
         dim_by_creative.provider_account_id,
+        creative_daily_by_creative.provider_account_id,
         dim_by_warehouse_creative.provider_account_id,
         action_result.provider_account_id
       ) AS provider_account_id,
       COALESCE(
         dim_direct.ad_id,
         daily_direct.ad_id,
+        creative_daily_direct.ad_id,
         dim_by_creative.ad_id,
+        creative_daily_by_creative.ad_id,
         dim_by_warehouse_creative.ad_id,
         action_result.resolved_ad_id
       ) AS resolved_ad_id,
       COALESCE(
         dim_direct.creative_id,
         daily_direct.creative_id,
+        creative_daily_direct.creative_id,
         dim_by_creative.creative_id,
+        creative_daily_by_creative.creative_id,
         dim_by_warehouse_creative.creative_id,
         warehouse_creative.creative_id,
         action_result.creative_id
       ) AS creative_id
     FROM (
-      SELECT ${input.businessId}::text AS business_id, ${input.adId}::text AS input_id
+      SELECT
+        ${input.businessId}::text AS business_id_text,
+        ${input.businessId}::uuid AS business_id_uuid,
+        ${input.adId}::text AS input_id
     ) target
     LEFT JOIN LATERAL (
       SELECT provider_account_id, ad_id, creative_id
       FROM meta_ad_dimensions
-      WHERE business_id = target.business_id AND ad_id = target.input_id
+      WHERE business_id = target.business_id_text AND ad_id = target.input_id
       ORDER BY updated_at DESC
       LIMIT 1
     ) dim_direct ON TRUE
     LEFT JOIN LATERAL (
-      SELECT provider_account_id, ad_id, creative_id
+      SELECT provider_account_id, ad_id, NULL::text AS creative_id
       FROM meta_ad_daily
-      WHERE business_id = target.business_id AND ad_id = target.input_id
+      WHERE business_id = target.business_id_text AND ad_id = target.input_id
       ORDER BY date DESC, updated_at DESC
       LIMIT 1
     ) daily_direct ON TRUE
     LEFT JOIN LATERAL (
       SELECT provider_account_id, ad_id, creative_id
+      FROM meta_creative_daily
+      WHERE business_id = target.business_id_text
+        AND ad_id = target.input_id
+        AND ad_id ~ '^[0-9]+$'
+      ORDER BY date DESC, updated_at DESC
+      LIMIT 1
+    ) creative_daily_direct ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT provider_account_id, ad_id, creative_id
       FROM meta_ad_dimensions
-      WHERE business_id = target.business_id AND creative_id = target.input_id
+      WHERE business_id = target.business_id_text AND creative_id = target.input_id
       ORDER BY updated_at DESC
       LIMIT 1
     ) dim_by_creative ON TRUE
     LEFT JOIN LATERAL (
+      SELECT provider_account_id, ad_id, creative_id
+      FROM meta_creative_daily
+      WHERE business_id = target.business_id_text
+        AND creative_id = target.input_id
+        AND ad_id ~ '^[0-9]+$'
+      ORDER BY date DESC, updated_at DESC
+      LIMIT 1
+    ) creative_daily_by_creative ON TRUE
+    LEFT JOIN LATERAL (
       SELECT creative_id
       FROM meta_creative_daily
-      WHERE business_id = target.business_id AND ad_id = target.input_id
+      WHERE business_id = target.business_id_text AND ad_id = target.input_id
       ORDER BY date DESC, updated_at DESC
       LIMIT 1
     ) warehouse_creative ON TRUE
     LEFT JOIN LATERAL (
       SELECT provider_account_id, ad_id, creative_id
       FROM meta_ad_dimensions
-      WHERE business_id = target.business_id
+      WHERE business_id = target.business_id_text
         AND creative_id = warehouse_creative.creative_id
       ORDER BY updated_at DESC
       LIMIT 1
@@ -197,7 +224,7 @@ export async function resolveMetaAdActionTarget(input: {
       LEFT JOIN LATERAL (
         SELECT provider_account_id
         FROM meta_adset_dimensions
-        WHERE business_id = target.business_id
+        WHERE business_id = target.business_id_text
           AND adset_id = COALESCE(
             NULLIF(log.payload_request->>'target_adset_id', ''),
             NULLIF(log.payload_request->'body'->>'target_adset_id', ''),
@@ -206,7 +233,7 @@ export async function resolveMetaAdActionTarget(input: {
         ORDER BY updated_at DESC
         LIMIT 1
       ) action_adset ON TRUE
-      WHERE log.business_id = target.business_id
+      WHERE log.business_id = target.business_id_uuid
         AND log.resulting_ad_id = target.input_id
         AND log.action IN ('launch_ad', 'duplicate')
         AND log.status IN ('success', 'silent_failure')
@@ -216,7 +243,9 @@ export async function resolveMetaAdActionTarget(input: {
     WHERE COALESCE(
       dim_direct.provider_account_id,
       daily_direct.provider_account_id,
+      creative_daily_direct.provider_account_id,
       dim_by_creative.provider_account_id,
+      creative_daily_by_creative.provider_account_id,
       dim_by_warehouse_creative.provider_account_id,
       action_result.provider_account_id
     ) IS NOT NULL

@@ -24,6 +24,8 @@ const {
   CreativeAdActionsSection,
   buildDuplicateActionBody,
   isDuplicateConfirmDisabled,
+  postManualAdAction,
+  resolveManualAdActionCandidateIds,
   resolveManualAdActionId,
 } = await import("@/components/creatives/CreativeAdActionsSection");
 
@@ -242,11 +244,54 @@ describe("CreativeAdActionsSection", () => {
     const row = makeRow({ id: "creative_synthetic", realAdId: " 120000000001 " });
 
     expect(resolveManualAdActionId(row)).toBe("120000000001");
+    expect(resolveManualAdActionCandidateIds(row)).toEqual([
+      "120000000001",
+      "creative_1",
+      "creative_synthetic",
+    ]);
   });
 
-  it("falls back to row id when no real Meta ad id is present", () => {
-    const row = makeRow({ id: "ad_1", realAdId: null });
+  it("falls back through creative id before row id when no real Meta ad id is present", () => {
+    const row = makeRow({ id: "ad_1", realAdId: null, creativeId: "creative_1" });
 
-    expect(resolveManualAdActionId(row)).toBe("ad_1");
+    expect(resolveManualAdActionId(row)).toBe("creative_1");
+    expect(resolveManualAdActionCandidateIds(row)).toEqual(["creative_1", "ad_1"]);
+  });
+
+  it("retries manual Meta actions with the next candidate id when the first id is stale", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        json: async () => ({
+          ok: false,
+          error: { code: "ad_not_found", message: "Ad not found." },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, status: "PAUSED" }),
+      }) as unknown as typeof fetch;
+
+    const result = await postManualAdAction({
+      candidateAdIds: ["stale_ad", "creative_1"],
+      action: "pause",
+      body: { businessId: "biz_1" },
+      fetchImpl,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      1,
+      "/api/meta/ads/stale_ad/pause",
+      expect.any(Object),
+    );
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      2,
+      "/api/meta/ads/creative_1/pause",
+      expect.any(Object),
+    );
   });
 });

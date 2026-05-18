@@ -59,6 +59,18 @@ interface ActionResponse {
   };
 }
 
+type FetchLike = typeof fetch;
+
+function nonEmptyIds(ids: Array<string | null | undefined>) {
+  const seen = new Set<string>();
+  return ids.flatMap((id) => {
+    const normalized = id?.trim();
+    if (!normalized || seen.has(normalized)) return [];
+    seen.add(normalized);
+    return [normalized];
+  });
+}
+
 export function CreativeAdActionsSection({
   businessId,
   row,
@@ -87,7 +99,8 @@ export function CreativeAdActionsSection({
     message: string;
   } | null>(null);
 
-  const adId = resolveManualAdActionId(row);
+  const manualAdActionCandidateIds = resolveManualAdActionCandidateIds(row);
+  const adId = manualAdActionCandidateIds[0] ?? "";
   const actionsQueryKey = ["meta-ad-actions", businessId, adId] as const;
 
   useEffect(() => {
@@ -154,8 +167,8 @@ export function CreativeAdActionsSection({
     [adsetsQuery.data, selectedCampaignId],
   );
 
-  const canPause = localStatus === "ACTIVE" && !pendingAction;
-  const canResume = localStatus === "PAUSED" && !pendingAction;
+  const canPause = Boolean(adId) && localStatus === "ACTIVE" && !pendingAction;
+  const canResume = Boolean(adId) && localStatus === "PAUSED" && !pendingAction;
   const duplicateConfirmDisabled = isDuplicateConfirmDisabled({
     selectedCampaignId,
     selectedAdsetId,
@@ -169,8 +182,8 @@ export function CreativeAdActionsSection({
     setPendingAction(action);
     setLocalStatus(optimisticStatus);
 
-    const result = await postAction({
-      adId,
+    const result = await postManualAdAction({
+      candidateAdIds: manualAdActionCandidateIds,
       action,
       body: { businessId },
     });
@@ -204,8 +217,8 @@ export function CreativeAdActionsSection({
       setDuplicateMessage("Verifying ad creation...");
     }, 600);
 
-    const result = await postAction({
-      adId,
+    const result = await postManualAdAction({
+      candidateAdIds: manualAdActionCandidateIds,
       action: "duplicate",
       body: buildDuplicateActionBody({
         businessId,
@@ -550,7 +563,11 @@ export function buildDuplicateActionBody(input: {
 }
 
 export function resolveManualAdActionId(row: MetaCreativeRow) {
-  return row.realAdId?.trim() || row.id;
+  return resolveManualAdActionCandidateIds(row)[0] ?? "";
+}
+
+export function resolveManualAdActionCandidateIds(row: MetaCreativeRow) {
+  return nonEmptyIds([row.realAdId, row.creativeId, row.id]);
 }
 
 function statusClassName(status: string) {
@@ -628,28 +645,56 @@ async function fetchActionHistory(input: {
   return Array.isArray(payload.rows) ? payload.rows : [];
 }
 
-async function postAction(input: {
-  adId: string;
+export async function postManualAdAction(input: {
+  candidateAdIds: string[];
   action: ManualAction | "duplicate";
   body: Record<string, unknown>;
+  fetchImpl?: FetchLike;
 }): Promise<ActionResponse> {
-  const response = await fetch(
-    `/api/meta/ads/${encodeURIComponent(input.adId)}/${input.action}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input.body),
-    },
-  );
-  const payload = (await response.json().catch(() => null)) as ActionResponse | null;
-  if (!payload) {
+  const fetcher = input.fetchImpl ?? fetch;
+  const candidateAdIds = nonEmptyIds(input.candidateAdIds);
+  if (candidateAdIds.length === 0) {
     return {
       ok: false,
       error: {
-        code: String(response.status),
-        message: "Meta action returned an empty response.",
+        code: "missing_ad_id",
+        message: "No actionable Meta ad id was available for this creative.",
       },
     };
   }
-  return payload;
+
+  let lastResult: ActionResponse | null = null;
+  for (const adId of candidateAdIds) {
+    const response = await fetcher(
+      `/api/meta/ads/${encodeURIComponent(adId)}/${input.action}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input.body),
+      },
+    );
+    const payload = (await response.json().catch(() => null)) as ActionResponse | null;
+    if (response.ok && payload?.ok) return payload;
+
+    lastResult =
+      payload ?? {
+        ok: false,
+        error: {
+          code: String(response.status),
+          message: "Meta action returned an empty response.",
+        },
+      };
+    if (lastResult.error?.code === "ad_not_found") continue;
+    return lastResult;
+  }
+
+  return (
+    lastResult ?? {
+      ok: false,
+      error: {
+        code: "ad_not_found",
+        message: "Ad not found for this business.",
+      },
+    }
+  );
 }

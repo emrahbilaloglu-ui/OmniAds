@@ -39,6 +39,8 @@ describe("briefing action handlers", () => {
       ),
     ).toEqual(["1200", "1201", "row_ad", "creative_1", "creative_synth_1"]);
     expect(isCutPrimaryAction(card())).toBe(true);
+    expect(isCutPrimaryAction(card({ primary: { kind: "pause_ad", label: "Pause ad" } }))).toBe(true);
+    expect(isCutPrimaryAction(card({ label: "scale", primary: { kind: "review", label: "Pause ad" } }))).toBe(true);
     expect(isCutPrimaryAction(card({ primary: { kind: "demote", label: "Demote to test" } }))).toBe(false);
     expect(isCutPrimaryAction(card({ label: "scale", primary: { kind: "promote", label: "Promote" } }))).toBe(false);
   });

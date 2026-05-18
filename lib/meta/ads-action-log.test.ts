@@ -42,6 +42,11 @@ describe("resolveMetaAdActionTarget", () => {
     const resolveSql = String(sql.mock.calls[1]?.[0]?.join(""));
     expect(resolveSql).toContain("meta_ads_action_log");
     expect(resolveSql).toContain("log.resulting_ad_id = target.input_id");
+    expect(resolveSql).toContain("::text AS business_id_text");
+    expect(resolveSql).toContain("::uuid AS business_id_uuid");
+    expect(resolveSql).toContain("NULL::text AS creative_id");
+    expect(resolveSql).toContain("meta_creative_daily");
+    expect(resolveSql).toContain("creative_daily_by_creative");
   });
 
   it("persists rec_id_origin when provided", async () => {

@@ -14,7 +14,7 @@ interface CompareDrawerHostProps {
   open: boolean;
   cards: BriefingCreativeCard[];
   onClose: () => void;
-  onCutCards: (cards: BriefingCreativeCard[]) => void;
+  onCutCard: (card: BriefingCreativeCard) => void;
   onLaunchpad: (cards: BriefingCreativeCard[], mode: LaunchpadBridgeMode) => void;
 }
 
@@ -22,7 +22,7 @@ export function CompareDrawerHost({
   open,
   cards,
   onClose,
-  onCutCards,
+  onCutCard,
   onLaunchpad,
 }: CompareDrawerHostProps) {
   const drawerCards = cards.slice(0, 4);
@@ -41,7 +41,7 @@ export function CompareDrawerHost({
             className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-rose-600 text-white border border-rose-600 hover:bg-rose-700 text-[12.5px] font-medium"
             data-compare-action="cut-weakest"
             onClick={() => {
-              if (weakest) onCutCards([weakest]);
+              if (weakest) onCutCard(weakest);
             }}
           >
             <X className="inline-block shrink-0" size={13} aria-hidden="true" /> Cut weakest

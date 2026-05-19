@@ -155,6 +155,13 @@ export interface GoogleAdsStatusResponse {
   deployGate?: SyncGateRecord | null;
   releaseGate?: SyncGateRecord | null;
   repairPlan?: SyncRepairPlanRecord | null;
+  actionRequired?: {
+    reconnectCta: boolean;
+    partitions: number;
+    blockingPartitions: number;
+    scopes: string[];
+    blockingScopes: string[];
+  } | null;
   syncTruthState?: SyncTruthState | null;
   blockerClass?: SyncBlockerClass | null;
   userVisibleSyncState?: {
@@ -349,6 +356,10 @@ export interface GoogleAdsStatusResponse {
     maintenanceQueueDepth?: number;
     maintenanceLeasedPartitions?: number;
     deadLetterPartitions?: number;
+    actionRequiredDeadLetterPartitions?: number;
+    actionRequiredBlockingDeadLetterPartitions?: number;
+    actionRequiredDeadLetterScopes?: string[];
+    actionRequiredBlockingDeadLetterScopes?: string[];
     advisorRelevantDeadLetterPartitions?: number;
     historicalDeadLetterPartitions?: number;
     advisorRelevantFailedPartitions?: number;

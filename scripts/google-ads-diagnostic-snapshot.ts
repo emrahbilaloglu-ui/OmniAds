@@ -9,6 +9,7 @@ import {
   getGoogleAdsIncidentPolicy,
   getGoogleAdsRecent90CompletionState,
 } from "@/lib/sync/google-ads-sync";
+import { getGoogleAdsQueueHealth } from "@/lib/google-ads/warehouse";
 import {
   configureOperationalScriptRuntime,
   runOperationalMigrationsIfEnabled,
@@ -70,7 +71,7 @@ function minutesSince(value: unknown) {
 type LeaseableBreakdownRow = {
   businessId: string;
   businessName: string;
-  scope: "campaign_daily";
+  scope: string;
   lane: string;
   source: string;
   partitionDate: string | null;
@@ -81,7 +82,8 @@ type LeaseableBreakdownRow = {
     | "leaseable_now"
     | "suspended_maintenance"
     | "outside_frontier"
-    | "retry_cooldown";
+    | "retry_cooldown"
+    | "action_required_excluded";
 };
 
 function buildLeaseableBacklogSummary(
@@ -92,7 +94,9 @@ function buildLeaseableBacklogSummary(
   return {
     businessId,
     businessName,
-    totalQueuedCampaignDaily: rows.length,
+    totalQueued: rows.length,
+    totalQueuedCampaignDaily: rows.filter((row) => row.scope === "campaign_daily")
+      .length,
     coreQueueDepth: rows.filter((row) => row.lane === "core").length,
     maintenanceQueueDepth: rows.filter((row) => row.lane === "maintenance")
       .length,
@@ -107,6 +111,30 @@ function buildLeaseableBacklogSummary(
     retry_cooldown: rows.filter(
       (row) => row.classification === "retry_cooldown",
     ).length,
+    action_required_excluded: rows.filter(
+      (row) => row.classification === "action_required_excluded",
+    ).length,
+    byScope: rows.reduce<Record<string, {
+      totalQueued: number;
+      leaseable_now: number;
+      suspended_maintenance: number;
+      outside_frontier: number;
+      retry_cooldown: number;
+      action_required_excluded: number;
+    }>>((accumulator, row) => {
+      const bucket = accumulator[row.scope] ?? {
+        totalQueued: 0,
+        leaseable_now: 0,
+        suspended_maintenance: 0,
+        outside_frontier: 0,
+        retry_cooldown: 0,
+        action_required_excluded: 0,
+      };
+      bucket.totalQueued += 1;
+      bucket[row.classification] += 1;
+      accumulator[row.scope] = bucket;
+      return accumulator;
+    }, {}),
   };
 }
 
@@ -600,9 +628,8 @@ async function main() {
       JOIN businesses business
         ON business.id::text = partition.business_id
       WHERE partition.status = 'queued'
-        AND partition.scope = 'campaign_daily'
         AND (${businessFilter}::text IS NULL OR partition.business_id = ${businessFilter})
-      ORDER BY business.name, partition.lane, partition.source, partition.partition_date ASC
+      ORDER BY business.name, partition.scope, partition.lane, partition.source, partition.partition_date ASC
     `,
     ])) as Array<Array<Record<string, unknown>>>;
 
@@ -714,15 +741,22 @@ async function main() {
     const leaseableBacklogBusinessBreakdown = await Promise.all(
       Array.from(queuedCampaignRowsByBusiness.entries()).map(
         async ([businessId, rows]) => {
-          const [fullSyncPriority, recent90State] = await Promise.all([
+          const [fullSyncPriority, recent90State, queueHealth] = await Promise.all([
             getGoogleAdsFullSyncPriorityState({ businessId }).catch(() => null),
             getGoogleAdsRecent90CompletionState({ businessId }).catch(
               () => null,
             ),
+            getGoogleAdsQueueHealth({ businessId }).catch(() => null),
           ]);
+          const actionRequiredExcludedScopeSet = new Set<string>(
+            [
+              ...(queueHealth?.actionRequiredBlockingDeadLetterScopes ?? []),
+              ...(queueHealth?.actionRequiredDeadLetterScopes ?? []),
+            ].map(String),
+          );
           const incidentPolicy = await getGoogleAdsIncidentPolicy({
             businessId,
-            queueHealth: null,
+            queueHealth,
           }).catch(() => null);
           const frontierStart =
             fullSyncPriority?.historicalStart && recent90State?.recent90Start
@@ -733,29 +767,36 @@ async function main() {
                 })
               : (fullSyncPriority?.historicalStart ?? null);
 
-          const classifiedRows: LeaseableBreakdownRow[] = rows.map((row) => ({
-            businessId,
-            businessName:
-              String(row.business_name) ??
-              businessNameById.get(businessId) ??
+          const classifiedRows: LeaseableBreakdownRow[] = rows.map((row) => {
+            const baseClassification =
+              classifyGoogleAdsQueuedCampaignDailyPartition({
+                row: {
+                  lane: String(row.lane) as "core" | "maintenance" | "extended",
+                  partitionDate: toIso(row.partition_date)?.slice(0, 10) ?? null,
+                  nextRetryAt: toIso(row.next_retry_at),
+                },
+                frontierStart,
+                suspendMaintenance: Boolean(incidentPolicy?.suspendMaintenance),
+              });
+            const scope = String(row.scope ?? "unknown");
+            return {
               businessId,
-            scope: "campaign_daily",
-            lane: String(row.lane),
-            source: String(row.source),
-            partitionDate: toIso(row.partition_date)?.slice(0, 10) ?? null,
-            priority: toNumber(row.priority),
-            attemptCount: toNumber(row.attempt_count),
-            nextRetryAt: toIso(row.next_retry_at),
-            classification: classifyGoogleAdsQueuedCampaignDailyPartition({
-              row: {
-                lane: String(row.lane) as "core" | "maintenance" | "extended",
-                partitionDate: toIso(row.partition_date)?.slice(0, 10) ?? null,
-                nextRetryAt: toIso(row.next_retry_at),
-              },
-              frontierStart,
-              suspendMaintenance: Boolean(incidentPolicy?.suspendMaintenance),
-            }),
-          }));
+              businessName:
+                String(row.business_name) ??
+                businessNameById.get(businessId) ??
+                businessId,
+              scope,
+              lane: String(row.lane),
+              source: String(row.source),
+              partitionDate: toIso(row.partition_date)?.slice(0, 10) ?? null,
+              priority: toNumber(row.priority),
+              attemptCount: toNumber(row.attempt_count),
+              nextRetryAt: toIso(row.next_retry_at),
+              classification: actionRequiredExcludedScopeSet.has(scope)
+                ? "action_required_excluded"
+                : baseClassification,
+            };
+          });
 
           return {
             businessId,
@@ -776,7 +817,10 @@ async function main() {
       (entry) => entry.rows,
     );
     const leaseableBacklogTotals = {
-      totalQueuedCampaignDaily: leaseableBacklogRows.length,
+      totalQueued: leaseableBacklogRows.length,
+      totalQueuedCampaignDaily: leaseableBacklogRows.filter(
+        (row) => row.scope === "campaign_daily",
+      ).length,
       coreQueueDepth: leaseableBacklogRows.filter((row) => row.lane === "core")
         .length,
       maintenanceQueueDepth: leaseableBacklogRows.filter(
@@ -793,6 +837,9 @@ async function main() {
       ).length,
       retry_cooldown: leaseableBacklogRows.filter(
         (row) => row.classification === "retry_cooldown",
+      ).length,
+      action_required_excluded: leaseableBacklogRows.filter(
+        (row) => row.classification === "action_required_excluded",
       ).length,
     };
 

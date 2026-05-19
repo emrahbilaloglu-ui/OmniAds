@@ -194,6 +194,11 @@ interface SyncHealthPayload {
     googleAdsQueueDepth?: number;
     googleAdsLeasedPartitions?: number;
     googleAdsDeadLetterPartitions?: number;
+    googleAdsActionRequiredBusinessCount?: number;
+    googleAdsActionRequiredPartitions?: number;
+    googleAdsActionRequiredBlockingPartitions?: number;
+    googleAdsActionRequiredScopes?: string[];
+    googleAdsActionRequiredBlockingScopes?: string[];
     googleAdsOldestQueuedPartition?: string | null;
     metaQueueDepth?: number;
     metaLeasedPartitions?: number;
@@ -243,6 +248,10 @@ interface SyncHealthPayload {
     queueDepth: number;
     leasedPartitions: number;
     deadLetterPartitions: number;
+    actionRequiredDeadLetterPartitions?: number;
+    actionRequiredBlockingDeadLetterPartitions?: number;
+    actionRequiredDeadLetterScopes?: string[];
+    actionRequiredBlockingDeadLetterScopes?: string[];
     oldestQueuedPartition: string | null;
     latestPartitionActivityAt: string | null;
     campaignCompletedDays: number;
@@ -525,6 +534,11 @@ function getGoogleAdsBusinessSignals(
   business: NonNullable<SyncHealthPayload["googleAdsBusinesses"]>[number]
 ) {
   const signals: string[] = [];
+  if ((business.actionRequiredDeadLetterPartitions ?? 0) > 0) {
+    signals.push(
+      `Reconnect required: ${(business.actionRequiredBlockingDeadLetterScopes?.length ? business.actionRequiredBlockingDeadLetterScopes : business.actionRequiredDeadLetterScopes ?? []).join(", ") || "Google Ads"}`
+    );
+  }
   if (business.circuitBreakerOpen) signals.push("Circuit breaker open");
   if ((business.extendedRecentQueueDepth ?? 0) > 0 && (business.extendedRecentLeasedPartitions ?? 0) === 0) {
     signals.push("Recent extended not leasing");
@@ -636,6 +650,11 @@ export default function AdminSyncHealthPage() {
     googleAdsQueueDepth: undefined,
     googleAdsLeasedPartitions: undefined,
     googleAdsDeadLetterPartitions: undefined,
+    googleAdsActionRequiredBusinessCount: 0,
+    googleAdsActionRequiredPartitions: 0,
+    googleAdsActionRequiredBlockingPartitions: 0,
+    googleAdsActionRequiredScopes: [],
+    googleAdsActionRequiredBlockingScopes: [],
     googleAdsOldestQueuedPartition: null,
     metaQueueDepth: 0,
     metaLeasedPartitions: 0,
@@ -662,6 +681,10 @@ export default function AdminSyncHealthPage() {
   const metaBusinesses = payload?.metaBusinesses ?? [];
   const googleAdsHealthStatus = payload?.googleAdsHealthStatus ?? "ok";
   const googleAdsHealthError = payload?.googleAdsHealthError ?? null;
+  const googleAdsActionRequiredScopes =
+    summary.googleAdsActionRequiredBlockingScopes?.length
+      ? summary.googleAdsActionRequiredBlockingScopes
+      : summary.googleAdsActionRequiredScopes ?? [];
   const dbDiagnostics = payload?.dbDiagnostics ?? null;
   const globalRebuildReview = payload?.globalRebuildReview ?? null;
   const syncEffectivenessReview = payload?.syncEffectivenessReview ?? null;
@@ -1301,6 +1324,22 @@ export default function AdminSyncHealthPage() {
           <p className="mt-1">
             {googleAdsHealthError ??
               "Google Ads queue details could not be loaded, but lightweight summary counts are still shown where available."}
+          </p>
+        </div>
+      ) : null}
+
+      {(summary.googleAdsActionRequiredBusinessCount ?? 0) > 0 ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+          <p className="font-medium">Reconnect Google Ads for affected accounts.</p>
+          <p className="mt-1">
+            {summary.googleAdsActionRequiredBusinessCount} business(es) have terminal
+            action-required Google Ads partitions. Blocked scopes:{" "}
+            <span className="font-medium">
+              {googleAdsActionRequiredScopes.length
+                ? googleAdsActionRequiredScopes.join(", ")
+                : "unknown"}
+            </span>
+            .
           </p>
         </div>
       ) : null}

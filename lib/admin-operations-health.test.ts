@@ -1013,6 +1013,59 @@ describe("buildAdminSyncHealth", () => {
     expect(payload.summary.topIssue).toBe("Google Ads health unavailable");
   });
 
+  it("degrades google ads health when terminal account action is required", () => {
+    const payload = buildAdminSyncHealth({
+      jobs: [],
+      cooldowns: [],
+      googleAdsHealthStatus: "ok",
+      googleAdsHealth: [
+        {
+          business_id: "biz-action",
+          business_name: "IwaStore",
+          queue_depth: 1690,
+          leased_partitions: 0,
+          dead_letter_partitions: 3,
+          oldest_queued_partition: "2026-04-18",
+          latest_partition_activity_at: "2026-05-19T10:00:00.000Z",
+          campaign_completed_days: 0,
+          campaign_dead_letter_count: 0,
+          search_term_completed_days: 0,
+          product_completed_days: 0,
+          asset_completed_days: 0,
+        },
+      ],
+      googleAdsQueueHealthByBusiness: {
+        "biz-action": {
+          actionRequiredDeadLetterPartitions: 3,
+          actionRequiredBlockingDeadLetterPartitions: 3,
+          actionRequiredDeadLetterScopes: [
+            "ad_daily",
+            "asset_group_daily",
+            "keyword_daily",
+          ],
+          actionRequiredBlockingDeadLetterScopes: [
+            "ad_daily",
+            "asset_group_daily",
+            "keyword_daily",
+          ],
+        } as never,
+      },
+    });
+
+    expect(payload.googleAdsHealthStatus).toBe("degraded");
+    expect(payload.summary.googleAdsActionRequiredBusinessCount).toBe(1);
+    expect(payload.summary.googleAdsActionRequiredPartitions).toBe(3);
+    expect(payload.summary.googleAdsActionRequiredBlockingScopes).toEqual([
+      "ad_daily",
+      "asset_group_daily",
+      "keyword_daily",
+    ]);
+    expect(
+      payload.issues.some((issue) => issue.reportType === "account_action_required"),
+    ).toBe(true);
+    expect(payload.googleAdsBusinesses?.[0]?.actionRequiredDeadLetterPartitions).toBe(3);
+  });
+
   it("surfaces authoritative meta publish, sla, and failure provenance", () => {
     const payload = buildAdminSyncHealth({
       jobs: [],

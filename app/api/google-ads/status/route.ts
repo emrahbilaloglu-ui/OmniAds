@@ -1716,7 +1716,15 @@ export async function GET(request: NextRequest) {
         }
       : null;
 
-  const overallState = decideGoogleAdsStatusState({
+  const actionRequiredState = {
+    reconnectCta: (queueHealth?.actionRequiredDeadLetterPartitions ?? 0) > 0,
+    partitions: queueHealth?.actionRequiredDeadLetterPartitions ?? 0,
+    blockingPartitions:
+      queueHealth?.actionRequiredBlockingDeadLetterPartitions ?? 0,
+    scopes: queueHealth?.actionRequiredDeadLetterScopes ?? [],
+    blockingScopes: queueHealth?.actionRequiredBlockingDeadLetterScopes ?? [],
+  };
+  const decidedOverallState = decideGoogleAdsStatusState({
       connected,
       assignedAccountCount: accountIds.length,
       coreUsable,
@@ -1737,6 +1745,9 @@ export async function GET(request: NextRequest) {
       advisorMissingSurfaces,
       advisorNotReady,
     });
+  const overallState = actionRequiredState.reconnectCta
+    ? "action_required"
+    : decidedOverallState;
   const domains = buildGoogleAdsStatusDomains({
     coreUsable,
     selectedRangeCoreIncomplete,
@@ -2132,6 +2143,7 @@ export async function GET(request: NextRequest) {
     deployGate: gateRecords?.deployGate ?? null,
     releaseGate: gateRecords?.releaseGate ?? null,
     repairPlan: repairPlan ?? null,
+    actionRequired: actionRequiredState,
     syncTruthState: googleUnifiedTruth.syncTruthState,
     blockerClass: googleUnifiedTruth.blockerClass,
     credentialState: providerState.credentialState,
@@ -2345,6 +2357,14 @@ export async function GET(request: NextRequest) {
       maintenanceQueueDepth: queueHealth?.maintenanceQueueDepth ?? 0,
       maintenanceLeasedPartitions: queueHealth?.maintenanceLeasedPartitions ?? 0,
       deadLetterPartitions: queueHealth?.deadLetterPartitions ?? 0,
+      actionRequiredDeadLetterPartitions:
+        queueHealth?.actionRequiredDeadLetterPartitions ?? 0,
+      actionRequiredBlockingDeadLetterPartitions:
+        queueHealth?.actionRequiredBlockingDeadLetterPartitions ?? 0,
+      actionRequiredDeadLetterScopes:
+        queueHealth?.actionRequiredDeadLetterScopes ?? [],
+      actionRequiredBlockingDeadLetterScopes:
+        queueHealth?.actionRequiredBlockingDeadLetterScopes ?? [],
       advisorRelevantDeadLetterPartitions,
       historicalDeadLetterPartitions,
       advisorRelevantFailedPartitions,

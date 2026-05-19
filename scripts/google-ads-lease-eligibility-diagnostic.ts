@@ -10,6 +10,13 @@ import {
 import { getGoogleAdsQueueHealth } from "@/lib/google-ads/warehouse";
 import { configureOperationalScriptRuntime } from "./_operational-runtime";
 
+type LeaseEligibilityClassification =
+  | "leaseable_now"
+  | "suspended_maintenance"
+  | "outside_frontier"
+  | "retry_cooldown"
+  | "action_required_excluded";
+
 function toIso(value: unknown) {
   if (!value) return null;
   if (value instanceof Date) return value.toISOString();
@@ -55,6 +62,7 @@ async function main() {
       sql.query(
         `
           SELECT
+            scope,
             lane,
             source,
             partition_date,
@@ -66,9 +74,8 @@ async function main() {
             updated_at
           FROM google_ads_sync_partitions
           WHERE business_id = $1
-            AND scope = 'campaign_daily'
             AND status = 'queued'
-          ORDER BY lane ASC, source ASC, partition_date DESC, updated_at ASC
+          ORDER BY scope ASC, lane ASC, source ASC, partition_date DESC, updated_at ASC
         `,
         [businessId],
       ),
@@ -92,8 +99,14 @@ async function main() {
           })
         : (fullSyncPriority?.historicalStart ?? null);
 
+    const actionRequiredExcludedScopeSet = new Set<string>(
+      [
+        ...(queueHealth?.actionRequiredBlockingDeadLetterScopes ?? []),
+        ...(queueHealth?.actionRequiredDeadLetterScopes ?? []),
+      ].map(String),
+    );
     const classifiedRows = queuedRows.map((row: Record<string, unknown>) => {
-      const classification = classifyGoogleAdsQueuedCampaignDailyPartition({
+      const baseClassification = classifyGoogleAdsQueuedCampaignDailyPartition({
         row: {
           lane: String(row.lane) as "core" | "maintenance" | "extended",
           partitionDate: toIso(row.partition_date)?.slice(0, 10) ?? null,
@@ -102,8 +115,12 @@ async function main() {
         frontierStart,
         suspendMaintenance: Boolean(incidentPolicy?.suspendMaintenance),
       });
+      const classification: LeaseEligibilityClassification = actionRequiredExcludedScopeSet.has(String(row.scope))
+        ? "action_required_excluded"
+        : baseClassification;
 
       return {
+        scope: String(row.scope),
         lane: String(row.lane),
         source: String(row.source),
         partitionDate: toIso(row.partition_date)?.slice(0, 10) ?? null,
@@ -117,8 +134,33 @@ async function main() {
       };
     });
 
+    const byScope = classifiedRows.reduce<Record<string, {
+      totalQueued: number;
+      leaseable_now: number;
+      suspended_maintenance: number;
+      outside_frontier: number;
+      retry_cooldown: number;
+      action_required_excluded: number;
+    }>>((accumulator, row) => {
+      const bucket = accumulator[row.scope] ?? {
+        totalQueued: 0,
+        leaseable_now: 0,
+        suspended_maintenance: 0,
+        outside_frontier: 0,
+        retry_cooldown: 0,
+        action_required_excluded: 0,
+      };
+      bucket.totalQueued += 1;
+      bucket[row.classification] += 1;
+      accumulator[row.scope] = bucket;
+      return accumulator;
+    }, {});
+
     const summary = {
-      totalQueuedCampaignDaily: classifiedRows.length,
+      totalQueued: classifiedRows.length,
+      totalQueuedCampaignDaily: classifiedRows.filter(
+        (row) => row.scope === "campaign_daily",
+      ).length,
       coreQueueDepth: classifiedRows.filter(
         (row: (typeof classifiedRows)[number]) => row.lane === "core",
       ).length,
@@ -141,6 +183,11 @@ async function main() {
         (row: (typeof classifiedRows)[number]) =>
           row.classification === "retry_cooldown",
       ).length,
+      action_required_excluded: classifiedRows.filter(
+        (row: (typeof classifiedRows)[number]) =>
+          row.classification === "action_required_excluded",
+      ).length,
+      byScope,
     };
 
     console.log(

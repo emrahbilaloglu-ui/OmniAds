@@ -199,4 +199,61 @@ describe("GoogleAdsIntelligenceDashboard timezone date selection", () => {
     expect(capturedPickerProps[0]?.referenceDate).toBe("2026-04-07");
     expect(capturedPickerProps[0]?.timeZoneLabel).toBe("America/Los_Angeles");
   });
+
+  it("shows a persistent reconnect banner when Google Ads access requires action", async () => {
+    mockUseQuery.mockImplementation(({ queryKey }: { queryKey: unknown[] }) => {
+      const key = String(queryKey[0]);
+      if (key === "gads-status-base") {
+        return baseQueryState({
+          data: {
+            state: "action_required",
+            connected: true,
+            assignedAccountIds: ["acc_1"],
+            primaryAccountTimezone: "America/Los_Angeles",
+            currentDateInTimezone: "2026-04-07",
+          },
+          state: {
+            data: {
+              state: "action_required",
+            },
+          },
+        });
+      }
+      if (key === "gads-status") {
+        return baseQueryState({
+          data: {
+            state: "action_required",
+            connected: true,
+            assignedAccountIds: ["acc_1"],
+            actionRequired: {
+              reconnectCta: true,
+              partitions: 3,
+              blockingPartitions: 3,
+              scopes: ["product_daily", "keyword_daily"],
+              blockingScopes: ["product_daily"],
+            },
+          },
+          state: {
+            data: {
+              state: "action_required",
+            },
+          },
+        });
+      }
+      return baseQueryState();
+    });
+
+    const { GoogleAdsIntelligenceDashboard } = await import(
+      "@/components/google-ads/GoogleAdsIntelligenceDashboard"
+    );
+
+    const html = renderToStaticMarkup(
+      React.createElement(GoogleAdsIntelligenceDashboard, { businessId: "biz" })
+    );
+
+    expect(html).toContain("Reconnect Google Ads");
+    expect(html).toContain(
+      "Google Ads access is blocking sync for: product_daily. Reconnect the affected account before those surfaces can refresh."
+    );
+  });
 });

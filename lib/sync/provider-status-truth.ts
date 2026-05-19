@@ -72,6 +72,12 @@ export interface ProviderFairnessInputs {
   fullSyncPriorityLimit?: number | null;
   blockHistoricalExtendedWork?: boolean | null;
   fullSyncPriorityRequired?: boolean | null;
+  fullSyncPriorityLeaseRequired?: boolean | null;
+  actionRequiredExcludedScopes?: string[] | null;
+  fullSyncPriorityTargetScopes?: string[] | null;
+  fullSyncPriorityEffectiveTargetScopes?: string[] | null;
+  fullSyncPriorityBlockedScopes?: string[] | null;
+  priorityTargetActionRequired?: boolean | null;
 }
 
 export interface ProviderMaintenancePlan {

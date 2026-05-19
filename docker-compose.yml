@@ -38,17 +38,10 @@ services:
       - web
     healthcheck:
       test:
-        - CMD
-        - node
-        - --import
-        - tsx
-        - scripts/sync-worker-healthcheck.ts
-        - --provider-scope
-        - meta
-        - --online-window-minutes
-        - "5"
-        - --min-online-workers
-        - "1"
+        - CMD-SHELL
+        - >
+          node --import tsx scripts/sync-worker-healthcheck.ts --provider-scope meta --online-window-minutes 5 --min-online-workers 1 &&
+          node --import tsx scripts/sync-worker-healthcheck.ts --provider-scope google_ads --online-window-minutes 5 --min-online-workers 1
       interval: 30s
       timeout: 10s
       retries: 5

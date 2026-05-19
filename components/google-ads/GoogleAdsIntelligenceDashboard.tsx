@@ -111,11 +111,17 @@ function getGoogleAdsSyncEmptyState(
     };
   }
   if (status.state === "action_required") {
+    const blockedScopes = status.actionRequired?.scopes ?? [];
+    const scopeText = blockedScopes.length > 0 ? blockedScopes.join(", ") : null;
     return {
-      title: `${areaLabel} is refreshing in the background`,
+      title: "Reconnect Google Ads",
       description:
-        status.latestSync?.lastError ??
-        "The latest persisted Google Ads data stays visible while background refresh continues.",
+        scopeText
+          ? `Google Ads access is blocking sync for: ${scopeText}. Reconnect the affected account before those surfaces can refresh.`
+          : status.actionRequired?.reconnectCta
+            ? "Google Ads account access requires reconnect before blocked sync surfaces can refresh."
+            : (status.latestSync?.lastError ??
+              "Google Ads account access requires operator action before sync can finish cleanly."),
     };
   }
   if (status.state === "paused") {
@@ -988,6 +994,14 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     isStatusLoading: isSyncStatusLoading,
     isStatusError: isSyncStatusError,
   });
+  const actionRequiredScopes =
+    syncStatus?.actionRequired?.blockingScopes?.length
+      ? syncStatus.actionRequired.blockingScopes
+      : syncStatus?.actionRequired?.scopes ?? [];
+  const actionRequiredScopeText =
+    actionRequiredScopes.length > 0 ? actionRequiredScopes.join(", ") : null;
+  const shouldShowActionRequiredBanner =
+    syncStatus?.actionRequired?.reconnectCta === true;
 
   const summaryAdvisor = filterAdvisorByTypes(advisorCurrent, [
     "operating_model_gap",
@@ -1209,6 +1223,20 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
           </div>
         </div>
       </div>
+
+      {shouldShowActionRequiredBanner ? (
+        <div
+          role="status"
+          className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+        >
+          <p className="font-semibold">Reconnect Google Ads</p>
+          <p className="mt-1">
+            {actionRequiredScopeText
+              ? `Google Ads access is blocking sync for: ${actionRequiredScopeText}. Reconnect the affected account before those surfaces can refresh.`
+              : "Google Ads account access requires reconnect before blocked sync surfaces can refresh."}
+          </p>
+        </div>
+      ) : null}
       <div className="rounded-xl border border-border/70 bg-card/70 p-3">
         <div className="space-y-1.5">
           <StatusDomainRow label="Core" summary={syncStatus?.domains?.core} />

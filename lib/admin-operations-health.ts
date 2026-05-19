@@ -18,6 +18,7 @@ import {
   type MetaDeadLetterRecoverySummary,
 } from "@/lib/meta/warehouse";
 import {
+  getGoogleAdsQueueHealth,
   getGoogleAdsReclaimClassificationSummary,
   getGoogleAdsWarehouseIntegrityIncidents,
 } from "@/lib/google-ads/warehouse";
@@ -84,6 +85,7 @@ import { buildSyncLagMetrics, type SyncLagMetrics } from "@/lib/sync/lag-metrics
 
 type AuthProvider = "meta" | "google" | "search_console" | "ga4" | "shopify";
 type SyncProvider = "google_ads" | "meta" | "ga4" | "search_console";
+type AdminGoogleAdsQueueHealth = Awaited<ReturnType<typeof getGoogleAdsQueueHealth>>;
 
 export interface AdminAuthIssueRow {
   businessId: string;
@@ -145,6 +147,11 @@ export interface AdminSyncHealthPayload {
     googleAdsQueueDepth?: number;
     googleAdsLeasedPartitions?: number;
     googleAdsDeadLetterPartitions?: number;
+    googleAdsActionRequiredBusinessCount?: number;
+    googleAdsActionRequiredPartitions?: number;
+    googleAdsActionRequiredBlockingPartitions?: number;
+    googleAdsActionRequiredScopes?: string[];
+    googleAdsActionRequiredBlockingScopes?: string[];
     googleAdsOldestQueuedPartition?: string | null;
     metaQueueDepth?: number;
     metaLeasedPartitions?: number;
@@ -204,6 +211,10 @@ export interface AdminSyncHealthPayload {
     queueDepth: number;
     leasedPartitions: number;
     deadLetterPartitions: number;
+    actionRequiredDeadLetterPartitions?: number;
+    actionRequiredBlockingDeadLetterPartitions?: number;
+    actionRequiredDeadLetterScopes?: string[];
+    actionRequiredBlockingDeadLetterScopes?: string[];
     oldestQueuedPartition: string | null;
     latestPartitionActivityAt: string | null;
     campaignCompletedDays: number;
@@ -893,6 +904,7 @@ export function buildAdminSyncHealth(input: {
   googleAdsHealthStatus?: "ok" | "degraded" | "failed";
   googleAdsHealthError?: string | null;
   googleAdsHealthSummary?: GoogleAdsHealthSummaryRow | null;
+  googleAdsQueueHealthByBusiness?: Record<string, AdminGoogleAdsQueueHealth | null>;
   googleAdsReclaimSummaries?: Record<string, AdminReclaimSummary>;
   googleAdsIntegritySummaries?: Record<string, AdminIntegritySummary>;
   metaHealth?: RawMetaHealthRow[];
@@ -924,6 +936,11 @@ export function buildAdminSyncHealth(input: {
   let googleAdsQueueDepth = 0;
   let googleAdsLeasedPartitions = 0;
   let googleAdsDeadLetterPartitions = 0;
+  let googleAdsActionRequiredBusinessCount = 0;
+  let googleAdsActionRequiredPartitions = 0;
+  let googleAdsActionRequiredBlockingPartitions = 0;
+  const googleAdsActionRequiredScopes = new Set<string>();
+  const googleAdsActionRequiredBlockingScopes = new Set<string>();
   let googleAdsOldestQueuedPartition: string | null = null;
   let metaQueueDepth = 0;
   let metaLeasedPartitions = 0;
@@ -1047,6 +1064,16 @@ export function buildAdminSyncHealth(input: {
     const queueDepth = Number(row.queue_depth ?? 0);
     const leasedPartitions = Number(row.leased_partitions ?? 0);
     const deadLetterPartitions = Number(row.dead_letter_partitions ?? 0);
+    const queueHealth = input.googleAdsQueueHealthByBusiness?.[row.business_id] ?? null;
+    const actionRequiredDeadLetterPartitions = Number(
+      queueHealth?.actionRequiredDeadLetterPartitions ?? 0,
+    );
+    const actionRequiredBlockingDeadLetterPartitions = Number(
+      queueHealth?.actionRequiredBlockingDeadLetterPartitions ?? 0,
+    );
+    const actionRequiredDeadLetterScopes = queueHealth?.actionRequiredDeadLetterScopes ?? [];
+    const actionRequiredBlockingDeadLetterScopes =
+      queueHealth?.actionRequiredBlockingDeadLetterScopes ?? [];
     const campaignCompletedDays = Number(row.campaign_completed_days ?? 0);
     const searchTermCompletedDays = Number(row.search_term_completed_days ?? 0);
     const productCompletedDays = Number(row.product_completed_days ?? 0);
@@ -1168,6 +1195,10 @@ export function buildAdminSyncHealth(input: {
       queueDepth,
       leasedPartitions,
       deadLetterPartitions,
+      actionRequiredDeadLetterPartitions,
+      actionRequiredBlockingDeadLetterPartitions,
+      actionRequiredDeadLetterScopes,
+      actionRequiredBlockingDeadLetterScopes,
       oldestQueuedPartition: row.oldest_queued_partition,
       latestPartitionActivityAt: row.latest_partition_activity_at,
       campaignCompletedDays,
@@ -1242,6 +1273,17 @@ export function buildAdminSyncHealth(input: {
     googleAdsQueueDepth += queueDepth;
     googleAdsLeasedPartitions += leasedPartitions;
     googleAdsDeadLetterPartitions += deadLetterPartitions;
+    googleAdsActionRequiredPartitions += actionRequiredDeadLetterPartitions;
+    googleAdsActionRequiredBlockingPartitions += actionRequiredBlockingDeadLetterPartitions;
+    for (const scope of actionRequiredDeadLetterScopes) {
+      googleAdsActionRequiredScopes.add(scope);
+    }
+    for (const scope of actionRequiredBlockingDeadLetterScopes) {
+      googleAdsActionRequiredBlockingScopes.add(scope);
+    }
+    if (actionRequiredDeadLetterPartitions > 0) {
+      googleAdsActionRequiredBusinessCount += 1;
+    }
     googleAdsCompactedPartitions += compactedPartitions;
     googleAdsSkippedActiveLeaseRecoveries += Number(row.skipped_active_lease_recoveries ?? 0);
     googleAdsLeaseConflictRuns24h += Number(row.lease_conflict_runs_24h ?? 0);
@@ -1270,6 +1312,22 @@ export function buildAdminSyncHealth(input: {
         reportType: "queue_dead_letter",
         status: "failed",
         detail: `${deadLetterPartitions} Google Ads partition dead-letter durumunda.`,
+        triggeredAt: row.latest_partition_activity_at,
+        completedAt: row.oldest_queued_partition,
+      });
+    }
+
+    if (actionRequiredDeadLetterPartitions > 0) {
+      impactedBusinesses.add(row.business_id);
+      issueTypes.push("Google Ads action required");
+      issues.push({
+        businessId: row.business_id,
+        businessName: row.business_name,
+        provider: "google_ads",
+        reportType: "account_action_required",
+        severity: "critical",
+        status: "failed",
+        detail: `${actionRequiredDeadLetterPartitions} Google Ads partition requires reconnect or account access action. scopes=${actionRequiredDeadLetterScopes.join(", ") || "unknown"}.`,
         triggeredAt: row.latest_partition_activity_at,
         completedAt: row.oldest_queued_partition,
       });
@@ -2021,6 +2079,17 @@ export function buildAdminSyncHealth(input: {
     releaseGateVerdict: input.releaseGate?.verdict ?? null,
     runtimeContractValid,
   });
+  const effectiveGoogleAdsHealthStatus =
+    (input.googleAdsHealthStatus ?? "ok") === "ok" &&
+    googleAdsActionRequiredBusinessCount > 0
+      ? "degraded"
+      : input.googleAdsHealthStatus ?? "ok";
+  const sortedGoogleAdsActionRequiredScopes = Array.from(
+    googleAdsActionRequiredScopes,
+  ).sort();
+  const sortedGoogleAdsActionRequiredBlockingScopes = Array.from(
+    googleAdsActionRequiredBlockingScopes,
+  ).sort();
 
   return {
     runtimeContract: input.runtimeContract ?? null,
@@ -2029,7 +2098,7 @@ export function buildAdminSyncHealth(input: {
     releaseGate: input.releaseGate ?? null,
     repairPlan: input.repairPlan ?? null,
     remediationSummary: input.remediationSummary ?? null,
-    googleAdsHealthStatus: input.googleAdsHealthStatus ?? "ok",
+    googleAdsHealthStatus: effectiveGoogleAdsHealthStatus,
     googleAdsHealthError: input.googleAdsHealthError ?? null,
     dbDiagnostics,
     summary: {
@@ -2043,6 +2112,12 @@ export function buildAdminSyncHealth(input: {
       googleAdsQueueDepth,
       googleAdsLeasedPartitions,
       googleAdsDeadLetterPartitions,
+      googleAdsActionRequiredBusinessCount,
+      googleAdsActionRequiredPartitions,
+      googleAdsActionRequiredBlockingPartitions,
+      googleAdsActionRequiredScopes: sortedGoogleAdsActionRequiredScopes,
+      googleAdsActionRequiredBlockingScopes:
+        sortedGoogleAdsActionRequiredBlockingScopes,
       googleAdsOldestQueuedPartition,
       metaQueueDepth,
       metaLeasedPartitions,
@@ -3146,6 +3221,7 @@ export async function getAdminOperationsHealth() {
     return date.toISOString().slice(0, 10);
   })();
   const [
+    googleAdsQueueHealthByBusiness,
     googleAdsReclaimSummaries,
     googleAdsIntegritySummaries,
     metaReclaimSummaries,
@@ -3154,6 +3230,14 @@ export async function getAdminOperationsHealth() {
     metaDeadLetterSummaries,
   ] =
     await Promise.all([
+      Promise.all(
+        googleAdsHealthResult.rows.map(async (row) => {
+          const summary = await getGoogleAdsQueueHealth({
+            businessId: row.business_id,
+          }).catch(() => null);
+          return [row.business_id, summary] as const;
+        }),
+      ).then((entries) => Object.fromEntries(entries)),
       Promise.all(
         googleAdsHealthResult.rows.map(async (row) => {
           const summary = await getGoogleAdsReclaimClassificationSummary({
@@ -3283,6 +3367,7 @@ export async function getAdminOperationsHealth() {
     googleAdsHealthStatus: googleAdsHealthResult.status,
     googleAdsHealthError: googleAdsHealthResult.error,
     googleAdsHealthSummary: googleAdsHealthResult.summary,
+    googleAdsQueueHealthByBusiness,
     googleAdsReclaimSummaries,
     googleAdsIntegritySummaries,
     metaHealth,

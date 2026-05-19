@@ -34,6 +34,7 @@ import {
   normalizeGoogleAdsPartitionDateKey,
   resolveGoogleAdsFullSyncPriorityFromStateRows,
   getGoogleAdsRecent90FrontierScopes,
+  resolveGoogleAdsActionRequiredAwarePriorityScopes,
 } from "@/lib/sync/google-ads-sync";
 
 afterEach(() => {
@@ -1204,6 +1205,40 @@ describe("buildGoogleAdsPrimaryLeasePlan", () => {
   });
 });
 
+describe("resolveGoogleAdsActionRequiredAwarePriorityScopes", () => {
+  it("demotes full-sync priority when every priority target is action-required", () => {
+    const result = resolveGoogleAdsActionRequiredAwarePriorityScopes({
+      fullSyncPriorityRequired: true,
+      targetScopes: ["product_daily"],
+      actionRequiredExcludedScopes: ["product_daily"],
+    });
+
+    expect(result).toEqual({
+      fullSyncPriorityLeaseRequired: false,
+      priorityTargetActionRequired: true,
+      effectiveTargetScopes: [],
+      blockedTargetScopes: ["product_daily"],
+      priorityScopeFilter: undefined,
+    });
+  });
+
+  it("keeps the leaseable priority subset when only some targets are blocked", () => {
+    const result = resolveGoogleAdsActionRequiredAwarePriorityScopes({
+      fullSyncPriorityRequired: true,
+      targetScopes: ["search_term_daily", "product_daily"],
+      actionRequiredExcludedScopes: ["product_daily"],
+    });
+
+    expect(result).toMatchObject({
+      fullSyncPriorityLeaseRequired: true,
+      priorityTargetActionRequired: true,
+      effectiveTargetScopes: ["search_term_daily"],
+      blockedTargetScopes: ["product_daily"],
+      priorityScopeFilter: ["search_term_daily"],
+    });
+  });
+});
+
 describe("resolveGoogleAdsWorkerRequestedLimit", () => {
   it("expands the lifecycle lease budget when Google has productive backlog", () => {
     expect(
@@ -1347,6 +1382,32 @@ describe("buildGoogleAdsFallbackExtendedLeasePlan", () => {
 
     expect(plan?.sourceFilter).toBe("recent_only");
     expect(plan?.startDate).toBeNull();
+  });
+
+  it("does not emit an empty priority scope filter after priority is demoted", () => {
+    const policy = buildGoogleAdsLaneAdmissionPolicy({
+      safeModeEnabled: false,
+      workerHealthy: true,
+      workerCapacityAvailable: true,
+      breakerOpen: false,
+      queueDepth: 10,
+      extendedQueueDepth: 4,
+      extendedBudgetAllowed: true,
+      extendedCanaryEligible: true,
+      recoveryMode: "closed",
+    });
+
+    const plan = buildGoogleAdsFallbackExtendedLeasePlan({
+      policy,
+      fullSyncPriorityRequired: false,
+      fullSyncPriorityTargetScopes: [],
+      fullSyncPriorityYesterday: "2026-04-01",
+      blockHistoricalExtendedWork: false,
+      historicalLeaseStartDate: "2024-04-02",
+    });
+
+    expect(plan?.sourceFilter).toBe("all");
+    expect(plan?.scopeFilter).toBeUndefined();
   });
 });
 

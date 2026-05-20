@@ -423,6 +423,20 @@ export interface GoogleAdsStatusResponse {
     advisorSnapshotAsOfDate?: string | null;
     advisorSnapshotFresh?: boolean;
     advisorSnapshotBlockedReason?: string | null;
+    advisorSurfacePartitionStates?: Array<{
+      surface: string;
+      totalPartitions: number;
+      queuedPartitions: number;
+      leasedPartitions: number;
+      runningPartitions: number;
+      succeededPartitions: number;
+      failedPartitions: number;
+      deadLetterPartitions: number;
+      cancelledPartitions: number;
+      succeededEmptyPartitions: number;
+      latestUpdatedAt: string | null;
+      latestError: string | null;
+    }>;
     advisorActionContractVersion?: string | null;
     advisorActionContractSource?: "native" | "compatibility_derived" | null;
     advisorAggregateTopQueryWeeklyAvailable?: boolean;

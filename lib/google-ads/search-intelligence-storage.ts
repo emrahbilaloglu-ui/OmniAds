@@ -966,10 +966,16 @@ export async function readGoogleAdsSearchIntelligenceCoverage(input: {
   startDate: string;
   endDate: string;
 }): Promise<GoogleAdsSearchIntelligenceCoverage> {
-  await assertGoogleAdsSearchIntelligenceTablesReady("google_ads_search_intelligence_storage");
+  await assertDbSchemaReady({
+    tables: [
+      ...GOOGLE_ADS_SEARCH_INTELLIGENCE_TABLES,
+      "google_ads_sync_partitions",
+    ],
+    context: "google_ads_search_intelligence_coverage",
+  });
   const sql = getDb();
   const rows = (await sql`
-    WITH coverage_rows AS (
+    WITH additive_rows AS (
       SELECT date, updated_at
       FROM google_ads_search_query_hot_daily
       WHERE business_id = ${input.businessId}
@@ -984,6 +990,23 @@ export async function readGoogleAdsSearchIntelligenceCoverage(input: {
         AND date >= ${input.startDate}
         AND date <= ${input.endDate}
     ),
+    succeeded_partition_rows AS (
+      SELECT partition_date::date AS date, updated_at
+      FROM google_ads_sync_partitions
+      WHERE business_id = ${input.businessId}
+        AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
+        AND scope = 'search_term_daily'
+        AND partition_date >= ${input.startDate}
+        AND partition_date <= ${input.endDate}
+        AND status = 'succeeded'
+    ),
+    coverage_rows AS (
+      SELECT date, updated_at
+      FROM additive_rows
+      UNION ALL
+      SELECT date, updated_at
+      FROM succeeded_partition_rows
+    ),
     covered_days AS (
       SELECT
         date,
@@ -995,7 +1018,7 @@ export async function readGoogleAdsSearchIntelligenceCoverage(input: {
       COUNT(*)::int AS completed_days,
       MAX(date)::text AS ready_through_date,
       MAX(latest_updated_at)::text AS latest_updated_at,
-      (SELECT COUNT(*)::int FROM coverage_rows) AS total_rows
+      (SELECT COUNT(*)::int FROM additive_rows) AS total_rows
     FROM covered_days
   `) as Array<{
     completed_days?: number | string | null;

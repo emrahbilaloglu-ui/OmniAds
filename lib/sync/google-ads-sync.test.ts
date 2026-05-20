@@ -1088,7 +1088,7 @@ describe("buildGoogleAdsLaneProgressEvidence", () => {
 });
 
 describe("getGoogleAdsHistoricalFairnessLeaseLimit", () => {
-  it("boosts historical fairness when historical extended advancement is stale", () => {
+  it("uses the full historical worker limit when historical extended advancement is stale", () => {
     const policy = {
       lanePolicy: {
         core: "admit",
@@ -1120,10 +1120,10 @@ describe("getGoogleAdsHistoricalFairnessLeaseLimit", () => {
       nowMs: new Date("2026-04-02T09:30:00.000Z").getTime(),
     });
 
-    expect(limit).toBe(2);
+    expect(limit).toBe(6);
   });
 
-  it("keeps a single fairness lease when historical extended is still moving", () => {
+  it("uses the forward-progress lease limit when historical extended is still moving", () => {
     const policy = {
       lanePolicy: {
         core: "admit",
@@ -1155,7 +1155,68 @@ describe("getGoogleAdsHistoricalFairnessLeaseLimit", () => {
       nowMs: new Date("2026-04-02T09:30:00.000Z").getTime(),
     });
 
-    expect(limit).toBe(1);
+    expect(limit).toBe(4);
+  });
+
+  it("does not lease historical extended work when no backlog exists", () => {
+    const policy = {
+      lanePolicy: {
+        core: "admit",
+        maintenance: "admit",
+        extended: "admit",
+        extendedRecent: "admit",
+        extendedHistorical: "admit",
+      },
+      extendedCanaryEligible: false,
+    } as ReturnType<typeof buildGoogleAdsLaneAdmissionPolicy>;
+
+    const limit = getGoogleAdsHistoricalFairnessLeaseLimit({
+      policy,
+      queueHealth: {
+        extendedHistoricalQueueDepth: 0,
+        extendedHistoricalLeasedPartitions: 0,
+        latestExtendedActivityAt: null,
+      } as never,
+      progressEvidence: null,
+      nowMs: new Date("2026-04-02T09:30:00.000Z").getTime(),
+    });
+
+    expect(limit).toBe(0);
+  });
+
+  it("clamps the forward-progress limit to the active historical worker limit", () => {
+    const policy = {
+      lanePolicy: {
+        core: "admit",
+        maintenance: "admit",
+        extended: "admit",
+        extendedRecent: "admit",
+        extendedHistorical: "admit",
+      },
+      extendedCanaryEligible: true,
+    } as ReturnType<typeof buildGoogleAdsLaneAdmissionPolicy>;
+
+    const limit = getGoogleAdsHistoricalFairnessLeaseLimit({
+      policy,
+      queueHealth: {
+        extendedHistoricalQueueDepth: 6,
+        extendedHistoricalLeasedPartitions: 0,
+        latestExtendedActivityAt: "2026-04-02T09:25:00.000Z",
+      } as never,
+      progressEvidence: {
+        lastCheckpointAdvancedAt: "2026-04-02T09:25:00.000Z",
+        lastReadyThroughAdvancedAt: null,
+        lastCompletedAt: "2026-04-02T09:25:00.000Z",
+        backlogDelta: null,
+        completedPartitionDelta: null,
+        lastReplayAt: null,
+        lastReclaimAt: null,
+        recentActivityWindowMinutes: 20,
+      },
+      nowMs: new Date("2026-04-02T09:30:00.000Z").getTime(),
+    });
+
+    expect(limit).toBe(2);
   });
 });
 

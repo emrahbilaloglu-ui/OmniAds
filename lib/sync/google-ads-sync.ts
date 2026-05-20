@@ -1141,8 +1141,8 @@ export function getGoogleAdsHistoricalFairnessLeaseLimit(input: {
     nowMs: input.nowMs,
   });
   return hasRecentAdvancement
-    ? Math.max(1, Math.min(1, maxLeaseLimit))
-    : Math.max(1, Math.min(2, maxLeaseLimit));
+    ? Math.max(1, Math.min(GOOGLE_ADS_FORWARD_PROGRESS_LEASE_LIMIT, maxLeaseLimit))
+    : maxLeaseLimit;
 }
 
 export function buildGoogleAdsPrimaryLeasePlan(input: {
@@ -2227,10 +2227,10 @@ async function enqueueGoogleAdsRecentRepairPartitions(input: {
       );
       gapCountsByScope[scope] += missingDates.length;
 
-      for (const date of missingDates.slice(
-        0,
-        GOOGLE_ADS_EXTENDED_RECENT_BATCH_DAYS,
-      )) {
+      let queuedForScope = 0;
+      const scanLimit = GOOGLE_ADS_EXTENDED_RECENT_BATCH_DAYS * 4;
+      for (const date of missingDates.slice(0, scanLimit)) {
+        if (queuedForScope >= GOOGLE_ADS_EXTENDED_RECENT_BATCH_DAYS) break;
         const row = await queueGoogleAdsSyncPartition({
           businessId: input.businessId,
           providerAccountId,
@@ -2242,7 +2242,10 @@ async function enqueueGoogleAdsRecentRepairPartitions(input: {
           source: "recent_recovery",
           attemptCount: 0,
         }).catch(() => null);
-        if (row?.id) queuedRecent++;
+        if (row?.id) {
+          queuedRecent++;
+          queuedForScope++;
+        }
       }
     }
   }
@@ -3913,10 +3916,12 @@ async function enqueueHistoricalCorePartitions(businessId: string) {
       const blockedDates = new Set([...coveredDates, ...activePartitionDates]);
       const dates = enumerateDays(targetStart, yesterday, true)
         .filter((date) => date !== yesterday)
-        .filter((date) => !blockedDates.has(date))
-        .slice(0, GOOGLE_ADS_BOOTSTRAP_BATCH_DAYS);
+        .filter((date) => !blockedDates.has(date));
 
-      for (const date of dates) {
+      let queuedForScope = 0;
+      const scanLimit = GOOGLE_ADS_BOOTSTRAP_BATCH_DAYS * 4;
+      for (const date of dates.slice(0, scanLimit)) {
+        if (queuedForScope >= GOOGLE_ADS_BOOTSTRAP_BATCH_DAYS) break;
         const row = await queueGoogleAdsSyncPartition({
           businessId,
           providerAccountId,
@@ -3925,10 +3930,13 @@ async function enqueueHistoricalCorePartitions(businessId: string) {
           partitionDate: date,
           status: "queued",
           priority: 0,
-          source: "historical",
+          source: "core_historical_recovery",
           attemptCount: 0,
         }).catch(() => null);
-        if (row?.id) queued++;
+        if (row?.id) {
+          queued++;
+          queuedForScope++;
+        }
       }
     }
   }

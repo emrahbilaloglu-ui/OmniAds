@@ -288,6 +288,7 @@ function buildGoogleAdsSourceLeasePrioritySql() {
       WHEN 'core_success' THEN 105
       WHEN 'recent_recovery' THEN 100
       WHEN 'historical' THEN 20
+      WHEN 'core_historical_recovery' THEN 18
       WHEN 'historical_recovery' THEN 15
       ELSE 0
     END
@@ -1353,6 +1354,7 @@ export async function queueGoogleAdsSyncPartition(
     "recent",
     "today",
     "recent_recovery",
+    "core_historical_recovery",
     "historical_recovery",
     "core_success",
   ];
@@ -5548,6 +5550,133 @@ export async function getGoogleAdsAdvisorQueueHealth(input: {
   };
 }
 
+export interface GoogleAdsAdvisorSurfacePartitionState {
+  surface: GoogleAdsWarehouseScope;
+  totalPartitions: number;
+  queuedPartitions: number;
+  leasedPartitions: number;
+  runningPartitions: number;
+  succeededPartitions: number;
+  failedPartitions: number;
+  deadLetterPartitions: number;
+  cancelledPartitions: number;
+  succeededEmptyPartitions: number;
+  latestUpdatedAt: string | null;
+  latestError: string | null;
+}
+
+export async function getGoogleAdsAdvisorSurfacePartitionStates(input: {
+  businessId: string;
+  providerAccountId?: string | null;
+  startDate: string;
+  endDate: string;
+}): Promise<GoogleAdsAdvisorSurfacePartitionState[]> {
+  await assertGoogleAdsRequestReadTablesReady(
+    [
+      "google_ads_sync_partitions",
+      "google_ads_campaign_daily",
+      "google_ads_product_daily",
+      "google_ads_search_query_hot_daily",
+      "google_ads_search_cluster_daily",
+    ],
+    "google_ads_advisor_surface_partition_states",
+  );
+  const sql = getDb();
+  const providerAccountId = input.providerAccountId ?? null;
+  const rows = (await sql`
+    WITH advisor_surfaces(scope) AS (
+      VALUES
+        ('campaign_daily'::text),
+        ('search_term_daily'::text),
+        ('product_daily'::text)
+    ),
+    coverage_dates AS (
+      SELECT 'campaign_daily'::text AS scope, date::date AS date
+      FROM google_ads_campaign_daily
+      WHERE business_id = ${input.businessId}
+        AND (${providerAccountId}::text IS NULL OR provider_account_id = ${providerAccountId})
+        AND date >= ${normalizeDate(input.startDate)}
+        AND date <= ${normalizeDate(input.endDate)}
+      UNION
+      SELECT 'product_daily'::text AS scope, date::date AS date
+      FROM google_ads_product_daily
+      WHERE business_id = ${input.businessId}
+        AND (${providerAccountId}::text IS NULL OR provider_account_id = ${providerAccountId})
+        AND date >= ${normalizeDate(input.startDate)}
+        AND date <= ${normalizeDate(input.endDate)}
+      UNION
+      SELECT 'search_term_daily'::text AS scope, date::date AS date
+      FROM google_ads_search_query_hot_daily
+      WHERE business_id = ${input.businessId}
+        AND (${providerAccountId}::text IS NULL OR provider_account_id = ${providerAccountId})
+        AND date >= ${normalizeDate(input.startDate)}
+        AND date <= ${normalizeDate(input.endDate)}
+      UNION
+      SELECT 'search_term_daily'::text AS scope, date::date AS date
+      FROM google_ads_search_cluster_daily
+      WHERE business_id = ${input.businessId}
+        AND (${providerAccountId}::text IS NULL OR provider_account_id = ${providerAccountId})
+        AND date >= ${normalizeDate(input.startDate)}
+        AND date <= ${normalizeDate(input.endDate)}
+    ),
+    partitions AS (
+      SELECT
+        scope,
+        status,
+        partition_date::date AS partition_date,
+        updated_at,
+        last_error
+      FROM google_ads_sync_partitions
+      WHERE business_id = ${input.businessId}
+        AND (${providerAccountId}::text IS NULL OR provider_account_id = ${providerAccountId})
+        AND scope IN ('campaign_daily', 'search_term_daily', 'product_daily')
+        AND partition_date >= ${normalizeDate(input.startDate)}
+        AND partition_date <= ${normalizeDate(input.endDate)}
+    )
+    SELECT
+      advisor_surfaces.scope,
+      COUNT(partitions.*)::int AS total_partitions,
+      COUNT(partitions.*) FILTER (WHERE partitions.status = 'queued')::int AS queued_partitions,
+      COUNT(partitions.*) FILTER (WHERE partitions.status = 'leased')::int AS leased_partitions,
+      COUNT(partitions.*) FILTER (WHERE partitions.status = 'running')::int AS running_partitions,
+      COUNT(partitions.*) FILTER (WHERE partitions.status = 'succeeded')::int AS succeeded_partitions,
+      COUNT(partitions.*) FILTER (WHERE partitions.status = 'failed')::int AS failed_partitions,
+      COUNT(partitions.*) FILTER (WHERE partitions.status = 'dead_letter')::int AS dead_letter_partitions,
+      COUNT(partitions.*) FILTER (WHERE partitions.status = 'cancelled')::int AS cancelled_partitions,
+      COUNT(partitions.*) FILTER (
+        WHERE partitions.status = 'succeeded'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM coverage_dates
+            WHERE coverage_dates.scope = partitions.scope
+              AND coverage_dates.date = partitions.partition_date
+          )
+      )::int AS succeeded_empty_partitions,
+      MAX(partitions.updated_at)::text AS latest_updated_at,
+      (ARRAY_AGG(partitions.last_error ORDER BY partitions.updated_at DESC)
+        FILTER (WHERE partitions.last_error IS NOT NULL))[1] AS latest_error
+    FROM advisor_surfaces
+    LEFT JOIN partitions ON partitions.scope = advisor_surfaces.scope
+    GROUP BY advisor_surfaces.scope
+    ORDER BY advisor_surfaces.scope
+  `) as Array<Record<string, unknown>>;
+
+  return rows.map((row) => ({
+    surface: String(row.scope) as GoogleAdsWarehouseScope,
+    totalPartitions: toNumber(row.total_partitions),
+    queuedPartitions: toNumber(row.queued_partitions),
+    leasedPartitions: toNumber(row.leased_partitions),
+    runningPartitions: toNumber(row.running_partitions),
+    succeededPartitions: toNumber(row.succeeded_partitions),
+    failedPartitions: toNumber(row.failed_partitions),
+    deadLetterPartitions: toNumber(row.dead_letter_partitions),
+    cancelledPartitions: toNumber(row.cancelled_partitions),
+    succeededEmptyPartitions: toNumber(row.succeeded_empty_partitions),
+    latestUpdatedAt: normalizeTimestamp(row.latest_updated_at),
+    latestError: row.latest_error ? String(row.latest_error) : null,
+  }));
+}
+
 export async function getGoogleAdsPartitionHealth(input: {
   businessId: string;
   providerAccountId?: string | null;
@@ -5969,6 +6098,7 @@ export async function requeueGoogleAdsRetryableFailedPartitions(input: {
         WHEN 'recent' THEN 600
         WHEN 'recent_recovery' THEN 550
         WHEN 'core_success' THEN 500
+        WHEN 'core_historical_recovery' THEN 225
         WHEN 'historical_recovery' THEN 200
         WHEN 'historical' THEN 150
         ELSE 100

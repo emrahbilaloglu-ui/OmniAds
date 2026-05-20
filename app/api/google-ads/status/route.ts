@@ -22,6 +22,7 @@ import {
   getGoogleAdsCheckpointHealth,
   getGoogleAdsCoveredDates,
   getGoogleAdsDailyCoverage,
+  getGoogleAdsAdvisorSurfacePartitionStates,
   getGoogleAdsAdvisorQueueHealth,
   getGoogleAdsQueueHealth,
   getGoogleAdsSyncState,
@@ -1146,7 +1147,14 @@ export async function GET(request: NextRequest) {
   const latestError = effectiveLatestSync?.last_error ? String(effectiveLatestSync.last_error) : null;
 
   const recent84Start = addDaysToIsoDate(initialBackfillEnd, -(GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS - 1));
-  const [recent84CampaignCoverage, recent84SearchTermCoverage, recent84ProductCoverage, latestAdvisorSnapshot, advisorQueueHealth] =
+  const [
+    recent84CampaignCoverage,
+    recent84SearchTermCoverage,
+    recent84ProductCoverage,
+    latestAdvisorSnapshot,
+    advisorQueueHealth,
+    advisorSurfacePartitionStates,
+  ] =
       await Promise.all([
           readGoogleAdsStatusCoverage({
             scope: "campaign_daily",
@@ -1188,6 +1196,16 @@ export async function GET(request: NextRequest) {
               endDate: initialBackfillEnd,
             }),
             null
+          ),
+          captureOptional(
+            "advisor_surface_partition_states",
+            getGoogleAdsAdvisorSurfacePartitionStates({
+              businessId: businessId!,
+              providerAccountId: accountIds.length === 1 ? accountIds[0] : null,
+              startDate: recent84Start,
+              endDate: initialBackfillEnd,
+            }),
+            []
           ),
         ]);
   const advisorRequiredSurfaces = [
@@ -2426,6 +2444,7 @@ export async function GET(request: NextRequest) {
       advisorSnapshotAsOfDate: latestAdvisorSnapshot?.asOfDate ?? null,
       advisorSnapshotFresh: snapshotFresh,
       advisorSnapshotBlockedReason,
+      advisorSurfacePartitionStates,
       advisorActionContractVersion: latestAdvisorActionContract?.version ?? null,
       advisorActionContractSource: latestAdvisorActionContract?.source ?? null,
       advisorAggregateTopQueryWeeklyAvailable:

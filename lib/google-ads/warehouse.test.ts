@@ -79,6 +79,7 @@ const {
   completeGoogleAdsPartitionAttempt,
   getGoogleAdsPartitionHealth,
   getGoogleAdsQueueHealth,
+  getGoogleAdsAdvisorSurfacePartitionStates,
   getGoogleAdsWarehouseIntegrityIncidents,
   hasRecentGoogleAdsTerminalActionRequiredDeadLetter,
   heartbeatGoogleAdsPartitionLease,
@@ -481,6 +482,38 @@ describe("google ads warehouse ownership safety", () => {
     expect(query).toContain("google_ads_sync_partitions.status = 'dead_letter'");
     expect(query).toContain("google_ads_scope_action_required");
     expect(query).toContain("terminal_run.error_class IN");
+  });
+
+  it("allows the core historical recovery source to reset cancelled frontier partitions", async () => {
+    const queries: string[] = [];
+    const values: unknown[][] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray, ...params: unknown[]) => {
+      queries.push(strings.join(" "));
+      values.push(params);
+      return [{ id: "partition-1", status: "queued" }];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await queueGoogleAdsSyncPartition({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      lane: "core",
+      scope: "campaign_daily",
+      partitionDate: "2026-01-13",
+      status: "queued",
+      priority: 0,
+      source: "core_historical_recovery",
+      attemptCount: 0,
+    });
+
+    const resetSources = values
+      .flat()
+      .find((value): value is string[] => Array.isArray(value) && value.includes("core_historical_recovery"));
+    const query = queries.join("\n");
+    expect(result).toEqual({ id: "partition-1", status: "queued" });
+    expect(resetSources).toContain("core_historical_recovery");
+    expect(query).toContain("google_ads_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')");
+    expect(query).toContain("WHERE NOT (");
   });
 
   it("quarantines queued Google Ads terminal action-required partitions", async () => {
@@ -2000,6 +2033,61 @@ describe("google ads control-plane ref writes", () => {
     expect(query).toContain("business_ref_id");
     expect(query).toContain("provider_account_ref_id");
     expect(query).toContain("ON CONFLICT (business_id, provider_account_id, lane, scope, partition_date)");
+  });
+
+  it("surfaces advisor partition state breakdown including succeeded-empty dates", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      queries.push(query);
+      if (query.includes("advisor_surfaces(scope)")) {
+        return [
+          {
+            scope: "search_term_daily",
+            total_partitions: 5,
+            queued_partitions: 0,
+            leased_partitions: 0,
+            running_partitions: 0,
+            succeeded_partitions: 5,
+            failed_partitions: 0,
+            dead_letter_partitions: 0,
+            cancelled_partitions: 0,
+            succeeded_empty_partitions: 5,
+            latest_updated_at: "2026-04-21T00:00:00.000Z",
+            latest_error: null,
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const states = await getGoogleAdsAdvisorSurfacePartitionStates({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      startDate: "2026-02-25",
+      endDate: "2026-05-19",
+    });
+
+    expect(states).toEqual([
+      {
+        surface: "search_term_daily",
+        totalPartitions: 5,
+        queuedPartitions: 0,
+        leasedPartitions: 0,
+        runningPartitions: 0,
+        succeededPartitions: 5,
+        failedPartitions: 0,
+        deadLetterPartitions: 0,
+        cancelledPartitions: 0,
+        succeededEmptyPartitions: 5,
+        latestUpdatedAt: "2026-04-21T00:00:00.000Z",
+        latestError: null,
+      },
+    ]);
+    expect(queries.join("\n")).toContain("google_ads_search_query_hot_daily");
+    expect(queries.join("\n")).toContain("google_ads_search_cluster_daily");
+    expect(queries.join("\n")).toContain("succeeded_empty_partitions");
   });
 
   it("writes canonical ref ids for sync runs", async () => {

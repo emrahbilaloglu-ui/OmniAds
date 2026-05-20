@@ -69,6 +69,7 @@ vi.mock("@/lib/google-ads/warehouse", () => ({
   getGoogleAdsCheckpointHealth: vi.fn(),
   getGoogleAdsCoveredDates: vi.fn(),
   getGoogleAdsDailyCoverage: vi.fn(),
+  getGoogleAdsAdvisorSurfacePartitionStates: vi.fn(),
   getGoogleAdsAdvisorQueueHealth: vi.fn(),
   getGoogleAdsQueueHealth: vi.fn(),
   getGoogleAdsSyncState: vi.fn(),
@@ -363,6 +364,7 @@ describe("GET /api/google-ads/status", () => {
       total_rows: 10,
     } as never);
     vi.mocked(warehouse.getGoogleAdsCoveredDates).mockResolvedValue([] as never);
+    vi.mocked(warehouse.getGoogleAdsAdvisorSurfacePartitionStates).mockResolvedValue([]);
     vi.mocked(warehouse.getGoogleAdsAdvisorQueueHealth).mockResolvedValue(null as never);
     vi.mocked(warehouse.getGoogleAdsQueueHealth).mockResolvedValue(null as never);
     vi.mocked(warehouse.getGoogleAdsSyncState).mockResolvedValue([]);
@@ -1330,6 +1332,13 @@ describe("GET /api/google-ads/status", () => {
       selectedRange: expect.any(Object),
       historical: expect.any(Object),
     });
+    expect(warehouse.getGoogleAdsAdvisorSurfacePartitionStates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz",
+        providerAccountId: "acc_1",
+      }),
+    );
+    expect(payload.operations.advisorSurfacePartitionStates).toEqual([]);
   });
 
   it("surfaces quota-limited rebuild truth without overstating readiness", async () => {

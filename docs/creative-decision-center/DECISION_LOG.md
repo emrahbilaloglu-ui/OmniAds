@@ -255,3 +255,34 @@ different operational move than the engine evidence supports.
 Deferred: batch/cohort-level diagnostics such as "100 test creatives all failed
 to find a target/breakeven winner" require aggregate account/campaign context.
 They should not be implemented as row-level creative action logic.
+
+## D017 — Add V2.1 Contract Types And Structural Validators Without Runtime Wiring
+
+Decision: add `creative-decision-center.v2.1` TypeScript contract types,
+literal constants, structural validators, and opt-in invariant audit helpers in
+an isolated `lib/creative-decision-center` module.
+
+Reason: PR4 needs a typed contract surface before the buyer adapter,
+`decisionCenter` response, and UI migration work. The contract module makes
+`primaryDecision`, `buyerAction`, row decisions, aggregate decisions, snapshots,
+and config shape explicit without changing the active resolver or UI path.
+
+Scope: validators check only structure: required keys, primitive types, literal
+membership, row-level `brief_variation` exclusion, snapshot required fields, and
+`queueEligible` / `applyEligible` staying false. Semantic checks such as
+high-confidence output with missing data live in a separate opt-in invariant
+audit helper that returns violations and is not wired into runtime decisions.
+
+Constraint: no active engine, Meta, API route, UI component, script probe, or
+archive module may import `lib/creative-decision-center` in PR4. The new module
+may be imported only by its own tests until a later ADR explicitly wires a
+consumer.
+
+Rejected alternative: unarchive the old V2.1 module wholesale. That would bring
+adapter, snapshot builder, observability, and historical assumptions back into
+scope instead of adding only the PR4 contract surface.
+
+Risk: if later slices turn validators into runtime gates without ADR review,
+structural checks could become hidden policy. Mitigation: keep semantic audits
+separate and require a later decision-log entry before any runtime consumer uses
+them for enforcement.

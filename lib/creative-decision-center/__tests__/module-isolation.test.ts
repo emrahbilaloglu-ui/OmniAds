@@ -8,6 +8,7 @@ const SOURCE_FILES = [
   "validators.ts",
   "invariants.ts",
   "adapter.ts",
+  "snapshot-builder.ts",
   "index.ts",
 ].map((file) => join(SOURCE_DIR, file));
 const RUNTIME_DIRS = [

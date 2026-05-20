@@ -46,6 +46,22 @@ export function auditCreativeDecisionCenterRowInvariants(
     });
   }
 
+  // I22 (D019): executionAction must only ride on a scale row. The audit
+  // helper enforces this structurally so any consumer that constructs row
+  // decisions sees the violation even if a future adapter forgets the guard.
+  if (
+    row.executionAction !== null &&
+    row.executionAction !== undefined &&
+    row.buyerAction !== "scale"
+  ) {
+    violations.push({
+      id: "I22:execution_action_outside_scale_buyer_action",
+      path,
+      message:
+        "executionAction is only valid when buyerAction is 'scale'; non-scale rows must leave executionAction null/undefined.",
+    });
+  }
+
   return violations;
 }
 

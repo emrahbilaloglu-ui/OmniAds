@@ -3,9 +3,13 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const SOURCE_DIR = "lib/creative-decision-center";
-const SOURCE_FILES = ["contracts.ts", "validators.ts", "invariants.ts", "index.ts"].map(
-  (file) => join(SOURCE_DIR, file),
-);
+const SOURCE_FILES = [
+  "contracts.ts",
+  "validators.ts",
+  "invariants.ts",
+  "adapter.ts",
+  "index.ts",
+].map((file) => join(SOURCE_DIR, file));
 const RUNTIME_DIRS = [
   "app",
   "components",

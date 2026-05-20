@@ -9,10 +9,11 @@ import type {
   DecisionLabel,
   DecisionOutput,
 } from "./types";
+import { CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP } from "./config-values";
 
 export const CREATIVE_CAMPAIGN_LABEL_GUARD_PREFIX =
   "[Unlabeled campaign - label to enable action]";
-export const CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP = 50;
+export { CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP } from "./config-values";
 
 export type CreativeCampaignLabelMap = ReadonlyMap<
   string,

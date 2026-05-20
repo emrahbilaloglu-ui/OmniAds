@@ -9,8 +9,9 @@ import type {
   FormatFunnelBaseline,
 } from "./types";
 import { MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE } from "./config";
+import { MIN_KIND_CALIBRATION_MATURE_COUNT } from "./config-values";
 
-export const MIN_KIND_CALIBRATION_MATURE_COUNT = 10;
+export { MIN_KIND_CALIBRATION_MATURE_COUNT } from "./config-values";
 
 function positiveFinite(value: number | null | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;

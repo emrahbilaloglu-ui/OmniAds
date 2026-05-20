@@ -4,11 +4,18 @@ import type {
   FallbackMode,
   StaleTier,
 } from "./types";
+import {
+  STALE_TIER_NONE_MAX_HOURS,
+  STALE_TIER_WARNING_MAX_HOURS,
+} from "./config-values";
+
+export {
+  STALE_TIER_NONE_MAX_HOURS,
+  STALE_TIER_WARNING_MAX_HOURS,
+} from "./config-values";
 
 /** Threshold (hours) below which data is considered fresh. */
-export const STALE_TIER_NONE_MAX_HOURS = 36;
 /** Threshold (hours) above which data is considered too stale to use. */
-export const STALE_TIER_WARNING_MAX_HOURS = 72;
 
 /**
  * Classify a layer's freshness based on hours since source max updated.

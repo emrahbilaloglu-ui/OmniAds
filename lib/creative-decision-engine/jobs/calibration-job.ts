@@ -3,6 +3,7 @@ import {
   MIN_CAMPAIGN_CALIBRATION_SAMPLE,
   SUPPORTED_OBJECTIVES,
 } from "../config";
+import { SAMPLE_WINDOW_DAYS } from "../config-values";
 import { STALE_TIER_WARNING_MAX_HOURS } from "../data-health";
 import { resolveEngineV3Flags } from "../feature-flags";
 import {
@@ -12,7 +13,6 @@ import {
 } from "../types";
 
 export const JOB_NAME = "engine_v3_calibration_job";
-const SAMPLE_WINDOW_DAYS = 90;
 const ACCOUNT_SCOPE_TYPE = "account";
 const CAMPAIGN_SCOPE_TYPE = "campaign";
 const ACCOUNT_SCOPE_ID = "*";

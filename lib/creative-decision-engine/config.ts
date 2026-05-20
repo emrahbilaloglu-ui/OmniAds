@@ -1,36 +1,27 @@
 import type {
-  AggressionPreset,
   BusinessConfig,
   CampaignObjective,
 } from "./types";
+import {
+  DEFAULT_BUSINESS_CONFIG_VALUES,
+  MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
+  MIN_CAMPAIGN_CALIBRATION_SAMPLE,
+  SCALE_RATIO_BY_PRESET,
+} from "./config-values";
+
+export {
+  MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
+  MIN_CAMPAIGN_CALIBRATION_SAMPLE,
+  SCALE_RATIO_BY_PRESET,
+} from "./config-values";
 
 export const SUPPORTED_OBJECTIVES: ReadonlySet<CampaignObjective> = new Set([
   "OUTCOME_SALES",
 ]);
 
-// Below 8 mature creatives, campaign percentile estimates are too noisy to use.
-// Campaign scope falls back to account scope; per-business overrides are future work.
-export const MIN_CAMPAIGN_CALIBRATION_SAMPLE = 8;
-
-// Hard scale needs a broader account sample than cut maturity. This is a data
-// reliability gate, not a purchase-count floor.
-export const MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE = 30;
-
-export const SCALE_RATIO_BY_PRESET: Record<AggressionPreset, number> = {
-  aggressive: 1.2,
-  balanced: 1.3,
-  conservative: 1.4,
-};
-
 export function defaultBusinessConfig(businessId: string): BusinessConfig {
   return {
     businessId,
-    aggression: "balanced",
-    scaleRatioThreshold: SCALE_RATIO_BY_PRESET.balanced,
-    recentSampleMinSpend: 50,
-    accountBaselineQuantile: 0.75,
-    truthPenaltyForDegraded: 10,
-    globalDefaultTargetRoas: 2.0,
-    lowCtrThresholdFallback: 1.0,
+    ...DEFAULT_BUSINESS_CONFIG_VALUES,
   };
 }

@@ -286,3 +286,43 @@ Risk: if later slices turn validators into runtime gates without ADR review,
 structural checks could become hidden policy. Mitigation: keep semantic audits
 separate and require a later decision-log entry before any runtime consumer uses
 them for enforcement.
+
+## D018 — Centralize Low-Risk Engine Config Values Without Behavioral Drift
+
+Decision: move the already-named low-risk Creative Decision Engine thresholds,
+window sizes, default business config values, and preset multipliers into
+`lib/creative-decision-engine/config-values.ts` while preserving all existing
+public exports and values.
+
+Reason: PR5 needs a config-as-data surface before later adapter and response
+work can reason about thresholds consistently. The first slice intentionally
+centralizes only values that already have stable names or documented defaults,
+so it improves auditability without changing resolver math, fallback order,
+gate eligibility, confidence behavior, labels, or buyer-facing output.
+
+Scope: `config.ts`, `engine-presets.ts`, data freshness thresholds, zero
+conversion age floor, kind-aware calibration floor, campaign-label confidence
+cap, operator-response lookback, and calibration sample window now read from
+the central config module. Compatibility exports remain in their previous
+modules, and tests freeze both the exact literal values and the old public
+surface.
+
+Intentionally left in place for later, separately reviewed slices:
+`fatigue.ts` decay/concentration/frequency/fallback thresholds,
+`gates/ratio-zones.ts` ratio-zone/fallback thresholds, resolver inline
+confidence adjustments, lifecycle SQL literals, and any value whose move would
+touch active gate ordering or decision semantics.
+
+Constraint: PR5 does not authorize value changes, inline literal extraction
+from high-risk resolver/gate code, buyer adapter implementation, route/UI
+wiring, or any default `decisionCenter` response. Any future threshold change
+or semantic regrouping still requires explicit review and approval.
+
+Rejected alternative: move every inline number in the resolver and gates in one
+pass. That would make behavior drift hard to isolate and would mix mechanical
+config cleanup with policy changes.
+
+Risk: a mechanical import move could accidentally alter a fallback value or
+public export. Mitigation: keep old modules as compatibility re-export
+surfaces, add lockstep tests for all moved values, and keep this as a separate
+rollback commit.

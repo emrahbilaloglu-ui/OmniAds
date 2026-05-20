@@ -7,11 +7,12 @@ import {
 } from "../operator-response-detection";
 import { resolveEngineV3Flags } from "../feature-flags";
 import { ENGINE_VERSION, type DecisionLabel } from "../types";
+import { RESPONSE_WINDOW_DAYS } from "../config-values";
 import { hashAdvisoryLock } from "./calibration-job";
 import { JOB_NAME as DECISIONS_JOB_NAME } from "./decisions-job";
 
 export const JOB_NAME = "engine_v3_operator_response_job";
-export const RESPONSE_WINDOW_DAYS = 30;
+export { RESPONSE_WINDOW_DAYS } from "../config-values";
 
 type JobStatus = "success" | "failed" | "skipped";
 type LifecycleOperatorResponseType =

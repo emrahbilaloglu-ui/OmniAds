@@ -1,7 +1,8 @@
 import { finalizeDecision, type GateContext, type GateResult } from "./types";
 import { commercialMaturitySpendThreshold } from "./maturity";
+import { ZERO_CONV_MIN_AGE_DAYS } from "../config-values";
 
-export const ZERO_CONV_MIN_AGE_DAYS = 7;
+export { ZERO_CONV_MIN_AGE_DAYS } from "../config-values";
 
 function formatSpend(value: number): string {
   return value.toLocaleString("en-US", { maximumFractionDigits: 0 });

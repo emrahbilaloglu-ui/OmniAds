@@ -26,6 +26,11 @@ vi.mock("@/lib/meta/adsets-source", () => ({
   getMetaAdSetsForRange: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/request-model-store", () => ({
+  readPreviousDifferentMetaAdSetConfigHistoryDiffs: vi.fn(async () => new Map()),
+  readPreviousDifferentMetaCampaignConfigHistoryDiffs: vi.fn(async () => new Map()),
+}));
+
 const access = await import("@/lib/access");
 const apiMeta = await import("@/lib/api/meta");
 const db = await import("@/lib/db");

@@ -97,6 +97,7 @@ export function metaPulse(overrides: Partial<MetaPulsePayload> = {}): MetaPulseP
       avg7dConversions: 2,
     },
     roas: {
+      selected: 3.2,
       d7: 2.8,
       d14: 3,
       d28: 3.2,

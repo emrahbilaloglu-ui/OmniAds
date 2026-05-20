@@ -191,19 +191,29 @@ function metricTone(label: string, value: string | null) {
 }
 
 function cardMetricRows(rec: MetaRecommendation, evidenceWindow: string) {
-  const spend = evidenceValue(rec, /spend/i);
-  const roas = evidenceValue(rec, /roas/i);
-  const cpa = evidenceValue(rec, /cpa/i);
-  const purchases = evidenceValue(rec, /purchase/i);
-  const frequency = evidenceValue(rec, /freq/i);
-  const confidence = confidencePercent(rec);
-  return [
-    { key: "Spend", value: spend ?? "—" },
-    { key: `ROAS ${evidenceWindow}`, value: roas ?? "—" },
-    { key: "CPA", value: cpa ?? "—" },
-    { key: purchases ? "Purchases" : "Confidence", value: purchases ?? `${confidence}%` },
-    { key: frequency ? "Freq" : "Priority", value: frequency ?? rec.priority },
+  const metricEvidence = [
+    { key: "Spend", value: evidenceValue(rec, /spend/i), pattern: /spend/i },
+    { key: `ROAS ${evidenceWindow}`, value: evidenceValue(rec, /roas/i), pattern: /roas/i },
+    { key: "CPA", value: evidenceValue(rec, /cpa/i), pattern: /cpa/i },
+    { key: "Purchases", value: evidenceValue(rec, /purchase/i), pattern: /purchase/i },
+    { key: "Freq", value: evidenceValue(rec, /freq/i), pattern: /freq/i },
   ];
+  const rows = metricEvidence.flatMap((metric) =>
+    metric.value ? [{ key: metric.key, value: metric.value }] : [],
+  );
+  const fallbackEvidence = rec.evidence
+    .filter((item) => item.value && !metricEvidence.some((metric) => metric.pattern.test(item.label)))
+    .slice(0, Math.max(0, 5 - rows.length))
+    .map((item) => ({ key: item.label, value: item.value }));
+  const confidence = confidencePercent(rec);
+  const paddedRows = [...rows, ...fallbackEvidence];
+  if (!paddedRows.some((row) => row.key === "Confidence")) {
+    paddedRows.push({ key: "Confidence", value: `${confidence}%` });
+  }
+  if (paddedRows.length < 5 && !paddedRows.some((row) => row.key === "Priority")) {
+    paddedRows.push({ key: "Priority", value: rec.priority });
+  }
+  return paddedRows.slice(0, 5);
 }
 
 function TrendSnapshot({ rec }: { rec: MetaRecommendation }) {

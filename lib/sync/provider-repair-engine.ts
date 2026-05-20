@@ -26,6 +26,7 @@ import {
   compactRepairableActions,
   type ProviderAutoHealResult,
 } from "@/lib/sync/provider-status-truth";
+import { validateMetaLiveAccountAccess } from "@/lib/sync/meta-live-auth";
 import { logRuntimeInfo, logRuntimeWarn } from "@/lib/runtime-logging";
 import type { MetaDeadLetterRecoveryKind } from "@/lib/sync/meta-error-classification";
 import type { GoogleAdsDeadLetterRecoveryKind } from "@/lib/sync/google-ads-error-classification";
@@ -42,6 +43,7 @@ type MetaRepairStageName =
   | "runMetaRepairCycle.cleanup"
   | "runMetaRepairCycle.quarantine_terminal_action_required"
   | "runMetaRepairCycle.replay_dead_letters"
+  | "runMetaRepairCycle.replay_stale_action_required_dead_letters"
   | "runMetaRepairCycle.requeue_retryable_failed"
   | "runMetaRepairCycle.recover_d1_finalize"
   | "runMetaRepairCycle.integrity_incidents"
@@ -554,11 +556,10 @@ export async function runGoogleAdsRepairCycle(
   const deadLetterReplayChanged =
     (replayedDeadLetters?.changedCount ?? 0) +
     (replayedPoisoned?.changedCount ?? 0);
-  const terminalActionRequiredDeadLetters =
-    Math.max(
-      replayedDeadLetters?.terminalActionRequiredCount ?? 0,
-      quarantinedTerminal?.changedCount ?? 0,
-    );
+  const terminalActionRequiredDeadLetters = Math.max(
+    replayedDeadLetters?.terminalActionRequiredCount ?? 0,
+    quarantinedTerminal?.changedCount ?? 0,
+  );
   const blocked =
     terminalActionRequiredDeadLetters > 0 ||
     (deadLetterPartitionsBefore > 0 && deadLetterReplayChanged <= 0) ||
@@ -738,6 +739,37 @@ export async function runMetaRepairCycle(
       }),
     onError: () => null,
   });
+  const terminalActionRequiredMatchedBeforeStaleReplay = Math.max(
+    replayedDeadLetters?.terminalActionRequiredCount ?? 0,
+    quarantinedTerminal?.changedCount ?? 0,
+  );
+  let staleActionRequiredLiveAuth: Awaited<
+    ReturnType<typeof validateMetaLiveAccountAccess>
+  > | null = null;
+  const shouldAttemptStaleActionRequiredReplay =
+    terminalActionRequiredMatchedBeforeStaleReplay > 0 &&
+    !options?.metaDeadLetterRecoveryKinds?.includes("terminal_action_required");
+  const staleActionRequiredDeadLetterReplay = shouldAttemptStaleActionRequiredReplay
+    ? await captureMetaRepairStage({
+        businessId,
+        stage: "runMetaRepairCycle.replay_stale_action_required_dead_letters",
+        stageRecords: stageTimings,
+        run: async () => {
+          staleActionRequiredLiveAuth = await validateMetaLiveAccountAccess({
+            businessId,
+          });
+          if (staleActionRequiredLiveAuth.status !== "valid") {
+            return null;
+          }
+          return metaWarehouse.replayMetaDeadLetterPartitions({
+            businessId,
+            sources: options?.metaDeadLetterSources ?? null,
+            recoveryKinds: ["terminal_action_required"],
+          });
+        },
+        onError: () => null,
+      })
+    : null;
   const requeuedFailed = await captureMetaRepairStage({
     businessId,
     stage: "runMetaRepairCycle.requeue_retryable_failed",
@@ -890,11 +922,18 @@ export async function runMetaRepairCycle(
   const enqueueResult = enqueueScheduledWork
     ? await enqueueMetaScheduledWork(businessId)
     : null;
-  const terminalActionRequiredDeadLetters =
-    Math.max(
-      replayedDeadLetters?.terminalActionRequiredCount ?? 0,
-      quarantinedTerminal?.changedCount ?? 0,
-    );
+  const staleActionRequiredReplayed =
+    staleActionRequiredDeadLetterReplay?.changedCount ?? 0;
+  const terminalActionRequiredDeadLetters = Math.max(
+    0,
+    terminalActionRequiredMatchedBeforeStaleReplay - staleActionRequiredReplayed,
+  );
+  const staleActionRequiredLiveAuthStatus =
+    (
+      staleActionRequiredLiveAuth as Awaited<
+        ReturnType<typeof validateMetaLiveAccountAccess>
+      > | null
+    )?.status ?? null;
   const unknownDeadLetters = replayedDeadLetters?.unknownMatchedCount ?? 0;
   const replayableDeadLetters =
     replayedDeadLetters?.replayableMatchedCount ??
@@ -934,7 +973,9 @@ export async function runMetaRepairCycle(
     terminalActionRequiredDeadLetters > 0
       ? buildBlockingReason(
           "account_action_required",
-          `${terminalActionRequiredDeadLetters} Meta partition(s) require Meta/Facebook login or reconnect before replay.`,
+          staleActionRequiredLiveAuthStatus
+            ? `${terminalActionRequiredDeadLetters} Meta partition(s) require Meta/Facebook login or reconnect before replay. liveAuthStatus=${staleActionRequiredLiveAuthStatus}.`
+            : `${terminalActionRequiredDeadLetters} Meta partition(s) require Meta/Facebook login or reconnect before replay.`,
           { repairable: false }
         )
       : null,
@@ -992,8 +1033,12 @@ export async function runMetaRepairCycle(
   const repairableActions = compactRepairableActions([
     buildRepairableAction(
       "replay_dead_letters",
-      "Replay classified transient Meta dead-letter partitions.",
-      { available: replayableDeadLetters > 0 }
+      "Replay classified transient or live-auth-proven stale Meta dead-letter partitions.",
+      {
+        available:
+          replayableDeadLetters > 0 ||
+          staleActionRequiredReplayed > 0,
+      }
     ),
     buildRepairableAction(
       "retry_failed_partitions",
@@ -1041,7 +1086,7 @@ export async function runMetaRepairCycle(
     enqueueResult,
     repair: {
       reclaimed: cleanup?.stalePartitionCount ?? 0,
-      replayed: replayedDeadLetters?.changedCount ?? 0,
+      replayed: (replayedDeadLetters?.changedCount ?? 0) + staleActionRequiredReplayed,
       requeued: requeuedFailed.length,
       blocked,
       blockingReasons,
@@ -1050,6 +1095,8 @@ export async function runMetaRepairCycle(
         cleanupSummary: cleanup,
         cleanupError,
         deadLetters: replayedDeadLetters,
+        staleActionRequiredDeadLetters: staleActionRequiredDeadLetterReplay,
+        staleActionRequiredLiveAuth,
         quarantinedTerminalActionRequired: quarantinedTerminal,
         retryableFailed: requeuedFailed.length,
         integrityIncidentCount: integrityIncidents.length,

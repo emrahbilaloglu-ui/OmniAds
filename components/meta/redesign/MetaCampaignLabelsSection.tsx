@@ -62,6 +62,11 @@ function isActiveCampaign(row: MetaCampaignRow) {
   return String(row.status ?? "").toUpperCase() === "ACTIVE";
 }
 
+function isLabelableCampaign(row: MetaCampaignRow) {
+  const status = String(row.status ?? "").toUpperCase();
+  return status !== "DELETED" && status !== "ARCHIVED";
+}
+
 function labelTone(kind: MetaCampaignKind | null) {
   if (kind === "main") return "border-emerald-200 bg-emerald-50 text-emerald-700";
   if (kind === "test") return "border-blue-200 bg-blue-50 text-blue-700";
@@ -102,14 +107,41 @@ export function MetaCampaignLabelsSection({ businessId }: MetaCampaignLabelsSect
     queryFn: () => fetchCampaigns(businessId),
   });
 
-  const activeCampaigns = useMemo(
-    () => (campaignsQuery.data?.rows ?? []).filter(isActiveCampaign),
-    [campaignsQuery.data?.rows],
+  const campaignRows = campaignsQuery.data?.rows ?? [];
+  const labelableCampaigns = useMemo(
+    () => {
+      const active = campaignRows.filter(isActiveCampaign);
+      return active.length > 0 ? active : campaignRows.filter(isLabelableCampaign);
+    },
+    [campaignRows],
   );
+  const activeCount = useMemo(
+    () => campaignRows.filter(isActiveCampaign).length,
+    [campaignRows],
+  );
+  const campaignScopeLabel = activeCount > 0 ? "active" : "recent";
+  const campaignScopeText =
+    campaignsQuery.isLoading
+      ? "Loading campaign list."
+      : activeCount > 0
+      ? "Active campaigns need Main, Test, or Mixed context."
+      : "No active campaigns were returned; showing recent non-archived campaigns so labels can still be managed.";
+
   const campaignIds = useMemo(
-    () => activeCampaigns.map((row) => row.id).filter(Boolean),
-    [activeCampaigns],
+    () => labelableCampaigns.map((row) => row.id).filter(Boolean),
+    [labelableCampaigns],
   );
+
+  const sortedCampaigns = useMemo(
+    () =>
+      [...labelableCampaigns].sort((left, right) => {
+        const leftActive = isActiveCampaign(left) ? 1 : 0;
+        const rightActive = isActiveCampaign(right) ? 1 : 0;
+        return rightActive - leftActive || right.spend - left.spend;
+      }),
+    [labelableCampaigns],
+  );
+  const visibleSortedCampaigns = sortedCampaigns.slice(0, 12);
 
   const labelsQuery = useQuery({
     queryKey: ["meta-campaign-labels", businessId, campaignIds.join(",")],
@@ -126,8 +158,8 @@ export function MetaCampaignLabelsSection({ businessId }: MetaCampaignLabelsSect
   }, [labelsQuery.data?.labels]);
 
   const unlabeledCampaigns = useMemo(
-    () => activeCampaigns.filter((row) => !labelMap.has(row.id)),
-    [activeCampaigns, labelMap],
+    () => labelableCampaigns.filter((row) => !labelMap.has(row.id)),
+    [labelableCampaigns, labelMap],
   );
 
   const writeLabels = async (labels: MetaCampaignLabelInput[]) => {
@@ -215,8 +247,6 @@ export function MetaCampaignLabelsSection({ businessId }: MetaCampaignLabelsSect
   const loading = campaignsQuery.isLoading || labelsQuery.isLoading;
   const error = campaignsQuery.error ?? labelsQuery.error;
 
-  if (!loading && !error && activeCampaigns.length === 0) return null;
-
   return (
     <section
       id="campaign-labels"
@@ -230,19 +260,26 @@ export function MetaCampaignLabelsSection({ businessId }: MetaCampaignLabelsSect
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-[14px] font-semibold text-slate-950">Campaign labels</h2>
-            {unlabeledCampaigns.length > 0 ? (
-              <span className="rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10.5px] font-medium text-amber-800">
-                {unlabeledCampaigns.length} unlabeled
-              </span>
-            ) : (
-              <span className="rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10.5px] font-medium text-emerald-700">
-                All active labeled
-              </span>
-            )}
+            {!loading && !error ? (
+              unlabeledCampaigns.length > 0 ? (
+                <span className="rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10.5px] font-medium text-amber-800">
+                  {unlabeledCampaigns.length} unlabeled
+                </span>
+              ) : (
+                <span className="rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10.5px] font-medium text-emerald-700">
+                  All shown campaigns labeled
+                </span>
+              )
+            ) : null}
             {notice ? <span className="text-[11.5px] text-emerald-700">{notice}</span> : null}
+            {!loading && !error ? (
+              <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10.5px] font-medium text-slate-600">
+                {labelableCampaigns.length} {campaignScopeLabel}
+              </span>
+            ) : null}
           </div>
           <p className="mt-1 text-[12px] leading-snug text-slate-500">
-            Active campaigns need Main, Test, or Mixed context.
+            {campaignScopeText}
           </p>
         </div>
         {unlabeledCampaigns.length > 0 ? (
@@ -278,7 +315,7 @@ export function MetaCampaignLabelsSection({ businessId }: MetaCampaignLabelsSect
             <div className="text-right">Spend</div>
           </div>
           <div className="divide-y divide-slate-100">
-            {activeCampaigns.slice(0, 12).map((campaign) => {
+            {visibleSortedCampaigns.map((campaign) => {
               const label = labelMap.get(campaign.id) ?? null;
               const saving = savingIds.has(campaign.id);
               return (
@@ -342,9 +379,9 @@ export function MetaCampaignLabelsSection({ businessId }: MetaCampaignLabelsSect
               );
             })}
           </div>
-          {activeCampaigns.length > 12 ? (
+          {labelableCampaigns.length > 12 ? (
             <div className="border-t border-slate-100 px-3 py-2 text-[11.5px] text-slate-500">
-              Showing 12 of {activeCampaigns.length} active campaigns.
+              Showing 12 of {labelableCampaigns.length} {campaignScopeLabel} campaigns.
             </div>
           ) : null}
         </div>

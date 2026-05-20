@@ -31,6 +31,17 @@ export function classifyMetaSyncFailure(input: {
   const lower = rawMessage.toLowerCase();
   const providedClass = input.errorClass?.trim().toLowerCase() ?? "";
 
+  if (providedClass === "lease_conflict" || lower.startsWith("lease_conflict:")) {
+    return {
+      errorClass: "lease_conflict",
+      terminal: false,
+      retryDelayMinutes: 1,
+      recoveryKind: "replayable_transient",
+      actionRequired: false,
+      reasonCode: "meta_lease_conflict_retry",
+    };
+  }
+
   if (
     providedClass === "account_checkpoint" ||
     hasAny(lower, [
@@ -238,6 +249,7 @@ export function shouldDeadLetterMetaFailure(input: {
     "database_timeout",
     "database_disk_pressure",
     "duplicate_upsert_batch",
+    "lease_conflict",
   ]);
   if (retryableClasses.has(input.errorClass)) return false;
   return input.attemptCount + 1 >= input.maxAttempts;

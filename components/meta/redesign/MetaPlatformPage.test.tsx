@@ -2,7 +2,11 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { metaAnomaly, metaHealthy, metaLanePayload, metaPulse, metaRec } from "@/components/meta/redesign/test-fixtures";
-import { MetaPlatformPage, metaAdsetPauseNotice } from "@/components/meta/redesign/MetaPlatformPage";
+import {
+  MetaPlatformPage,
+  campaignKindMatchesMetaLabelFilter,
+  metaAdsetPauseNotice,
+} from "@/components/meta/redesign/MetaPlatformPage";
 
 const state = vi.hoisted(() => ({
   routerPush: vi.fn(),
@@ -153,6 +157,14 @@ describe("MetaPlatformPage", () => {
     expect(metaAdsetPauseNotice("ACTIVE")).toBe("Ad set pause verified with status ACTIVE.");
   });
 
+  it("matches Main/Test/Mixed filters from campaignKind instead of recommendation text", () => {
+    expect(campaignKindMatchesMetaLabelFilter("main", "main")).toBe(true);
+    expect(campaignKindMatchesMetaLabelFilter("test", "main")).toBe(false);
+    expect(campaignKindMatchesMetaLabelFilter("mixed", "mixed")).toBe(true);
+    expect(campaignKindMatchesMetaLabelFilter(null, "mixed")).toBe(false);
+    expect(campaignKindMatchesMetaLabelFilter(null, "main")).toBe(false);
+  });
+
   it("renders persisted acted ad set recommendations with a resume affordance", () => {
     state.lanePayload = metaLanePayload({
       actionNow: [
@@ -188,6 +200,33 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain('data-status-filter-option="all"');
     expect(state.queryKeys).toContainEqual(["meta-account-pulse", "biz_1", "28d", "all", expect.any(String), expect.any(String)]);
     expect(state.queryKeys).toContainEqual(["meta-lanes", "biz_1", "28d", "all", expect.any(String), expect.any(String)]);
+  });
+
+  it("uses endpoint-provided selected ROAS for custom ranges", () => {
+    state.search = "window=custom&startDate=2026-05-01&endDate=2026-05-07";
+    state.pulsePayload = metaPulse({
+      window: "custom",
+      startDate: "2026-05-01",
+      endDate: "2026-05-07",
+      roas: {
+        selected: 4.2,
+        d7: 1.4,
+        d14: 1.2,
+        d28: 1.1,
+        target: 2.5,
+        median: 2.1,
+        target_source: "commercial_truth",
+      },
+    });
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+
+    expect(html).toContain("ROAS · custom");
+    expect(html).toContain("4.20×");
+    expect(html).not.toContain("1.10×");
+    expect(state.queryKeys).toContainEqual(["meta-account-pulse", "biz_1", "custom", "active", "2026-05-01", "2026-05-07"]);
   });
 
   it("renders closed entities in the archive surface without action cards", () => {

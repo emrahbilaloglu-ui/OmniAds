@@ -20,6 +20,16 @@ import {
   parseBriefingStatusFilter,
   type BriefingStatusFilter,
 } from "@/lib/meta/briefing-filter";
+import {
+  readPreviousDifferentMetaAdSetConfigHistoryDiffs,
+  readPreviousDifferentMetaCampaignConfigHistoryDiffs,
+} from "@/lib/meta/request-model-store";
+import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
+import {
+  buildMetaCampaignLabelKindMap,
+  type MetaCampaignLabelKindMap,
+} from "@/lib/meta/campaign-label-guard";
+import type { MetaCampaignKind } from "@/lib/meta/campaign-label-types";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +62,7 @@ interface HealthyMetaRow {
   name: string;
   campaignId?: string | null;
   campaignName?: string | null;
+  campaignKind?: MetaCampaignKind | null;
   spend: number;
   roas: number;
   cpa: number | null;
@@ -79,6 +90,7 @@ interface ArchivedMetaRow {
   name: string;
   campaignId?: string | null;
   campaignName?: string | null;
+  campaignKind?: MetaCampaignKind | null;
   status: string;
   statusLabel: string;
   spend: number;
@@ -116,6 +128,77 @@ function addDaysToISO(value: string, days: number) {
 function toNumber(value: unknown) {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+async function readCampaignLabelKinds(input: {
+  businessId: string;
+  campaignIds: Array<string | null | undefined>;
+}): Promise<MetaCampaignLabelKindMap> {
+  const campaignIds = Array.from(
+    new Set(input.campaignIds.filter((id): id is string => Boolean(id))),
+  );
+  if (campaignIds.length === 0) return new Map();
+  const labels = await readMetaCampaignLabels({
+    businessId: input.businessId,
+    campaignIds,
+  }).catch((error) => {
+    console.warn("[meta-lane-classify] campaign_label_read_failed", {
+      businessId: input.businessId,
+      campaignCount: campaignIds.length,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return [];
+  });
+  return buildMetaCampaignLabelKindMap(labels);
+}
+
+function campaignKindForId(
+  campaignId: string | null | undefined,
+  campaignLabelsById: MetaCampaignLabelKindMap,
+) {
+  return campaignId ? campaignLabelsById.get(campaignId) ?? null : null;
+}
+
+function campaignKindForRecommendation(input: {
+  rec: MetaRecommendation;
+  campaignLabelsById: MetaCampaignLabelKindMap;
+  activeCampaignIds: string[];
+}): MetaCampaignKind | null {
+  const campaignIds =
+    input.rec.level === "campaign" || input.rec.level === "adset"
+      ? input.rec.campaignId
+        ? [input.rec.campaignId]
+        : []
+      : input.activeCampaignIds;
+  if (campaignIds.length === 0) return null;
+  const kinds = new Set<MetaCampaignKind>();
+  let missingLabel = false;
+  for (const campaignId of campaignIds) {
+    const kind = input.campaignLabelsById.get(campaignId);
+    if (kind) {
+      kinds.add(kind);
+    } else {
+      missingLabel = true;
+    }
+  }
+  if (missingLabel) return null;
+  if (kinds.size > 1) return "mixed";
+  return kinds.values().next().value ?? null;
+}
+
+function attachCampaignKindToRecommendation(input: {
+  rec: MetaRecommendation;
+  campaignLabelsById: MetaCampaignLabelKindMap;
+  activeCampaignIds: string[];
+}): MetaRecommendation {
+  const campaignKind =
+    input.rec.campaignKind ??
+    campaignKindForRecommendation({
+      rec: input.rec,
+      campaignLabelsById: input.campaignLabelsById,
+      activeCampaignIds: input.activeCampaignIds,
+    });
+  return campaignKind ? { ...input.rec, campaignKind } : input.rec;
 }
 
 function cohortForCampaignRow(row: CampaignRow) {
@@ -241,6 +324,7 @@ function nonSalesStateRecommendation(input: {
   name: string;
   campaignId?: string | null;
   campaignName?: string | null;
+  campaignKind?: MetaCampaignKind | null;
   spend: number;
   roas: number;
   cpa: number | null;
@@ -265,6 +349,7 @@ function nonSalesStateRecommendation(input: {
     level: input.level,
     campaignId: input.level === "campaign" ? input.id : input.campaignId ?? undefined,
     campaignName: input.level === "campaign" ? input.name : input.campaignName ?? undefined,
+    campaignKind: input.campaignKind ?? undefined,
     adsetId: input.level === "adset" ? input.id : undefined,
     adsetName: input.level === "adset" ? input.name : undefined,
     type: input.level === "campaign" ? "campaign_state" : "adset_state",
@@ -792,6 +877,7 @@ function healthyCampaignRows(input: {
   rows: Awaited<ReturnType<typeof getMetaCampaignsForRange>>["rows"];
   recommendedScopeIds: Set<string>;
   statusFilter: BriefingStatusFilter;
+  campaignLabelsById: MetaCampaignLabelKindMap;
 }): HealthyMetaRow[] {
   return input.rows
     .filter((row) => isPurchaseScopedCohort(cohortForCampaignRow(row)))
@@ -803,6 +889,7 @@ function healthyCampaignRows(input: {
       id: row.id,
       level: "campaign" as const,
       name: row.name,
+      campaignKind: campaignKindForId(row.id, input.campaignLabelsById),
       spend: toNumber(row.spend),
       roas: toNumber(row.roas),
       cpa: row.cpa == null ? null : toNumber(row.cpa),
@@ -830,6 +917,7 @@ function healthyAdsetRows(input: {
   recommendedScopeIds: Set<string>;
   campaignNamesById?: Map<string, string>;
   statusFilter: BriefingStatusFilter;
+  campaignLabelsById: MetaCampaignLabelKindMap;
 }): HealthyMetaRow[] {
   return input.rows
     .filter((row) => isPurchaseScopedCohort(cohortForAdsetRow(row)))
@@ -843,6 +931,7 @@ function healthyAdsetRows(input: {
       name: row.name,
       campaignId: row.campaignId,
       campaignName: row.campaignId ? (input.campaignNamesById?.get(row.campaignId) ?? null) : null,
+      campaignKind: campaignKindForId(row.campaignId, input.campaignLabelsById),
       spend: toNumber(row.spend),
       roas: toNumber(row.roas),
       cpa: row.cpa == null ? null : toNumber(row.cpa),
@@ -865,10 +954,72 @@ function healthyAdsetRows(input: {
     }));
 }
 
+async function attachPreviousBidDiffsToHealthyRows(
+  businessId: string,
+  rows: HealthyMetaRow[],
+): Promise<HealthyMetaRow[]> {
+  const rowsNeedingPrevious = rows.filter((row) =>
+    row.manualBidAmount != null ||
+    row.bidValue != null ||
+    row.bidValueFormat != null
+  );
+  const campaignIds = rowsNeedingPrevious
+    .filter((row) => row.level === "campaign")
+    .map((row) => row.id);
+  const adsetIds = rowsNeedingPrevious
+    .filter((row) => row.level === "adset")
+    .map((row) => row.id);
+  if (campaignIds.length === 0 && adsetIds.length === 0) return rows;
+
+  const [campaignDiffs, adsetDiffs] = await Promise.all([
+    campaignIds.length > 0
+      ? readPreviousDifferentMetaCampaignConfigHistoryDiffs({
+          businessId,
+          campaignIds,
+          includeBudget: false,
+        }).catch((error) => {
+          console.warn("[meta-lane-classify] campaign_previous_bid_unavailable", {
+            businessId,
+            entityCount: campaignIds.length,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          return new Map();
+        })
+      : Promise.resolve(new Map()),
+    adsetIds.length > 0
+      ? readPreviousDifferentMetaAdSetConfigHistoryDiffs({
+          businessId,
+          adsetIds,
+          includeBudget: false,
+        }).catch((error) => {
+          console.warn("[meta-lane-classify] adset_previous_bid_unavailable", {
+            businessId,
+            entityCount: adsetIds.length,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          return new Map();
+        })
+      : Promise.resolve(new Map()),
+  ]);
+
+  return rows.map((row) => {
+    const diff = row.level === "campaign" ? campaignDiffs.get(row.id) : adsetDiffs.get(row.id);
+    if (!diff) return row;
+    return {
+      ...row,
+      previousManualBidAmount: diff.previousManualBidAmount ?? row.previousManualBidAmount,
+      previousBidValue: diff.previousBidValue ?? row.previousBidValue,
+      previousBidValueFormat: diff.previousBidValueFormat ?? row.previousBidValueFormat,
+      previousBidValueCapturedAt: diff.previousBidCapturedAt ?? row.previousBidValueCapturedAt,
+    };
+  });
+}
+
 function archiveCampaignRows(input: {
   rows: CampaignRow[];
   statusFilter: BriefingStatusFilter;
   window: PulseWindow;
+  campaignLabelsById: MetaCampaignLabelKindMap;
 }): ArchivedMetaRow[] {
   return input.rows
     .filter((row) => isPurchaseScopedCohort(cohortForCampaignRow(row)))
@@ -877,6 +1028,7 @@ function archiveCampaignRows(input: {
       id: row.id,
       level: "campaign" as const,
       name: row.name,
+      campaignKind: campaignKindForId(row.id, input.campaignLabelsById),
       status: briefingStatusForEntity(row),
       statusLabel: briefingStatusLabel(row),
       spend: toNumber(row.spend),
@@ -896,6 +1048,7 @@ function archiveAdsetRows(input: {
   statusFilter: BriefingStatusFilter;
   window: PulseWindow;
   campaignNamesById?: Map<string, string>;
+  campaignLabelsById: MetaCampaignLabelKindMap;
 }): ArchivedMetaRow[] {
   return input.rows
     .filter((row) => isPurchaseScopedCohort(cohortForAdsetRow(row)))
@@ -906,6 +1059,7 @@ function archiveAdsetRows(input: {
       name: row.name,
       campaignId: row.campaignId,
       campaignName: input.campaignNamesById?.get(row.campaignId) ?? null,
+      campaignKind: campaignKindForId(row.campaignId, input.campaignLabelsById),
       status: briefingStatusForEntity(row),
       statusLabel: briefingStatusLabel(row),
       spend: toNumber(row.spend),
@@ -925,6 +1079,7 @@ function nonSalesCampaignRows(input: {
   recommendedScopeIds: Set<string>;
   statusFilter: BriefingStatusFilter;
   costPerThruplayP50: number | null;
+  campaignLabelsById: MetaCampaignLabelKindMap;
 }): MetaRecommendation[] {
   return input.rows
     .map((row) => ({ row, cohort: cohortForCampaignRow(row) }))
@@ -936,6 +1091,7 @@ function nonSalesCampaignRows(input: {
         id: row.id,
         level: "campaign",
         name: row.name,
+        campaignKind: campaignKindForId(row.id, input.campaignLabelsById),
         spend: toNumber(row.spend),
         roas: toNumber(row.roas),
         cpa: row.cpa == null ? null : toNumber(row.cpa),
@@ -954,6 +1110,7 @@ function nonSalesAdsetRows(input: {
   campaignNamesById?: Map<string, string>;
   statusFilter: BriefingStatusFilter;
   costPerThruplayP50: number | null;
+  campaignLabelsById: MetaCampaignLabelKindMap;
 }): MetaRecommendation[] {
   return input.rows
     .map((row) => ({ row, cohort: cohortForAdsetRow(row) }))
@@ -967,6 +1124,7 @@ function nonSalesAdsetRows(input: {
         name: row.name,
         campaignId: row.campaignId,
         campaignName: input.campaignNamesById?.get(row.campaignId) ?? null,
+        campaignKind: campaignKindForId(row.campaignId, input.campaignLabelsById),
         spend: toNumber(row.spend),
         roas: toNumber(row.roas),
         cpa: row.cpa == null ? null : toNumber(row.cpa),
@@ -1009,14 +1167,14 @@ export async function GET(request: NextRequest) {
       businessId,
       startDate,
       endDate,
-      includePrev: true,
+      includePrev: false,
       includePrevBudget: false,
     }),
     getMetaAdSetsForRange({
       businessId,
       startDate,
       endDate,
-      includePrev: true,
+      includePrev: false,
       includePrevBudget: false,
     }),
     readUpperFunnelCostPerThruplayP50(businessId).catch(() => null),
@@ -1029,6 +1187,14 @@ export async function GET(request: NextRequest) {
   );
   const campaignRows = applyLiveStatusesToRows(campaigns.rows ?? [], liveStatusesById);
   const adsetRows = applyLiveStatusesToRows(adsets.rows ?? [], liveStatusesById);
+  const campaignLabelsById = await readCampaignLabelKinds({
+    businessId,
+    campaignIds: [
+      ...campaignRows.map((row) => row.id),
+      ...adsetRows.map((row) => row.campaignId),
+    ],
+  });
+  const activeCampaignIds = campaignRows.map((row) => row.id);
   const deferredIds = deferredIdsFromOperatorStates(operatorStates);
   const campaignsById = new Map(campaignRows.map((row) => [row.id, row]));
   const adsetsById = new Map(adsetRows.map((row) => [row.id, row]));
@@ -1036,7 +1202,14 @@ export async function GET(request: NextRequest) {
     .filter((rec) =>
       isRecommendationInScope({ rec, statusFilter, campaignsById, adsetsById }),
     )
-    .map((rec) => annotateOperatorState(rec, operatorStates, { campaignsById, adsetsById, liveStatusesById }));
+    .map((rec) => annotateOperatorState(rec, operatorStates, { campaignsById, adsetsById, liveStatusesById }))
+    .map((rec) =>
+      attachCampaignKindToRecommendation({
+        rec,
+        campaignLabelsById,
+        activeCampaignIds,
+      }),
+    );
   const purchaseScopedRecs = recommendations.filter((rec) => isPurchaseScopedCohort(rec.cohort));
   const nonSalesRecs = recommendations
     .filter((rec) => isNonSalesCohort(rec.cohort))
@@ -1073,10 +1246,11 @@ export async function GET(request: NextRequest) {
     recommendations.flatMap((rec) => [rec.campaignId, rec.adsetId]).filter(Boolean) as string[],
   );
   const campaignNamesById = new Map(campaignRows.map((row) => [row.id, row.name]));
-  const healthy = [
-    ...healthyCampaignRows({ rows: campaignRows, recommendedScopeIds, statusFilter }),
-    ...healthyAdsetRows({ rows: adsetRows, recommendedScopeIds, campaignNamesById, statusFilter }),
+  const healthyBase = [
+    ...healthyCampaignRows({ rows: campaignRows, recommendedScopeIds, statusFilter, campaignLabelsById }),
+    ...healthyAdsetRows({ rows: adsetRows, recommendedScopeIds, campaignNamesById, statusFilter, campaignLabelsById }),
   ].slice(0, 18);
+  const healthy = await attachPreviousBidDiffsToHealthyRows(businessId, healthyBase);
   const nonSales = [
     ...nonSalesRecs,
     ...nonSalesCampaignRows({
@@ -1084,6 +1258,7 @@ export async function GET(request: NextRequest) {
       recommendedScopeIds,
       statusFilter,
       costPerThruplayP50: upperFunnelCostPerThruplayP50,
+      campaignLabelsById,
     }),
     ...nonSalesAdsetRows({
       rows: adsetRows,
@@ -1091,11 +1266,12 @@ export async function GET(request: NextRequest) {
       campaignNamesById,
       statusFilter,
       costPerThruplayP50: upperFunnelCostPerThruplayP50,
+      campaignLabelsById,
     }),
   ].slice(0, 30);
   const archive = [
-    ...archiveCampaignRows({ rows: campaignRows, statusFilter, window }),
-    ...archiveAdsetRows({ rows: adsetRows, statusFilter, window, campaignNamesById }),
+    ...archiveCampaignRows({ rows: campaignRows, statusFilter, window, campaignLabelsById }),
+    ...archiveAdsetRows({ rows: adsetRows, statusFilter, window, campaignNamesById, campaignLabelsById }),
   ].sort((left, right) => right.spend - left.spend);
 
   return NextResponse.json(

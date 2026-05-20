@@ -68,6 +68,7 @@ import {
 import { HealthyRow } from "@/components/creatives/briefing/HealthyRow";
 import { WatchingCard } from "@/components/creatives/briefing/WatchingCard";
 import {
+  cardAdset,
   cardId,
   cardName,
   numberOrZero,
@@ -96,6 +97,7 @@ import type {
   BriefingRollupItem,
   CreativesBriefingResponse,
   MetaSummaryPulseResponse,
+  MetaTrendsBriefingResponse,
 } from "@/components/creatives/briefing/types";
 import type { AccountDecisionProfile } from "@/lib/creative-decision-engine";
 import type { DecisionLabel } from "@/components/common/briefing/types";
@@ -328,6 +330,17 @@ function fetchMetaSummary(
 function fetchMetaStatus(businessId: string): Promise<MetaStatusResponse> {
   const params = new URLSearchParams({ businessId });
   return fetchJson<MetaStatusResponse>(`/api/meta/status?${params.toString()}`);
+}
+
+function fetchMetaTrends(
+  businessId: string,
+  startDate: string,
+  endDate: string,
+): Promise<MetaTrendsBriefingResponse> {
+  const params = new URLSearchParams({ businessId, startDate, endDate });
+  return fetchJson<MetaTrendsBriefingResponse>(
+    `/api/meta/trends?${params.toString()}`,
+  );
 }
 
 async function fetchAssetLibraryRows(input: {
@@ -825,6 +838,7 @@ function CreativePulseFinal({
   spendToday,
   conversions,
   roas7d,
+  roas7dHistory,
   roasTarget,
   topCreative,
   profile,
@@ -835,6 +849,7 @@ function CreativePulseFinal({
   spendToday?: number | null;
   conversions?: number | null;
   roas7d?: number | null;
+  roas7dHistory?: Array<{ roas?: number | null }> | null;
   roasTarget?: number | null;
   topCreative?: BriefingCreativeCard | null;
   profile?: AccountDecisionProfile | null;
@@ -844,7 +859,15 @@ function CreativePulseFinal({
 }) {
   const roas = numberOrZero(roas7d);
   const target = numberOrZero(roasTarget) || roas || 1;
+  const sparkValues = Array.isArray(roas7dHistory)
+    ? roas7dHistory
+        .map((point) => numberOrZero(point?.roas))
+        .filter((value) => Number.isFinite(value))
+    : [];
   const topName = topCreative ? cardName(topCreative) : "—";
+  const topContext = topCreative
+    ? (topCreative.bestPlacement ?? cardAdset(topCreative) ?? topCreative.status ?? "active")
+    : "—";
   const labelStatus = trackingAnomalyActive ? "Action gated" : "Meta connected";
   const profileLabel = profile
     ? `${profile.accountBaselines.matureCreativeCount} mature · ${profile.preset}`
@@ -861,13 +884,15 @@ function CreativePulseFinal({
         <div className="label"><span>ROAS · 7d</span><span style={{ color: "var(--ok)" }}>{roas >= target ? "↑" : "↓"}</span></div>
         <div className="value">{formatRoas(roas)} <span className="sub">tgt {formatRoas(target)}</span></div>
         <svg className="spark" viewBox="0 0 60 16" preserveAspectRatio="none" aria-hidden="true">
-          <path d={sparklinePath([roas * 0.8, roas * 0.92, roas * 0.86, roas, roas * 0.96, roas * 1.04, roas * 1.08])} fill="none" stroke="#047857" strokeWidth="1.8" strokeLinecap="round" />
+          {sparkValues.length >= 2 ? (
+            <path d={sparklinePath(sparkValues)} fill="none" stroke="#047857" strokeWidth="1.8" strokeLinecap="round" />
+          ) : null}
         </svg>
       </div>
       <div className="cell">
         <div className="label"><span>Top creative · 7d</span><span style={{ color: "var(--ok)" }}>▲ winning</span></div>
         <div className="value" style={{ fontSize: 14 }}>{topName}</div>
-        <div className="micro">ROAS <b>{formatRoas(topCreative?.roas)}</b> · spend {formatCurrency(topCreative?.spend)} · {topCreative?.bestPlacement ?? "placement"}</div>
+        <div className="micro">ROAS <b>{formatRoas(topCreative?.roas)}</b> · spend {formatCurrency(topCreative?.spend)} · {topContext}</div>
       </div>
       <div className="cell">
         <div className="label"><span>Account profile</span><span className="chip chip--info" style={{ height: 16, padding: "0 6px", fontSize: 9.5 }}><span className="dot" />scoped</span></div>
@@ -939,6 +964,17 @@ export function CreativesBriefingPage() {
     enabled: Boolean(businessId),
     staleTime: 60 * 1000,
     queryFn: () => fetchMetaSummary(businessId, sevenDayStart, todayIso),
+  });
+  const sevenDayTrendsQuery = useQuery({
+    queryKey: [
+      "creatives-briefing-meta-trends-7d",
+      businessId,
+      sevenDayStart,
+      todayIso,
+    ],
+    enabled: Boolean(businessId),
+    staleTime: 60 * 1000,
+    queryFn: () => fetchMetaTrends(businessId, sevenDayStart, todayIso),
   });
   const metaStatusQuery = useQuery({
     queryKey: ["creatives-briefing-meta-status", businessId],
@@ -1596,6 +1632,7 @@ export function CreativesBriefingPage() {
         spendToday={todaySummaryQuery.data?.totals?.spend}
         conversions={todaySummaryQuery.data?.totals?.conversions}
         roas7d={sevenDaySummaryQuery.data?.totals?.roas}
+        roas7dHistory={sevenDayTrendsQuery.data?.points}
         roasTarget={normalizedBriefingData?.pulse?.rolling7dRoasTarget}
         topCreative={topCreative}
         profile={engineProfile}

@@ -209,7 +209,7 @@ function cardForDecision(input: {
       p50: null,
     },
     primary: primaryActionForDecision(decision),
-    status: row?.effective_status ?? creativeInput?.effectiveStatus ?? null,
+    status: creativeInput?.effectiveStatus ?? row?.effective_status ?? null,
     ageDays: creativeInput?.ageDays ?? null,
     campaignKind: decision.campaignKind ?? null,
     campaignTestDimension: decision.campaignTestDimension ?? null,
@@ -270,12 +270,11 @@ async function readCreativeRows(input: {
   if (await isDemoBusiness(input.businessId)) {
     return getDemoMetaCreatives().rows as unknown as MetaCreativeApiRow[];
   }
-  const payload = await getMetaCreativesApiPayload({
+  const basePayloadInput = {
     request: input.request,
     requestStartedAt: Date.now(),
     businessId: input.businessId,
     mediaMode: "full",
-    groupBy: "creative",
     format: "all",
     sort: "spend",
     start: input.start,
@@ -295,8 +294,24 @@ async function readCreativeRows(input: {
     enableMediaCache: true,
     enableDeepAudit: false,
     perAccountSampleLimit: 5,
+  } as const;
+  const payload = await getMetaCreativesApiPayload({
+    ...basePayloadInput,
+    groupBy: "creative",
   });
-  return payload.rows ?? [];
+  const rows = payload.rows ?? [];
+
+  if (!rows.some((row) => !usableMetaAdId(row.real_ad_id))) {
+    return rows;
+  }
+
+  const adPayload = await getMetaCreativesApiPayload({
+    ...basePayloadInput,
+    requestStartedAt: Date.now(),
+    groupBy: "ad",
+  }).catch(() => null);
+
+  return hydrateCreativeRowsWithRealAdIds(rows, adPayload?.rows ?? []);
 }
 
 function buildRowMap(rows: MetaCreativeApiRow[]) {
@@ -306,6 +321,35 @@ function buildRowMap(rows: MetaCreativeApiRow[]) {
     map.set(row.creative_id, row);
   }
   return map;
+}
+
+function usableMetaAdId(value: string | null | undefined) {
+  const text = value?.trim();
+  if (!text) return null;
+  if (text.startsWith("creative_") || text.startsWith("adset_")) return null;
+  return text;
+}
+
+function hydrateCreativeRowsWithRealAdIds(
+  creativeRows: MetaCreativeApiRow[],
+  adRows: MetaCreativeApiRow[],
+) {
+  if (adRows.length === 0) return creativeRows;
+  const adIdByCreativeId = new Map<string, string>();
+  for (const row of adRows) {
+    const creativeId = row.creative_id?.trim();
+    const realAdId = usableMetaAdId(row.real_ad_id) ?? usableMetaAdId(row.id);
+    if (creativeId && realAdId && !adIdByCreativeId.has(creativeId)) {
+      adIdByCreativeId.set(creativeId, realAdId);
+    }
+  }
+  if (adIdByCreativeId.size === 0) return creativeRows;
+
+  return creativeRows.map((row) => {
+    if (usableMetaAdId(row.real_ad_id)) return row;
+    const realAdId = adIdByCreativeId.get(row.creative_id);
+    return realAdId ? { ...row, real_ad_id: realAdId } : row;
+  });
 }
 
 export async function GET(request: NextRequest) {
@@ -391,11 +435,12 @@ export async function GET(request: NextRequest) {
   const allCreativeRowsById = buildRowMap(creativeRows);
   const scopedInputs = campaignScopedInputs.filter((input) => {
     const row = allCreativeRowsById.get(input.creativeId);
+    const status = input.effectiveStatus ?? row?.effective_status ?? null;
     return isInBriefing(
       {
-        status: row?.effective_status ?? input.effectiveStatus ?? null,
+        status,
         effective_status: row?.effective_status ?? null,
-        effectiveStatus: row?.effective_status ?? input.effectiveStatus ?? null,
+        effectiveStatus: status,
       },
       statusFilter,
     );
@@ -404,22 +449,18 @@ export async function GET(request: NextRequest) {
     scopedInputs.map((input) => [input.creativeId, input]),
   );
   const creativeRowsById = buildRowMap(
-    creativeRows.filter((row) =>
-      isInBriefing(
+    creativeRows.filter((row) => {
+      const input = scopedInputByCreativeId.get(row.creative_id);
+      const status = input?.effectiveStatus ?? row.effective_status ?? null;
+      return isInBriefing(
         {
-          status:
-            row.effective_status ??
-            scopedInputByCreativeId.get(row.creative_id)?.effectiveStatus ??
-            null,
+          status,
           effective_status: row.effective_status ?? null,
-          effectiveStatus:
-            row.effective_status ??
-            scopedInputByCreativeId.get(row.creative_id)?.effectiveStatus ??
-            null,
+          effectiveStatus: status,
         },
         statusFilter,
-      ),
-    ),
+      );
+    }),
   );
   const deferredIds = new Set(
     triageState.rows

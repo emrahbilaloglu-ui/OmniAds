@@ -1,5 +1,6 @@
 import type { MetaAnomaly } from "@/lib/meta/anomalies";
 import type { BriefingStatusFilter } from "@/lib/meta/briefing-filter";
+import type { MetaCampaignKind } from "@/lib/meta/campaign-label-types";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 
 export type MetaWindowKey = "7d" | "14d" | "28d" | "90d" | "custom";
@@ -21,6 +22,7 @@ export interface MetaPulsePayload {
     avg7dConversions?: number;
   };
   roas: {
+    selected: number;
     d7: number;
     d14: number;
     d28: number;
@@ -79,6 +81,7 @@ export interface MetaHealthyEntity {
   name: string;
   campaignId?: string | null;
   campaignName?: string | null;
+  campaignKind?: MetaCampaignKind | null;
   spend: number;
   roas: number;
   cpa: number | null;
@@ -106,6 +109,7 @@ export interface MetaArchivedEntity {
   name: string;
   campaignId?: string | null;
   campaignName?: string | null;
+  campaignKind?: MetaCampaignKind | null;
   status: string;
   statusLabel: string;
   spend: number;

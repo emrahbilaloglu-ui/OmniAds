@@ -2063,7 +2063,8 @@ describe("meta warehouse ownership safety", () => {
             scope: "account_daily",
             source: "finalize_day",
             partition_date: "2026-05-07",
-            last_error: null,
+            last_error:
+              "You cannot access the app till you log in to www.facebook.com and follow the instructions given.",
             error_class: "transient",
             error_message:
               "You cannot access the app till you log in to www.facebook.com and follow the instructions given.",
@@ -2117,6 +2118,43 @@ describe("meta warehouse ownership safety", () => {
     expect(queries.some((query) => query.includes("partition.status IN ('queued', 'failed')"))).toBe(true);
     expect(queries.some((query) => query.includes("status = 'dead_letter'"))).toBe(true);
     expect(queries.some((query) => query.includes("next_retry_at = NULL"))).toBe(true);
+  });
+
+  it("does not re-quarantine queued partitions from stale latest run errors alone", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      queries.push(query);
+      if (query.includes("FROM meta_sync_partitions partition")) {
+        return [
+          {
+            id: "partition-stale-checkpoint",
+            lane: "maintenance",
+            scope: "account_daily",
+            source: "finalize_day",
+            partition_date: "2026-05-07",
+            last_error: null,
+            error_class: "account_checkpoint",
+            error_message:
+              "You cannot access the app till you log in to www.facebook.com and follow the instructions given.",
+          },
+        ];
+      }
+      throw new Error(`Unexpected query: ${query}`);
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await quarantineMetaTerminalActionRequiredPartitions({
+      businessId: "biz-1",
+    });
+
+    expect(result).toMatchObject({
+      candidateCount: 1,
+      terminalMatchedCount: 0,
+      changedCount: 0,
+      partitions: [],
+    });
+    expect(queries.some((query) => query.includes("UPDATE meta_sync_partitions partition"))).toBe(false);
   });
 
   it("does not requeue failed Meta checkpoint/login partitions as retryable work", async () => {

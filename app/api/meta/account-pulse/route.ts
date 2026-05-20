@@ -6,6 +6,7 @@ import {
   classifyMetaOperatingMode,
   classifyMetaSeasonalRegime,
 } from "@/lib/meta/operating-mode";
+import { getMetaCanonicalOverviewTrends } from "@/lib/meta/canonical-overview";
 import { isInBriefing, parseBriefingStatusFilter } from "@/lib/meta/briefing-filter";
 import { META_RECOMMENDATION_ENGINE_VERSION } from "@/lib/meta/recommendations";
 import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
@@ -265,11 +266,17 @@ async function readCampaignLabelCoverage(input: {
 async function readTrackingHealth(businessId: string) {
   const sql = getDb();
   const [row] = (await sql`
-    SELECT MAX(tracking_anomaly_score)::double precision AS tracking_anomaly_score
-    FROM creative_lifecycle_daily
+    SELECT
+      COUNT(*)::int AS row_count,
+      MAX(tracking_anomaly_score)::double precision AS tracking_anomaly_score
+    FROM engine_v3_creative_lifecycle_daily
     WHERE business_id = ${businessId}
-      AND day >= CURRENT_DATE - INTERVAL '6 days'
-  `) as Array<{ tracking_anomaly_score: number | string | null }>;
+      AND as_of_date >= CURRENT_DATE - INTERVAL '6 days'
+  `) as Array<{ row_count: number | string | null; tracking_anomaly_score: number | string | null }>;
+  const rowCount = toNumber(row?.row_count);
+  if (rowCount <= 0) {
+    return { status: "unknown" as const, detail: "Recent creative lifecycle tracking data is unavailable." };
+  }
   const score = toNumber(row?.tracking_anomaly_score);
   if (score >= 0.7) {
     return { status: "blocked" as const, detail: "Tracking anomaly score is elevated." };
@@ -278,6 +285,17 @@ async function readTrackingHealth(businessId: string) {
     return { status: "degraded" as const, detail: "Tracking signal is watchlisted." };
   }
   return { status: "healthy" as const, detail: "Tracking signal is stable." };
+}
+
+async function readRoasHistory(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+}) {
+  const trends = await getMetaCanonicalOverviewTrends(input);
+  return trends.points
+    .map((point) => point.roas)
+    .filter((value) => Number.isFinite(value));
 }
 
 export async function GET(request: NextRequest) {
@@ -305,7 +323,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const [current, previous, today, d7, d14, d28, engineMetadata, trackingHealth, roasBenchmark, targetAnchor] =
+  const [current, previous, today, d7, d14, d28, engineMetadata, trackingHealth, roasBenchmark, targetAnchor, roasHistory] =
     await Promise.all([
       getMetaCampaignsForRange({ businessId, startDate, endDate }),
       getMetaCampaignsForRange({
@@ -356,6 +374,7 @@ export async function GET(request: NextRequest) {
         targetCpa: null,
         breakEvenCpa: null,
       })),
+      readRoasHistory({ businessId, startDate, endDate }).catch(() => []),
     ]);
 
   const currentRows = (current.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
@@ -428,6 +447,7 @@ export async function GET(request: NextRequest) {
         avg7dConversions,
       },
       roas: {
+        selected: currentTotals.roas,
         d7: d7Totals.roas,
         d14: d14Totals.roas,
         d28: d28Totals.roas,
@@ -435,6 +455,7 @@ export async function GET(request: NextRequest) {
         median: roasBenchmark.median,
         target_source: roasBenchmark.target_source,
       },
+      roasHistory,
       spend: { current: currentTotals.spend, prev: previousTotals.spend },
       revenue: { current: currentTotals.revenue, prev: previousTotals.revenue },
       cpa: { current: currentTotals.cpa, prev: previousTotals.cpa },

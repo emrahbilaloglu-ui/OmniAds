@@ -221,6 +221,109 @@ describe("GET /api/creatives/briefing", () => {
     });
   });
 
+  it("hydrates synthetic grouped creative ids with real Meta ad ids", async () => {
+    const syntheticCreativeRow = {
+      id: "creative_synthetic",
+      creative_id: "mock-creative-001",
+      effective_status: "ACTIVE",
+      real_ad_id: "creative_synthetic",
+      associated_ads_count: 1,
+      account_id: "act_1",
+      account_name: "Meta Account",
+      campaign_id: "mock-campaign-001",
+      campaign_name: "Mock Campaign",
+      adset_id: "adset_1",
+      adset_name: "Mock Adset",
+      currency: "USD",
+      name: "Mock Creative",
+      launch_date: "2026-05-01",
+      preview_url: "https://example.com/preview.jpg",
+      preview_source: null,
+      thumbnail_url: "https://example.com/thumb.jpg",
+      image_url: "https://example.com/image.jpg",
+      table_thumbnail_url: "https://example.com/table.jpg",
+      card_preview_url: "https://example.com/card.jpg",
+      cached_thumbnail_url: "https://example.com/cache.jpg",
+      is_catalog: false,
+      preview_state: "preview" as const,
+      preview: { render_mode: "image" as const, image_url: "https://example.com/preview-object.jpg", video_url: null, poster_url: "https://example.com/poster.jpg", source: "preview_url" as const, is_catalog: false },
+      tags: [],
+      ai_tags: {},
+      format: "image",
+      creative_type: "feed",
+      creative_type_label: "Feed",
+      creative_delivery_type: "standard",
+      creative_visual_format: "image",
+      creative_primary_type: "standard",
+      creative_primary_label: null,
+      creative_secondary_type: null,
+      creative_secondary_label: null,
+      spend: 500,
+      purchase_value: 1500,
+      roas: 3,
+      cpa: 62.5,
+      clicks: 100,
+      cpc_link: 1,
+      cpm: 10,
+      ctr_all: 1.2,
+      purchases: 8,
+      impressions: 50000,
+      link_clicks: 600,
+      landing_page_views: 480,
+      add_to_cart: 80,
+      initiate_checkout: 40,
+      thumbstop: 25,
+      click_to_atc: 13.33,
+      atc_to_purchase: 10,
+      leads: 0,
+      messages: 0,
+      video25: 18,
+      video50: 10,
+      video75: 6,
+      video100: 3,
+    };
+    vi.mocked(getMetaCreativesApiPayload)
+      .mockResolvedValueOnce({
+        status: "ok",
+        rows: [syntheticCreativeRow as never],
+        media_mode: "metadata",
+        media_hydrated: false,
+      })
+      .mockResolvedValueOnce({
+        status: "ok",
+        rows: [
+          {
+            ...syntheticCreativeRow,
+            id: "120000000000001",
+            real_ad_id: "120000000000001",
+          } as never,
+        ],
+        media_mode: "metadata",
+        media_hydrated: false,
+      });
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07"),
+    );
+    const payload = await response.json();
+    const cards = [...payload.actionNow, ...payload.watching, ...payload.healthy];
+
+    expect(response.status).toBe(200);
+    expect(cards[0]).toMatchObject({
+      id: "creative_synthetic",
+      adId: "120000000000001",
+      realAdId: "120000000000001",
+    });
+    expect(getMetaCreativesApiPayload).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ groupBy: "creative" }),
+    );
+    expect(getMetaCreativesApiPayload).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ groupBy: "ad" }),
+    );
+  });
+
   it("maps scale primary actions by campaign kind server-side", async () => {
     vi.mocked(readMetaCampaignLabels).mockResolvedValue([campaignLabel("test", "creative")]);
 
@@ -309,7 +412,7 @@ describe("GET /api/creatives/briefing", () => {
     expect(resolveEngineV3Flags).not.toHaveBeenCalled();
   });
 
-  it("filters paused creatives out of briefing lanes by default", async () => {
+  it("prefers engine input status over stale grouped creative-row status", async () => {
     vi.mocked(getMetaCreativesApiPayload).mockResolvedValue({
       status: "ok",
       rows: [
@@ -381,8 +484,11 @@ describe("GET /api/creatives/briefing", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.actionNow).toEqual([]);
-    expect(payload.watching).toEqual([]);
-    expect(payload.healthy).toEqual([]);
+    const cards = [...payload.actionNow, ...payload.watching, ...payload.healthy];
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({
+      creativeId: "mock-creative-001",
+      status: "ACTIVE",
+    });
   });
 });

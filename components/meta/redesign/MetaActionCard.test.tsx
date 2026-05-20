@@ -103,6 +103,27 @@ describe("MetaActionCard", () => {
     expect(html).toContain('data-cohort-chip="upper_funnel"');
   });
 
+  it("uses backend evidence instead of empty metric placeholders", () => {
+    const html = renderToStaticMarkup(
+      <MetaActionCard
+        rec={metaRec({
+          evidence: [
+            { label: "Defensive bid band", value: "$107.76-$136.41", tone: "positive" },
+            { label: "Scale bid band", value: "$113.15-$156.87", tone: "neutral" },
+            { label: "ROAS band", value: "0.70x-0.83x", tone: "positive" },
+            { label: "Campaign label", value: "Missing", tone: "warning" },
+          ],
+        })}
+      />,
+    );
+
+    expect(html).toContain("Defensive bid band");
+    expect(html).toContain("$107.76-$136.41");
+    expect(html).toContain("Campaign label");
+    expect(html).toContain("Missing");
+    expect(html).not.toContain(">—<");
+  });
+
   it("does not render cohort chip for purchase recommendations", () => {
     const html = renderToStaticMarkup(<MetaActionCard rec={metaRec({ cohort: "purchase" })} />);
     expect(html).not.toContain("data-cohort-chip");

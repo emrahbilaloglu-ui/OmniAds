@@ -123,6 +123,37 @@ function campaignIdsForRec(
   return [];
 }
 
+function campaignKindForRec(
+  rec: MetaRecommendation,
+  labelMap: MetaCampaignLabelKindMap,
+  activeCampaignIds: readonly string[],
+): MetaCampaignKind | null {
+  const campaignIds = campaignIdsForRec(rec, activeCampaignIds);
+  if (campaignIds.length === 0) return null;
+  const kinds = new Set<MetaCampaignKind>();
+  let missingLabel = false;
+  for (const campaignId of campaignIds) {
+    const kind = labelMap.get(campaignId);
+    if (kind) {
+      kinds.add(kind);
+    } else {
+      missingLabel = true;
+    }
+  }
+  if (missingLabel) return null;
+  if (kinds.size > 1) return "mixed";
+  return kinds.values().next().value ?? null;
+}
+
+function attachCampaignKind(
+  rec: MetaRecommendation,
+  labelMap: MetaCampaignLabelKindMap,
+  activeCampaignIds: readonly string[],
+): MetaRecommendation {
+  const campaignKind = campaignKindForRec(rec, labelMap, activeCampaignIds);
+  return campaignKind ? { ...rec, campaignKind } : rec;
+}
+
 function appendGuardEvidence(rec: MetaRecommendation): MetaRecommendation["evidence"] {
   const hasLabelEvidence = rec.evidence.some((item) => item.label === "Campaign label");
   const hasBlockedAction = rec.evidence.some((item) => item.label === "Blocked action");
@@ -306,7 +337,10 @@ export function applyMetaCampaignLabelGuard(input: {
   let accountLevelDowngraded = false;
 
   const recommendations = input.recommendations.map((candidate) => {
-    const rec = applyTestCampaignSemantics(candidate, labelMap);
+    const rec = applyTestCampaignSemantics(
+      attachCampaignKind(candidate, labelMap, activeCampaignIds),
+      labelMap,
+    );
     if (isAlreadyGuarded(rec) || !isHardAction(rec)) return rec;
 
     const campaignIds = campaignIdsForRec(rec, activeCampaignIds);

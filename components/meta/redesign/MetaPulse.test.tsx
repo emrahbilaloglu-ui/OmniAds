@@ -47,6 +47,7 @@ describe("MetaPulse", () => {
   it("tones multi-window ROAS by breakeven and target", () => {
     const html = renderPulse({
       roas: {
+        selected: 1.92,
         d7: 0.71,
         d14: 1.23,
         d28: 1.92,
@@ -109,6 +110,7 @@ describe("MetaPulse", () => {
   it("renders ROAS vs target as an explicit sentence with ratio", () => {
     const html = renderPulse({
       roas: {
+        selected: 3.83,
         d7: 0.71,
         d14: 1.23,
         d28: 1.62,
@@ -128,6 +130,7 @@ describe("MetaPulse", () => {
   it("renders account median fallback neutrally without a below-target badge", () => {
     const html = renderPulse({
       roas: {
+        selected: 2.1,
         d7: 0.71,
         d14: 1.23,
         d28: 3.83,
@@ -147,6 +150,7 @@ describe("MetaPulse", () => {
   it("renders no benchmark available when neither target nor median exists", () => {
     const html = renderPulse({
       roas: {
+        selected: 1.62,
         d7: 1.8,
         d14: 1.9,
         d28: 2.1,

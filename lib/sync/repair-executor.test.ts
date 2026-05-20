@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SyncRepairExecutionRecord } from "@/lib/sync/remediation-executions";
 import type { SyncRepairRecommendation } from "@/lib/sync/repair-planner";
 
@@ -49,6 +49,10 @@ vi.mock("@/lib/sync/provider-repair-engine", () => ({
   runGoogleAdsRepairCycle: vi.fn(),
 }));
 
+vi.mock("@/lib/sync/meta-live-auth", () => ({
+  validateMetaLiveAccountAccess: vi.fn(),
+}));
+
 vi.mock("@/lib/sync/google-ads-sync", () => ({
   enqueueGoogleAdsScheduledWork: vi.fn(),
   refreshGoogleAdsSyncStateForBusiness: vi.fn(),
@@ -70,6 +74,14 @@ const repairExecutor = await import("@/lib/sync/repair-executor");
 const incidents = await import("@/lib/sync/incidents");
 const remediationExecutions = await import("@/lib/sync/remediation-executions");
 const providerJobLock = await import("@/lib/sync/provider-job-lock");
+const metaWarehouse = await import("@/lib/meta/warehouse");
+const metaSync = await import("@/lib/sync/meta-sync");
+const metaLiveAuth = await import("@/lib/sync/meta-live-auth");
+const workerHealth = await import("@/lib/sync/worker-health");
+
+beforeEach(() => {
+  vi.resetAllMocks();
+});
 
 function buildExecution(
   overrides: Partial<SyncRepairExecutionRecord> = {},
@@ -211,6 +223,99 @@ describe("resolveSyncRepairExecutionWindowState", () => {
 
     expect(result.quarantineStrikeCount).toBe(3);
     expect(result.quarantineEligible).toBe(true);
+  });
+});
+
+describe("executeSyncRepairAction", () => {
+  it("replays stale Meta action-required dead letters only after live account access validates", async () => {
+    vi.mocked(metaWarehouse.replayMetaDeadLetterPartitions)
+      .mockResolvedValueOnce({
+        outcome: "no_matching_partitions",
+        partitions: [],
+        matchedCount: 1,
+        changedCount: 0,
+        skippedActiveLeaseCount: 0,
+        replayableMatchedCount: 0,
+        terminalActionRequiredCount: 1,
+        unknownMatchedCount: 0,
+      } as never)
+      .mockResolvedValueOnce({
+        outcome: "replayed",
+        partitions: [
+          {
+            id: "partition-1",
+            lane: "maintenance",
+            scope: "account_daily",
+            partitionDate: "2026-04-12",
+          },
+        ],
+        matchedCount: 1,
+        changedCount: 1,
+        skippedActiveLeaseCount: 0,
+        replayableMatchedCount: 0,
+        terminalActionRequiredCount: 1,
+        unknownMatchedCount: 0,
+      } as never);
+    vi.mocked(metaLiveAuth.validateMetaLiveAccountAccess).mockResolvedValue({
+      status: "valid",
+      checkedAccountCount: 1,
+      validAccountIds: ["act_1"],
+      invalidAccountIds: [],
+      unknownAccountIds: [],
+      errorMessage: null,
+    });
+    vi.mocked(metaSync.enqueueMetaScheduledWork).mockResolvedValue({ queued: true } as never);
+    vi.mocked(metaSync.consumeMetaQueuedWork).mockResolvedValue({
+      businessId: "biz-1",
+      attempted: 1,
+      succeeded: 1,
+      failed: 0,
+      skipped: false,
+      hasPendingWork: false,
+      hasForwardProgress: true,
+    } as never);
+    vi.mocked(workerHealth.acquireSyncRunnerLease).mockResolvedValue(true);
+    vi.mocked(workerHealth.releaseSyncRunnerLease).mockResolvedValue(true as never);
+    vi.mocked(workerHealth.renewSyncRunnerLease).mockResolvedValue(true);
+
+    const result = await repairExecutor.executeSyncRepairAction({
+      providerScope: "meta",
+      businessId: "biz-1",
+      recommendation: buildRecommendation({
+        recommendedAction: "replay_dead_letter",
+        beforeEvidence: {
+          deadLetterPartitions: 1,
+          actionRequiredDeadLetterPartitions: 1,
+          truthReady: false,
+        },
+      }),
+      consumeQueuedMetaWork: true,
+      workflowRunId: "run-1",
+    });
+
+    expect(metaLiveAuth.validateMetaLiveAccountAccess).toHaveBeenCalledWith({
+      businessId: "biz-1",
+    });
+    expect(metaWarehouse.replayMetaDeadLetterPartitions).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        businessId: "biz-1",
+        recoveryKinds: ["terminal_action_required"],
+      }),
+    );
+    expect(metaSync.enqueueMetaScheduledWork).toHaveBeenCalledWith("biz-1");
+    expect(metaSync.consumeMetaQueuedWork).toHaveBeenCalled();
+    expect(result).toMatchObject({
+      executedAction: "replay_dead_letter",
+      result: {
+        liveAuth: {
+          status: "valid",
+        },
+        staleActionRequiredReplay: {
+          changedCount: 1,
+        },
+      },
+    });
   });
 });
 

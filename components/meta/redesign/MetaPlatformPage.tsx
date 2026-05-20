@@ -110,7 +110,7 @@ const META_LABEL_FILTERS: Array<{ value: MetaLabelFilter; label: string; descrip
   { value: "all", label: "All labels", description: "Do not narrow by Main, Test, or Mixed context." },
   { value: "main", label: "Main", description: "Campaigns currently treated as mainline buying." },
   { value: "test", label: "Test", description: "Campaigns currently treated as testing context." },
-  { value: "mixed", label: "Mixed", description: "Campaigns with mixed or unresolved context." },
+  { value: "mixed", label: "Mixed", description: "Campaigns explicitly marked as mixed context." },
 ];
 
 function parseMetaLaneView(value: string | null): MetaLaneView {
@@ -149,16 +149,16 @@ function recMatchesMetaFilters(rec: MetaRecommendation, input: {
     if (input.automation === "auto" && !autoReady) return false;
     if (input.automation === "manual" && autoReady) return false;
   }
-  if (input.label !== "all") {
-    const text = [rec.campaignRole, rec.campaignName, rec.title, rec.summary, rec.why].filter(Boolean).join(" ").toLowerCase();
-    if (!text.includes(input.label)) return false;
-  }
-  return true;
+  return campaignKindMatchesMetaLabelFilter(rec.campaignKind, input.label);
 }
 
-function textMatchesLabel(text: string, label: MetaLabelFilter) {
+export function campaignKindMatchesMetaLabelFilter(
+  campaignKind: string | null | undefined,
+  label: "all" | "main" | "test" | "mixed",
+) {
   if (label === "all") return true;
-  return text.toLowerCase().includes(label);
+  const normalized = String(campaignKind ?? "").toLowerCase();
+  return normalized === label;
 }
 
 function healthyMatchesMetaFilters(row: MetaHealthyEntity, input: {
@@ -171,8 +171,7 @@ function healthyMatchesMetaFilters(row: MetaHealthyEntity, input: {
     const rowCampaignId = row.level === "campaign" ? row.id : row.campaignId;
     if (rowCampaignId !== input.campaignId) return false;
   }
-  const text = [row.name, row.campaignName].filter(Boolean).join(" ");
-  return textMatchesLabel(text, input.label);
+  return campaignKindMatchesMetaLabelFilter(row.campaignKind, input.label);
 }
 
 function archivedMatchesMetaFilters(row: MetaArchivedEntity, input: {
@@ -185,8 +184,7 @@ function archivedMatchesMetaFilters(row: MetaArchivedEntity, input: {
     const rowCampaignId = row.level === "campaign" ? row.id : row.campaignId;
     if (rowCampaignId !== input.campaignId) return false;
   }
-  const text = [row.name, row.campaignName, row.diagnosticNote].filter(Boolean).join(" ");
-  return textMatchesLabel(text, input.label);
+  return campaignKindMatchesMetaLabelFilter(row.campaignKind, input.label);
 }
 
 function todayPlusHours(hours: number) {
@@ -949,7 +947,14 @@ function FinalMetaPulse({
   const spendVs7dAvg = formatSignedPercent(percentDelta(dailySpend, avg7dSpend));
   const conversionsToday = pulse?.pacing.conversionsToday ?? null;
   const avg7dConversions = pulse?.pacing.avg7dConversions ?? null;
-  const roasValue = window === "7d" ? pulse?.roas.d7 : window === "14d" ? pulse?.roas.d14 : pulse?.roas.d28;
+  const roasValue =
+    window === "custom"
+      ? pulse?.roas.selected
+      : window === "7d"
+        ? pulse?.roas.d7
+        : window === "14d"
+          ? pulse?.roas.d14
+          : pulse?.roas.d28;
 
   return (
     <div className="pulse pulse--five">

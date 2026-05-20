@@ -13,6 +13,10 @@ vi.mock("@/lib/meta/campaign-labels", () => ({
   readMetaCampaignLabels: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/canonical-overview", () => ({
+  getMetaCanonicalOverviewTrends: vi.fn(),
+}));
+
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
 }));
@@ -20,6 +24,7 @@ vi.mock("@/lib/db", () => ({
 const access = await import("@/lib/access");
 const campaigns = await import("@/lib/meta/campaigns-source");
 const campaignLabels = await import("@/lib/meta/campaign-labels");
+const canonicalOverview = await import("@/lib/meta/canonical-overview");
 const db = await import("@/lib/db");
 const { GET } = await import("@/app/api/meta/account-pulse/route");
 
@@ -53,8 +58,8 @@ function mockSql(input: {
     if (text.includes("meta_decision_snapshots_daily")) {
       return [{ latest_snapshot_date: "2026-05-07", engine_last_run: new Date().toISOString(), engine_version: "v1.0.0" }];
     }
-    if (text.includes("creative_lifecycle_daily")) {
-      return [{ tracking_anomaly_score: input.trackingScore ?? 0.1 }];
+    if (text.includes("engine_v3_creative_lifecycle_daily")) {
+      return [{ row_count: 1, tracking_anomaly_score: input.trackingScore ?? 0.1 }];
     }
     return [];
   });
@@ -90,6 +95,16 @@ describe("GET /api/meta/account-pulse", () => {
         updatedAt: "2026-05-15T10:00:00.000Z",
       },
     ]);
+    vi.mocked(canonicalOverview.getMetaCanonicalOverviewTrends).mockResolvedValue({
+      points: [
+        { date: "2026-05-05", spend: 100, revenue: 250, conversions: 2, roas: 2.5, cpa: 50, ctr: 1, cpc: 1, impressions: 1000, clicks: 10 },
+        { date: "2026-05-06", spend: 200, revenue: 700, conversions: 4, roas: 3.5, cpa: 50, ctr: 1, cpc: 1, impressions: 2000, clicks: 20 },
+      ],
+      freshness: {} as never,
+      isPartial: false,
+      notReadyReason: null,
+      readSource: "warehouse_published",
+    });
     mockSql({ targetRoas: 2.4, calibrationP50: 3.1 });
   });
 
@@ -105,7 +120,9 @@ describe("GET /api/meta/account-pulse", () => {
     expect(payload.pacing.avg7dSpend).toBeCloseTo(1200 / 7);
     expect(payload.pacing.conversionsToday).toBe(50);
     expect(payload.pacing.avg7dConversions).toBeCloseTo(50 / 7);
+    expect(payload.roas.selected).toBe(3);
     expect(payload.roas.d28).toBe(3);
+    expect(payload.roasHistory).toEqual([2.5, 3.5]);
     expect(payload.engineVersion).toBe("v1.0.0");
     expect(payload.snapshotHealth.status).toBe("fresh");
     expect(payload.labelCoverage).toMatchObject({
@@ -240,6 +257,30 @@ describe("GET /api/meta/account-pulse", () => {
       request,
       businessId: "biz_1",
       minRole: "guest",
+    });
+  });
+
+  it("reports unknown tracking health when recent lifecycle rows are absent", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const text = strings.join(" ");
+      if (text.includes("FROM business_target_packs")) return [{ target_roas: 2.4 }];
+      if (text.includes("FROM meta_decision_calibration_daily")) return [{ p50: 3.1 }];
+      if (text.includes("meta_decision_snapshots_daily")) {
+        return [{ latest_snapshot_date: "2026-05-07", engine_last_run: new Date().toISOString(), engine_version: "v1.0.0" }];
+      }
+      if (text.includes("engine_v3_creative_lifecycle_daily")) {
+        return [{ row_count: 0, tracking_anomaly_score: null }];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/account-pulse?businessId=biz_1&window=28d"));
+    const payload = await response.json();
+
+    expect(payload.trackingHealth).toMatchObject({
+      status: "unknown",
+      detail: "Recent creative lifecycle tracking data is unavailable.",
     });
   });
 });

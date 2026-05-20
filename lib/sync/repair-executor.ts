@@ -36,6 +36,7 @@ import {
   replayMetaDeadLetterPartitions,
 } from "@/lib/meta/warehouse";
 import { runMetaRepairCycle, runGoogleAdsRepairCycle } from "@/lib/sync/provider-repair-engine";
+import { validateMetaLiveAccountAccess } from "@/lib/sync/meta-live-auth";
 import {
   enqueueGoogleAdsScheduledWork,
   refreshGoogleAdsSyncStateForBusiness,
@@ -496,16 +497,42 @@ export async function executeSyncRepairAction(
           sources: null,
           recoveryKinds: ["replayable_transient"],
         });
-        const scheduled = await enqueueMetaScheduledWork(input.businessId);
+        const liveAuth =
+          replayed.terminalActionRequiredCount > 0
+            ? await validateMetaLiveAccountAccess({ businessId: input.businessId })
+            : null;
+        const staleActionRequiredReplay =
+          liveAuth?.status === "valid"
+            ? await replayMetaDeadLetterPartitions({
+                businessId: input.businessId,
+                sources: null,
+                recoveryKinds: ["terminal_action_required"],
+              })
+            : null;
+        const replayedCount =
+          (replayed.changedCount ?? 0) +
+          (staleActionRequiredReplay?.changedCount ?? 0);
+        const scheduled =
+          replayedCount > 0
+            ? await enqueueMetaScheduledWork(input.businessId)
+            : null;
         const consume = input.consumeQueuedMetaWork
-          ? await consumeMetaQueuedWorkForRepair({
-              businessId: input.businessId,
-              workflowRunId: input.workflowRunId,
-            })
+          ? replayedCount > 0
+            ? await consumeMetaQueuedWorkForRepair({
+                businessId: input.businessId,
+                workflowRunId: input.workflowRunId,
+              })
+            : null
           : null;
         return {
           executedAction,
-          result: { replayed, scheduled, consume },
+          result: {
+            replayed,
+            liveAuth,
+            staleActionRequiredReplay,
+            scheduled,
+            consume,
+          },
         };
       }
       case "stale_lease_reclaim": {

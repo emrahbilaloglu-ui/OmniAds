@@ -28,6 +28,7 @@ import {
   type MetaCampaignLaneSignal,
 } from "@/lib/meta/campaign-lanes";
 import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
+import type { MetaCampaignKind } from "@/lib/meta/campaign-label-types";
 import {
   emitHighPriorityCampaignScenario,
   maybeG2DownshiftToPurchase,
@@ -236,6 +237,7 @@ export interface MetaRecommendation {
   predictiveOverlay?: string | null;
   engineVersion?: string;
   evidenceTrail?: MetaEvidenceTrail;
+  campaignKind?: MetaCampaignKind | null;
   campaignRole?: MetaCampaignRole;
   bidRegime?: MetaBidRegime;
   cohort?: MetaFunnelCohort | null;

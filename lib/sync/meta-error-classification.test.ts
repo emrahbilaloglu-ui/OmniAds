@@ -45,4 +45,25 @@ describe("Meta sync error classification", () => {
       ).toBe(false);
     }
   });
+
+  it("keeps lease checkpoint write conflicts retryable", () => {
+    const classified = classifyMetaSyncFailure({
+      message: "lease_conflict:checkpoint_write_rejected",
+    });
+
+    expect(classified).toMatchObject({
+      errorClass: "lease_conflict",
+      terminal: false,
+      recoveryKind: "replayable_transient",
+      actionRequired: false,
+    });
+    expect(
+      shouldDeadLetterMetaFailure({
+        errorClass: classified.errorClass,
+        terminal: classified.terminal,
+        attemptCount: 99,
+        maxAttempts: 60,
+      }),
+    ).toBe(false);
+  });
 });

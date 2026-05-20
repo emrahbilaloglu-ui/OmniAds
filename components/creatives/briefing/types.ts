@@ -163,6 +163,19 @@ export interface MetaSummaryPulseResponse {
   } | null;
 }
 
+export interface MetaTrendsPointResponse {
+  date: string;
+  roas?: number | null;
+  spend?: number | null;
+  revenue?: number | null;
+  conversions?: number | null;
+}
+
+export interface MetaTrendsBriefingResponse {
+  points?: MetaTrendsPointResponse[] | null;
+  isPartial?: boolean | null;
+}
+
 export interface CardSelectionProps {
   selected?: boolean;
   onSelectChange?: (id: string, selected: boolean) => void;

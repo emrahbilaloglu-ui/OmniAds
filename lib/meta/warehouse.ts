@@ -7146,10 +7146,14 @@ export interface MetaDeadLetterRecoverySummary {
   }>;
 }
 
-function classifyMetaDeadLetterCandidate(row: Pick<MetaDeadLetterCandidateRow, "last_error" | "error_class" | "error_message">) {
+function classifyMetaDeadLetterCandidate(
+  row: Pick<MetaDeadLetterCandidateRow, "last_error" | "error_class" | "error_message">,
+  options?: { partitionErrorOnly?: boolean },
+) {
+  const partitionError = row.last_error ?? null;
   return classifyMetaSyncFailure({
-    errorClass: row.error_class,
-    message: row.last_error ?? row.error_message ?? null,
+    errorClass: partitionError ? row.error_class : null,
+    message: partitionError ?? (options?.partitionErrorOnly ? null : row.error_message ?? null),
   });
 }
 
@@ -7203,7 +7207,7 @@ export async function quarantineMetaTerminalActionRequiredPartitions(input: {
   ` as MetaDeadLetterCandidateRow[];
   const classifiedRows = candidateRows.map((row) => ({
     row,
-    classification: classifyMetaDeadLetterCandidate(row),
+    classification: classifyMetaDeadLetterCandidate(row, { partitionErrorOnly: true }),
   }));
   const terminalRows = classifiedRows.filter(
     ({ classification }) =>

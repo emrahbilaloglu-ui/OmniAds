@@ -13,6 +13,7 @@ const getProviderAccountAssignments = vi.fn();
 const readProviderAccountSnapshot = vi.fn();
 const getProviderPlatformDateBoundaries = vi.fn();
 const getProviderPlatformPreviousDate = vi.fn();
+const validateMetaLiveAccountAccess = vi.fn();
 
 vi.mock("@/lib/sync/meta-sync", () => ({
   enqueueMetaScheduledWork,
@@ -65,6 +66,10 @@ vi.mock("@/lib/provider-platform-date", () => ({
   getProviderPlatformPreviousDate,
 }));
 
+vi.mock("@/lib/sync/meta-live-auth", () => ({
+  validateMetaLiveAccountAccess,
+}));
+
 vi.mock("@/lib/db", () => ({
   getDb,
 }));
@@ -96,6 +101,14 @@ describe("provider repair engine", () => {
     refreshMetaSyncStateForBusiness.mockResolvedValue(undefined);
     refreshGoogleAdsSyncStateForBusiness.mockResolvedValue(undefined);
     syncGoogleAdsRange.mockResolvedValue(undefined);
+    validateMetaLiveAccountAccess.mockResolvedValue({
+      status: "invalid",
+      checkedAccountCount: 0,
+      validAccountIds: [],
+      invalidAccountIds: [],
+      unknownAccountIds: [],
+      errorMessage: null,
+    });
     const googleAdsWarehouse = await import("@/lib/google-ads/warehouse");
     vi.mocked(
       googleAdsWarehouse.quarantineGoogleAdsTerminalActionRequiredPartitions,
@@ -195,6 +208,107 @@ describe("provider repair engine", () => {
     expect(refreshMetaSyncStateForBusiness).toHaveBeenCalledWith({
       businessId: "biz-1",
     });
+  });
+
+  it("replays stale Meta action-required dead letters when live account access validates", async () => {
+    const metaWarehouse = await import("@/lib/meta/warehouse");
+    vi.mocked(metaWarehouse.cleanupMetaPartitionOrchestration).mockResolvedValue({
+      candidateCount: 0,
+      stalePartitionCount: 0,
+      aliveSlowCount: 0,
+      reconciledRunCount: 0,
+      staleRunCount: 0,
+      staleLegacyCount: 0,
+      reclaimReasons: {},
+      preservedByReason: {},
+    } as never);
+    vi.mocked(
+      metaWarehouse.quarantineMetaTerminalActionRequiredPartitions,
+    ).mockResolvedValue({
+      candidateCount: 0,
+      terminalMatchedCount: 0,
+      changedCount: 0,
+      partitions: [],
+    } as never);
+    vi.mocked(metaWarehouse.replayMetaDeadLetterPartitions)
+      .mockResolvedValueOnce({
+        outcome: "no_matching_partitions",
+        partitions: [],
+        matchedCount: 2,
+        changedCount: 0,
+        skippedActiveLeaseCount: 0,
+        replayableMatchedCount: 0,
+        terminalActionRequiredCount: 2,
+        unknownMatchedCount: 0,
+        manualTruthDefectCount: 0,
+        manualTruthDefectPartitions: [],
+      } as never)
+      .mockResolvedValueOnce({
+        outcome: "replayed",
+        partitions: [
+          {
+            id: "partition-1",
+            lane: "maintenance",
+            scope: "account_daily",
+            partitionDate: "2026-04-12",
+          },
+          {
+            id: "partition-2",
+            lane: "maintenance",
+            scope: "account_daily",
+            partitionDate: "2026-04-13",
+          },
+        ],
+        matchedCount: 2,
+        changedCount: 2,
+        skippedActiveLeaseCount: 0,
+        replayableMatchedCount: 0,
+        terminalActionRequiredCount: 2,
+        unknownMatchedCount: 0,
+        manualTruthDefectCount: 0,
+        manualTruthDefectPartitions: [],
+      } as never);
+    validateMetaLiveAccountAccess.mockResolvedValue({
+      status: "valid",
+      checkedAccountCount: 1,
+      validAccountIds: ["act_1"],
+      invalidAccountIds: [],
+      unknownAccountIds: [],
+      errorMessage: null,
+    });
+    vi.mocked(metaWarehouse.requeueMetaRetryableFailedPartitions).mockResolvedValue([] as never);
+    vi.mocked(metaWarehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 0,
+      leasedPartitions: 0,
+      deadLetterPartitions: 2,
+      retryableFailedPartitions: 0,
+    } as never);
+    vi.mocked(metaWarehouse.getMetaWarehouseIntegrityIncidents).mockResolvedValue([] as never);
+    vi.mocked(metaWarehouse.getMetaCanonicalDriftIncidents).mockResolvedValue([] as never);
+
+    const { runMetaRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+    const result = await runMetaRepairCycle("biz-1", { enqueueScheduledWork: false });
+
+    expect(validateMetaLiveAccountAccess).toHaveBeenCalledWith({ businessId: "biz-1" });
+    expect(metaWarehouse.replayMetaDeadLetterPartitions).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        businessId: "biz-1",
+        recoveryKinds: ["terminal_action_required"],
+      }),
+    );
+    expect(result.repair.replayed).toBe(2);
+    expect(result.repair.blocked).toBe(false);
+    expect(result.repair.meta).toEqual(
+      expect.objectContaining({
+        staleActionRequiredLiveAuth: expect.objectContaining({
+          status: "valid",
+        }),
+        staleActionRequiredDeadLetters: expect.objectContaining({
+          changedCount: 2,
+        }),
+      }),
+    );
   });
 
   it("surfaces cleanup_error when Meta cleanup throws", async () => {

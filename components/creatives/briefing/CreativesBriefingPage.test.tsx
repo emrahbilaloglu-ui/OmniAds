@@ -61,6 +61,21 @@ vi.mock("@tanstack/react-query", () => ({
     if (key === "creatives-briefing-meta-summary-7d") {
       return baseQueryState({ data: { totals: { spend: 6120, roas: 3.2 } } });
     }
+    if (key === "creatives-briefing-meta-trends-7d") {
+      return baseQueryState({
+        data: {
+          points: [
+            { date: "2026-05-13", roas: 0.68 },
+            { date: "2026-05-14", roas: 0.72 },
+            { date: "2026-05-15", roas: 0.77 },
+            { date: "2026-05-16", roas: 1.65 },
+            { date: "2026-05-17", roas: 2.14 },
+            { date: "2026-05-18", roas: 1.52 },
+            { date: "2026-05-19", roas: 1.51 },
+          ],
+        },
+      });
+    }
     if (key === "creatives-briefing-meta-status") {
       return baseQueryState({
         data: mockState.metaStatusData ?? {
@@ -238,11 +253,21 @@ describe("CreativesBriefingPage", () => {
       "creatives-briefing",
       "creatives-briefing-meta-summary-today",
       "creatives-briefing-meta-summary-7d",
+      "creatives-briefing-meta-trends-7d",
       "creatives-briefing-meta-status",
       "creatives-briefing-asset-library",
       "triage-state",
     ]);
     expect(mockState.queryKeys[0]).toEqual(["creatives-briefing", "biz_1"]);
+  });
+
+  it("draws the 7d ROAS spark from live trend data instead of a synthetic curve", () => {
+    const html = renderToStaticMarkup(<CreativesBriefingPage />);
+
+    const sparkSection = html.split('class="cell"')[2] ?? "";
+    expect(sparkSection).toContain('class="spark"');
+    expect(sparkSection).not.toContain("0,7.6 L10,4.65 L20,5.83");
+    expect(sparkSection).toContain('d="M');
   });
 
   it("filters selected IDs by lane for future bulk toolbar ownership", () => {

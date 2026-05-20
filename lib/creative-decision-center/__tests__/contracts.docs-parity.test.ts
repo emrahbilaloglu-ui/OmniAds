@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   CREATIVE_DECISION_CENTER_AGGREGATE_ACTIONS,
   CREATIVE_DECISION_CENTER_BUYER_ACTIONS,
+  CREATIVE_DECISION_CENTER_EXECUTION_ACTIONS,
   CREATIVE_DECISION_OS_V21_PRIMARY_DECISIONS,
 } from "../contracts";
 
@@ -33,6 +34,12 @@ describe("Creative Decision Center contracts doc parity", () => {
   it("keeps aggregate action literals in lockstep with CONTRACTS.md", () => {
     expect(parseStringUnion("CreativeDecisionCenterAggregateAction")).toEqual([
       ...CREATIVE_DECISION_CENTER_AGGREGATE_ACTIONS,
+    ]);
+  });
+
+  it("keeps execution action literals in lockstep with CONTRACTS.md", () => {
+    expect(parseStringUnion("CreativeDecisionCenterExecutionAction")).toEqual([
+      ...CREATIVE_DECISION_CENTER_EXECUTION_ACTIONS,
     ]);
   });
 });

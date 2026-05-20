@@ -52,6 +52,73 @@ describe("Creative Decision Center V2.1 structural validators", () => {
     );
   });
 
+  it("accepts optional executionAction values and rejects unknown literals", () => {
+    expect(
+      validateCreativeDecisionCenterRowDecision({
+        ...makeRowDecision({ buyerAction: "scale", uiBucket: "scale" }),
+        executionAction: "promote_to_main",
+      }),
+    ).toEqual({ ok: true, errors: [] });
+
+    expect(
+      validateCreativeDecisionCenterRowDecision({
+        ...makeRowDecision(),
+        executionAction: null,
+      }),
+    ).toEqual({ ok: true, errors: [] });
+
+    expect(
+      validateCreativeDecisionCenterRowDecision({
+        ...makeRowDecision(),
+        executionAction: undefined,
+      }),
+    ).toEqual({ ok: true, errors: [] });
+
+    expect(
+      validateCreativeDecisionCenterRowDecision({
+        ...makeRowDecision(),
+        executionAction: "review",
+      }).errors,
+    ).toContain("rowDecision.executionAction:invalid_literal:review");
+  });
+
+  it("accepts optional sourceDecision metadata and rejects non-string values", () => {
+    expect(
+      validateCreativeDecisionCenterRowDecision({
+        ...makeRowDecision(),
+        sourceDecision: "keep",
+      }),
+    ).toEqual({ ok: true, errors: [] });
+
+    expect(
+      validateCreativeDecisionCenterRowDecision({
+        ...makeRowDecision(),
+        sourceDecision: null,
+      }),
+    ).toEqual({ ok: true, errors: [] });
+
+    expect(
+      validateCreativeDecisionCenterRowDecision({
+        ...makeRowDecision(),
+        sourceDecision: 42,
+      }).errors,
+    ).toContain("rowDecision.sourceDecision:invalid_type:expected_string");
+
+    expect(
+      validateCreativeDecisionCenterRowDecision({
+        ...makeRowDecision(),
+        sourceDecision: { foo: 1 },
+      }).errors,
+    ).toContain("rowDecision.sourceDecision:invalid_type:expected_string");
+
+    expect(
+      validateCreativeDecisionCenterRowDecision({
+        ...makeRowDecision(),
+        sourceDecision: true,
+      }).errors,
+    ).toContain("rowDecision.sourceDecision:invalid_type:expected_string");
+  });
+
   it("keeps brief_variation valid only on aggregate decisions", () => {
     expect(
       validateCreativeDecisionCenterAggregateDecision(makeAggregateDecision()),
@@ -101,6 +168,52 @@ describe("Creative Decision Center V2.1 structural validators", () => {
         },
       }),
     ).toEqual({ ok: true, errors: [] });
+  });
+
+  it("accepts optional executionAction on mapping rule output and rejects unknown literals", () => {
+    expect(
+      validateBuyerActionMappingRule({
+        id: "scale-test-cohort",
+        when: { primaryDecision: "Scale" },
+        output: {
+          buyerAction: "scale",
+          buyerLabel: "Scale",
+          uiBucket: "scale",
+          executionAction: "promote_to_main",
+          nextStepTemplate: "Promote winner into Main lane.",
+        },
+      }),
+    ).toEqual({ ok: true, errors: [] });
+
+    expect(
+      validateBuyerActionMappingRule({
+        id: "scale-execution-null",
+        when: { primaryDecision: "Scale" },
+        output: {
+          buyerAction: "scale",
+          buyerLabel: "Scale",
+          uiBucket: "scale",
+          executionAction: null,
+          nextStepTemplate: "Hold for structure review.",
+        },
+      }),
+    ).toEqual({ ok: true, errors: [] });
+
+    expect(
+      validateBuyerActionMappingRule({
+        id: "scale-invalid-execution",
+        when: { primaryDecision: "Scale" },
+        output: {
+          buyerAction: "scale",
+          buyerLabel: "Scale",
+          uiBucket: "scale",
+          executionAction: "scale_budget_in_main",
+          nextStepTemplate: "Scale budget.",
+        },
+      }).errors,
+    ).toContain(
+      "mappingRule.output.executionAction:invalid_literal:scale_budget_in_main",
+    );
   });
 
   it("validates config shape without providing default config values", () => {

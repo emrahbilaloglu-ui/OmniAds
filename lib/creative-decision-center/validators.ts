@@ -4,6 +4,7 @@ import {
   CREATIVE_DECISION_CENTER_BENCHMARK_RELIABILITY_MINIMUMS,
   CREATIVE_DECISION_CENTER_BUYER_ACTIONS,
   CREATIVE_DECISION_CENTER_CONFIDENCE_BANDS,
+  CREATIVE_DECISION_CENTER_EXECUTION_ACTIONS,
   CREATIVE_DECISION_CENTER_FRESHNESS_STATUSES,
   CREATIVE_DECISION_CENTER_IDENTITY_GRAINS,
   CREATIVE_DECISION_CENTER_MATURITY_LEVELS,
@@ -261,6 +262,25 @@ export function validateCreativeDecisionCenterRowDecision(
     value.uiBucket,
     `${path}.uiBucket`,
   );
+  if (
+    hasOwn(value, "executionAction") &&
+    value.executionAction !== null &&
+    value.executionAction !== undefined
+  ) {
+    requireLiteral(
+      state,
+      CREATIVE_DECISION_CENTER_EXECUTION_ACTIONS,
+      value.executionAction,
+      `${path}.executionAction`,
+    );
+  }
+  if (
+    hasOwn(value, "sourceDecision") &&
+    value.sourceDecision !== null &&
+    value.sourceDecision !== undefined
+  ) {
+    requireString(state, value.sourceDecision, `${path}.sourceDecision`);
+  }
   requireLiteral(
     state,
     CREATIVE_DECISION_CENTER_CONFIDENCE_BANDS,
@@ -506,6 +526,18 @@ export function validateBuyerActionMappingRule(
       value.output.uiBucket,
       `${path}.output.uiBucket`,
     );
+    if (
+      hasOwn(value.output, "executionAction") &&
+      value.output.executionAction !== null &&
+      value.output.executionAction !== undefined
+    ) {
+      requireLiteral(
+        state,
+        CREATIVE_DECISION_CENTER_EXECUTION_ACTIONS,
+        value.output.executionAction,
+        `${path}.output.executionAction`,
+      );
+    }
     requireString(state, value.output.nextStepTemplate, `${path}.output.nextStepTemplate`);
   }
 

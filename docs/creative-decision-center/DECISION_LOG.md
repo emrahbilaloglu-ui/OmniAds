@@ -326,3 +326,84 @@ Risk: a mechanical import move could accidentally alter a fallback value or
 public export. Mitigation: keep old modules as compatibility re-export
 surfaces, add lockstep tests for all moved values, and keep this as a separate
 rollback commit.
+
+## D019 — Add `executionAction` Vocabulary For Campaign-Kind Execution CTA
+
+Decision: keep `CreativeDecisionCenterBuyerAction` stable at the existing nine
+values and add an optional, nullable `executionAction` field on row decisions
+and on `BuyerActionMappingRule.output`. The execution-action union is the
+minimal vocabulary required to satisfy D016 and golden cases GC-054, GC-055,
+GC-056: `"promote_to_main" | "scale_budget" | "controlled_scale"`.
+
+Reason: D016 already separates the scale verdict from the campaign-kind
+execution move. Treating the execution CTA as a separate, optional field
+preserves the disjoint `primaryDecision` and `buyerAction` unions from D002,
+keeps the `actionBoard` keyed only by `buyerAction`, and lets a labeled
+Test/Main/Mixed scale row carry the correct operator-facing move without
+forcing UI code to compute it.
+
+Scope: contract-only surface in `lib/creative-decision-center/contracts.ts` and
+`docs/creative-decision-center/CONTRACTS.md`. PR4 isolation rules still apply:
+no active engine, Meta, API route, UI component, script probe, or archive
+module may import the contract module in this slice. `executionAction` is
+strictly opt-in for rules and rows; absent or `null` means no execution move
+is asserted. UI must not derive `executionAction` from raw signals; the
+deterministic adapter is the only authorized producer (in a later slice).
+
+Constraint: `actionBoard` stays keyed only by `buyerAction`. UI bucketing must
+not switch to `executionAction`. Validators check `executionAction` only when
+present and only as a literal-union/nullable membership test; no
+cross-field semantic policy lives in the validator.
+
+Rejected alternatives:
+- Expand `CreativeDecisionCenterBuyerAction` with `promote_to_main`,
+  `scale_budget`, `controlled_scale`. That would silently change the
+  `actionBoard` shape, break PR4 contract symmetry between row buyerAction and
+  uiBucket, and force every downstream consumer to handle five extra values.
+- Relabel GC-054/055/056 expectations to a single `scale` buyerAction. That
+  would erase the D016 test surface for campaign-kind execution moves.
+
+Risk: a later slice could try to make `executionAction` mandatory or
+re-key the `actionBoard` from it. Mitigation: keep this ADR as the bound,
+keep `executionAction` optional and nullable, and add validator and contract
+tests that assert it never replaces `buyerAction` for row bucketing.
+
+## D020 — Carry Non-V2.1 Engine Labels As `sourceDecision` Metadata, Not As New `primaryDecision` Values
+
+Decision: keep `CreativeDecisionOsV21PrimaryDecision` stable at the existing
+six values (`Scale`, `Cut`, `Refresh`, `Protect`, `Test More`, `Diagnose`).
+Upstream engine labels that do not map cleanly to those six (today V3
+`keep`, `same_as_canonical`, and any future engine-only label) are surfaced as
+an optional, free-form `sourceDecision` audit string on
+`CreativeDecisionCenterRowDecision`. The deterministic adapter is responsible
+for mapping the engine output to one of the six V2.1 primary decisions and
+recording the upstream label in `sourceDecision`.
+
+Reason: GOLDEN_CASES.md references engine-side labels such as `Keep` and
+`Same as canonical` that are not user-facing V2.1 primary decisions. Adding
+them to `CreativeDecisionOsV21PrimaryDecision` would expand the buyer-facing
+contract by accident and would conflict with D002. A separate opaque audit
+field preserves the upstream label for the drawer/debug surface without
+changing the primary-decision union or the buyer-facing UI vocabulary.
+
+Scope: contract-only addition of `sourceDecision?: string | null` on
+`CreativeDecisionCenterRowDecision`. The field is free-form because the upstream
+engine label set evolves independently of the V2.1 contract. The adapter is
+the only authorized writer; UI must not parse `sourceDecision` to compute
+`buyerAction`, `primaryDecision`, or any operator-facing label.
+
+Constraint: do not add `Keep`, `Same as canonical`, `Out Of Scope`, or any
+other label to `CreativeDecisionOsV21PrimaryDecision` without a separate
+decision-log entry that documents explicit user approval. Validators must
+treat `sourceDecision` as optional, nullable, free-form string only.
+
+Rejected alternative: extend the V2.1 `primaryDecision` union with `Keep`
+and `Same as canonical`. That would change the buyer-facing primary contract,
+require updating every downstream consumer (drawer copy, snapshot consumers,
+adapter table), and would silently re-introduce a V3 engine concept into a
+V2.1 buyer surface without a documented mapping.
+
+Risk: the free-form string could drift into a hidden second union. Mitigation:
+the adapter is the only allowed writer, validators reject anything but a
+nullable string, and tests assert no UI/route consumer reads `sourceDecision`
+to compute decisions.

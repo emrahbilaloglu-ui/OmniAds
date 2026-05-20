@@ -31,6 +31,11 @@ type CreativeDecisionCenterAggregateAction =
   | "fatigue_cluster"
   | "unused_approved_creatives";
 
+type CreativeDecisionCenterExecutionAction =
+  | "promote_to_main"
+  | "scale_budget"
+  | "controlled_scale";
+
 interface CreativeDecisionOsV21Output {
   contractVersion: "creative-decision-os.v2.1";
   engineVersion: string;
@@ -67,6 +72,13 @@ interface CreativeDecisionCenterRowDecision {
   buyerAction: CreativeDecisionCenterBuyerAction;
   buyerLabel: string;
   uiBucket: CreativeDecisionCenterBuyerAction;
+  // D019: optional campaign-kind execution CTA. Null/absent for non-scale rows
+  // or scale rows without a labeled campaign kind. Does not expand buyerAction.
+  executionAction?: CreativeDecisionCenterExecutionAction | null;
+  // D020: opaque audit metadata for the upstream engine label (for example V3
+  // `keep`, `same_as_canonical`, `out_of_scope`). Free-form string; never used
+  // by the UI to compute buyerAction. Adapter-only diagnostic surface.
+  sourceDecision?: string | null;
   confidenceBand: "high" | "medium" | "low";
   priority: "critical" | "high" | "medium" | "low";
   oneLine: string;
@@ -126,6 +138,8 @@ interface BuyerActionMappingRule {
     buyerAction: CreativeDecisionCenterBuyerAction;
     buyerLabel: string;
     uiBucket: CreativeDecisionCenterBuyerAction;
+    // D019: optional campaign-kind execution CTA emitted alongside `buyerAction`.
+    executionAction?: CreativeDecisionCenterExecutionAction | null;
     nextStepTemplate: string;
   };
 }
@@ -157,6 +171,14 @@ interface CreativeDecisionConfig {
 - Do not add `brief_variation` to row-level `BuyerAction`.
 - Row decision must expose engine root for drawer.
 - Snapshot must include `engineVersion`, `adapterVersion`, `configVersion`, `generatedAt`, `dataFreshness`, `inputCoverageSummary`, and `missingDataSummary`.
+- Do not expand `CreativeDecisionOsV21PrimaryDecision`. Upstream engine labels
+  that do not match the existing six values (V3 `keep`, `same_as_canonical`,
+  `out_of_scope`) ride on the optional `sourceDecision` audit metadata. See D020.
+- Do not expand `CreativeDecisionCenterBuyerAction` for campaign-kind execution
+  moves. Pair the existing `scale` buyerAction with the optional
+  `executionAction` field. See D019.
+- `actionBoard` stays keyed only by `buyerAction`. `executionAction` is row-level
+  metadata and must not become a top-level bucket.
 
 ## Minimal Drawer Fields
 

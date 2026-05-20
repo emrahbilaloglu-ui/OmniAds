@@ -90,6 +90,16 @@ export const CREATIVE_DECISION_CENTER_BENCHMARK_RELIABILITY_MINIMUMS = [
   "weak",
 ] as const;
 
+// D016 separates the scale verdict from the campaign-kind execution CTA.
+// D019 keeps `buyerAction` stable at 9 values and adds a nullable
+// `executionAction` so Test/Main/Mixed scale rows can carry the correct
+// operator-facing move without expanding the buyerAction union.
+export const CREATIVE_DECISION_CENTER_EXECUTION_ACTIONS = [
+  "promote_to_main",
+  "scale_budget",
+  "controlled_scale",
+] as const;
+
 export type CreativeDecisionOsV21PrimaryDecision =
   (typeof CREATIVE_DECISION_OS_V21_PRIMARY_DECISIONS)[number];
 
@@ -123,6 +133,9 @@ export type CreativeDecisionCenterFreshnessStatus =
 export type CreativeDecisionCenterBenchmarkReliabilityMinimum =
   (typeof CREATIVE_DECISION_CENTER_BENCHMARK_RELIABILITY_MINIMUMS)[number];
 
+export type CreativeDecisionCenterExecutionAction =
+  (typeof CREATIVE_DECISION_CENTER_EXECUTION_ACTIONS)[number];
+
 export interface CreativeDecisionOsV21Output {
   contractVersion: typeof CREATIVE_DECISION_OS_V21_CONTRACT_VERSION;
   engineVersion: string;
@@ -150,6 +163,19 @@ export interface CreativeDecisionCenterRowDecision {
   buyerAction: CreativeDecisionCenterBuyerAction;
   buyerLabel: string;
   uiBucket: CreativeDecisionCenterBuyerAction;
+  /**
+   * D019: optional campaign-kind execution CTA paired with `buyerAction`.
+   * Null/absent for non-scale rows or scale rows without a labeled campaign kind.
+   * Does not change `buyerAction` membership.
+   */
+  executionAction?: CreativeDecisionCenterExecutionAction | null;
+  /**
+   * D020: opaque audit metadata for the upstream engine label that produced this row
+   * (for example V3 `keep`, `same_as_canonical`, `out_of_scope`).
+   * Free-form string; must not expand `primaryDecision` union and must not be used
+   * by UI to compute buyerAction. Adapter-only diagnostic surface.
+   */
+  sourceDecision?: string | null;
   confidenceBand: CreativeDecisionCenterConfidenceBand;
   priority: CreativeDecisionCenterPriority;
   oneLine: string;
@@ -209,6 +235,11 @@ export interface BuyerActionMappingRule {
     buyerAction: CreativeDecisionCenterBuyerAction;
     buyerLabel: string;
     uiBucket: CreativeDecisionCenterBuyerAction;
+    /**
+     * D019: optional campaign-kind execution CTA emitted alongside `buyerAction`.
+     * Null/absent rules do not assert an execution move.
+     */
+    executionAction?: CreativeDecisionCenterExecutionAction | null;
     nextStepTemplate: string;
   };
 }

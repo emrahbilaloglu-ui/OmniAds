@@ -78,4 +78,16 @@ describe("Creative Decision Center V2.1 invariant audit helpers", () => {
         "I21:aggregate_decision_attached_to_creative_id",
       ]);
   });
+
+  // PR6A intentionally keeps the contract structural-only: executionAction is
+  // validated as a literal/null/undefined membership but no cross-field policy
+  // ties it to buyerAction. The cross-field invariant
+  //   executionAction != null  =>  buyerAction === "scale"
+  // is owned by the PR6B adapter together with the runtime guard recommended
+  // by the media-buyer review (no `promote_to_main` UI default for unlabeled
+  // scale rows). Tracking the deferral here so it appears in the test
+  // transcript instead of staying implicit.
+  it.todo(
+    "I22:executionAction_only_with_scale_buyerAction — enforced by PR6B adapter, not by PR6A contract",
+  );
 });

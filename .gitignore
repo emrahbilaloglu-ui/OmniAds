@@ -45,3 +45,17 @@ next-env.d.ts
 /.cache/
 
 certificates
+
+# local analysis and one-off account scripts
+/.claude/
+/_analysis/db-normalization-cleanup-audit/
+/_analysis/live-creative-decision-audit/
+/_analysis/meta-creatives-ui-smoke/
+/_analysis/phase-4-meta-archive/
+/_analysis/phase-meta-goal-aware/
+/_analysis/phase-meta-rnd/
+/brand-*.js
+/check-connections.js
+/merchant-test.js
+/pmax-others-*.js
+/verify-removed.js

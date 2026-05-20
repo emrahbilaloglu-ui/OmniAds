@@ -69,8 +69,11 @@ import {
   getGoogleAdsPartitionHealth,
   getGoogleAdsPartitionDates,
   getGoogleAdsQueueHealth,
+  getGoogleAdsWorkerDeadLetterBlockedReasonCodes,
   getGoogleAdsWarehouseIntegrityIncidents,
   hasRecentGoogleAdsTerminalActionRequiredDeadLetter,
+  hasGoogleAdsRepairableBlockingDeadLetters,
+  hasGoogleAdsThroughputBlockingDeadLetters,
   getLatestGoogleAdsCheckpointForPartition,
   getLatestRunningGoogleAdsSyncRunIdForPartition,
   getGoogleAdsSyncState,
@@ -1258,7 +1261,7 @@ export function buildGoogleAdsFallbackExtendedLeasePlan(input: {
   };
 }
 
-function getGoogleAdsActionRequiredLeaseExcludedScopes(
+export function getGoogleAdsActionRequiredLeaseExcludedScopes(
   queueHealth: Awaited<ReturnType<typeof getGoogleAdsQueueHealth>> | null | undefined,
 ) {
   const scopes = [
@@ -1313,7 +1316,7 @@ export function resolveGoogleAdsWorkerRequestedLimit(input: {
   const baseLimit = Math.max(1, input.leaseLimit);
   const queueHealth = input.queueHealth ?? null;
   if (!queueHealth || (queueHealth.queueDepth ?? 0) <= 0) return baseLimit;
-  if ((queueHealth.deadLetterPartitions ?? 0) > 0) return baseLimit;
+  if (hasGoogleAdsThroughputBlockingDeadLetters(queueHealth)) return baseLimit;
 
   const hasPriorityBacklog =
     Boolean(input.fullSyncPriorityRequired) ||
@@ -1441,6 +1444,12 @@ export async function buildGoogleAdsWorkerLeasePlan(input: {
     queueHealth?.latestExtendedActivityAt ??
     queueHealth?.latestMaintenanceActivityAt ??
     null;
+  const throughputBlockingDeadLetters =
+    hasGoogleAdsThroughputBlockingDeadLetters(queueHealth);
+  const repairableDeadLetterBacklog =
+    hasGoogleAdsRepairableBlockingDeadLetters(queueHealth);
+  const deadLetterBlockedReasonCodes =
+    getGoogleAdsWorkerDeadLetterBlockedReasonCodes(queueHealth);
   const steps: ProviderLeasePlan["steps"] = [
     {
       key: "core",
@@ -1532,22 +1541,21 @@ export async function buildGoogleAdsWorkerLeasePlan(input: {
     latestPartitionActivityAt,
     queueDepth: queueHealth?.queueDepth ?? 0,
     leasedPartitions: queueHealth?.leasedPartitions ?? 0,
-    hasRepairableBacklog: (queueHealth?.deadLetterPartitions ?? 0) > 0,
+    hasRepairableBacklog: repairableDeadLetterBacklog,
     staleRunPressure: 0,
+    blockedReasonCodes: deadLetterBlockedReasonCodes,
     stallFingerprints: deriveProviderStallFingerprints({
       queueDepth: queueHealth?.queueDepth ?? 0,
       leasedPartitions: queueHealth?.leasedPartitions ?? 0,
       checkpointLagMinutes: null,
       latestPartitionActivityAt,
-      blocked: (queueHealth?.deadLetterPartitions ?? 0) > 0,
+      blocked: throughputBlockingDeadLetters,
+      hasRepairableBacklog: repairableDeadLetterBacklog,
       progressEvidence: laneProgressEvidence.extended_historical,
       historicalBacklogDepth:
         (queueHealth?.extendedHistoricalQueueDepth ?? 0) +
         (queueHealth?.extendedHistoricalLeasedPartitions ?? 0),
-      blockedReasonCodes:
-        (queueHealth?.deadLetterPartitions ?? 0) > 0
-          ? ["required_dead_letter_partitions"]
-          : [],
+      blockedReasonCodes: deadLetterBlockedReasonCodes,
     }),
   };
 }

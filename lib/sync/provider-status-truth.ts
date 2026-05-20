@@ -110,6 +110,7 @@ export interface ProviderLeasePlan {
   leasedPartitions?: number;
   hasRepairableBacklog?: boolean;
   staleRunPressure?: number;
+  blockedReasonCodes?: string[];
   stallFingerprints?: ProviderStallFingerprint[];
 }
 

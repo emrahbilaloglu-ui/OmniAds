@@ -80,8 +80,11 @@ const {
   getGoogleAdsPartitionHealth,
   getGoogleAdsQueueHealth,
   getGoogleAdsAdvisorSurfacePartitionStates,
+  getGoogleAdsWorkerDeadLetterBlockedReasonCodes,
   getGoogleAdsWarehouseIntegrityIncidents,
+  hasGoogleAdsRepairableBlockingDeadLetters,
   hasRecentGoogleAdsTerminalActionRequiredDeadLetter,
+  hasGoogleAdsThroughputBlockingDeadLetters,
   heartbeatGoogleAdsPartitionLease,
   leaseGoogleAdsSyncPartitions,
   markGoogleAdsPartitionRunning,
@@ -138,6 +141,82 @@ describe("dedupeGoogleAdsWarehouseRows", () => {
     ).toEqual({
       source: "last",
     });
+  });
+});
+
+describe("Google Ads dead-letter worker predicates", () => {
+  it("does not throttle throughput for classified action-required extended dead letters", () => {
+    const queueHealth = {
+      deadLetterPartitions: 76,
+      actionRequiredBlockingDeadLetterPartitions: 67,
+      coreBlockingDeadLetterPartitions: 0,
+      replayableBlockingDeadLetterPartitions: 0,
+      unknownBlockingDeadLetterPartitions: 0,
+    } as never;
+
+    expect(hasGoogleAdsThroughputBlockingDeadLetters(queueHealth)).toBe(false);
+    expect(hasGoogleAdsRepairableBlockingDeadLetters(queueHealth)).toBe(false);
+    expect(getGoogleAdsWorkerDeadLetterBlockedReasonCodes(queueHealth)).toEqual([
+      "action_required_extended_dead_letter",
+    ]);
+  });
+
+  it("keeps the conservative throttle when dead-letter classification is unavailable", () => {
+    const queueHealth = {
+      deadLetterPartitions: 1,
+    } as never;
+
+    expect(hasGoogleAdsThroughputBlockingDeadLetters(queueHealth)).toBe(true);
+    expect(hasGoogleAdsRepairableBlockingDeadLetters(queueHealth)).toBe(true);
+    expect(getGoogleAdsWorkerDeadLetterBlockedReasonCodes(queueHealth)).toEqual([
+      "required_dead_letter_partitions",
+    ]);
+  });
+
+  it("treats core dead letters as throughput-blocking but not repairable backlog", () => {
+    const queueHealth = {
+      deadLetterPartitions: 1,
+      coreBlockingDeadLetterPartitions: 1,
+      replayableBlockingDeadLetterPartitions: 0,
+      unknownBlockingDeadLetterPartitions: 0,
+    } as never;
+
+    expect(hasGoogleAdsThroughputBlockingDeadLetters(queueHealth)).toBe(true);
+    expect(hasGoogleAdsRepairableBlockingDeadLetters(queueHealth)).toBe(false);
+    expect(getGoogleAdsWorkerDeadLetterBlockedReasonCodes(queueHealth)).toEqual([
+      "required_dead_letter_partitions",
+    ]);
+  });
+
+  it("treats replayable and unknown dead letters as throughput-blocking repairable backlog", () => {
+    const queueHealth = {
+      deadLetterPartitions: 2,
+      coreBlockingDeadLetterPartitions: 0,
+      replayableBlockingDeadLetterPartitions: 1,
+      unknownBlockingDeadLetterPartitions: 1,
+    } as never;
+
+    expect(hasGoogleAdsThroughputBlockingDeadLetters(queueHealth)).toBe(true);
+    expect(hasGoogleAdsRepairableBlockingDeadLetters(queueHealth)).toBe(true);
+    expect(getGoogleAdsWorkerDeadLetterBlockedReasonCodes(queueHealth)).toEqual([
+      "required_dead_letter_partitions",
+    ]);
+  });
+
+  it("returns no worker block reason when no classified blocking dead letters exist", () => {
+    const queueHealth = {
+      deadLetterPartitions: 0,
+      actionRequiredBlockingDeadLetterPartitions: 0,
+      coreBlockingDeadLetterPartitions: 0,
+      replayableBlockingDeadLetterPartitions: 0,
+      unknownBlockingDeadLetterPartitions: 0,
+    } as never;
+
+    expect(hasGoogleAdsThroughputBlockingDeadLetters(queueHealth)).toBe(false);
+    expect(hasGoogleAdsRepairableBlockingDeadLetters(queueHealth)).toBe(false);
+    expect(getGoogleAdsWorkerDeadLetterBlockedReasonCodes(queueHealth)).toEqual(
+      [],
+    );
   });
 });
 

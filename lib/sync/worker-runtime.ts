@@ -869,6 +869,7 @@ export async function runDurableWorkerRuntime(
                 repairMeta: autoHealResult?.meta ?? null,
                 lastAdvancementEvidence: leasePlan?.progressEvidence ?? null,
                 stallFingerprints: leasePlan?.stallFingerprints ?? [],
+                blockedReasonCodes: leasePlan?.blockedReasonCodes ?? [],
               },
               force: true,
             }).catch(() => null);
@@ -932,6 +933,7 @@ export async function runDurableWorkerRuntime(
                     : null,
                   repairMeta: autoHealResult?.meta ?? null,
                   stallFingerprints: leasePlan?.stallFingerprints ?? [],
+                  blockedReasonCodes: leasePlan?.blockedReasonCodes ?? [],
                 },
                 force: true,
               }).catch(() => null);
@@ -1041,6 +1043,7 @@ export async function runDurableWorkerRuntime(
                 repairMeta: autoHealResult?.meta ?? null,
                 lastAdvancementEvidence: leasePlan?.progressEvidence ?? null,
                 stallFingerprints: leasePlan?.stallFingerprints ?? [],
+                blockedReasonCodes: leasePlan?.blockedReasonCodes ?? [],
                 consumeAttempted:
                   syncResult?.attempted &&
                   typeof syncResult.attempted === "number"

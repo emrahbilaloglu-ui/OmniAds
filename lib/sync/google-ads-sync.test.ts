@@ -34,6 +34,7 @@ import {
   normalizeGoogleAdsPartitionDateKey,
   resolveGoogleAdsFullSyncPriorityFromStateRows,
   getGoogleAdsRecent90FrontierScopes,
+  getGoogleAdsActionRequiredLeaseExcludedScopes,
   resolveGoogleAdsActionRequiredAwarePriorityScopes,
 } from "@/lib/sync/google-ads-sync";
 
@@ -1300,6 +1301,17 @@ describe("resolveGoogleAdsActionRequiredAwarePriorityScopes", () => {
   });
 });
 
+describe("getGoogleAdsActionRequiredLeaseExcludedScopes", () => {
+  it("dedupes terminal action-required scopes for lease exclusion", () => {
+    expect(
+      getGoogleAdsActionRequiredLeaseExcludedScopes({
+        actionRequiredBlockingDeadLetterScopes: ["product_daily"],
+        actionRequiredDeadLetterScopes: ["product_daily", "product_daily"],
+      } as never),
+    ).toEqual(["product_daily"]);
+  });
+});
+
 describe("resolveGoogleAdsWorkerRequestedLimit", () => {
   it("expands the lifecycle lease budget when Google has productive backlog", () => {
     expect(
@@ -1342,6 +1354,79 @@ describe("resolveGoogleAdsWorkerRequestedLimit", () => {
           extendedHistoricalQueueDepth: 0,
           deadLetterPartitions: 1,
         } as never,
+      }),
+    ).toBe(1);
+  });
+
+  it("expands the lifecycle lease budget through terminal action-required extended dead letters", () => {
+    expect(
+      resolveGoogleAdsWorkerRequestedLimit({
+        leaseLimit: 1,
+        queueHealth: {
+          queueDepth: 4180,
+          coreQueueDepth: 0,
+          extendedHistoricalQueueDepth: 4179,
+          deadLetterPartitions: 76,
+          blockingDeadLetterPartitions: 67,
+          actionRequiredDeadLetterPartitions: 76,
+          actionRequiredBlockingDeadLetterPartitions: 67,
+          actionRequiredDeadLetterScopes: ["product_daily"],
+          actionRequiredBlockingDeadLetterScopes: ["product_daily"],
+          coreBlockingDeadLetterPartitions: 0,
+          replayableBlockingDeadLetterPartitions: 0,
+          unknownBlockingDeadLetterPartitions: 0,
+          latestCoreActivityAt: null,
+          latestExtendedActivityAt: "2026-05-20T08:34:56.694Z",
+          latestMaintenanceActivityAt: null,
+        } as never,
+        progressEvidence: {
+          extended_historical: {
+            lastCheckpointAdvancedAt: null,
+            lastReadyThroughAdvancedAt: null,
+            lastCompletedAt: "2026-05-20T08:34:56.694Z",
+            backlogDelta: null,
+            completedPartitionDelta: null,
+            lastReplayAt: null,
+            lastReclaimAt: null,
+            recentActivityWindowMinutes: 20,
+          },
+        },
+        nowMs: new Date("2026-05-20T08:36:00.000Z").getTime(),
+      }),
+    ).toBeGreaterThan(1);
+  });
+
+  it("keeps the lifecycle lease budget conservative for throughput-blocking dead letters", () => {
+    expect(
+      resolveGoogleAdsWorkerRequestedLimit({
+        leaseLimit: 1,
+        queueHealth: {
+          queueDepth: 4180,
+          coreQueueDepth: 1,
+          extendedHistoricalQueueDepth: 4179,
+          deadLetterPartitions: 1,
+          actionRequiredDeadLetterPartitions: 0,
+          actionRequiredBlockingDeadLetterPartitions: 0,
+          coreBlockingDeadLetterPartitions: 1,
+          replayableBlockingDeadLetterPartitions: 0,
+          unknownBlockingDeadLetterPartitions: 0,
+          latestCoreActivityAt: "2026-05-20T08:34:56.694Z",
+          latestExtendedActivityAt: "2026-05-20T08:34:56.694Z",
+          latestMaintenanceActivityAt: null,
+        } as never,
+        progressEvidence: {
+          core: {
+            lastCheckpointAdvancedAt: null,
+            lastReadyThroughAdvancedAt: null,
+            lastCompletedAt: "2026-05-20T08:34:56.694Z",
+            backlogDelta: null,
+            completedPartitionDelta: null,
+            lastReplayAt: null,
+            lastReclaimAt: null,
+            recentActivityWindowMinutes: 20,
+          },
+        },
+        nowMs: new Date("2026-05-20T08:36:00.000Z").getTime(),
       }),
     ).toBe(1);
   });

@@ -5495,6 +5495,58 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
   };
 }
 
+type GoogleAdsQueueHealthSnapshot = Awaited<ReturnType<typeof getGoogleAdsQueueHealth>>;
+
+function hasGoogleAdsClassifiedBlockingDeadLetterCounts(
+  queueHealth: GoogleAdsQueueHealthSnapshot | null | undefined,
+) {
+  return (
+    queueHealth?.coreBlockingDeadLetterPartitions != null &&
+    queueHealth.replayableBlockingDeadLetterPartitions != null &&
+    queueHealth.unknownBlockingDeadLetterPartitions != null
+  );
+}
+
+export function hasGoogleAdsThroughputBlockingDeadLetters(
+  queueHealth: GoogleAdsQueueHealthSnapshot | null | undefined,
+) {
+  if (!queueHealth) return false;
+  if (!hasGoogleAdsClassifiedBlockingDeadLetterCounts(queueHealth)) {
+    return (queueHealth.deadLetterPartitions ?? 0) > 0;
+  }
+  return (
+    (queueHealth.coreBlockingDeadLetterPartitions ?? 0) > 0 ||
+    (queueHealth.replayableBlockingDeadLetterPartitions ?? 0) > 0 ||
+    (queueHealth.unknownBlockingDeadLetterPartitions ?? 0) > 0
+  );
+}
+
+export function hasGoogleAdsRepairableBlockingDeadLetters(
+  queueHealth: GoogleAdsQueueHealthSnapshot | null | undefined,
+) {
+  if (!queueHealth) return false;
+  if (!hasGoogleAdsClassifiedBlockingDeadLetterCounts(queueHealth)) {
+    return (queueHealth.deadLetterPartitions ?? 0) > 0;
+  }
+  return (
+    (queueHealth.replayableBlockingDeadLetterPartitions ?? 0) > 0 ||
+    (queueHealth.unknownBlockingDeadLetterPartitions ?? 0) > 0
+  );
+}
+
+export function getGoogleAdsWorkerDeadLetterBlockedReasonCodes(
+  queueHealth: GoogleAdsQueueHealthSnapshot | null | undefined,
+) {
+  if (!queueHealth) return [];
+  if (hasGoogleAdsThroughputBlockingDeadLetters(queueHealth)) {
+    return ["required_dead_letter_partitions"];
+  }
+  if ((queueHealth.actionRequiredBlockingDeadLetterPartitions ?? 0) > 0) {
+    return ["action_required_extended_dead_letter"];
+  }
+  return [];
+}
+
 export async function getGoogleAdsAdvisorQueueHealth(input: {
   businessId: string;
   startDate: string;

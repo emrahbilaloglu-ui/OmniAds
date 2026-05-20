@@ -143,19 +143,14 @@ describe("Creative Decision Center shadow snapshot builder", () => {
       aggregateDecisions: aggregates,
     });
 
-    // The adapter mirrors engine.missingData into row.missingData, and the
-    // builder counts both. With the inputs above:
-    //   creative_a: row + engine each list ["truth","freshness"]
-    //     -> truth +2, freshness +2
-    //   creative_b: row + engine each list ["truth"]
-    //     -> truth +2
-    //   aggregate: ["backlog"] -> backlog +1
-    // Totals: truth = 4, freshness = 2, backlog = 1. Output stays
-    // key-sorted regardless of insertion order.
+    // The adapter mirrors engine.missingData into row.missingData. The
+    // builder counts a missing field once per row decision, using the union
+    // of row.missingData and engine.missingData to avoid double-counting the
+    // same blocker from the two mirrored surfaces.
     expect(snapshot.missingDataSummary).toEqual({
       backlog: 1,
-      freshness: 2,
-      truth: 4,
+      freshness: 1,
+      truth: 2,
     });
     expect(Object.keys(snapshot.missingDataSummary)).toEqual([
       "backlog",

@@ -48,7 +48,7 @@ export interface DecisionCenterSnapshotBuilderInput {
   inputCoverageSummary?: Record<string, number>;
   /**
    * Operator-provided "Today brief" entries. Default is `[]`. The builder
-   * does not rank, select, or pick a top-N — that would be a decision and
+   * does not rank, select, or pick a top-N - that would be a decision and
    * is out of scope. Pass an empty array unless an upstream operator
    * surface already produced curated entries.
    */
@@ -79,10 +79,8 @@ function deriveMissingDataSummary(
 ): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const row of rows) {
-    for (const entry of row.missingData) {
-      counts[entry] = (counts[entry] ?? 0) + 1;
-    }
-    for (const entry of row.engine.missingData) {
+    const rowMissingData = new Set([...row.missingData, ...row.engine.missingData]);
+    for (const entry of rowMissingData) {
       counts[entry] = (counts[entry] ?? 0) + 1;
     }
   }

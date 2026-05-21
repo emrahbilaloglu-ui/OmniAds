@@ -91,6 +91,95 @@ async function dropColumnIfExistsWithShortLock(
   }
 }
 
+function buildMetaConfigGrowthGuardSql() {
+  return `
+    CREATE OR REPLACE FUNCTION public.skip_unchanged_meta_config_snapshot()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    DECLARE
+      latest_payload jsonb;
+    BEGIN
+      SELECT existing.payload
+      INTO latest_payload
+      FROM public.meta_config_snapshots existing
+      WHERE existing.business_id = NEW.business_id
+        AND existing.account_id = NEW.account_id
+        AND existing.entity_level = NEW.entity_level
+        AND existing.entity_id = NEW.entity_id
+      ORDER BY existing.captured_at DESC
+      LIMIT 1;
+
+      IF FOUND AND latest_payload IS NOT DISTINCT FROM NEW.payload THEN
+        RETURN NULL;
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$;
+
+    CREATE OR REPLACE FUNCTION public.skip_unchanged_meta_campaign_config_history()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    DECLARE
+      latest_fingerprint text;
+    BEGIN
+      SELECT existing.config_fingerprint
+      INTO latest_fingerprint
+      FROM public.meta_campaign_config_history existing
+      WHERE existing.business_id = NEW.business_id
+        AND existing.provider_account_id = NEW.provider_account_id
+        AND existing.campaign_id = NEW.campaign_id
+      ORDER BY existing.captured_at DESC
+      LIMIT 1;
+
+      IF FOUND AND latest_fingerprint = NEW.config_fingerprint THEN
+        RETURN NULL;
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$;
+
+    CREATE OR REPLACE FUNCTION public.skip_unchanged_meta_adset_config_history()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    DECLARE
+      latest_fingerprint text;
+    BEGIN
+      SELECT existing.config_fingerprint
+      INTO latest_fingerprint
+      FROM public.meta_adset_config_history existing
+      WHERE existing.business_id = NEW.business_id
+        AND existing.provider_account_id = NEW.provider_account_id
+        AND existing.adset_id = NEW.adset_id
+      ORDER BY existing.captured_at DESC
+      LIMIT 1;
+
+      IF FOUND AND latest_fingerprint = NEW.config_fingerprint THEN
+        RETURN NULL;
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$;
+
+    CREATE OR REPLACE TRIGGER trg_skip_unchanged_meta_config_snapshot
+    BEFORE INSERT ON public.meta_config_snapshots
+    FOR EACH ROW EXECUTE FUNCTION public.skip_unchanged_meta_config_snapshot();
+
+    CREATE OR REPLACE TRIGGER trg_skip_unchanged_meta_campaign_config_history
+    BEFORE INSERT ON public.meta_campaign_config_history
+    FOR EACH ROW EXECUTE FUNCTION public.skip_unchanged_meta_campaign_config_history();
+
+    CREATE OR REPLACE TRIGGER trg_skip_unchanged_meta_adset_config_history
+    BEFORE INSERT ON public.meta_adset_config_history
+    FOR EACH ROW EXECUTE FUNCTION public.skip_unchanged_meta_adset_config_history();
+  `;
+}
+
 function runtimeMigrationsEnabled() {
   const explicit = process.env.ENABLE_RUNTIME_MIGRATIONS?.trim().toLowerCase();
   if (explicit === "1" || explicit === "true") return true;
@@ -955,6 +1044,8 @@ export async function runMigrations(options?: {
         `.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_provider_reporting_snapshots_business ON provider_reporting_snapshots (business_id, updated_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_config_snapshots_lookup ON meta_config_snapshots (business_id, entity_level, entity_id, captured_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_config_snapshots_latest_guard
+          ON meta_config_snapshots (business_id, account_id, entity_level, entity_id, captured_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_creative_share_snapshots_token ON creative_share_snapshots (token)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_creative_decision_os_snapshots_scope
           ON creative_decision_os_snapshots (
@@ -3379,6 +3470,9 @@ export async function runMigrations(options?: {
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_config_history_lookup
           ON meta_campaign_config_history (business_id, campaign_id, captured_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_config_history_latest_guard
+          ON meta_campaign_config_history (business_id, provider_account_id, campaign_id, captured_at DESC)
+          INCLUDE (config_fingerprint)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_adset_dimensions (
           id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id             TEXT NOT NULL,
@@ -3431,12 +3525,16 @@ export async function runMigrations(options?: {
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_adset_config_history_lookup
           ON meta_adset_config_history (business_id, adset_id, captured_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_adset_config_history_latest_guard
+          ON meta_adset_config_history (business_id, provider_account_id, adset_id, captured_at DESC)
+          INCLUDE (config_fingerprint)`.catch(() => {}),
         sql`ALTER TABLE meta_campaign_config_history ADD COLUMN IF NOT EXISTS custom_event_type TEXT`.catch(() => {}),
         sql`ALTER TABLE meta_campaign_config_history ADD COLUMN IF NOT EXISTS is_custom_event_type_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {}),
         sql`ALTER TABLE meta_adset_config_history ADD COLUMN IF NOT EXISTS custom_event_type TEXT`.catch(() => {}),
         sql`ALTER TABLE meta_adset_config_history ADD COLUMN IF NOT EXISTS pixel_id TEXT`.catch(() => {}),
         sql`ALTER TABLE meta_adset_config_history ADD COLUMN IF NOT EXISTS custom_conversion_id TEXT`.catch(() => {}),
         sql`ALTER TABLE meta_adset_config_history ADD COLUMN IF NOT EXISTS promoted_object_json JSONB`.catch(() => {}),
+        sql.query(buildMetaConfigGrowthGuardSql()).catch(() => {}),
         dropColumnIfExistsWithShortLock(sql, "meta_campaign_daily", "bid_strategy_label"),
         dropColumnIfExistsWithShortLock(sql, "meta_campaign_daily", "manual_bid_amount"),
         dropColumnIfExistsWithShortLock(sql, "meta_adset_daily", "bid_strategy_label"),

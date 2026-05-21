@@ -420,6 +420,17 @@ export async function appendMetaConfigSnapshots(
         entity_id text,
         payload jsonb
       )
+      LEFT JOIN LATERAL (
+        SELECT existing.payload
+        FROM meta_config_snapshots existing
+        WHERE existing.business_id = item.business_id
+          AND existing.account_id = item.account_id
+          AND existing.entity_level = item.entity_level
+          AND existing.entity_id = item.entity_id
+        ORDER BY existing.captured_at DESC
+        LIMIT 1
+      ) latest ON TRUE
+      WHERE latest.payload IS DISTINCT FROM item.payload
     `;
   } catch (error) {
     console.warn("[meta-config-snapshots] append_failed", {

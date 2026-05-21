@@ -25,19 +25,7 @@ export async function GET(request: NextRequest) {
   const objectiveFilter = objective.toUpperCase() === "ALL" ? null : objective;
   const sql = getDb();
   const rows = (await sql`
-    WITH latest_campaign_config AS (
-      SELECT DISTINCT ON (business_id, provider_account_id, campaign_id)
-        business_id,
-        provider_account_id,
-        campaign_id,
-        objective,
-        daily_budget,
-        lifetime_budget
-      FROM meta_campaign_config_history
-      WHERE business_id = ${access.membership.businessId}
-      ORDER BY business_id, provider_account_id, campaign_id, captured_at DESC
-    ),
-    adset_counts AS (
+    WITH adset_counts AS (
       SELECT
         business_id,
         provider_account_id,
@@ -71,10 +59,18 @@ export async function GET(request: NextRequest) {
       COALESCE(adset_counts.adset_count, 0)::int AS adset_count,
       COALESCE(spend_28d.last_spend_28d, 0)::double precision AS last_spend_28d
     FROM meta_campaign_dimensions campaign
-    LEFT JOIN latest_campaign_config config
-      ON config.business_id = campaign.business_id
-      AND config.provider_account_id = campaign.provider_account_id
-      AND config.campaign_id = campaign.campaign_id
+    LEFT JOIN LATERAL (
+      SELECT
+        cfg.objective,
+        cfg.daily_budget,
+        cfg.lifetime_budget
+      FROM meta_campaign_config_history cfg
+      WHERE cfg.business_id = campaign.business_id
+        AND cfg.provider_account_id = campaign.provider_account_id
+        AND cfg.campaign_id = campaign.campaign_id
+      ORDER BY cfg.captured_at DESC
+      LIMIT 1
+    ) config ON TRUE
     LEFT JOIN adset_counts
       ON adset_counts.business_id = campaign.business_id
       AND adset_counts.provider_account_id = campaign.provider_account_id

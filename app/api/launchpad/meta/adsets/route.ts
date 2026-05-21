@@ -72,23 +72,7 @@ export async function GET(request: NextRequest) {
 
   const sql = getDb();
   const rows = (await sql`
-    WITH latest_adset_config AS (
-      SELECT DISTINCT ON (business_id, provider_account_id, adset_id)
-        business_id,
-        provider_account_id,
-        campaign_id,
-        adset_id,
-        optimization_goal,
-        bid_strategy_type,
-        bid_value,
-        bid_value_format,
-        daily_budget,
-        lifetime_budget
-      FROM meta_adset_config_history
-      WHERE business_id = ${access.membership.businessId}
-      ORDER BY business_id, provider_account_id, adset_id, captured_at DESC
-    ),
-    latest_projection AS (
+    WITH latest_projection AS (
       SELECT DISTINCT ON (business_id, provider_account_id, adset_id)
         business_id,
         provider_account_id,
@@ -155,10 +139,21 @@ export async function GET(request: NextRequest) {
         ELSE NULL
       END AS last_7d_roas
     FROM meta_adset_dimensions adset
-    LEFT JOIN latest_adset_config config
-      ON config.business_id = adset.business_id
-      AND config.provider_account_id = adset.provider_account_id
-      AND config.adset_id = adset.adset_id
+    LEFT JOIN LATERAL (
+      SELECT
+        cfg.optimization_goal,
+        cfg.bid_strategy_type,
+        cfg.bid_value,
+        cfg.bid_value_format,
+        cfg.daily_budget,
+        cfg.lifetime_budget
+      FROM meta_adset_config_history cfg
+      WHERE cfg.business_id = adset.business_id
+        AND cfg.provider_account_id = adset.provider_account_id
+        AND cfg.adset_id = adset.adset_id
+      ORDER BY cfg.captured_at DESC
+      LIMIT 1
+    ) config ON TRUE
     LEFT JOIN latest_projection projection
       ON projection.business_id = adset.business_id
       AND projection.provider_account_id = adset.provider_account_id

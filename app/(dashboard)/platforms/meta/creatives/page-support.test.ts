@@ -379,6 +379,35 @@ describe("mapApiRowToUiRow", () => {
     expect(shared.initiateCheckout).toBe(10);
     expect(shared.leads).toBe(3);
     expect(shared.messages).toBe(2);
+    expect(shared.hookScore).toEqual(expect.any(Number));
+    expect(shared.ctaScore).toEqual(expect.any(Number));
+    expect(shared.offerScore).toEqual(expect.any(Number));
+    expect(shared.clickScore).toEqual(expect.any(Number));
+    expect(shared.watchScore).toEqual(expect.any(Number));
+  });
+
+  it("carries Creative teams score fields into shared creative payloads", () => {
+    const apiRow = {
+      ...buildApiRow(),
+      creative_scores: {
+        hook_score: 74,
+        cta: 68,
+        offerScore: "55",
+      },
+      score_click: "43",
+      creative_watch_score: 87,
+      creative_score_gap: { label: "Hook gap", severity: "warning" },
+    } as MetaCreativeApiRow & Record<string, unknown>;
+
+    const row = mapApiRowToUiRow(apiRow);
+    const shared = toSharedCreative(row);
+
+    expect(shared.hookScore).toBe(74);
+    expect(shared.ctaScore).toBe(68);
+    expect(shared.offerScore).toBe(55);
+    expect(shared.clickScore).toBe(43);
+    expect(shared.watchScore).toBe(87);
+    expect(shared.creativeScoreGap).toEqual({ label: "Hook gap", severity: "watch" });
   });
 
   it("exports truthful CSV headers and values without misleading duplicate columns", () => {

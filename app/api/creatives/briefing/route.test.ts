@@ -379,6 +379,108 @@ describe("GET /api/creatives/briefing", () => {
     expect(payload.actionNow).toEqual([]);
     expect(payload.watching).toEqual([]);
     expect(payload.healthy).toEqual([]);
+    // PR7A: disabled path must NOT auto-expose decisionCenter.
+    expect(payload).not.toHaveProperty("decisionCenter");
+  });
+
+  it("omits decisionCenter from the default response (PR7A)", async () => {
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).not.toHaveProperty("decisionCenter");
+    // Existing legacy assertions still hold.
+    expect(payload.statusFilter).toBe("active");
+    expect(Array.isArray(payload.actionNow)).toBe(true);
+    expect(Array.isArray(payload.watching)).toBe(true);
+    expect(Array.isArray(payload.healthy)).toBe(true);
+    expect(payload.pulse.engineVersion).toBeTruthy();
+    expect(payload.source.dataSource).toBe("mock");
+  });
+
+  it("emits a validated empty decisionCenter snapshot when ?decisionCenter=1 is set (PR7A)", async () => {
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=1",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.decisionCenter).not.toBeNull();
+    expect(payload.decisionCenter).toMatchObject({
+      contractVersion: "creative-decision-center.v2.1",
+      adapterVersion: "creative-decision-center.shadow-adapter.v1",
+      configVersion: "creative-decision-engine.config.v1",
+      generatedAt: "2026-05-07T00:00:00.000Z",
+      rowDecisions: [],
+      aggregateDecisions: [],
+      todayBrief: [],
+      missingDataSummary: {},
+      inputCoverageSummary: {},
+    });
+    expect(payload.decisionCenter.dataFreshness.status).toMatch(
+      /^(fresh|stale)$/,
+    );
+    expect(payload.decisionCenter.engineVersion).toBeTruthy();
+    expect(Object.keys(payload.decisionCenter.actionBoard)).toEqual([
+      "scale",
+      "cut",
+      "refresh",
+      "protect",
+      "test_more",
+      "watch_launch",
+      "fix_delivery",
+      "fix_policy",
+      "diagnose_data",
+    ]);
+    for (const bucket of Object.values(
+      payload.decisionCenter.actionBoard as Record<string, unknown[]>,
+    )) {
+      expect(bucket).toEqual([]);
+    }
+    // Legacy payload assertions remain intact.
+    expect(payload.statusFilter).toBe("active");
+    expect(Array.isArray(payload.actionNow)).toBe(true);
+    expect(payload.source.dataSource).toBe("mock");
+  });
+
+  it("rejects falsy/adversarial decisionCenter values and omits the field (PR7A)", async () => {
+    for (const value of ["0", "false", "no", "", " ", "<huge>".repeat(2000)]) {
+      const response = await GET(
+        new NextRequest(
+          `http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=${encodeURIComponent(value)}`,
+        ),
+      );
+      const payload = await response.json();
+      expect(response.status).toBe(200);
+      expect(payload).not.toHaveProperty("decisionCenter");
+    }
+  });
+
+  it("emits the empty decisionCenter snapshot on the disabled path only when explicitly requested (PR7A)", async () => {
+    vi.mocked(resolveEngineV3Flags).mockResolvedValue(makeFlags({ enabled: false }));
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decision_center=true",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.status).toBe("disabled");
+    expect(payload.decisionCenter).toMatchObject({
+      contractVersion: "creative-decision-center.v2.1",
+      engineVersion: "disabled",
+      rowDecisions: [],
+      aggregateDecisions: [],
+      todayBrief: [],
+    });
   });
 
   it("surfaces missing campaign label context in cards", async () => {

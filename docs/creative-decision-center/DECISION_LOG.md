@@ -407,3 +407,59 @@ Risk: the free-form string could drift into a hidden second union. Mitigation:
 the adapter is the only allowed writer, validators reject anything but a
 nullable string, and tests assert no UI/route consumer reads `sourceDecision`
 to compute decisions.
+
+## D021 — Flagged `decisionCenter` Briefing Response Shape With No Live Row Adaptation
+
+Decision: extend `GET /api/creatives/briefing` with an additive,
+opt-in-only `decisionCenter` field on the JSON response. The field is
+populated by the structural snapshot builder
+(`lib/creative-decision-center/snapshot-builder.ts`) and shipped with
+empty `rowDecisions`, empty `aggregateDecisions`, empty `todayBrief`,
+and the fully empty `actionBoard` the builder produces. The field is
+attached only when the request carries `?decisionCenter=1`,
+`?decisionCenter=true`, or the snake-case `?decision_center=...`
+equivalent. The default response shape is unchanged.
+
+Reason: PR_SEQUENCE PR7 acceptance asks for an additive `decisionCenter`
+response that preserves the legacy briefing response and old snapshot
+rendering. Mapping active V3 `DecisionOutput` rows into V2.1 row
+decisions would be policy/runtime behavior and is explicitly out of
+scope for PR7A. Shipping the contract surface behind a flag lets
+adapter/shadow tooling stand the response up without touching the
+active engine output and without committing to a live mapping.
+
+Scope: route-level additive field, type-level extension of
+`CreativesBriefingResponse`, and a module-isolation allowlist for the
+exact route, route-test, and response-type files. No UI component
+consumes `decisionCenter`. The snapshot validator and invariant audit
+must both pass; if either fails, the field is set to `null` rather than
+silently shipping a malformed snapshot. The disabled-engine path also
+honors the flag and emits a snapshot stamped with
+`engineVersion: "disabled"`; the field is omitted on the disabled path
+by default to avoid implying live decisions.
+
+Constraint: PR7A must not map active engine decisions into row
+decisions, must not let the UI render `decisionCenter`, must not rename
+the briefing route, and must not change the legacy response shape when
+the flag is absent. Module isolation still forbids `lib/meta`,
+`lib/creative-decision-engine`, `scripts/creative-decision-center`, and
+any non-allowlisted file under `app/` or `components/` from importing
+`@/lib/creative-decision-center`.
+
+Rejected alternatives:
+- Always emit `decisionCenter` on every response. That would change the
+  default response shape and force consumers to decide what to do with
+  empty rows, which is policy by another name.
+- Adapt live V3 `DecisionOutput` rows into `rowDecisions`. That is the
+  buyer-adapter wiring described in D003/D019 and requires explicit
+  user approval before it can ship even in shadow mode on a real route.
+- Wire the response into an existing component flag (for example a
+  drawer). UI consumption is deferred to a later PR_SEQUENCE slice
+  behind its own ADR.
+
+Risk: future PRs could wire the UI directly off `decisionCenter` and
+collapse the legacy lanes into it without a separate decision. Mitigation:
+the route test enforces that the field is absent by default, the
+module-isolation test allowlist enumerates the only files allowed to
+import `@/lib/creative-decision-center`, and the response interface
+documents that the UI must not consume the field.

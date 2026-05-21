@@ -26,6 +26,15 @@ import {
 import { nDaysAgo, toISODate } from "@/lib/meta/creatives-row-mappers";
 import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import { readTriageState } from "@/lib/triage-events";
+import { CREATIVE_DECISION_ENGINE_CONFIG_VERSION } from "@/lib/creative-decision-engine/config-values";
+import {
+  assembleDecisionCenterSnapshot,
+  auditDecisionCenterSnapshotInvariants,
+  CREATIVE_DECISION_CENTER_ADAPTER_VERSION,
+  validateDecisionCenterSnapshot,
+  type CreativeDecisionCenterFreshnessStatus,
+  type DecisionCenterSnapshot,
+} from "@/lib/creative-decision-center";
 import type {
   BriefingCreativeCard,
   CreativesBriefingResponse,
@@ -34,6 +43,54 @@ import type {
 export const dynamic = "force-dynamic";
 
 type BriefingLane = "action" | "watching" | "healthy";
+
+/**
+ * PR7A: explicit request flag for the additive `decisionCenter` response
+ * shape. The flag is OFF by default; the legacy response is unchanged when
+ * the flag is absent. Accepts `decisionCenter=1`, `decisionCenter=true`,
+ * and the snake-case `decision_center=1` for safety.
+ */
+function isDecisionCenterRequested(searchParams: URLSearchParams): boolean {
+  const truthy = (value: string | null) => {
+    if (!value) return false;
+    const normalized = value.trim().toLowerCase();
+    return normalized === "1" || normalized === "true";
+  };
+  return (
+    truthy(searchParams.get("decisionCenter")) ||
+    truthy(searchParams.get("decision_center"))
+  );
+}
+
+/**
+ * PR7A: assemble a validated empty `DecisionCenterSnapshot` for the
+ * additive response shape. This intentionally does NOT map live engine
+ * decisions into V2.1 rowDecisions — that is policy/runtime behavior
+ * and requires separate user approval. The snapshot ships with empty
+ * rows, empty aggregates, empty todayBrief, and an empty actionBoard.
+ */
+function buildEmptyDecisionCenterSnapshot(input: {
+  asOf: string;
+  engineVersion: string;
+  dataHealthDegraded: boolean;
+}): DecisionCenterSnapshot | null {
+  const dataFreshnessStatus: CreativeDecisionCenterFreshnessStatus =
+    input.dataHealthDegraded ? "stale" : "fresh";
+  const generatedAt = new Date(`${input.asOf}T00:00:00.000Z`).toISOString();
+  const { snapshot } = assembleDecisionCenterSnapshot({
+    engineVersion: input.engineVersion,
+    adapterVersion: CREATIVE_DECISION_CENTER_ADAPTER_VERSION,
+    configVersion: CREATIVE_DECISION_ENGINE_CONFIG_VERSION,
+    generatedAt,
+    dataFreshness: { status: dataFreshnessStatus, maxAgeHours: null },
+    rowDecisions: [],
+    aggregateDecisions: [],
+  });
+  const validation = validateDecisionCenterSnapshot(snapshot);
+  if (!validation.ok) return null;
+  if (auditDecisionCenterSnapshotInvariants(snapshot).length > 0) return null;
+  return snapshot;
+}
 
 function badgeLabels(badges: DecisionBadge[]) {
   return badges.flatMap((badge) => {
@@ -362,6 +419,9 @@ export async function GET(request: NextRequest) {
   const statusFilter = parseBriefingStatusFilter(
     request.nextUrl.searchParams.get("status_filter"),
   );
+  const decisionCenterRequested = isDecisionCenterRequested(
+    request.nextUrl.searchParams,
+  );
 
   if (!businessId) {
     return NextResponse.json(
@@ -380,7 +440,11 @@ export async function GET(request: NextRequest) {
   const resolvedBusinessId = access.membership.businessId;
   const flags = await resolveEngineV3Flags(resolvedBusinessId);
   if (!flags.enabled) {
-    return NextResponse.json({
+    const disabledBody: CreativesBriefingResponse & {
+      status: "disabled";
+      reason: string;
+      statusFilter: typeof statusFilter;
+    } = {
       status: "disabled",
       reason: "engine_v3_disabled_for_business",
       statusFilter,
@@ -393,11 +457,15 @@ export async function GET(request: NextRequest) {
         engineVersion: "disabled",
         trackingAnomalyActive: false,
       },
-    } satisfies CreativesBriefingResponse & {
-      status: "disabled";
-      reason: string;
-      statusFilter: typeof statusFilter;
-    });
+    };
+    if (decisionCenterRequested) {
+      disabledBody.decisionCenter = buildEmptyDecisionCenterSnapshot({
+        asOf,
+        engineVersion: "disabled",
+        dataHealthDegraded: false,
+      });
+    }
+    return NextResponse.json(disabledBody);
   }
 
   const { instance: dataSource, label: dataSourceLabel } = resolveDataSource();
@@ -533,40 +601,53 @@ export async function GET(request: NextRequest) {
     decision.badges.some((badge) => badge.type === "tracking_anomaly"),
   );
 
-  return NextResponse.json(
-    {
-      actionNow: lanes.action,
-      watching: lanes.watching,
-      healthy: lanes.healthy,
-      statusFilter,
-      deferredCount: triageState.deferredCount,
-      pulse: {
-        matureCount: lanes.healthy.length + lanes.action.length,
-        spendTarget: null,
-        spendHistory: null,
-        rolling7dRoasTarget: profile.spendUnitEvidence.targetRoas,
-        engineVersion:
-          decisions[0]?.engineVersion ?? flags.presetOverride ?? "Engine v3",
-        calibratedAgo: dataHealth.calibration.computedAt ?? null,
-        trackingAnomalyActive,
-        trackingDetail: trackingAnomalyActive
-          ? "Engine v3 flagged a tracking anomaly in the decision set."
-          : dataHealth.degraded
-            ? "Engine v3 is running with degraded data health."
-            : null,
-      },
+  const responseEngineVersion =
+    decisions[0]?.engineVersion ?? flags.presetOverride ?? "Engine v3";
+
+  const responseBody: CreativesBriefingResponse & {
+    statusFilter: typeof statusFilter;
+  } = {
+    actionNow: lanes.action,
+    watching: lanes.watching,
+    healthy: lanes.healthy,
+    statusFilter,
+    deferredCount: triageState.deferredCount,
+    pulse: {
+      matureCount: lanes.healthy.length + lanes.action.length,
+      spendTarget: null,
+      spendHistory: null,
+      rolling7dRoasTarget: profile.spendUnitEvidence.targetRoas,
+      engineVersion: responseEngineVersion,
+      calibratedAgo: dataHealth.calibration.computedAt ?? null,
       trackingAnomalyActive,
-      trackingBlocked: trackingAnomalyActive,
       trackingDetail: trackingAnomalyActive
         ? "Engine v3 flagged a tracking anomaly in the decision set."
-        : null,
-      source: {
-        dataSource: dataSourceLabel,
-        asOf,
-        dataHealth,
-        accountProfile: profile,
-      },
+        : dataHealth.degraded
+          ? "Engine v3 is running with degraded data health."
+          : null,
     },
-    { headers: { "Cache-Control": "no-store" } },
-  );
+    trackingAnomalyActive,
+    trackingBlocked: trackingAnomalyActive,
+    trackingDetail: trackingAnomalyActive
+      ? "Engine v3 flagged a tracking anomaly in the decision set."
+      : null,
+    source: {
+      dataSource: dataSourceLabel,
+      asOf,
+      dataHealth,
+      accountProfile: profile,
+    },
+  };
+
+  if (decisionCenterRequested) {
+    responseBody.decisionCenter = buildEmptyDecisionCenterSnapshot({
+      asOf,
+      engineVersion: responseEngineVersion,
+      dataHealthDegraded: Boolean(dataHealth.degraded),
+    });
+  }
+
+  return NextResponse.json(responseBody, {
+    headers: { "Cache-Control": "no-store" },
+  });
 }

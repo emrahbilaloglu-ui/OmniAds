@@ -8,6 +8,10 @@ import type {
   DataHealth,
   DecisionLabelTransform,
 } from "@/lib/creative-decision-engine";
+// PR7A: type-only import so the response interface can optionally carry the
+// additive decisionCenter snapshot. The UI must not consume this field; it is
+// shipped behind an explicit ?decisionCenter=1 flag for adapter/shadow tooling.
+import type { DecisionCenterSnapshot } from "@/lib/creative-decision-center";
 
 export interface BriefingPrimaryAction {
   kind?: string | null;
@@ -153,6 +157,13 @@ export interface CreativesBriefingResponse {
     dataHealth?: DataHealth | null;
     accountProfile?: AccountDecisionProfile | null;
   } | null;
+  /**
+   * PR7A: additive shadow snapshot. Present only when the request supplied
+   * `?decisionCenter=1`. Null indicates the snapshot was requested but failed
+   * structural validation. UI components must not consume this field; it is
+   * adapter/shadow tooling surface.
+   */
+  decisionCenter?: DecisionCenterSnapshot | null;
 }
 
 export interface MetaSummaryPulseResponse {

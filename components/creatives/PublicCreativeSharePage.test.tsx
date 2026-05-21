@@ -31,12 +31,14 @@ describe("PublicCreativeSharePage", () => {
       presetLabel: "Creative teams",
       includeCampaignNames: false,
       includeDecisionLanguage: false,
-      metrics: ["spend", "hookScore", "ctaScore", "offerScore"],
+      metrics: ["spend", "hookScore", "ctaScore", "offerScore", "clickScore", "watchScore"],
       creatives: MOCK_SHARE_PAYLOAD.creatives.slice(0, 1).map((creative) => ({
         ...creative,
         hookScore: 88,
         ctaScore: 72,
         offerScore: 61,
+        clickScore: 44,
+        watchScore: 93,
         creativeScoreGap: { label: "Offer gap", severity: "watch" as const },
       })),
     };
@@ -50,6 +52,11 @@ describe("PublicCreativeSharePage", () => {
     expect(html).toContain(">Hook<");
     expect(html).toContain(">CTA<");
     expect(html).toContain(">Offer<");
+    expect(html).toContain(">Click<");
+    expect(html).toContain(">Watch<");
+    expect(html).toContain("88/100");
+    expect(html).toContain(">44<");
+    expect(html).toContain(">93<");
     expect(html).not.toContain("Creative action plan");
     expect(html).not.toContain("Scale review: UGC Reel");
     expect(html).not.toContain("Purchase value</th>");

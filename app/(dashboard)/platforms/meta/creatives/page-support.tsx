@@ -177,57 +177,283 @@ export function toSharedCreative(
   row: MetaCreativeRow,
   analysis?: SharedCreativeAnalysis | null,
 ): SharedCreative {
+  const scoredRow = withCreativeTeamScores(row);
   return {
-    id: row.id,
-    name: row.name,
-    currency: row.currency ?? null,
-    format: row.format,
-    previewState: row.previewState,
-    isCatalog: row.isCatalog,
-    mediaPreviewUrl: row.cardPreviewUrl ?? row.imageUrl ?? row.previewUrl ?? row.cachedThumbnailUrl ?? row.thumbnailUrl ?? row.tableThumbnailUrl ?? null,
-    previewUrl: row.previewUrl ?? null,
-    imageUrl: row.imageUrl ?? null,
-    thumbnailUrl: row.thumbnailUrl ?? null,
-    cardPreviewUrl: row.cardPreviewUrl ?? null,
-    tableThumbnailUrl: row.tableThumbnailUrl ?? null,
-    cachedThumbnailUrl: row.cachedThumbnailUrl ?? null,
-    preview: row.preview,
-    launchDate: row.launchDate,
-    tags: row.tags ?? [],
-    spend: row.spend,
-    purchaseValue: row.purchaseValue,
-    roas: row.roas,
-    cpa: row.cpa,
-    cpcLink: row.cpcLink,
-    cpm: row.cpm,
-    ctrAll: row.ctrAll,
-    linkCtr: row.linkCtr,
-    purchases: row.purchases,
-    impressions: row.impressions,
-    clicks: row.clicks,
-    linkClicks: row.linkClicks,
-    addToCart: row.addToCart,
-    initiateCheckout: row.initiateCheckout,
-    leads: row.leads,
-    messages: row.messages,
-    thumbstop: row.thumbstop,
-    clickToAddToCart: row.clickToAddToCart,
-    clickToPurchase: row.clickToPurchase,
-    video25: row.video25,
-    video50: row.video50,
-    video75: row.video75,
-    video100: row.video100,
-    atcToPurchaseRatio: row.atcToPurchaseRatio,
-    hookScore: row.hookScore ?? row.creativeScores?.hook ?? null,
-    ctaScore: row.ctaScore ?? row.creativeScores?.cta ?? null,
-    offerScore: row.offerScore ?? row.creativeScores?.offer ?? null,
-    clickScore: row.clickScore ?? row.creativeScores?.click ?? null,
-    watchScore: row.watchScore ?? row.creativeScores?.watch ?? null,
-    creativeScoreGap: row.creativeScoreGap?.label
-      ? { label: row.creativeScoreGap.label, severity: row.creativeScoreGap.severity ?? null }
-      : null,
+    id: scoredRow.id,
+    name: scoredRow.name,
+    currency: scoredRow.currency ?? null,
+    format: scoredRow.format,
+    previewState: scoredRow.previewState,
+    isCatalog: scoredRow.isCatalog,
+    mediaPreviewUrl: scoredRow.cardPreviewUrl ?? scoredRow.imageUrl ?? scoredRow.previewUrl ?? scoredRow.cachedThumbnailUrl ?? scoredRow.thumbnailUrl ?? scoredRow.tableThumbnailUrl ?? null,
+    previewUrl: scoredRow.previewUrl ?? null,
+    imageUrl: scoredRow.imageUrl ?? null,
+    thumbnailUrl: scoredRow.thumbnailUrl ?? null,
+    cardPreviewUrl: scoredRow.cardPreviewUrl ?? null,
+    tableThumbnailUrl: scoredRow.tableThumbnailUrl ?? null,
+    cachedThumbnailUrl: scoredRow.cachedThumbnailUrl ?? null,
+    preview: scoredRow.preview,
+    launchDate: scoredRow.launchDate,
+    tags: scoredRow.tags ?? [],
+    spend: scoredRow.spend,
+    purchaseValue: scoredRow.purchaseValue,
+    roas: scoredRow.roas,
+    cpa: scoredRow.cpa,
+    cpcLink: scoredRow.cpcLink,
+    cpm: scoredRow.cpm,
+    ctrAll: scoredRow.ctrAll,
+    linkCtr: scoredRow.linkCtr,
+    purchases: scoredRow.purchases,
+    impressions: scoredRow.impressions,
+    clicks: scoredRow.clicks,
+    linkClicks: scoredRow.linkClicks,
+    addToCart: scoredRow.addToCart,
+    initiateCheckout: scoredRow.initiateCheckout,
+    leads: scoredRow.leads,
+    messages: scoredRow.messages,
+    thumbstop: scoredRow.thumbstop,
+    clickToAddToCart: scoredRow.clickToAddToCart,
+    clickToPurchase: scoredRow.clickToPurchase,
+    video25: scoredRow.video25,
+    video50: scoredRow.video50,
+    video75: scoredRow.video75,
+    video100: scoredRow.video100,
+    atcToPurchaseRatio: scoredRow.atcToPurchaseRatio,
+    hookScore: scoredRow.hookScore ?? null,
+    ctaScore: scoredRow.ctaScore ?? null,
+    offerScore: scoredRow.offerScore ?? null,
+    clickScore: scoredRow.clickScore ?? null,
+    watchScore: scoredRow.watchScore ?? null,
+    creativeScoreGap: readSharedCreativeScoreGap(scoredRow),
     analysis: analysis ?? null,
   };
+}
+
+type CreativeTeamScoreKey = "hook" | "cta" | "offer" | "click" | "watch";
+
+function withCreativeTeamScores(
+  row: MetaCreativeRow,
+  source?: Record<string, unknown>,
+): MetaCreativeRow {
+  const mergedSource = {
+    ...(source ?? {}),
+    ...(row as MetaCreativeRow & Record<string, unknown>),
+  };
+  const readableRow = mergedSource as MetaCreativeRow & Record<string, unknown>;
+  const nextScores = {
+    hook: readCreativeTeamScore(readableRow, "hook") ?? calculateCreativeTeamHookScore(row),
+    cta: readCreativeTeamScore(readableRow, "cta") ?? calculateCreativeTeamCtaScore(row),
+    offer: readCreativeTeamScore(readableRow, "offer") ?? calculateCreativeTeamOfferScore(row),
+    click: readCreativeTeamScore(readableRow, "click") ?? calculateCreativeTeamClickScore(row),
+    watch: readCreativeTeamScore(readableRow, "watch") ?? calculateCreativeTeamWatchScore(row),
+  };
+  const sharedGap = readSharedCreativeScoreGap(readableRow);
+  const uiRow: MetaCreativeRow = {
+    ...row,
+    creativeScores: {
+      ...(row.creativeScores ?? {}),
+      ...nextScores,
+    },
+    hookScore: nextScores.hook,
+    ctaScore: nextScores.cta,
+    offerScore: nextScores.offer,
+    clickScore: nextScores.click,
+    watchScore: nextScores.watch,
+    creativeScoreGap: sharedGap?.label
+      ? {
+          label: sharedGap.label,
+          severity: sharedGap.severity === "missing" ? null : (sharedGap.severity ?? null),
+        }
+      : row.creativeScoreGap ?? null,
+  };
+  return uiRow;
+}
+
+function calculateCreativeTeamHookScore(row: MetaCreativeRow): number {
+  const videoFirstStop = scaleMetricToScore(row.thumbstop, 28);
+  const videoEarlyHold = scaleMetricToScore(row.video25, 32);
+  const imageClickPull = scaleMetricToScore(row.ctrAll, 2.8);
+  const imageReadMore = scaleMetricToScore(row.seeMoreRate, 18);
+  const base = hasCreativeVideoEvidence(row)
+    ? videoFirstStop * 0.7 + videoEarlyHold * 0.3
+    : imageClickPull * 0.65 + imageReadMore * 0.35;
+  const hookSignalBoost = hasAiTagValue(row, "hookTactic") ? 6 : 0;
+  const headlineSignalBoost =
+    hasAiTagValue(row, "headlineTactic", "Question Headline") ||
+    hasAiTagValue(row, "headlineTactic", "Number Headline")
+      ? 4
+      : 0;
+  return clampScore(base + hookSignalBoost + headlineSignalBoost);
+}
+
+function calculateCreativeTeamCtaScore(row: MetaCreativeRow): number {
+  const linkCtrScore = scaleMetricToScore(calculateCreativeLinkCtr(row), 2.2);
+  const clickToAtcScore = scaleMetricToScore(calculateCreativeClickToAddToCartRate(row), 18);
+  const clickToPurchaseScore = scaleMetricToScore(calculateCreativeClickToPurchaseRate(row), 5.5);
+  const ctaSignalBoost = hasAiTagValue(row, "headlineTactic", "CTA Headline") ? 8 : 0;
+  return clampScore(
+    linkCtrScore * 0.35 + clickToAtcScore * 0.4 + clickToPurchaseScore * 0.25 + ctaSignalBoost,
+  );
+}
+
+function calculateCreativeTeamOfferScore(row: MetaCreativeRow): number {
+  const roasScore = scaleMetricToScore(row.roas, 4);
+  const clickToAtcScore = scaleMetricToScore(calculateCreativeClickToAddToCartRate(row), 18);
+  const atcToPurchaseScore = scaleMetricToScore(row.atcToPurchaseRatio, 42);
+  const explicitOfferBoost =
+    hasAiTagValue(row, "offerType") && !hasAiTagValue(row, "offerType", "No Explicit Offer") ? 10 : 0;
+  return clampScore(
+    roasScore * 0.35 + clickToAtcScore * 0.25 + atcToPurchaseScore * 0.4 + explicitOfferBoost,
+  );
+}
+
+function calculateCreativeTeamClickScore(row: MetaCreativeRow): number {
+  const ctrAllScore = scaleMetricToScore(row.ctrAll, 2.8);
+  const linkCtrScore = scaleMetricToScore(calculateCreativeLinkCtr(row), 2.2);
+  const seeMoreScore = scaleMetricToScore(row.seeMoreRate, 18);
+  return clampScore(ctrAllScore * 0.45 + linkCtrScore * 0.4 + seeMoreScore * 0.15);
+}
+
+function calculateCreativeTeamWatchScore(row: MetaCreativeRow): number {
+  if (!hasCreativeVideoEvidence(row)) return 0;
+  const hookCarry = scaleMetricToScore(row.thumbstop, 28);
+  const midWatch = scaleMetricToScore(row.video50, 18);
+  const fullWatch = scaleMetricToScore(row.video100, 8);
+  return clampScore(hookCarry * 0.2 + midWatch * 0.5 + fullWatch * 0.3);
+}
+
+function scaleMetricToScore(value: number | null | undefined, target: number): number {
+  if (!Number.isFinite(value) || target <= 0) return 0;
+  return clampScore(((value as number) / target) * 100);
+}
+
+function clampScore(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, value));
+}
+
+function hasAiTagValue(row: MetaCreativeRow, key: keyof MetaAiTags, value?: string): boolean {
+  const values = safeStringArray(row.aiTags?.[key]);
+  if (!value) return values.length > 0;
+  return values.some((entry) => entry.toLowerCase() === value.toLowerCase());
+}
+
+function recordFrom(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readNestedCreativeTeamScore(
+  source: Record<string, unknown>,
+  key: CreativeTeamScoreKey,
+): number | null {
+  const nestedContainers = [
+    "creativeScores",
+    "creative_scores",
+    "scores",
+    "score",
+    "aiScores",
+    "ai_scores",
+    "creativeScore",
+    "creative_score",
+  ];
+  const nestedKeys: Record<CreativeTeamScoreKey, string[]> = {
+    hook: ["hook", "hookScore", "hook_score"],
+    cta: ["cta", "ctaScore", "cta_score"],
+    offer: ["offer", "offerScore", "offer_score"],
+    click: ["click", "clickScore", "click_score"],
+    watch: ["watch", "watchScore", "watch_score"],
+  };
+  for (const containerKey of nestedContainers) {
+    const container = recordFrom(source[containerKey]);
+    if (!container) continue;
+    for (const nestedKey of nestedKeys[key]) {
+      const parsed = safeCreativeTeamScoreNumber(container[nestedKey]);
+      if (parsed != null) return parsed;
+    }
+  }
+  return null;
+}
+
+function readCreativeTeamScore(
+  row: MetaCreativeRow,
+  key: CreativeTeamScoreKey,
+): number | null {
+  const source = row as MetaCreativeRow & Record<string, unknown>;
+  const directKeys: Record<CreativeTeamScoreKey, string[]> = {
+    hook: ["hookScore", "hook_score", "scoreHook", "score_hook", "creativeHookScore", "creative_hook_score"],
+    cta: ["ctaScore", "cta_score", "scoreCta", "score_cta", "creativeCtaScore", "creative_cta_score"],
+    offer: ["offerScore", "offer_score", "scoreOffer", "score_offer", "creativeOfferScore", "creative_offer_score"],
+    click: ["clickScore", "click_score", "scoreClick", "score_click", "creativeClickScore", "creative_click_score"],
+    watch: ["watchScore", "watch_score", "scoreWatch", "score_watch", "creativeWatchScore", "creative_watch_score"],
+  };
+  for (const directKey of directKeys[key]) {
+    const parsed = safeCreativeTeamScoreNumber(source[directKey]);
+    if (parsed != null) return parsed;
+  }
+  return readNestedCreativeTeamScore(source, key);
+}
+
+function safeCreativeTeamScoreNumber(value: unknown): number | null {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim() !== ""
+        ? Number(value)
+        : Number.NaN;
+  if (!Number.isFinite(parsed)) return null;
+  return clampScore(parsed);
+}
+
+function readSharedCreativeScoreGap(row: MetaCreativeRow): SharedCreative["creativeScoreGap"] {
+  const source = row as MetaCreativeRow & Record<string, unknown>;
+  const objectCandidates = [
+    row.creativeScoreGap,
+    source.creative_score_gap,
+    source.scoreGap,
+    source.score_gap,
+    source.gap,
+  ];
+  for (const candidate of objectCandidates) {
+    const gap = recordFrom(candidate);
+    if (!gap) continue;
+    const label = safeString(gap.label ?? gap.name ?? gap.value).trim();
+    if (!label) continue;
+    return {
+      label,
+      severity: normalizeSharedCreativeGapSeverity(gap.severity ?? gap.tone ?? gap.kind),
+    };
+  }
+  const directLabel = [
+    source.creativeScoreGapLabel,
+    source.creative_score_gap_label,
+    source.scoreGapLabel,
+    source.score_gap_label,
+    source.gapLabel,
+    source.gap_label,
+  ]
+    .map((value) => safeString(value).trim())
+    .find(Boolean);
+  if (!directLabel) return null;
+  return {
+    label: directLabel,
+    severity: normalizeSharedCreativeGapSeverity(
+      source.creativeScoreGapSeverity ?? source.creative_score_gap_severity ?? source.scoreGapSeverity ?? source.score_gap_severity ?? source.gapSeverity,
+    ),
+  };
+}
+
+function normalizeSharedCreativeGapSeverity(
+  value: unknown,
+): NonNullable<SharedCreative["creativeScoreGap"]>["severity"] {
+  const text = safeString(value).toLowerCase();
+  if (!text) return null;
+  if (text === "action" || text === "critical" || text === "gap") return "action";
+  if (text === "watch" || text === "soft" || text === "warning") return "watch";
+  if (text === "none" || text === "ok") return "none";
+  if (text === "missing" || text === "pending") return "missing";
+  return null;
 }
 
 function hasMessage(payload: unknown): payload is { message: string } {
@@ -470,7 +696,7 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
   const clickToPurchase = linkClicks > 0 ? (purchases / linkClicks) * 100 : 0;
   const linkCtr = impressions > 0 ? (linkClicks / impressions) * 100 : 0;
 
-  return {
+  const uiRow: MetaCreativeRow = {
     id,
     creativeId,
     realAdId: nullableString(row.real_ad_id),
@@ -554,6 +780,7 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     previewStatus: row.preview_status ?? (row.preview_url || row.thumbnail_url || row.image_url ? "ready" : "missing"),
     previewOrigin: row.preview_origin ?? null,
   };
+  return withCreativeTeamScores(uiRow, row as MetaCreativeApiRow & Record<string, unknown>);
 }
 
 export function CreativesTableShell() {

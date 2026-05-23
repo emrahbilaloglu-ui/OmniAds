@@ -463,3 +463,98 @@ the route test enforces that the field is absent by default, the
 module-isolation test allowlist enumerates the only files allowed to
 import `@/lib/creative-decision-center`, and the response interface
 documents that the UI must not consume the field.
+
+## D022 — Map V3 Decisions Into V2.1 Through A Conservative Bridge
+
+Decision: add a separate V3-to-V2.1 bridge before any live row adaptation.
+The bridge maps a V3 `DecisionOutput` plus explicit route context into a
+discriminated bridge result: either a mapped V2.1 engine output plus the exact
+adapter input, or an intentional `omit` result with an explicit omit reason.
+The existing deterministic buyer adapter remains unchanged and continues to
+accept only already-produced V2.1 engine output.
+
+Reason: V3 and V2.1 do not share a one-to-one vocabulary. V3 emits
+`scale`, `keep`, `refresh`, `cut`, `test_more`, `diagnose`, and
+`out_of_scope`, while the V2.1 buyer surface has six primary decisions and a
+separate nine-value buyer-action vocabulary. Changing the adapter input would
+turn the adapter into a hidden second decision engine and would break the
+PR6B separation between engine-root output and buyer-language mapping. A
+dedicated bridge keeps the current V3 engine stable, keeps the V2.1 contract
+stable, and makes future V4/V3 replacement a single-point change.
+
+Scope: bridge-only policy documented in `V3_TO_V21_MAPPING.md` and enforced
+by tests in a later implementation slice. The bridge version is
+`CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION =
+"creative-decision-center.v3-bridge.v1"`. The bridge may import V3 types from
+`@/lib/creative-decision-engine/types` as type-only metadata but must not
+runtime-import the active engine, call `decideCreative`, call resolver gates,
+call Meta API functions, call route code, call UI code, access DB clients, read
+`process.env`, fetch, or run scripts. It does not change resolver math,
+confidence formulas, gate ordering, labels emitted by V3, or default UI
+behavior.
+
+Conservative mapping:
+
+- V3 `scale` maps to V2.1 `Scale` with `problemClass: performance` and
+  `actionability: review_only`; the existing adapter owns Test/Main/Mixed
+  execution CTA resolution.
+- V3 `cut` maps to V2.1 `Cut` with `problemClass: performance` and
+  `actionability: review_only`.
+- V3 `refresh` maps to V2.1 `Refresh`; fatigue badges map it to
+  `problemClass: fatigue`, otherwise the bridge uses `problemClass: creative`.
+- V3 `test_more` maps to V2.1 `Test More` with
+  `problemClass: insufficient_signal`.
+- V3 `diagnose` maps to V2.1 `Diagnose` with `actionability: diagnose`;
+  badge context chooses `data_quality`, `campaign_context`, or `performance`.
+- V3 `keep` is not a buyer-facing V2.1 primary decision. It is mapped only
+  when the V3 output carries an explicit review-worthy signal such as blocked
+  scale readiness, thin scale calibration, weak performance, low CTR, or
+  unlabeled campaign context. Plain no-op `keep` rows are intentionally omitted
+  from `rowDecisions` so Healthy/no-action creatives do not become fake tasks.
+- V3 `out_of_scope` is intentionally omitted from `rowDecisions`; the legacy
+  lanes and source metadata can still represent it if needed.
+
+Safety constraints: the bridge must not emit `fix_delivery`, `fix_policy`,
+or high-confidence launch/fatigue outputs without the proof fields listed in
+`DATA_READINESS.md`. Missing or degraded data must add `missingData` and cap
+the row confidence band through the existing adapter/invariant path. All
+bridge-generated engines keep `queueEligible: false` and `applyEligible: false`.
+Campaign-label gaps are campaign context problems, not generic data-quality
+problems: `unlabeled_campaign_context` and missing campaign label map to
+`problemClass: campaign_context`.
+
+Audit constraint: the bridge must preserve V3 label-transform audit context in
+D012/D013. Adapter `sourceDecision` is derived as `decision.labelTransform`
+when present, otherwise `v3:<decision.label>`. This metadata is passed to the
+adapter; it is not embedded in the V2.1 engine output and must not be used by
+UI code to compute `buyerAction`.
+
+Bridge v1 maturity constraint: the first bridge may use only the conservative
+metrics-based maturity heuristic documented in `V3_TO_V21_MAPPING.md`. D014
+commercial-maturity integration requires widening bridge input and is deferred
+to a separate ADR.
+
+Testing constraint: PR7B implementation must update module-isolation tests so
+`v3-bridge.ts` can type-import V3 output types while runtime engine imports
+remain forbidden, and must document known PR7B-beta golden-case coverage gaps
+instead of asserting future `fix_delivery`, `fix_policy`, or `watch_launch`
+behavior before the proof fields exist.
+
+Rejected alternatives:
+
+- Change the existing adapter to accept raw V3 `DecisionOutput`. That would
+  collapse D003 and D020 boundaries, mix source-engine labels with buyer
+  mapping policy, and make adapter tests depend on active engine types.
+- Add `Keep`, `Out Of Scope`, `review`, or `same_as_canonical` to V2.1
+  primary or buyer-action unions. That would expand the buyer-facing contract
+  without proving UI and snapshot compatibility.
+- Emit every V3 `keep` as a V2.1 row. That would flood the Action Board with
+  non-actions and make Healthy/no-op creatives look actionable.
+- Add a new top-level `bridgeVersion` field to `DecisionCenterSnapshot` in
+  PR7B-beta. The bridge exposes its own version constant; route wiring may
+  compose that into `adapterVersion` while the snapshot contract remains V2.1.
+
+Risk: omitting plain `keep` rows means a drawer opened from a legacy Healthy
+row may not always find a V2.1 row decision during the shadow phase. Mitigation:
+UI slices must keep legacy fallback rendering until V2.1 is default and must
+show `sourceDecision` only as audit metadata, never as a decision input.

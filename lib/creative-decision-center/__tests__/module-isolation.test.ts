@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const SOURCE_DIR = "lib/creative-decision-center";
+const V3_BRIDGE_FILE = join(SOURCE_DIR, "v3-bridge.ts");
 const SOURCE_FILES = [
   "contracts.ts",
   "validators.ts",
@@ -10,6 +11,7 @@ const SOURCE_FILES = [
   "adapter.ts",
   "snapshot-builder.ts",
   "index.ts",
+  "v3-bridge.ts",
 ].map((file) => join(SOURCE_DIR, file));
 const RUNTIME_DIRS = [
   "app",
@@ -49,8 +51,7 @@ function fileContains(path: string, pattern: RegExp): boolean {
 
 describe("Creative Decision Center PR4 module isolation", () => {
   it("does not import runtime, archive, DB, network, or file mutation modules", () => {
-    const forbidden = [
-      /from\s+["']@\/lib\/creative-decision-engine/,
+    const commonForbidden = [
       /from\s+["']@\/lib\/meta/,
       /from\s+["']@\/app/,
       /from\s+["']@\/components/,
@@ -59,8 +60,6 @@ describe("Creative Decision Center PR4 module isolation", () => {
       /\bfinalizeDecision\b/,
       /\benforceHardActionEligibility\b/,
       /\bapplyCreativeCampaignLabelGuard\b/,
-      /\bDecisionOutput\b/,
-      /\bDecisionLabel\b/,
       /\bGateContext\b/,
       /\bAccountDecisionProfile\b/,
       /\bCreativeInput\b/,
@@ -75,13 +74,41 @@ describe("Creative Decision Center PR4 module isolation", () => {
       /process\.env/,
     ];
 
-    const matches = SOURCE_FILES.flatMap((path) =>
-      forbidden
+    const matches = SOURCE_FILES.flatMap((path) => {
+      const forbidden =
+        path === V3_BRIDGE_FILE
+          ? [
+              ...commonForbidden,
+              /import\s+(?!type\b)[\s\S]*?from\s+["']@\/lib\/creative-decision-engine/,
+              /from\s+["']@\/lib\/creative-decision-engine(?!\/types["'])/,
+            ]
+          : [
+              ...commonForbidden,
+              /from\s+["']@\/lib\/creative-decision-engine/,
+              /\bDecisionOutput\b/,
+              /\bDecisionLabel\b/,
+            ];
+
+      return forbidden
         .filter((pattern) => fileContains(path, pattern))
-        .map((pattern) => `${path}:${pattern.source}`),
-    );
+        .map((pattern) => `${path}:${pattern.source}`);
+    });
 
     expect(matches).toEqual([]);
+  });
+
+  it("allows only type-only V3 type imports inside the isolated bridge", () => {
+    const source = readFileSync(V3_BRIDGE_FILE, "utf8");
+
+    expect(source).toMatch(
+      /import type[\s\S]*?from\s+["']@\/lib\/creative-decision-engine\/types["']/,
+    );
+    expect(source).not.toMatch(
+      /import\s+(?!type\b)[\s\S]*?from\s+["']@\/lib\/creative-decision-engine/,
+    );
+    expect(source).not.toMatch(
+      /\b(decideCreative|finalizeDecision|enforceHardActionEligibility|applyCreativeCampaignLabelGuard)\b/,
+    );
   });
 
   it("is not imported by active runtime or probe paths outside the PR7A allowlist", () => {

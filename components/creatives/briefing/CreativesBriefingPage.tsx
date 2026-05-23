@@ -163,6 +163,13 @@ type WorkspaceMode = "briefing" | "library";
 type CreativeLaneView = "action" | "watching" | "healthy";
 type CreativeActionFilter = "all" | "promote" | "scale" | "cut" | "fresh_test" | "add_existing";
 type CreativeCampaignFilter = "all" | "main" | "test" | "mixed";
+type DecisionCenterRowForCard = NonNullable<
+  BriefingCreativeCard["decisionCenterRow"]
+>;
+type DecisionCenterRowMaps = {
+  byRowId: Map<string, DecisionCenterRowForCard>;
+  byCreativeId: Map<string, DecisionCenterRowForCard>;
+};
 
 interface EvidenceDrawerState {
   open: boolean;
@@ -307,10 +314,27 @@ async function fetchJson<T>(path: string): Promise<T> {
   return payload as T;
 }
 
+export function isDecisionCenterUiRequested(
+  params: { get(name: string): string | null } | null | undefined,
+) {
+  const isTruthy = (value: string | null | undefined) => {
+    const normalized = value?.trim().toLowerCase();
+    return normalized === "1" || normalized === "true";
+  };
+  return (
+    isTruthy(params?.get("decisionCenter")) ||
+    isTruthy(params?.get("decision_center"))
+  );
+}
+
 function fetchCreativesBriefing(
   businessId: string,
+  options: { decisionCenter?: boolean } = {},
 ): Promise<CreativesBriefingResponse> {
   const params = new URLSearchParams({ businessId });
+  if (options.decisionCenter) {
+    params.set("decisionCenter", "1");
+  }
   return fetchJson<CreativesBriefingResponse>(
     `/api/creatives/briefing?${params.toString()}`,
   );
@@ -507,6 +531,74 @@ function safeArray<T>(value: unknown): T[] {
     : [];
 }
 
+function safeDecisionCenterRows(
+  snapshot: CreativesBriefingResponse["decisionCenter"],
+): DecisionCenterRowForCard[] {
+  return Array.isArray(snapshot?.rowDecisions)
+    ? snapshot.rowDecisions.filter((row): row is DecisionCenterRowForCard =>
+        Boolean(row && typeof row === "object"),
+      )
+    : [];
+}
+
+function normalizedDecisionCenterKey(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function decisionCenterRowMaps(
+  snapshot: CreativesBriefingResponse["decisionCenter"],
+): DecisionCenterRowMaps {
+  const byRowId = new Map<string, DecisionCenterRowForCard>();
+  const byCreativeId = new Map<string, DecisionCenterRowForCard>();
+  for (const row of safeDecisionCenterRows(snapshot)) {
+    const rowId = normalizedDecisionCenterKey(row.rowId);
+    const creativeId = normalizedDecisionCenterKey(row.creativeId);
+    if (rowId && !byRowId.has(rowId)) byRowId.set(rowId, row);
+    if (creativeId && !byCreativeId.has(creativeId)) {
+      byCreativeId.set(creativeId, row);
+    }
+  }
+  return { byRowId, byCreativeId };
+}
+
+function attachDecisionCenterRowToCard<T extends BriefingCreativeCard>(
+  card: T,
+  maps: DecisionCenterRowMaps,
+): T {
+  const rowId = normalizedDecisionCenterKey(card.id);
+  const creativeId =
+    normalizedDecisionCenterKey(card.creativeId) ??
+    normalizedDecisionCenterKey(card.id);
+  const decisionCenterRow =
+    (rowId ? maps.byRowId.get(rowId) : undefined) ??
+    (creativeId ? maps.byCreativeId.get(creativeId) : undefined);
+
+  return decisionCenterRow ? { ...card, decisionCenterRow } : card;
+}
+
+function isBriefingRollupItem(item: BriefingActionItem): item is BriefingRollupItem {
+  return Boolean(
+    item &&
+      typeof item === "object" &&
+      "primaryRec" in item &&
+      (item as BriefingRollupItem).primaryRec,
+  );
+}
+
+function attachDecisionCenterRowToActionItem(
+  item: BriefingActionItem,
+  maps: DecisionCenterRowMaps,
+): BriefingActionItem {
+  if (!isBriefingRollupItem(item)) {
+    return attachDecisionCenterRowToCard(item, maps);
+  }
+  return {
+    ...item,
+    primaryRec: attachDecisionCenterRowToCard(item.primaryRec, maps),
+  };
+}
+
 export function normalizeSpendHistory(value: unknown): number[] | null {
   if (!Array.isArray(value)) return null;
   const normalized = value
@@ -525,6 +617,7 @@ export function normalizeCreativesBriefingPayload(
   payload: CreativesBriefingResponse | null | undefined,
 ): CreativesBriefingResponse | undefined {
   if (!payload || typeof payload !== "object") return undefined;
+  const rowMaps = decisionCenterRowMaps(payload.decisionCenter);
   const pulse =
     payload.pulse &&
     typeof payload.pulse === "object" &&
@@ -537,9 +630,15 @@ export function normalizeCreativesBriefingPayload(
 
   return {
     ...payload,
-    actionNow: safeArray<BriefingActionItem>(payload.actionNow),
-    watching: safeArray<BriefingCreativeCard>(payload.watching),
-    healthy: safeArray<BriefingCreativeCard>(payload.healthy),
+    actionNow: safeArray<BriefingActionItem>(payload.actionNow).map((item) =>
+      attachDecisionCenterRowToActionItem(item, rowMaps),
+    ),
+    watching: safeArray<BriefingCreativeCard>(payload.watching).map((card) =>
+      attachDecisionCenterRowToCard(card, rowMaps),
+    ),
+    healthy: safeArray<BriefingCreativeCard>(payload.healthy).map((card) =>
+      attachDecisionCenterRowToCard(card, rowMaps),
+    ),
     pulse,
   };
 }
@@ -934,6 +1033,10 @@ export function CreativesBriefingPage() {
   const libraryStart = dateRange.start;
   const libraryEnd = dateRange.end;
   const tabParam = searchParams?.get("tab") ?? null;
+  const decisionCenterUiRequested = useMemo(
+    () => isDecisionCenterUiRequested(searchParams),
+    [searchParams],
+  );
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(
     workspaceModeFromTab(tabParam),
   );
@@ -943,10 +1046,13 @@ export function CreativesBriefingPage() {
   const [briefingSearch, setBriefingSearch] = useState("");
 
   const briefingQuery = useQuery({
-    queryKey: ["creatives-briefing", businessId],
+    queryKey: ["creatives-briefing", businessId, decisionCenterUiRequested],
     enabled: Boolean(businessId),
     staleTime: 30 * 1000,
-    queryFn: () => fetchCreativesBriefing(businessId),
+    queryFn: () =>
+      fetchCreativesBriefing(businessId, {
+        decisionCenter: decisionCenterUiRequested,
+      }),
   });
   const todaySummaryQuery = useQuery({
     queryKey: ["creatives-briefing-meta-summary-today", businessId, todayIso],

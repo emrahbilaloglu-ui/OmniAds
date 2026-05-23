@@ -47,6 +47,43 @@ function card(overrides: Partial<BriefingCreativeCard> = {}): BriefingCreativeCa
   };
 }
 
+function decisionCenterRow(): NonNullable<BriefingCreativeCard["decisionCenterRow"]> {
+  return {
+    scope: "creative",
+    creativeId: "creative_4421",
+    rowId: "ad_4421",
+    identityGrain: "creative",
+    familyId: null,
+    engine: {
+      contractVersion: "creative-decision-os.v2.1",
+      engineVersion: "decision-engine-v3-test",
+      primaryDecision: "Scale",
+      actionability: "review_only",
+      problemClass: "performance",
+      confidence: 88,
+      maturity: "mature",
+      priority: "high",
+      reasonTags: ["v3_scale"],
+      evidenceSummary: "Server evidence.",
+      blockerReasons: [],
+      missingData: [],
+      queueEligible: false,
+      applyEligible: false,
+    },
+    buyerAction: "scale",
+    buyerLabel: "Scale review",
+    uiBucket: "scale",
+    executionAction: "promote_to_main",
+    sourceDecision: "v3:scale",
+    confidenceBand: "high",
+    priority: "high",
+    oneLine: "Server supplied V2.1 decision.",
+    reasons: ["above_target"],
+    nextStep: "Review budget context before scaling.",
+    missingData: [],
+  };
+}
+
 const noopProps = {
   onClose: () => undefined,
   onCut: () => undefined,
@@ -93,6 +130,7 @@ describe("CreativeEvidenceDrawer", () => {
     expect(html).toContain("creative-evidence-drawer");
     expect(html).toContain("Promote to main");
     expect(html).toContain("Evidence");
+    expect(html).not.toContain("Decision Center");
     expect(html).toContain("Automation readiness");
     expect(html).toContain("Operator history");
     expect(html).toContain("Add to existing");
@@ -169,6 +207,25 @@ describe("CreativeEvidenceDrawer", () => {
     expect(html).toContain("missing evidence fields");
     expect(html).toContain("creative-evidence-preview-slot");
     expect(html).not.toContain("creative-evidence-phone");
+  });
+
+  it("renders only server-supplied decisionCenter row fields when present", () => {
+    const html = renderDrawer(
+      <CreativeEvidenceDrawer
+        open
+        card={card({ decisionCenterRow: decisionCenterRow() })}
+        {...noopProps}
+      />,
+    );
+
+    expect(html).toContain("Decision Center");
+    expect(html).toContain("Scale review");
+    expect(html).toContain("Server supplied V2.1 decision.");
+    expect(html).toContain("shadow surface - creative-decision-os.v2.1");
+    expect(html).toContain("buyerAction scale - execution promote_to_main");
+    expect(html).toContain("sourceDecision v3:scale");
+    expect(html).toContain("Queue false - apply false");
+    expect(html).toContain("engine queue false - apply false");
   });
 
   it("hides when closed", () => {

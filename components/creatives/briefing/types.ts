@@ -8,10 +8,14 @@ import type {
   DataHealth,
   DecisionLabelTransform,
 } from "@/lib/creative-decision-engine";
-// PR7A: type-only import so the response interface can optionally carry the
-// additive decisionCenter snapshot. The UI must not consume this field; it is
-// shipped behind an explicit ?decisionCenter=1 flag for adapter/shadow tooling.
-import type { DecisionCenterSnapshot } from "@/lib/creative-decision-center";
+// PR7A/PR8: type-only imports so the response interface can carry the
+// additive decisionCenter snapshot and, behind an explicit UI flag, its
+// server-supplied row decision. UI components must not import decision-center
+// builders/adapters or compute buyerAction locally.
+import type {
+  CreativeDecisionCenterRowDecision,
+  DecisionCenterSnapshot,
+} from "@/lib/creative-decision-center";
 
 export interface BriefingPrimaryAction {
   kind?: string | null;
@@ -86,6 +90,7 @@ export interface BriefingCreativeCard {
   sparkline?: number[] | null;
   ctrFunnel?: BriefingCtrFunnel | null;
   primary?: BriefingPrimaryAction | null;
+  decisionCenterRow?: CreativeDecisionCenterRowDecision | null;
   status?: string | null;
   ageDays?: number | null;
   campaignKind?: MetaCampaignKind | null;
@@ -160,8 +165,9 @@ export interface CreativesBriefingResponse {
   /**
    * PR7A: additive shadow snapshot. Present only when the request supplied
    * `?decisionCenter=1`. Null indicates the snapshot was requested but failed
-   * structural validation. UI components must not consume this field; it is
-   * adapter/shadow tooling surface.
+   * structural validation. PR8 permits minimal drawer consumption only through
+   * `BriefingCreativeCard.decisionCenterRow`, and only behind the explicit UI
+   * flag. UI components must not compute buyerAction from this snapshot.
    */
   decisionCenter?: DecisionCenterSnapshot | null;
 }

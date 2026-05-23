@@ -138,7 +138,7 @@ describe("Creative Decision Center PR4 module isolation", () => {
     );
     expect(unexpected).toEqual([]);
     // Defensive: even the allowlisted components/briefing/types.ts must only
-    // import the snapshot type. A future component file that adds adapter,
+    // import the public response types. A future component file that adds adapter,
     // validator, invariant, or version-constant imports here would be a UI
     // compute leak.
     const briefingTypes = "components/creatives/briefing/types.ts";
@@ -147,8 +147,11 @@ describe("Creative Decision Center PR4 module isolation", () => {
       expect(source).toMatch(
         /import type[\s\S]*?\{[\s\S]*?DecisionCenterSnapshot[\s\S]*?\}[\s\S]*?from\s+["']@\/lib\/creative-decision-center["']/,
       );
+      expect(source).toMatch(
+        /import type[\s\S]*?\{[\s\S]*?CreativeDecisionCenterRowDecision[\s\S]*?\}[\s\S]*?from\s+["']@\/lib\/creative-decision-center["']/,
+      );
       expect(source).not.toMatch(
-        /\b(adaptCreativeDecisionToRow|adaptCreativeDecisionsToRows|assembleDecisionCenterSnapshot|validateDecisionCenterSnapshot|validateCreativeDecisionCenterRowDecision|auditDecisionCenterSnapshotInvariants|auditCreativeDecisionCenterRowInvariants|CREATIVE_DECISION_CENTER_ADAPTER_VERSION|CREATIVE_DECISION_CENTER_SNAPSHOT_BUILDER_VERSION)\b/,
+        /\b(adaptCreativeDecisionToRow|adaptCreativeDecisionsToRows|assembleDecisionCenterSnapshot|validateDecisionCenterSnapshot|validateCreativeDecisionCenterRowDecision|auditDecisionCenterSnapshotInvariants|auditCreativeDecisionCenterRowInvariants|bridgeV3DecisionToV21|bridgeV3DecisionToAdapterInput|CREATIVE_DECISION_CENTER_ADAPTER_VERSION|CREATIVE_DECISION_CENTER_SNAPSHOT_BUILDER_VERSION|CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION)\b/,
       );
     }
   });

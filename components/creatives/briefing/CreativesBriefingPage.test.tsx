@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CLOSED_LAUNCHPAD_OVERLAY_STATE,
   CreativesBriefingPage,
+  isDecisionCenterUiRequested,
+  normalizeCreativesBriefingPayload,
   selectedCardsForActionItems,
   selectedCardsForCards,
   filterRemovedActionItems,
@@ -191,6 +193,44 @@ function makeBriefingData() {
   };
 }
 
+function decisionCenterRow(overrides: Record<string, unknown> = {}) {
+  return {
+    scope: "creative",
+    creativeId: "cr_action",
+    rowId: "cr_action",
+    identityGrain: "creative",
+    familyId: null,
+    engine: {
+      contractVersion: "creative-decision-os.v2.1",
+      engineVersion: "test-engine",
+      primaryDecision: "Scale",
+      actionability: "review_only",
+      problemClass: "performance",
+      confidence: 88,
+      maturity: "mature",
+      priority: "high",
+      reasonTags: ["v3_scale"],
+      evidenceSummary: "Server supplied evidence.",
+      blockerReasons: [],
+      missingData: [],
+      queueEligible: false,
+      applyEligible: false,
+    },
+    buyerAction: "scale",
+    buyerLabel: "Scale review",
+    uiBucket: "scale",
+    executionAction: "promote_to_main",
+    sourceDecision: "v3:scale",
+    confidenceBand: "high",
+    priority: "high",
+    oneLine: "Server supplied V2.1 decision.",
+    reasons: ["above_target"],
+    nextStep: "Review the scale move.",
+    missingData: [],
+    ...overrides,
+  };
+}
+
 describe("CreativesBriefingPage", () => {
   beforeEach(() => {
     mockState.queryKeys = [];
@@ -258,7 +298,70 @@ describe("CreativesBriefingPage", () => {
       "creatives-briefing-asset-library",
       "triage-state",
     ]);
-    expect(mockState.queryKeys[0]).toEqual(["creatives-briefing", "biz_1"]);
+    expect(mockState.queryKeys[0]).toEqual(["creatives-briefing", "biz_1", false]);
+  });
+
+  it("requests decisionCenter rows only behind the explicit URL flag", () => {
+    mockState.searchParams = new URLSearchParams("decisionCenter=1");
+
+    renderToStaticMarkup(<CreativesBriefingPage />);
+
+    expect(mockState.queryKeys[0]).toEqual(["creatives-briefing", "biz_1", true]);
+    expect(isDecisionCenterUiRequested(new URLSearchParams("decision_center=true"))).toBe(
+      true,
+    );
+    expect(isDecisionCenterUiRequested(new URLSearchParams("decisionCenter=0"))).toBe(
+      false,
+    );
+  });
+
+  it("attaches server-supplied decisionCenter rows without crashing on null or missing snapshots", () => {
+    const briefing = makeBriefingData();
+    const normalizedMissing = normalizeCreativesBriefingPayload(briefing);
+    expect(
+      (normalizedMissing?.actionNow[0] as any).decisionCenterRow,
+    ).toBeUndefined();
+
+    const normalizedNull = normalizeCreativesBriefingPayload({
+      ...briefing,
+      decisionCenter: null,
+    } as any);
+    expect((normalizedNull?.actionNow[0] as any).decisionCenterRow).toBeUndefined();
+
+    const normalizedHappy = normalizeCreativesBriefingPayload({
+      ...briefing,
+      watching: [
+        {
+          ...briefing.watching[0],
+          creativeId: "creative_watch",
+        },
+      ],
+      decisionCenter: {
+        rowDecisions: [
+          decisionCenterRow(),
+          decisionCenterRow({
+            creativeId: "creative_watch",
+            rowId: "orphan_row_id",
+            buyerAction: "diagnose_data",
+            buyerLabel: "Diagnose data",
+            uiBucket: "diagnose_data",
+            executionAction: null,
+          }),
+          decisionCenterRow({
+            creativeId: "orphan_creative",
+            rowId: "orphan_row",
+          }),
+        ],
+      },
+    } as any);
+
+    expect((normalizedHappy?.actionNow[0] as any).decisionCenterRow?.buyerAction).toBe(
+      "scale",
+    );
+    expect(normalizedHappy?.watching[0]?.decisionCenterRow?.buyerAction).toBe(
+      "diagnose_data",
+    );
+    expect(normalizedHappy?.healthy[0]?.decisionCenterRow).toBeUndefined();
   });
 
   it("draws the 7d ROAS spark from live trend data instead of a synthetic curve", () => {

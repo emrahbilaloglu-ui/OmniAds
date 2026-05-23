@@ -135,6 +135,16 @@ function labelText(label: string) {
   return label.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function decisionCenterText(value: string | null | undefined) {
+  return value?.trim()
+    ? value.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase())
+    : "Unavailable";
+}
+
+function decisionCenterMissingDataText(value: string[] | null | undefined) {
+  return value && value.length > 0 ? value.join(", ") : "none";
+}
+
 function campaignContext(card: BriefingCreativeCard) {
   if (card.campaignLabelStatus === "unlabeled") {
     return { label: "Unlabeled campaign", className: "chip--warn" };
@@ -784,6 +794,7 @@ function CreativeEvidenceDrawerContent({
   const label = asDecisionLabel(card.label);
   const campaignChip = campaignContext(card);
   const evidenceItems = buildEvidenceItems(card);
+  const decisionCenterRow = card.decisionCenterRow ?? null;
   const primaryMode = mapBriefingPrimaryToLaunchpadMode(card);
   const cutPrimary = isCutPrimaryAction(card);
   const scopeId = getCreativeScopeId(card);
@@ -941,6 +952,62 @@ function CreativeEvidenceDrawerContent({
                 </div>
               )}
             </section>
+
+            {decisionCenterRow ? (
+              <section className="creative-evidence-section">
+                <h4>Decision Center</h4>
+                <div className="creative-evidence-callout">
+                  <strong>{decisionCenterRow.buyerLabel}</strong>
+                  <p>{decisionCenterRow.oneLine}</p>
+                  <span className="src">
+                    shadow surface - {decisionCenterRow.engine.contractVersion} -{" "}
+                    {decisionCenterRow.engine.engineVersion}
+                  </span>
+                </div>
+                <ul className="creative-evidence-list">
+                  <li className="creative-evidence-list-item">
+                    <div>
+                      <b>
+                        {decisionCenterText(decisionCenterRow.buyerAction)} -{" "}
+                        {decisionCenterRow.engine.primaryDecision}
+                      </b>
+                      {decisionCenterText(decisionCenterRow.engine.problemClass)} -{" "}
+                      {decisionCenterText(decisionCenterRow.engine.actionability)}
+                      <span className="src">
+                        buyerAction {decisionCenterRow.buyerAction} - execution{" "}
+                        {decisionCenterRow.executionAction ?? "none"}
+                      </span>
+                    </div>
+                  </li>
+                  <li className="creative-evidence-list-item">
+                    <div>
+                      <b>
+                        Priority {decisionCenterRow.priority} - confidence{" "}
+                        {decisionCenterRow.confidenceBand}
+                      </b>
+                      {decisionCenterRow.nextStep}
+                      <span className="src">
+                        sourceDecision {decisionCenterRow.sourceDecision ?? "unavailable"}
+                      </span>
+                    </div>
+                  </li>
+                  <li className="creative-evidence-list-item">
+                    <div>
+                      <b>
+                        Queue {String(decisionCenterRow.engine.queueEligible)} - apply{" "}
+                        {String(decisionCenterRow.engine.applyEligible)}
+                      </b>
+                      Missing data:{" "}
+                      {decisionCenterMissingDataText(decisionCenterRow.missingData)}
+                      <span className="src">
+                        engine queue {String(decisionCenterRow.engine.queueEligible)} -
+                        apply {String(decisionCenterRow.engine.applyEligible)}
+                      </span>
+                    </div>
+                  </li>
+                </ul>
+              </section>
+            ) : null}
 
             <section className="creative-evidence-section">
               <h4>Automation readiness</h4>

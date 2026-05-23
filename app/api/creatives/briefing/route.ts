@@ -28,10 +28,14 @@ import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import { readTriageState } from "@/lib/triage-events";
 import { CREATIVE_DECISION_ENGINE_CONFIG_VERSION } from "@/lib/creative-decision-engine/config-values";
 import {
+  adaptCreativeDecisionsToRows,
   assembleDecisionCenterSnapshot,
   auditDecisionCenterSnapshotInvariants,
   CREATIVE_DECISION_CENTER_ADAPTER_VERSION,
+  CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION,
+  bridgeV3DecisionToAdapterInput,
   validateDecisionCenterSnapshot,
+  type CreativeDecisionCenterRowDecision,
   type CreativeDecisionCenterFreshnessStatus,
   type DecisionCenterSnapshot,
 } from "@/lib/creative-decision-center";
@@ -63,27 +67,29 @@ function isDecisionCenterRequested(searchParams: URLSearchParams): boolean {
 }
 
 /**
- * PR7A: assemble a validated empty `DecisionCenterSnapshot` for the
- * additive response shape. This intentionally does NOT map live engine
- * decisions into V2.1 rowDecisions — that is policy/runtime behavior
- * and requires separate user approval. The snapshot ships with empty
- * rows, empty aggregates, empty todayBrief, and an empty actionBoard.
+ * Assemble a validated `DecisionCenterSnapshot` for the additive response
+ * shape. The default response remains unchanged; callers only receive this
+ * snapshot when they explicitly request `?decisionCenter=1`.
  */
-function buildEmptyDecisionCenterSnapshot(input: {
+function buildDecisionCenterSnapshot(input: {
   asOf: string;
   engineVersion: string;
+  adapterVersion?: string;
   dataHealthDegraded: boolean;
+  rowDecisions?: CreativeDecisionCenterRowDecision[];
 }): DecisionCenterSnapshot | null {
   const dataFreshnessStatus: CreativeDecisionCenterFreshnessStatus =
     input.dataHealthDegraded ? "stale" : "fresh";
-  const generatedAt = new Date(`${input.asOf}T00:00:00.000Z`).toISOString();
+  const generatedAtDate = new Date(`${input.asOf}T00:00:00.000Z`);
+  if (!Number.isFinite(generatedAtDate.getTime())) return null;
+  const generatedAt = generatedAtDate.toISOString();
   const { snapshot } = assembleDecisionCenterSnapshot({
     engineVersion: input.engineVersion,
-    adapterVersion: CREATIVE_DECISION_CENTER_ADAPTER_VERSION,
+    adapterVersion: input.adapterVersion ?? CREATIVE_DECISION_CENTER_ADAPTER_VERSION,
     configVersion: CREATIVE_DECISION_ENGINE_CONFIG_VERSION,
     generatedAt,
     dataFreshness: { status: dataFreshnessStatus, maxAgeHours: null },
-    rowDecisions: [],
+    rowDecisions: input.rowDecisions ?? [],
     aggregateDecisions: [],
   });
   const validation = validateDecisionCenterSnapshot(snapshot);
@@ -91,6 +97,9 @@ function buildEmptyDecisionCenterSnapshot(input: {
   if (auditDecisionCenterSnapshotInvariants(snapshot).length > 0) return null;
   return snapshot;
 }
+
+const DECISION_CENTER_BRIDGED_ADAPTER_VERSION =
+  `${CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION}+${CREATIVE_DECISION_CENTER_ADAPTER_VERSION}`;
 
 function badgeLabels(badges: DecisionBadge[]) {
   return badges.flatMap((badge) => {
@@ -204,6 +213,63 @@ function rowForDecision(
     (input?.creativeId ? creativeRowsById.get(input.creativeId) : undefined) ??
     null
   );
+}
+
+function buildDecisionCenterRows(input: {
+  decisions: DecisionOutput[];
+  inputsByCreativeId: Map<string, CreativeInput>;
+  creativeRowsById: Map<string, MetaCreativeApiRow>;
+  dataHealthDegraded: boolean;
+}): CreativeDecisionCenterRowDecision[] {
+  const adapterInputs = input.decisions.flatMap((decision) => {
+    const creativeInput = input.inputsByCreativeId.get(decision.creativeId);
+    const row = rowForDecision(
+      decision,
+      creativeInput,
+      input.creativeRowsById,
+    );
+    const adapterInput = bridgeV3DecisionToAdapterInput({
+      decision,
+      context: {
+        creativeId: decision.creativeId,
+        rowId: row?.id,
+        identityGrain: "creative",
+        familyId: null,
+        campaignKind: decision.campaignKind ?? creativeInput?.campaignKind ?? null,
+        dataHealthDegraded: input.dataHealthDegraded,
+      },
+    });
+    return adapterInput ? [adapterInput] : [];
+  });
+
+  return adaptCreativeDecisionsToRows(adapterInputs).map((result) => result.row);
+}
+
+function buildBridgedDecisionCenterSnapshot(input: {
+  asOf: string;
+  engineVersion: string;
+  decisions: DecisionOutput[];
+  inputsByCreativeId: Map<string, CreativeInput>;
+  creativeRowsById: Map<string, MetaCreativeApiRow>;
+  dataHealthDegraded: boolean;
+}): DecisionCenterSnapshot | null {
+  try {
+    const rowDecisions = buildDecisionCenterRows({
+      decisions: input.decisions,
+      inputsByCreativeId: input.inputsByCreativeId,
+      creativeRowsById: input.creativeRowsById,
+      dataHealthDegraded: input.dataHealthDegraded,
+    });
+    return buildDecisionCenterSnapshot({
+      asOf: input.asOf,
+      engineVersion: input.engineVersion,
+      adapterVersion: DECISION_CENTER_BRIDGED_ADAPTER_VERSION,
+      dataHealthDegraded: input.dataHealthDegraded,
+      rowDecisions,
+    });
+  } catch {
+    return null;
+  }
 }
 
 function cardForDecision(input: {
@@ -459,7 +525,7 @@ export async function GET(request: NextRequest) {
       },
     };
     if (decisionCenterRequested) {
-      disabledBody.decisionCenter = buildEmptyDecisionCenterSnapshot({
+      disabledBody.decisionCenter = buildDecisionCenterSnapshot({
         asOf,
         engineVersion: "disabled",
         dataHealthDegraded: false,
@@ -640,9 +706,12 @@ export async function GET(request: NextRequest) {
   };
 
   if (decisionCenterRequested) {
-    responseBody.decisionCenter = buildEmptyDecisionCenterSnapshot({
+    responseBody.decisionCenter = buildBridgedDecisionCenterSnapshot({
       asOf,
       engineVersion: responseEngineVersion,
+      decisions,
+      inputsByCreativeId: inputByCreativeId,
+      creativeRowsById,
       dataHealthDegraded: Boolean(dataHealth.degraded),
     });
   }

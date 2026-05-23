@@ -141,6 +141,10 @@ review.
 
 Badge and reason context is read in this priority order:
 
+This priority list governs V3 `diagnose` verdicts. Action labels such as
+`scale`, `cut`, `refresh`, and `test_more` use the label mapping table above
+unless that table explicitly names a narrower override.
+
 1. `tracking_anomaly`, stale badges, truth-source degradation, missing recent
    data, or thin calibration -> `data_quality`
 2. `unlabeled_campaign_context`, missing campaign label, or campaign/adset
@@ -271,6 +275,12 @@ contract does not gain a new top-level
 `bridgeVersion` field in PR7B-beta; route wiring may compose the string into
 `adapterVersion` (for example `bridge-v1+adapter-v1`) when a non-empty bridged
 snapshot is emitted behind `?decisionCenter=1`.
+
+PR7C enabled-route wiring uses the exact composition
+`creative-decision-center.v3-bridge.v1+creative-decision-center.shadow-adapter.v1`
+whenever the flagged route attempts the bridge path, even when every V3
+decision is omitted and `rowDecisions` is empty. Disabled-engine snapshots do
+not attempt the bridge path and keep the base shadow adapter version.
 
 ## Determinism Requirements
 

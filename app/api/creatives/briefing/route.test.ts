@@ -402,7 +402,7 @@ describe("GET /api/creatives/briefing", () => {
     expect(payload.source.dataSource).toBe("mock");
   });
 
-  it("emits a validated empty decisionCenter snapshot when ?decisionCenter=1 is set (PR7A)", async () => {
+  it("emits a validated bridged decisionCenter snapshot when ?decisionCenter=1 is set (PR7C)", async () => {
     const response = await GET(
       new NextRequest(
         "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=1",
@@ -414,19 +414,39 @@ describe("GET /api/creatives/briefing", () => {
     expect(payload.decisionCenter).not.toBeNull();
     expect(payload.decisionCenter).toMatchObject({
       contractVersion: "creative-decision-center.v2.1",
-      adapterVersion: "creative-decision-center.shadow-adapter.v1",
+      adapterVersion:
+        "creative-decision-center.v3-bridge.v1+creative-decision-center.shadow-adapter.v1",
       configVersion: "creative-decision-engine.config.v1",
       generatedAt: "2026-05-07T00:00:00.000Z",
-      rowDecisions: [],
       aggregateDecisions: [],
       todayBrief: [],
       missingDataSummary: {},
       inputCoverageSummary: {},
     });
+    expect(payload.decisionCenter.rowDecisions).toHaveLength(1);
+    expect(payload.decisionCenter.rowDecisions[0]).toMatchObject({
+      scope: "creative",
+      creativeId: "mock-creative-001",
+      rowId: "row_1",
+      identityGrain: "creative",
+      familyId: null,
+      buyerAction: "scale",
+      executionAction: "scale_budget",
+      sourceDecision: "v3:scale",
+      engine: {
+        contractVersion: "creative-decision-os.v2.1",
+        primaryDecision: "Scale",
+        problemClass: "performance",
+        actionability: "review_only",
+        queueEligible: false,
+        applyEligible: false,
+      },
+    });
     expect(payload.decisionCenter.dataFreshness.status).toMatch(
       /^(fresh|stale)$/,
     );
     expect(payload.decisionCenter.engineVersion).toBeTruthy();
+    expect(payload.decisionCenter.actionBoard.scale).toEqual(["row_1"]);
     expect(Object.keys(payload.decisionCenter.actionBoard)).toEqual([
       "scale",
       "cut",
@@ -438,14 +458,82 @@ describe("GET /api/creatives/briefing", () => {
       "fix_policy",
       "diagnose_data",
     ]);
-    for (const bucket of Object.values(
-      payload.decisionCenter.actionBoard as Record<string, unknown[]>,
-    )) {
-      expect(bucket).toEqual([]);
-    }
+    expect(payload.decisionCenter.actionBoard.cut).toEqual([]);
+    expect(payload.decisionCenter.actionBoard.refresh).toEqual([]);
+    expect(payload.decisionCenter.actionBoard.diagnose_data).toEqual([]);
     // Legacy payload assertions remain intact.
     expect(payload.statusFilter).toBe("active");
     expect(Array.isArray(payload.actionNow)).toBe(true);
+    expect(payload.source.dataSource).toBe("mock");
+    expect(JSON.stringify(payload.decisionCenter)).not.toContain(
+      "brief_variation",
+    );
+  });
+
+  it("keeps campaign-kind execution actions in the flagged decisionCenter snapshot (PR7C)", async () => {
+    vi.mocked(readMetaCampaignLabels).mockResolvedValue([campaignLabel("test", "creative")]);
+
+    const testResponse = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=1",
+      ),
+    );
+    const testPayload = await testResponse.json();
+    expect(testPayload.decisionCenter.rowDecisions[0]).toMatchObject({
+      buyerAction: "scale",
+      executionAction: "promote_to_main",
+    });
+
+    vi.mocked(readMetaCampaignLabels).mockResolvedValue([campaignLabel("mixed")]);
+
+    const mixedResponse = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decision_center=true",
+      ),
+    );
+    const mixedPayload = await mixedResponse.json();
+    expect(mixedPayload.decisionCenter.rowDecisions[0]).toMatchObject({
+      buyerAction: "scale",
+      executionAction: "controlled_scale",
+    });
+  });
+
+  it("keeps unlabeled scale execution blocked in the flagged decisionCenter snapshot (PR7C)", async () => {
+    vi.mocked(readMetaCampaignLabels).mockResolvedValue([]);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=1",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.decisionCenter.rowDecisions[0]).toMatchObject({
+      buyerAction: "diagnose_data",
+      executionAction: null,
+      sourceDecision: "v3:diagnose",
+      engine: {
+        primaryDecision: "Diagnose",
+        actionability: "diagnose",
+        queueEligible: false,
+        applyEligible: false,
+      },
+    });
+    expect(payload.decisionCenter.actionBoard.diagnose_data).toEqual(["row_1"]);
+  });
+
+  it("fails closed to a null decisionCenter when shadow snapshot assembly cannot validate (PR7C)", async () => {
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=not-a-date&decisionCenter=1",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.decisionCenter).toBeNull();
+    expect(payload.actionNow).toEqual(expect.any(Array));
     expect(payload.source.dataSource).toBe("mock");
   });
 

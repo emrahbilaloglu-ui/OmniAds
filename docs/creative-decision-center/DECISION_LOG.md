@@ -558,3 +558,62 @@ Risk: omitting plain `keep` rows means a drawer opened from a legacy Healthy
 row may not always find a V2.1 row decision during the shadow phase. Mitigation:
 UI slices must keep legacy fallback rendering until V2.1 is default and must
 show `sourceDecision` only as audit metadata, never as a decision input.
+
+## D023 — Wire Bridged V3 Rows Into The Flagged Briefing Response Only
+
+Decision: when `GET /api/creatives/briefing` receives the explicit
+`?decisionCenter=1` / `?decisionCenter=true` / `?decision_center=...` flag,
+the route maps the already-produced, campaign-label-guarded V3
+`DecisionOutput` rows through the PR7B V3 bridge, the existing deterministic
+buyer adapter, and the snapshot builder. The default briefing response remains
+unchanged when the flag is absent.
+
+Reason: PR7A proved the additive response shape with an empty snapshot. PR7B
+proved the isolated V3-to-V2.1 bridge without runtime consumers. PR7C connects
+those two pieces in shadow mode so the contract can be inspected through the
+real route while keeping legacy lanes, drawer consumers, and the active engine
+as the buyer-facing default.
+
+Scope: route-only wiring in `app/api/creatives/briefing/route.ts` and matching
+route tests. The route uses existing `DecisionOutput` values after
+`decideCreative(...)` and `applyCreativeCampaignLabelGuard(...)`; it does not
+change gate ordering, thresholds, confidence formulas, label transforms,
+campaign-label guard behavior, or lane classification. Plain no-op V3 `keep`
+and `out_of_scope` decisions remain omitted by the bridge. Mapped rows keep
+`queueEligible: false` and `applyEligible: false` through the V2.1 engine
+contract. The disabled-engine path still emits an empty snapshot only when the
+flag is explicitly requested.
+
+Adapter versioning: when the enabled route attempts the bridged shadow path,
+the snapshot `adapterVersion` composes the bridge and adapter constants as
+`creative-decision-center.v3-bridge.v1+creative-decision-center.shadow-adapter.v1`.
+This applies even if all V3 decisions are omitted and `rowDecisions` is empty,
+so operators can distinguish "bridge ran and omitted all rows" from the
+disabled/legacy empty snapshot. The snapshot contract does not gain a new
+top-level `bridgeVersion`.
+
+Validation: the route still validates the assembled snapshot with
+`validateDecisionCenterSnapshot(...)` and
+`auditDecisionCenterSnapshotInvariants(...)`; validation failure returns
+`decisionCenter: null` instead of a malformed shadow payload.
+
+Constraint: no UI component consumes `decisionCenter` in this slice. UI code
+must not parse `sourceDecision`, compute `buyerAction`, compute
+`executionAction`, or infer action-board buckets. Any default response change,
+UI consumption, route rename, non-shadow action queueing, or Meta write path
+requires a separate decision-log entry and user approval.
+
+Rejected alternatives:
+
+- Emit bridged rows by default. That would change the default response shape and
+  make the V2.1 surface buyer-visible before fallback behavior is reviewed.
+- Recompute V2.1 rows from raw Meta/warehouse signals in the route. That would
+  create a second decision engine outside the tested V3 resolver and bridge.
+- Expand `DecisionCenterSnapshot` with `bridgeVersion` during route wiring.
+  Version composition inside `adapterVersion` is enough for the shadow payload
+  and avoids a contract migration.
+
+Risk: a flagged snapshot may have fewer rows than the legacy briefing lanes
+because the bridge intentionally omits plain `keep` and `out_of_scope` rows.
+Mitigation: PR9 UI consumption must retain legacy fallback rendering until the
+V2.1 surface is deliberately made default.

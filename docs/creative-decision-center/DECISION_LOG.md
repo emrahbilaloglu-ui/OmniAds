@@ -617,3 +617,50 @@ Risk: a flagged snapshot may have fewer rows than the legacy briefing lanes
 because the bridge intentionally omits plain `keep` and `out_of_scope` rows.
 Mitigation: PR9 UI consumption must retain legacy fallback rendering until the
 V2.1 surface is deliberately made default.
+
+## D024 — Keep Aggregate Decisions As A Deny-By-Default Structural Gate
+
+Decision: `lib/creative-decision-center/aggregate-builder.ts` is a structural
+gate for already-proposed page/family aggregate candidates. It does not
+discover candidates, derive family winners, compute fatigue clusters, rank
+rows, or inspect active engine metrics. The current briefing route passes an
+empty candidate list, so the flagged `decisionCenter.aggregateDecisions` field
+remains `[]` until a later ADR adds an explicit candidate source.
+
+Reason: PR12 needs the aggregate contract surface and guardrails without
+activating family/supply decisions whose required data is not ready. A
+deny-by-default gate lets the route and tests prove that aggregate actions
+stay disabled when family/supply evidence is missing while preserving the
+future page/family shape.
+
+Required data mapping:
+
+| aggregate action | code-level required data keys | DATA_READINESS source row |
+| --- | --- | --- |
+| `brief_variation` | `family_winner_fatigue`, `backup_variant_status`, `creative_supply_backlog` | family winner/fatigue, no backup, backlog/supply |
+| `creative_supply_warning` | `creative_supply_backlog`, `recent_launches`, `production_state` | creative supply/backlog/winner gap |
+| `winner_gap` | `last_winner_date`, `historical_snapshot_window` | last winner date |
+| `fatigue_cluster` | `fatigue_trend_window`, `cluster_definition`, `performance_trend` | top N fatigue proof |
+| `unused_approved_creatives` | `creative_review_status`, `delivery_proof`, `lifetime_delivery` | approved status + no delivery |
+
+Scope: the builder imports only contract types, emits only
+`CreativeDecisionCenterAggregateDecision[]`, strips any row-only fields by
+constructing output objects field-by-field, and suppresses a candidate when
+required data is missing, candidate `missingData` is non-empty, or a
+family-scoped candidate lacks `familyId`. It never writes row decisions,
+`buyerAction`, `uiBucket`, `creativeId`, queue/apply metadata, or Meta actions.
+
+Constraint: `brief_variation` remains aggregate-only. Future candidate
+providers such as family analyzers, supply trackers, approved-creative
+delivery trackers, or historical winner-gap calculators require a separate
+ADR and explicit tests before the route may pass non-empty candidates.
+
+Rejected alternative: hardcode `aggregateDecisions: []` in the route forever.
+That would keep PR12 safe but would not document the gate policy or protect a
+future implementation from silently activating aggregate actions without
+family/supply readiness proof.
+
+Risk: a later slice could wire a candidate source without proving the
+DATA_READINESS fields. Mitigation: module-isolation tests cover the builder,
+route tests lock empty default aggregate output, and builder tests suppress
+all aggregate actions unless their required data keys are explicitly present.

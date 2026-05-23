@@ -31,10 +31,12 @@ import {
   adaptCreativeDecisionsToRows,
   assembleDecisionCenterSnapshot,
   auditDecisionCenterSnapshotInvariants,
+  buildDecisionCenterAggregateDecisions,
   CREATIVE_DECISION_CENTER_ADAPTER_VERSION,
   CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION,
   bridgeV3DecisionToAdapterInput,
   validateDecisionCenterSnapshot,
+  type CreativeDecisionCenterAggregateDecision,
   type CreativeDecisionCenterRowDecision,
   type CreativeDecisionCenterFreshnessStatus,
   type DecisionCenterSnapshot,
@@ -77,6 +79,7 @@ function buildDecisionCenterSnapshot(input: {
   adapterVersion?: string;
   dataHealthDegraded: boolean;
   rowDecisions?: CreativeDecisionCenterRowDecision[];
+  aggregateDecisions?: CreativeDecisionCenterAggregateDecision[];
 }): DecisionCenterSnapshot | null {
   const dataFreshnessStatus: CreativeDecisionCenterFreshnessStatus =
     input.dataHealthDegraded ? "stale" : "fresh";
@@ -90,7 +93,7 @@ function buildDecisionCenterSnapshot(input: {
     generatedAt,
     dataFreshness: { status: dataFreshnessStatus, maxAgeHours: null },
     rowDecisions: input.rowDecisions ?? [],
-    aggregateDecisions: [],
+    aggregateDecisions: input.aggregateDecisions ?? [],
   });
   const validation = validateDecisionCenterSnapshot(snapshot);
   if (!validation.ok) return null;
@@ -260,12 +263,16 @@ function buildBridgedDecisionCenterSnapshot(input: {
       creativeRowsById: input.creativeRowsById,
       dataHealthDegraded: input.dataHealthDegraded,
     });
+    const { aggregateDecisions } = buildDecisionCenterAggregateDecisions({
+      candidates: [],
+    });
     return buildDecisionCenterSnapshot({
       asOf: input.asOf,
       engineVersion: input.engineVersion,
       adapterVersion: DECISION_CENTER_BRIDGED_ADAPTER_VERSION,
       dataHealthDegraded: input.dataHealthDegraded,
       rowDecisions,
+      aggregateDecisions,
     });
   } catch {
     return null;

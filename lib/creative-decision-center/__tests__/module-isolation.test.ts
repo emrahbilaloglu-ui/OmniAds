@@ -6,6 +6,7 @@ const SOURCE_DIR = "lib/creative-decision-center";
 const V3_BRIDGE_FILE = join(SOURCE_DIR, "v3-bridge.ts");
 const SOURCE_FILES = [
   "contracts.ts",
+  "aggregate-builder.ts",
   "validators.ts",
   "invariants.ts",
   "adapter.ts",

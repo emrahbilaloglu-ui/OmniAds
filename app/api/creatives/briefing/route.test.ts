@@ -461,13 +461,15 @@ describe("GET /api/creatives/briefing", () => {
     expect(payload.decisionCenter.actionBoard.cut).toEqual([]);
     expect(payload.decisionCenter.actionBoard.refresh).toEqual([]);
     expect(payload.decisionCenter.actionBoard.diagnose_data).toEqual([]);
+    expect(payload.decisionCenter.aggregateDecisions).toEqual([]);
+    for (const row of payload.decisionCenter.rowDecisions) {
+      expect(row.buyerAction).not.toBe("brief_variation");
+      expect(row.uiBucket).not.toBe("brief_variation");
+    }
     // Legacy payload assertions remain intact.
     expect(payload.statusFilter).toBe("active");
     expect(Array.isArray(payload.actionNow)).toBe(true);
     expect(payload.source.dataSource).toBe("mock");
-    expect(JSON.stringify(payload.decisionCenter)).not.toContain(
-      "brief_variation",
-    );
   });
 
   it("keeps campaign-kind execution actions in the flagged decisionCenter snapshot (PR7C)", async () => {

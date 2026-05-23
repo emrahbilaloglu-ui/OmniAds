@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CLOSED_LAUNCHPAD_OVERLAY_STATE,
   CreativesBriefingPage,
+  decisionCenterActionBoardSections,
   decisionCenterTodayBriefItems,
   isDecisionCenterUiRequested,
   normalizeCreativesBriefingPayload,
@@ -242,17 +243,65 @@ function decisionCenterTodayBrief(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function decisionCenterSnapshotWithTodayBrief(todayBrief: unknown) {
+function emptyDecisionCenterActionBoard() {
   return {
-    todayBrief,
-    rowDecisions: [],
+    scale: [],
+    cut: [],
+    refresh: [],
+    protect: [],
+    test_more: [],
+    watch_launch: [],
+    fix_delivery: [],
+    fix_policy: [],
+    diagnose_data: [],
   };
+}
+
+function decisionCenterSnapshot(overrides: Record<string, unknown> = {}) {
+  return {
+    todayBrief: [],
+    actionBoard: emptyDecisionCenterActionBoard(),
+    rowDecisions: [],
+    ...overrides,
+  };
+}
+
+function decisionCenterSnapshotWithTodayBrief(todayBrief: unknown) {
+  return decisionCenterSnapshot({ todayBrief });
 }
 
 function extractDecisionCenterTodayBriefPanel(html: string) {
   const start = html.indexOf('data-testid="decision-center-today-brief"');
   expect(start).toBeGreaterThanOrEqual(0);
+  const actionBoardStart = html.indexOf(
+    'data-testid="decision-center-action-board"',
+    start,
+  );
+  const laneTabsStart = html.indexOf('<div class="lane-tabs"', start);
+  const end =
+    actionBoardStart > start && actionBoardStart < laneTabsStart
+      ? actionBoardStart
+      : laneTabsStart;
+  expect(end).toBeGreaterThan(start);
+  return html.slice(start, end);
+}
+
+function extractDecisionCenterActionBoardPanel(html: string) {
+  const start = html.indexOf('data-testid="decision-center-action-board"');
+  expect(start).toBeGreaterThanOrEqual(0);
   const end = html.indexOf('<div class="lane-tabs"', start);
+  expect(end).toBeGreaterThan(start);
+  return html.slice(start, end);
+}
+
+function extractDecisionCenterActionBoardBucket(html: string, bucketKey: string) {
+  const marker = `data-bucket-key="${bucketKey}"`;
+  const start = html.indexOf(marker);
+  expect(start).toBeGreaterThanOrEqual(0);
+  const nextBucket = html.indexOf('data-bucket-key="', start + marker.length);
+  const panelEnd = html.indexOf("</section>", start);
+  const end =
+    nextBucket > start && nextBucket < panelEnd ? nextBucket : panelEnd;
   expect(end).toBeGreaterThan(start);
   return html.slice(start, end);
 }
@@ -467,6 +516,245 @@ describe("CreativesBriefingPage", () => {
 
     expect(panel).toContain("No server-supplied Decision Center brief yet.");
     expect(panel).not.toContain('data-testid="decision-center-brief-entry"');
+  });
+
+  it("renders nothing for the Decision Center Action Board when the URL flag is off", () => {
+    mockState.briefingData = {
+      ...makeBriefingData(),
+      decisionCenter: decisionCenterSnapshot({
+        actionBoard: {
+          ...emptyDecisionCenterActionBoard(),
+          scale: ["cr_action"],
+        },
+      }),
+    } as any;
+
+    const html = renderToStaticMarkup(<CreativesBriefingPage />);
+
+    expect(
+      decisionCenterActionBoardSections(
+        mockState.briefingData.decisionCenter,
+        false,
+      ),
+    ).toEqual([]);
+    expect(html).not.toContain('data-testid="decision-center-action-board"');
+    expect(html).not.toContain("Decision Center Action Board");
+  });
+
+  it("renders all Decision Center Action Board buckets in canonical order", () => {
+    mockState.searchParams = new URLSearchParams("decisionCenter=1");
+    mockState.briefingData = {
+      ...makeBriefingData(),
+      decisionCenter: decisionCenterSnapshot({
+        actionBoard: {
+          diagnose_data: [],
+          fix_policy: [],
+          fix_delivery: [],
+          watch_launch: [],
+          test_more: [],
+          protect: [],
+          refresh: [],
+          cut: [],
+          scale: ["cr_action"],
+        },
+        rowDecisions: [
+          decisionCenterRow({
+            buyerLabel: "Server scale review",
+          }),
+        ],
+      }),
+    } as any;
+
+    const html = renderToStaticMarkup(<CreativesBriefingPage />);
+    const panel = extractDecisionCenterActionBoardPanel(html);
+    const bucketKeys = Array.from(
+      panel.matchAll(/data-bucket-key="([^"]+)"/g),
+      (match) => match[1],
+    );
+
+    expect(bucketKeys).toEqual([
+      "scale",
+      "cut",
+      "refresh",
+      "protect",
+      "test_more",
+      "watch_launch",
+      "fix_delivery",
+      "fix_policy",
+      "diagnose_data",
+    ]);
+    expect(
+      panel.match(/data-testid="decision-center-action-board-bucket"/g),
+    ).toHaveLength(9);
+    expect(panel).toContain("0 rows");
+    expect(panel).toContain("1 row");
+  });
+
+  it("preserves server row order inside Action Board buckets without top-N truncation", () => {
+    mockState.searchParams = new URLSearchParams("decisionCenter=1");
+    const rowIds = Array.from({ length: 12 }, (_, index) => `row_${11 - index}`);
+    mockState.briefingData = {
+      ...makeBriefingData(),
+      decisionCenter: decisionCenterSnapshot({
+        actionBoard: {
+          ...emptyDecisionCenterActionBoard(),
+          scale: rowIds,
+        },
+      }),
+    } as any;
+
+    const html = renderToStaticMarkup(<CreativesBriefingPage />);
+    const scaleBucket = extractDecisionCenterActionBoardBucket(html, "scale");
+
+    expect(
+      scaleBucket.match(/data-testid="decision-center-action-board-row"/g),
+    ).toHaveLength(12);
+    expect(scaleBucket.indexOf("row_11")).toBeLessThan(
+      scaleBucket.indexOf("row_10"),
+    );
+    expect(scaleBucket).toContain("row_0");
+  });
+
+  it("uses only server Action Board membership and ignores legacy card labels", () => {
+    mockState.searchParams = new URLSearchParams("decisionCenter=1");
+    const briefing = makeBriefingData();
+    mockState.briefingData = {
+      ...briefing,
+      actionNow: [
+        {
+          ...(briefing.actionNow[0] as any),
+          label: "cut",
+          primary: { kind: "cut", label: "Cut" },
+        },
+      ],
+      decisionCenter: decisionCenterSnapshot({
+        actionBoard: {
+          ...emptyDecisionCenterActionBoard(),
+          scale: ["cr_action"],
+          cut: [],
+        },
+        rowDecisions: [
+          decisionCenterRow({
+            buyerLabel: "Server bucket label",
+          }),
+        ],
+      }),
+    } as any;
+
+    const html = renderToStaticMarkup(<CreativesBriefingPage />);
+    const scaleBucket = extractDecisionCenterActionBoardBucket(html, "scale");
+    const cutBucket = extractDecisionCenterActionBoardBucket(html, "cut");
+
+    expect(scaleBucket).toContain("cr_action");
+    expect(cutBucket).not.toContain("cr_action");
+  });
+
+  it("does not derive Action Board membership from rowDecisions", () => {
+    mockState.searchParams = new URLSearchParams("decisionCenter=1");
+    mockState.briefingData = {
+      ...makeBriefingData(),
+      decisionCenter: decisionCenterSnapshot({
+        actionBoard: emptyDecisionCenterActionBoard(),
+        rowDecisions: [
+          decisionCenterRow({
+            rowId: "row_from_row_decisions_only",
+            creativeId: "creative_from_row_decisions_only",
+            buyerLabel: "Row-only label",
+          }),
+        ],
+      }),
+    } as any;
+
+    const html = renderToStaticMarkup(<CreativesBriefingPage />);
+    const panel = extractDecisionCenterActionBoardPanel(html);
+
+    expect(panel).not.toContain("row_from_row_decisions_only");
+    expect(
+      panel.match(/data-testid="decision-center-action-board-bucket"/g),
+    ).toHaveLength(9);
+    expect(
+      panel.match(/data-testid="decision-center-action-board-row"/g),
+    ).toBeNull();
+  });
+
+  it("does not render unknown Action Board buckets from malformed snapshots", () => {
+    mockState.searchParams = new URLSearchParams("decisionCenter=1");
+    mockState.briefingData = {
+      ...makeBriefingData(),
+      decisionCenter: decisionCenterSnapshot({
+        actionBoard: {
+          ...emptyDecisionCenterActionBoard(),
+          scale: ["cr_action"],
+          brief_variation: ["row_unknown"],
+          promote_to_main: ["row_execution_action"],
+        },
+      }),
+    } as any;
+
+    const html = renderToStaticMarkup(<CreativesBriefingPage />);
+    const panel = extractDecisionCenterActionBoardPanel(html);
+    const bucketKeys = Array.from(
+      panel.matchAll(/data-bucket-key="([^"]+)"/g),
+      (match) => match[1],
+    );
+
+    expect(bucketKeys).toHaveLength(9);
+    expect(bucketKeys).not.toContain("brief_variation");
+    expect(bucketKeys).not.toContain("promote_to_main");
+    expect(panel).not.toContain("row_unknown");
+    expect(panel).not.toContain("row_execution_action");
+  });
+
+  it("does not render write controls in the Action Board panel", () => {
+    mockState.searchParams = new URLSearchParams("decisionCenter=1");
+    mockState.briefingData = {
+      ...makeBriefingData(),
+      decisionCenter: decisionCenterSnapshot({
+        actionBoard: {
+          ...emptyDecisionCenterActionBoard(),
+          protect: ["cr_action"],
+        },
+        rowDecisions: [
+          decisionCenterRow({
+            buyerLabel: "Audit only label",
+          }),
+        ],
+      }),
+    } as any;
+
+    const html = renderToStaticMarkup(<CreativesBriefingPage />);
+    const panel = extractDecisionCenterActionBoardPanel(html).toLowerCase();
+
+    expect(panel).not.toContain("<button");
+    expect(panel).not.toMatch(
+      /\b(apply|queue|pause|launchpad|meta write|duplicate|executionaction|primarydecision)\b/,
+    );
+  });
+
+  it("keeps the Decision Center Action Board crash-safe for null or malformed snapshots", () => {
+    expect(decisionCenterActionBoardSections(null as any, true)).toEqual([]);
+    expect(
+      decisionCenterActionBoardSections(
+        decisionCenterSnapshot({ actionBoard: "not-an-object" }) as any,
+        true,
+      ),
+    ).toEqual([]);
+
+    mockState.searchParams = new URLSearchParams("decisionCenter=1");
+    mockState.briefingData = {
+      ...makeBriefingData(),
+      decisionCenter: decisionCenterSnapshot({ actionBoard: "not-an-object" }),
+    } as any;
+
+    const html = renderToStaticMarkup(<CreativesBriefingPage />);
+    const panel = extractDecisionCenterActionBoardPanel(html);
+
+    expect(panel).toContain(
+      "No server-supplied Decision Center action board yet.",
+    );
+    expect(panel).not.toContain(
+      'data-testid="decision-center-action-board-bucket"',
+    );
   });
 
   it("attaches server-supplied decisionCenter rows without crashing on null or missing snapshots", () => {

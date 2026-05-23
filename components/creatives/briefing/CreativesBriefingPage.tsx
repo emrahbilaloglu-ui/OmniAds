@@ -169,10 +169,37 @@ type DecisionCenterRowForCard = NonNullable<
 type DecisionCenterTodayBriefItem = NonNullable<
   NonNullable<CreativesBriefingResponse["decisionCenter"]>["todayBrief"]
 >[number];
+type DecisionCenterActionBoard =
+  NonNullable<CreativesBriefingResponse["decisionCenter"]>["actionBoard"];
+type DecisionCenterActionBoardKey = keyof DecisionCenterActionBoard;
+type DecisionCenterActionBoardEntry = {
+  id: string;
+  row: DecisionCenterRowForCard | null;
+};
+export type DecisionCenterActionBoardSection = {
+  key: DecisionCenterActionBoardKey;
+  label: string;
+  entries: DecisionCenterActionBoardEntry[];
+};
 type DecisionCenterRowMaps = {
   byRowId: Map<string, DecisionCenterRowForCard>;
   byCreativeId: Map<string, DecisionCenterRowForCard>;
 };
+
+const DECISION_CENTER_ACTION_BOARD_BUCKETS = [
+  { key: "scale", label: "Scale" },
+  { key: "cut", label: "Cut" },
+  { key: "refresh", label: "Refresh" },
+  { key: "protect", label: "Protect" },
+  { key: "test_more", label: "Test more" },
+  { key: "watch_launch", label: "Watch launch" },
+  { key: "fix_delivery", label: "Fix delivery" },
+  { key: "fix_policy", label: "Fix policy" },
+  { key: "diagnose_data", label: "Diagnose data" },
+] as const satisfies ReadonlyArray<{
+  key: DecisionCenterActionBoardKey;
+  label: string;
+}>;
 
 interface EvidenceDrawerState {
   open: boolean;
@@ -585,6 +612,12 @@ export function decisionCenterTodayBriefItems(
     : [];
 }
 
+function isDecisionCenterActionBoardObject(
+  value: unknown,
+): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
 function normalizedDecisionCenterKey(value: string | null | undefined) {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
@@ -604,6 +637,39 @@ function decisionCenterRowMaps(
     }
   }
   return { byRowId, byCreativeId };
+}
+
+export function decisionCenterActionBoardSections(
+  snapshot: CreativesBriefingResponse["decisionCenter"],
+  enabled: boolean,
+): DecisionCenterActionBoardSection[] {
+  if (!enabled || !isDecisionCenterSnapshotObject(snapshot)) return [];
+  const actionBoard = (snapshot as { actionBoard?: unknown }).actionBoard;
+  if (!isDecisionCenterActionBoardObject(actionBoard)) return [];
+
+  const maps = decisionCenterRowMaps(snapshot);
+  return DECISION_CENTER_ACTION_BOARD_BUCKETS.map(({ key, label }) => {
+    const rawIds = actionBoard[key];
+    const ids = Array.isArray(rawIds)
+      ? rawIds.filter(
+          (id): id is string =>
+            typeof id === "string" && id.trim().length > 0,
+        )
+      : [];
+    return {
+      key,
+      label,
+      entries: ids.map((id) => {
+        const lookupKey = normalizedDecisionCenterKey(id);
+        const row = lookupKey
+          ? (maps.byRowId.get(lookupKey) ??
+            maps.byCreativeId.get(lookupKey) ??
+            null)
+          : null;
+        return { id, row };
+      }),
+    };
+  });
 }
 
 function attachDecisionCenterRowToCard<T extends BriefingCreativeCard>(
@@ -1047,6 +1113,90 @@ function DecisionCenterTodayBrief({
   );
 }
 
+function DecisionCenterActionBoard({
+  sections,
+  snapshotPresent,
+}: {
+  sections: DecisionCenterActionBoardSection[];
+  snapshotPresent: boolean;
+}) {
+  if (!snapshotPresent) return null;
+
+  return (
+    <section
+      className="mb-4 rounded-xl border border-slate-200 bg-white px-4 py-3"
+      data-testid="decision-center-action-board"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-[13px] font-semibold text-slate-950">
+            Decision Center Action Board
+          </h2>
+          <p className="text-[11.5px] text-slate-500">
+            Server-supplied shadow buckets.
+          </p>
+        </div>
+        <span className="chip chip--ghost">
+          <span className="dot" />
+          shadow preview
+        </span>
+      </div>
+
+      {sections.length > 0 ? (
+        <div className="mt-3 grid gap-2 md:grid-cols-3">
+          {sections.map((section) => (
+            <article
+              key={section.key}
+              className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+              data-bucket-key={section.key}
+              data-testid="decision-center-action-board-bucket"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-[12px] font-semibold text-slate-900">
+                  {section.label}
+                </h3>
+                <span className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10.5px] text-slate-600">
+                  {section.entries.length}{" "}
+                  {section.entries.length === 1 ? "row" : "rows"}
+                </span>
+              </div>
+
+              {section.entries.length > 0 ? (
+                <ul className="mt-2 grid gap-1.5">
+                  {section.entries.map((entry, index) => (
+                    <li
+                      key={`${entry.id}:${index}`}
+                      className="rounded-md border border-slate-200 bg-white px-2 py-1.5"
+                      data-testid="decision-center-action-board-row"
+                    >
+                      <div className="font-mono text-[10.5px] text-slate-500">
+                        {entry.id}
+                      </div>
+                      {entry.row?.buyerLabel ? (
+                        <div className="mt-0.5 text-[12px] font-medium leading-snug text-slate-900">
+                          {entry.row.buyerLabel}
+                        </div>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="mt-2 rounded-md border border-dashed border-slate-200 bg-white/70 px-2 py-1.5 text-[11.5px] text-slate-500">
+                  No server rows.
+                </div>
+              )}
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-3 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-[12px] text-slate-500">
+          No server-supplied Decision Center action board yet.
+        </div>
+      )}
+    </section>
+  );
+}
+
 function CreativePulseFinal({
   spendToday,
   conversions,
@@ -1315,6 +1465,14 @@ export function CreativesBriefingPage() {
   const decisionCenterBriefItems = useMemo(
     () =>
       decisionCenterTodayBriefItems(
+        decisionCenterSnapshot,
+        decisionCenterUiRequested,
+      ),
+    [decisionCenterSnapshot, decisionCenterUiRequested],
+  );
+  const decisionCenterActionBoardItems = useMemo(
+    () =>
+      decisionCenterActionBoardSections(
         decisionCenterSnapshot,
         decisionCenterUiRequested,
       ),
@@ -1897,10 +2055,16 @@ export function CreativesBriefingPage() {
       {workspaceMode === "briefing" ? (
         <>
           {decisionCenterUiRequested ? (
-            <DecisionCenterTodayBrief
-              items={decisionCenterBriefItems}
-              snapshotPresent={decisionCenterBriefSnapshotPresent}
-            />
+            <>
+              <DecisionCenterTodayBrief
+                items={decisionCenterBriefItems}
+                snapshotPresent={decisionCenterBriefSnapshotPresent}
+              />
+              <DecisionCenterActionBoard
+                sections={decisionCenterActionBoardItems}
+                snapshotPresent={decisionCenterBriefSnapshotPresent}
+              />
+            </>
           ) : null}
 
           <div className="lane-tabs">

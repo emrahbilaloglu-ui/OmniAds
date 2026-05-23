@@ -185,6 +185,9 @@ type DecisionCenterRowMaps = {
   byRowId: Map<string, DecisionCenterRowForCard>;
   byCreativeId: Map<string, DecisionCenterRowForCard>;
 };
+type DecisionCenterAssetLibraryRow = MetaCreativeRow & {
+  decisionCenterRow?: DecisionCenterRowForCard | null;
+};
 
 const DECISION_CENTER_ACTION_BOARD_BUCKETS = [
   { key: "scale", label: "Scale" },
@@ -685,6 +688,23 @@ function attachDecisionCenterRowToCard<T extends BriefingCreativeCard>(
     (creativeId ? maps.byCreativeId.get(creativeId) : undefined);
 
   return decisionCenterRow ? { ...card, decisionCenterRow } : card;
+}
+
+export function attachDecisionCenterRowsToAssetLibraryRows(
+  rows: MetaCreativeRow[],
+  snapshot: CreativesBriefingResponse["decisionCenter"],
+  enabled: boolean,
+): MetaCreativeRow[] {
+  if (!enabled || !isDecisionCenterSnapshotObject(snapshot)) return rows;
+  const maps = decisionCenterRowMaps(snapshot);
+  return rows.map((row): DecisionCenterAssetLibraryRow => {
+    const rowId = normalizedDecisionCenterKey(row.id);
+    const creativeId = normalizedDecisionCenterKey(row.creativeId);
+    const decisionCenterRow =
+      (rowId ? maps.byRowId.get(rowId) : undefined) ??
+      (creativeId ? maps.byCreativeId.get(creativeId) : undefined);
+    return decisionCenterRow ? { ...row, decisionCenterRow } : row;
+  });
 }
 
 function isBriefingRollupItem(item: BriefingActionItem): item is BriefingRollupItem {
@@ -1572,6 +1592,15 @@ export function CreativesBriefingPage() {
     : Array.isArray(assetLibraryPayload?.rows)
       ? assetLibraryPayload.rows
       : [];
+  const decisionCenterAssetLibraryRows = useMemo(
+    () =>
+      attachDecisionCenterRowsToAssetLibraryRows(
+        assetLibraryRows,
+        decisionCenterSnapshot,
+        decisionCenterUiRequested,
+      ),
+    [assetLibraryRows, decisionCenterSnapshot, decisionCenterUiRequested],
+  );
   const assetLibraryStatus = Array.isArray(assetLibraryPayload)
     ? null
     : (assetLibraryPayload?.status ?? null);
@@ -2179,7 +2208,8 @@ export function CreativesBriefingPage() {
             <div className="lane-stack"><div className="lane-empty">{assetLibraryError}</div></div>
           ) : (
             <AssetLibrarySection
-              rows={assetLibraryRows}
+              rows={decisionCenterAssetLibraryRows}
+              decisionCenterUiEnabled={decisionCenterUiRequested}
               emptyMessage={assetLibraryEmptyMessage}
               defaultCurrency={activeBusiness?.currency ?? null}
               selectedMetricIds={libraryMetricIds}

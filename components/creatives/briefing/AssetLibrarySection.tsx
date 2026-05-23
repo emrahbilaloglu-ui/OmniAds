@@ -5,6 +5,7 @@ import { Search } from "lucide-react";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import type { DecisionLabel } from "@/components/common/briefing/types";
+import type { BriefingCreativeCard } from "@/components/creatives/briefing/types";
 import type { ShareLinkConfig } from "@/components/creatives/shareCreativeTypes";
 import { getCreativeFormatPresentation } from "@/components/creatives/briefing/creative-format";
 import type { AiCreativeHistoricalWindows as CreativeHistoricalWindows } from "@/lib/meta/creative-scoring";
@@ -39,6 +40,12 @@ type AssetMetricGroup =
   | "ai_tags";
 type MetricSummaryMode = "sum" | "avg" | "weighted_roas";
 type CreativeScoreKey = "hook" | "cta" | "offer" | "click" | "watch";
+type DecisionCenterRowForAssetLabel = NonNullable<
+  BriefingCreativeCard["decisionCenterRow"]
+>;
+type DecisionCenterBuyerActionForAssetLabel =
+  DecisionCenterRowForAssetLabel["buyerAction"];
+type AssetLibraryLabelSource = "creative_team" | "decision_center" | "legacy";
 
 type AssetMetricColumn = {
   id: string;
@@ -75,12 +82,13 @@ type BackendDependentMetric = {
   description: string;
 };
 
-type AssetLibraryRow = MetaCreativeRow & {
+export type AssetLibraryRow = MetaCreativeRow & {
   engineLabel?: DecisionLabel | string | null;
   decisionLabel?: DecisionLabel | string | null;
   briefingLabel?: DecisionLabel | string | null;
   engineBadges?: string[] | null;
   badges?: string[] | null;
+  decisionCenterRow?: DecisionCenterRowForAssetLabel | null;
 };
 
 interface AssetLibraryFilters {
@@ -95,6 +103,7 @@ interface AssetLibraryFilters {
 
 interface AssetLibrarySectionProps {
   rows: MetaCreativeRow[];
+  decisionCenterUiEnabled?: boolean;
   emptyMessage?: string | null;
   creativeHistoryById?: Map<string, CreativeHistoricalWindows>;
   defaultCurrency: string | null;
@@ -129,6 +138,24 @@ const DEFAULT_FILTERS: AssetLibraryFilters = {
   search: "",
   sort: "spend_desc",
 };
+
+const BUYER_ACTION_DISPLAY: Record<DecisionCenterBuyerActionForAssetLabel, string> = {
+  scale: "Scale",
+  cut: "Cut",
+  refresh: "Refresh",
+  protect: "Protect",
+  test_more: "Test more",
+  watch_launch: "Watch launch",
+  fix_delivery: "Fix delivery",
+  fix_policy: "Fix policy",
+  diagnose_data: "Diagnose data",
+};
+
+const _buyerActionDisplayCoverage: Record<
+  DecisionCenterBuyerActionForAssetLabel,
+  string
+> = BUYER_ACTION_DISPLAY;
+void _buyerActionDisplayCoverage;
 
 const PRESETS: ReadonlyArray<AssetLibraryPreset & { metrics: string[] }> = [
   {
@@ -602,6 +629,7 @@ export function sortAssetLibraryRows(
 
 export function AssetLibrarySection({
   rows,
+  decisionCenterUiEnabled = false,
   emptyMessage,
   defaultCurrency,
   selectedMetricIds,
@@ -1021,9 +1049,14 @@ export function AssetLibrarySection({
             ) : (
               filteredRows.map((row) => {
                 const selected = selectedRowIds.includes(row.id);
-                const label = isCreativeTeamPreset
-                  ? creativeTeamLabel(row as AssetLibraryRow)
-                  : rowEngineLabel(row as AssetLibraryRow);
+                const resolvedLabel = resolveAssetLibraryRowLabel(
+                  row as AssetLibraryRow,
+                  {
+                    creativeTeamPreset: isCreativeTeamPreset,
+                    decisionCenterUiEnabled,
+                  },
+                );
+                const label = resolvedLabel.label;
                 const format = getCreativeFormatPresentation(row);
                 const gap = isCreativeTeamPreset
                   ? creativeTeamGap(row)
@@ -1063,7 +1096,20 @@ export function AssetLibrarySection({
                         <span className="name-text"><b>{row.name}</b><span>{rowMeta || "—"}</span></span>
                       </span>
                     </td>
-                    <td><span className={labelClass}><span className="dot" />{safeText(label) || "Main"}</span></td>
+                    <td>
+                      <span
+                        className={labelClass}
+                        data-testid="asset-library-row-label"
+                        data-row-id={row.id}
+                        data-decision-center-label={
+                          resolvedLabel.source === "decision_center"
+                            ? "true"
+                            : undefined
+                        }
+                      >
+                        <span className="dot" />{safeText(label) || "Main"}
+                      </span>
+                    </td>
                     {visibleMetricColumns.map((column) => (
                       <td key={column.id} className={column.className}>{column.value(row)}</td>
                     ))}
@@ -1499,6 +1545,36 @@ function CreativeScoreCell({
       {Math.round(normalized)}
     </span>
   );
+}
+
+function buyerActionDisplay(value: unknown) {
+  if (typeof value !== "string") return null;
+  return Object.prototype.hasOwnProperty.call(BUYER_ACTION_DISPLAY, value)
+    ? BUYER_ACTION_DISPLAY[value as DecisionCenterBuyerActionForAssetLabel]
+    : null;
+}
+
+export function resolveAssetLibraryRowLabel(
+  row: AssetLibraryRow,
+  input: {
+    creativeTeamPreset: boolean;
+    decisionCenterUiEnabled: boolean;
+  },
+): { label: string | null; source: AssetLibraryLabelSource } {
+  if (input.creativeTeamPreset) {
+    return { label: creativeTeamLabel(row), source: "creative_team" };
+  }
+  if (input.decisionCenterUiEnabled && row.decisionCenterRow) {
+    const buyerLabel = safeText(row.decisionCenterRow.buyerLabel).trim();
+    return {
+      label:
+        buyerLabel ||
+        buyerActionDisplay(row.decisionCenterRow.buyerAction) ||
+        "Decision Center",
+      source: "decision_center",
+    };
+  }
+  return { label: rowEngineLabel(row), source: "legacy" };
 }
 
 function rowEngineLabel(row: AssetLibraryRow) {

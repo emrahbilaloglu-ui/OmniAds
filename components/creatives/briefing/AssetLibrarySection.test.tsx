@@ -92,6 +92,31 @@ function row(overrides: Partial<MetaCreativeRow> & Record<string, unknown>): Met
   } as MetaCreativeRow;
 }
 
+function decisionCenterRow(overrides: Record<string, unknown> = {}) {
+  return {
+    rowId: "row_1",
+    creativeId: "creative_1",
+    buyerAction: "scale",
+    buyerLabel: "Scale",
+    uiBucket: "scale",
+    executionAction: null,
+    nextStep: "Review the server decision.",
+    missingData: [],
+    ...overrides,
+  };
+}
+
+function extractRowLabelCell(html: string, rowId: string) {
+  const marker = `data-row-id="${rowId}"`;
+  const start = html.indexOf(marker);
+  expect(start).toBeGreaterThanOrEqual(0);
+  const tdStart = html.lastIndexOf("<td", start);
+  const tdEnd = html.indexOf("</td>", start);
+  expect(tdStart).toBeGreaterThanOrEqual(0);
+  expect(tdEnd).toBeGreaterThan(start);
+  return html.slice(tdStart, tdEnd);
+}
+
 describe("AssetLibrarySection", () => {
   it("renders the preset bar, KPI summary tiles, share view button, and wrapped table rows", () => {
     const html = renderToStaticMarkup(
@@ -188,6 +213,152 @@ describe("AssetLibrarySection", () => {
     expect(html).toContain("Hook + Click gap");
     expect(html).toContain(">Test<");
     expect(html).not.toContain("Below breakeven");
+  });
+
+  it("keeps legacy row labels when the Decision Center UI flag is off", () => {
+    const html = renderToStaticMarkup(
+      <AssetLibrarySection
+        rows={[
+          row({
+            id: "row_legacy",
+            creativeId: "cr_legacy",
+            engineLabel: "Cut",
+            decisionCenterRow: decisionCenterRow({
+              rowId: "row_legacy",
+              creativeId: "cr_legacy",
+              buyerAction: "scale",
+              buyerLabel: "Scale",
+            }),
+          }),
+        ]}
+        defaultCurrency="USD"
+        selectedMetricIds={["spend", "roas"]}
+        onSelectedMetricIdsChange={() => undefined}
+        selectedRowIds={[]}
+        onToggleRow={() => undefined}
+        onToggleAll={() => undefined}
+        onOpenRow={() => undefined}
+      />,
+    );
+
+    const labelCell = extractRowLabelCell(html, "row_legacy");
+    expect(labelCell).toContain(">Cut<");
+    expect(labelCell).not.toContain("Scale");
+    expect(labelCell).not.toContain("data-decision-center-label");
+  });
+
+  it("uses server buyerLabel over legacy engineLabel when Decision Center UI is enabled", () => {
+    const html = renderToStaticMarkup(
+      <AssetLibrarySection
+        rows={[
+          row({
+            id: "row_server",
+            creativeId: "cr_server",
+            engineLabel: "Cut",
+            decisionCenterRow: decisionCenterRow({
+              rowId: "row_server",
+              creativeId: "cr_server",
+              buyerAction: "scale",
+              buyerLabel: "Scale (server)",
+            }),
+          }),
+        ]}
+        decisionCenterUiEnabled
+        defaultCurrency="USD"
+        selectedMetricIds={["spend", "roas"]}
+        onSelectedMetricIdsChange={() => undefined}
+        selectedRowIds={[]}
+        onToggleRow={() => undefined}
+        onToggleAll={() => undefined}
+        onOpenRow={() => undefined}
+      />,
+    );
+
+    const labelCell = extractRowLabelCell(html, "row_server");
+    expect(labelCell).toContain("Scale (server)");
+    expect(labelCell).not.toContain(">Cut<");
+    expect(labelCell).toContain('data-decision-center-label="true"');
+  });
+
+  it("never renders a blank buyer-facing label when Decision Center UI is enabled", () => {
+    const html = renderToStaticMarkup(
+      <AssetLibrarySection
+        rows={[
+          row({
+            id: "row_blank",
+            creativeId: "cr_blank",
+            engineLabel: null,
+            decisionCenterRow: decisionCenterRow({
+              rowId: "row_blank",
+              creativeId: "cr_blank",
+              buyerAction: "diagnose_data",
+              buyerLabel: "",
+            }),
+          }),
+          row({
+            id: "row_unknown",
+            creativeId: "cr_unknown",
+            engineLabel: null,
+            decisionCenterRow: decisionCenterRow({
+              rowId: "row_unknown",
+              creativeId: "cr_unknown",
+              buyerAction: "unknown_action",
+              buyerLabel: null,
+            }),
+          }),
+        ]}
+        decisionCenterUiEnabled
+        defaultCurrency="USD"
+        selectedMetricIds={["spend", "roas"]}
+        onSelectedMetricIdsChange={() => undefined}
+        selectedRowIds={[]}
+        onToggleRow={() => undefined}
+        onToggleAll={() => undefined}
+        onOpenRow={() => undefined}
+      />,
+    );
+
+    const staticFallbackCell = extractRowLabelCell(html, "row_blank");
+    expect(staticFallbackCell).toContain("Diagnose data");
+    expect(staticFallbackCell).not.toMatch(/<span class="dot"><\/span><\/span>/);
+
+    const unknownFallbackCell = extractRowLabelCell(html, "row_unknown");
+    expect(unknownFallbackCell).toContain("Decision Center");
+    expect(unknownFallbackCell).not.toContain("unknown_action");
+  });
+
+  it("keeps Creative teams campaign labels even when a Decision Center row is present", () => {
+    const creativeTeamsPreset = ASSET_PRESETS.find((preset) => preset.id === "creative_teams");
+    const html = renderToStaticMarkup(
+      <AssetLibrarySection
+        rows={[
+          row({
+            id: "row_creative_team",
+            creativeId: "cr_creative_team",
+            campaignKind: "test",
+            decisionCenterRow: decisionCenterRow({
+              rowId: "row_creative_team",
+              creativeId: "cr_creative_team",
+              buyerAction: "scale",
+              buyerLabel: "Scale",
+            }),
+          }),
+        ]}
+        decisionCenterUiEnabled
+        defaultCurrency="USD"
+        selectedMetricIds={creativeTeamsPreset?.metricIds ?? []}
+        onSelectedMetricIdsChange={() => undefined}
+        selectedRowIds={[]}
+        onToggleRow={() => undefined}
+        onToggleAll={() => undefined}
+        onOpenRow={() => undefined}
+      />,
+    );
+
+    const labelCell = extractRowLabelCell(html, "row_creative_team");
+    expect(labelCell).toContain(">Test<");
+    expect(labelCell).not.toContain("Scale");
+    expect(labelCell).not.toContain("data-decision-center-label");
   });
 
   it("does not invent Creative teams scores when backend score fields are absent", () => {

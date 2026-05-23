@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CLOSED_LAUNCHPAD_OVERLAY_STATE,
   CreativesBriefingPage,
+  attachDecisionCenterRowsToAssetLibraryRows,
   decisionCenterActionBoardSections,
   decisionCenterTodayBriefItems,
   isDecisionCenterUiRequested,
@@ -804,6 +805,57 @@ describe("CreativesBriefingPage", () => {
       "diagnose_data",
     );
     expect(normalizedHappy?.healthy[0]?.decisionCenterRow).toBeUndefined();
+  });
+
+  it("enriches Asset Library rows from Decision Center rows only behind the UI flag", () => {
+    const rows = [
+      { id: "row_id_match", creativeId: "cr_unmatched" },
+      { id: "row_unmatched", creativeId: "cr_match" },
+      { id: "row_missing", creativeId: "cr_missing" },
+    ] as any[];
+    const snapshot = decisionCenterSnapshot({
+      rowDecisions: [
+        decisionCenterRow({
+          rowId: "row_id_match",
+          creativeId: "cr_other",
+          buyerAction: "scale",
+          buyerLabel: "Scale",
+          uiBucket: "scale",
+        }),
+        decisionCenterRow({
+          rowId: "row_other",
+          creativeId: "cr_match",
+          buyerAction: "cut",
+          buyerLabel: "Cut",
+          uiBucket: "cut",
+        }),
+      ],
+    });
+
+    const flagOff = attachDecisionCenterRowsToAssetLibraryRows(
+      rows,
+      snapshot as any,
+      false,
+    );
+    expect(flagOff).toBe(rows);
+    expect((flagOff[0] as any).decisionCenterRow).toBeUndefined();
+
+    const missingSnapshot = attachDecisionCenterRowsToAssetLibraryRows(
+      rows,
+      null,
+      true,
+    );
+    expect(missingSnapshot).toBe(rows);
+
+    const flagOn = attachDecisionCenterRowsToAssetLibraryRows(
+      rows,
+      snapshot as any,
+      true,
+    );
+    expect(flagOn).not.toBe(rows);
+    expect((flagOn[0] as any).decisionCenterRow?.buyerAction).toBe("scale");
+    expect((flagOn[1] as any).decisionCenterRow?.buyerAction).toBe("cut");
+    expect((flagOn[2] as any).decisionCenterRow).toBeUndefined();
   });
 
   it("draws the 7d ROAS spark from live trend data instead of a synthetic curve", () => {

@@ -166,6 +166,9 @@ type CreativeCampaignFilter = "all" | "main" | "test" | "mixed";
 type DecisionCenterRowForCard = NonNullable<
   BriefingCreativeCard["decisionCenterRow"]
 >;
+type DecisionCenterTodayBriefItem = NonNullable<
+  NonNullable<CreativesBriefingResponse["decisionCenter"]>["todayBrief"]
+>[number];
 type DecisionCenterRowMaps = {
   byRowId: Map<string, DecisionCenterRowForCard>;
   byCreativeId: Map<string, DecisionCenterRowForCard>;
@@ -538,6 +541,47 @@ function safeDecisionCenterRows(
     ? snapshot.rowDecisions.filter((row): row is DecisionCenterRowForCard =>
         Boolean(row && typeof row === "object"),
       )
+    : [];
+}
+
+function isDecisionCenterSnapshotObject(
+  snapshot: CreativesBriefingResponse["decisionCenter"],
+): snapshot is NonNullable<CreativesBriefingResponse["decisionCenter"]> {
+  return Boolean(
+    snapshot && typeof snapshot === "object" && !Array.isArray(snapshot),
+  );
+}
+
+function isDecisionCenterTodayBriefItem(
+  value: unknown,
+): value is DecisionCenterTodayBriefItem {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const item = value as Partial<DecisionCenterTodayBriefItem>;
+  return (
+    typeof item.id === "string" &&
+    item.id.trim().length > 0 &&
+    typeof item.priority === "string" &&
+    item.priority.trim().length > 0 &&
+    typeof item.text === "string" &&
+    item.text.trim().length > 0 &&
+    Array.isArray(item.rowIds) &&
+    item.rowIds.every((rowId) => typeof rowId === "string") &&
+    (item.aggregateIds == null ||
+      (Array.isArray(item.aggregateIds) &&
+        item.aggregateIds.every((aggregateId) => typeof aggregateId === "string")))
+  );
+}
+
+export function decisionCenterTodayBriefItems(
+  snapshot: CreativesBriefingResponse["decisionCenter"],
+  enabled: boolean,
+): DecisionCenterTodayBriefItem[] {
+  if (!enabled || !isDecisionCenterSnapshotObject(snapshot)) return [];
+  const todayBrief = (snapshot as { todayBrief?: unknown }).todayBrief;
+  return Array.isArray(todayBrief)
+    ? todayBrief.filter(isDecisionCenterTodayBriefItem)
     : [];
 }
 
@@ -933,6 +977,76 @@ function CreativeLaneTab({
   );
 }
 
+function DecisionCenterTodayBrief({
+  items,
+  snapshotPresent,
+}: {
+  items: DecisionCenterTodayBriefItem[];
+  snapshotPresent: boolean;
+}) {
+  if (!snapshotPresent) return null;
+
+  return (
+    <section
+      className="mb-4 rounded-xl border border-slate-200 bg-white px-4 py-3"
+      data-testid="decision-center-today-brief"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-[13px] font-semibold text-slate-950">
+            Decision Center Today Brief
+          </h2>
+          <p className="text-[11.5px] text-slate-500">
+            Server-supplied shadow preview.
+          </p>
+        </div>
+        <span className="chip chip--ghost">
+          <span className="dot" />
+          shadow preview
+        </span>
+      </div>
+
+      {items.length > 0 ? (
+        <div className="mt-3 grid gap-2">
+          {items.map((item) => {
+            const aggregateCount = item.aggregateIds?.length ?? 0;
+            return (
+              <div
+                key={item.id}
+                className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                data-testid="decision-center-brief-entry"
+              >
+                <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                  <span className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10.5px] text-slate-700">
+                    {item.priority}
+                  </span>
+                  <span>
+                    {item.rowIds.length}{" "}
+                    {item.rowIds.length === 1 ? "row" : "rows"}
+                  </span>
+                  {aggregateCount > 0 ? (
+                    <span>
+                      {aggregateCount}{" "}
+                      {aggregateCount === 1 ? "aggregate" : "aggregates"}
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-1 text-[12.5px] font-medium leading-snug text-slate-900">
+                  {item.text}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="mt-3 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-[12px] text-slate-500">
+          No server-supplied Decision Center brief yet.
+        </div>
+      )}
+    </section>
+  );
+}
+
 function CreativePulseFinal({
   spendToday,
   conversions,
@@ -1197,6 +1311,18 @@ export function CreativesBriefingPage() {
     () => normalizeCreativesBriefingPayload(briefingData),
     [briefingData],
   );
+  const decisionCenterSnapshot = normalizedBriefingData?.decisionCenter;
+  const decisionCenterBriefItems = useMemo(
+    () =>
+      decisionCenterTodayBriefItems(
+        decisionCenterSnapshot,
+        decisionCenterUiRequested,
+      ),
+    [decisionCenterSnapshot, decisionCenterUiRequested],
+  );
+  const decisionCenterBriefSnapshotPresent =
+    decisionCenterUiRequested &&
+    isDecisionCenterSnapshotObject(decisionCenterSnapshot);
   const actionItems = useMemo(
     () => normalizeActionItems(normalizedBriefingData?.actionNow ?? []),
     [normalizedBriefingData?.actionNow],
@@ -1770,6 +1896,13 @@ export function CreativesBriefingPage() {
 
       {workspaceMode === "briefing" ? (
         <>
+          {decisionCenterUiRequested ? (
+            <DecisionCenterTodayBrief
+              items={decisionCenterBriefItems}
+              snapshotPresent={decisionCenterBriefSnapshotPresent}
+            />
+          ) : null}
+
           <div className="lane-tabs">
             <CreativeLaneTab active={activeLane === "action"} className="action" label="Action Now" count={filteredActionCards.length} onClick={() => setActiveLane("action")} />
             <CreativeLaneTab active={activeLane === "watching"} className="watch" label="Watching" count={filteredWatchingItems.length} onClick={() => setActiveLane("watching")} />

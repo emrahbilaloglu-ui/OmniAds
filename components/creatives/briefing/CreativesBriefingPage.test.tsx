@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CLOSED_LAUNCHPAD_OVERLAY_STATE,
   CreativesBriefingPage,
+  decisionCenterTodayBriefItems,
   isDecisionCenterUiRequested,
   normalizeCreativesBriefingPayload,
   selectedCardsForActionItems,
@@ -231,6 +232,31 @@ function decisionCenterRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function decisionCenterTodayBrief(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "brief_1",
+    priority: "medium",
+    text: "Server supplied brief.",
+    rowIds: ["cr_action"],
+    ...overrides,
+  };
+}
+
+function decisionCenterSnapshotWithTodayBrief(todayBrief: unknown) {
+  return {
+    todayBrief,
+    rowDecisions: [],
+  };
+}
+
+function extractDecisionCenterTodayBriefPanel(html: string) {
+  const start = html.indexOf('data-testid="decision-center-today-brief"');
+  expect(start).toBeGreaterThanOrEqual(0);
+  const end = html.indexOf('<div class="lane-tabs"', start);
+  expect(end).toBeGreaterThan(start);
+  return html.slice(start, end);
+}
+
 describe("CreativesBriefingPage", () => {
   beforeEach(() => {
     mockState.queryKeys = [];
@@ -313,6 +339,134 @@ describe("CreativesBriefingPage", () => {
     expect(isDecisionCenterUiRequested(new URLSearchParams("decisionCenter=0"))).toBe(
       false,
     );
+  });
+
+  it("renders nothing for the Decision Center Today Brief when the URL flag is off", () => {
+    mockState.briefingData = {
+      ...makeBriefingData(),
+      decisionCenter: decisionCenterSnapshotWithTodayBrief([
+        decisionCenterTodayBrief({ text: "Flag-off brief should stay hidden." }),
+      ]),
+    } as any;
+
+    const html = renderToStaticMarkup(<CreativesBriefingPage />);
+
+    expect(decisionCenterTodayBriefItems(mockState.briefingData.decisionCenter, false)).toEqual(
+      [],
+    );
+    expect(html).not.toContain('data-testid="decision-center-today-brief"');
+    expect(html).not.toContain("Flag-off brief should stay hidden.");
+  });
+
+  it("renders server-supplied Decision Center Today Brief entries in server order", () => {
+    mockState.searchParams = new URLSearchParams("decisionCenter=1");
+    mockState.briefingData = {
+      ...makeBriefingData(),
+      decisionCenter: decisionCenterSnapshotWithTodayBrief([
+        decisionCenterTodayBrief({
+          id: "brief_low",
+          priority: "low",
+          text: "Low priority first from server.",
+          rowIds: ["cr_low"],
+          aggregateIds: ["agg_1"],
+        }),
+        decisionCenterTodayBrief({
+          id: "brief_critical",
+          priority: "critical",
+          text: "Critical priority second from server.",
+          rowIds: ["cr_critical"],
+        }),
+      ]),
+    } as any;
+
+    const html = renderToStaticMarkup(<CreativesBriefingPage />);
+    const panel = extractDecisionCenterTodayBriefPanel(html);
+
+    expect(panel).toContain("Decision Center Today Brief");
+    expect(panel).toContain("low");
+    expect(panel).toContain("critical");
+    expect(panel).toContain("1 row");
+    expect(panel).toContain("1 aggregate");
+    expect(panel.indexOf("Low priority first from server.")).toBeLessThan(
+      panel.indexOf("Critical priority second from server."),
+    );
+  });
+
+  it("does not truncate, filter, or top-N Decision Center Today Brief entries", () => {
+    mockState.searchParams = new URLSearchParams("decisionCenter=1");
+    const entries = Array.from({ length: 12 }, (_, index) =>
+      decisionCenterTodayBrief({
+        id: `brief_${index}`,
+        priority: "medium",
+        text: `Server brief ${index}`,
+        rowIds: [`row_${index}`],
+      }),
+    );
+    mockState.briefingData = {
+      ...makeBriefingData(),
+      decisionCenter: decisionCenterSnapshotWithTodayBrief(entries),
+    } as any;
+
+    const html = renderToStaticMarkup(<CreativesBriefingPage />);
+    const panel = extractDecisionCenterTodayBriefPanel(html);
+
+    expect(panel.match(/data-testid="decision-center-brief-entry"/g)).toHaveLength(12);
+    expect(panel).toContain("Server brief 0");
+    expect(panel).toContain("Server brief 11");
+  });
+
+  it("does not render buyer action or write controls in the Today Brief panel", () => {
+    mockState.searchParams = new URLSearchParams("decision_center=true");
+    mockState.briefingData = {
+      ...makeBriefingData(),
+      decisionCenter: decisionCenterSnapshotWithTodayBrief([
+        decisionCenterTodayBrief({
+          id: "brief_review",
+          priority: "high",
+          text: "Today brief content.",
+          rowIds: ["row_1"],
+        }),
+      ]),
+    } as any;
+
+    const html = renderToStaticMarkup(<CreativesBriefingPage />);
+    const panel = extractDecisionCenterTodayBriefPanel(html).toLowerCase();
+
+    expect(panel).not.toMatch(
+      /\b(apply|queue|pause|promote|scale|cut|refresh|buyeraction|executionaction|primarydecision)\b/,
+    );
+  });
+
+  it("keeps the Decision Center Today Brief crash-safe for null or malformed snapshots", () => {
+    expect(decisionCenterTodayBriefItems(null as any, true)).toEqual([]);
+    expect(
+      decisionCenterTodayBriefItems(
+        decisionCenterSnapshotWithTodayBrief("not-an-array") as any,
+        true,
+      ),
+    ).toEqual([]);
+    expect(
+      decisionCenterTodayBriefItems(
+        decisionCenterSnapshotWithTodayBrief([
+          decisionCenterTodayBrief({ id: "", text: "Missing id." }),
+          decisionCenterTodayBrief({ id: "missing_text", text: "" }),
+          null,
+        ]) as any,
+        true,
+      ),
+    ).toEqual([]);
+
+    mockState.searchParams = new URLSearchParams("decisionCenter=1");
+    mockState.briefingData = {
+      ...makeBriefingData(),
+      decisionCenter: decisionCenterSnapshotWithTodayBrief("not-an-array"),
+    } as any;
+
+    const html = renderToStaticMarkup(<CreativesBriefingPage />);
+    const panel = extractDecisionCenterTodayBriefPanel(html);
+
+    expect(panel).toContain("No server-supplied Decision Center brief yet.");
+    expect(panel).not.toContain('data-testid="decision-center-brief-entry"');
   });
 
   it("attaches server-supplied decisionCenter rows without crashing on null or missing snapshots", () => {

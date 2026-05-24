@@ -86,22 +86,59 @@ function creativeReadOnlyAutomationReadiness(
   };
 }
 
-/**
- * PR7A: explicit request flag for the additive `decisionCenter` response
- * shape. The flag is OFF by default; the legacy response is unchanged when
- * the flag is absent. Accepts `decisionCenter=1`, `decisionCenter=true`,
- * and the snake-case `decision_center=1` for safety.
- */
-function isDecisionCenterRequested(searchParams: URLSearchParams): boolean {
-  const truthy = (value: string | null) => {
-    if (!value) return false;
-    const normalized = value.trim().toLowerCase();
-    return normalized === "1" || normalized === "true";
-  };
+type DecisionCenterParamState = "truthy" | "falsy" | "unset";
+
+function decisionCenterParamState(
+  value: string | null,
+): DecisionCenterParamState {
+  if (value == null) return "unset";
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "1" || normalized === "true") return "truthy";
+  if (
+    normalized === "0" ||
+    normalized === "false" ||
+    normalized === "off" ||
+    normalized === "no"
+  ) {
+    return "falsy";
+  }
+  return "unset";
+}
+
+function resolveDecisionCenterParamState(
+  searchParams: URLSearchParams,
+): DecisionCenterParamState {
+  const camel = decisionCenterParamState(searchParams.get("decisionCenter"));
+  if (camel !== "unset") return camel;
+  return decisionCenterParamState(searchParams.get("decision_center"));
+}
+
+function isDecisionCenterExplicitlyRequested(
+  searchParams: URLSearchParams,
+): boolean {
+  return resolveDecisionCenterParamState(searchParams) === "truthy";
+}
+
+function isDecisionCenterDefaultDisabled(): boolean {
+  const normalized = process.env.DECISION_CENTER_DEFAULT_DISABLED?.trim()
+    .toLowerCase();
   return (
-    truthy(searchParams.get("decisionCenter")) ||
-    truthy(searchParams.get("decision_center"))
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "enabled"
   );
+}
+
+/**
+ * D027: response-inclusion gate only. This does not control resolver execution
+ * or decision semantics; it controls whether the already computed
+ * `decisionCenter` snapshot is serialized into the briefing response.
+ */
+function shouldIncludeDecisionCenter(searchParams: URLSearchParams): boolean {
+  const explicit = resolveDecisionCenterParamState(searchParams);
+  if (explicit === "truthy") return true;
+  if (explicit === "falsy") return false;
+  return !isDecisionCenterDefaultDisabled();
 }
 
 function isDecisionCenterObservabilityEnabled(): boolean {
@@ -188,8 +225,8 @@ function emitDecisionCenterObservability(input: {
 
 /**
  * Assemble a validated `DecisionCenterSnapshot` for the additive response
- * shape. The default response remains unchanged; callers only receive this
- * snapshot when they explicitly request `?decisionCenter=1`.
+ * shape. The snapshot is now part of the production-default response surface;
+ * callers can still opt out with `?decisionCenter=0` for rollback/debugging.
  */
 function buildDecisionCenterSnapshot(input: {
   asOf: string;
@@ -611,7 +648,10 @@ export async function GET(request: NextRequest) {
   const statusFilter = parseBriefingStatusFilter(
     request.nextUrl.searchParams.get("status_filter"),
   );
-  const decisionCenterRequested = isDecisionCenterRequested(
+  const decisionCenterExplicitlyRequested = isDecisionCenterExplicitlyRequested(
+    request.nextUrl.searchParams,
+  );
+  const includeDecisionCenter = shouldIncludeDecisionCenter(
     request.nextUrl.searchParams,
   );
 
@@ -650,7 +690,7 @@ export async function GET(request: NextRequest) {
         trackingAnomalyActive: false,
       },
     };
-    if (decisionCenterRequested) {
+    if (includeDecisionCenter) {
       disabledBody.decisionCenter = buildDecisionCenterSnapshot({
         asOf,
         engineVersion: "disabled",
@@ -831,7 +871,7 @@ export async function GET(request: NextRequest) {
     },
   };
 
-  if (decisionCenterRequested) {
+  if (includeDecisionCenter) {
     const decisionCenterSnapshot = buildBridgedDecisionCenterSnapshot({
       asOf,
       engineVersion: responseEngineVersion,
@@ -842,7 +882,7 @@ export async function GET(request: NextRequest) {
     });
     responseBody.decisionCenter = decisionCenterSnapshot;
     emitDecisionCenterObservability({
-      decisionCenterRequested,
+      decisionCenterRequested: decisionCenterExplicitlyRequested,
       snapshot: decisionCenterSnapshot,
       businessId: resolvedBusinessId,
       creativeRows,

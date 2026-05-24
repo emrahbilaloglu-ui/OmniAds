@@ -768,3 +768,57 @@ Rejected alternatives:
 Risk: guardrails can become stale if the archive is intentionally migrated
 again. Mitigation: the test is static and rollback is narrow: update or remove
 the PR14 guardrail test together with the migration ADR.
+
+## D027 — Make Decision Center The Production-Default Creative Surface
+
+Decision: the Meta Creatives briefing response includes the additive
+`decisionCenter` snapshot by default, and the Creative page renders the
+server-supplied Decision Center Today Brief, Action Board, drawer evidence, and
+asset-library labels by default when a valid snapshot is present.
+
+Scope: surface/default behavior only. This does not change resolver math, gate
+ordering, thresholds, confidence bands, hard-action eligibility, queue/apply
+eligibility, Meta write behavior, route names, or snapshot contract semantics.
+The inclusion gate controls whether an already computed `decisionCenter`
+snapshot is serialized into the response; it is not a decision-engine or
+resolver gate.
+
+Reason: PR7 through PR10 established the additive API shape and read-only UI
+consumption behind an explicit flag. The next production step is to remove the
+URL flag requirement so the page defaults to the buyer-facing answer:
+"what should I do, why, and with how much confidence?" Keeping the change at
+the surface layer preserves the active decision algorithm boundary.
+
+Rollback controls:
+
+- `?decisionCenter=0`, `?decisionCenter=false`, `?decisionCenter=off`, or
+  `?decisionCenter=no` disables the response field and UI surface for a request.
+- The snake-case `decision_center` parameter supports the same values.
+- `DECISION_CENTER_DEFAULT_DISABLED=1`, `true`, or `enabled` disables default
+  inclusion at runtime unless the request explicitly asks for
+  `?decisionCenter=1` or `?decisionCenter=true`.
+
+Compatibility: legacy briefing fields remain present and old consumers can keep
+reading `actionNow`, `watching`, `healthy`, `pulse`, and `source`. UI components
+must continue to fail closed when `decisionCenter` is null or malformed, and
+must not compute `buyerAction` from legacy labels.
+
+Observability: D025 remains intentionally explicit. Making the surface default
+does not automatically expand production telemetry volume. Decision Center
+observability continues to require both a truthy `DECISION_CENTER_OBSERVABILITY`
+environment value and an explicit truthy request parameter. A future change to
+emit observability for all default traffic requires a separate approval/ADR.
+
+Rejected alternatives:
+
+- Change resolver gates or buyer-action mapping while making the surface
+  default. That would mix an adoption rollout with algorithm behavior change.
+- Remove the legacy response fields at the same time. That would violate old
+  snapshot/consumer compatibility and remove rollback paths too early.
+- Emit observability on every default response immediately. That would create a
+  production logging-volume change outside the approved surface rollout.
+
+Risk: malformed or missing snapshots are now on the default path. Mitigation:
+the route keeps structural validation and null fallback, the UI helpers render
+empty read-only states for malformed data, and request/env opt-outs provide a
+narrow rollback without reverting resolver code.

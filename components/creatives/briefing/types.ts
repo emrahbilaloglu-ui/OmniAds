@@ -9,10 +9,10 @@ import type {
   DecisionLabelTransform,
 } from "@/lib/creative-decision-engine";
 import type { MetaAutomationReadiness } from "@/lib/meta/automation-readiness";
-// PR7A/PR8: type-only imports so the response interface can carry the
-// additive decisionCenter snapshot and, behind an explicit UI flag, its
-// server-supplied row decision. UI components must not import decision-center
-// builders/adapters or compute buyerAction locally.
+// Type-only imports so the response interface can carry the production-default
+// decisionCenter snapshot and its server-supplied row decision. UI components
+// must not import decision-center builders/adapters or compute buyerAction
+// locally.
 import type {
   CreativeDecisionCenterRowDecision,
   DecisionCenterSnapshot,
@@ -165,11 +165,11 @@ export interface CreativesBriefingResponse {
     accountProfile?: AccountDecisionProfile | null;
   } | null;
   /**
-   * PR7A: additive shadow snapshot. Present only when the request supplied
-   * `?decisionCenter=1`. Null indicates the snapshot was requested but failed
-   * structural validation. PR8 permits minimal drawer consumption only through
-   * `BriefingCreativeCard.decisionCenterRow`, and only behind the explicit UI
-   * flag. UI components must not compute buyerAction from this snapshot.
+   * Additive production-default Decision Center snapshot. Null indicates the
+   * snapshot was included but failed structural validation. UI consumption is
+   * restricted to server-supplied fields such as
+   * `BriefingCreativeCard.decisionCenterRow`; UI components must not compute
+   * buyerAction from this snapshot.
    */
   decisionCenter?: DecisionCenterSnapshot | null;
 }

@@ -37,6 +37,8 @@ const previousDataSourceFlag = process.env.DECISION_ENGINE_V3_DATA_SOURCE;
 const previousObservabilityFlag = process.env.DECISION_CENTER_OBSERVABILITY;
 const previousObservabilitySalt =
   process.env.DECISION_CENTER_OBSERVABILITY_SALT;
+const previousDecisionCenterDefaultDisabled =
+  process.env.DECISION_CENTER_DEFAULT_DISABLED;
 
 function makeFlags(overrides: Partial<EngineV3Flags> = {}): EngineV3Flags {
   return {
@@ -81,6 +83,7 @@ function campaignLabel(
 beforeEach(() => {
   vi.clearAllMocks();
   process.env.DECISION_ENGINE_V3_DATA_SOURCE = "mock";
+  delete process.env.DECISION_CENTER_DEFAULT_DISABLED;
   delete process.env.DECISION_CENTER_OBSERVABILITY;
   delete process.env.DECISION_CENTER_OBSERVABILITY_SALT;
   vi.mocked(requireBusinessAccess).mockResolvedValue({
@@ -186,12 +189,20 @@ afterEach(() => {
     process.env.DECISION_CENTER_OBSERVABILITY_SALT =
       previousObservabilitySalt;
   }
+  if (previousDecisionCenterDefaultDisabled === undefined) {
+    delete process.env.DECISION_CENTER_DEFAULT_DISABLED;
+  } else {
+    process.env.DECISION_CENTER_DEFAULT_DISABLED =
+      previousDecisionCenterDefaultDisabled;
+  }
 });
 
 describe("GET /api/creatives/briefing", () => {
   it("classifies engine v3 decisions into briefing lanes server-side", async () => {
     const response = await GET(
-      new NextRequest("http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07"),
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=0",
+      ),
     );
     const payload = await response.json();
 
@@ -407,11 +418,16 @@ describe("GET /api/creatives/briefing", () => {
     expect(payload.actionNow).toEqual([]);
     expect(payload.watching).toEqual([]);
     expect(payload.healthy).toEqual([]);
-    // PR7A: disabled path must NOT auto-expose decisionCenter.
-    expect(payload).not.toHaveProperty("decisionCenter");
+    expect(payload.decisionCenter).toMatchObject({
+      contractVersion: "creative-decision-center.v2.1",
+      engineVersion: "disabled",
+      rowDecisions: [],
+      aggregateDecisions: [],
+      todayBrief: [],
+    });
   });
 
-  it("omits decisionCenter from the default response (PR7A)", async () => {
+  it("includes a validated decisionCenter snapshot in the default response (D027)", async () => {
     const response = await GET(
       new NextRequest(
         "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07",
@@ -420,7 +436,20 @@ describe("GET /api/creatives/briefing", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload).not.toHaveProperty("decisionCenter");
+    expect(payload.decisionCenter).not.toBeNull();
+    expect(payload.decisionCenter).toMatchObject({
+      contractVersion: "creative-decision-center.v2.1",
+      adapterVersion:
+        "creative-decision-center.v3-bridge.v1+creative-decision-center.shadow-adapter.v1",
+      configVersion: "creative-decision-engine.config.v1",
+      generatedAt: "2026-05-07T00:00:00.000Z",
+      aggregateDecisions: [],
+      todayBrief: [],
+      missingDataSummary: {},
+      inputCoverageSummary: {},
+    });
+    expect(payload.decisionCenter.rowDecisions).toHaveLength(1);
+    expect(payload.decisionCenter.actionBoard.scale).toEqual(["row_1"]);
     // Existing legacy assertions still hold.
     expect(payload.statusFilter).toBe("active");
     expect(Array.isArray(payload.actionNow)).toBe(true);
@@ -430,7 +459,7 @@ describe("GET /api/creatives/briefing", () => {
     expect(payload.source.dataSource).toBe("mock");
   });
 
-  it("emits a validated bridged decisionCenter snapshot when ?decisionCenter=1 is set (PR7C)", async () => {
+  it("keeps the explicit truthy decisionCenter request compatible (PR7C/D027)", async () => {
     const response = await GET(
       new NextRequest(
         "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=1",
@@ -567,8 +596,9 @@ describe("GET /api/creatives/briefing", () => {
     expect(payload.source.dataSource).toBe("mock");
   });
 
-  it("rejects falsy/adversarial decisionCenter values and omits the field (PR7A)", async () => {
-    for (const value of ["0", "false", "no", "", " ", "<huge>".repeat(2000)]) {
+  it.each(["0", "false", "off", "no"])(
+    "treats decisionCenter=%s as an explicit response opt-out (D027)",
+    async (value) => {
       const response = await GET(
         new NextRequest(
           `http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=${encodeURIComponent(value)}`,
@@ -577,28 +607,61 @@ describe("GET /api/creatives/briefing", () => {
       const payload = await response.json();
       expect(response.status).toBe(200);
       expect(payload).not.toHaveProperty("decisionCenter");
-    }
+    },
+  );
+
+  it("supports snake-case decisionCenter opt-out values (D027)", async () => {
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decision_center=false",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).not.toHaveProperty("decisionCenter");
   });
 
-  it("emits the empty decisionCenter snapshot on the disabled path only when explicitly requested (PR7A)", async () => {
+  it("uses the default-disabled env kill switch with explicit truthy override (D027)", async () => {
+    const defaultResponse = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07",
+      ),
+    );
+    const defaultPayload = await defaultResponse.json();
+    expect(defaultPayload.decisionCenter).not.toBeNull();
+
+    process.env.DECISION_CENTER_DEFAULT_DISABLED = "1";
+    const killedResponse = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07",
+      ),
+    );
+    const killedPayload = await killedResponse.json();
+    expect(killedPayload).not.toHaveProperty("decisionCenter");
+
+    const overrideResponse = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=1",
+      ),
+    );
+    const overridePayload = await overrideResponse.json();
+    expect(overridePayload.decisionCenter).not.toBeNull();
+  });
+
+  it("omits the disabled-path empty decisionCenter snapshot when opted out (D027)", async () => {
     vi.mocked(resolveEngineV3Flags).mockResolvedValue(makeFlags({ enabled: false }));
 
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decision_center=true",
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decision_center=false",
       ),
     );
     const payload = await response.json();
 
     expect(response.status).toBe(200);
     expect(payload.status).toBe("disabled");
-    expect(payload.decisionCenter).toMatchObject({
-      contractVersion: "creative-decision-center.v2.1",
-      engineVersion: "disabled",
-      rowDecisions: [],
-      aggregateDecisions: [],
-      todayBrief: [],
-    });
+    expect(payload).not.toHaveProperty("decisionCenter");
   });
 
   it.each([

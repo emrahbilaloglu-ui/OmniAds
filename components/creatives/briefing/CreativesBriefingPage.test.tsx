@@ -7,7 +7,7 @@ import {
   attachDecisionCenterRowsToAssetLibraryRows,
   decisionCenterActionBoardSections,
   decisionCenterTodayBriefItems,
-  isDecisionCenterUiRequested,
+  isDecisionCenterUiEnabled,
   normalizeCreativesBriefingPayload,
   selectedCardsForActionItems,
   selectedCardsForCards,
@@ -21,6 +21,7 @@ import {
 
 const mockState = vi.hoisted(() => ({
   queryKeys: [] as unknown[][],
+  queryFns: [] as Array<() => unknown>,
   routerPush: vi.fn(),
   routerReplace: vi.fn(),
   searchParams: new URLSearchParams(),
@@ -54,8 +55,9 @@ vi.mock("@tanstack/react-query", () => ({
   useQueryClient: vi.fn(() => ({
     invalidateQueries: vi.fn(),
   })),
-  useQuery: vi.fn((input: { queryKey: unknown[] }) => {
+  useQuery: vi.fn((input: { queryKey: unknown[]; queryFn?: () => unknown }) => {
     mockState.queryKeys.push(input.queryKey);
+    if (input.queryFn) mockState.queryFns.push(input.queryFn);
     const key = String(input.queryKey[0]);
     if (key === "creatives-briefing") {
       return baseQueryState({ data: mockState.briefingData });
@@ -310,6 +312,7 @@ function extractDecisionCenterActionBoardBucket(html: string, bucketKey: string)
 describe("CreativesBriefingPage", () => {
   beforeEach(() => {
     mockState.queryKeys = [];
+    mockState.queryFns = [];
     mockState.routerPush.mockReset();
     mockState.routerReplace.mockReset();
     mockState.searchParams = new URLSearchParams();
@@ -374,28 +377,65 @@ describe("CreativesBriefingPage", () => {
       "creatives-briefing-asset-library",
       "triage-state",
     ]);
-    expect(mockState.queryKeys[0]).toEqual(["creatives-briefing", "biz_1", false]);
+    expect(mockState.queryKeys[0]).toEqual(["creatives-briefing", "biz_1", true]);
   });
 
-  it("requests decisionCenter rows only behind the explicit URL flag", () => {
-    mockState.searchParams = new URLSearchParams("decisionCenter=1");
-
+  it("enables Decision Center by default and isolates the opt-out query cache", () => {
     renderToStaticMarkup(<CreativesBriefingPage />);
 
     expect(mockState.queryKeys[0]).toEqual(["creatives-briefing", "biz_1", true]);
-    expect(isDecisionCenterUiRequested(new URLSearchParams("decision_center=true"))).toBe(
+    expect(isDecisionCenterUiEnabled(new URLSearchParams("decision_center=true"))).toBe(
       true,
     );
-    expect(isDecisionCenterUiRequested(new URLSearchParams("decisionCenter=0"))).toBe(
+    expect(isDecisionCenterUiEnabled(new URLSearchParams("decisionCenter=0"))).toBe(
       false,
     );
+    expect(isDecisionCenterUiEnabled(new URLSearchParams("decision_center=off"))).toBe(
+      false,
+    );
+
+    mockState.queryKeys = [];
+    mockState.queryFns = [];
+    mockState.searchParams = new URLSearchParams("decisionCenter=0");
+    renderToStaticMarkup(<CreativesBriefingPage />);
+    expect(mockState.queryKeys[0]).toEqual(["creatives-briefing", "biz_1", false]);
   });
 
-  it("renders nothing for the Decision Center Today Brief when the URL flag is off", () => {
+  it("sends no request flag by default and sends decisionCenter=0 when opted out", async () => {
+    const fetchSpy = vi.fn(async () => ({
+      ok: true,
+      json: async () => makeBriefingData(),
+    }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    try {
+      renderToStaticMarkup(<CreativesBriefingPage />);
+      await mockState.queryFns[0]();
+      expect(fetchSpy).toHaveBeenLastCalledWith(
+        "/api/creatives/briefing?businessId=biz_1",
+        expect.any(Object),
+      );
+
+      mockState.queryKeys = [];
+      mockState.queryFns = [];
+      mockState.searchParams = new URLSearchParams("decisionCenter=0");
+      renderToStaticMarkup(<CreativesBriefingPage />);
+      await mockState.queryFns[0]();
+      expect(fetchSpy).toHaveBeenLastCalledWith(
+        "/api/creatives/briefing?businessId=biz_1&decisionCenter=0",
+        expect.any(Object),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("renders nothing for the Decision Center Today Brief when explicitly opted out", () => {
+    mockState.searchParams = new URLSearchParams("decisionCenter=0");
     mockState.briefingData = {
       ...makeBriefingData(),
       decisionCenter: decisionCenterSnapshotWithTodayBrief([
-        decisionCenterTodayBrief({ text: "Flag-off brief should stay hidden." }),
+        decisionCenterTodayBrief({ text: "Opt-out brief should stay hidden." }),
       ]),
     } as any;
 
@@ -405,7 +445,7 @@ describe("CreativesBriefingPage", () => {
       [],
     );
     expect(html).not.toContain('data-testid="decision-center-today-brief"');
-    expect(html).not.toContain("Flag-off brief should stay hidden.");
+    expect(html).not.toContain("Opt-out brief should stay hidden.");
   });
 
   it("renders server-supplied Decision Center Today Brief entries in server order", () => {
@@ -519,7 +559,8 @@ describe("CreativesBriefingPage", () => {
     expect(panel).not.toContain('data-testid="decision-center-brief-entry"');
   });
 
-  it("renders nothing for the Decision Center Action Board when the URL flag is off", () => {
+  it("renders nothing for the Decision Center Action Board when explicitly opted out", () => {
+    mockState.searchParams = new URLSearchParams("decision_center=false");
     mockState.briefingData = {
       ...makeBriefingData(),
       decisionCenter: decisionCenterSnapshot({
@@ -754,6 +795,34 @@ describe("CreativesBriefingPage", () => {
       "No server-supplied Decision Center action board yet.",
     );
     expect(panel).not.toContain(
+      'data-testid="decision-center-action-board-bucket"',
+    );
+  });
+
+  it("keeps the default-enabled Decision Center surface crash-safe for partial malformed snapshots", () => {
+    mockState.briefingData = {
+      ...makeBriefingData(),
+      decisionCenter: {
+        actionBoard: null,
+        brief: undefined,
+        rowDecisions: "not-an-array",
+      },
+    } as any;
+
+    const html = renderToStaticMarkup(<CreativesBriefingPage />);
+    const todayBriefPanel = extractDecisionCenterTodayBriefPanel(html);
+    const actionBoardPanel = extractDecisionCenterActionBoardPanel(html);
+
+    expect(todayBriefPanel).toContain(
+      "No server-supplied Decision Center brief yet.",
+    );
+    expect(todayBriefPanel).not.toContain(
+      'data-testid="decision-center-brief-entry"',
+    );
+    expect(actionBoardPanel).toContain(
+      "No server-supplied Decision Center action board yet.",
+    );
+    expect(actionBoardPanel).not.toContain(
       'data-testid="decision-center-action-board-bucket"',
     );
   });

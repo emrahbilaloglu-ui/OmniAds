@@ -347,26 +347,46 @@ async function fetchJson<T>(path: string): Promise<T> {
   return payload as T;
 }
 
-export function isDecisionCenterUiRequested(
+type DecisionCenterUiParamState = "truthy" | "falsy" | "unset";
+
+function decisionCenterUiParamState(
+  value: string | null | undefined,
+): DecisionCenterUiParamState {
+  if (value == null) return "unset";
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "1" || normalized === "true") return "truthy";
+  if (
+    normalized === "0" ||
+    normalized === "false" ||
+    normalized === "off" ||
+    normalized === "no"
+  ) {
+    return "falsy";
+  }
+  return "unset";
+}
+
+function resolveDecisionCenterUiParamState(
+  params: { get(name: string): string | null } | null | undefined,
+): DecisionCenterUiParamState {
+  const camel = decisionCenterUiParamState(params?.get("decisionCenter"));
+  if (camel !== "unset") return camel;
+  return decisionCenterUiParamState(params?.get("decision_center"));
+}
+
+export function isDecisionCenterUiEnabled(
   params: { get(name: string): string | null } | null | undefined,
 ) {
-  const isTruthy = (value: string | null | undefined) => {
-    const normalized = value?.trim().toLowerCase();
-    return normalized === "1" || normalized === "true";
-  };
-  return (
-    isTruthy(params?.get("decisionCenter")) ||
-    isTruthy(params?.get("decision_center"))
-  );
+  return resolveDecisionCenterUiParamState(params) !== "falsy";
 }
 
 function fetchCreativesBriefing(
   businessId: string,
-  options: { decisionCenter?: boolean } = {},
+  options: { decisionCenterEnabled?: boolean } = {},
 ): Promise<CreativesBriefingResponse> {
   const params = new URLSearchParams({ businessId });
-  if (options.decisionCenter) {
-    params.set("decisionCenter", "1");
+  if (options.decisionCenterEnabled === false) {
+    params.set("decisionCenter", "0");
   }
   return fetchJson<CreativesBriefingResponse>(
     `/api/creatives/briefing?${params.toString()}`,
@@ -1317,8 +1337,8 @@ export function CreativesBriefingPage() {
   const libraryStart = dateRange.start;
   const libraryEnd = dateRange.end;
   const tabParam = searchParams?.get("tab") ?? null;
-  const decisionCenterUiRequested = useMemo(
-    () => isDecisionCenterUiRequested(searchParams),
+  const decisionCenterUiEnabled = useMemo(
+    () => isDecisionCenterUiEnabled(searchParams),
     [searchParams],
   );
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(
@@ -1330,12 +1350,12 @@ export function CreativesBriefingPage() {
   const [briefingSearch, setBriefingSearch] = useState("");
 
   const briefingQuery = useQuery({
-    queryKey: ["creatives-briefing", businessId, decisionCenterUiRequested],
+    queryKey: ["creatives-briefing", businessId, decisionCenterUiEnabled],
     enabled: Boolean(businessId),
     staleTime: 30 * 1000,
     queryFn: () =>
       fetchCreativesBriefing(businessId, {
-        decisionCenter: decisionCenterUiRequested,
+        decisionCenterEnabled: decisionCenterUiEnabled,
       }),
   });
   const todaySummaryQuery = useQuery({
@@ -1486,20 +1506,20 @@ export function CreativesBriefingPage() {
     () =>
       decisionCenterTodayBriefItems(
         decisionCenterSnapshot,
-        decisionCenterUiRequested,
+        decisionCenterUiEnabled,
       ),
-    [decisionCenterSnapshot, decisionCenterUiRequested],
+    [decisionCenterSnapshot, decisionCenterUiEnabled],
   );
   const decisionCenterActionBoardItems = useMemo(
     () =>
       decisionCenterActionBoardSections(
         decisionCenterSnapshot,
-        decisionCenterUiRequested,
+        decisionCenterUiEnabled,
       ),
-    [decisionCenterSnapshot, decisionCenterUiRequested],
+    [decisionCenterSnapshot, decisionCenterUiEnabled],
   );
   const decisionCenterBriefSnapshotPresent =
-    decisionCenterUiRequested &&
+    decisionCenterUiEnabled &&
     isDecisionCenterSnapshotObject(decisionCenterSnapshot);
   const actionItems = useMemo(
     () => normalizeActionItems(normalizedBriefingData?.actionNow ?? []),
@@ -1597,9 +1617,9 @@ export function CreativesBriefingPage() {
       attachDecisionCenterRowsToAssetLibraryRows(
         assetLibraryRows,
         decisionCenterSnapshot,
-        decisionCenterUiRequested,
+        decisionCenterUiEnabled,
       ),
-    [assetLibraryRows, decisionCenterSnapshot, decisionCenterUiRequested],
+    [assetLibraryRows, decisionCenterSnapshot, decisionCenterUiEnabled],
   );
   const assetLibraryStatus = Array.isArray(assetLibraryPayload)
     ? null
@@ -2083,7 +2103,7 @@ export function CreativesBriefingPage() {
 
       {workspaceMode === "briefing" ? (
         <>
-          {decisionCenterUiRequested ? (
+          {decisionCenterUiEnabled ? (
             <>
               <DecisionCenterTodayBrief
                 items={decisionCenterBriefItems}
@@ -2209,7 +2229,7 @@ export function CreativesBriefingPage() {
           ) : (
             <AssetLibrarySection
               rows={decisionCenterAssetLibraryRows}
-              decisionCenterUiEnabled={decisionCenterUiRequested}
+              decisionCenterUiEnabled={decisionCenterUiEnabled}
               emptyMessage={assetLibraryEmptyMessage}
               defaultCurrency={activeBusiness?.currency ?? null}
               selectedMetricIds={libraryMetricIds}

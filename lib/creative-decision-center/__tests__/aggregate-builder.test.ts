@@ -6,7 +6,10 @@ import {
   type CreativeDecisionCenterAggregateAction,
 } from "../contracts";
 import {
+  buildFatigueClusterAggregateCandidate,
   buildDecisionCenterAggregateDecisions,
+  buildUnusedApprovedCreativesAggregateCandidate,
+  buildWinnerGapAggregateCandidate,
   REQUIRED_AGGREGATE_DATA,
   type CreativeDecisionCenterAggregateCandidate,
 } from "../aggregate-builder";
@@ -181,6 +184,120 @@ describe("Decision Center aggregate builder", () => {
       .toEqual({ ok: true, errors: [] });
     expect(auditCreativeDecisionCenterAggregateInvariants(result.aggregateDecisions[0]))
       .toEqual([]);
+  });
+
+  it("builds a page-level winner-gap candidate only from explicit winner cadence data", () => {
+    const candidate = buildWinnerGapAggregateCandidate({
+      lastWinnerDate: "2026-05-01",
+      windowEndDate: "2026-05-20",
+      affectedCreativeIds: ["creative_a", "creative_b"],
+      availableData: [...REQUIRED_AGGREGATE_DATA.winner_gap],
+    });
+
+    const result = buildDecisionCenterAggregateDecisions({
+      candidates: candidate ? [candidate] : [],
+    });
+
+    expect(result.aggregateDecisions).toEqual([
+      expect.objectContaining({
+        scope: "page",
+        familyId: null,
+        action: "winner_gap",
+        oneLine: "No new winner for 19 days.",
+        affectedCreativeIds: ["creative_a", "creative_b"],
+      }),
+    ]);
+    expect(result.aggregateDecisions[0]).not.toHaveProperty("creativeId");
+  });
+
+  it("does not emit winner-gap candidates before the cadence threshold", () => {
+    expect(
+      buildWinnerGapAggregateCandidate({
+        lastWinnerDate: "2026-05-17",
+        windowEndDate: "2026-05-20",
+        affectedCreativeIds: ["creative_a"],
+        availableData: [...REQUIRED_AGGREGATE_DATA.winner_gap],
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps missing winner-gap data suppressible instead of inventing evidence", () => {
+    const candidate = buildWinnerGapAggregateCandidate({
+      lastWinnerDate: null,
+      windowEndDate: "2026-05-20",
+      affectedCreativeIds: ["creative_a"],
+      availableData: [...REQUIRED_AGGREGATE_DATA.winner_gap],
+    });
+
+    const result = buildDecisionCenterAggregateDecisions({
+      candidates: candidate ? [candidate] : [],
+    });
+
+    expect(result.aggregateDecisions).toEqual([]);
+    expect(result.trace.suppressed[0]).toMatchObject({
+      action: "winner_gap",
+      reason: "candidate_missing_data",
+      candidateMissingData: ["last_winner_date"],
+    });
+  });
+
+  it("suppresses derived aggregate candidates when required data availability is not explicit", () => {
+    const candidate = buildWinnerGapAggregateCandidate({
+      lastWinnerDate: "2026-05-01",
+      windowEndDate: "2026-05-20",
+      affectedCreativeIds: ["creative_a"],
+    });
+
+    const result = buildDecisionCenterAggregateDecisions({
+      candidates: candidate ? [candidate] : [],
+    });
+
+    expect(result.aggregateDecisions).toEqual([]);
+    expect(result.trace.suppressed[0]).toMatchObject({
+      action: "winner_gap",
+      reason: "missing_required_data",
+      missingRequiredData: [...REQUIRED_AGGREGATE_DATA.winner_gap],
+    });
+  });
+
+  it("builds unused-approved and fatigue-cluster candidates without binding them to random row ids", () => {
+    const unused = buildUnusedApprovedCreativesAggregateCandidate({
+      approvedUnusedCreativeIds: ["creative_unused_1", "creative_unused_2"],
+      availableData: [...REQUIRED_AGGREGATE_DATA.unused_approved_creatives],
+    });
+    const fatigue = buildFatigueClusterAggregateCandidate({
+      familyId: "family_1",
+      fatiguedCreativeIds: ["creative_f1", "creative_f2", "creative_f3"],
+      availableData: [...REQUIRED_AGGREGATE_DATA.fatigue_cluster],
+    });
+
+    const result = buildDecisionCenterAggregateDecisions({
+      candidates: [unused, fatigue].filter(
+        (candidate): candidate is CreativeDecisionCenterAggregateCandidate =>
+          Boolean(candidate),
+      ),
+    });
+
+    expect(result.aggregateDecisions).toEqual([
+      expect.objectContaining({
+        scope: "page",
+        action: "unused_approved_creatives",
+        affectedCreativeIds: ["creative_unused_1", "creative_unused_2"],
+      }),
+      expect.objectContaining({
+        scope: "family",
+        familyId: "family_1",
+        action: "fatigue_cluster",
+        affectedCreativeIds: ["creative_f1", "creative_f2", "creative_f3"],
+      }),
+    ]);
+    for (const decision of result.aggregateDecisions) {
+      expect(decision).not.toHaveProperty("creativeId");
+      expect(validateCreativeDecisionCenterAggregateDecision(decision)).toEqual({
+        ok: true,
+        errors: [],
+      });
+    }
   });
 
   it("strips row-level fields from aggregate candidate input", () => {

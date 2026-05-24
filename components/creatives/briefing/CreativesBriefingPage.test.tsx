@@ -5,6 +5,7 @@ import {
   CLOSED_LAUNCHPAD_OVERLAY_STATE,
   CreativesBriefingPage,
   attachDecisionCenterRowsToAssetLibraryRows,
+  chooseDefaultCreativeLane,
   isDecisionCenterUiEnabled,
   normalizeCreativesBriefingPayload,
   selectedCardsForActionItems,
@@ -550,6 +551,23 @@ describe("CreativesBriefingPage", () => {
     expect(html).toContain("Launch a new test");
     expect(html).not.toContain("Scale Hero");
     expect(html).not.toContain("data-tracking-blocker");
+  });
+
+  it("defaults to Watching when Action Now is sparse and most decisions are watch items", () => {
+    expect(
+      chooseDefaultCreativeLane({
+        actionCount: 1,
+        watchingCount: 67,
+        healthyCount: 0,
+      }),
+    ).toBe("watching");
+    expect(
+      chooseDefaultCreativeLane({
+        actionCount: 0,
+        watchingCount: 1,
+        healthyCount: 0,
+      }),
+    ).toBe("action");
   });
 
   it("renders a setup notice instead of a silent empty page when no Meta ad account is assigned", () => {

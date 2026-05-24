@@ -108,7 +108,16 @@ describe("applyCreativeCampaignLabelGuard", () => {
       expect(decision.campaignLabelStatus).toBe("unlabeled");
       expect(decision.campaignKind).toBeNull();
       expect(decision.blockedActionType).toBe(label);
-      expect(decision.reason).toMatch(CREATIVE_CAMPAIGN_LABEL_GUARD_PREFIX);
+      if (label === "cut") {
+        expect(decision.reason).toContain(
+          "[Stop-loss review - label campaign before cut]",
+        );
+        expect(decision.badges.map((badge) => badge.type)).toContain(
+          "stop_loss_review",
+        );
+      } else {
+        expect(decision.reason).toMatch(CREATIVE_CAMPAIGN_LABEL_GUARD_PREFIX);
+      }
       expect(decision.badges.map((badge) => badge.type)).toContain(
         "unlabeled_campaign_context",
       );

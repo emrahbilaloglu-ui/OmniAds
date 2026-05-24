@@ -3,6 +3,7 @@ import type {
   CreativeInput,
   DecisionBadge,
   DecisionLabel,
+  DecisionPredicateBlocker,
   FunnelStage,
 } from "../types";
 import {
@@ -70,7 +71,29 @@ function formatRatioPercent(value: number): string {
   return (value * 100).toFixed(0);
 }
 
-function buildNearScaleBlockers(input: {
+interface NearScaleReadiness {
+  reasons: string[];
+  blockers: DecisionPredicateBlocker[];
+}
+
+function blocker(input: {
+  predicate: string;
+  observed: string | number | null;
+  threshold: string | number | null;
+  status?: DecisionPredicateBlocker["status"];
+  reason: string;
+}): DecisionPredicateBlocker {
+  return {
+    predicate: input.predicate,
+    observed: input.observed,
+    threshold: input.threshold,
+    status: input.status ?? "failed",
+    severity: "warning",
+    reason: input.reason,
+  };
+}
+
+function buildNearScaleReadiness(input: {
   spend: number;
   spendThreshold: number | null;
   purchases: number;
@@ -78,35 +101,93 @@ function buildNearScaleBlockers(input: {
   recent7dRoas: number | null;
   targetRoas: number;
   scaleBenchmarkBlockers?: readonly string[];
-}): string[] {
-  const blockers: string[] = [];
+}): NearScaleReadiness {
+  const reasons: string[] = [];
+  const blockers: DecisionPredicateBlocker[] = [];
 
   if (input.spendThreshold === null) {
-    blockers.push("scale spend floor unavailable");
+    const reason = "scale spend floor unavailable";
+    reasons.push(reason);
+    blockers.push(
+      blocker({
+        predicate: "scale_spend_floor_available",
+        observed: null,
+        threshold: null,
+        status: "missing",
+        reason,
+      }),
+    );
   } else if (
     input.spend < input.spendThreshold ||
     input.purchases < input.purchasesThreshold
   ) {
-    blockers.push(
-      `spend $${formatSpend(input.spend)} / purchases ${input.purchases} below scale floor (need ≥$${formatSpend(
+    const reason = `spend $${formatSpend(input.spend)} / purchases ${input.purchases} below scale floor (need ≥$${formatSpend(
         input.spendThreshold,
-      )}, ≥${input.purchasesThreshold})`,
-    );
+      )}, ≥${input.purchasesThreshold})`;
+    reasons.push(reason);
+    if (input.spend < input.spendThreshold) {
+      blockers.push(
+        blocker({
+          predicate: "scale_spend_depth",
+          observed: input.spend,
+          threshold: input.spendThreshold,
+          reason,
+        }),
+      );
+    }
+    if (input.purchases < input.purchasesThreshold) {
+      blockers.push(
+        blocker({
+          predicate: "scale_purchase_depth",
+          observed: input.purchases,
+          threshold: input.purchasesThreshold,
+          reason,
+        }),
+      );
+    }
   }
 
   if (input.recent7dRoas === null) {
-    blockers.push("recent 7d ROAS missing");
-  } else if (input.recent7dRoas < input.targetRoas) {
+    const reason = "recent 7d ROAS missing";
+    reasons.push(reason);
     blockers.push(
-      `recent 7d ROAS ${formatRoas(input.recent7dRoas)} below target ${formatRoas(
+      blocker({
+        predicate: "scale_recent_hold_available",
+        observed: null,
+        threshold: input.targetRoas,
+        status: "missing",
+        reason,
+      }),
+    );
+  } else if (input.recent7dRoas < input.targetRoas) {
+    const reason = `recent 7d ROAS ${formatRoas(input.recent7dRoas)} below target ${formatRoas(
         input.targetRoas,
-      )}`,
+      )}`;
+    reasons.push(reason);
+    blockers.push(
+      blocker({
+        predicate: "scale_recent_hold",
+        observed: input.recent7dRoas,
+        threshold: input.targetRoas,
+        reason,
+      }),
     );
   }
 
-  blockers.push(...(input.scaleBenchmarkBlockers ?? []));
+  for (const reason of input.scaleBenchmarkBlockers ?? []) {
+    reasons.push(reason);
+    blockers.push(
+      blocker({
+        predicate: "scale_account_benchmark_ready",
+        observed: reason,
+        threshold: "ready",
+        status: "missing",
+        reason,
+      }),
+    );
+  }
 
-  return blockers;
+  return { reasons, blockers };
 }
 
 function scaleRatioThreshold(profile: AccountDecisionProfile): number {
@@ -288,9 +369,17 @@ function funnelAdjustedDecision(input: {
     });
   }
 
+  if (input.label === "cut") {
+    return {
+      label: input.label,
+      reason: `${input.reason} Secondary diagnosis: funnel evidence indicates a ${stage} issue, not only creative weakness; verify site/checkout before executing the cut recommendation.`,
+      badges,
+    };
+  }
+
   return {
     label: "keep",
-    reason: `Performance below threshold but funnel diagnosis indicates ${stage} issue, not creative; operator review recommended. Original signal: ${input.reason}`,
+    reason: `${input.reason} Funnel evidence indicates a ${stage} issue; do not refresh creative until site/checkout cause is reviewed.`,
     badges,
   };
 }
@@ -325,6 +414,7 @@ function terminal(
   label: DecisionLabel,
   reason: string,
   badges: readonly DecisionBadge[] = [],
+  blockers: readonly DecisionPredicateBlocker[] = [],
 ): GateResult {
   const adjusted = funnelAdjustedDecision({
     ctx,
@@ -339,6 +429,7 @@ function terminal(
       {
         ...ctx,
         badges: adjusted.badges,
+        blockers: [...ctx.blockers, ...blockers],
       },
       adjusted.label,
       withLifecycleHint(adjusted.reason, ctx, adjusted.label),
@@ -393,7 +484,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       );
     }
 
-    const blockers = buildNearScaleBlockers({
+    const readiness = buildNearScaleReadiness({
       spend: input.spend,
       spendThreshold: scaleSpendThreshold,
       purchases,
@@ -408,8 +499,9 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       "keep",
       `[near scale] ROAS ${formatRoas(roas)} (28d) above target (${formatRatioPercent(
         ratio,
-      )}%) — ${blockers.join("; ")}; observe.`,
+      )}%) — ${readiness.reasons.join("; ")}; observe.`,
       [...fatigueBadges, ...scaleReadinessBadges(benchmarkBlockers)],
+      readiness.blockers,
     );
   }
 

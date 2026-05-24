@@ -63,7 +63,7 @@ type InsertedEventRow = Record<string, unknown> & {
   id: unknown;
 };
 
-interface DecisionComputation {
+export interface DecisionComputation {
   input: CreativeInput;
   decision: DecisionOutput;
 }
@@ -366,7 +366,7 @@ export async function runDecisionsJob(
           businessId: input.businessId,
           creativeInputs,
         });
-      const decisions: DecisionComputation[] = creativeInputs.map(
+      const rawDecisions: DecisionComputation[] = creativeInputs.map(
         (creativeInput) => {
           const inputWithCampaignKind = withCreativeCampaignLabelContext(
             creativeInput,
@@ -382,6 +382,7 @@ export async function runDecisionsJob(
           };
         },
       );
+      const decisions = dedupeDecisionComputations(rawDecisions);
 
       const creativeIds = decisions.map((decision) => decision.input.creativeId);
       const lifecycleRowIdsByCreative =
@@ -746,6 +747,53 @@ function toDecisionChangeEventRows(input: {
       },
     ];
   });
+}
+
+const DECISION_LABEL_PRIORITY: Record<DecisionLabel, number> = {
+  cut: 70,
+  scale: 60,
+  refresh: 50,
+  diagnose: 40,
+  test_more: 30,
+  keep: 20,
+  out_of_scope: 10,
+};
+
+function compareDecisionComputations(
+  left: DecisionComputation,
+  right: DecisionComputation,
+): number {
+  return (
+    DECISION_LABEL_PRIORITY[left.decision.label] -
+      DECISION_LABEL_PRIORITY[right.decision.label] ||
+    toConfidenceInteger(left.decision.confidence) -
+      toConfidenceInteger(right.decision.confidence) ||
+    (Number.isFinite(left.input.spend) ? left.input.spend : 0) -
+      (Number.isFinite(right.input.spend) ? right.input.spend : 0) ||
+    (left.input.campaignId ?? "").localeCompare(right.input.campaignId ?? "")
+  );
+}
+
+export function dedupeDecisionComputations(
+  computations: readonly DecisionComputation[],
+): DecisionComputation[] {
+  const byCreativeId = new Map<string, DecisionComputation>();
+
+  for (const computation of computations) {
+    const current = byCreativeId.get(computation.input.creativeId);
+    if (!current) {
+      byCreativeId.set(computation.input.creativeId, computation);
+      continue;
+    }
+
+    if (compareDecisionComputations(computation, current) > 0) {
+      byCreativeId.set(computation.input.creativeId, computation);
+    }
+  }
+
+  return Array.from(byCreativeId.values()).sort((left, right) =>
+    left.input.creativeId.localeCompare(right.input.creativeId),
+  );
 }
 
 async function readCreativeCampaignLabelsById(input: {

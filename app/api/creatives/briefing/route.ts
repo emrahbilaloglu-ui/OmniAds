@@ -7,8 +7,6 @@ import {
   decideCreative,
   resolveAccountDecisionProfile,
   type CreativeInput,
-  type DecisionBadge,
-  type DecisionLabel,
   type DecisionOutput,
 } from "@/lib/creative-decision-engine";
 import {
@@ -29,6 +27,10 @@ import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import { readTriageState } from "@/lib/triage-events";
 import { CREATIVE_DECISION_ENGINE_CONFIG_VERSION } from "@/lib/creative-decision-engine/config-values";
 import {
+  cardForDecision,
+  safeNumber,
+} from "./card-serialization";
+import {
   adaptCreativeDecisionsToRows,
   assembleDecisionCenterSnapshot,
   auditDecisionCenterSnapshotInvariants,
@@ -48,7 +50,6 @@ import type {
   BriefingCreativeCard,
   CreativesBriefingResponse,
 } from "@/components/creatives/briefing/types";
-import type { MetaAutomationReadiness } from "@/lib/meta/automation-readiness";
 
 export const dynamic = "force-dynamic";
 
@@ -57,34 +58,6 @@ type BriefingLane = "action" | "watching" | "healthy";
 const DECISION_CENTER_OBSERVABILITY_ROUTE = "GET /api/creatives/briefing";
 const LOCAL_DECISION_CENTER_OBSERVABILITY_SALT =
   "creative-decision-center.observability.v1.local-default";
-
-function creativeReadOnlyAutomationReadiness(
-  decision: DecisionOutput,
-): MetaAutomationReadiness {
-  return {
-    contractVersion: "meta-automation-readiness.v1",
-    tier: "read_only",
-    autoExecuteEligible: false,
-    operatorReviewRequired: true,
-    decisionLabel: decision.label as MetaAutomationReadiness["decisionLabel"],
-    blockers: [
-      "no_empirical_outcome_model",
-      "missing_live_preflight",
-      "missing_rollback_plan",
-    ],
-    missingEvidence: [
-      "creative_empirical_outcome_model",
-      "creative_live_preflight",
-      "creative_rollback_plan",
-    ],
-    requiredEvidence: [
-      "creative_empirical_outcome_model",
-      "creative_live_preflight",
-      "creative_rollback_plan",
-    ],
-    reason: "Creative-side automation evidence not yet implemented.",
-  };
-}
 
 type DecisionCenterParamState = "truthy" | "falsy" | "unset";
 
@@ -259,90 +232,18 @@ function buildDecisionCenterSnapshot(input: {
 const DECISION_CENTER_BRIDGED_ADAPTER_VERSION =
   `${CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION}+${CREATIVE_DECISION_CENTER_ADAPTER_VERSION}`;
 
-function badgeLabels(badges: DecisionBadge[]) {
-  return badges.flatMap((badge) => {
-    if (badge.type === "below_breakeven") return ["below_breakeven"];
-    if (badge.type === "fatigue_watch" || badge.type === "fatigue_fatigued")
-      return ["fatigue"];
-    if (badge.type === "unlabeled_campaign_context")
-      return ["unlabeled_campaign_context"];
-    if (badge.type === "scale_readiness_blocked")
-      return ["scale_readiness_blocked"];
-    if (badge.type === "scale_calibration_thin")
-      return ["scale_calibration_thin"];
-    return [];
-  });
-}
-
-function primaryActionForDecision(decision: DecisionOutput): {
-  kind: string;
-  label: string;
-} {
-  if (decision.label === "cut") return { kind: "cut", label: "Cut" };
-  if (decision.label === "scale") {
-    if (decision.campaignKind === "test") {
-      return { kind: "promote", label: "Promote to main" };
-    }
-    if (decision.campaignKind === "main") {
-      return { kind: "scale_budget", label: "Scale budget" };
-    }
-    if (decision.campaignKind === "mixed") {
-      return { kind: "controlled_scale", label: "Review structure & scale" };
-    }
-    return { kind: "review", label: "Label campaign before scaling" };
-  }
-  if (decision.label === "refresh")
-    return { kind: "fresh_test", label: "Launch fresh test" };
-  if (decision.label === "test_more")
-    return { kind: "fresh_test", label: "Launch new test" };
-  if (decision.label === "diagnose")
-    return { kind: "review", label: "Open evidence" };
-  return { kind: "review", label: "Review" };
-}
-
-function safeNumber(value: number | null | undefined) {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function safeString(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function previewForRow(row: MetaCreativeApiRow | null | undefined) {
-  const source =
-    row?.preview && typeof row.preview === "object" && !Array.isArray(row.preview)
-      ? (row.preview as unknown as Record<string, unknown>)
-      : null;
-  const image =
-    safeString(source?.image_url) ??
-    safeString(source?.poster_url) ??
-    safeString(row?.card_preview_url) ??
-    safeString(row?.image_url) ??
-    safeString(row?.preview_url) ??
-    safeString(row?.cached_thumbnail_url) ??
-    safeString(row?.thumbnail_url) ??
-    safeString(row?.table_thumbnail_url);
-  const video = safeString(source?.video_url);
-  return {
-    render_mode: video ? ("video" as const) : image ? ("image" as const) : ("unavailable" as const),
-    image_url: image,
-    video_url: video,
-    poster_url:
-      safeString(source?.poster_url) ??
-      safeString(row?.table_thumbnail_url) ??
-      safeString(row?.cached_thumbnail_url) ??
-      safeString(row?.thumbnail_url) ??
-      image,
-    source: safeString(source?.source) ?? (image ? "briefing_row" : null),
-    is_catalog: Boolean(row?.is_catalog ?? source?.is_catalog),
-  };
-}
-
 function decisionLane(
   decision: DecisionOutput,
   deferred: boolean,
 ): BriefingLane {
   if (deferred) return "watching";
+  if (
+    decision.label === "diagnose" &&
+    decision.blockedActionType === "cut" &&
+    decision.campaignLabelStatus === "unlabeled"
+  ) {
+    return "action";
+  }
   if (
     decision.label === "keep" &&
     decision.badges.some((badge) => badge.type === "scale_readiness_blocked")
@@ -432,119 +333,6 @@ function buildBridgedDecisionCenterSnapshot(input: {
   } catch {
     return null;
   }
-}
-
-function cardForDecision(input: {
-  decision: DecisionOutput;
-  creativeInput?: CreativeInput;
-  row?: MetaCreativeApiRow | null;
-  sourceAsOf?: string | null;
-  sourceDataSource?: string | null;
-  profileScope?: string | null;
-}): BriefingCreativeCard {
-  const { decision, creativeInput, row } = input;
-  const label = decision.label as DecisionLabel;
-  const name =
-    row?.name ||
-    decision.creativeName ||
-    creativeInput?.creativeName ||
-    decision.creativeId;
-  const spend = safeNumber(row?.spend ?? decision.metrics.spend);
-  const purchases = safeNumber(row?.purchases ?? decision.metrics.purchases);
-  const roas = row?.roas ?? decision.metrics.roas ?? 0;
-  const ctr = row?.ctr_all ?? creativeInput?.ctr ?? null;
-  const recentRoas = decision.metrics.recent7dRoas ?? roas;
-
-  return {
-    id: row?.id || decision.creativeId,
-    creativeId: decision.creativeId,
-    adId: row?.real_ad_id ?? row?.id ?? null,
-    realAdId: row?.real_ad_id ?? null,
-    accountId: row?.account_id ?? null,
-    providerAccountId: row?.account_id ?? null,
-    campaign:
-      row?.campaign_name ??
-      row?.campaign_id ??
-      creativeInput?.campaignId ??
-      null,
-    campaignName: row?.campaign_name ?? null,
-    adset: row?.adset_name ?? row?.adset_id ?? null,
-    adsetName: row?.adset_name ?? null,
-    name,
-    creativeName: name,
-    brand: row?.account_name ?? "Meta",
-    label,
-    badges: badgeLabels(decision.badges),
-    confidence: decision.confidence,
-    reason: decision.reason,
-    predictive: null,
-    spend,
-    roas,
-    ctr,
-    cpa: row?.cpa ?? creativeInput?.cpa ?? null,
-    purchases,
-    impressions: safeNumber(row?.impressions ?? creativeInput?.impressions),
-    linkClicks: safeNumber(row?.link_clicks ?? creativeInput?.linkClicks),
-    addToCart: safeNumber(row?.add_to_cart ?? creativeInput?.addToCart),
-    frequency: row?.frequency ?? creativeInput?.frequency ?? null,
-    fatigue: decision.badges.some((badge) => badge.type === "fatigue_fatigued"),
-    sparkline: [safeNumber(recentRoas), safeNumber(roas)],
-    ctrFunnel: {
-      value: ctr,
-      p50: null,
-    },
-    primary: primaryActionForDecision(decision),
-    automationReadiness: creativeReadOnlyAutomationReadiness(decision),
-    status: creativeInput?.effectiveStatus ?? row?.effective_status ?? null,
-    ageDays: creativeInput?.ageDays ?? null,
-    campaignKind: decision.campaignKind ?? null,
-    campaignTestDimension: decision.campaignTestDimension ?? null,
-    campaignLabelStatus: decision.campaignLabelStatus ?? null,
-    blockedActionType: decision.blockedActionType ?? null,
-    labelTransform: decision.labelTransform ?? null,
-    engineVersion: decision.engineVersion ?? null,
-    sourceAsOf: input.sourceAsOf ?? null,
-    sourceDataSource: input.sourceDataSource ?? null,
-    profileScope: input.profileScope ?? null,
-    mediaPreviewUrl:
-      row?.card_preview_url ??
-      row?.image_url ??
-      row?.preview_url ??
-      row?.cached_thumbnail_url ??
-      row?.thumbnail_url ??
-      row?.table_thumbnail_url ??
-      null,
-    thumbnailUrl: row?.thumbnail_url ?? null,
-    tableThumbnailUrl: row?.table_thumbnail_url ?? row?.thumbnail_url ?? null,
-    cardPreviewUrl:
-      row?.card_preview_url ??
-      row?.image_url ??
-      row?.cached_thumbnail_url ??
-      row?.thumbnail_url ??
-      row?.preview_url ??
-      null,
-    previewUrl: row?.preview_url ?? null,
-    imageUrl: row?.image_url ?? null,
-    cachedThumbnailUrl: row?.cached_thumbnail_url ?? null,
-    preview: previewForRow(row),
-    previewState:
-      row?.preview_state === "preview" || row?.preview_state === "catalog"
-        ? row.preview_state
-        : row?.card_preview_url || row?.preview_url || row?.thumbnail_url || row?.image_url || row?.cached_thumbnail_url || row?.table_thumbnail_url
-          ? "preview"
-          : "unavailable",
-    isCatalog: row?.is_catalog ?? false,
-    format: row?.format ?? null,
-    creativeDeliveryType: row?.creative_delivery_type ?? null,
-    creativeVisualFormat: row?.creative_visual_format ?? null,
-    creativePrimaryType: row?.creative_primary_type ?? null,
-    creativePrimaryLabel: row?.creative_primary_label ?? null,
-    creativeSecondaryType: row?.creative_secondary_type ?? null,
-    creativeSecondaryLabel: row?.creative_secondary_label ?? null,
-    taxonomySource: row?.taxonomy_source ?? null,
-    taxonomyReconciledByVideoEvidence:
-      row?.taxonomy_reconciled_by_video_evidence ?? null,
-  };
 }
 
 async function readCreativeRows(input: {

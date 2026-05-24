@@ -127,6 +127,15 @@ describe("ratioZonesGate - scale zone", () => {
     expect(output.badges.map((badge) => badge.type)).toContain(
       "scale_readiness_blocked",
     );
+    expect(output.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          predicate: "scale_purchase_depth",
+          observed: 8,
+          threshold: 10,
+        }),
+      ]),
+    );
   });
 
   it("keeps scale-zone creatives without enough spend for scale", () => {
@@ -482,7 +491,7 @@ describe("ratioZonesGate - cut zone", () => {
     );
   });
 
-  it("downgrades cut to keep when funnel points to a landing page issue", () => {
+  it("keeps cut primary when funnel points to a landing page issue and adds diagnosis evidence", () => {
     const output = terminalOutput(
       ratioZonesGate(
         ratioContext(0.5, {
@@ -500,7 +509,9 @@ describe("ratioZonesGate - cut zone", () => {
       ),
     );
 
-    expect(output.label).toBe("keep");
+    expect(output.label).toBe("cut");
+    expect(output.reason).toContain("Secondary diagnosis");
+    expect(output.reason).toContain("landing_page");
     expect(output.badges.map((badge) => badge.type)).toContain(
       "landing_page_issue",
     );
@@ -509,7 +520,7 @@ describe("ratioZonesGate - cut zone", () => {
     );
   });
 
-  it("downgrades cut to keep when funnel points to checkout breakdown", () => {
+  it("keeps cut primary when funnel points to checkout breakdown and adds diagnosis evidence", () => {
     const output = terminalOutput(
       ratioZonesGate(
         ratioContext(0.5, {
@@ -527,7 +538,9 @@ describe("ratioZonesGate - cut zone", () => {
       ),
     );
 
-    expect(output.label).toBe("keep");
+    expect(output.label).toBe("cut");
+    expect(output.reason).toContain("Secondary diagnosis");
+    expect(output.reason).toContain("checkout");
     expect(output.badges.map((badge) => badge.type)).toContain(
       "checkout_breakdown",
     );
@@ -594,7 +607,7 @@ describe("ratioZonesGate - working zone", () => {
     );
   });
 
-  it("downgrades refresh to keep when funnel points to a landing page issue", () => {
+  it("blocks refresh when funnel points to a landing page issue and adds diagnosis evidence", () => {
     const output = terminalOutput(
       ratioZonesGate(
         ratioContext(0.75, {
@@ -616,6 +629,7 @@ describe("ratioZonesGate - working zone", () => {
     );
 
     expect(output.label).toBe("keep");
+    expect(output.reason).toContain("do not refresh creative");
     expect(output.badges.map((badge) => badge.type)).toContain(
       "landing_page_issue",
     );

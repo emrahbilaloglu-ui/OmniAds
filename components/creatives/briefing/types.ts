@@ -6,6 +6,7 @@ import type {
 import type {
   AccountDecisionProfile,
   DataHealth,
+  DecisionPredicateBlocker,
   DecisionLabelTransform,
 } from "@/lib/creative-decision-engine";
 import type { MetaAutomationReadiness } from "@/lib/meta/automation-readiness";
@@ -75,6 +76,7 @@ export interface BriefingCreativeCard {
   bestPlacement?: string | null;
   label?: DecisionLabel | string | null;
   badges?: Array<DecisionLabel | string> | null;
+  blockers?: DecisionPredicateBlocker[] | null;
   confidence?: number | null;
   reason?: string | null;
   predictive?: string | null;

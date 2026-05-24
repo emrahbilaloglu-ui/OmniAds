@@ -52,6 +52,20 @@ function withUnlabeledBadge(badges: readonly DecisionBadge[]): DecisionBadge[] {
   ];
 }
 
+function withStopLossReviewBadge(badges: readonly DecisionBadge[]): DecisionBadge[] {
+  if (badges.some((badge) => badge.type === "stop_loss_review")) {
+    return [...badges];
+  }
+  return [
+    ...badges,
+    {
+      type: "stop_loss_review",
+      label: "Stop-loss review - campaign label required before action",
+      severity: "warning",
+    },
+  ];
+}
+
 function withCampaignContext(
   decision: DecisionOutput,
   context: {
@@ -157,6 +171,12 @@ export function applyCreativeCampaignLabelGuard({
   }
 
   const originalLabel = decision.label;
+  const guardedBadges =
+    originalLabel === "cut" ? withStopLossReviewBadge(badges) : badges;
+  const guardPrefix =
+    originalLabel === "cut"
+      ? "[Stop-loss review - label campaign before cut]"
+      : CREATIVE_CAMPAIGN_LABEL_GUARD_PREFIX;
   return withCampaignContext(
     {
       ...decision,
@@ -165,15 +185,15 @@ export function applyCreativeCampaignLabelGuard({
         decision.confidence,
         CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP,
       ),
-      reason: `${CREATIVE_CAMPAIGN_LABEL_GUARD_PREFIX} ${decision.reason}`,
-      badges,
+      reason: `${guardPrefix} ${decision.reason}`,
+      badges: guardedBadges,
     },
     {
       status: "unlabeled",
       kind: null,
       testDimension: null,
       blockedActionType: originalLabel,
-      badges,
+      badges: guardedBadges,
     },
   );
 }

@@ -410,6 +410,44 @@ describe("resolveAccountDecisionProfile", () => {
     expect(profile.quality.thresholdQuality).toBe("insufficient");
   });
 
+  it("keeps refresh ineligible when commercial threshold confidence is low", async () => {
+    const profile = await resolveAccountDecisionProfile({
+      businessId: "00000000-0000-4000-8000-000000000510",
+      asOf: "2026-05-04",
+      dataSource: new ProfileDataSource(
+        {
+          targetCpa: null,
+          targetRoas: 2.2,
+          breakEvenCpa: null,
+          breakEvenRoas: 1.7,
+          operatorAovAssumption: null,
+          defaultRiskPosture: "balanced",
+        },
+        makeAccountCalibration({
+          accountCpaP50: 58,
+          accountCpaSampleCount: 3,
+          metaAttributedAovMean90d: 50,
+          metaAttributedAovPurchaseCount90d: 6,
+          metaAttributedRevenue90d: 300,
+          metaAovQuality: "low_sample",
+        }),
+      ),
+      flags: makeFlags({
+        businessId: "00000000-0000-4000-8000-000000000510",
+      }),
+    });
+
+    expect(profile.spendUnitConfidence).toBe("low");
+    expect(profile.hardActionEligibility).toMatchObject({
+      scale: false,
+      cut: false,
+      refresh: false,
+    });
+    expect(profile.hardActionEligibility.reasons?.refresh).toContain(
+      "low confidence",
+    );
+  });
+
   it("resolves TheSwaf-like target ROAS and Meta AOV to a ~$23 spend unit", async () => {
     const profile = await resolveAccountDecisionProfile({
       businessId: "172d0ab8-495b-4679-a4c6-ffa404c389d3",
@@ -449,11 +487,16 @@ describe("resolveAccountDecisionProfile", () => {
       }),
     });
 
-    expect(profile.hardActionEligibility).toEqual({
+    expect(profile.hardActionEligibility).toMatchObject({
       scale: false,
       cut: false,
       refresh: false,
       reason: "shadow_only",
+      reasons: {
+        scale: "shadow_only",
+        cut: "shadow_only",
+        refresh: "shadow_only",
+      },
     });
     expect(profile.preset).toBe("balanced");
     expect(profile.multipliers).toMatchObject({

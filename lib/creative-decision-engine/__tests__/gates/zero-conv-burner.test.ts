@@ -30,6 +30,23 @@ describe("zeroConvBurnerGate", () => {
     expect(output.confidence).toBe(80);
   });
 
+  it("cuts zero-purchase creatives with sustained burn when delivery status is unknown", () => {
+    const output = terminalOutput(
+      zeroConvBurnerGate(
+        makeGateContext({
+          input: makeCreativeInput({
+            effectiveStatus: null,
+            purchases: 0,
+            spend: 300,
+            ageDays: 14,
+          }),
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("cut");
+  });
+
   it("advances zero-purchase creatives below minimum spend", () => {
     const result = zeroConvBurnerGate(
       makeGateContext({
@@ -63,6 +80,21 @@ describe("zeroConvBurnerGate", () => {
       makeGateContext({
         input: makeCreativeInput({
           purchases: 1,
+          spend: 300,
+          ageDays: 14,
+        }),
+      }),
+    );
+
+    expect(result.kind).toBe("advance");
+  });
+
+  it("does not cut zero-purchase creatives when delivery is not active", () => {
+    const result = zeroConvBurnerGate(
+      makeGateContext({
+        input: makeCreativeInput({
+          effectiveStatus: "PAUSED",
+          purchases: 0,
           spend: 300,
           ageDays: 14,
         }),

@@ -174,6 +174,10 @@ type DecisionCenterAssetLibraryRow = MetaCreativeRow & {
   decisionCenterRow?: DecisionCenterRowForCard | null;
 };
 
+const SPARSE_ACTION_MAX_COUNT = 1;
+const SPARSE_ACTION_MIN_WATCHING_COUNT = 10;
+const SPARSE_ACTION_MAX_VISIBLE_SHARE = 0.1;
+
 interface EvidenceDrawerState {
   open: boolean;
   card: BriefingCreativeCard | null;
@@ -804,6 +808,24 @@ function cardMatchesCreativeFilters(card: BriefingCreativeCard, input: {
     .some((value) => typeof value === "string" && value.toLowerCase().includes(search));
 }
 
+export function chooseDefaultCreativeLane(input: {
+  actionCount: number;
+  watchingCount: number;
+  healthyCount: number;
+}): CreativeLaneView {
+  const total = input.actionCount + input.watchingCount + input.healthyCount;
+  const actionShare = total > 0 ? input.actionCount / total : 0;
+  if (
+    input.actionCount > 0 &&
+    input.actionCount <= SPARSE_ACTION_MAX_COUNT &&
+    input.watchingCount >= SPARSE_ACTION_MIN_WATCHING_COUNT &&
+    actionShare <= SPARSE_ACTION_MAX_VISIBLE_SHARE
+  ) {
+    return "watching";
+  }
+  return "action";
+}
+
 function briefingCardFromAssetRow(row: MetaCreativeRow): BriefingCreativeCard {
   const engineLabel = (row as MetaCreativeRow & { engineLabel?: string | null }).engineLabel;
   return {
@@ -1088,7 +1110,8 @@ export function CreativesBriefingPage() {
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(
     workspaceModeFromTab(tabParam),
   );
-  const [activeLane, setActiveLane] = useState<CreativeLaneView>("action");
+  const [manualActiveLane, setManualActiveLane] =
+    useState<CreativeLaneView | null>(null);
   const [actionFilter, setActionFilter] = useState<CreativeActionFilter>("all");
   const [campaignFilter, setCampaignFilter] = useState<CreativeCampaignFilter>("all");
   const [briefingSearch, setBriefingSearch] = useState("");
@@ -1195,6 +1218,9 @@ export function CreativesBriefingPage() {
     if (!presetParam) return;
     setLibraryMetricIds(assetMetricIdsFromPresetParam(presetParam));
   }, [presetParam]);
+  useEffect(() => {
+    setManualActiveLane(null);
+  }, [businessId]);
   const showToast = useCallback((nextToast: BriefingToast) => {
     setToast(nextToast);
   }, []);
@@ -1309,6 +1335,12 @@ export function CreativesBriefingPage() {
     () => healthyItems.filter((card) => cardMatchesCreativeFilters(card, creativeFilterInput)),
     [creativeFilterInput, healthyItems],
   );
+  const defaultActiveLane = chooseDefaultCreativeLane({
+    actionCount: filteredActionCards.length,
+    watchingCount: filteredWatchingItems.length,
+    healthyCount: filteredHealthyItems.length,
+  });
+  const activeLane = manualActiveLane ?? defaultActiveLane;
 
   const trackingAnomalyActive = Boolean(
     normalizedBriefingData?.trackingAnomalyActive ||
@@ -1393,6 +1425,10 @@ export function CreativesBriefingPage() {
     },
     [pathname, router, searchParams],
   );
+
+  const handleLaneChange = useCallback((lane: CreativeLaneView) => {
+    setManualActiveLane(lane);
+  }, []);
 
   const handleDateRangeApply = useCallback(
     (nextRange: HtmlDateRangeValue) => {
@@ -1829,9 +1865,9 @@ export function CreativesBriefingPage() {
       {workspaceMode === "briefing" ? (
         <>
           <div className="lane-tabs">
-            <CreativeLaneTab active={activeLane === "action"} className="action" label="Action Now" count={filteredActionCards.length} onClick={() => setActiveLane("action")} />
-            <CreativeLaneTab active={activeLane === "watching"} className="watch" label="Watching" count={filteredWatchingItems.length} onClick={() => setActiveLane("watching")} />
-            <CreativeLaneTab active={activeLane === "healthy"} className="healthy" label="Healthy" count={filteredHealthyItems.length} onClick={() => setActiveLane("healthy")} />
+            <CreativeLaneTab active={activeLane === "action"} className="action" label="Action Now" count={filteredActionCards.length} onClick={() => handleLaneChange("action")} />
+            <CreativeLaneTab active={activeLane === "watching"} className="watch" label="Watching" count={filteredWatchingItems.length} onClick={() => handleLaneChange("watching")} />
+            <CreativeLaneTab active={activeLane === "healthy"} className="healthy" label="Healthy" count={filteredHealthyItems.length} onClick={() => handleLaneChange("healthy")} />
             <div style={{ flex: 1 }} />
             <div className="tab" style={{ color: "var(--muted)" }}><span className="chip chip--ghost"><span className="dot" />Deferred {deferredCount}</span></div>
           </div>

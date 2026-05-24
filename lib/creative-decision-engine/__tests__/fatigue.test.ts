@@ -239,6 +239,31 @@ describe("computeFatigue", () => {
     expect(output.roasDecay).toBeGreaterThan(0.18);
   });
 
+  it("watches non-winners when composite decay and pressure are present", () => {
+    const weakHistoricalWindow: HistoricalWindow = {
+      ...strongWindow,
+      spend: 500,
+      purchases: 4,
+      roas: 1.2,
+    };
+    const output = computeFatigue(
+      makeInput({
+        effectiveTargetRoas: 2.2,
+        ctr: 1.1,
+        roas: 0.8,
+        clickToPurchaseRate: 0.03,
+        spendConcentration: 0.7,
+        historicalWindows: {
+          last30: weakHistoricalWindow,
+          last90: { ...weakHistoricalWindow, ctr: 1.9, clickToPurchaseRate: 0.07 },
+        },
+      }),
+    );
+
+    expect(output.winnerMemory).toBe(false);
+    expect(output.status).toBe("watch");
+  });
+
   it("ignores last3 when selecting bestWindow", () => {
     const output = computeFatigue(
       makeInput({

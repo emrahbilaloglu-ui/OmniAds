@@ -116,6 +116,7 @@ const PERFORMANCE_BADGES = new Set<V3BadgeType>([
   "landing_page_issue",
   "checkout_breakdown",
   "upper_funnel_strong_site_weak",
+  "stop_loss_review",
 ]);
 
 const REVIEW_WORTHY_KEEP_BADGES = new Set<V3BadgeType>([
@@ -125,6 +126,7 @@ const REVIEW_WORTHY_KEEP_BADGES = new Set<V3BadgeType>([
   "weak_performance",
   "low_ctr",
   "below_breakeven",
+  "stop_loss_review",
 ]);
 
 function hasBadge(

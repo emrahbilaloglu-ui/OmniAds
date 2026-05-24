@@ -19,7 +19,8 @@ export type MetaAutomationReadinessBlocker =
   | "insufficient_empirical_sample"
   | "empirical_precision_below_floor"
   | "missing_live_preflight"
-  | "missing_rollback_plan";
+  | "missing_rollback_plan"
+  | "missing_post_action_monitor";
 
 export interface MetaAutomationReadiness {
   contractVersion: "meta-automation-readiness.v1";
@@ -124,6 +125,9 @@ function reasonFor(tier: MetaAutomationReadinessTier, blockers: MetaAutomationRe
   }
   if (blockers.includes("missing_rollback_plan")) {
     return "Rollback proof is missing.";
+  }
+  if (blockers.includes("missing_post_action_monitor")) {
+    return "Post-action monitoring proof is missing.";
   }
   if (blockers.includes("low_confidence")) {
     return "Confidence is below the automation floor.";

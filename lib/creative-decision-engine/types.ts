@@ -128,6 +128,7 @@ export interface HardActionEligibility {
   cut: boolean;
   refresh: boolean;
   reason: string | null;
+  reasons?: Partial<Record<"scale" | "cut" | "refresh", string | null>>;
 }
 
 export type LifecyclePosition =
@@ -453,7 +454,8 @@ export interface DecisionBadge {
     | "upper_funnel_strong_site_weak"
     | "scale_readiness_blocked"
     | "scale_calibration_thin"
-    | "unlabeled_campaign_context";
+    | "unlabeled_campaign_context"
+    | "stop_loss_review";
   label: string;
   severity: "info" | "warning";
 }
@@ -547,6 +549,10 @@ export const DECISION_BADGE_DISPLAY: Record<
     label: "Campaign label missing",
     severity: "warning",
   },
+  stop_loss_review: {
+    label: "Stop-loss review",
+    severity: "warning",
+  },
 };
 
 export type CreativeCampaignLabelStatus =
@@ -562,6 +568,15 @@ export type DecisionKindSource =
 
 export type DecisionLabelTransform = "test_cohort_refresh_to_cut";
 
+export interface DecisionPredicateBlocker {
+  predicate: string;
+  observed: string | number | null;
+  threshold: string | number | null;
+  status: "failed" | "missing";
+  severity: "info" | "warning";
+  reason: string;
+}
+
 /** Final per-creative decision. */
 export interface DecisionOutput {
   creativeId: string;
@@ -573,6 +588,7 @@ export interface DecisionOutput {
   effectiveTargetRoas: number;
   ratioToTarget: number | null;
   badges: DecisionBadge[];
+  blockers?: DecisionPredicateBlocker[];
   metrics: {
     spend: number;
     purchases: number;

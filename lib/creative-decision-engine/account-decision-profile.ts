@@ -234,6 +234,7 @@ function resolveSpendUnitProfile(input: {
 function resolveHardActionEligibility(input: {
   spendUnitProfile: SpendUnitProfile;
   metaAovQuality: MetaAovQuality;
+  calibrationReady: boolean;
   shadowOnly: boolean;
 }): HardActionEligibility {
   if (input.shadowOnly) {
@@ -242,26 +243,58 @@ function resolveHardActionEligibility(input: {
       cut: false,
       refresh: false,
       reason: "shadow_only",
+      reasons: {
+        scale: "shadow_only",
+        cut: "shadow_only",
+        refresh: "shadow_only",
+      },
     };
   }
 
-  const hardEligible =
+  const commercialThresholdEligible =
     input.spendUnitProfile.hardEligibleByDefault &&
     (input.spendUnitProfile.spendUnitConfidence === "high" ||
       (input.spendUnitProfile.spendUnitConfidence === "medium" &&
         input.metaAovQuality === "ready"));
-
-  return {
-    scale: hardEligible,
-    cut: hardEligible,
-    refresh: hardEligible,
-    reason: hardEligible
-      ? null
+  const refreshEligible = commercialThresholdEligible;
+  const scaleEligible = commercialThresholdEligible && input.calibrationReady;
+  const scaleReason = scaleEligible
+    ? null
+    : !input.calibrationReady
+      ? "scale calibration sample is below automation-quality floor"
       : hardActionReason({
           source: input.spendUnitProfile.spendUnitSource,
           confidence: input.spendUnitProfile.spendUnitConfidence,
           metaAovQuality: input.metaAovQuality,
-        }),
+        });
+  const cutReason = commercialThresholdEligible
+    ? null
+    : hardActionReason({
+        source: input.spendUnitProfile.spendUnitSource,
+        confidence: input.spendUnitProfile.spendUnitConfidence,
+        metaAovQuality: input.metaAovQuality,
+      });
+  const refreshReason = refreshEligible
+    ? null
+    : hardActionReason({
+        source: input.spendUnitProfile.spendUnitSource,
+        confidence: input.spendUnitProfile.spendUnitConfidence,
+        metaAovQuality: input.metaAovQuality,
+      });
+  const reasons = {
+    scale: scaleReason,
+    cut: cutReason,
+    refresh: refreshReason,
+  };
+  const hardEligible = scaleEligible && commercialThresholdEligible && refreshEligible;
+  const firstBlockedReason = scaleReason ?? cutReason ?? refreshReason;
+
+  return {
+    scale: scaleEligible,
+    cut: commercialThresholdEligible,
+    refresh: refreshEligible,
+    reason: hardEligible ? null : firstBlockedReason,
+    reasons,
   };
 }
 
@@ -417,6 +450,8 @@ export async function resolveAccountDecisionProfile(input: {
   const finalHardActionEligibility = resolveHardActionEligibility({
     spendUnitProfile: canonicalSpendUnitProfile,
     metaAovQuality,
+    calibrationReady:
+      accountBaselines.matureCreativeCount >= MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
     shadowOnly: flags.shadowOnly,
   });
   const spendUnitByKind =
@@ -458,6 +493,8 @@ export async function resolveAccountDecisionProfile(input: {
       hardActionEligibilityByKind[campaignKind] = resolveHardActionEligibility({
         spendUnitProfile,
         metaAovQuality: calibration.metaAovQuality,
+        calibrationReady:
+          calibration.matureCreativeCount >= MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
         shadowOnly: flags.shadowOnly,
       });
     }

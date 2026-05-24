@@ -14,6 +14,7 @@ import {
   runCalibrationJob,
 } from "../../jobs/calibration-job";
 import {
+  dedupeDecisionComputations,
   decisionsJobAdvisoryLockKey,
   JOB_NAME,
   runDecisionsJob,
@@ -30,7 +31,9 @@ import {
   type CreativeInput,
   type DataHealth,
   type DecisionLabel,
+  type DecisionOutput,
 } from "../../types";
+import { makeCreativeInput } from "../helpers";
 
 const AS_OF = "2026-05-04";
 const PREVIOUS_AS_OF = "2026-05-03";
@@ -164,6 +167,65 @@ describe("decisions job SQL contracts", () => {
     expect(mapper).toContain(
       "label_transform: input.decision.labelTransform ?? null",
     );
+  });
+});
+
+function makeDecisionOutput(
+  label: DecisionLabel,
+  overrides: Partial<DecisionOutput> = {},
+): DecisionOutput {
+  return {
+    creativeId: "creative-1",
+    creativeName: "Creative 1",
+    label,
+    reason: `${label} reason`,
+    confidence: 70,
+    truthSource: "commercial_truth",
+    effectiveTargetRoas: 2,
+    ratioToTarget: 1,
+    badges: [],
+    metrics: {
+      spend: 100,
+      purchases: 1,
+      roas: 2,
+      recent7dRoas: 2,
+    },
+    engineVersion: ENGINE_VERSION,
+    generatedAt: "2026-05-04T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+describe("dedupeDecisionComputations", () => {
+  it("keeps one deterministic snapshot candidate per creative and prefers higher-risk labels", () => {
+    const lowerRisk = {
+      input: makeCreativeInput({
+        creativeId: "creative-dup",
+        campaignId: "campaign-a",
+        spend: 900,
+      }),
+      decision: makeDecisionOutput("keep", {
+        creativeId: "creative-dup",
+        confidence: 90,
+      }),
+    };
+    const higherRisk = {
+      input: makeCreativeInput({
+        creativeId: "creative-dup",
+        campaignId: "campaign-b",
+        spend: 300,
+      }),
+      decision: makeDecisionOutput("cut", {
+        creativeId: "creative-dup",
+        confidence: 70,
+      }),
+    };
+
+    const result = dedupeDecisionComputations([lowerRisk, higherRisk]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.decision.label).toBe("cut");
+    expect(result[0]?.input.campaignId).toBe("campaign-b");
   });
 });
 

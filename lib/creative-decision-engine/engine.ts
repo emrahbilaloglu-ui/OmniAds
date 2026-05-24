@@ -41,6 +41,7 @@ function initialContext(
     badges: [],
     confidenceBase: 75,
     confidenceDeltas,
+    blockers: [],
     generatedAt: new Date().toISOString(),
   };
 }

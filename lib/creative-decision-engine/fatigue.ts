@@ -1,3 +1,10 @@
+import {
+  FATIGUE_FREQUENCY_PRESSURE_THRESHOLD,
+  FATIGUE_SIGNIFICANT_DECAY_THRESHOLD,
+  FATIGUE_SPEND_CONCENTRATION_THRESHOLD,
+  FATIGUE_STRONG_WINDOW_FALLBACK_ROAS,
+} from "./config-values";
+
 /**
  * Creative fatigue helper - computes fatigueStatus from per-creative historical
  * metrics. Logic mirrors the V1 fatigue motor (decay signals + winnerMemory
@@ -59,12 +66,6 @@ export interface FatigueOutput {
   missingContext: string[];
 }
 
-const SIGNIFICANT_DECAY_THRESHOLD = 0.18;
-const SPEND_CONCENTRATION_THRESHOLD = 0.55;
-const FREQUENCY_PRESSURE_THRESHOLD = 2.5;
-// Absolute fallback when no business target is available.
-const STRONG_WINDOW_FALLBACK_ROAS = 1.5;
-
 function roundMetric(value: number | null, precision: number) {
   return value === null ? null : Number(value.toFixed(precision));
 }
@@ -102,7 +103,7 @@ function isStrongHistoricalWindow(
     return window.roas >= Math.max(...targetThresholds);
   }
 
-  return window.roas >= STRONG_WINDOW_FALLBACK_ROAS;
+  return window.roas >= FATIGUE_STRONG_WINDOW_FALLBACK_ROAS;
 }
 
 export function computeFatigue(input: FatigueInput): FatigueOutput {
@@ -155,15 +156,16 @@ export function computeFatigue(input: FatigueInput): FatigueOutput {
       typeof value === "number" && Number.isFinite(value),
   );
   const significantDecayCount = decaySignals.filter(
-    (value) => value >= SIGNIFICANT_DECAY_THRESHOLD,
+    (value) => value >= FATIGUE_SIGNIFICANT_DECAY_THRESHOLD,
   ).length;
 
   const pressureSignals =
     (input.spendConcentration != null &&
-    input.spendConcentration >= SPEND_CONCENTRATION_THRESHOLD
+    input.spendConcentration >= FATIGUE_SPEND_CONCENTRATION_THRESHOLD
       ? 1
       : 0) +
-    (input.frequency != null && input.frequency >= FREQUENCY_PRESSURE_THRESHOLD
+    (input.frequency != null &&
+    input.frequency >= FATIGUE_FREQUENCY_PRESSURE_THRESHOLD
       ? 1
       : 0);
 
@@ -174,6 +176,12 @@ export function computeFatigue(input: FatigueInput): FatigueOutput {
   let status: FatigueStatus = "none";
   if (!winnerMemory && eligibleWindows.length === 0) {
     status = "unknown";
+  } else if (
+    !winnerMemory &&
+    significantDecayCount >= 2 &&
+    (pressureSignals >= 1 || benchmarkWeakening)
+  ) {
+    status = "watch";
   } else if (
     winnerMemory &&
     significantDecayCount >= 2 &&

@@ -7,6 +7,7 @@ import {
   type DecisionLabel,
   type DecisionLabelTransform,
   type DecisionOutput,
+  type DecisionPredicateBlocker,
   type TruthSource,
 } from "../types";
 import { computeFunnelDiagnosis } from "../funnel";
@@ -22,6 +23,7 @@ export interface GateContext {
   badges: DecisionBadge[];
   confidenceBase: number;
   confidenceDeltas: number[];
+  blockers: DecisionPredicateBlocker[];
   generatedAt: string;
 }
 
@@ -37,6 +39,7 @@ interface BuildDecisionOutputInput {
   effectiveTargetRoas?: number;
   ratioToTarget?: number | null;
   badges?: DecisionBadge[];
+  blockers?: DecisionPredicateBlocker[];
   labelTransform?: DecisionLabelTransform | null;
 }
 
@@ -71,6 +74,12 @@ function appendDecisionBadgeOnce(
   return hasDecisionBadge(badges, badge.type)
     ? [...badges]
     : [...badges, badge];
+}
+
+function isHardActionLabel(
+  label: DecisionLabel,
+): label is "scale" | "cut" | "refresh" {
+  return label === "scale" || label === "cut" || label === "refresh";
 }
 
 export function applyPostProcess(
@@ -284,7 +293,11 @@ function applySoftOnlyLabel(input: {
   badges: DecisionBadge[];
   profile: AccountDecisionProfile;
 }): { label: DecisionLabel; reason: string; badges: DecisionBadge[] } {
-  const reason = input.profile.hardActionEligibility.reason;
+  const reason =
+    (isHardActionLabel(input.label)
+      ? input.profile.hardActionEligibility.reasons?.[input.label]
+      : null) ??
+    input.profile.hardActionEligibility.reason;
 
   if (input.label === "scale" && !input.profile.hardActionEligibility.scale) {
     return {
@@ -327,6 +340,7 @@ export function buildDecisionOutput(
   ctx: GateContext,
   output: BuildDecisionOutputInput,
 ): DecisionOutput {
+  const blockers = output.blockers ?? ctx.blockers;
   return {
     creativeId: ctx.input.creativeId,
     creativeName: ctx.input.creativeName,
@@ -340,6 +354,7 @@ export function buildDecisionOutput(
         ? ctx.ratioToTarget
         : output.ratioToTarget,
     badges: output.badges ?? ctx.badges,
+    ...(blockers.length > 0 ? { blockers } : {}),
     metrics: {
       spend: ctx.input.spend,
       purchases: ctx.input.purchases,
@@ -388,10 +403,13 @@ export function enforceHardActionEligibility(
   profile: AccountDecisionProfile,
 ): DecisionOutput {
   if (decision.label === "scale" && !profile.hardActionEligibility.scale) {
+    const reason =
+      profile.hardActionEligibility.reasons?.scale ??
+      profile.hardActionEligibility.reason;
     return {
       ...decision,
       label: "keep",
-      reason: `[near scale, soft-only] ${decision.reason} (Reason for soft mode: ${profile.hardActionEligibility.reason})`,
+      reason: `[near scale, soft-only] ${decision.reason} (Reason for soft mode: ${reason})`,
       badges: appendDecisionBadgeOnce(
         decision.badges,
         SCALE_READINESS_BLOCKED_BADGE,
@@ -399,10 +417,13 @@ export function enforceHardActionEligibility(
     };
   }
   if (decision.label === "cut" && !profile.hardActionEligibility.cut) {
+    const reason =
+      profile.hardActionEligibility.reasons?.cut ??
+      profile.hardActionEligibility.reason;
     return {
       ...decision,
       label: "test_more",
-      reason: `[soft-only - cut blocked] ${decision.reason} (${profile.hardActionEligibility.reason})`,
+      reason: `[soft-only - cut blocked] ${decision.reason} (${reason})`,
       badges: appendDecisionBadgeOnce(decision.badges, {
         type: "cut_candidate",
         label: "Soft-cut candidate",
@@ -411,10 +432,13 @@ export function enforceHardActionEligibility(
     };
   }
   if (decision.label === "refresh" && !profile.hardActionEligibility.refresh) {
+    const reason =
+      profile.hardActionEligibility.reasons?.refresh ??
+      profile.hardActionEligibility.reason;
     return {
       ...decision,
       label: "keep",
-      reason: `[soft-only - refresh blocked] ${decision.reason} (${profile.hardActionEligibility.reason})`,
+      reason: `[soft-only - refresh blocked] ${decision.reason} (${reason})`,
     };
   }
   return decision;

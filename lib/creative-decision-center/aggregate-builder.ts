@@ -7,6 +7,10 @@ import {
 export const CREATIVE_DECISION_CENTER_AGGREGATE_BUILDER_VERSION =
   "creative-decision-center.aggregate-builder.v1";
 
+export const AGGREGATE_WINNER_GAP_MIN_DAYS = 14;
+export const AGGREGATE_UNUSED_APPROVED_MIN_COUNT = 1;
+export const AGGREGATE_FATIGUE_CLUSTER_MIN_CREATIVES = 3;
+
 export const REQUIRED_AGGREGATE_DATA = {
   brief_variation: [
     "family_winner_fatigue",
@@ -83,6 +87,132 @@ function missingRequiredDataFor(
   return REQUIRED_AGGREGATE_DATA[candidate.action].filter(
     (field) => !availableData.has(field),
   );
+}
+
+function parseIsoDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const date = new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+
+function daysBetween(start: Date, end: Date): number {
+  const dayMs = 24 * 60 * 60 * 1000;
+  return Math.floor((end.getTime() - start.getTime()) / dayMs);
+}
+
+function availableDataOrRequired(
+  _action: CreativeDecisionCenterAggregateAction,
+  availableData: readonly string[] | undefined,
+) {
+  return availableData ?? [];
+}
+
+export function buildWinnerGapAggregateCandidate(input: {
+  scope?: "page" | "family";
+  familyId?: string | null;
+  lastWinnerDate: string | null;
+  windowEndDate: string;
+  affectedCreativeIds: readonly string[];
+  availableData?: readonly string[];
+  minDaysSinceWinner?: number;
+}): CreativeDecisionCenterAggregateCandidate | null {
+  const action: CreativeDecisionCenterAggregateAction = "winner_gap";
+  const end = parseIsoDate(input.windowEndDate);
+  const lastWinner = parseIsoDate(input.lastWinnerDate);
+  const missingData = [
+    ...(lastWinner ? [] : ["last_winner_date"]),
+    ...(end ? [] : ["historical_snapshot_window"]),
+  ];
+  const daysSinceWinner =
+    lastWinner && end ? daysBetween(lastWinner, end) : null;
+  const threshold = input.minDaysSinceWinner ?? AGGREGATE_WINNER_GAP_MIN_DAYS;
+
+  if (missingData.length === 0 && (daysSinceWinner ?? 0) < threshold) {
+    return null;
+  }
+
+  return {
+    scope: input.scope ?? "page",
+    familyId: input.familyId ?? null,
+    action,
+    priority: daysSinceWinner !== null && daysSinceWinner >= threshold * 2
+      ? "high"
+      : "medium",
+    confidence: missingData.length > 0 ? 0 : 65,
+    oneLine:
+      daysSinceWinner === null
+        ? "Winner cadence cannot be evaluated from the available snapshot."
+        : `No new winner for ${daysSinceWinner} days.`,
+    reasons:
+      daysSinceWinner === null
+        ? ["last winner date or historical window is missing"]
+        : [
+            `Last winner date is ${input.lastWinnerDate}; threshold is ${threshold} days.`,
+          ],
+    affectedCreativeIds: [...input.affectedCreativeIds],
+    nextStep:
+      "Review current creative supply and plan a new test if no active winner is emerging.",
+    missingData,
+    availableData: availableDataOrRequired(action, input.availableData),
+  };
+}
+
+export function buildUnusedApprovedCreativesAggregateCandidate(input: {
+  approvedUnusedCreativeIds: readonly string[];
+  approvedUnusedCount?: number | null;
+  availableData?: readonly string[];
+  minCount?: number;
+}): CreativeDecisionCenterAggregateCandidate | null {
+  const action: CreativeDecisionCenterAggregateAction =
+    "unused_approved_creatives";
+  const count = input.approvedUnusedCount ?? input.approvedUnusedCreativeIds.length;
+  const threshold = input.minCount ?? AGGREGATE_UNUSED_APPROVED_MIN_COUNT;
+  if (count < threshold) return null;
+
+  return {
+    scope: "page",
+    familyId: null,
+    action,
+    priority: count >= threshold * 3 ? "high" : "medium",
+    confidence: 70,
+    oneLine: `${count} approved creative${count === 1 ? "" : "s"} have no delivery proof.`,
+    reasons: [
+      "Approved creative backlog exists but lifetime delivery proof is absent.",
+    ],
+    affectedCreativeIds: [...input.approvedUnusedCreativeIds],
+    nextStep:
+      "Choose the strongest approved assets and assign them to the next launch/test plan.",
+    missingData: [],
+    availableData: availableDataOrRequired(action, input.availableData),
+  };
+}
+
+export function buildFatigueClusterAggregateCandidate(input: {
+  familyId: string | null;
+  fatiguedCreativeIds: readonly string[];
+  availableData?: readonly string[];
+  minCreatives?: number;
+}): CreativeDecisionCenterAggregateCandidate | null {
+  const action: CreativeDecisionCenterAggregateAction = "fatigue_cluster";
+  const threshold = input.minCreatives ?? AGGREGATE_FATIGUE_CLUSTER_MIN_CREATIVES;
+  if (input.fatiguedCreativeIds.length < threshold) return null;
+
+  return {
+    scope: "family",
+    familyId: input.familyId,
+    action,
+    priority: "high",
+    confidence: 72,
+    oneLine: `${input.fatiguedCreativeIds.length} creatives in the same family show fatigue pressure.`,
+    reasons: [
+      "Multiple sibling creatives share fatigue trend evidence in the same cluster.",
+    ],
+    affectedCreativeIds: [...input.fatiguedCreativeIds],
+    nextStep:
+      "Brief a family-level replacement angle before scaling further spend into the cluster.",
+    missingData: [],
+    availableData: availableDataOrRequired(action, input.availableData),
+  };
 }
 
 export function buildDecisionCenterAggregateDecisions(

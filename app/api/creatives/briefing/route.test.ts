@@ -7,6 +7,8 @@ import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
 import { readTriageState } from "@/lib/triage-events";
 import { DECISION_CENTER_OBSERVABILITY_LOG_MARKER } from "@/lib/creative-decision-center";
 import type { EngineV3Flags } from "@/lib/creative-decision-engine";
+import type { DecisionOutput } from "@/lib/creative-decision-engine";
+import { cardForDecision } from "./card-serialization";
 import { GET } from "./route";
 
 vi.mock("@/lib/access", () => ({
@@ -198,6 +200,57 @@ afterEach(() => {
 });
 
 describe("GET /api/creatives/briefing", () => {
+  it("carries structured decision blockers onto briefing cards", () => {
+    const decision: DecisionOutput = {
+      creativeId: "mock-creative-001",
+      creativeName: "Mock Creative",
+      label: "keep",
+      reason: "[near scale] ROAS above target but blocked by purchase depth.",
+      confidence: 80,
+      truthSource: "commercial_truth",
+      effectiveTargetRoas: 2.2,
+      ratioToTarget: 1.4,
+      badges: [
+        {
+          type: "scale_readiness_blocked",
+          label: "Scale readiness blocked",
+          severity: "info",
+        },
+      ],
+      blockers: [
+        {
+          predicate: "scale_purchase_depth",
+          observed: 2,
+          threshold: 5,
+          status: "failed",
+          severity: "warning",
+          reason: "purchases 2 below scale floor",
+        },
+      ],
+      metrics: {
+        spend: 500,
+        purchases: 2,
+        roas: 3,
+        recent7dRoas: 2.4,
+      },
+      labelTransform: null,
+      engineVersion: "test-engine",
+      generatedAt: "2026-05-07T00:00:00.000Z",
+    };
+
+    expect(cardForDecision({ decision })).toMatchObject({
+      label: "keep",
+      badges: ["scale_readiness_blocked"],
+      blockers: [
+        {
+          predicate: "scale_purchase_depth",
+          observed: 2,
+          threshold: 5,
+        },
+      ],
+    });
+  });
+
   it("classifies engine v3 decisions into briefing lanes server-side", async () => {
     const response = await GET(
       new NextRequest(
@@ -228,6 +281,7 @@ describe("GET /api/creatives/briefing", () => {
           "no_empirical_outcome_model",
           "missing_live_preflight",
           "missing_rollback_plan",
+          "missing_post_action_monitor",
         ],
       },
       mediaPreviewUrl: "https://example.com/card.jpg",

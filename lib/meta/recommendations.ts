@@ -180,6 +180,11 @@ export interface MetaRecommendationEvidence {
   tone: "positive" | "warning" | "neutral";
 }
 
+export type MetaRecommendationProposedAction =
+  | { kind: "apply_bid"; bidAmountMinor: number }
+  | { kind: "pause" }
+  | { kind: "resume" };
+
 export interface MetaRecommendationTimeframeContext {
   coreVerdict: string;
   selectedRangeOverlay: string;
@@ -234,6 +239,7 @@ export interface MetaRecommendation {
   testingGeoCluster?: string[];
   matureGeoSplit?: string[];
   targetValue?: unknown;
+  proposedAction?: MetaRecommendationProposedAction;
   predictiveOverlay?: string | null;
   engineVersion?: string;
   evidenceTrail?: MetaEvidenceTrail;
@@ -903,6 +909,37 @@ function campaignAgeDays(row: MetaCampaignRow) {
   return Math.max(0, Math.floor((Date.now() - parsed.getTime()) / 86_400_000));
 }
 
+function readPositiveInteger(value: unknown) {
+  const numeric = Number(value);
+  return Number.isInteger(numeric) && numeric > 0 ? numeric : null;
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function executableBidAmountMinorFromTargetValue(targetValue: unknown) {
+  const target = recordValue(targetValue);
+  if (!target) return null;
+  const direct = readPositiveInteger(target.bidAmountMinor);
+  if (direct) return direct;
+  const bid = recordValue(target.bid);
+  return readPositiveInteger(bid?.bidAmountMinor);
+}
+
+function proposedActionForRecommendation(
+  recommendation: MetaRecommendation,
+): MetaRecommendationProposedAction | undefined {
+  if (recommendation.proposedAction) return recommendation.proposedAction;
+  if (recommendation.level !== "adset" || recommendation.type !== "bid_value_guidance") {
+    return undefined;
+  }
+  const bidAmountMinor = executableBidAmountMinorFromTargetValue(recommendation.targetValue);
+  return bidAmountMinor ? { kind: "apply_bid", bidAmountMinor } : undefined;
+}
+
 function applyConfidence(
   recommendation: MetaRecommendation,
   result: MetaStatisticalConfidenceResult,
@@ -920,8 +957,10 @@ function applyConfidence(
 }
 
 function stampRecommendation(recommendation: MetaRecommendation): MetaRecommendation {
+  const proposedAction = proposedActionForRecommendation(recommendation);
   const stamped = {
     ...recommendation,
+    ...(proposedAction ? { proposedAction } : {}),
     confidenceScore:
       typeof recommendation.confidenceScore === "number"
         ? recommendation.confidenceScore

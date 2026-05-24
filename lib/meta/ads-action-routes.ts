@@ -28,6 +28,7 @@ interface ActionBody {
   activateAfterCreate?: boolean;
   recId?: string;
   recIdOrigin?: string;
+  dryRun?: unknown;
 }
 
 function jsonError(
@@ -54,6 +55,18 @@ function ensureRecord(value: Record<string, unknown> | null | undefined) {
 
 function recIdOriginFromBody(body: ActionBody | null) {
   return body?.recIdOrigin?.trim() || body?.recId?.trim() || null;
+}
+
+function dryRunFromBody(body: ActionBody | null) {
+  return body?.dryRun === true;
+}
+
+function adsManagerAdUrl(accountNumericId: string, adId: string | null | undefined) {
+  const selectedAdId = adId?.trim();
+  if (!selectedAdId) return null;
+  return `https://adsmanager.facebook.com/adsmanager/manage/ads/edit?act=${encodeURIComponent(
+    accountNumericId,
+  )}&selected_ad_ids=${encodeURIComponent(selectedAdId)}`;
 }
 
 async function readActionBody(request: NextRequest): Promise<ActionBody | null> {
@@ -226,6 +239,7 @@ export async function handleMetaAdStatusAction(
       method: "POST",
       endpoint: `/${resolvedAdId}`,
       body: { status },
+      dry_run: dryRunFromBody(body),
       input_ad_id: inputAdId,
       rec_id_origin: recIdOriginFromBody(body),
     },
@@ -235,8 +249,12 @@ export async function handleMetaAdStatusAction(
   try {
     const result =
       action === "pause"
-        ? await pauseAd(prepared.ctx, resolvedAdId)
-        : await resumeAd(prepared.ctx, resolvedAdId);
+        ? dryRunFromBody(body)
+          ? await pauseAd(prepared.ctx, resolvedAdId, { dryRun: true })
+          : await pauseAd(prepared.ctx, resolvedAdId)
+        : dryRunFromBody(body)
+          ? await resumeAd(prepared.ctx, resolvedAdId, { dryRun: true })
+          : await resumeAd(prepared.ctx, resolvedAdId);
 
     if (!result.ok) {
       await completeFailure({ logId: log.id, startedAt, result });
@@ -246,7 +264,7 @@ export async function handleMetaAdStatusAction(
           error: result.error,
           metaHttpStatus: result.httpStatus,
         },
-        { status: 502 },
+        { status: result.error.code === "kill_switch_engaged" ? 503 : 502 },
       );
     }
 
@@ -264,6 +282,8 @@ export async function handleMetaAdStatusAction(
       action,
       adId: resolvedAdId,
       status: result.verifiedStatus,
+      dryRun: result.dryRun === true,
+      wouldHaveWritten: result.wouldHaveWritten ?? null,
     });
   } catch (error) {
     const message = sanitizeErrorMessage(error);
@@ -329,6 +349,7 @@ export async function handleMetaAdDuplicateAction(
       target_adset_id: targetAdsetId,
       status_option: statusOption,
       name: trimmedName ?? null,
+      dry_run: dryRunFromBody(body),
     },
     input_ad_id: inputAdId,
     rec_id_origin: recIdOriginFromBody(body),
@@ -350,6 +371,7 @@ export async function handleMetaAdDuplicateAction(
       targetAdsetId,
       name: trimmedName,
       activateAfterCreate,
+      ...(dryRunFromBody(body) ? { dryRun: true } : {}),
     });
 
     if (!result.ok) {
@@ -361,15 +383,16 @@ export async function handleMetaAdDuplicateAction(
           metaHttpStatus: result.httpStatus,
           resultingAdId: result.resultingAdId ?? null,
         },
-        { status: 502 },
+        { status: result.error.code === "kill_switch_engaged" ? 503 : 502 },
       );
     }
 
+    const resultingAdId = result.dryRun === true ? null : result.newAdId;
     await completeMetaAdsActionLog({
       id: log.id,
       status: "success",
       payloadResponse: ensureRecord(result.responsePayload),
-      resultingAdId: result.newAdId,
+      resultingAdId,
       durationMs: Date.now() - startedAt,
       verifiedAt: new Date().toISOString(),
       verificationPayload: ensureRecord(result.verificationPayload),
@@ -379,11 +402,11 @@ export async function handleMetaAdDuplicateAction(
       ok: true,
       action: "duplicate",
       adId: resolvedAdId,
-      newAdId: result.newAdId,
+      newAdId: resultingAdId,
       status: result.verifiedStatus,
-      adsManagerUrl: `https://adsmanager.facebook.com/adsmanager/manage/ads/edit?act=${encodeURIComponent(
-        accountNumericId,
-      )}&selected_ad_ids=${encodeURIComponent(result.newAdId)}`,
+      dryRun: result.dryRun === true,
+      wouldHaveWritten: result.wouldHaveWritten ?? null,
+      adsManagerUrl: adsManagerAdUrl(accountNumericId, resultingAdId),
     });
   } catch (error) {
     const message = sanitizeErrorMessage(error);

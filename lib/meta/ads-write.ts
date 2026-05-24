@@ -4,9 +4,19 @@ export interface MetaAdsWriteContext {
   accessToken: string;
 }
 
+export interface MetaAdsWriteOptions {
+  dryRun?: boolean;
+}
+
 export interface MetaAdsWriteError {
   code: string;
   message: string;
+}
+
+export interface MetaAdsWouldHaveWritten {
+  method: MetaFetchMethod;
+  path: string;
+  body?: Record<string, unknown>;
 }
 
 export type MetaAdsWriteFailure = {
@@ -21,6 +31,8 @@ export type MetaAdsWriteFailure = {
 export type MetaAdStatusWriteSuccess = {
   ok: true;
   verifiedStatus: string;
+  dryRun?: boolean;
+  wouldHaveWritten?: MetaAdsWouldHaveWritten;
   responsePayload?: Record<string, unknown> | null;
   verificationPayload?: Record<string, unknown> | null;
 };
@@ -28,6 +40,8 @@ export type MetaAdStatusWriteSuccess = {
 export type MetaAdsetBidWriteSuccess = {
   ok: true;
   verifiedBidAmount: number;
+  dryRun?: boolean;
+  wouldHaveWritten?: MetaAdsWouldHaveWritten;
   responsePayload?: Record<string, unknown> | null;
   verificationPayload?: Record<string, unknown> | null;
 };
@@ -37,9 +51,24 @@ export type MetaAdDuplicateWriteSuccess = {
   newAdId: string;
   newCreativeId?: string | null;
   verifiedStatus: string;
+  dryRun?: false;
+  wouldHaveWritten?: MetaAdsWouldHaveWritten;
   responsePayload?: Record<string, unknown> | null;
   verificationPayload?: Record<string, unknown> | null;
 };
+
+export type MetaAdDuplicateDryRunSuccess = {
+  ok: true;
+  newAdId: null;
+  newCreativeId?: null;
+  verifiedStatus: string;
+  dryRun: true;
+  wouldHaveWritten: MetaAdsWouldHaveWritten;
+  responsePayload?: Record<string, unknown> | null;
+  verificationPayload?: Record<string, unknown> | null;
+};
+
+type MetaAdDuplicateSuccess = MetaAdDuplicateWriteSuccess | MetaAdDuplicateDryRunSuccess;
 
 type MetaFetchMethod = "GET" | "POST";
 export type MetaAdDuplicateCopyMode = "reuse_creative" | "rebuild_creative";
@@ -50,6 +79,31 @@ const RATE_LIMIT_RETRY_MS =
   process.env.NODE_ENV === "test" || process.env.VITEST === "true"
     ? 0
     : 30_000;
+
+function isMetaAdsWriteKillSwitchEngaged() {
+  const value = process.env.META_ADS_WRITE_KILL_SWITCH;
+  return value === "1" || value?.toLowerCase() === "true";
+}
+
+function killSwitchFailure(): MetaAdsWriteFailure {
+  return {
+    ok: false,
+    httpStatus: 503,
+    error: {
+      code: "kill_switch_engaged",
+      message: "Meta writes are disabled by kill switch.",
+    },
+    responsePayload: null,
+    verificationPayload: null,
+  };
+}
+
+function dryRunPayload(wouldHaveWritten: MetaAdsWouldHaveWritten) {
+  return {
+    dryRun: true,
+    wouldHaveWritten,
+  };
+}
 
 function buildGraphUrl(path: string, accessToken: string) {
   const url = new URL(`https://graph.facebook.com/${GRAPH_API_VERSION}/${path}`);
@@ -511,7 +565,43 @@ async function updateEntityStatus(
   entityId: string,
   status: "ACTIVE" | "PAUSED",
   entityLabel: "campaign" | "ad set",
+  options: MetaAdsWriteOptions = {},
 ): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
+  if (isMetaAdsWriteKillSwitchEngaged()) return killSwitchFailure();
+  const wouldHaveWritten: MetaAdsWouldHaveWritten = {
+    method: "POST",
+    path: entityId,
+    body: { status },
+  };
+  if (options.dryRun) {
+    const verification = await verifyEntity({
+      ctx,
+      entityId,
+      fields: "id,name,status,effective_status",
+    });
+    if (!verification.ok) {
+      return {
+        ok: false,
+        httpStatus: verification.httpStatus,
+        error:
+          verification.error ?? {
+            code: "verification_failed",
+            message: "Meta verification GET failed.",
+          },
+        responsePayload: dryRunPayload(wouldHaveWritten),
+        verificationPayload: verification.payload,
+      };
+    }
+    return {
+      ok: true,
+      verifiedStatus: status,
+      dryRun: true,
+      wouldHaveWritten,
+      responsePayload: dryRunPayload(wouldHaveWritten),
+      verificationPayload: verification.payload,
+    };
+  }
+
   const body = new URLSearchParams({ status });
   const write = await metaFetchWithRateLimitRetry({
     ctx,
@@ -582,7 +672,39 @@ async function updateAdStatus(
   ctx: MetaAdsWriteContext,
   adId: string,
   status: "ACTIVE" | "PAUSED",
+  options: MetaAdsWriteOptions = {},
 ): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
+  if (isMetaAdsWriteKillSwitchEngaged()) return killSwitchFailure();
+  const wouldHaveWritten: MetaAdsWouldHaveWritten = {
+    method: "POST",
+    path: adId,
+    body: { status },
+  };
+  if (options.dryRun) {
+    const verification = await verifyAd({ ctx, adId });
+    if (!verification.ok) {
+      return {
+        ok: false,
+        httpStatus: verification.httpStatus,
+        error:
+          verification.error ?? {
+            code: "verification_failed",
+            message: "Meta verification GET failed.",
+          },
+        responsePayload: dryRunPayload(wouldHaveWritten),
+        verificationPayload: verification.payload,
+      };
+    }
+    return {
+      ok: true,
+      verifiedStatus: status,
+      dryRun: true,
+      wouldHaveWritten,
+      responsePayload: dryRunPayload(wouldHaveWritten),
+      verificationPayload: verification.payload,
+    };
+  }
+
   const body = new URLSearchParams({ status });
   const write = await metaFetchWithRateLimitRetry({
     ctx,
@@ -648,50 +770,91 @@ async function updateAdStatus(
 export async function pauseAd(
   ctx: MetaAdsWriteContext,
   adId: string,
+  options: MetaAdsWriteOptions = {},
 ): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
-  return updateAdStatus(ctx, adId, "PAUSED");
+  return updateAdStatus(ctx, adId, "PAUSED", options);
 }
 
 export async function resumeAd(
   ctx: MetaAdsWriteContext,
   adId: string,
+  options: MetaAdsWriteOptions = {},
 ): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
-  return updateAdStatus(ctx, adId, "ACTIVE");
+  return updateAdStatus(ctx, adId, "ACTIVE", options);
 }
 
 export async function pauseCampaign(
   ctx: MetaAdsWriteContext,
   campaignId: string,
+  options: MetaAdsWriteOptions = {},
 ): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
-  return updateEntityStatus(ctx, campaignId, "PAUSED", "campaign");
+  return updateEntityStatus(ctx, campaignId, "PAUSED", "campaign", options);
 }
 
 export async function resumeCampaign(
   ctx: MetaAdsWriteContext,
   campaignId: string,
+  options: MetaAdsWriteOptions = {},
 ): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
-  return updateEntityStatus(ctx, campaignId, "ACTIVE", "campaign");
+  return updateEntityStatus(ctx, campaignId, "ACTIVE", "campaign", options);
 }
 
 export async function pauseAdset(
   ctx: MetaAdsWriteContext,
   adsetId: string,
+  options: MetaAdsWriteOptions = {},
 ): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
-  return updateEntityStatus(ctx, adsetId, "PAUSED", "ad set");
+  return updateEntityStatus(ctx, adsetId, "PAUSED", "ad set", options);
 }
 
 export async function resumeAdset(
   ctx: MetaAdsWriteContext,
   adsetId: string,
+  options: MetaAdsWriteOptions = {},
 ): Promise<MetaAdStatusWriteSuccess | MetaAdsWriteFailure> {
-  return updateEntityStatus(ctx, adsetId, "ACTIVE", "ad set");
+  return updateEntityStatus(ctx, adsetId, "ACTIVE", "ad set", options);
 }
 
 export async function updateAdsetBidAmount(
   ctx: MetaAdsWriteContext,
-  input: { adsetId: string; bidAmountMinor: number },
+  input: { adsetId: string; bidAmountMinor: number; dryRun?: boolean },
 ): Promise<MetaAdsetBidWriteSuccess | MetaAdsWriteFailure> {
+  if (isMetaAdsWriteKillSwitchEngaged()) return killSwitchFailure();
   const bidAmount = Math.round(input.bidAmountMinor);
+  const wouldHaveWritten: MetaAdsWouldHaveWritten = {
+    method: "POST",
+    path: input.adsetId,
+    body: { bid_amount: bidAmount },
+  };
+  if (input.dryRun) {
+    const verification = await verifyEntity({
+      ctx,
+      entityId: input.adsetId,
+      fields: "id,name,bid_amount,bid_strategy,status,effective_status",
+    });
+    if (!verification.ok) {
+      return {
+        ok: false,
+        httpStatus: verification.httpStatus,
+        error:
+          verification.error ?? {
+            code: "verification_failed",
+            message: "Meta verification GET failed.",
+          },
+        responsePayload: dryRunPayload(wouldHaveWritten),
+        verificationPayload: verification.payload,
+      };
+    }
+    return {
+      ok: true,
+      verifiedBidAmount: bidAmount,
+      dryRun: true,
+      wouldHaveWritten,
+      responsePayload: dryRunPayload(wouldHaveWritten),
+      verificationPayload: verification.payload,
+    };
+  }
+
   const body = new URLSearchParams({ bid_amount: String(bidAmount) });
   const write = await metaFetchWithRateLimitRetry({
     ctx,
@@ -757,16 +920,40 @@ export async function updateAdsetBidAmount(
   };
 }
 
+type MetaAdDuplicateInput = {
+  adId: string;
+  targetAdsetId: string;
+  name?: string;
+  activateAfterCreate: boolean;
+  copyMode?: MetaAdDuplicateCopyMode;
+  dryRun?: boolean;
+};
+
+type MetaAdDuplicateLiveInput = Omit<MetaAdDuplicateInput, "dryRun"> & {
+  dryRun?: false | undefined;
+};
+
+type MetaAdDuplicateDryRunInput = Omit<MetaAdDuplicateInput, "dryRun"> & {
+  dryRun: true;
+};
+
+export function duplicateAd(
+  ctx: MetaAdsWriteContext,
+  input: MetaAdDuplicateLiveInput,
+): Promise<MetaAdDuplicateWriteSuccess | MetaAdsWriteFailure>;
+export function duplicateAd(
+  ctx: MetaAdsWriteContext,
+  input: MetaAdDuplicateDryRunInput,
+): Promise<MetaAdDuplicateDryRunSuccess | MetaAdsWriteFailure>;
+export function duplicateAd(
+  ctx: MetaAdsWriteContext,
+  input: MetaAdDuplicateInput,
+): Promise<MetaAdDuplicateSuccess | MetaAdsWriteFailure>;
 export async function duplicateAd(
   ctx: MetaAdsWriteContext,
-  input: {
-    adId: string;
-    targetAdsetId: string;
-    name?: string;
-    activateAfterCreate: boolean;
-    copyMode?: MetaAdDuplicateCopyMode;
-  },
-): Promise<MetaAdDuplicateWriteSuccess | MetaAdsWriteFailure> {
+  input: MetaAdDuplicateInput,
+): Promise<MetaAdDuplicateSuccess | MetaAdsWriteFailure> {
+  if (isMetaAdsWriteKillSwitchEngaged()) return killSwitchFailure();
   const copyMode = input.copyMode ?? "reuse_creative";
   const sourceAd = await metaFetch({
     ctx,
@@ -842,14 +1029,19 @@ export async function duplicateAd(
         responsePayload: sourceAd.payload,
       };
     }
-    const rebuiltCreative = await buildRecreatedCreative({
-      ctx,
-      sourceCreative,
-      name,
-    });
-    if (!rebuiltCreative.ok) return rebuiltCreative;
-    adCreativeId = rebuiltCreative.creativeId;
-    creativeResponsePayload = rebuiltCreative.responsePayload;
+    if (input.dryRun) {
+      // Dry-run must not upload images or create rebuilt creatives.
+      adCreativeId = sourceCreativeId;
+    } else {
+      const rebuiltCreative = await buildRecreatedCreative({
+        ctx,
+        sourceCreative,
+        name,
+      });
+      if (!rebuiltCreative.ok) return rebuiltCreative;
+      adCreativeId = rebuiltCreative.creativeId;
+      creativeResponsePayload = rebuiltCreative.responsePayload;
+    }
   }
   const accountNumericId = getAccountNumericId(ctx.providerAccountId);
   const body = new URLSearchParams({
@@ -858,6 +1050,24 @@ export async function duplicateAd(
     creative: JSON.stringify({ creative_id: adCreativeId }),
     status: statusOption,
   });
+  const wouldHaveWritten: MetaAdsWouldHaveWritten = {
+    method: "POST",
+    path: `act_${accountNumericId}/ads`,
+    body: Object.fromEntries(body.entries()),
+  };
+
+  if (input.dryRun) {
+    return {
+      ok: true,
+      newAdId: null,
+      newCreativeId: null,
+      verifiedStatus: statusOption,
+      dryRun: true,
+      wouldHaveWritten,
+      responsePayload: dryRunPayload(wouldHaveWritten),
+      verificationPayload: sourceAd.payload,
+    };
+  }
 
   const write = await metaFetchWithRateLimitRetry({
     ctx,

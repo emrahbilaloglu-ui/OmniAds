@@ -246,6 +246,43 @@ describe("POST /api/meta/ads/[adId]/duplicate", () => {
     );
   });
 
+  it("keeps duplicate dry-run responses non-actionable", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        id: "ad_1",
+        name: "Source Ad",
+        adset_id: "adset_1",
+        creative: { id: "creative_1" },
+      }),
+    );
+
+    const response = await POST(
+      request(duplicateBody({ dryRun: true })),
+      params(),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      ok: true,
+      action: "duplicate",
+      newAdId: null,
+      dryRun: true,
+      adsManagerUrl: null,
+      wouldHaveWritten: {
+        method: "POST",
+        path: "act_123/ads",
+      },
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(actionLog.completeMetaAdsActionLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "success",
+        resultingAdId: null,
+      }),
+    );
+  });
+
   it("logs silent_failure when Meta creates the ad but verification fails", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(

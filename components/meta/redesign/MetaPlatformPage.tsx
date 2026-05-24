@@ -37,7 +37,8 @@ import { MetaWatchingCard } from "@/components/meta/redesign/MetaWatchingCard";
 import {
   decisionLabelForRec,
   launchModeForRec,
-  proposedBidValue,
+  proposedBidDisplayValue,
+  proposedBidMinorForExecute,
   scopeIdForRec,
   scopeNameForRec,
 } from "@/components/meta/redesign/meta-card-utils";
@@ -81,13 +82,13 @@ const EMPTY_OVERLAY: OverlayState = { open: false, mode: "rebuild", rec: null };
 type LocalResponseState = "acted" | "deferred" | "ignored";
 type PrimaryActionFeedback = {
   recId: string;
-  tone: "success" | "error";
+  tone: "success" | "error" | "info";
   title: string;
   detail?: string | null;
 };
 type ArchiveActionFeedback = {
   key: string;
-  tone: "success" | "error";
+  tone: "success" | "error" | "info";
   title: string;
   detail?: string | null;
 };
@@ -245,29 +246,69 @@ function postResponse(input: {
   });
 }
 
-async function assertActionResponse(response: Response, fallbackMessage: string) {
-  const payload = await response.json().catch(() => null);
-  if (response.ok && payload?.ok !== false) return payload;
-  const message =
-    payload && typeof payload === "object"
-      ? "message" in payload
-        ? String((payload as { message?: unknown }).message)
-        : "error" in payload && payload.error && typeof payload.error === "object" && "message" in payload.error
-          ? String((payload.error as { message?: unknown }).message)
-          : fallbackMessage
-      : fallbackMessage;
-  throw new Error(message);
-}
-
-export function metaAdsetPauseNotice(status: unknown) {
+export function metaAdsetPauseNotice(status: unknown, dryRun = false) {
+  if (dryRun) return "Dry run: ad set would pause.";
   const normalized = typeof status === "string" ? status.trim().toUpperCase() : "";
   if (!normalized || normalized === "PAUSED") return "Ad set paused in Meta.";
   return `Ad set pause verified with status ${normalized}.`;
 }
 
-function metaEntityResumeNotice(level: "campaign" | "adset" | "ad", status: unknown) {
+function actionPayloadRecord(payload: unknown): Record<string, unknown> | null {
+  return payload && typeof payload === "object" && !Array.isArray(payload)
+    ? (payload as Record<string, unknown>)
+    : null;
+}
+
+export function metaActionFailureMessage(payload: unknown, fallbackMessage: string) {
+  const record = actionPayloadRecord(payload);
+  const error = actionPayloadRecord(record?.error);
+  if (error?.code === "kill_switch_engaged") {
+    return "Meta writes are temporarily disabled (kill switch). Try again later.";
+  }
+  if (typeof record?.message === "string" && record.message.trim()) {
+    return record.message;
+  }
+  if (typeof error?.message === "string" && error.message.trim()) {
+    return error.message;
+  }
+  return fallbackMessage;
+}
+
+async function assertActionResponse(response: Response, fallbackMessage: string) {
+  const payload = await response.json().catch(() => null);
+  if (response.ok && payload?.ok !== false) return payload;
+  throw new Error(metaActionFailureMessage(payload, fallbackMessage));
+}
+
+export function metaBidApplyNotice(payload: unknown) {
+  const record = actionPayloadRecord(payload);
+  const dryRun = record?.dryRun === true;
+  const bidAmountMinor =
+    typeof record?.bidAmountMinor === "number" && Number.isFinite(record.bidAmountMinor)
+      ? record.bidAmountMinor
+      : null;
+  if (dryRun) {
+    return {
+      tone: "info" as const,
+      title: bidAmountMinor
+        ? `Dry run: bid cap would apply at ${formatCurrency(bidAmountMinor / 100)}.`
+        : "Dry run completed.",
+      detail: "No Meta write was performed; Meta verification completed.",
+    };
+  }
+  return {
+    tone: "success" as const,
+    title: bidAmountMinor
+      ? `Bid cap applied at ${formatCurrency(bidAmountMinor / 100)}.`
+      : "Bid cap applied.",
+    detail: "Meta verified the ad set bid.",
+  };
+}
+
+function metaEntityResumeNotice(level: "campaign" | "adset" | "ad", status: unknown, dryRun = false) {
   const normalized = typeof status === "string" ? status.trim().toUpperCase() : "";
   const label = level === "campaign" ? "Campaign" : level === "adset" ? "Ad set" : "Ad";
+  if (dryRun) return `Dry run: ${label.toLowerCase()} would resume.`;
   if (!normalized || normalized === "ACTIVE") return `${label} resumed in Meta.`;
   return `${label} resume verified with status ${normalized}.`;
 }
@@ -1422,6 +1463,15 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   };
 
   const openOverlayForRec = (rec: MetaRecommendation, mode: MetaLaunchMode) => {
+    if (mode === "apply_bid" && proposedBidMinorForExecute(rec) == null) {
+      setPrimaryActionFeedback({
+        recId: rec.id,
+        tone: "error",
+        title: "Bid cap is not executable.",
+        detail: "This recommendation has no typed bidAmountMinor value. Open evidence instead.",
+      });
+      return;
+    }
     setOverlay({ open: true, mode, rec });
   };
 
@@ -1448,15 +1498,22 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
           body: JSON.stringify({ businessId, recId: rec.id }),
         });
         const payload = await assertActionResponse(response, "Ad set pause failed.");
+        const isDryRun = payload?.dryRun === true;
         setPendingActionRecId(null);
-        void markActed(rec, "paused");
+        if (!isDryRun) {
+          void markActed(rec, "paused");
+        }
         setPrimaryActionFeedback({
           recId: rec.id,
-          tone: "success",
-          title: metaAdsetPauseNotice(payload?.status),
-          detail: "Meta verified the ad set status.",
+          tone: isDryRun ? "info" : "success",
+          title: metaAdsetPauseNotice(payload?.status, isDryRun),
+          detail: isDryRun
+            ? "No Meta write was performed; Meta verification completed."
+            : "Meta verified the ad set status.",
         });
-        refreshDecisionDataInBackground(rec.id);
+        if (!isDryRun) {
+          refreshDecisionDataInBackground(rec.id);
+        }
       } catch (error) {
         setPrimaryActionFeedback({
           recId: rec.id,
@@ -1496,18 +1553,25 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
         body: JSON.stringify({ businessId }),
       });
       const payload = await assertActionResponse(response, `${rec.level === "campaign" ? "Campaign" : "Ad set"} resume failed.`);
-      setLocalResponseStates((current) => {
-        const next = { ...current };
-        delete next[rec.id];
-        return next;
-      });
+      const isDryRun = payload?.dryRun === true;
+      if (!isDryRun) {
+        setLocalResponseStates((current) => {
+          const next = { ...current };
+          delete next[rec.id];
+          return next;
+        });
+      }
       setPrimaryActionFeedback({
         recId: rec.id,
-        tone: "success",
-        title: metaEntityResumeNotice(rec.level, payload?.status),
-        detail: `Meta verified the ${rec.level === "campaign" ? "campaign" : "ad set"} status.`,
+        tone: isDryRun ? "info" : "success",
+        title: metaEntityResumeNotice(rec.level, payload?.status, isDryRun),
+        detail: isDryRun
+          ? "No Meta write was performed; Meta verification completed."
+          : `Meta verified the ${rec.level === "campaign" ? "campaign" : "ad set"} status.`,
       });
-      refreshDecisionDataInBackground(rec.id);
+      if (!isDryRun) {
+        refreshDecisionDataInBackground(rec.id);
+      }
     } catch (error) {
       setPrimaryActionFeedback({
         recId: rec.id,
@@ -1533,14 +1597,19 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
         body: JSON.stringify({ businessId }),
       });
       const payload = await assertActionResponse(response, `${row.level === "campaign" ? "Campaign" : "Ad set"} resume failed.`);
+      const isDryRun = payload?.dryRun === true;
       setArchiveActionFeedback({
         key,
-        tone: "success",
-        title: metaEntityResumeNotice(row.level, payload?.status),
-        detail: "Meta verified the active status.",
+        tone: isDryRun ? "info" : "success",
+        title: metaEntityResumeNotice(row.level, payload?.status, isDryRun),
+        detail: isDryRun
+          ? "No Meta write was performed; Meta verification completed."
+          : "Meta verified the active status.",
       });
-      clearLocalResponseStatesForEntity(row.level, row.id);
-      refreshDecisionDataInBackground();
+      if (!isDryRun) {
+        clearLocalResponseStatesForEntity(row.level, row.id);
+        refreshDecisionDataInBackground();
+      }
     } catch (error) {
       setArchiveActionFeedback({
         key,
@@ -1616,26 +1685,41 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
     if (!rec) return;
     setPrimaryActionFeedback(null);
     if (overlay.mode === "apply_bid" && rec.adsetId) {
-      const proposed = proposedBidValue(rec) ?? 0;
+      const bidAmountMinor = proposedBidMinorForExecute(rec);
+      if (!bidAmountMinor) {
+        setPrimaryActionFeedback({
+          recId: rec.id,
+          tone: "error",
+          title: "Bid cap is not executable.",
+          detail: "This recommendation has no typed bidAmountMinor value. Open evidence instead.",
+        });
+        setOverlay(EMPTY_OVERLAY);
+        return;
+      }
       setPendingActionRecId(rec.id);
       try {
         const response = await fetch(`/api/meta/adsets/${encodeURIComponent(rec.adsetId)}/apply-bid`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({ businessId, bidValue: proposed, recId: rec.id }),
+          body: JSON.stringify({ businessId, bidAmountMinor, recId: rec.id }),
         });
         const payload = await assertActionResponse(response, "Bid cap apply failed.");
+        const isDryRun = payload?.dryRun === true;
         setPendingActionRecId(null);
-        void markActed(rec, "bid_applied");
-        const bidAmountMinor = typeof payload?.bidAmountMinor === "number" ? payload.bidAmountMinor : null;
+        if (!isDryRun) {
+          void markActed(rec, "bid_applied");
+        }
+        const notice = metaBidApplyNotice(payload);
         setPrimaryActionFeedback({
           recId: rec.id,
-          tone: "success",
-          title: bidAmountMinor ? `Bid cap applied at ${formatCurrency(bidAmountMinor / 100)}.` : "Bid cap applied.",
-          detail: "Meta verified the ad set bid.",
+          tone: notice.tone,
+          title: notice.title,
+          detail: notice.detail,
         });
         setOverlay(EMPTY_OVERLAY);
-        refreshDecisionDataInBackground(rec.id);
+        if (!isDryRun) {
+          refreshDecisionDataInBackground(rec.id);
+        }
       } catch (error) {
         setPrimaryActionFeedback({
           recId: rec.id,
@@ -2185,7 +2269,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
           id: overlay.rec ? scopeIdForRec(overlay.rec) : "meta",
           name: overlay.rec ? scopeNameForRec(overlay.rec) : "Meta action",
           campaign: overlay.rec?.campaignName,
-          proposedBidCap: overlay.rec ? (proposedBidValue(overlay.rec) ?? undefined) : undefined,
+          proposedBidCap: overlay.rec ? (proposedBidDisplayValue(overlay.rec) ?? undefined) : undefined,
         }}
         onClose={() => setOverlay(EMPTY_OVERLAY)}
         onConfirm={confirmOverlay}

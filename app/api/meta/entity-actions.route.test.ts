@@ -209,7 +209,7 @@ describe("Meta entity write routes", () => {
 
   it("applies adset bid caps and persists rec_id_origin", async () => {
     const response = await applyBid.POST(
-      request({ businessId: "biz_1", bidValue: 22, recId: "rec_bid" }),
+      request({ businessId: "biz_1", bidAmountMinor: 2200, recId: "rec_bid" }),
       { params: Promise.resolve({ adsetId: "adset_1" }) },
     );
     const payload = await response.json();
@@ -222,6 +222,83 @@ describe("Meta entity write routes", () => {
     );
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({ action: "launch_adset", recIdOrigin: "rec_bid" }),
+    );
+  });
+
+  it("rejects legacy major-unit bidValue for adset bid caps", async () => {
+    const response = await applyBid.POST(
+      request({ businessId: "biz_1", bidValue: 22, recId: "rec_bid" }),
+      { params: Promise.resolve({ adsetId: "adset_1" }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error.code).toBe("invalid_bid_unit");
+    expect(writes.updateAdsetBidAmount).not.toHaveBeenCalled();
+    expect(logs.createMetaAdsActionLog).not.toHaveBeenCalled();
+  });
+
+  it("passes dry-run bid writes through the entity action route", async () => {
+    vi.mocked(writes.updateAdsetBidAmount).mockResolvedValueOnce({
+      ok: true,
+      verifiedBidAmount: 2200,
+      dryRun: true,
+      wouldHaveWritten: {
+        method: "POST",
+        path: "adset_1",
+        body: { bid_amount: 2200 },
+      },
+      responsePayload: {
+        dryRun: true,
+        wouldHaveWritten: {
+          method: "POST",
+          path: "adset_1",
+          body: { bid_amount: 2200 },
+        },
+      },
+      verificationPayload: { bid_amount: 1800 },
+    });
+
+    const response = await applyBid.POST(
+      request({ businessId: "biz_1", bidAmountMinor: 2200, dryRun: true, recId: "rec_bid" }),
+      { params: Promise.resolve({ adsetId: "adset_1" }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ ok: true, dryRun: true, bidAmountMinor: 2200 });
+    expect(writes.updateAdsetBidAmount).toHaveBeenCalledWith(
+      { businessId: "biz_1", providerAccountId: "act_1", accessToken: "token" },
+      { adsetId: "adset_1", bidAmountMinor: 2200, dryRun: true },
+    );
+  });
+
+  it("surfaces write kill switch failures with 503", async () => {
+    vi.mocked(writes.updateAdsetBidAmount).mockResolvedValueOnce({
+      ok: false,
+      httpStatus: 503,
+      error: {
+        code: "kill_switch_engaged",
+        message: "Meta writes are disabled by kill switch.",
+      },
+      responsePayload: null,
+      verificationPayload: null,
+    } as never);
+
+    const response = await applyBid.POST(
+      request({ businessId: "biz_1", bidAmountMinor: 2200, recId: "rec_bid" }),
+      { params: Promise.resolve({ adsetId: "adset_1" }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(payload.error.code).toBe("kill_switch_engaged");
+    expect(logs.completeMetaAdsActionLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "log_1",
+        status: "failure",
+        errorCode: "kill_switch_engaged",
+      }),
     );
   });
 });

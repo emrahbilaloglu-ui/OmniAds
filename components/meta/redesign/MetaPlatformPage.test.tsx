@@ -5,7 +5,9 @@ import { metaAnomaly, metaHealthy, metaLanePayload, metaPulse, metaRec } from "@
 import {
   MetaPlatformPage,
   campaignKindMatchesMetaLabelFilter,
+  metaActionFailureMessage,
   metaAdsetPauseNotice,
+  metaBidApplyNotice,
 } from "@/components/meta/redesign/MetaPlatformPage";
 
 const state = vi.hoisted(() => ({
@@ -155,6 +157,34 @@ describe("MetaPlatformPage", () => {
     expect(metaAdsetPauseNotice("PAUSED")).toBe("Ad set paused in Meta.");
     expect(metaAdsetPauseNotice(undefined)).toBe("Ad set paused in Meta.");
     expect(metaAdsetPauseNotice("ACTIVE")).toBe("Ad set pause verified with status ACTIVE.");
+    expect(metaAdsetPauseNotice("ACTIVE", true)).toBe("Dry run: ad set would pause.");
+  });
+
+  it("keeps apply-bid dry-run feedback distinct from a real write", () => {
+    expect(metaBidApplyNotice({ dryRun: true, bidAmountMinor: 2200 })).toEqual({
+      tone: "info",
+      title: "Dry run: bid cap would apply at $22.",
+      detail: "No Meta write was performed; Meta verification completed.",
+    });
+    expect(metaBidApplyNotice({ bidAmountMinor: 2200 })).toEqual({
+      tone: "success",
+      title: "Bid cap applied at $22.",
+      detail: "Meta verified the ad set bid.",
+    });
+  });
+
+  it("surfaces kill-switch failures with operator-specific copy", () => {
+    expect(
+      metaActionFailureMessage(
+        {
+          error: {
+            code: "kill_switch_engaged",
+            message: "Meta writes are disabled by kill switch.",
+          },
+        },
+        "Action failed.",
+      ),
+    ).toBe("Meta writes are temporarily disabled (kill switch). Try again later.");
   });
 
   it("matches Main/Test/Mixed filters from campaignKind instead of recommendation text", () => {

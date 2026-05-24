@@ -43,7 +43,32 @@ export function parseFirstCurrencyAmount(text: string | null | undefined) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-export function proposedBidValue(rec: MetaRecommendation) {
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function positiveInteger(value: unknown) {
+  const numeric = Number(value);
+  return Number.isInteger(numeric) && numeric > 0 ? numeric : null;
+}
+
+export function proposedBidMinorForExecute(rec: MetaRecommendation) {
+  if (rec.proposedAction?.kind === "apply_bid") {
+    return positiveInteger(rec.proposedAction.bidAmountMinor);
+  }
+  const target = recordValue(rec.targetValue);
+  if (!target) return null;
+  const direct = positiveInteger(target.bidAmountMinor);
+  if (direct) return direct;
+  const bid = recordValue(target.bid);
+  return positiveInteger(bid?.bidAmountMinor);
+}
+
+export function proposedBidDisplayValue(rec: MetaRecommendation) {
+  const executableMinor = proposedBidMinorForExecute(rec);
+  if (executableMinor) return executableMinor / 100;
   if (rec.targetValue && typeof rec.targetValue === "object" && !Array.isArray(rec.targetValue)) {
     const record = rec.targetValue as Record<string, unknown>;
     const value = Number(record.bidValue ?? record.bidAmount ?? record.proposedBidCap ?? NaN);
@@ -55,3 +80,5 @@ export function proposedBidValue(rec: MetaRecommendation) {
     null
   );
 }
+
+export const proposedBidValue = proposedBidDisplayValue;

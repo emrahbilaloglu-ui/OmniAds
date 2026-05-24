@@ -1258,6 +1258,15 @@
     background: var(--ok);
   }
 
+  .ad-final .meta-action-feedback--info {
+    background: var(--info-bg);
+    border-color: var(--info-bd);
+  }
+
+  .ad-final .meta-action-feedback--info .dot {
+    background: var(--info);
+  }
+
   .ad-final .meta-action-feedback--error {
     background: var(--danger-bg);
     border-color: var(--danger-bd);

@@ -28,6 +28,8 @@ interface EntityActionBody {
   recIdOrigin?: string;
   bidValue?: unknown;
   bidValueMinor?: unknown;
+  bidAmountMinor?: unknown;
+  dryRun?: unknown;
 }
 
 interface EntityActionTarget {
@@ -62,6 +64,10 @@ function ensureRecord(value: Record<string, unknown> | null | undefined) {
 
 function recIdOriginFromBody(body: EntityActionBody | null) {
   return body?.recIdOrigin?.trim() || body?.recId?.trim() || null;
+}
+
+function dryRunFromBody(body: EntityActionBody | null) {
+  return body?.dryRun === true;
 }
 
 function requestedByFromAccess(access: Awaited<ReturnType<typeof requireBusinessAccess>>) {
@@ -357,26 +363,36 @@ async function handleMetaEntityStatusAction(
       endpoint: `/${prepared.target.entityId}`,
       scope_type: input.scopeType,
       body: { status: input.action === "pause" ? "PAUSED" : "ACTIVE" },
+      dry_run: dryRunFromBody(body),
       rec_id_origin: recIdOriginFromBody(body),
     },
   });
 
   const startedAt = Date.now();
   try {
+    const options = dryRunFromBody(body) ? { dryRun: true } : undefined;
     const result =
       input.scopeType === "campaign"
         ? input.action === "pause"
-          ? await pauseCampaign(prepared.ctx, prepared.target.entityId)
-          : await resumeCampaign(prepared.ctx, prepared.target.entityId)
+          ? options
+            ? await pauseCampaign(prepared.ctx, prepared.target.entityId, options)
+            : await pauseCampaign(prepared.ctx, prepared.target.entityId)
+          : options
+            ? await resumeCampaign(prepared.ctx, prepared.target.entityId, options)
+            : await resumeCampaign(prepared.ctx, prepared.target.entityId)
         : input.action === "pause"
-          ? await pauseAdset(prepared.ctx, prepared.target.entityId)
-          : await resumeAdset(prepared.ctx, prepared.target.entityId);
+          ? options
+            ? await pauseAdset(prepared.ctx, prepared.target.entityId, options)
+            : await pauseAdset(prepared.ctx, prepared.target.entityId)
+          : options
+            ? await resumeAdset(prepared.ctx, prepared.target.entityId, options)
+            : await resumeAdset(prepared.ctx, prepared.target.entityId);
 
     if (!result.ok) {
       await completeFailure({ logId: log.id, startedAt, result });
       return NextResponse.json(
         { ok: false, error: result.error, metaHttpStatus: result.httpStatus },
-        { status: 502 },
+        { status: result.error.code === "kill_switch_engaged" ? 503 : 502 },
       );
     }
 
@@ -395,6 +411,8 @@ async function handleMetaEntityStatusAction(
       scopeType: input.scopeType,
       entityId: prepared.target.entityId,
       status: result.verifiedStatus,
+      dryRun: result.dryRun === true,
+      wouldHaveWritten: result.wouldHaveWritten ?? null,
     });
   } catch (error) {
     const message = sanitizeErrorMessage(error);
@@ -410,13 +428,19 @@ async function handleMetaEntityStatusAction(
 }
 
 function bidAmountMinorFromBody(body: EntityActionBody | null) {
-  const explicitMinor = Number(body?.bidValueMinor ?? NaN);
-  if (Number.isFinite(explicitMinor) && explicitMinor > 0) {
-    return Math.round(explicitMinor);
+  const explicitMinor = Number(body?.bidAmountMinor ?? NaN);
+  if (Number.isInteger(explicitMinor) && explicitMinor > 0) {
+    return explicitMinor;
   }
-  const bidValue = Number(body?.bidValue ?? NaN);
-  if (!Number.isFinite(bidValue) || bidValue <= 0) return null;
-  return Math.round(bidValue * 100);
+  return null;
+}
+
+function hasLegacyBidUnitField(body: EntityActionBody | null) {
+  return Boolean(
+    body &&
+      (Object.prototype.hasOwnProperty.call(body, "bidValue") ||
+        Object.prototype.hasOwnProperty.call(body, "bidValueMinor")),
+  );
 }
 
 export async function handleMetaAdsetBidAction(
@@ -428,7 +452,13 @@ export async function handleMetaAdsetBidAction(
   const body = await readActionBody(request);
   const bidAmountMinor = bidAmountMinorFromBody(body);
   if (!bidAmountMinor) {
-    return jsonError(400, "invalid_bid_value", "bidValue must be a positive number.");
+    return jsonError(
+      400,
+      "invalid_bid_unit",
+      hasLegacyBidUnitField(body)
+        ? "bidAmountMinor is required; bidValue and bidValueMinor are not accepted for executable bid writes."
+        : "bidAmountMinor must be a positive integer.",
+    );
   }
 
   const prepared = await prepareEntityAction({
@@ -452,6 +482,7 @@ export async function handleMetaAdsetBidAction(
       scope_type: "adset",
       operation: "apply_bid",
       body: { bid_amount: bidAmountMinor },
+      dry_run: dryRunFromBody(body),
       rec_id_origin: recIdOriginFromBody(body),
     },
   });
@@ -461,12 +492,13 @@ export async function handleMetaAdsetBidAction(
     const result = await updateAdsetBidAmount(prepared.ctx, {
       adsetId: prepared.target.entityId,
       bidAmountMinor,
+      ...(dryRunFromBody(body) ? { dryRun: true } : {}),
     });
     if (!result.ok) {
       await completeFailure({ logId: log.id, startedAt, result });
       return NextResponse.json(
         { ok: false, error: result.error, metaHttpStatus: result.httpStatus },
-        { status: 502 },
+        { status: result.error.code === "kill_switch_engaged" ? 503 : 502 },
       );
     }
 
@@ -485,6 +517,8 @@ export async function handleMetaAdsetBidAction(
       scopeType: "adset",
       adsetId: prepared.target.entityId,
       bidAmountMinor: result.verifiedBidAmount,
+      dryRun: result.dryRun === true,
+      wouldHaveWritten: result.wouldHaveWritten ?? null,
     });
   } catch (error) {
     const message = sanitizeErrorMessage(error);

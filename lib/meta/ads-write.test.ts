@@ -4,6 +4,7 @@ import {
   pauseAd,
   resumeAdset,
   resumeCampaign,
+  updateAdsetBidAmount,
   type MetaAdsWriteContext,
 } from "@/lib/meta/ads-write";
 
@@ -23,6 +24,7 @@ function jsonResponse(payload: unknown, init?: ResponseInit) {
 describe("Meta ads write client", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     vi.stubGlobal("fetch", vi.fn());
   });
 
@@ -75,6 +77,44 @@ describe("Meta ads write client", () => {
       error: { code: "190", message: "Invalid OAuth access token." },
     });
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("pauseAd dry-run verifies current state without issuing a POST", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ id: "ad_1", status: "ACTIVE", effective_status: "ACTIVE" }),
+    );
+
+    const result = await pauseAd(ctx, "ad_1", { dryRun: true });
+
+    expect(result).toMatchObject({
+      ok: true,
+      verifiedStatus: "PAUSED",
+      dryRun: true,
+      responsePayload: {
+        dryRun: true,
+        wouldHaveWritten: {
+          method: "POST",
+          path: "ad_1",
+          body: { status: "PAUSED" },
+        },
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
+  });
+
+  it("kill switch blocks pauseAd without issuing HTTP", async () => {
+    vi.stubEnv("META_ADS_WRITE_KILL_SWITCH", "1");
+
+    const result = await pauseAd(ctx, "ad_1");
+
+    expect(result).toMatchObject({
+      ok: false,
+      httpStatus: 503,
+      error: { code: "kill_switch_engaged" },
+    });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("pauseAd retries once after Meta user request limit and then verifies", async () => {
@@ -157,6 +197,76 @@ describe("Meta ads write client", () => {
       httpStatus: 502,
       error: { code: "silent_failure" },
     });
+  });
+
+  it("updateAdsetBidAmount dry-run verifies current bid without issuing a POST", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        id: "adset_1",
+        name: "Adset",
+        bid_amount: 1800,
+        bid_strategy: "COST_CAP",
+        status: "ACTIVE",
+        effective_status: "ACTIVE",
+      }),
+    );
+
+    const result = await updateAdsetBidAmount(ctx, {
+      adsetId: "adset_1",
+      bidAmountMinor: 2200,
+      dryRun: true,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      verifiedBidAmount: 2200,
+      dryRun: true,
+      responsePayload: {
+        dryRun: true,
+        wouldHaveWritten: {
+          method: "POST",
+          path: "adset_1",
+          body: { bid_amount: 2200 },
+        },
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
+  });
+
+  it("duplicateAd dry-run returns a non-actionable preview without creating an ad", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        id: "ad_1",
+        name: "Source Ad",
+        adset_id: "adset_1",
+        creative: { id: "creative_1" },
+      }),
+    );
+
+    const result = await duplicateAd(ctx, {
+      adId: "ad_1",
+      targetAdsetId: "adset_2",
+      activateAfterCreate: false,
+      dryRun: true,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      newAdId: null,
+      dryRun: true,
+      wouldHaveWritten: {
+        method: "POST",
+        path: "act_123/ads",
+      },
+      responsePayload: {
+        dryRun: true,
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
   });
 
   it("duplicateAd manually rebuilds the ad and verifies status, ad set, and creative", async () => {

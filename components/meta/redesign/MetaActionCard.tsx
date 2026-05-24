@@ -20,8 +20,10 @@ import { buildMetaEvidenceSections } from "@/components/meta/redesign/MetaEviden
 import { MetaScopeChip } from "@/components/meta/redesign/MetaScopeChip";
 import {
   decisionLabelForRec,
+  launchModeForRec,
   primaryLabelForRec,
-  proposedBidValue,
+  proposedBidDisplayValue,
+  proposedBidMinorForExecute,
   scopeIdForRec,
   scopeNameForRec,
 } from "@/components/meta/redesign/meta-card-utils";
@@ -33,7 +35,7 @@ interface MetaActionCardProps {
   deferred?: boolean;
   responseState?: "acted" | "deferred" | "ignored" | null;
   primaryPending?: boolean;
-  actionFeedback?: { tone: "success" | "error"; title: string; detail?: string | null } | null;
+  actionFeedback?: { tone: "success" | "error" | "info"; title: string; detail?: string | null } | null;
   evidenceWindow?: string;
   onSelect?: (id: string, selected: boolean) => void;
   onPrimary?: (rec: MetaRecommendation) => void;
@@ -327,7 +329,7 @@ export function MetaActionCard({
   const id = rec.id;
   const label = decisionLabelForRec(rec);
   const confidence = confidencePercent(rec);
-  const bidValue = proposedBidValue(rec);
+  const bidValue = proposedBidDisplayValue(rec);
   const scopeName = scopeNameForRec(rec);
   const effectiveResponseState = responseState ?? (deferred ? "deferred" : null);
   const calibration = calibrationScopeText(rec);
@@ -337,6 +339,8 @@ export function MetaActionCard({
   const primaryActionLabel = rec.decisionState === "watch" ? "Let cook" : primaryLabelForRec(rec);
   const primaryCompleted = effectiveResponseState === "acted";
   const primaryCanResume = Boolean(onResume) && canResumeCompletedPrimary(rec, primaryCompleted);
+  const primaryDisabledForContract =
+    launchModeForRec(rec) === "apply_bid" && proposedBidMinorForExecute(rec) == null;
 
   return (
     <article
@@ -411,7 +415,8 @@ export function MetaActionCard({
         <button
           type="button"
           className="btn btn--primary"
-          disabled={primaryPending || (primaryCompleted && !primaryCanResume)}
+          disabled={primaryPending || primaryDisabledForContract || (primaryCompleted && !primaryCanResume)}
+          title={primaryDisabledForContract ? "No executable bid value - open evidence" : undefined}
           onClick={() => (primaryCanResume ? onResume?.(rec) : onPrimary?.(rec))}
         >
           {primaryCanResume ? <Play className="inline-block shrink-0" size={13} aria-hidden="true" /> : <PrimaryIcon rec={rec} />}

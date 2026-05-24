@@ -728,3 +728,43 @@ Risk: console transport is only a scaffold, not a production metrics backend.
 Mitigation: events are structured JSON behind a stable log marker and version.
 A later production-readiness PR can swap transport to a metrics sink without
 changing the pure event builder contract.
+
+## D026 — Keep Legacy V1/V2/Operator Systems Archived And Import-Blocked Until Replacement Is Stable
+
+Decision: PR14 adds static guardrails only. Legacy V1/V2/operator source stays
+archived under `lib/archive/v1-v2-v21`, and active runtime code must not import
+old legacy modules or archived modules.
+
+Reason: the migration still needs old snapshot/render compatibility while the
+V2.1 Decision Center path becomes stable. Keeping legacy code archived preserves
+rollback/reference material, while import blocking prevents accidental
+reactivation of legacy UI/API modules during later slices.
+
+Scope: static test plus this ADR only. No active engine algorithm, resolver,
+gate ordering, confidence math, UI behavior, route name, queue/apply path, Meta
+write path, response default, or snapshot shape changes.
+
+Import scan policy: the guard scans active `app`, `components`, `src`, and `lib`
+TypeScript import/export specifiers, including `lib/release-authority` files.
+It intentionally keys off import/export specifiers rather than raw substring
+matches, so release inventory path metadata and V2.1 contract-version literals
+remain valid documentation without becoming false positives.
+
+Constraint: deleting, unarchiving, or serving the legacy systems requires a
+separate migration plan and ADR. Old V1/operator/V2 snapshots must stay
+renderable until the replacement surface is default, proven stable, and
+explicitly approved.
+
+Rejected alternatives:
+
+- Delete the archived legacy files now. That would violate the old-snapshot
+  compatibility boundary and remove rollback evidence before V2.1 is default.
+- Leave the archive available without active import guardrails. That would let
+  future slices accidentally reintroduce legacy runtime paths through aliases
+  or relative imports.
+- Exclude active release-inventory files from the scan. That would hide a real
+  future import regression in an active runtime-adjacent inventory module.
+
+Risk: guardrails can become stale if the archive is intentionally migrated
+again. Mitigation: the test is static and rollback is narrow: update or remove
+the PR14 guardrail test together with the migration ADR.

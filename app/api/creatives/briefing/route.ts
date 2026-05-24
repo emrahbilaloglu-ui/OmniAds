@@ -48,6 +48,7 @@ import type {
   BriefingCreativeCard,
   CreativesBriefingResponse,
 } from "@/components/creatives/briefing/types";
+import type { MetaAutomationReadiness } from "@/lib/meta/automation-readiness";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +57,34 @@ type BriefingLane = "action" | "watching" | "healthy";
 const DECISION_CENTER_OBSERVABILITY_ROUTE = "GET /api/creatives/briefing";
 const LOCAL_DECISION_CENTER_OBSERVABILITY_SALT =
   "creative-decision-center.observability.v1.local-default";
+
+function creativeReadOnlyAutomationReadiness(
+  decision: DecisionOutput,
+): MetaAutomationReadiness {
+  return {
+    contractVersion: "meta-automation-readiness.v1",
+    tier: "read_only",
+    autoExecuteEligible: false,
+    operatorReviewRequired: true,
+    decisionLabel: decision.label as MetaAutomationReadiness["decisionLabel"],
+    blockers: [
+      "no_empirical_outcome_model",
+      "missing_live_preflight",
+      "missing_rollback_plan",
+    ],
+    missingEvidence: [
+      "creative_empirical_outcome_model",
+      "creative_live_preflight",
+      "creative_rollback_plan",
+    ],
+    requiredEvidence: [
+      "creative_empirical_outcome_model",
+      "creative_live_preflight",
+      "creative_rollback_plan",
+    ],
+    reason: "Creative-side automation evidence not yet implemented.",
+  };
+}
 
 /**
  * PR7A: explicit request flag for the additive `decisionCenter` response
@@ -428,6 +457,7 @@ function cardForDecision(input: {
       p50: null,
     },
     primary: primaryActionForDecision(decision),
+    automationReadiness: creativeReadOnlyAutomationReadiness(decision),
     status: creativeInput?.effectiveStatus ?? row?.effective_status ?? null,
     ageDays: creativeInput?.ageDays ?? null,
     campaignKind: decision.campaignKind ?? null,

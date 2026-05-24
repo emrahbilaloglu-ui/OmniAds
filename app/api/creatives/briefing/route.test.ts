@@ -208,6 +208,17 @@ describe("GET /api/creatives/briefing", () => {
       campaignLabelStatus: "labeled",
       label: "scale",
       primary: { kind: "scale_budget", label: "Scale budget" },
+      automationReadiness: {
+        contractVersion: "meta-automation-readiness.v1",
+        tier: "read_only",
+        autoExecuteEligible: false,
+        operatorReviewRequired: true,
+        blockers: [
+          "no_empirical_outcome_model",
+          "missing_live_preflight",
+          "missing_rollback_plan",
+        ],
+      },
       mediaPreviewUrl: "https://example.com/card.jpg",
       tableThumbnailUrl: "https://example.com/table.jpg",
       cardPreviewUrl: "https://example.com/card.jpg",

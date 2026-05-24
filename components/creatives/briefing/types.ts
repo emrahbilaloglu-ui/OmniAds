@@ -8,6 +8,7 @@ import type {
   DataHealth,
   DecisionLabelTransform,
 } from "@/lib/creative-decision-engine";
+import type { MetaAutomationReadiness } from "@/lib/meta/automation-readiness";
 // PR7A/PR8: type-only imports so the response interface can carry the
 // additive decisionCenter snapshot and, behind an explicit UI flag, its
 // server-supplied row decision. UI components must not import decision-center
@@ -90,6 +91,7 @@ export interface BriefingCreativeCard {
   sparkline?: number[] | null;
   ctrFunnel?: BriefingCtrFunnel | null;
   primary?: BriefingPrimaryAction | null;
+  automationReadiness?: MetaAutomationReadiness | null;
   decisionCenterRow?: CreativeDecisionCenterRowDecision | null;
   status?: string | null;
   ageDays?: number | null;

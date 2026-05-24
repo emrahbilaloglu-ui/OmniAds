@@ -228,6 +228,37 @@ describe("CreativeEvidenceDrawer", () => {
     expect(html).toContain("engine queue false - apply false");
   });
 
+  it("renders server-supplied automation readiness instead of stale missing-field copy", () => {
+    const html = renderDrawer(
+      <CreativeEvidenceDrawer
+        open
+        card={card({
+          automationReadiness: {
+            contractVersion: "meta-automation-readiness.v1",
+            tier: "read_only",
+            autoExecuteEligible: false,
+            operatorReviewRequired: true,
+            decisionLabel: "scale",
+            blockers: ["no_empirical_outcome_model", "missing_live_preflight"],
+            missingEvidence: ["creative_empirical_outcome_model"],
+            requiredEvidence: ["creative_empirical_outcome_model"],
+            reason: "Creative-side automation evidence not yet implemented.",
+          },
+        })}
+        {...noopProps}
+      />,
+    );
+
+    expect(html).toContain("Tier: read only");
+    expect(html).toContain("Creative-side automation evidence not yet implemented.");
+    expect(html).toContain(
+      "blocked by no_empirical_outcome_model, missing_live_preflight",
+    );
+    expect(html).not.toContain(
+      "Creative briefing does not currently carry an automationReadiness field.",
+    );
+  });
+
   it("hides when closed", () => {
     expect(
       renderDrawer(

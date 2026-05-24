@@ -7,6 +7,7 @@ import {
   getBriefingAdActionInputId,
   getCreativeScopeId,
   isCutPrimaryAction,
+  metaAdActionFailureMessage,
   pauseBriefingCard,
 } from "@/components/creatives/briefing/action-handlers";
 import type { BriefingCreativeCard } from "@/components/creatives/briefing/types";
@@ -119,6 +120,28 @@ describe("briefing action handlers", () => {
         label: "Open in Meta",
       },
     });
+  });
+
+  it("does not present cut dry-runs as applied writes", () => {
+    expect(buildCutSuccessToast(card(), { ok: true, adId: "1200", dryRun: true })).toEqual({
+      type: "info",
+      message: "Dry run completed · Cut Candidate",
+      link: null,
+    });
+  });
+
+  it("surfaces kill-switch failures with operator-specific copy", () => {
+    expect(
+      metaAdActionFailureMessage(
+        {
+          error: {
+            code: "kill_switch_engaged",
+            message: "Meta writes are disabled by kill switch.",
+          },
+        },
+        503,
+      ),
+    ).toBe("Meta writes are temporarily disabled (kill switch). Try again later.");
   });
 
   it("can build the optional Launchpad-open toast copy", () => {

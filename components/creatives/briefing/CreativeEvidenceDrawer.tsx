@@ -800,6 +800,10 @@ function CreativeEvidenceDrawerContent({
   const scopeId = getCreativeScopeId(card);
   const cardTitle = primaryActionLabel(card);
   const hasPrimaryAction = cutPrimary || Boolean(primaryMode);
+  const automationReadiness = card.automationReadiness ?? null;
+  const automationTier = automationReadiness?.tier
+    ? automationReadiness.tier.replace(/_/g, " ")
+    : "read only";
 
   return (
     <div
@@ -1012,12 +1016,24 @@ function CreativeEvidenceDrawerContent({
             <section className="creative-evidence-section">
               <h4>Automation readiness</h4>
               <div className="creative-evidence-callout">
-                <strong>Not emitted on /api/creatives/briefing</strong>
+                <strong>
+                  {automationReadiness
+                    ? `Tier: ${automationTier}`
+                    : "Read-only until readiness evidence exists"}
+                </strong>
                 <p>
-                  Creative briefing does not currently carry an automationReadiness field.
-                  Until it does, this drawer only renders server-supplied evidence and
-                  never derives readiness from tracking, label, confidence, or placement.
+                  {automationReadiness?.reason ??
+                    "This drawer only renders server-supplied evidence and never derives readiness from tracking, label, confidence, or placement."}
                 </p>
+                {automationReadiness?.blockers?.length ? (
+                  <span className="src">
+                    blocked by {automationReadiness.blockers.join(", ")}
+                  </span>
+                ) : (
+                  <span className="src">
+                    /api/creatives/briefing - automationReadiness
+                  </span>
+                )}
               </div>
             </section>
 

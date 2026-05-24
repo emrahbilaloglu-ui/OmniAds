@@ -19,6 +19,7 @@ export interface PauseBriefingCardResult {
   action?: string;
   adId?: string | null;
   status?: string | null;
+  dryRun?: boolean;
   adsManagerUrl?: string | null;
   attemptedIds?: string[];
 }
@@ -77,6 +78,16 @@ function isAdNotFoundResponse(payload: { error?: { code?: string } } | null) {
   return payload?.error?.code === "ad_not_found";
 }
 
+export function metaAdActionFailureMessage(
+  payload: { error?: { code?: string; message?: string }; message?: string } | null,
+  status: number,
+) {
+  if (payload?.error?.code === "kill_switch_engaged") {
+    return "Meta writes are temporarily disabled (kill switch). Try again later.";
+  }
+  return payload?.error?.message ?? payload?.message ?? `Pause failed (${status})`;
+}
+
 export function buildMetaAdsManagerUrlForBriefingCard(
   card: BriefingCreativeCard,
   resolvedAdId?: string | null,
@@ -109,6 +120,13 @@ export function buildCutSuccessToast(
   card: BriefingCreativeCard,
   result: PauseBriefingCardResult,
 ): BriefingToast {
+  if (result.dryRun) {
+    return {
+      type: "info",
+      message: `Dry run completed · ${cardName(card)}`,
+      link: null,
+    };
+  }
   return {
     type: "success",
     message: `Cut applied · ${cardName(card)}`,
@@ -162,7 +180,7 @@ export async function pauseBriefingCard(input: {
       return { ...payload, attemptedIds };
     }
 
-    const message = payload?.error?.message ?? `Pause failed (${response.status})`;
+    const message = metaAdActionFailureMessage(payload, response.status);
     lastMessage = message;
     if (isAdNotFoundResponse(payload)) {
       continue;

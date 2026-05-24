@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { isDemoBusiness } from "@/lib/business-mode.server";
@@ -31,9 +32,11 @@ import {
   adaptCreativeDecisionsToRows,
   assembleDecisionCenterSnapshot,
   auditDecisionCenterSnapshotInvariants,
+  buildDecisionCenterObservabilityEvents,
   buildDecisionCenterAggregateDecisions,
   CREATIVE_DECISION_CENTER_ADAPTER_VERSION,
   CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION,
+  DECISION_CENTER_OBSERVABILITY_LOG_MARKER,
   bridgeV3DecisionToAdapterInput,
   validateDecisionCenterSnapshot,
   type CreativeDecisionCenterAggregateDecision,
@@ -49,6 +52,10 @@ import type {
 export const dynamic = "force-dynamic";
 
 type BriefingLane = "action" | "watching" | "healthy";
+
+const DECISION_CENTER_OBSERVABILITY_ROUTE = "GET /api/creatives/briefing";
+const LOCAL_DECISION_CENTER_OBSERVABILITY_SALT =
+  "creative-decision-center.observability.v1.local-default";
 
 /**
  * PR7A: explicit request flag for the additive `decisionCenter` response
@@ -66,6 +73,88 @@ function isDecisionCenterRequested(searchParams: URLSearchParams): boolean {
     truthy(searchParams.get("decisionCenter")) ||
     truthy(searchParams.get("decision_center"))
   );
+}
+
+function isDecisionCenterObservabilityEnabled(): boolean {
+  const value = process.env.DECISION_CENTER_OBSERVABILITY;
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  return (
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "enabled"
+  );
+}
+
+function hashDecisionCenterObservabilityId(
+  kind: "business" | "account" | "snapshot",
+  value: string | null | undefined,
+): string | null {
+  const text = value?.trim();
+  if (!text) return null;
+  const envSalt = process.env.DECISION_CENTER_OBSERVABILITY_SALT?.trim();
+  const salt = envSalt || LOCAL_DECISION_CENTER_OBSERVABILITY_SALT;
+  const saltState = envSalt ? "salted" : "unsalted";
+  const digest = createHash("sha256")
+    .update(`${salt}:${kind}:${text}`)
+    .digest("hex")
+    .slice(0, 24);
+  return `${saltState}:${kind}:${digest}`;
+}
+
+function emitDecisionCenterObservability(input: {
+  decisionCenterRequested: boolean;
+  snapshot: DecisionCenterSnapshot | null;
+  businessId: string;
+  creativeRows: MetaCreativeApiRow[];
+}) {
+  if (!input.decisionCenterRequested || !isDecisionCenterObservabilityEnabled()) {
+    return;
+  }
+  if (!input.snapshot) return;
+
+  try {
+    const businessIdHash = hashDecisionCenterObservabilityId(
+      "business",
+      input.businessId,
+    );
+    if (!businessIdHash) return;
+    const accountIdHashes = Array.from(
+      new Set(
+        input.creativeRows
+          .map((row) =>
+            hashDecisionCenterObservabilityId("account", row.account_id),
+          )
+          .filter((value): value is string => Boolean(value)),
+      ),
+    ).sort((left, right) => left.localeCompare(right));
+    const snapshotId =
+      hashDecisionCenterObservabilityId(
+        "snapshot",
+        [
+          input.businessId,
+          input.snapshot.generatedAt,
+          input.snapshot.engineVersion,
+          input.snapshot.adapterVersion,
+        ].join(":"),
+      ) ?? "unsalted:snapshot:unknown";
+    const events = buildDecisionCenterObservabilityEvents({
+      snapshot: input.snapshot,
+      businessIdHash,
+      accountIdHashes,
+      snapshotId,
+      route: DECISION_CENTER_OBSERVABILITY_ROUTE,
+      decisionCenterRequested: input.decisionCenterRequested,
+    });
+    for (const event of events) {
+      console.info(
+        DECISION_CENTER_OBSERVABILITY_LOG_MARKER,
+        JSON.stringify(event),
+      );
+    }
+  } catch {
+    // Passive telemetry must never affect the briefing response.
+  }
 }
 
 /**
@@ -713,13 +802,20 @@ export async function GET(request: NextRequest) {
   };
 
   if (decisionCenterRequested) {
-    responseBody.decisionCenter = buildBridgedDecisionCenterSnapshot({
+    const decisionCenterSnapshot = buildBridgedDecisionCenterSnapshot({
       asOf,
       engineVersion: responseEngineVersion,
       decisions,
       inputsByCreativeId: inputByCreativeId,
       creativeRowsById,
       dataHealthDegraded: Boolean(dataHealth.degraded),
+    });
+    responseBody.decisionCenter = decisionCenterSnapshot;
+    emitDecisionCenterObservability({
+      decisionCenterRequested,
+      snapshot: decisionCenterSnapshot,
+      businessId: resolvedBusinessId,
+      creativeRows,
     });
   }
 

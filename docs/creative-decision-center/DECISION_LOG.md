@@ -664,3 +664,67 @@ Risk: a later slice could wire a candidate source without proving the
 DATA_READINESS fields. Mitigation: module-isolation tests cover the builder,
 route tests lock empty default aggregate output, and builder tests suppress
 all aggregate actions unless their required data keys are explicitly present.
+
+## D025 — Keep Decision Center Observability As Env-Gated Shadow Telemetry
+
+Decision: PR13 adds passive, env-gated observability for the flagged
+`decisionCenter` snapshot path. The event builder is a pure function in
+`lib/creative-decision-center/observability.ts`; it receives an already-built
+snapshot plus pre-hashed identifiers and returns deterministic structured
+events. The briefing route emits those events only when both conditions are
+true: the request explicitly asks for `decisionCenter`, and
+`DECISION_CENTER_OBSERVABILITY` is truthy (`1`, `true`, or `enabled`).
+
+Reason: PR_SEQUENCE PR13 requires rollout monitoring without changing the
+snapshot contract, active resolver decisions, UI, queue/apply paths, or Meta
+writes. Env-gated `console.info` events provide a small rollback surface for
+shadow rollout: unset the env flag and telemetry stops without changing route
+behavior.
+
+Scope:
+
+- Builder input is pre-hashed only: `businessIdHash`, `accountIdHashes`, and
+  `snapshotId`. The builder never receives raw business IDs, account IDs,
+  creative IDs, row IDs, family IDs, names, copy, URLs, tokens, or customer
+  data.
+- Route hashing happens before calling the builder. The route logs a fixed
+  handler identifier (`GET /api/creatives/briefing`) and never logs request URL
+  or query string.
+- Each event carries
+  `creative-decision-center.observability.v1` for schema versioning.
+- Event payloads include snapshot counts, row distribution, aggregate
+  distribution, missing-data counts, fallback counts, high-confidence action
+  counts, high-priority low-confidence counts, and
+  `primary_to_buyer_divergence` rollout-watch counts.
+- Telemetry failure is caught and must never alter the briefing response.
+
+Salt sourcing: production should set
+`DECISION_CENTER_OBSERVABILITY_SALT`. When the salt is absent, hashes use the
+local default `creative-decision-center.observability.v1.local-default` and
+are visibly prefixed with `unsalted:`. This keeps tests and local dev
+deterministic while making missing production salt obvious in logs.
+
+Naming constraint: PR_SEQUENCE mentions conflict metrics, but the event is
+named `decision_center.primary_to_buyer_divergence`, not
+`decision_center.mapping_conflict`. The divergence name is intentional because
+`primaryDecision` and `buyerAction` are separate concepts by design. A
+Scale-to-`diagnose_data` row caused by missing campaign labeling is a bridge
+safety fallback, not necessarily an engine conflict or bug.
+
+Rejected alternatives:
+
+- Emit observability by default whenever the route is called. That would add a
+  production side effect to the default path and make rollback harder.
+- Put hashing inside the builder. That would make the isolated Decision Center
+  package know about raw tenant/account identifiers and weaken the PII
+  boundary.
+- Log request URLs. Query strings can contain raw `businessId` and other
+  identifiers, so the route field must remain a fixed handler name.
+- Use the word `conflict` for primary-to-buyer divergence. That would imply
+  `primaryDecision` and `buyerAction` are supposed to match, contradicting
+  D002/D019.
+
+Risk: console transport is only a scaffold, not a production metrics backend.
+Mitigation: events are structured JSON behind a stable log marker and version.
+A later production-readiness PR can swap transport to a metrics sink without
+changing the pure event builder contract.

@@ -9,6 +9,7 @@ const SOURCE_FILES = [
   "aggregate-builder.ts",
   "validators.ts",
   "invariants.ts",
+  "observability.ts",
   "adapter.ts",
   "snapshot-builder.ts",
   "index.ts",

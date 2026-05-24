@@ -5,6 +5,7 @@ import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-fla
 import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
 import { readTriageState } from "@/lib/triage-events";
+import { DECISION_CENTER_OBSERVABILITY_LOG_MARKER } from "@/lib/creative-decision-center";
 import type { EngineV3Flags } from "@/lib/creative-decision-engine";
 import { GET } from "./route";
 
@@ -33,6 +34,9 @@ vi.mock("@/lib/triage-events", () => ({
 }));
 
 const previousDataSourceFlag = process.env.DECISION_ENGINE_V3_DATA_SOURCE;
+const previousObservabilityFlag = process.env.DECISION_CENTER_OBSERVABILITY;
+const previousObservabilitySalt =
+  process.env.DECISION_CENTER_OBSERVABILITY_SALT;
 
 function makeFlags(overrides: Partial<EngineV3Flags> = {}): EngineV3Flags {
   return {
@@ -77,6 +81,8 @@ function campaignLabel(
 beforeEach(() => {
   vi.clearAllMocks();
   process.env.DECISION_ENGINE_V3_DATA_SOURCE = "mock";
+  delete process.env.DECISION_CENTER_OBSERVABILITY;
+  delete process.env.DECISION_CENTER_OBSERVABILITY_SALT;
   vi.mocked(requireBusinessAccess).mockResolvedValue({
     session: { user: { id: "user_1", email: "operator@adsecute.com" } } as never,
     membership: {
@@ -168,6 +174,17 @@ afterEach(() => {
     delete process.env.DECISION_ENGINE_V3_DATA_SOURCE;
   } else {
     process.env.DECISION_ENGINE_V3_DATA_SOURCE = previousDataSourceFlag;
+  }
+  if (previousObservabilityFlag === undefined) {
+    delete process.env.DECISION_CENTER_OBSERVABILITY;
+  } else {
+    process.env.DECISION_CENTER_OBSERVABILITY = previousObservabilityFlag;
+  }
+  if (previousObservabilitySalt === undefined) {
+    delete process.env.DECISION_CENTER_OBSERVABILITY_SALT;
+  } else {
+    process.env.DECISION_CENTER_OBSERVABILITY_SALT =
+      previousObservabilitySalt;
   }
 });
 
@@ -571,6 +588,138 @@ describe("GET /api/creatives/briefing", () => {
       aggregateDecisions: [],
       todayBrief: [],
     });
+  });
+
+  it.each([
+    {
+      name: "default env without flag",
+      env: undefined,
+      flag: false,
+      expectsLogs: false,
+    },
+    {
+      name: "default env with flag",
+      env: undefined,
+      flag: true,
+      expectsLogs: false,
+    },
+    {
+      name: "enabled env without flag",
+      env: "1",
+      flag: false,
+      expectsLogs: false,
+    },
+    {
+      name: "enabled env with flag",
+      env: "1",
+      flag: true,
+      expectsLogs: true,
+    },
+    {
+      name: "false env with flag",
+      env: "false",
+      flag: true,
+      expectsLogs: false,
+    },
+    {
+      name: "blank env with flag",
+      env: " ",
+      flag: true,
+      expectsLogs: false,
+    },
+  ])(
+    "gates Decision Center observability logs with an AND gate: $name (PR13)",
+    async ({ env, flag, expectsLogs }) => {
+      if (env === undefined) {
+        delete process.env.DECISION_CENTER_OBSERVABILITY;
+      } else {
+        process.env.DECISION_CENTER_OBSERVABILITY = env;
+      }
+      process.env.DECISION_CENTER_OBSERVABILITY_SALT = "test-salt";
+      const infoSpy = vi
+        .spyOn(console, "info")
+        .mockImplementation(() => undefined);
+      const url = flag
+        ? "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=1"
+        : "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07";
+
+      const response = await GET(new NextRequest(url));
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      if (!expectsLogs) {
+        expect(infoSpy).not.toHaveBeenCalled();
+        infoSpy.mockRestore();
+        return;
+      }
+
+      expect(payload.decisionCenter).not.toBeNull();
+      expect(infoSpy).toHaveBeenCalled();
+      for (const call of infoSpy.mock.calls) {
+        expect(call[0]).toBe(DECISION_CENTER_OBSERVABILITY_LOG_MARKER);
+        expect(typeof call[1]).toBe("string");
+        const event = JSON.parse(call[1] as string);
+        expect(event).toMatchObject({
+          version: "creative-decision-center.observability.v1",
+          businessIdHash: expect.stringMatching(/^salted:business:/),
+          snapshotId: expect.stringMatching(/^salted:snapshot:/),
+          route: "GET /api/creatives/briefing",
+          decisionCenterRequested: true,
+        });
+      }
+      const logged = JSON.stringify(infoSpy.mock.calls);
+      expect(logged).not.toContain("biz_1");
+      expect(logged).not.toContain("act_1");
+      expect(logged).not.toContain("mock-creative-001");
+      expect(logged).not.toContain("row_1");
+      expect(logged).not.toContain("https://example.com");
+      expect(logged).not.toContain("Mock Creative");
+      expect(logged).toContain("decision_center.snapshot_observed");
+      expect(logged).toContain("decision_center.row_distribution");
+      infoSpy.mockRestore();
+    },
+  );
+
+  it("marks observability hashes as unsalted when the salt env is absent (PR13)", async () => {
+    process.env.DECISION_CENTER_OBSERVABILITY = "enabled";
+    delete process.env.DECISION_CENTER_OBSERVABILITY_SALT;
+    const infoSpy = vi
+      .spyOn(console, "info")
+      .mockImplementation(() => undefined);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=1",
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(infoSpy).toHaveBeenCalled();
+    const firstEvent = JSON.parse(infoSpy.mock.calls[0][1] as string);
+    expect(firstEvent.businessIdHash).toMatch(/^unsalted:business:/);
+    expect(firstEvent.snapshotId).toMatch(/^unsalted:snapshot:/);
+    infoSpy.mockRestore();
+  });
+
+  it("keeps the briefing response intact when observability logging throws (PR13)", async () => {
+    process.env.DECISION_CENTER_OBSERVABILITY = "true";
+    process.env.DECISION_CENTER_OBSERVABILITY_SALT = "test-salt";
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {
+      throw new Error("telemetry failed");
+    });
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=1",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.decisionCenter).not.toBeNull();
+    expect(payload.actionNow).toEqual(expect.any(Array));
+    expect(infoSpy).toHaveBeenCalled();
+    infoSpy.mockRestore();
   });
 
   it("surfaces missing campaign label context in cards", async () => {

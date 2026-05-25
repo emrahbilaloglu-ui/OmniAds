@@ -6,6 +6,7 @@ import {
   CreativesBriefingPage,
   attachDecisionCenterRowsToAssetLibraryRows,
   chooseDefaultCreativeLane,
+  decisionVisibilitySummary,
   isDecisionCenterUiEnabled,
   normalizeCreativesBriefingPayload,
   selectedCardsForActionItems,
@@ -604,11 +605,30 @@ describe("CreativesBriefingPage", () => {
     ).toBe("watching");
     expect(
       chooseDefaultCreativeLane({
+        actionCount: 4,
+        watchingCount: 39,
+        healthyCount: 3,
+      }),
+    ).toBe("watching");
+    expect(
+      chooseDefaultCreativeLane({
         actionCount: 0,
         watchingCount: 1,
         healthyCount: 0,
       }),
     ).toBe("action");
+    expect(
+      decisionVisibilitySummary({
+        actionCount: 4,
+        watchingCount: 39,
+        healthyCount: 3,
+        activeLane: "watching",
+      }),
+    ).toMatchObject({
+      total: 46,
+      activeCount: 39,
+      isSparseActionDefault: true,
+    });
   });
 
   it("renders a setup notice instead of a silent empty page when no Meta ad account is assigned", () => {

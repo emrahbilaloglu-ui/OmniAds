@@ -63,6 +63,7 @@ import {
 } from "@/lib/creative-decision-center";
 import type {
   BriefingCreativeCard,
+  CreativesBriefingMeasurementReconciliation,
   CreativesBriefingResponse,
 } from "@/components/creatives/briefing/types";
 
@@ -261,6 +262,22 @@ type UnusedApprovedCreativesSummaryRow = Record<string, unknown> & {
   delivery_proof_count: unknown;
 };
 
+type MeasurementSnapshotSummaryRow = Record<string, unknown> & {
+  as_of_date: unknown;
+  engine_version: unknown;
+  row_count: unknown;
+  stale_rows: unknown;
+  conflicting_groups: unknown;
+  lifecycle_row_count: unknown;
+};
+
+type MeasurementOutcomeSummaryRow = Record<string, unknown> & {
+  window_7_count: unknown;
+  window_14_count: unknown;
+  first_7d_window_closes_at: unknown;
+  first_14d_window_closes_at: unknown;
+};
+
 function parseDateOnly(value: unknown): string | null {
   if (value instanceof Date && Number.isFinite(value.getTime())) {
     return value.toISOString().slice(0, 10);
@@ -294,6 +311,229 @@ function parseTextArray(value: unknown): string[] {
 function safeCount(value: unknown): number {
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 0;
+}
+
+function numericCount(value: unknown): number {
+  const numeric = Number(value ?? 0);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 0;
+}
+
+function coverage(present: number, total: number): number | null {
+  return total > 0 ? Number((present / total).toFixed(4)) : null;
+}
+
+function hasPresentValue(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value === "string") return value.trim().length > 0;
+  return true;
+}
+
+function buildDataCompletenessSummary(
+  inputs: readonly CreativeInput[],
+): CreativesBriefingMeasurementReconciliation["dataCompleteness"] {
+  const fields = {
+    reviewStatus: (input: CreativeInput) => input.reviewStatus,
+    disapprovalReason: (input: CreativeInput) => input.disapprovalReason,
+    limitedReason: (input: CreativeInput) => input.limitedReason,
+    firstSeenAt: (input: CreativeInput) => input.firstSeenAt,
+    firstSpendAt: (input: CreativeInput) => input.firstSpendAt,
+    spend24h: (input: CreativeInput) => input.spend24h,
+    impressions24h: (input: CreativeInput) => input.impressions24h,
+    ctr: (input: CreativeInput) => input.ctr,
+    cpm: (input: CreativeInput) => input.cpm,
+    frequency: (input: CreativeInput) => input.frequency,
+  } as const;
+  const total = inputs.length;
+  const entries = Object.entries(fields).map(([field, read]) => {
+    const present = inputs.filter((input) => hasPresentValue(read(input))).length;
+    return [
+      field,
+      {
+        present,
+        total,
+        coverage: coverage(present, total),
+      },
+    ] as const;
+  });
+  return {
+    totalInputs: total,
+    fields: Object.fromEntries(entries),
+  };
+}
+
+async function readMeasurementSnapshotSummary(input: {
+  businessId: string;
+  asOf: string;
+  engineVersion: string;
+}): Promise<CreativesBriefingMeasurementReconciliation["snapshotLatest"]> {
+  const [row] = await getDb().query<MeasurementSnapshotSummaryRow>(
+    `
+    WITH latest_day AS (
+      SELECT MAX(as_of_date) AS as_of_date
+      FROM engine_v3_decision_snapshots_daily
+      WHERE (business_ref_id::text = $1 OR business_id = $1)
+        AND as_of_date <= $2::date
+        AND engine_version = $3
+    ),
+    latest_snapshots AS (
+      SELECT *
+      FROM engine_v3_decision_snapshots_daily
+      WHERE (business_ref_id::text = $1 OR business_id = $1)
+        AND as_of_date = (SELECT as_of_date FROM latest_day)
+        AND engine_version = $3
+        AND scope_type = 'account'
+        AND scope_id = '*'
+    ),
+    conflicts AS (
+      SELECT creative_id, as_of_date, engine_version, scope_type, scope_id
+      FROM engine_v3_decision_snapshots_daily
+      WHERE (business_ref_id::text = $1 OR business_id = $1)
+        AND as_of_date = (SELECT as_of_date FROM latest_day)
+        AND engine_version = $3
+      GROUP BY creative_id, as_of_date, engine_version, scope_type, scope_id
+      HAVING COUNT(DISTINCT label) > 1
+    ),
+    latest_lifecycle AS (
+      SELECT COUNT(DISTINCT creative_id) AS lifecycle_row_count
+      FROM engine_v3_creative_lifecycle_daily
+      WHERE (business_ref_id::text = $1 OR business_id = $1)
+        AND as_of_date = (SELECT as_of_date FROM latest_day)
+    )
+    SELECT
+      (SELECT as_of_date FROM latest_day) AS as_of_date,
+      $3::text AS engine_version,
+      COUNT(DISTINCT latest_snapshots.creative_id) AS row_count,
+      COUNT(*) FILTER (
+        WHERE latest_snapshots.computed_at < (now() - INTERVAL '24 hours')
+           OR latest_snapshots.as_of_date < ($2::date - INTERVAL '1 day')
+      ) AS stale_rows,
+      (SELECT COUNT(*) FROM conflicts) AS conflicting_groups,
+      (SELECT lifecycle_row_count FROM latest_lifecycle) AS lifecycle_row_count
+    FROM latest_snapshots
+    `,
+    [input.businessId, input.asOf, input.engineVersion],
+  );
+  const asOfDate = parseDateOnly(row?.as_of_date);
+  if (!asOfDate) return null;
+  return {
+    asOfDate,
+    engineVersion:
+      typeof row?.engine_version === "string" ? row.engine_version : input.engineVersion,
+    rowCount: numericCount(row?.row_count),
+    conflictingGroups: numericCount(row?.conflicting_groups),
+    staleRows: numericCount(row?.stale_rows),
+    lifecycleRowCount: numericCount(row?.lifecycle_row_count),
+  };
+}
+
+async function readMeasurementOutcomeSummary(input: {
+  businessId: string;
+  asOf: string;
+  engineVersion: string;
+}): Promise<CreativesBriefingMeasurementReconciliation["outcome"]> {
+  const [row] = await getDb().query<MeasurementOutcomeSummaryRow>(
+    `
+    WITH current_outcomes AS (
+      SELECT outcome_window_days
+      FROM engine_v3_decision_outcomes_daily
+      WHERE (business_ref_id::text = $1 OR business_id = $1)
+        AND engine_version = $3
+        AND evaluation_date <= $2::date
+    ),
+    earliest_snapshot AS (
+      SELECT MIN(as_of_date) AS first_as_of_date
+      FROM engine_v3_decision_snapshots_daily
+      WHERE (business_ref_id::text = $1 OR business_id = $1)
+        AND engine_version = $3
+        AND scope_type = 'account'
+        AND scope_id = '*'
+    )
+    SELECT
+      COUNT(*) FILTER (WHERE outcome_window_days = 7) AS window_7_count,
+      COUNT(*) FILTER (WHERE outcome_window_days = 14) AS window_14_count,
+      ((SELECT first_as_of_date FROM earliest_snapshot) + INTERVAL '7 day')::date
+        AS first_7d_window_closes_at,
+      ((SELECT first_as_of_date FROM earliest_snapshot) + INTERVAL '14 day')::date
+        AS first_14d_window_closes_at
+    FROM current_outcomes
+    `,
+    [input.businessId, input.asOf, input.engineVersion],
+  );
+  return {
+    currentVersionRows7d: numericCount(row?.window_7_count),
+    currentVersionRows14d: numericCount(row?.window_14_count),
+    first7dWindowClosesAt: parseDateOnly(row?.first_7d_window_closes_at),
+    first14dWindowClosesAt: parseDateOnly(row?.first_14d_window_closes_at),
+  };
+}
+
+async function buildMeasurementReconciliation(input: {
+  businessId: string;
+  asOf: string;
+  engineVersion: string;
+  lanes: Record<BriefingLane, BriefingCreativeCard[]>;
+  decisionCenterRowCount: number | null;
+  inputs: readonly CreativeInput[];
+}): Promise<CreativesBriefingMeasurementReconciliation> {
+  const startedAt = Date.now();
+  const notes: string[] = [];
+  const [snapshotLatest, outcome] = await Promise.all([
+    readMeasurementSnapshotSummary(input).catch((error) => {
+      console.error("[creative-decision-center] measurement snapshot summary failed", error);
+      notes.push("snapshot_summary_unavailable");
+      return null;
+    }),
+    readMeasurementOutcomeSummary(input).catch((error) => {
+      console.error("[creative-decision-center] measurement outcome summary failed", error);
+      notes.push("outcome_summary_unavailable");
+      return null;
+    }),
+  ]);
+  const actionNow = input.lanes.action.length;
+  const watching = input.lanes.watching.length;
+  const healthy = input.lanes.healthy.length;
+  const total = actionNow + watching + healthy;
+
+  if (!snapshotLatest && total > 0) {
+    notes.push("snapshot_count_differs_from_live_briefing_count");
+    notes.push("snapshot_missing_for_live_briefing_count");
+  }
+  if (snapshotLatest && snapshotLatest.rowCount === 0 && total > 0) {
+    notes.push("snapshot_count_differs_from_live_briefing_count");
+    notes.push("snapshot_missing_account_scope_rows_for_live_briefing_count");
+  }
+  if (
+    snapshotLatest &&
+    snapshotLatest.rowCount > 0 &&
+    total > 0 &&
+    Math.abs(snapshotLatest.rowCount - total) > 2
+  ) {
+    notes.push("snapshot_count_differs_from_live_briefing_count");
+  }
+  if (
+    input.decisionCenterRowCount !== null &&
+    Math.abs(input.decisionCenterRowCount - total) > 2
+  ) {
+    notes.push("decision_center_row_count_differs_from_live_briefing_count");
+  }
+  if (outcome && outcome.currentVersionRows7d === 0) {
+    notes.push("current_version_7d_outcomes_not_yet_available_or_empty");
+  }
+  if (outcome && outcome.currentVersionRows14d === 0) {
+    notes.push("current_version_14d_outcomes_not_yet_available_or_empty");
+  }
+
+  return {
+    durationMs: Date.now() - startedAt,
+    queryCount: 2,
+    briefingCounts: { actionNow, watching, healthy, total },
+    decisionCenterRowCount: input.decisionCenterRowCount,
+    snapshotLatest,
+    outcome,
+    dataCompleteness: buildDataCompletenessSummary(input.inputs),
+    notes,
+  };
 }
 
 function daysBetweenDateOnly(start: string | null, end: string): number | null {
@@ -896,6 +1136,7 @@ export async function GET(request: NextRequest) {
   }
 
   const sortCards = (left: BriefingCreativeCard, right: BriefingCreativeCard) =>
+    safeNumber(right.priorityScore?.score) - safeNumber(left.priorityScore?.score) ||
     safeNumber(right.confidence) - safeNumber(left.confidence) ||
     safeNumber(right.spend) - safeNumber(left.spend);
   lanes.action.sort(sortCards);
@@ -912,6 +1153,29 @@ export async function GET(request: NextRequest) {
     asOf,
     engineVersion: responseEngineVersion,
     decisions,
+  });
+  let decisionCenterSnapshot: DecisionCenterSnapshot | null | undefined;
+  if (includeDecisionCenter) {
+    decisionCenterSnapshot = buildBridgedDecisionCenterSnapshot({
+      asOf,
+      engineVersion: responseEngineVersion,
+      decisions,
+      inputsByCreativeId: inputByCreativeId,
+      creativeRowsById,
+      dataHealthDegraded: Boolean(dataHealth.degraded),
+      aggregateCandidates,
+    });
+  }
+  const measurementReconciliation = await buildMeasurementReconciliation({
+    businessId: resolvedBusinessId,
+    asOf,
+    engineVersion: responseEngineVersion,
+    lanes,
+    decisionCenterRowCount:
+      decisionCenterSnapshot === undefined
+        ? null
+        : decisionCenterSnapshot?.rowDecisions.length ?? null,
+    inputs: enrichedInputs,
   });
 
   const responseBody: CreativesBriefingResponse & {
@@ -946,23 +1210,15 @@ export async function GET(request: NextRequest) {
       asOf,
       dataHealth,
       accountProfile: profile,
+      measurementReconciliation,
     },
   };
 
   if (includeDecisionCenter) {
-    const decisionCenterSnapshot = buildBridgedDecisionCenterSnapshot({
-      asOf,
-      engineVersion: responseEngineVersion,
-      decisions,
-      inputsByCreativeId: inputByCreativeId,
-      creativeRowsById,
-      dataHealthDegraded: Boolean(dataHealth.degraded),
-      aggregateCandidates,
-    });
-    responseBody.decisionCenter = decisionCenterSnapshot;
+    responseBody.decisionCenter = decisionCenterSnapshot ?? null;
     emitDecisionCenterObservability({
       decisionCenterRequested: decisionCenterExplicitlyRequested,
-      snapshot: decisionCenterSnapshot,
+      snapshot: decisionCenterSnapshot ?? null,
       businessId: resolvedBusinessId,
       creativeRows,
     });

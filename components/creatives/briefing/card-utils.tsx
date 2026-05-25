@@ -519,6 +519,17 @@ function formatBlockerValue(value: unknown) {
   return JSON.stringify(value);
 }
 
+function formatMaybeNumber(value: number | null | undefined, digits = 2) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return value.toFixed(digits);
+}
+
+function formatMaybeCurrency(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? formatCurrency(value)
+    : "—";
+}
+
 function BlockersBody({ card }: { card: BriefingCreativeCard }) {
   const blockers = card.blockers ?? [];
   if (blockers.length === 0) {
@@ -563,6 +574,85 @@ function BlockersBody({ card }: { card: BriefingCreativeCard }) {
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+function ExplainabilityBody({ card }: { card: BriefingCreativeCard }) {
+  const proof = card.explainability;
+  const priority = card.priorityScore;
+  const missingEvidence = proof?.missingEvidence ?? [];
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-4 gap-3 text-[12px]">
+        <Kv label="Target ROAS">
+          {typeof proof?.targetRoas === "number"
+            ? formatRoas(proof.targetRoas)
+            : "—"}
+        </Kv>
+        <Kv label="Ratio to target">
+          {formatMaybeNumber(proof?.ratioToTarget, 2)}
+        </Kv>
+        <Kv label="Threshold source">
+          {proof?.thresholdSource?.replace(/_/g, " ") ?? "—"}
+        </Kv>
+        <Kv label="Threshold quality">
+          {proof?.thresholdQuality ?? "—"}
+        </Kv>
+        <Kv label="Spend unit">
+          {formatMaybeCurrency(proof?.spendUnit)}
+        </Kv>
+        <Kv label="Maturity spend">
+          {formatMaybeCurrency(proof?.commercialMaturitySpend)}
+        </Kv>
+        <Kv label="Hard cut spend">
+          {formatMaybeCurrency(proof?.hardCutSpend)}
+        </Kv>
+        <Kv label="Scale purchases">
+          {typeof proof?.scaleMinPurchases === "number"
+            ? proof.scaleMinPurchases
+            : "—"}
+        </Kv>
+        <Kv label="Hist. precision">
+          {formatMaybeNumber(proof?.historicalPrecision, 2)}
+        </Kv>
+        <Kv label="Hist. recall">
+          {formatMaybeNumber(proof?.historicalRecall, 2)}
+        </Kv>
+        <Kv label="ECE">
+          {formatMaybeNumber(proof?.expectedCalibrationError, 3)}
+        </Kv>
+        <Kv label="Sample">
+          {typeof proof?.empiricalSampleSize === "number"
+            ? proof.empiricalSampleSize.toLocaleString("en-US")
+            : "—"}
+        </Kv>
+      </div>
+      {priority ? (
+        <div className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 text-[12px] text-slate-700">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold text-slate-900">
+              Priority {priority.band}
+            </span>
+            <span className="font-mono tabular-nums">
+              {priority.score.toLocaleString("en-US")}
+            </span>
+            <span className="text-slate-400">·</span>
+            <span>{priority.reason}</span>
+          </div>
+          <div className="mt-1 text-[11px] text-slate-500">
+            spend at risk {formatCurrency(priority.inputs.spendAtRisk)} ·
+            opportunity {formatCurrency(priority.inputs.opportunityValue)} ·
+            confidence factor {priority.inputs.confidenceFactor.toFixed(2)}
+          </div>
+        </div>
+      ) : null}
+      {missingEvidence.length > 0 ? (
+        <div className="text-[11.5px] text-slate-500">
+          Missing proof: {missingEvidence.join(", ").replace(/_/g, " ")}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -679,6 +769,7 @@ export function buildEvidenceSections(
   const metaAovQuality = safeCardText(card.metaAovQuality) || "—";
   const thresholdQuality = safeCardText(card.thresholdQuality) || "—";
   const hasBlockers = Boolean(card.blockers?.length);
+  const priority = card.priorityScore;
 
   return [
     {
@@ -709,6 +800,22 @@ export function buildEvidenceSections(
             </div>
             <div className="text-slate-900 font-medium">{primaryLabel}</div>
           </div>
+          {priority ? (
+            <div className="col-span-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
+              <div className="text-[10.5px] uppercase tracking-wider text-slate-400 font-semibold">
+                Priority model
+              </div>
+              <div className="mt-0.5 text-slate-700">
+                <span className="font-semibold text-slate-900">
+                  {priority.band}
+                </span>{" "}
+                <span className="font-mono tabular-nums">
+                  {priority.score.toLocaleString("en-US")}
+                </span>{" "}
+                <span>{priority.reason}</span>
+              </div>
+            </div>
+          ) : null}
           <div className="col-span-2">
             <div className="text-[10.5px] uppercase tracking-wider text-slate-400 font-semibold mb-1">
               Reason
@@ -754,6 +861,18 @@ export function buildEvidenceSections(
           },
         ]
       : []),
+    {
+      key: "explainability",
+      title: "Math and proof",
+      icon: (
+        <Target
+          className="inline-block shrink-0"
+          size={13}
+          aria-hidden="true"
+        />
+      ),
+      content: <ExplainabilityBody card={card} />,
+    },
     {
       key: "inputs",
       title: "Inputs",

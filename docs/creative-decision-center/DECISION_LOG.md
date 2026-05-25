@@ -971,3 +971,37 @@ Rejected alternatives:
   warehouse's current proof coverage while review-status fields are sparse.
 - Attach the recommendation to an arbitrary creative row. This remains
   page-level aggregate context.
+
+## D031 — Separate Decision Math Score From Measurement And Automation Readiness
+
+Decision: Creative briefing responses may expose a read-only measurement
+reconciliation object and card-level explainability/priority metadata, but these
+fields do not change the engine label and the UI must render them without
+computing `buyerAction`.
+
+Reason: decision-math quality, UI explainability, UI visibility, measurement
+readiness, and automation readiness are distinct concerns. Treating missing
+outcome windows, stale measurement rows, or operator labels as pure decision
+math failures makes the score misleading. The route now publishes enough
+server-side evidence to audit live UI counts against persisted snapshots and to
+explain why a card is prioritized.
+
+Scope:
+
+- `measurementReconciliation` is read-only and may compare briefing lane counts,
+  `decisionCenter` row counts, latest snapshot rows, outcome availability, and
+  input completeness.
+- `priorityScore` is a server-produced actionability ordering hint based on
+  spend at risk or above-target opportunity, confidence, severity, and action
+  type. UI sorting may consume it; UI must not derive labels or buyer actions
+  from it.
+- `explainability` surfaces target, ratio-to-target, threshold provenance,
+  calibration, blocker traces, and empirical metrics when available.
+- Automation remains read-only until empirical outcome, executor, preflight,
+  rollback, holdout, operator enablement, and post-action monitoring evidence
+  are all present.
+
+Rejected alternative: keep the score model as a single number that mixes
+decision math, UI visibility, missing outcomes, and automation architecture.
+That hides whether the algorithm is wrong or the proof substrate is simply not
+ready yet.

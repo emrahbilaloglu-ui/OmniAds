@@ -1,3 +1,4 @@
+import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
@@ -68,6 +69,66 @@ describe("buildEvidenceSections", () => {
     expect(html).not.toMatch(
       /Erhan|2026-04-28|2026-05-01|v3\.2\.4|Q2-2026|graph v19|Standard \+ Conversions API/,
     );
+  });
+
+  it("renders math proof and priority fields when supplied by the server", () => {
+    const card: BriefingCreativeCard = {
+      id: "creative_1",
+      creativeId: "creative_1",
+      name: "Creative One",
+      campaign: "ASC Main",
+      label: "cut",
+      confidence: 82,
+      reason: "Loss-budget maturity reached.",
+      primary: { kind: "cut", label: "Cut" },
+      spend: 140,
+      roas: 0.46,
+      explainability: {
+        targetRoas: 2.5,
+        ratioToTarget: 0.2,
+        thresholdSource: "commercial_truth",
+        thresholdQuality: "ready",
+        calibrationComputedAt: "2026-05-25T06:00:00.000Z",
+        spendUnit: 36,
+        commercialMaturitySpend: 72,
+        hardCutSpend: 288,
+        scaleMinPurchases: 1,
+        historicalPrecision: 0.91,
+        historicalRecall: 0.86,
+        expectedCalibrationError: 0.04,
+        empiricalSampleSize: 120,
+        missingEvidence: ["current_version_outcome_window"],
+      },
+      priorityScore: {
+        score: 91.84,
+        band: "medium",
+        reason:
+          "medium priority from spend at risk, confidence, and loss severity.",
+        inputs: {
+          spend: 140,
+          ratioToTarget: 0.2,
+          confidenceFactor: 0.82,
+          spendAtRisk: 112,
+          opportunityValue: 0,
+          severityWeight: 1,
+          actionWeight: 1,
+        },
+      },
+    };
+
+    const html = renderToStaticMarkup(
+      <>
+        {buildEvidenceSections(card).map((section) => (
+          <React.Fragment key={section.key}>{section.content}</React.Fragment>
+        ))}
+      </>,
+    );
+
+    expect(html).toContain("Target ROAS");
+    expect(html).toContain("2.50×");
+    expect(html).toContain("commercial truth");
+    expect(html).toContain("Priority medium");
+    expect(html).toContain("Missing proof: current version outcome window");
   });
 });
 

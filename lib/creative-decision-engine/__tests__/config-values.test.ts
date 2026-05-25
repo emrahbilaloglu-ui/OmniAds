@@ -12,6 +12,10 @@ import {
 import {
   AGGREGATE_AFFECTED_CREATIVE_ID_CAP,
   AT_TARGET_MAX_RATIO,
+  BRIEFING_PRIORITY_SCORE_ACTION_WEIGHTS,
+  BRIEFING_PRIORITY_SCORE_BANDS,
+  BRIEFING_PRIORITY_SCORE_SEVERITY_WEIGHTS,
+  BRIEFING_PRIORITY_SPEND_EXPOSURE_FLOOR_RATIO,
   CREATIVE_DECISION_ENGINE_CONFIG_VERSION,
   CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP,
   DEFAULT_BUSINESS_CONFIG_VALUES,
@@ -156,6 +160,28 @@ describe("creative decision engine config-as-data values", () => {
     expect(WINNER_GAP_MIN_SAMPLED_DAYS).toBe(14);
     expect(UNUSED_APPROVED_LOOKBACK_DAYS).toBe(90);
     expect(AGGREGATE_AFFECTED_CREATIVE_ID_CAP).toBe(20);
+    expect(BRIEFING_PRIORITY_SCORE_ACTION_WEIGHTS).toEqual({
+      scale: 0.9,
+      keep: 0.1,
+      refresh: 0.75,
+      cut: 1,
+      test_more: 0.35,
+      diagnose: 0.55,
+      out_of_scope: 0.1,
+    });
+    expect(BRIEFING_PRIORITY_SCORE_SEVERITY_WEIGHTS).toEqual({
+      stopLossOrDeliveryBlocker: 1.3,
+      weakPerformanceOrScaleBlocker: 1.15,
+      launchMonitoring: 0.7,
+      default: 1,
+    });
+    expect(BRIEFING_PRIORITY_SCORE_BANDS).toEqual([
+      { band: "critical", minScore: 500 },
+      { band: "high", minScore: 150 },
+      { band: "medium", minScore: 40 },
+      { band: "low", minScore: 0 },
+    ]);
+    expect(BRIEFING_PRIORITY_SPEND_EXPOSURE_FLOOR_RATIO).toBe(0.05);
     expect(RESPONSE_WINDOW_DAYS).toBe(30);
     expect(SAMPLE_WINDOW_DAYS).toBe(90);
     expect(ENGINE_PRESET_MULTIPLIERS).toEqual(
@@ -188,6 +214,7 @@ describe("creative decision engine config-as-data values", () => {
         "lib/creative-decision-engine/jobs/operator-response-job.ts",
         "lib/creative-decision-engine/jobs/calibration-job.ts",
         "lib/creative-decision-engine/gates/ratio-zones.ts",
+        "app/api/creatives/briefing/card-serialization.ts",
         "app/api/creatives/briefing/route.ts",
       ].map((path) => [path, readFileSync(path, "utf8")]),
     );
@@ -212,6 +239,10 @@ describe("creative decision engine config-as-data values", () => {
       "WINNER_GAP_MIN_SAMPLED_DAYS",
       "UNUSED_APPROVED_LOOKBACK_DAYS",
       "AGGREGATE_AFFECTED_CREATIVE_ID_CAP",
+      "BRIEFING_PRIORITY_SCORE_ACTION_WEIGHTS",
+      "BRIEFING_PRIORITY_SCORE_SEVERITY_WEIGHTS",
+      "BRIEFING_PRIORITY_SCORE_BANDS",
+      "BRIEFING_PRIORITY_SPEND_EXPOSURE_FLOOR_RATIO",
       "RESPONSE_WINDOW_DAYS",
       "SAMPLE_WINDOW_DAYS",
     ];

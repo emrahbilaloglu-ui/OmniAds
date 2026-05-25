@@ -292,11 +292,26 @@ describe("GET /api/creatives/briefing", () => {
         operatorReviewRequired: true,
         blockers: [
           "no_empirical_outcome_model",
+          "missing_executor",
           "missing_live_preflight",
           "missing_rollback_plan",
           "missing_post_action_monitor",
+          "missing_holdout_plan",
+          "missing_operator_enablement",
         ],
       },
+      explainability: expect.objectContaining({
+        targetRoas: expect.any(Number),
+        thresholdSource: expect.any(String),
+        missingEvidence: expect.any(Array),
+      }),
+      priorityScore: expect.objectContaining({
+        score: expect.any(Number),
+        band: expect.any(String),
+        inputs: expect.objectContaining({
+          spend: expect.any(Number),
+        }),
+      }),
       mediaPreviewUrl: "https://example.com/card.jpg",
       tableThumbnailUrl: "https://example.com/table.jpg",
       cardPreviewUrl: "https://example.com/card.jpg",
@@ -524,6 +539,81 @@ describe("GET /api/creatives/briefing", () => {
     expect(Array.isArray(payload.healthy)).toBe(true);
     expect(payload.pulse.engineVersion).toBeTruthy();
     expect(payload.source.dataSource).toBe("mock");
+    expect(payload.source.measurementReconciliation).toMatchObject({
+      durationMs: expect.any(Number),
+      queryCount: 2,
+      briefingCounts: {
+        actionNow: expect.any(Number),
+        watching: expect.any(Number),
+        healthy: expect.any(Number),
+        total: expect.any(Number),
+      },
+      dataCompleteness: {
+        totalInputs: expect.any(Number),
+      },
+    });
+  });
+
+  it("flags EMOLOS-class live briefing rows without a persisted snapshot as reconciliation drift", async () => {
+    mockDbQuery.mockResolvedValue([]);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(
+      payload.actionNow.length + payload.watching.length + payload.healthy.length,
+    ).toBeGreaterThan(0);
+    expect(payload.source.measurementReconciliation.snapshotLatest).toBeNull();
+    expect(payload.source.measurementReconciliation.notes).toContain(
+      "snapshot_count_differs_from_live_briefing_count",
+    );
+    expect(payload.source.measurementReconciliation.notes).toContain(
+      "snapshot_missing_for_live_briefing_count",
+    );
+  });
+
+  it("flags latest snapshot days with zero account-scope rows as reconciliation drift", async () => {
+    mockDbQuery.mockImplementation(async (query: unknown) => {
+      const sql = String(query);
+      if (sql.includes("WITH latest_day AS")) {
+        return [
+          {
+            as_of_date: "2026-05-07",
+            engine_version: ENGINE_VERSION,
+            row_count: "0",
+            stale_rows: "0",
+            conflicting_groups: "0",
+            lifecycle_row_count: "31",
+          },
+        ];
+      }
+      return [];
+    });
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.source.measurementReconciliation.snapshotLatest).toMatchObject({
+      asOfDate: "2026-05-07",
+      rowCount: 0,
+      lifecycleRowCount: 31,
+    });
+    expect(payload.source.measurementReconciliation.notes).toContain(
+      "snapshot_count_differs_from_live_briefing_count",
+    );
+    expect(payload.source.measurementReconciliation.notes).toContain(
+      "snapshot_missing_account_scope_rows_for_live_briefing_count",
+    );
   });
 
   it("falls back to ENGINE_VERSION when a scoped response has no row decisions", async () => {

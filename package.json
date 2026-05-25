@@ -10,6 +10,7 @@
     "creative:v2:self-hosted-smoke": "tsx --tsconfig scripts/creative-v2-archive-tsconfig.json lib/archive/v1-v2-v21/scripts/creative-v2-self-hosted-smoke.ts",
     "creative:decision:data-readiness": "node --import tsx scripts/creative-decision-center/data-readiness-probe.ts",
     "creative:decision:shadow-report": "node --import tsx scripts/creative-decision-center/shadow-report-probe.ts",
+    "creative:decision:score-phase-report": "node --import tsx scripts/creative-decision-center/score-phase-report.ts",
     "creative:engine-v3:outcomes": "node --import tsx scripts/engine-v3-decision-outcomes.ts",
     "test:local-db": "node --import tsx scripts/with-local-postgres.ts -- vitest run",
     "test:watch": "vitest",

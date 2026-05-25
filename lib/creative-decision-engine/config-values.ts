@@ -1,6 +1,7 @@
 import type {
   AggressionPreset,
   BusinessConfig,
+  DecisionLabel,
   EngineMultiplierSet,
   EngineRiskPreset,
 } from "./types";
@@ -50,6 +51,32 @@ export const WINNER_GAP_MIN_DEPTH_DAYS = 14;
 export const WINNER_GAP_MIN_SAMPLED_DAYS = 14;
 export const UNUSED_APPROVED_LOOKBACK_DAYS = 90;
 export const AGGREGATE_AFFECTED_CREATIVE_ID_CAP = 20;
+
+export const BRIEFING_PRIORITY_SCORE_ACTION_WEIGHTS = {
+  scale: 0.9,
+  keep: 0.1,
+  refresh: 0.75,
+  cut: 1,
+  test_more: 0.35,
+  diagnose: 0.55,
+  out_of_scope: 0.1,
+} as const satisfies Record<DecisionLabel, number>;
+
+export const BRIEFING_PRIORITY_SCORE_SEVERITY_WEIGHTS = {
+  stopLossOrDeliveryBlocker: 1.3,
+  weakPerformanceOrScaleBlocker: 1.15,
+  launchMonitoring: 0.7,
+  default: 1,
+} as const;
+
+export const BRIEFING_PRIORITY_SCORE_BANDS = [
+  { band: "critical", minScore: 500 },
+  { band: "high", minScore: 150 },
+  { band: "medium", minScore: 40 },
+  { band: "low", minScore: 0 },
+] as const;
+
+export const BRIEFING_PRIORITY_SPEND_EXPOSURE_FLOOR_RATIO = 0.05;
 
 export const FUNNEL_FALLBACK_DENOMINATOR_P50 = {
   upperFunnel: 1_000,

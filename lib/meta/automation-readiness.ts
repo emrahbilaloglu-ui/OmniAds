@@ -18,9 +18,12 @@ export type MetaAutomationReadinessBlocker =
   | "missing_commercial_anchor"
   | "insufficient_empirical_sample"
   | "empirical_precision_below_floor"
+  | "missing_executor"
   | "missing_live_preflight"
   | "missing_rollback_plan"
-  | "missing_post_action_monitor";
+  | "missing_post_action_monitor"
+  | "missing_holdout_plan"
+  | "missing_operator_enablement";
 
 export interface MetaAutomationReadiness {
   contractVersion: "meta-automation-readiness.v1";
@@ -120,6 +123,9 @@ function reasonFor(tier: MetaAutomationReadinessTier, blockers: MetaAutomationRe
   if (blockers.includes("empirical_precision_below_floor")) {
     return "Empirical outcome precision is below the automation floor.";
   }
+  if (blockers.includes("missing_executor")) {
+    return "No executor is enabled for this action class.";
+  }
   if (blockers.includes("missing_live_preflight")) {
     return "Live provider preflight proof is missing.";
   }
@@ -128,6 +134,12 @@ function reasonFor(tier: MetaAutomationReadinessTier, blockers: MetaAutomationRe
   }
   if (blockers.includes("missing_post_action_monitor")) {
     return "Post-action monitoring proof is missing.";
+  }
+  if (blockers.includes("missing_holdout_plan")) {
+    return "Holdout or incrementality proof is missing.";
+  }
+  if (blockers.includes("missing_operator_enablement")) {
+    return "An explicit operator enablement gesture is required before automation.";
   }
   if (blockers.includes("low_confidence")) {
     return "Confidence is below the automation floor.";

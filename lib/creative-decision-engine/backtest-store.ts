@@ -4,12 +4,13 @@ import {
   type CreativeDecisionBacktestRow,
   type DecisionBacktestSummary,
 } from "./backtest";
-import type { DecisionLabel } from "./types";
+import { ENGINE_VERSION, type DecisionLabel } from "./types";
 
 export interface ReadCreativeDecisionBacktestSummaryInput {
   businessId: string;
   asOf: string;
   activeCreativeCount: number;
+  engineVersion?: string | null;
   outcomeWindowDays?: number;
   lookbackDays?: number;
 }
@@ -34,6 +35,7 @@ export async function readCreativeDecisionBacktestSummary(
 ): Promise<DecisionBacktestSummary | null> {
   const outcomeWindowDays = input.outcomeWindowDays ?? 14;
   const lookbackDays = input.lookbackDays ?? 90;
+  const engineVersion = input.engineVersion ?? ENGINE_VERSION;
   const [outcomeRows, coverageRows] = await Promise.all([
     getDb().query<OutcomeRow>(
       `
@@ -48,9 +50,16 @@ export async function readCreativeDecisionBacktestSummary(
       WHERE (business_ref_id::text = $1 OR business_id = $1)
         AND outcome_window_days = $2::integer
         AND decision_as_of_date BETWEEN ($3::date - (($4::integer - 1) * INTERVAL '1 day')) AND $3::date
+        AND ($5::text IS NULL OR engine_version = $5)
       ORDER BY decision_as_of_date ASC, creative_id ASC
       `,
-      [input.businessId, outcomeWindowDays, input.asOf, lookbackDays],
+      [
+        input.businessId,
+        outcomeWindowDays,
+        input.asOf,
+        lookbackDays,
+        engineVersion,
+      ],
     ),
     getDb().query<CoverageRow>(
       `
@@ -59,19 +68,22 @@ export async function readCreativeDecisionBacktestSummary(
         FROM engine_v3_decision_snapshots_daily
         WHERE (business_ref_id::text = $1 OR business_id = $1)
           AND as_of_date <= $2::date
+          AND ($4::text IS NULL OR engine_version = $4)
       ),
       latest_snapshots AS (
         SELECT *
         FROM engine_v3_decision_snapshots_daily
         WHERE (business_ref_id::text = $1 OR business_id = $1)
           AND as_of_date = (SELECT as_of_date FROM latest_day)
+          AND ($4::text IS NULL OR engine_version = $4)
       ),
       conflicts AS (
-        SELECT creative_id, as_of_date
+        SELECT creative_id, as_of_date, engine_version, scope_type, scope_id
         FROM engine_v3_decision_snapshots_daily
         WHERE (business_ref_id::text = $1 OR business_id = $1)
           AND as_of_date BETWEEN ($2::date - (($3::integer - 1) * INTERVAL '1 day')) AND $2::date
-        GROUP BY creative_id, as_of_date
+          AND ($4::text IS NULL OR engine_version = $4)
+        GROUP BY creative_id, as_of_date, engine_version, scope_type, scope_id
         HAVING COUNT(DISTINCT label) > 1
       )
       SELECT
@@ -83,7 +95,7 @@ export async function readCreativeDecisionBacktestSummary(
         (SELECT COUNT(*) FROM conflicts) AS conflicting_snapshot_count
       FROM latest_snapshots
       `,
-      [input.businessId, input.asOf, lookbackDays],
+      [input.businessId, input.asOf, lookbackDays, engineVersion],
     ),
   ]);
 

@@ -9,6 +9,7 @@ import { syncGA4Reports } from "@/lib/sync/ga4-sync";
 import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
 import { syncShopifyCommerceReports } from "@/lib/sync/shopify-sync";
 import { runSyncSoakGate } from "@/lib/sync/soak-gate";
+import { runDecisionOutcomesJobForActiveBusinessesIfDue } from "@/lib/creative-decision-engine";
 import {
   evaluateAndPersistSyncGates,
   shouldEnforceSyncGateFailure,
@@ -232,6 +233,18 @@ export async function POST(request: NextRequest) {
       error: error instanceof Error ? error.message : String(error),
     };
   });
+  const decisionOutcomesJob = await runDecisionOutcomesJobForActiveBusinessesIfDue(
+    new Date(),
+    businesses,
+  ).catch((error) => {
+    console.error("[sync-cron] decision_outcomes_job_failed", error);
+    return {
+      skipped: true,
+      reason: "failed" as const,
+      asOf: new Date().toISOString().slice(0, 10),
+      error: error instanceof Error ? error.message : String(error),
+    };
+  });
 
   const shouldEnforceSoakGate =
     process.env.SYNC_CRON_ENFORCE_SOAK_GATE?.trim() === "true";
@@ -355,6 +368,9 @@ export async function POST(request: NextRequest) {
     metaIgnoredMarkerJobSkipped: metaIgnoredMarkerJob.skipped,
     metaIgnoredMarkerJobReason:
       "reason" in metaIgnoredMarkerJob ? metaIgnoredMarkerJob.reason : null,
+    decisionOutcomesJobSkipped: decisionOutcomesJob.skipped,
+    decisionOutcomesJobReason:
+      "reason" in decisionOutcomesJob ? decisionOutcomesJob.reason : null,
   });
   return NextResponse.json(
     {
@@ -370,6 +386,7 @@ export async function POST(request: NextRequest) {
       ...(googleAutoRepair ? { googleAutoRepairResults: googleAutoRepair.results } : {}),
       metaSnapshotJob,
       metaIgnoredMarkerJob,
+      decisionOutcomesJob,
     },
     { status: soakGate?.outcome === "fail" ? 503 : 200 }
   );

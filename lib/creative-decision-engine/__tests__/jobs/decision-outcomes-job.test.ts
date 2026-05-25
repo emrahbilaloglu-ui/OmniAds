@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  DECISION_OUTCOME_DAILY_UTC_HOUR,
   DECISION_OUTCOME_WINDOWS_DAYS,
   JOB_NAME,
 } from "../../jobs/decision-outcomes-job";
@@ -24,5 +25,25 @@ describe("decision outcomes job SQL contracts", () => {
     expect(source).not.toContain("AND s.engine_version =");
     expect(source).toContain("($4::integer - 1)");
     expect(source).toContain("LIMIT $5::integer");
+  });
+
+  it("keeps the daily scheduler due-gated and schema-gated", () => {
+    const source = readFileSync(
+      "lib/creative-decision-engine/jobs/decision-outcomes-job.ts",
+      "utf8",
+    );
+
+    expect(DECISION_OUTCOME_DAILY_UTC_HOUR).toBe(4);
+    expect(source).toContain("isDailyDecisionOutcomeSlot");
+    expect(source).toContain(
+      "now.getUTCHours() === DECISION_OUTCOME_DAILY_UTC_HOUR",
+    );
+    expect(source).toContain("findBusinessesPendingDecisionOutcomes");
+    expect(source).toContain("pendingBusinesses.length === 0");
+    expect(source).toContain(
+      "pendingBusinesses.map(async (business) => ({",
+    );
+    expect(source).toContain("getDbSchemaReadiness");
+    expect(source).toContain("engine_v3_decision_outcomes_daily");
   });
 });

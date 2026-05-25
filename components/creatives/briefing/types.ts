@@ -29,6 +29,40 @@ export interface BriefingPrimaryAction {
   label?: string | null;
 }
 
+export interface BriefingDecisionExplainability {
+  targetRoas?: number | null;
+  ratioToTarget?: number | null;
+  thresholdSource?: string | null;
+  thresholdQuality?: ThresholdQuality | string | null;
+  calibrationComputedAt?: string | null;
+  spendUnit?: number | null;
+  commercialMaturitySpend?: number | null;
+  hardCutSpend?: number | null;
+  scaleMinPurchases?: number | null;
+  blockerCount?: number | null;
+  blockerSummary?: string[] | null;
+  historicalPrecision?: number | null;
+  historicalRecall?: number | null;
+  expectedCalibrationError?: number | null;
+  empiricalSampleSize?: number | null;
+  missingEvidence?: string[] | null;
+}
+
+export interface BriefingPriorityScore {
+  score: number;
+  band: "critical" | "high" | "medium" | "low";
+  reason: string;
+  inputs: {
+    spend: number;
+    ratioToTarget: number | null;
+    confidenceFactor: number;
+    spendAtRisk: number;
+    opportunityValue: number;
+    severityWeight: number;
+    actionWeight: number;
+  };
+}
+
 export interface BriefingCtrFunnel {
   value?: number | null;
   p50?: number | null;
@@ -90,6 +124,10 @@ export interface BriefingCreativeCard {
   confidence?: number | null;
   reason?: string | null;
   predictive?: string | null;
+  explainability?: BriefingDecisionExplainability | null;
+  priorityScore?: BriefingPriorityScore | null;
+  targetRoas?: number | null;
+  ratioToTarget?: number | null;
   spend?: number | null;
   roas?: number | null;
   ctr?: number | null;
@@ -167,6 +205,44 @@ export interface CreativesBriefingPulse {
   trackingAnomalyDetail?: string | null;
 }
 
+export interface CreativesBriefingMeasurementReconciliation {
+  durationMs: number;
+  queryCount: number;
+  briefingCounts: {
+    actionNow: number;
+    watching: number;
+    healthy: number;
+    total: number;
+  };
+  decisionCenterRowCount: number | null;
+  snapshotLatest: {
+    asOfDate: string | null;
+    engineVersion: string | null;
+    rowCount: number;
+    conflictingGroups: number;
+    staleRows: number;
+    lifecycleRowCount: number | null;
+  } | null;
+  outcome: {
+    currentVersionRows7d: number;
+    currentVersionRows14d: number;
+    first7dWindowClosesAt: string | null;
+    first14dWindowClosesAt: string | null;
+  } | null;
+  dataCompleteness: {
+    totalInputs: number;
+    fields: Record<
+      string,
+      {
+        present: number;
+        total: number;
+        coverage: number | null;
+      }
+    >;
+  };
+  notes: string[];
+}
+
 export interface CreativesBriefingResponse {
   actionNow: BriefingActionItem[];
   watching: BriefingCreativeCard[];
@@ -182,6 +258,7 @@ export interface CreativesBriefingResponse {
     asOf?: string | null;
     dataHealth?: DataHealth | null;
     accountProfile?: AccountDecisionProfile | null;
+    measurementReconciliation?: CreativesBriefingMeasurementReconciliation | null;
   } | null;
   /**
    * Additive production-default Decision Center snapshot. Null indicates the

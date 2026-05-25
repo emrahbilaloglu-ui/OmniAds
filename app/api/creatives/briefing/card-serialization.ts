@@ -7,8 +7,18 @@ import {
 } from "@/lib/creative-decision-engine";
 import type { DecisionBacktestSummary } from "@/lib/creative-decision-engine/backtest";
 import { creativeAutomationReadiness } from "@/lib/creative-decision-engine/automation-readiness";
+import {
+  BRIEFING_PRIORITY_SCORE_ACTION_WEIGHTS,
+  BRIEFING_PRIORITY_SCORE_BANDS,
+  BRIEFING_PRIORITY_SCORE_SEVERITY_WEIGHTS,
+  BRIEFING_PRIORITY_SPEND_EXPOSURE_FLOOR_RATIO,
+} from "@/lib/creative-decision-engine/config-values";
 import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
-import type { BriefingCreativeCard } from "@/components/creatives/briefing/types";
+import type {
+  BriefingCreativeCard,
+  BriefingDecisionExplainability,
+  BriefingPriorityScore,
+} from "@/components/creatives/briefing/types";
 
 function badgeLabels(badges: DecisionBadge[]) {
   return badges.flatMap((badge) => {
@@ -101,6 +111,172 @@ function previewForRow(row: MetaCreativeApiRow | null | undefined) {
   };
 }
 
+function confidenceFactor(decision: DecisionOutput) {
+  return Math.max(0, Math.min(1, safeNumber(decision.confidence) / 100));
+}
+
+function actionWeight(label: DecisionLabel) {
+  return BRIEFING_PRIORITY_SCORE_ACTION_WEIGHTS[label];
+}
+
+function severityWeight(decision: DecisionOutput) {
+  if (
+    decision.badges.some(
+      (badge) =>
+        badge.type === "stop_loss_review" ||
+        badge.type === "policy_blocked" ||
+        badge.type === "delivery_no_spend_24h",
+    )
+  ) {
+    return BRIEFING_PRIORITY_SCORE_SEVERITY_WEIGHTS.stopLossOrDeliveryBlocker;
+  }
+  if (
+    decision.badges.some(
+      (badge) =>
+        badge.type === "below_breakeven" ||
+        badge.type === "weak_performance" ||
+        badge.type === "scale_readiness_blocked",
+    )
+  ) {
+    return BRIEFING_PRIORITY_SCORE_SEVERITY_WEIGHTS.weakPerformanceOrScaleBlocker;
+  }
+  if (decision.badges.some((badge) => badge.type === "launch_monitoring")) {
+    return BRIEFING_PRIORITY_SCORE_SEVERITY_WEIGHTS.launchMonitoring;
+  }
+  return BRIEFING_PRIORITY_SCORE_SEVERITY_WEIGHTS.default;
+}
+
+function priorityBand(score: number): BriefingPriorityScore["band"] {
+  return (
+    BRIEFING_PRIORITY_SCORE_BANDS.find((band) => score >= band.minScore)
+      ?.band ?? "low"
+  );
+}
+
+function priorityReason(label: DecisionLabel, score: number) {
+  const band = priorityBand(score);
+  if (label === "cut") {
+    return `${band} priority from spend at risk, confidence, and loss severity.`;
+  }
+  if (label === "scale") {
+    return `${band} priority from above-target opportunity, confidence, and spend maturity.`;
+  }
+  if (label === "refresh") {
+    return `${band} priority from fatigue/refresh pressure weighted by spend and confidence.`;
+  }
+  if (label === "diagnose") {
+    return `${band} priority diagnostic from blocker severity, spend, and confidence.`;
+  }
+  return `${band} priority from current signal strength and spend exposure.`;
+}
+
+export function buildBriefingPriorityScore(
+  decision: DecisionOutput,
+): BriefingPriorityScore {
+  const label = decision.label as DecisionLabel;
+  const spend = safeNumber(decision.metrics.spend);
+  const ratioToTarget =
+    typeof decision.ratioToTarget === "number" &&
+    Number.isFinite(decision.ratioToTarget)
+      ? decision.ratioToTarget
+      : null;
+  const spendAtRisk =
+    ratioToTarget === null
+      ? label === "cut"
+        ? spend
+        : 0
+      : label === "cut" || decision.blockedActionType === "cut"
+        ? spend * Math.max(0, 1 - ratioToTarget)
+        : 0;
+  const opportunityValue =
+    ratioToTarget === null
+      ? 0
+      : label === "scale" || decision.blockedActionType === "scale"
+        ? spend * Math.max(0, ratioToTarget - 1)
+        : label === "refresh"
+          ? spend * Math.max(0.1, Math.min(0.5, 1 - Math.min(ratioToTarget, 1)))
+          : 0;
+  const conf = confidenceFactor(decision);
+  const severity = severityWeight(decision);
+  const action = actionWeight(label);
+  const score = Number(
+    (
+      (spendAtRisk +
+        opportunityValue +
+        spend * BRIEFING_PRIORITY_SPEND_EXPOSURE_FLOOR_RATIO) *
+      conf *
+      severity *
+      action
+    )
+      .toFixed(2),
+  );
+
+  return {
+    score,
+    band: priorityBand(score),
+    reason: priorityReason(label, score),
+    inputs: {
+      spend,
+      ratioToTarget,
+      confidenceFactor: Number(conf.toFixed(4)),
+      spendAtRisk: Number(spendAtRisk.toFixed(2)),
+      opportunityValue: Number(opportunityValue.toFixed(2)),
+      severityWeight: severity,
+      actionWeight: action,
+    },
+  };
+}
+
+function buildBriefingDecisionExplainability(input: {
+  decision: DecisionOutput;
+  accountProfile?: AccountDecisionProfile | null;
+  backtestSummary?: DecisionBacktestSummary | null;
+}): BriefingDecisionExplainability {
+  const blockers = input.decision.blockers ?? [];
+  const missingEvidence: string[] = [];
+  const backtest = input.backtestSummary ?? null;
+  if (!backtest) missingEvidence.push("current_version_outcome_window");
+  if (!input.accountProfile?.quality.commercialTruthReady) {
+    missingEvidence.push("commercial_truth_readiness");
+  }
+  if (!input.accountProfile?.quality.calibrationReady) {
+    missingEvidence.push("account_calibration_readiness");
+  }
+  if (blockers.length === 0) {
+    missingEvidence.push("predicate_blocker_trace_if_no_blockers");
+  }
+
+  return {
+    targetRoas: Number.isFinite(input.decision.effectiveTargetRoas)
+      ? input.decision.effectiveTargetRoas
+      : null,
+    ratioToTarget: input.decision.ratioToTarget ?? null,
+    thresholdSource:
+      input.decision.truthSource === "commercial_truth"
+        ? "commercial_truth"
+        : input.decision.truthSource,
+    thresholdQuality: input.accountProfile?.quality.thresholdQuality ?? null,
+    calibrationComputedAt:
+      input.accountProfile?.accountBaselines.computedAt ?? null,
+    spendUnit: input.accountProfile?.spendUnit ?? null,
+    commercialMaturitySpend:
+      input.accountProfile?.thresholds.commercialMaturitySpend ?? null,
+    hardCutSpend: input.accountProfile?.thresholds.hardCutSpend ?? null,
+    scaleMinPurchases:
+      input.accountProfile?.thresholds.scaleMinPurchases ?? null,
+    blockerCount: blockers.length,
+    blockerSummary: blockers.map(
+      (blocker) =>
+        `${blocker.predicate}: observed ${blocker.observed ?? "missing"} vs threshold ${blocker.threshold ?? "missing"} (${blocker.status})`,
+    ),
+    historicalPrecision: backtest?.hardActionPrecision ?? null,
+    historicalRecall: backtest?.hardActionRecall ?? null,
+    expectedCalibrationError: backtest?.expectedCalibrationError ?? null,
+    empiricalSampleSize: backtest?.sampleSize ?? null,
+    missingEvidence,
+  };
+}
+
 export function cardForDecision(input: {
   decision: DecisionOutput;
   creativeInput?: CreativeInput;
@@ -123,6 +299,12 @@ export function cardForDecision(input: {
   const roas = row?.roas ?? decision.metrics.roas ?? 0;
   const ctr = row?.ctr_all ?? creativeInput?.ctr ?? null;
   const recentRoas = decision.metrics.recent7dRoas ?? roas;
+  const explainability = buildBriefingDecisionExplainability({
+    decision,
+    accountProfile: input.accountProfile,
+    backtestSummary: input.backtestSummary,
+  });
+  const priorityScore = buildBriefingPriorityScore(decision);
 
   return {
     id: row?.id || decision.creativeId,
@@ -153,6 +335,10 @@ export function cardForDecision(input: {
     confidence: decision.confidence,
     reason: decision.reason,
     predictive: null,
+    explainability,
+    priorityScore,
+    targetRoas: decision.effectiveTargetRoas,
+    ratioToTarget: decision.ratioToTarget,
     spend,
     roas,
     ctr,

@@ -273,9 +273,12 @@ describe("creative execution safety", () => {
     });
     const readiness = creativeAutomationReadiness({
       decision: scheduled,
+      executorAvailable: true,
       livePreflightAvailable: true,
       rollbackPlanAvailable: true,
       postActionMonitorAvailable: true,
+      holdoutPlanAvailable: true,
+      operatorEnablementRecorded: true,
       backtestSummary: {
         hardActionPrecision: 0.91,
         hardActionRecall: 0.86,

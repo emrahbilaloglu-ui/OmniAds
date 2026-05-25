@@ -28,9 +28,12 @@ function above(
 export function creativeAutomationReadiness(input: {
   decision: DecisionOutput;
   backtestSummary?: DecisionBacktestSummary | null;
+  executorAvailable?: boolean;
   livePreflightAvailable?: boolean;
   rollbackPlanAvailable?: boolean;
   postActionMonitorAvailable?: boolean;
+  holdoutPlanAvailable?: boolean;
+  operatorEnablementRecorded?: boolean;
 }): MetaAutomationReadiness {
   const blockers: MetaAutomationReadiness["blockers"] = [];
   const missingEvidence: string[] = [];
@@ -77,6 +80,10 @@ export function creativeAutomationReadiness(input: {
     }
   }
 
+  if (!input.executorAvailable) {
+    blockers.push("missing_executor");
+    missingEvidence.push("creative_executor");
+  }
   if (!input.livePreflightAvailable) {
     blockers.push("missing_live_preflight");
     missingEvidence.push("creative_live_preflight");
@@ -88,6 +95,14 @@ export function creativeAutomationReadiness(input: {
   if (!input.postActionMonitorAvailable) {
     blockers.push("missing_post_action_monitor");
     missingEvidence.push("creative_post_action_monitor");
+  }
+  if (!input.holdoutPlanAvailable) {
+    blockers.push("missing_holdout_plan");
+    missingEvidence.push("creative_holdout_plan");
+  }
+  if (!input.operatorEnablementRecorded) {
+    blockers.push("missing_operator_enablement");
+    missingEvidence.push("creative_operator_enablement");
   }
 
   const uniqueBlockers = Array.from(new Set(blockers));
@@ -103,13 +118,16 @@ export function creativeAutomationReadiness(input: {
     missingEvidence: uniqueMissingEvidence,
     requiredEvidence: [
       "creative_empirical_outcome_model",
+      "creative_executor",
       "creative_live_preflight",
       "creative_rollback_plan",
       "creative_post_action_monitor",
+      "creative_holdout_plan",
+      "creative_operator_enablement",
     ],
     reason:
       uniqueBlockers.length > 0
-        ? "Creative automation remains blocked until backtest, preflight, rollback, and post-action monitoring pass the 9/10 thresholds."
+        ? "Creative automation remains blocked until backtest, executor, preflight, rollback, holdout, operator enablement, and post-action monitoring pass the 9/10 thresholds."
         : "Creative automation is still read-only until an explicit operator enablement decision.",
   };
 }

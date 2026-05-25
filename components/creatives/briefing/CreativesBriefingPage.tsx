@@ -174,7 +174,7 @@ type DecisionCenterAssetLibraryRow = MetaCreativeRow & {
   decisionCenterRow?: DecisionCenterRowForCard | null;
 };
 
-const SPARSE_ACTION_MAX_COUNT = 1;
+const SPARSE_ACTION_MIN_COUNT = 3;
 const SPARSE_ACTION_MIN_WATCHING_COUNT = 10;
 const SPARSE_ACTION_MAX_VISIBLE_SHARE = 0.1;
 
@@ -815,15 +815,52 @@ export function chooseDefaultCreativeLane(input: {
 }): CreativeLaneView {
   const total = input.actionCount + input.watchingCount + input.healthyCount;
   const actionShare = total > 0 ? input.actionCount / total : 0;
+  const sparseActionCount = Math.max(
+    SPARSE_ACTION_MIN_COUNT,
+    Math.ceil(total * SPARSE_ACTION_MAX_VISIBLE_SHARE),
+  );
   if (
     input.actionCount > 0 &&
-    input.actionCount <= SPARSE_ACTION_MAX_COUNT &&
+    input.actionCount < sparseActionCount &&
     input.watchingCount >= SPARSE_ACTION_MIN_WATCHING_COUNT &&
     actionShare <= SPARSE_ACTION_MAX_VISIBLE_SHARE
   ) {
     return "watching";
   }
   return "action";
+}
+
+export function decisionVisibilitySummary(input: {
+  actionCount: number;
+  watchingCount: number;
+  healthyCount: number;
+  activeLane: CreativeLaneView;
+}) {
+  const total = input.actionCount + input.watchingCount + input.healthyCount;
+  const activeCount =
+    input.activeLane === "action"
+      ? input.actionCount
+      : input.activeLane === "watching"
+        ? input.watchingCount
+        : input.healthyCount;
+  const visibleShare = total > 0 ? activeCount / total : 0;
+  const actionShare = total > 0 ? input.actionCount / total : 0;
+  const sparseActionThreshold = Math.max(
+    SPARSE_ACTION_MIN_COUNT,
+    Math.ceil(total * SPARSE_ACTION_MAX_VISIBLE_SHARE),
+  );
+  return {
+    total,
+    activeCount,
+    visibleShare,
+    actionShare,
+    sparseActionThreshold,
+    isSparseActionDefault:
+      input.activeLane === "watching" &&
+      input.actionCount > 0 &&
+      input.actionCount < sparseActionThreshold &&
+      input.watchingCount >= SPARSE_ACTION_MIN_WATCHING_COUNT,
+  };
 }
 
 function briefingCardFromAssetRow(row: MetaCreativeRow): BriefingCreativeCard {
@@ -1341,6 +1378,12 @@ export function CreativesBriefingPage() {
     healthyCount: filteredHealthyItems.length,
   });
   const activeLane = manualActiveLane ?? defaultActiveLane;
+  const visibilitySummary = decisionVisibilitySummary({
+    actionCount: filteredActionCards.length,
+    watchingCount: filteredWatchingItems.length,
+    healthyCount: filteredHealthyItems.length,
+    activeLane,
+  });
 
   const trackingAnomalyActive = Boolean(
     normalizedBriefingData?.trackingAnomalyActive ||
@@ -1870,6 +1913,21 @@ export function CreativesBriefingPage() {
             <CreativeLaneTab active={activeLane === "healthy"} className="healthy" label="Healthy" count={filteredHealthyItems.length} onClick={() => handleLaneChange("healthy")} />
             <div style={{ flex: 1 }} />
             <div className="tab" style={{ color: "var(--muted)" }}><span className="chip chip--ghost"><span className="dot" />Deferred {deferredCount}</span></div>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px] text-slate-500" data-creative-visibility-summary>
+            <span className="font-medium text-slate-700">
+              Visible {visibilitySummary.activeCount}/{visibilitySummary.total}
+            </span>
+            <span className="text-slate-300">·</span>
+            <span>
+              Action {filteredActionCards.length}, Watching {filteredWatchingItems.length}, Healthy {filteredHealthyItems.length}
+            </span>
+            {visibilitySummary.isSparseActionDefault ? (
+              <>
+                <span className="text-slate-300">·</span>
+                <span>Action is sparse; Watching is shown first.</span>
+              </>
+            ) : null}
           </div>
 
           <div className="controls" data-creative-secondary-controls>

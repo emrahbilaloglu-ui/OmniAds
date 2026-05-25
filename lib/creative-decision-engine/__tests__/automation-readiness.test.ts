@@ -33,9 +33,12 @@ describe("creativeAutomationReadiness", () => {
     expect(readiness.blockers).toEqual(
       expect.arrayContaining([
         "no_empirical_outcome_model",
+        "missing_executor",
         "missing_live_preflight",
         "missing_rollback_plan",
         "missing_post_action_monitor",
+        "missing_holdout_plan",
+        "missing_operator_enablement",
       ]),
     );
     expect(readiness.missingEvidence).toContain("creative_post_action_monitor");
@@ -44,9 +47,12 @@ describe("creativeAutomationReadiness", () => {
   it("still remains read-only even when mathematical gates pass", () => {
     const readiness = creativeAutomationReadiness({
       decision: decision(),
+      executorAvailable: true,
       livePreflightAvailable: true,
       rollbackPlanAvailable: true,
       postActionMonitorAvailable: true,
+      holdoutPlanAvailable: true,
+      operatorEnablementRecorded: true,
       backtestSummary: {
         hardActionPrecision: 0.91,
         hardActionRecall: 0.86,

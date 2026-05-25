@@ -93,10 +93,9 @@ eligible_snapshots AS (
   SELECT s.*
   FROM engine_v3_decision_snapshots_daily s
   WHERE (s.business_ref_id::text = $1 OR s.business_id = $1)
-    AND s.engine_version = $4
     AND s.scope_type = 'account'
     AND s.scope_id = '*'
-    AND s.as_of_date BETWEEN ($2::date - (($5::integer - 1) * INTERVAL '1 day')) AND $2::date
+    AND s.as_of_date BETWEEN ($2::date - (($4::integer - 1) * INTERVAL '1 day')) AND $2::date
 ),
 candidate_windows AS (
   SELECT
@@ -168,7 +167,7 @@ GROUP BY
   c.baseline_purchases,
   c.baseline_roas
 ORDER BY c.decision_as_of_date ASC, c.creative_id ASC, c.outcome_window_days ASC
-LIMIT $6::integer
+LIMIT $5::integer
 `;
 
 const INSERT_OUTCOMES_QUERY = `
@@ -436,7 +435,6 @@ async function readOutcomeSourceRows(input: DecisionOutcomesJobInput) {
     input.businessId,
     input.asOf,
     input.windowsDays ?? DECISION_OUTCOME_WINDOWS_DAYS,
-    ENGINE_VERSION,
     input.lookbackDays ?? DECISION_OUTCOME_LOOKBACK_DAYS,
     input.batchLimit ?? DECISION_OUTCOME_BATCH_LIMIT,
   ]);

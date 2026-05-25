@@ -21,5 +21,8 @@ describe("decision outcomes job SQL contracts", () => {
       "ON CONFLICT (decision_snapshot_id, outcome_window_days)",
     );
     expect(source).toContain("classifyCreativeDecisionOutcome");
+    expect(source).not.toContain("AND s.engine_version =");
+    expect(source).toContain("($4::integer - 1)");
+    expect(source).toContain("LIMIT $5::integer");
   });
 });

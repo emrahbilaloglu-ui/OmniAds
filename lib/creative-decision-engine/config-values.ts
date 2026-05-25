@@ -31,12 +31,40 @@ export const STALE_TIER_NONE_MAX_HOURS = 36;
 export const STALE_TIER_WARNING_MAX_HOURS = 72;
 
 export const ZERO_CONV_MIN_AGE_DAYS = 7;
+export const LAUNCH_MONITOR_WINDOW_DAYS = 3;
 export const MIN_KIND_CALIBRATION_MATURE_COUNT = 10;
 export const CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP = 50;
 export const FATIGUE_SIGNIFICANT_DECAY_THRESHOLD = 0.18;
 export const FATIGUE_SPEND_CONCENTRATION_THRESHOLD = 0.55;
 export const FATIGUE_FREQUENCY_PRESSURE_THRESHOLD = 2.5;
 export const FATIGUE_STRONG_WINDOW_FALLBACK_ROAS = 1.5;
+
+export const TARGET_BAND_MIN_RATIO = 0.85;
+export const WEAK_TARGET_MAX_RATIO = 0.95;
+export const AT_TARGET_MAX_RATIO = 1.15;
+export const REFRESH_RATIO_FALLBACK = 0.75;
+
+export const WINNER_GAP_LOOKBACK_DAYS = 90;
+export const WINNER_GAP_FRESHNESS_MAX_DAYS = 2;
+export const WINNER_GAP_MIN_DEPTH_DAYS = 14;
+export const WINNER_GAP_MIN_SAMPLED_DAYS = 14;
+export const UNUSED_APPROVED_LOOKBACK_DAYS = 90;
+export const AGGREGATE_AFFECTED_CREATIVE_ID_CAP = 20;
+
+export const FUNNEL_FALLBACK_DENOMINATOR_P50 = {
+  upperFunnel: 1_000,
+  landingPage: 50,
+  checkout: 10,
+} as const;
+
+export const QUALITY_ONLY_COMPONENT_WEIGHTS = {
+  hook: 0.05,
+  ctr: 0.1,
+  cpmEfficiency: 0.1,
+  clickToLpv: 0.15,
+  lpvToAtc: 0.2,
+  atcToIc: 0.25,
+} as const;
 
 export const RESPONSE_WINDOW_DAYS = 30;
 export const SAMPLE_WINDOW_DAYS = 90;

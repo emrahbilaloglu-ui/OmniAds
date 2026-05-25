@@ -8,6 +8,11 @@ import type {
   DataHealth,
   DecisionPredicateBlocker,
   DecisionLabelTransform,
+  SpendUnitConfidence,
+  SpendUnitSource,
+  MetaAovQuality,
+  ThresholdQuality,
+  TruthSource,
 } from "@/lib/creative-decision-engine";
 import type { MetaAutomationReadiness } from "@/lib/meta/automation-readiness";
 // Type-only imports so the response interface can carry the production-default
@@ -75,6 +80,11 @@ export interface BriefingCreativeCard {
   placements?: number | null;
   bestPlacement?: string | null;
   label?: DecisionLabel | string | null;
+  truthSource?: TruthSource | string | null;
+  spendUnitSource?: SpendUnitSource | string | null;
+  spendUnitConfidence?: SpendUnitConfidence | string | null;
+  metaAovQuality?: MetaAovQuality | string | null;
+  thresholdQuality?: ThresholdQuality | string | null;
   badges?: Array<DecisionLabel | string> | null;
   blockers?: DecisionPredicateBlocker[] | null;
   confidence?: number | null;
@@ -97,6 +107,13 @@ export interface BriefingCreativeCard {
   decisionCenterRow?: CreativeDecisionCenterRowDecision | null;
   status?: string | null;
   ageDays?: number | null;
+  firstSeenAt?: string | null;
+  firstSpendAt?: string | null;
+  spend24h?: number | null;
+  impressions24h?: number | null;
+  reviewStatus?: string | null;
+  disapprovalReason?: string | null;
+  limitedReason?: string | null;
   campaignKind?: MetaCampaignKind | null;
   campaignTestDimension?: MetaCampaignTestDimension | null;
   campaignLabelStatus?: "labeled" | "unlabeled" | "no_campaign" | null;

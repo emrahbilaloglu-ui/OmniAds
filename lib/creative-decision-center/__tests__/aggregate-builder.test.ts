@@ -237,7 +237,7 @@ describe("Decision Center aggregate builder", () => {
     expect(result.trace.suppressed[0]).toMatchObject({
       action: "winner_gap",
       reason: "candidate_missing_data",
-      candidateMissingData: ["last_winner_date"],
+      candidateMissingData: ["winner_cadence_window"],
     });
   });
 
@@ -258,6 +258,30 @@ describe("Decision Center aggregate builder", () => {
       reason: "missing_required_data",
       missingRequiredData: [...REQUIRED_AGGREGATE_DATA.winner_gap],
     });
+  });
+
+  it("can emit winner-gap when a full snapshot window has no scale winners", () => {
+    const candidate = buildWinnerGapAggregateCandidate({
+      lastWinnerDate: null,
+      windowStartDate: "2026-05-01",
+      windowEndDate: "2026-05-20",
+      affectedCreativeIds: ["creative_a", "creative_b"],
+      availableData: [...REQUIRED_AGGREGATE_DATA.winner_gap],
+    });
+
+    const result = buildDecisionCenterAggregateDecisions({
+      candidates: candidate ? [candidate] : [],
+    });
+
+    expect(result.aggregateDecisions).toEqual([
+      expect.objectContaining({
+        scope: "page",
+        action: "winner_gap",
+        oneLine:
+          "No winner observed for 19 days in the available snapshot window.",
+        affectedCreativeIds: ["creative_a", "creative_b"],
+      }),
+    ]);
   });
 
   it("builds unused-approved and fatigue-cluster candidates without binding them to random row ids", () => {

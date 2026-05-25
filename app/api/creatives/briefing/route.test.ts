@@ -6,8 +6,12 @@ import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
 import { readTriageState } from "@/lib/triage-events";
 import { DECISION_CENTER_OBSERVABILITY_LOG_MARKER } from "@/lib/creative-decision-center";
-import type { EngineV3Flags } from "@/lib/creative-decision-engine";
-import type { DecisionOutput } from "@/lib/creative-decision-engine";
+import {
+  ENGINE_VERSION,
+  type DecisionOutput,
+  type EngineV3Flags,
+} from "@/lib/creative-decision-engine";
+import { UNUSED_APPROVED_LOOKBACK_DAYS } from "@/lib/creative-decision-engine/config-values";
 import { cardForDecision } from "./card-serialization";
 import { GET } from "./route";
 
@@ -33,6 +37,14 @@ vi.mock("@/lib/meta/campaign-labels", () => ({
 
 vi.mock("@/lib/triage-events", () => ({
   readTriageState: vi.fn(),
+}));
+
+const mockDbQuery = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/db", () => ({
+  getDb: vi.fn(() => ({
+    query: mockDbQuery,
+  })),
 }));
 
 const previousDataSourceFlag = process.env.DECISION_ENGINE_V3_DATA_SOURCE;
@@ -84,6 +96,7 @@ function campaignLabel(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockDbQuery.mockResolvedValue([]);
   process.env.DECISION_ENGINE_V3_DATA_SOURCE = "mock";
   delete process.env.DECISION_CENTER_DEFAULT_DISABLED;
   delete process.env.DECISION_CENTER_OBSERVABILITY;
@@ -511,6 +524,146 @@ describe("GET /api/creatives/briefing", () => {
     expect(Array.isArray(payload.healthy)).toBe(true);
     expect(payload.pulse.engineVersion).toBeTruthy();
     expect(payload.source.dataSource).toBe("mock");
+  });
+
+  it("falls back to ENGINE_VERSION when a scoped response has no row decisions", async () => {
+    vi.mocked(resolveEngineV3Flags).mockResolvedValue(
+      makeFlags({ presetOverride: "aggressive" }),
+    );
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&campaignId=missing-campaign&asOf=2026-05-07",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.actionNow).toEqual([]);
+    expect(payload.watching).toEqual([]);
+    expect(payload.healthy).toEqual([]);
+    expect(payload.pulse.engineVersion).toBe(ENGINE_VERSION);
+    expect(payload.decisionCenter.engineVersion).toBe(ENGINE_VERSION);
+  });
+
+  it("emits unused-approved aggregate decisions only when proof fields are available", async () => {
+    mockDbQuery.mockImplementation(async (query: unknown) => {
+      const sql = String(query);
+      if (sql.includes("engine_v3_decision_snapshots_daily")) return [];
+      if (sql.includes("meta_creative_daily")) {
+        return [
+          {
+            approved_unused_ids: [
+              "creative_unused_001",
+              "creative_unused_002",
+              "creative_unused_003",
+              "creative_unused_004",
+              "creative_unused_005",
+            ],
+            approved_unused_count: "5",
+            status_proof_count: "5",
+            delivery_proof_count: "5",
+          },
+        ];
+      }
+      return [];
+    });
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=1",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.decisionCenter.aggregateDecisions).toEqual([
+      expect.objectContaining({
+        scope: "page",
+        action: "unused_approved_creatives",
+        priority: "high",
+        confidence: 70,
+        affectedCreativeIds: [
+          "creative_unused_001",
+          "creative_unused_002",
+          "creative_unused_003",
+          "creative_unused_004",
+          "creative_unused_005",
+        ],
+      }),
+    ]);
+    const unusedApprovedQuery = mockDbQuery.mock.calls.find((call) =>
+      String(call[0]).includes("latest_meta"),
+    );
+    expect(String(unusedApprovedQuery?.[0])).toContain(
+      "review_status IS NOT NULL AS has_status_proof",
+    );
+    expect(String(unusedApprovedQuery?.[0])).toContain(
+      "UPPER(REPLACE(COALESCE(review_status, ''), ' ', '_')) IN",
+    );
+    expect(String(unusedApprovedQuery?.[0])).toContain("'APPROVED'");
+    expect(unusedApprovedQuery?.[1]).toEqual([
+      "biz_1",
+      "2026-05-07",
+      UNUSED_APPROVED_LOOKBACK_DAYS,
+    ]);
+  });
+
+  it("suppresses unused-approved aggregates when explicit review proof is missing", async () => {
+    mockDbQuery.mockImplementation(async (query: unknown) => {
+      const sql = String(query);
+      if (sql.includes("engine_v3_decision_snapshots_daily")) return [];
+      if (sql.includes("meta_creative_daily")) {
+        return [
+          {
+            approved_unused_ids: ["creative_unused_001"],
+            approved_unused_count: "1",
+            status_proof_count: "0",
+            delivery_proof_count: "1",
+          },
+        ];
+      }
+      return [];
+    });
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=1",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.decisionCenter.aggregateDecisions).toEqual([]);
+  });
+
+  it("logs aggregate SQL failures without breaking the briefing response", async () => {
+    const queryError = new Error("snapshot query failed");
+    mockDbQuery.mockImplementation(async (query: unknown) => {
+      const sql = String(query);
+      if (sql.includes("engine_v3_decision_snapshots_daily")) {
+        throw queryError;
+      }
+      return [];
+    });
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=1",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.decisionCenter).not.toBeNull();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[creative-decision-center] winner_gap candidate query failed",
+      queryError,
+    );
+    errorSpy.mockRestore();
   });
 
   it("keeps the explicit truthy decisionCenter request compatible (PR7C/D027)", async () => {

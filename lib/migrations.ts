@@ -5271,6 +5271,51 @@ export async function runMigrations(options?: {
         sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_events_creative_timeline
           ON engine_v3_decision_events
           (business_ref_id, creative_id, event_date DESC)`,
+        sql`CREATE TABLE IF NOT EXISTS engine_v3_decision_outcomes_daily (
+          id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          decision_snapshot_id       UUID NOT NULL REFERENCES engine_v3_decision_snapshots_daily(id) ON DELETE CASCADE,
+          business_ref_id            UUID NOT NULL,
+          business_id                TEXT,
+          creative_id                TEXT NOT NULL,
+          decision_as_of_date        DATE NOT NULL,
+          evaluation_date            DATE NOT NULL,
+          outcome_window_days        INTEGER NOT NULL CHECK (outcome_window_days IN (7, 14)),
+          engine_version             TEXT NOT NULL,
+          label                      TEXT NOT NULL CHECK (label IN (
+            'scale', 'keep', 'refresh', 'cut', 'test_more', 'diagnose', 'out_of_scope'
+          )),
+          confidence                 INTEGER NOT NULL CHECK (confidence >= 0 AND confidence <= 100),
+          effective_target_roas      DOUBLE PRECISION NOT NULL,
+          baseline_spend             DOUBLE PRECISION,
+          baseline_purchases         DOUBLE PRECISION,
+          baseline_roas              DOUBLE PRECISION,
+          outcome_spend              DOUBLE PRECISION NOT NULL DEFAULT 0,
+          outcome_purchases          DOUBLE PRECISION NOT NULL DEFAULT 0,
+          outcome_revenue            DOUBLE PRECISION NOT NULL DEFAULT 0,
+          outcome_roas               DOUBLE PRECISION,
+          realized_outcome           TEXT NOT NULL CHECK (realized_outcome IN (
+            'positive', 'negative', 'neutral', 'unknown'
+          )),
+          severity                   TEXT NOT NULL CHECK (severity IN (
+            'critical', 'high', 'medium', 'low'
+          )),
+          classifier_version         TEXT NOT NULL,
+          evidence_json              JSONB NOT NULL DEFAULT '{}'::jsonb,
+          job_run_id                 UUID REFERENCES engine_v3_job_runs(id) ON DELETE SET NULL,
+          computed_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+          created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (decision_snapshot_id, outcome_window_days)
+        )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_outcomes_business_eval
+          ON engine_v3_decision_outcomes_daily
+          (business_ref_id, evaluation_date DESC, outcome_window_days)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_outcomes_label_window
+          ON engine_v3_decision_outcomes_daily
+          (business_ref_id, label, outcome_window_days, decision_as_of_date DESC)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_outcomes_snapshot
+          ON engine_v3_decision_outcomes_daily
+          (decision_snapshot_id, outcome_window_days)`,
       ]);
 
       // ── Engine v3 rollout feature flags (NULL = inherit env default) ─────

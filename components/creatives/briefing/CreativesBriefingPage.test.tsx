@@ -17,6 +17,7 @@ import {
   launchpadHrefFromOverlayState,
   openLaunchpadOverlayState,
 } from "@/components/creatives/briefing/CreativesBriefingPage";
+import { buildEvidenceSections } from "@/components/creatives/briefing/card-utils";
 
 const mockState = vi.hoisted(() => ({
   queryKeys: [] as unknown[][],
@@ -415,6 +416,46 @@ describe("CreativesBriefingPage", () => {
     expect(html).not.toContain("shadow preview");
     expect(html).not.toContain("Retired brief should stay hidden.");
     expect(html).not.toContain("Retired board row should stay hidden.");
+  });
+
+  it("renders structured decision blocker predicates in evidence sections", () => {
+    const sections = buildEvidenceSections({
+      id: "creative_1",
+      creativeId: "creative_1",
+      name: "Creative 1",
+      label: "keep",
+      confidence: 82,
+      reason: "[near scale] ROAS above target but blocked by scale readiness.",
+      primary: { kind: "review", label: "Review" },
+      blockers: [
+        {
+          predicate: "scale_purchase_depth",
+          observed: 2,
+          threshold: 5,
+          status: "failed",
+          severity: "warning",
+          reason: "purchases 2 below scale floor",
+        },
+        {
+          predicate: "scale_recent_hold",
+          observed: 1.8,
+          threshold: 2.2,
+          status: "failed",
+          severity: "warning",
+          reason: "recent 7d ROAS below target",
+        },
+      ],
+    } as any);
+    const blockers = sections.find((section) => section.key === "blockers");
+
+    expect(blockers).toBeTruthy();
+    const html = renderToStaticMarkup(<>{blockers?.content}</>);
+    expect(html).toContain("scale_purchase_depth");
+    expect(html).toContain("scale_recent_hold");
+    expect(html).toContain("2");
+    expect(html).toContain("5");
+    expect(html).toContain("1.8");
+    expect(html).toContain("2.2");
   });
 
   it("attaches server-supplied decisionCenter rows without crashing on null or missing snapshots", () => {

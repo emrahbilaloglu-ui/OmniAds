@@ -510,6 +510,63 @@ function Kv({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+function formatBlockerValue(value: unknown) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value.toLocaleString("en-US") : "—";
+  }
+  if (typeof value === "string") return value;
+  return JSON.stringify(value);
+}
+
+function BlockersBody({ card }: { card: BriefingCreativeCard }) {
+  const blockers = card.blockers ?? [];
+  if (blockers.length === 0) {
+    return (
+      <p className="text-[12px] text-slate-500">
+        No structured blocker predicates supplied.
+      </p>
+    );
+  }
+
+  return (
+    <div className="overflow-hidden rounded-md border border-slate-200">
+      <div className="grid grid-cols-[1.35fr_1fr_1fr_0.8fr] gap-2 border-b border-slate-200 bg-slate-50 px-2 py-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-slate-500">
+        <span>Predicate</span>
+        <span>Observed</span>
+        <span>Threshold</span>
+        <span>Status</span>
+      </div>
+      {blockers.map((blocker, index) => (
+        <div
+          key={`${blocker.predicate}-${index}`}
+          className="grid grid-cols-[1.35fr_1fr_1fr_0.8fr] gap-2 border-b border-slate-100 px-2 py-1.5 text-[12px] last:border-b-0"
+        >
+          <div>
+            <div className="font-mono text-[11.5px] text-slate-900">
+              {blocker.predicate}
+            </div>
+            {blocker.reason ? (
+              <div className="mt-0.5 text-[11px] leading-snug text-slate-500">
+                {blocker.reason}
+              </div>
+            ) : null}
+          </div>
+          <span className="font-mono tabular-nums text-slate-700">
+            {formatBlockerValue(blocker.observed)}
+          </span>
+          <span className="font-mono tabular-nums text-slate-700">
+            {formatBlockerValue(blocker.threshold)}
+          </span>
+          <span className="font-medium text-slate-700">
+            {blocker.status ?? "failed"}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function TrailItem({
   version,
   date,
@@ -616,6 +673,12 @@ export function buildEvidenceSections(
   const sourceAsOf = safeCardText(card.sourceAsOf) || "Current request";
   const sourceDataSource = safeCardText(card.sourceDataSource) || "Briefing API";
   const profileScope = safeCardText(card.profileScope) || "Account profile";
+  const truthSource = safeCardText(card.truthSource) || "—";
+  const spendUnitSource = safeCardText(card.spendUnitSource) || "—";
+  const spendUnitConfidence = safeCardText(card.spendUnitConfidence) || "—";
+  const metaAovQuality = safeCardText(card.metaAovQuality) || "—";
+  const thresholdQuality = safeCardText(card.thresholdQuality) || "—";
+  const hasBlockers = Boolean(card.blockers?.length);
 
   return [
     {
@@ -675,6 +738,22 @@ export function buildEvidenceSections(
         </div>
       ),
     },
+    ...(hasBlockers
+      ? [
+          {
+            key: "blockers",
+            title: "Decision blockers",
+            icon: (
+              <AlertTriangle
+                className="inline-block shrink-0"
+                size={13}
+                aria-hidden="true"
+              />
+            ),
+            content: <BlockersBody card={card} />,
+          },
+        ]
+      : []),
     {
       key: "inputs",
       title: "Inputs",
@@ -695,6 +774,16 @@ export function buildEvidenceSections(
           <Kv label="Frequency">{numberOrZero(card.frequency).toFixed(1)}</Kv>
           <Kv label="Age">{numberOrZero(card.ageDays)}d</Kv>
           <Kv label="Status">{card.status || "ACTIVE"}</Kv>
+          <Kv label="24h Spend">
+            {typeof card.spend24h === "number" ? formatCurrency(card.spend24h) : "—"}
+          </Kv>
+          <Kv label="24h Impr.">
+            {typeof card.impressions24h === "number"
+              ? numberOrZero(card.impressions24h).toLocaleString()
+              : "—"}
+          </Kv>
+          <Kv label="First seen">{card.firstSeenAt || "—"}</Kv>
+          <Kv label="First spend">{card.firstSpendAt || "—"}</Kv>
         </div>
       ),
     },
@@ -771,6 +860,15 @@ export function buildEvidenceSections(
           <Kv label="Decision as of">{sourceAsOf}</Kv>
           <Kv label="Profile scope">{profileScope}</Kv>
           <Kv label="Data source">{sourceDataSource}</Kv>
+          <Kv label="Truth source">{truthSource}</Kv>
+          <Kv label="Spend unit">{spendUnitSource}</Kv>
+          <Kv label="Spend confidence">{spendUnitConfidence}</Kv>
+          <Kv label="Meta AOV quality">{metaAovQuality}</Kv>
+          <Kv label="Threshold quality">{thresholdQuality}</Kv>
+          <Kv label="Review status">{card.reviewStatus || "—"}</Kv>
+          <Kv label="Policy reason">
+            {card.disapprovalReason || card.limitedReason || "—"}
+          </Kv>
           <Kv label="Campaign">{cardCampaign(card)}</Kv>
         </div>
       ),

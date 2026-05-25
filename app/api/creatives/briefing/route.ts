@@ -1,10 +1,13 @@
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { getDb } from "@/lib/db";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getDemoMetaCreatives } from "@/lib/demo-business";
 import {
   decideCreative,
+  ENGINE_VERSION,
+  readCreativeDecisionBacktestSummary,
   resolveAccountDecisionProfile,
   type CreativeInput,
   type DecisionOutput,
@@ -25,7 +28,15 @@ import {
 import { nDaysAgo, toISODate } from "@/lib/meta/creatives-row-mappers";
 import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import { readTriageState } from "@/lib/triage-events";
-import { CREATIVE_DECISION_ENGINE_CONFIG_VERSION } from "@/lib/creative-decision-engine/config-values";
+import {
+  AGGREGATE_AFFECTED_CREATIVE_ID_CAP,
+  CREATIVE_DECISION_ENGINE_CONFIG_VERSION,
+  UNUSED_APPROVED_LOOKBACK_DAYS,
+  WINNER_GAP_FRESHNESS_MAX_DAYS,
+  WINNER_GAP_LOOKBACK_DAYS,
+  WINNER_GAP_MIN_DEPTH_DAYS,
+  WINNER_GAP_MIN_SAMPLED_DAYS,
+} from "@/lib/creative-decision-engine/config-values";
 import {
   cardForDecision,
   safeNumber,
@@ -36,12 +47,16 @@ import {
   auditDecisionCenterSnapshotInvariants,
   buildDecisionCenterObservabilityEvents,
   buildDecisionCenterAggregateDecisions,
+  buildUnusedApprovedCreativesAggregateCandidate,
+  buildWinnerGapAggregateCandidate,
+  REQUIRED_AGGREGATE_DATA,
   CREATIVE_DECISION_CENTER_ADAPTER_VERSION,
   CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION,
   DECISION_CENTER_OBSERVABILITY_LOG_MARKER,
   bridgeV3DecisionToAdapterInput,
   validateDecisionCenterSnapshot,
   type CreativeDecisionCenterAggregateDecision,
+  type CreativeDecisionCenterAggregateCandidate,
   type CreativeDecisionCenterRowDecision,
   type CreativeDecisionCenterFreshnessStatus,
   type DecisionCenterSnapshot,
@@ -232,6 +247,268 @@ function buildDecisionCenterSnapshot(input: {
 const DECISION_CENTER_BRIDGED_ADAPTER_VERSION =
   `${CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION}+${CREATIVE_DECISION_CENTER_ADAPTER_VERSION}`;
 
+type WinnerGapSnapshotSummaryRow = Record<string, unknown> & {
+  window_start_date: unknown;
+  window_end_date: unknown;
+  last_winner_date: unknown;
+  sampled_days: unknown;
+};
+
+type UnusedApprovedCreativesSummaryRow = Record<string, unknown> & {
+  approved_unused_ids: unknown;
+  approved_unused_count: unknown;
+  status_proof_count: unknown;
+  delivery_proof_count: unknown;
+};
+
+function parseDateOnly(value: unknown): string | null {
+  if (value instanceof Date && Number.isFinite(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  if (!text) return null;
+  const date = new Date(`${text.slice(0, 10)}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) : null;
+}
+
+function parseTextArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === "string" ? item.trim() : ""))
+      .filter(Boolean);
+  }
+  if (typeof value !== "string") return [];
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    return trimmed
+      .slice(1, -1)
+      .split(",")
+      .map((item) => item.trim().replace(/^"|"$/g, ""))
+      .filter(Boolean);
+  }
+  return [trimmed];
+}
+
+function safeCount(value: unknown): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 0;
+}
+
+function daysBetweenDateOnly(start: string | null, end: string): number | null {
+  if (!start) return null;
+  const startDate = new Date(`${start}T00:00:00.000Z`);
+  const endDate = new Date(`${end}T00:00:00.000Z`);
+  if (!Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime())) {
+    return null;
+  }
+  return Math.floor((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000));
+}
+
+function aggregateAffectedCreativeIds(decisions: readonly DecisionOutput[]) {
+  return Array.from(
+    new Set(
+      [...decisions]
+        .sort(
+          (left, right) =>
+            safeNumber(right.metrics.spend) - safeNumber(left.metrics.spend) ||
+            left.creativeId.localeCompare(right.creativeId),
+        )
+        .map((decision) => decision.creativeId)
+        .filter(Boolean),
+    ),
+  ).slice(0, AGGREGATE_AFFECTED_CREATIVE_ID_CAP);
+}
+
+async function buildWinnerGapCandidateFromSnapshots(input: {
+  businessId: string;
+  asOf: string;
+  engineVersion: string;
+  decisions: readonly DecisionOutput[];
+}): Promise<CreativeDecisionCenterAggregateCandidate | null> {
+  const affectedCreativeIds = aggregateAffectedCreativeIds(input.decisions);
+  if (affectedCreativeIds.length === 0) return null;
+
+  const [row] = await getDb().query<WinnerGapSnapshotSummaryRow>(
+    `
+    WITH scoped AS (
+      SELECT creative_id, as_of_date, label
+      FROM engine_v3_decision_snapshots_daily
+      WHERE (business_ref_id::text = $1 OR business_id::text = $1)
+        AND engine_version = $2
+        AND scope_type = 'account'
+        AND scope_id = '*'
+        AND as_of_date BETWEEN ($3::date - (($4::integer - 1) * INTERVAL '1 day')) AND $3::date
+    )
+    SELECT
+      MIN(as_of_date) AS window_start_date,
+      MAX(as_of_date) AS window_end_date,
+      MAX(as_of_date) FILTER (WHERE label = 'scale') AS last_winner_date,
+      COUNT(DISTINCT as_of_date) AS sampled_days
+    FROM scoped
+    `,
+    [input.businessId, input.engineVersion, input.asOf, WINNER_GAP_LOOKBACK_DAYS],
+  );
+
+  const windowStartDate = parseDateOnly(row?.window_start_date);
+  const windowEndDate = parseDateOnly(row?.window_end_date);
+  const lastWinnerDate = parseDateOnly(row?.last_winner_date);
+  const sampledDays = Number(row?.sampled_days ?? 0);
+  const freshnessDays = daysBetweenDateOnly(windowEndDate, input.asOf);
+  const depthDays = daysBetweenDateOnly(windowStartDate, input.asOf);
+  const hasUsableHistoricalWindow =
+    windowStartDate !== null &&
+    windowEndDate !== null &&
+    freshnessDays !== null &&
+    depthDays !== null &&
+    freshnessDays <= WINNER_GAP_FRESHNESS_MAX_DAYS &&
+    depthDays >= WINNER_GAP_MIN_DEPTH_DAYS &&
+    sampledDays >= WINNER_GAP_MIN_SAMPLED_DAYS;
+
+  return buildWinnerGapAggregateCandidate({
+    lastWinnerDate,
+    windowStartDate,
+    windowEndDate: windowEndDate ?? input.asOf,
+    affectedCreativeIds,
+    availableData: hasUsableHistoricalWindow
+      ? [...REQUIRED_AGGREGATE_DATA.winner_gap]
+      : [],
+  });
+}
+
+async function buildUnusedApprovedCreativesCandidateFromWarehouse(input: {
+  businessId: string;
+  asOf: string;
+}): Promise<CreativeDecisionCenterAggregateCandidate | null> {
+  const [row] = await getDb().query<UnusedApprovedCreativesSummaryRow>(
+    `
+    WITH latest_meta AS (
+      SELECT DISTINCT ON (d.creative_id)
+        d.creative_id,
+        COALESCE(
+          NULLIF(d.payload_json->>'review_status', ''),
+          NULLIF(d.payload_json->>'ad_review_status', ''),
+          NULLIF(d.payload_json->>'approval_status', '')
+        ) AS review_status,
+        COALESCE(
+          NULLIF(d.payload_json->>'policy_reason', ''),
+          NULLIF(d.payload_json->>'ad_review_feedback', ''),
+          NULLIF(d.payload_json->>'review_feedback', ''),
+          NULLIF(d.payload_json->>'disapproval_reason', ''),
+          NULLIF(d.payload_json->>'limited_reason', ''),
+          NULLIF(d.payload_json->>'delivery_status_reason', '')
+        ) AS policy_reason
+      FROM meta_creative_daily d
+      WHERE (d.business_ref_id::text = $1 OR d.business_id::text = $1)
+        AND d.date <= $2::date
+        AND d.date >= ($2::date - (($3::integer - 1) * INTERVAL '1 day'))
+        AND d.creative_id IS NOT NULL
+      ORDER BY d.creative_id, d.date DESC, d.updated_at DESC
+    ),
+    lifetime_delivery AS (
+      SELECT
+        d.creative_id,
+        SUM(COALESCE(d.spend, 0)) AS lifetime_spend,
+        SUM(COALESCE(d.impressions, 0)) AS lifetime_impressions,
+        COUNT(*) AS sampled_rows
+      FROM meta_creative_daily d
+      WHERE (d.business_ref_id::text = $1 OR d.business_id::text = $1)
+        AND d.date <= $2::date
+        AND d.creative_id IS NOT NULL
+      GROUP BY d.creative_id
+    ),
+    candidates AS (
+      SELECT
+        latest_meta.creative_id,
+        UPPER(REPLACE(COALESCE(review_status, ''), ' ', '_')) IN (
+          'APPROVED',
+          'AD_APPROVED',
+          'APPROVED_LIMITED',
+          'APPROVED_WITH_LIMITED'
+        ) AS approved_like,
+        COALESCE(policy_reason, '') = '' AS policy_clear,
+        COALESCE(lifetime_spend, 0) <= 0
+          AND COALESCE(lifetime_impressions, 0) <= 0 AS no_delivery,
+        review_status IS NOT NULL AS has_status_proof,
+        sampled_rows > 0 AS has_delivery_proof
+      FROM latest_meta
+      INNER JOIN lifetime_delivery
+        ON lifetime_delivery.creative_id = latest_meta.creative_id
+    )
+    SELECT
+      ARRAY_AGG(creative_id ORDER BY creative_id)
+        FILTER (WHERE approved_like AND policy_clear AND no_delivery)
+        AS approved_unused_ids,
+      COUNT(*) FILTER (WHERE approved_like AND policy_clear AND no_delivery)
+        AS approved_unused_count,
+      COUNT(*) FILTER (
+        WHERE approved_like AND policy_clear AND no_delivery AND has_status_proof
+      ) AS status_proof_count,
+      COUNT(*) FILTER (
+        WHERE approved_like AND policy_clear AND no_delivery AND has_delivery_proof
+      ) AS delivery_proof_count
+    FROM candidates
+    `,
+    [input.businessId, input.asOf, UNUSED_APPROVED_LOOKBACK_DAYS],
+  );
+
+  const approvedUnusedIds = parseTextArray(row?.approved_unused_ids).slice(
+    0,
+    AGGREGATE_AFFECTED_CREATIVE_ID_CAP,
+  );
+  const approvedUnusedCount = safeCount(row?.approved_unused_count);
+  if (approvedUnusedIds.length === 0) return null;
+  const statusProofCount = safeCount(row?.status_proof_count);
+  const deliveryProofCount = safeCount(row?.delivery_proof_count);
+  const hasRequiredProof =
+    approvedUnusedCount > 0 &&
+    statusProofCount >= approvedUnusedCount &&
+    deliveryProofCount >= approvedUnusedCount;
+
+  return buildUnusedApprovedCreativesAggregateCandidate({
+    approvedUnusedCreativeIds: approvedUnusedIds,
+    approvedUnusedCount,
+    availableData: hasRequiredProof
+      ? [...REQUIRED_AGGREGATE_DATA.unused_approved_creatives]
+      : [],
+  });
+}
+
+async function buildDecisionCenterAggregateCandidates(input: {
+  businessId: string;
+  asOf: string;
+  engineVersion: string;
+  decisions: readonly DecisionOutput[];
+}): Promise<CreativeDecisionCenterAggregateCandidate[]> {
+  const aggregateCandidates: CreativeDecisionCenterAggregateCandidate[] = [];
+
+  try {
+    const winnerGap = await buildWinnerGapCandidateFromSnapshots(input);
+    if (winnerGap) aggregateCandidates.push(winnerGap);
+  } catch (error) {
+    // Aggregate decisions are helpful, but missing/stale persisted history must
+    // not break the row-level briefing or invent a page-level recommendation.
+    console.error(
+      "[creative-decision-center] winner_gap candidate query failed",
+      error,
+    );
+  }
+
+  try {
+    const unusedApproved =
+      await buildUnusedApprovedCreativesCandidateFromWarehouse(input);
+    if (unusedApproved) aggregateCandidates.push(unusedApproved);
+  } catch (error) {
+    console.error(
+      "[creative-decision-center] unused_approved_creatives candidate query failed",
+      error,
+    );
+  }
+
+  return aggregateCandidates;
+}
+
 function decisionLane(
   decision: DecisionOutput,
   deferred: boolean,
@@ -311,6 +588,7 @@ function buildBridgedDecisionCenterSnapshot(input: {
   inputsByCreativeId: Map<string, CreativeInput>;
   creativeRowsById: Map<string, MetaCreativeApiRow>;
   dataHealthDegraded: boolean;
+  aggregateCandidates: readonly CreativeDecisionCenterAggregateCandidate[];
 }): DecisionCenterSnapshot | null {
   try {
     const rowDecisions = buildDecisionCenterRows({
@@ -320,7 +598,7 @@ function buildBridgedDecisionCenterSnapshot(input: {
       dataHealthDegraded: input.dataHealthDegraded,
     });
     const { aggregateDecisions } = buildDecisionCenterAggregateDecisions({
-      candidates: [],
+      candidates: input.aggregateCandidates,
     });
     return buildDecisionCenterSnapshot({
       asOf: input.asOf,
@@ -591,6 +869,11 @@ export async function GET(request: NextRequest) {
       campaignLabelsById,
     }),
   );
+  const backtestSummary = await readCreativeDecisionBacktestSummary({
+    businessId: resolvedBusinessId,
+    asOf,
+    activeCreativeCount: enrichedInputs.length,
+  }).catch(() => null);
 
   for (const decision of decisions) {
     const creativeInput = inputByCreativeId.get(decision.creativeId);
@@ -602,6 +885,8 @@ export async function GET(request: NextRequest) {
       sourceAsOf: asOf,
       sourceDataSource: dataSourceLabel,
       profileScope: `${profile.scope.type}:${profile.scope.id}`,
+      accountProfile: profile,
+      backtestSummary,
     });
     const deferred =
       deferredIds.has(decision.creativeId) ||
@@ -621,8 +906,13 @@ export async function GET(request: NextRequest) {
     decision.badges.some((badge) => badge.type === "tracking_anomaly"),
   );
 
-  const responseEngineVersion =
-    decisions[0]?.engineVersion ?? flags.presetOverride ?? "Engine v3";
+  const responseEngineVersion = decisions[0]?.engineVersion ?? ENGINE_VERSION;
+  const aggregateCandidates = await buildDecisionCenterAggregateCandidates({
+    businessId: resolvedBusinessId,
+    asOf,
+    engineVersion: responseEngineVersion,
+    decisions,
+  });
 
   const responseBody: CreativesBriefingResponse & {
     statusFilter: typeof statusFilter;
@@ -667,6 +957,7 @@ export async function GET(request: NextRequest) {
       inputsByCreativeId: inputByCreativeId,
       creativeRowsById,
       dataHealthDegraded: Boolean(dataHealth.degraded),
+      aggregateCandidates,
     });
     responseBody.decisionCenter = decisionCenterSnapshot;
     emitDecisionCenterObservability({

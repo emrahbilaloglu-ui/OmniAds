@@ -6,6 +6,10 @@ import type {
   FunnelDiagnosis,
   FunnelRates,
 } from "./types";
+import {
+  FUNNEL_FALLBACK_DENOMINATOR_P50,
+  QUALITY_ONLY_COMPONENT_WEIGHTS,
+} from "./config-values";
 
 export type QualityOnlyStatus =
   | "strong"
@@ -22,12 +26,6 @@ export interface QualityOnlyAssessment {
   evidence: string[];
   diagnosis: FunnelDiagnosis;
 }
-
-const FALLBACK_DENOMINATOR_P50 = {
-  upperFunnel: 1_000,
-  landingPage: 50,
-  checkout: 10,
-} as const;
 
 function positiveFinite(value: number | null | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
@@ -261,23 +259,23 @@ export function computeFunnelDiagnosis(input: {
   const weakMultiplier = profile.multipliers.weakFunnelRate;
   const upperConfidence = stageDenominatorConfidence(
     creative.impressions,
-    FALLBACK_DENOMINATOR_P50.upperFunnel,
+    FUNNEL_FALLBACK_DENOMINATOR_P50.upperFunnel,
   );
   const clickConfidence = stageDenominatorConfidence(
     creative.linkClicks,
-    FALLBACK_DENOMINATOR_P50.landingPage,
+    FUNNEL_FALLBACK_DENOMINATOR_P50.landingPage,
   );
   const lpvConfidence = stageDenominatorConfidence(
     creative.landingPageViews,
-    FALLBACK_DENOMINATOR_P50.landingPage,
+    FUNNEL_FALLBACK_DENOMINATOR_P50.landingPage,
   );
   const atcConfidence = stageDenominatorConfidence(
     creative.addToCart,
-    FALLBACK_DENOMINATOR_P50.checkout,
+    FUNNEL_FALLBACK_DENOMINATOR_P50.checkout,
   );
   const icConfidence = stageDenominatorConfidence(
     creative.initiateCheckout,
-    FALLBACK_DENOMINATOR_P50.checkout,
+    FUNNEL_FALLBACK_DENOMINATOR_P50.checkout,
   );
 
   const insufficientEvidence: string[] = [];
@@ -470,21 +468,23 @@ export function assessQualityOnly(input: {
 
   const upperConfidence = stageDenominatorConfidence(
     creative.impressions,
-    FALLBACK_DENOMINATOR_P50.upperFunnel,
+    FUNNEL_FALLBACK_DENOMINATOR_P50.upperFunnel,
   );
   const clickConfidence = stageDenominatorConfidence(
     creative.linkClicks,
-    FALLBACK_DENOMINATOR_P50.landingPage,
+    FUNNEL_FALLBACK_DENOMINATOR_P50.landingPage,
   );
   const lpvConfidence = stageDenominatorConfidence(
     creative.landingPageViews,
-    FALLBACK_DENOMINATOR_P50.landingPage,
+    FUNNEL_FALLBACK_DENOMINATOR_P50.landingPage,
   );
   const atcConfidence = stageDenominatorConfidence(
     creative.addToCart,
-    FALLBACK_DENOMINATOR_P50.checkout,
+    FUNNEL_FALLBACK_DENOMINATOR_P50.checkout,
   );
 
+  // Operator-tunable v1 weights: keep centralized in config-values until
+  // realized-outcome backtests provide enough data to refit them empirically.
   const components: Array<{
     name: string;
     weight: number;
@@ -492,7 +492,7 @@ export function assessQualityOnly(input: {
   }> = [
     {
       name: "hook",
-      weight: 0.05,
+      weight: QUALITY_ONLY_COMPONENT_WEIGHTS.hook,
       score: componentScore({
         value: creative.thumbstop,
         baseline: baseline.thumbstopP50,
@@ -501,7 +501,7 @@ export function assessQualityOnly(input: {
     },
     {
       name: "ctr",
-      weight: 0.1,
+      weight: QUALITY_ONLY_COMPONENT_WEIGHTS.ctr,
       score: componentScore({
         value: rates.ctr,
         baseline: baseline.ctrP50,
@@ -510,7 +510,7 @@ export function assessQualityOnly(input: {
     },
     {
       name: "cpm_efficiency",
-      weight: 0.1,
+      weight: QUALITY_ONLY_COMPONENT_WEIGHTS.cpmEfficiency,
       score: componentScore({
         value: creative.cpm,
         baseline: baseline.cpmP50,
@@ -520,7 +520,7 @@ export function assessQualityOnly(input: {
     },
     {
       name: "click_to_lpv",
-      weight: 0.15,
+      weight: QUALITY_ONLY_COMPONENT_WEIGHTS.clickToLpv,
       score: componentScore({
         value: rates.linkToLpvRate,
         baseline: baseline.linkToLpvP50,
@@ -529,7 +529,7 @@ export function assessQualityOnly(input: {
     },
     {
       name: "lpv_to_atc",
-      weight: 0.2,
+      weight: QUALITY_ONLY_COMPONENT_WEIGHTS.lpvToAtc,
       score: componentScore({
         value: rates.lpvToAtcRate,
         baseline: baseline.lpvToAtcP50,
@@ -538,7 +538,7 @@ export function assessQualityOnly(input: {
     },
     {
       name: "atc_to_ic",
-      weight: 0.25,
+      weight: QUALITY_ONLY_COMPONENT_WEIGHTS.atcToIc,
       score: componentScore({
         value: rates.atcToIcRate,
         baseline: baseline.atcToIcP50,

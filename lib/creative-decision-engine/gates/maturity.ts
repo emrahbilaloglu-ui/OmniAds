@@ -1,4 +1,5 @@
 import { finalizeDecision, type GateContext, type GateResult } from "./types";
+import { LAUNCH_MONITOR_WINDOW_DAYS } from "../config-values";
 
 function formatSpend(value: number): string {
   return value.toLocaleString("en-US", { maximumFractionDigits: 0 });
@@ -6,6 +7,24 @@ function formatSpend(value: number): string {
 
 function positiveFinite(value: number | null | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function dateOnlyMs(value: string | null | undefined) {
+  if (typeof value !== "string" || value.trim().length === 0) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return Date.UTC(
+    parsed.getUTCFullYear(),
+    parsed.getUTCMonth(),
+    parsed.getUTCDate(),
+  );
+}
+
+function launchAgeDays(ctx: GateContext) {
+  const launchAt = dateOnlyMs(ctx.input.firstSpendAt ?? ctx.input.firstSeenAt);
+  const generatedAt = dateOnlyMs(ctx.generatedAt);
+  if (launchAt === null || generatedAt === null) return null;
+  return Math.floor((generatedAt - launchAt) / 86_400_000);
 }
 
 export function commercialMaturitySpendThreshold(ctx: GateContext): number {
@@ -71,10 +90,27 @@ export function maturityGate(ctx: GateContext): GateResult {
       };
     }
 
+    const explicitLaunchAgeDays = launchAgeDays(ctx);
+    const launchBadges =
+      explicitLaunchAgeDays !== null &&
+      explicitLaunchAgeDays >= 0 &&
+      explicitLaunchAgeDays <= LAUNCH_MONITOR_WINDOW_DAYS
+        ? [
+            {
+              type: "launch_monitoring" as const,
+              label: `Inside ${LAUNCH_MONITOR_WINDOW_DAYS}d launch window (explicit first-spend/first-seen basis, age ${explicitLaunchAgeDays}d)`,
+              severity: "info" as const,
+            },
+          ]
+        : [];
+
     return {
       kind: "terminal",
       output: finalizeDecision(
-        ctx,
+        {
+          ...ctx,
+          badges: [...ctx.badges, ...launchBadges],
+        },
         "test_more",
         `Below commercial maturity (28d spend $${formatSpend(
           ctx.input.spend,

@@ -5,6 +5,7 @@ const ENGINE_V3_TABLES = [
   "engine_v3_account_calibration_daily",
   "engine_v3_creative_lifecycle_daily",
   "engine_v3_decision_events",
+  "engine_v3_decision_outcomes_daily",
   "engine_v3_decision_snapshots_daily",
   "engine_v3_job_runs",
 ] as const;
@@ -23,6 +24,9 @@ const ENGINE_V3_INDEXES = [
   "idx_engine_v3_decisions_first_scale",
   "idx_engine_v3_events_business_date",
   "idx_engine_v3_events_creative_timeline",
+  "idx_engine_v3_outcomes_business_eval",
+  "idx_engine_v3_outcomes_label_window",
+  "idx_engine_v3_outcomes_snapshot",
 ] as const;
 
 const ENGINE_V3_COLUMN_COUNTS = {
@@ -32,6 +36,7 @@ const ENGINE_V3_COLUMN_COUNTS = {
   engine_v3_creative_lifecycle_daily: 62,
   engine_v3_decision_snapshots_daily: 27,
   engine_v3_decision_events: 17,
+  engine_v3_decision_outcomes_daily: 27,
 } satisfies Record<(typeof ENGINE_V3_TABLES)[number], number>;
 
 function normalizeSql(statement: string) {
@@ -215,6 +220,14 @@ describe("Engine v3 precomputed table migrations", () => {
       normalizeSql(
         "decision_snapshot_id UUID REFERENCES engine_v3_decision_snapshots_daily(id) ON DELETE SET NULL",
       ),
+    );
+    expect(joined).toContain(
+      normalizeSql(
+        "decision_snapshot_id UUID NOT NULL REFERENCES engine_v3_decision_snapshots_daily(id) ON DELETE CASCADE",
+      ),
+    );
+    expect(normalizeSql(findCreateTableStatement(queries, "engine_v3_decision_outcomes_daily"))).toContain(
+      normalizeSql("UNIQUE (decision_snapshot_id, outcome_window_days)"),
     );
     expect(joined).toContain(
       normalizeSql(

@@ -619,8 +619,15 @@ type CreativeHydrationRow = Record<string, unknown> & {
   effective_status: unknown;
   objective: unknown;
   campaign_id: unknown;
+  first_seen_at: unknown;
+  first_spend_at: unknown;
   last_spend_date: unknown;
+  spend_24h: unknown;
+  impressions_24h: unknown;
+  review_status: unknown;
   policy_reason: unknown;
+  disapproval_reason: unknown;
+  limited_reason: unknown;
   age_days: unknown;
   data_freshness_hours: unknown;
   target_roas: unknown;
@@ -772,8 +779,15 @@ type LifecycleTableHydrationRow = Record<string, unknown> & {
   recent_impressions: unknown;
   effective_status: unknown;
   age_days: unknown;
+  first_seen_at: unknown;
+  first_spend_at: unknown;
   last_active_date: unknown;
+  spend_24h: unknown;
+  impressions_24h: unknown;
+  review_status: unknown;
   policy_reason: unknown;
+  disapproval_reason: unknown;
+  limited_reason: unknown;
   source_max_updated_at: unknown;
   data_freshness_hours: unknown;
   fatigue_status: unknown;
@@ -975,6 +989,17 @@ recent AS (
     AND d.date BETWEEN ($2::date - INTERVAL '6 days') AND $2::date
   GROUP BY d.creative_id
 ),
+recent_24h AS (
+  SELECT
+    d.creative_id,
+    SUM(d.spend) AS spend,
+    SUM(d.impressions) AS impressions
+  FROM meta_creative_daily d
+  INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
+  WHERE d.business_ref_id = $1::uuid
+    AND d.date = $2::date
+  GROUP BY d.creative_id
+),
 latest_meta AS (
   SELECT DISTINCT ON (d.creative_id)
     d.creative_id,
@@ -982,6 +1007,7 @@ latest_meta AS (
     d.objective,
     d.campaign_id,
     d.creative_name,
+    d.first_seen_at,
     d.first_spend_at,
     d.launch_date,
     d.updated_at,
@@ -994,7 +1020,26 @@ latest_meta AS (
       d.creative_visual_format,
       d.creative_primary_type
     ) AS creative_format,
-    NULLIF(d.payload_json->>'policy_reason', '') AS policy_reason,
+    COALESCE(
+      NULLIF(d.payload_json->>'policy_reason', ''),
+      NULLIF(d.payload_json->>'ad_review_feedback', ''),
+      NULLIF(d.payload_json->>'review_feedback', '')
+    ) AS policy_reason,
+    COALESCE(
+      NULLIF(d.payload_json->>'review_status', ''),
+      NULLIF(d.payload_json->>'ad_review_status', ''),
+      NULLIF(d.payload_json->>'approval_status', '')
+    ) AS review_status,
+    COALESCE(
+      NULLIF(d.payload_json->>'disapproval_reason', ''),
+      NULLIF(d.payload_json->>'ad_review_feedback', ''),
+      NULLIF(d.payload_json->>'review_feedback', '')
+    ) AS disapproval_reason,
+    COALESCE(
+      NULLIF(d.payload_json->>'limited_reason', ''),
+      NULLIF(d.payload_json->>'delivery_info', ''),
+      NULLIF(d.payload_json->>'delivery_status_reason', '')
+    ) AS limited_reason,
     CASE
       WHEN d.first_spend_at IS NOT NULL
       THEN ($2::date - d.first_spend_at::date)
@@ -1115,12 +1160,19 @@ SELECT
   r.purchases AS recent_purchases,
   r.impressions AS recent_impressions,
   r.roas AS recent_roas,
+  r24.spend AS spend_24h,
+  r24.impressions AS impressions_24h,
   m.effective_status,
   m.objective,
   ci.effective_cohort_inputs,
   m.campaign_id,
   m.creative_name,
+  m.first_seen_at,
+  m.first_spend_at,
+  m.review_status,
   m.policy_reason,
+  m.disapproval_reason,
+  m.limited_reason,
   m.age_days,
   m.data_freshness_hours,
   c.cpm,
@@ -1166,6 +1218,7 @@ SELECT
   h.all_history_purchases
 FROM cumulative c
 LEFT JOIN recent r USING (creative_id)
+LEFT JOIN recent_24h r24 USING (creative_id)
 LEFT JOIN latest_meta m USING (creative_id)
 LEFT JOIN cohort_inputs ci USING (creative_id)
 LEFT JOIN last_spend ls USING (creative_id)
@@ -1466,12 +1519,44 @@ latest_meta AS (
   SELECT DISTINCT ON (d.creative_id)
     d.creative_id,
     d.creative_name,
-    NULLIF(d.payload_json->>'policy_reason', '') AS policy_reason
+    d.first_seen_at,
+    d.first_spend_at,
+    COALESCE(
+      NULLIF(d.payload_json->>'policy_reason', ''),
+      NULLIF(d.payload_json->>'ad_review_feedback', ''),
+      NULLIF(d.payload_json->>'review_feedback', '')
+    ) AS policy_reason,
+    COALESCE(
+      NULLIF(d.payload_json->>'review_status', ''),
+      NULLIF(d.payload_json->>'ad_review_status', ''),
+      NULLIF(d.payload_json->>'approval_status', '')
+    ) AS review_status,
+    COALESCE(
+      NULLIF(d.payload_json->>'disapproval_reason', ''),
+      NULLIF(d.payload_json->>'ad_review_feedback', ''),
+      NULLIF(d.payload_json->>'review_feedback', '')
+    ) AS disapproval_reason,
+    COALESCE(
+      NULLIF(d.payload_json->>'limited_reason', ''),
+      NULLIF(d.payload_json->>'delivery_info', ''),
+      NULLIF(d.payload_json->>'delivery_status_reason', '')
+    ) AS limited_reason
   FROM meta_creative_daily d
   INNER JOIN lifecycle_rows l ON l.creative_id = d.creative_id
   WHERE d.business_ref_id = $1::uuid
     AND d.date <= $2::date
   ORDER BY d.creative_id, d.date DESC, d.updated_at DESC
+),
+recent_24h AS (
+  SELECT
+    d.creative_id,
+    SUM(d.spend) AS spend,
+    SUM(d.impressions) AS impressions
+  FROM meta_creative_daily d
+  INNER JOIN lifecycle_rows l ON l.creative_id = d.creative_id
+  WHERE d.business_ref_id = $1::uuid
+    AND d.date = $2::date
+  GROUP BY d.creative_id
 ),
 cohort_sources AS (
   -- SQL collects spend-weighted adset goal inputs; TypeScript applies the shared cohort resolver.
@@ -1534,10 +1619,17 @@ SELECT
   l.purchases_7d AS recent_purchases,
   l.roas_7d AS recent_roas,
   l.impressions_7d AS recent_impressions,
+  r24.spend AS spend_24h,
+  r24.impressions AS impressions_24h,
   l.effective_status,
   l.age_days,
+  COALESCE(latest_meta.first_seen_at::text, l.first_seen_date::text) AS first_seen_at,
+  latest_meta.first_spend_at,
   l.last_active_date,
+  latest_meta.review_status,
   latest_meta.policy_reason,
+  latest_meta.disapproval_reason,
+  latest_meta.limited_reason,
   l.source_max_updated_at,
   CASE
     WHEN l.source_max_updated_at IS NOT NULL
@@ -1571,6 +1663,7 @@ SELECT
   target_pack.break_even_roas
 FROM lifecycle_rows l
 LEFT JOIN latest_meta USING (creative_id)
+LEFT JOIN recent_24h r24 USING (creative_id)
 LEFT JOIN cohort_inputs ci USING (creative_id)
 LEFT JOIN target_pack ON true
 ORDER BY l.spend_28d DESC NULLS LAST, l.creative_id ASC
@@ -2099,8 +2192,15 @@ function mapCreativeHydrationRow(input: {
     recent7dImpressions: toNumberOrNull(input.row.recent_impressions),
     effectiveStatus: toEffectiveStatus(input.row.effective_status),
     ageDays: toIntegerOrNull(input.row.age_days),
+    firstSeenAt: toIsoTimestampOrNull(input.row.first_seen_at),
+    firstSpendAt: toIsoTimestampOrNull(input.row.first_spend_at),
     lastSpendAt: toIsoDateOrNull(input.row.last_spend_date),
+    spend24h: toNumberOrNull(input.row.spend_24h),
+    impressions24h: toNumberOrNull(input.row.impressions_24h),
+    reviewStatus: toStringOrNull(input.row.review_status),
     policyReason: toStringOrNull(input.row.policy_reason),
+    disapprovalReason: toStringOrNull(input.row.disapproval_reason),
+    limitedReason: toStringOrNull(input.row.limited_reason),
     dataFreshnessHours: toIntegerOrNull(input.row.data_freshness_hours),
     fatigueStatus: fatigue.status,
     targetRoas,
@@ -2172,8 +2272,15 @@ function mapLifecycleHydrationRow(input: {
     recent7dImpressions: toNumberOrNull(input.row.recent_impressions),
     effectiveStatus: toEffectiveStatus(input.row.effective_status),
     ageDays: toIntegerOrNull(input.row.age_days),
+    firstSeenAt: toIsoTimestampOrNull(input.row.first_seen_at),
+    firstSpendAt: toIsoTimestampOrNull(input.row.first_spend_at),
     lastSpendAt: toIsoDateOrNull(input.row.last_active_date),
+    spend24h: toNumberOrNull(input.row.spend_24h),
+    impressions24h: toNumberOrNull(input.row.impressions_24h),
+    reviewStatus: toStringOrNull(input.row.review_status),
     policyReason: toStringOrNull(input.row.policy_reason),
+    disapprovalReason: toStringOrNull(input.row.disapproval_reason),
+    limitedReason: toStringOrNull(input.row.limited_reason),
     dataFreshnessHours: toIntegerOrNull(input.row.data_freshness_hours),
     fatigueStatus: toFatigueStatus(input.row.fatigue_status),
     targetRoas: toNumberOrNull(input.row.target_roas),

@@ -99,6 +99,28 @@ describe("maturityGate", () => {
     );
   });
 
+  it("marks below-maturity creatives as launch monitoring only with explicit launch basis", () => {
+    const output = terminalOutput(
+      maturityGate(
+        makeGateContext({
+          input: makeCreativeInput({
+            spend: 150,
+            purchases: 0,
+            firstSpendAt: "2026-05-04T00:00:00.000Z",
+          }),
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("test_more");
+    expect(output.badges).toContainEqual({
+      type: "launch_monitoring",
+      label:
+        "Inside 3d launch window (explicit first-spend/first-seen basis, age 0d)",
+      severity: "info",
+    });
+  });
+
   it("advances mature creatives", () => {
     const result = maturityGate(
       makeGateContext({

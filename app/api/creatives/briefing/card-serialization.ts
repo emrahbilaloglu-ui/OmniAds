@@ -1,9 +1,11 @@
 import {
+  type AccountDecisionProfile,
   type CreativeInput,
   type DecisionBadge,
   type DecisionLabel,
   type DecisionOutput,
 } from "@/lib/creative-decision-engine";
+import type { DecisionBacktestSummary } from "@/lib/creative-decision-engine/backtest";
 import { creativeAutomationReadiness } from "@/lib/creative-decision-engine/automation-readiness";
 import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import type { BriefingCreativeCard } from "@/components/creatives/briefing/types";
@@ -20,6 +22,10 @@ function badgeLabels(badges: DecisionBadge[]) {
     if (badge.type === "scale_calibration_thin")
       return ["scale_calibration_thin"];
     if (badge.type === "stop_loss_review") return ["stop_loss_review"];
+    if (badge.type === "delivery_no_spend_24h")
+      return ["delivery_no_spend_24h"];
+    if (badge.type === "policy_blocked") return ["policy_blocked"];
+    if (badge.type === "launch_monitoring") return ["launch_monitoring"];
     return [];
   });
 }
@@ -102,6 +108,8 @@ export function cardForDecision(input: {
   sourceAsOf?: string | null;
   sourceDataSource?: string | null;
   profileScope?: string | null;
+  accountProfile?: AccountDecisionProfile | null;
+  backtestSummary?: DecisionBacktestSummary | null;
 }): BriefingCreativeCard {
   const { decision, creativeInput, row } = input;
   const label = decision.label as DecisionLabel;
@@ -135,6 +143,11 @@ export function cardForDecision(input: {
     creativeName: name,
     brand: row?.account_name ?? "Meta",
     label,
+    truthSource: decision.truthSource,
+    spendUnitSource: input.accountProfile?.spendUnitSource ?? null,
+    spendUnitConfidence: input.accountProfile?.spendUnitConfidence ?? null,
+    metaAovQuality: input.accountProfile?.quality.metaAovQuality ?? null,
+    thresholdQuality: input.accountProfile?.quality.thresholdQuality ?? null,
     badges: badgeLabels(decision.badges),
     blockers: decision.blockers ?? null,
     confidence: decision.confidence,
@@ -156,9 +169,19 @@ export function cardForDecision(input: {
       p50: null,
     },
     primary: primaryActionForDecision(decision),
-    automationReadiness: creativeAutomationReadiness({ decision }),
+    automationReadiness: creativeAutomationReadiness({
+      decision,
+      backtestSummary: input.backtestSummary ?? null,
+    }),
     status: creativeInput?.effectiveStatus ?? row?.effective_status ?? null,
     ageDays: creativeInput?.ageDays ?? null,
+    firstSeenAt: creativeInput?.firstSeenAt ?? null,
+    firstSpendAt: creativeInput?.firstSpendAt ?? null,
+    spend24h: creativeInput?.spend24h ?? null,
+    impressions24h: creativeInput?.impressions24h ?? null,
+    reviewStatus: creativeInput?.reviewStatus ?? null,
+    disapprovalReason: creativeInput?.disapprovalReason ?? null,
+    limitedReason: creativeInput?.limitedReason ?? null,
     campaignKind: decision.campaignKind ?? null,
     campaignTestDimension: decision.campaignTestDimension ?? null,
     campaignLabelStatus: decision.campaignLabelStatus ?? null,

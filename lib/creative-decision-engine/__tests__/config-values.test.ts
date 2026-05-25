@@ -10,18 +10,33 @@ import {
   CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP as publicCreativeCampaignLabelConfidenceCap,
 } from "../campaign-label-guard";
 import {
+  AGGREGATE_AFFECTED_CREATIVE_ID_CAP,
+  AT_TARGET_MAX_RATIO,
   CREATIVE_DECISION_ENGINE_CONFIG_VERSION,
   CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP,
   DEFAULT_BUSINESS_CONFIG_VALUES,
   ENGINE_PRESET_MULTIPLIERS,
+  FATIGUE_FREQUENCY_PRESSURE_THRESHOLD,
+  FATIGUE_SIGNIFICANT_DECAY_THRESHOLD,
+  FATIGUE_SPEND_CONCENTRATION_THRESHOLD,
+  FATIGUE_STRONG_WINDOW_FALLBACK_ROAS,
+  LAUNCH_MONITOR_WINDOW_DAYS,
   MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
   MIN_CAMPAIGN_CALIBRATION_SAMPLE,
   MIN_KIND_CALIBRATION_MATURE_COUNT,
+  REFRESH_RATIO_FALLBACK,
   RESPONSE_WINDOW_DAYS,
   SAMPLE_WINDOW_DAYS,
   SCALE_RATIO_BY_PRESET,
   STALE_TIER_NONE_MAX_HOURS,
   STALE_TIER_WARNING_MAX_HOURS,
+  TARGET_BAND_MIN_RATIO,
+  UNUSED_APPROVED_LOOKBACK_DAYS,
+  WEAK_TARGET_MAX_RATIO,
+  WINNER_GAP_FRESHNESS_MAX_DAYS,
+  WINNER_GAP_LOOKBACK_DAYS,
+  WINNER_GAP_MIN_DEPTH_DAYS,
+  WINNER_GAP_MIN_SAMPLED_DAYS,
   ZERO_CONV_MIN_AGE_DAYS,
 } from "../config-values";
 import {
@@ -126,6 +141,21 @@ describe("creative decision engine config-as-data values", () => {
     expect(ZERO_CONV_MIN_AGE_DAYS).toBe(7);
     expect(MIN_KIND_CALIBRATION_MATURE_COUNT).toBe(10);
     expect(CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP).toBe(50);
+    expect(FATIGUE_SIGNIFICANT_DECAY_THRESHOLD).toBe(0.18);
+    expect(FATIGUE_SPEND_CONCENTRATION_THRESHOLD).toBe(0.55);
+    expect(FATIGUE_FREQUENCY_PRESSURE_THRESHOLD).toBe(2.5);
+    expect(FATIGUE_STRONG_WINDOW_FALLBACK_ROAS).toBe(1.5);
+    expect(LAUNCH_MONITOR_WINDOW_DAYS).toBe(3);
+    expect(TARGET_BAND_MIN_RATIO).toBe(0.85);
+    expect(WEAK_TARGET_MAX_RATIO).toBe(0.95);
+    expect(AT_TARGET_MAX_RATIO).toBe(1.15);
+    expect(REFRESH_RATIO_FALLBACK).toBe(0.75);
+    expect(WINNER_GAP_LOOKBACK_DAYS).toBe(90);
+    expect(WINNER_GAP_FRESHNESS_MAX_DAYS).toBe(2);
+    expect(WINNER_GAP_MIN_DEPTH_DAYS).toBe(14);
+    expect(WINNER_GAP_MIN_SAMPLED_DAYS).toBe(14);
+    expect(UNUSED_APPROVED_LOOKBACK_DAYS).toBe(90);
+    expect(AGGREGATE_AFFECTED_CREATIVE_ID_CAP).toBe(20);
     expect(RESPONSE_WINDOW_DAYS).toBe(30);
     expect(SAMPLE_WINDOW_DAYS).toBe(90);
     expect(ENGINE_PRESET_MULTIPLIERS).toEqual(
@@ -157,6 +187,8 @@ describe("creative decision engine config-as-data values", () => {
         "lib/creative-decision-engine/campaign-label-guard.ts",
         "lib/creative-decision-engine/jobs/operator-response-job.ts",
         "lib/creative-decision-engine/jobs/calibration-job.ts",
+        "lib/creative-decision-engine/gates/ratio-zones.ts",
+        "app/api/creatives/briefing/route.ts",
       ].map((path) => [path, readFileSync(path, "utf8")]),
     );
 
@@ -170,6 +202,16 @@ describe("creative decision engine config-as-data values", () => {
       "ZERO_CONV_MIN_AGE_DAYS",
       "MIN_KIND_CALIBRATION_MATURE_COUNT",
       "CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP",
+      "TARGET_BAND_MIN_RATIO",
+      "WEAK_TARGET_MAX_RATIO",
+      "AT_TARGET_MAX_RATIO",
+      "REFRESH_RATIO_FALLBACK",
+      "WINNER_GAP_LOOKBACK_DAYS",
+      "WINNER_GAP_FRESHNESS_MAX_DAYS",
+      "WINNER_GAP_MIN_DEPTH_DAYS",
+      "WINNER_GAP_MIN_SAMPLED_DAYS",
+      "UNUSED_APPROVED_LOOKBACK_DAYS",
+      "AGGREGATE_AFFECTED_CREATIVE_ID_CAP",
       "RESPONSE_WINDOW_DAYS",
       "SAMPLE_WINDOW_DAYS",
     ];

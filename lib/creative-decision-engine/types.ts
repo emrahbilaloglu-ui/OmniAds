@@ -260,8 +260,15 @@ export interface CreativeInput {
   // Lifecycle / status
   effectiveStatus: "ACTIVE" | "PAUSED" | "DELETED" | "REJECTED" | null;
   ageDays: number | null;
+  firstSeenAt?: string | null;
+  firstSpendAt?: string | null;
   lastSpendAt: string | null;
+  spend24h?: number | null;
+  impressions24h?: number | null;
+  reviewStatus?: string | null;
   policyReason: string | null;
+  disapprovalReason?: string | null;
+  limitedReason?: string | null;
   dataFreshnessHours: number | null;
 
   // Fatigue (reused from V1 fatigue motor - value passed in, engine doesn't recompute)
@@ -449,6 +456,9 @@ export interface DecisionBadge {
     | "quality_only_assessment"
     | "creative_quality_weak"
     | "delivery_limited"
+    | "delivery_no_spend_24h"
+    | "policy_blocked"
+    | "launch_monitoring"
     | "landing_page_issue"
     | "checkout_breakdown"
     | "upper_funnel_strong_site_weak"
@@ -523,6 +533,18 @@ export const DECISION_BADGE_DISPLAY: Record<
   },
   delivery_limited: {
     label: "Limited delivery signal",
+    severity: "info",
+  },
+  delivery_no_spend_24h: {
+    label: "No delivery in verified 24h window",
+    severity: "warning",
+  },
+  policy_blocked: {
+    label: "Policy or review block",
+    severity: "warning",
+  },
+  launch_monitoring: {
+    label: "Launch monitoring",
     severity: "info",
   },
   landing_page_issue: {

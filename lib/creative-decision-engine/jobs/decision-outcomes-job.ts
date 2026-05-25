@@ -1,4 +1,6 @@
 import { getDb, runDbTransaction } from "@/lib/db";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
+import { getActiveBusinesses } from "@/lib/sync/active-businesses";
 import {
   classifyCreativeDecisionOutcome,
   CREATIVE_OUTCOME_CLASSIFIER_VERSION,
@@ -10,6 +12,8 @@ export const JOB_NAME = "engine_v3_decision_outcomes_job";
 export const DECISION_OUTCOME_WINDOWS_DAYS = [7, 14] as const;
 export const DECISION_OUTCOME_LOOKBACK_DAYS = 120;
 export const DECISION_OUTCOME_BATCH_LIMIT = 5_000;
+// Runs after the daily decision jobs are expected to finish; realized outcomes still fill on 7d/14d lag.
+export const DECISION_OUTCOME_DAILY_UTC_HOUR = 4;
 
 type JobStatus = "success" | "failed" | "skipped";
 
@@ -27,6 +31,22 @@ export interface DecisionOutcomesJobResult {
   outcomesWritten: number;
   durationMs: number;
   errorMessage?: string;
+}
+
+export interface DecisionOutcomesJobDueResult {
+  skipped: boolean;
+  reason?:
+    | "outside_slot"
+    | "schema_not_ready"
+    | "already_ran"
+    | "no_active_businesses";
+  asOf: string;
+  results?: Array<
+    DecisionOutcomesJobResult & {
+      businessId: string;
+      businessName: string | null;
+    }
+  >;
 }
 
 type AdvisoryLockRow = Record<string, unknown> & {
@@ -273,6 +293,80 @@ export function decisionOutcomesJobAdvisoryLockKey(
   input: DecisionOutcomesJobInput,
 ): bigint {
   return hashAdvisoryLock(`${JOB_NAME}:${input.businessId}:${input.asOf}`);
+}
+
+function decisionOutcomeAsOfFor(now: Date) {
+  return now.toISOString().slice(0, 10);
+}
+
+function isDailyDecisionOutcomeSlot(now: Date) {
+  return now.getUTCHours() === DECISION_OUTCOME_DAILY_UTC_HOUR;
+}
+
+async function findBusinessesPendingDecisionOutcomes(input: {
+  asOf: string;
+  businesses: readonly { id: string; name?: string | null }[];
+}) {
+  if (input.businesses.length === 0) return [];
+  const rows = await getDb().query<{ business_ref_id: unknown }>(
+    `
+    SELECT business_ref_id
+    FROM engine_v3_job_runs
+    WHERE job_name = $1
+      AND as_of_date = $2::date
+      AND engine_version = $3
+      AND status = 'success'
+    GROUP BY business_ref_id
+    `,
+    [JOB_NAME, input.asOf, ENGINE_VERSION],
+  );
+  const completed = new Set(rows.map((row) => toStringOrNull(row.business_ref_id)));
+  return input.businesses.filter((business) => !completed.has(business.id));
+}
+
+export async function runDecisionOutcomesJobForActiveBusinessesIfDue(
+  now = new Date(),
+  activeBusinesses?: readonly { id: string; name?: string | null }[],
+): Promise<DecisionOutcomesJobDueResult> {
+  const asOf = decisionOutcomeAsOfFor(now);
+  if (!isDailyDecisionOutcomeSlot(now)) {
+    return { skipped: true, reason: "outside_slot", asOf };
+  }
+
+  const readiness = await getDbSchemaReadiness({
+    tables: [
+      "engine_v3_decision_snapshots_daily",
+      "engine_v3_decision_outcomes_daily",
+      "engine_v3_job_runs",
+      "meta_creative_daily",
+    ],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return { skipped: true, reason: "schema_not_ready", asOf };
+  }
+
+  const businesses = activeBusinesses ?? (await getActiveBusinesses());
+  if (businesses.length === 0) {
+    return { skipped: true, reason: "no_active_businesses", asOf };
+  }
+
+  const pendingBusinesses = await findBusinessesPendingDecisionOutcomes({
+    asOf,
+    businesses,
+  });
+  if (pendingBusinesses.length === 0) {
+    return { skipped: true, reason: "already_ran", asOf };
+  }
+
+  const results = await Promise.all(
+    pendingBusinesses.map(async (business) => ({
+      businessId: business.id,
+      businessName: business.name ?? null,
+      ...(await runDecisionOutcomesJob({ businessId: business.id, asOf })),
+    })),
+  );
+
+  return { skipped: false, asOf, results };
 }
 
 export async function runDecisionOutcomesJob(

@@ -25,6 +25,10 @@ vi.mock("@/lib/meta/decision-responses", async (importOriginal) => {
   };
 });
 
+vi.mock("@/lib/creative-decision-engine", () => ({
+  runDecisionOutcomesJobForActiveBusinessesIfDue: vi.fn(),
+}));
+
 vi.mock("@/lib/sync/ga4-sync", () => ({
   syncGA4Reports: vi.fn(),
 }));
@@ -65,6 +69,7 @@ const metaSync = await import("@/lib/sync/meta-sync");
 const googleSync = await import("@/lib/sync/google-ads-sync");
 const metaScheduled = await import("@/lib/meta/scheduled");
 const decisionResponses = await import("@/lib/meta/decision-responses");
+const creativeDecisionEngine = await import("@/lib/creative-decision-engine");
 const ga4Sync = await import("@/lib/sync/ga4-sync");
 const searchConsoleSync = await import("@/lib/sync/search-console-sync");
 const shopifySync = await import("@/lib/sync/shopify-sync");
@@ -95,6 +100,13 @@ describe("POST /api/sync/cron", () => {
       skipped: true,
       reason: "not_due",
       snapshotDate: "2026-04-15",
+    });
+    vi.mocked(
+      creativeDecisionEngine.runDecisionOutcomesJobForActiveBusinessesIfDue,
+    ).mockResolvedValue({
+      skipped: true,
+      reason: "outside_slot",
+      asOf: "2026-04-15",
     });
     vi.mocked(ga4Sync.syncGA4Reports).mockResolvedValue({ synced: true } as never);
     vi.mocked(searchConsoleSync.syncSearchConsoleReports).mockResolvedValue({ synced: true } as never);
@@ -267,6 +279,11 @@ describe("POST /api/sync/cron", () => {
       reason: "not_due",
       snapshotDate: "2026-04-15",
     });
+    expect(payload.decisionOutcomesJob).toEqual({
+      skipped: true,
+      reason: "outside_slot",
+      asOf: "2026-04-15",
+    });
   });
 
   it("does not fail cron when the Meta snapshot job fails", async () => {
@@ -306,6 +323,30 @@ describe("POST /api/sync/cron", () => {
     expect(payload.metaIgnoredMarkerJob.reason).toBe("failed");
     expect(spy).toHaveBeenCalledWith(
       "[sync-cron] meta_decision_ignored_marker_failed",
+      expect.any(Error),
+    );
+
+    spy.mockRestore();
+  });
+
+  it("does not fail cron when the Creative decision outcomes job fails", async () => {
+    vi.mocked(
+      creativeDecisionEngine.runDecisionOutcomesJobForActiveBusinessesIfDue,
+    ).mockRejectedValue(new Error("outcomes failed"));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const request = new NextRequest("http://localhost/api/sync/cron", {
+      method: "POST",
+      headers: { authorization: "Bearer secret" },
+    });
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.decisionOutcomesJob.skipped).toBe(true);
+    expect(payload.decisionOutcomesJob.reason).toBe("failed");
+    expect(spy).toHaveBeenCalledWith(
+      "[sync-cron] decision_outcomes_job_failed",
       expect.any(Error),
     );
 

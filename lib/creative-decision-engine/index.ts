@@ -19,9 +19,11 @@ export {
   runDecisionsJob,
 } from "./jobs/decisions-job";
 export {
+  DECISION_OUTCOME_DAILY_UTC_HOUR,
   decisionOutcomesJobAdvisoryLockKey,
   JOB_NAME as DECISION_OUTCOMES_JOB_NAME,
   runDecisionOutcomesJob,
+  runDecisionOutcomesJobForActiveBusinessesIfDue,
 } from "./jobs/decision-outcomes-job";
 export {
   operatorResponseJobAdvisoryLockKey,

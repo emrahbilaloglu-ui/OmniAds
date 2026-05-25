@@ -229,6 +229,9 @@ function deriveProblemClass(
     decision.campaignLabelStatus === "unlabeled" ||
     decision.campaignLabelStatus === "no_campaign";
 
+  if (hasBadge(decision, "policy_blocked")) return "policy";
+  if (hasBadge(decision, "delivery_no_spend_24h")) return "delivery";
+  if (hasBadge(decision, "launch_monitoring")) return "launch_monitoring";
   if (hasAnyBadge(decision, DATA_QUALITY_BADGES)) return "data_quality";
   if (campaignLabelMissing) return "campaign_context";
   if (hasAnyBadge(decision, FATIGUE_BADGES)) return "fatigue";
@@ -324,9 +327,13 @@ function mapDecision(
     case "test_more":
       return {
         primaryDecision: "Test More",
-        problemClass: "insufficient_signal",
+        problemClass: hasBadge(decision, "launch_monitoring")
+          ? "launch_monitoring"
+          : "insufficient_signal",
         actionability: "review_only",
-        reasonTags: ["v3_test_more"],
+        reasonTags: hasBadge(decision, "launch_monitoring")
+          ? ["v3_test_more", "launch_monitoring"]
+          : ["v3_test_more"],
       };
     case "diagnose":
       return {

@@ -822,3 +822,152 @@ Risk: malformed or missing snapshots are now on the default path. Mitigation:
 the route keeps structural validation and null fallback, the UI helpers render
 empty read-only states for malformed data, and request/env opt-outs provide a
 narrow rollback without reverting resolver code.
+
+## D028 — Add Measurement Infrastructure Before Any Creative Auto-Execution
+
+Decision: Creative automation readiness may consume persisted realized-outcome
+summaries, but the runtime remains `read_only` until empirical thresholds,
+preflight, rollback, post-action monitoring, and explicit operator enablement
+all pass. This slice adds the outcome table/job surface and wires aggregate
+Decision Center candidates from persisted history without enabling mutations.
+
+Reason: a 10/10 decision system needs measured hard-action precision, recall,
+calibration error, critical false-positive rate, missed-opportunity rate,
+snapshot coverage, and data freshness. Code-level safety checks alone cannot
+prove these metrics. Persisted outcomes must join a decision snapshot to T+7
+and T+14 realized Meta creative metrics before automation-readiness claims can
+be credible.
+
+Scope:
+
+- Add `engine_v3_decision_outcomes_daily` as a read-only measurement table
+  derived from persisted decision snapshots and later Meta creative metrics.
+- Add a read-only outcomes job that classifies historical decisions into
+  positive, negative, neutral, or unknown outcome rows.
+- Let briefing cards pass a business-level backtest summary into the existing
+  automation-readiness gate when outcome rows exist.
+- Wire page-level aggregate candidates only from explicit persisted-history
+  evidence. Missing or stale history suppresses the aggregate rather than
+  inventing a recommendation.
+
+Constraints:
+
+- No Meta write endpoint is called.
+- `creativeAutomationReadiness` keeps `tier: "read_only"` and
+  `autoExecuteEligible: false`.
+- Aggregate decisions remain page/family-level. They must not attach to a
+  random row or emit row-level `brief_variation`.
+- Missing or stale persisted history must suppress aggregates and automation
+  evidence rather than produce high-confidence output.
+
+Rejected alternatives:
+
+- Use the current screen rows alone to infer winner gaps. That lacks historical
+  cadence evidence and would create false supply alarms.
+- Treat the new outcome classifier as proof of automation readiness on day one.
+  It only becomes evidence after the decision snapshots, outcome rows, and
+  realized Meta metrics have enough coverage and sample size.
+- Open an executor path in the same slice. Measurement and execution are
+  separate safety boundaries.
+
+Risk: early outcome classifications are heuristic until enough historical
+rows accumulate and are manually reviewed. Mitigation: the job stores the
+classifier version and evidence JSON per row, the automation gate still blocks
+without threshold-passing summaries, and the table is append/upsert measurement
+infrastructure, not an execution trigger.
+
+## D029 — Proof-Gate Delivery, Policy, And Launch Buyer Actions
+
+Decision: the active V3 resolver may expose `fix_delivery`, `fix_policy`, and
+`watch_launch` through the existing Decision Center bridge only when explicit
+proof fields are present on the server-produced `CreativeInput`.
+
+Scope:
+
+- Add read-only input fields for first seen/spend basis, latest daily
+  spend/impressions, and policy/review reason strings when the warehouse
+  exposes them.
+- Emit a verified no-delivery diagnostic only when an ACTIVE creative has both
+  latest-window spend and impressions present, equal to zero, and sourced from
+  a fresh warehouse row.
+- Emit a policy diagnostic only when effective status, review status, or
+  policy/disapproval/limited reason text proves a policy/review block.
+- Treat stale insight data as the primary diagnostic before delivery or policy
+  proof. Stale policy text may still be useful context, but it is not allowed
+  to emit a higher-confidence `fix_policy` path until the row is fresh.
+- Match review status through explicit blocked enum values rather than broad
+  substring matching. Free-form reason fields remain proof only when populated
+  by the warehouse as policy/disapproval/limited reasons.
+  Normalization uppercases and converts spaces/dashes to underscores before
+  matching `REJECTED`, `DISAPPROVED`, `DISAPPROVED_OR_LIMITED`, or `LIMITED`.
+  Current live warehouse inspection found no populated
+  `review_status`/`ad_review_status`/`approval_status` values, and found
+  `WITH_ISSUES` only as an `effective_status`; `WITH_ISSUES` and
+  `PENDING_BILLING_INFO` are therefore deliberately not treated as strict
+  policy blocks unless a separate reason field proves the block.
+- Add launch-monitoring metadata to below-maturity `test_more` decisions only
+  when first-spend or first-seen basis exists and the creative is inside the
+  configured launch window.
+
+Constraints:
+
+- UI continues to render server-supplied fields and must not compute
+  `buyerAction`.
+- The bridge still maps deterministic V3 badges to V2.1 buyer actions; it does
+  not inspect raw performance rows or become a second resolver.
+- If proof fields are absent, old safe fallbacks remain: low-delivery warnings
+  stay `diagnose_data`, policy stays unasserted, and launch rows remain
+  `test_more`.
+
+Rejected alternatives:
+
+- Map the old `delivery_limited` badge to `fix_delivery`. That badge only
+  proves recent 7d spend absence and would overstate delivery causality.
+- Infer policy blocks from weak performance. Policy requires explicit status or
+  reason proof.
+- Use age alone for `watch_launch`. Launch monitoring requires an explicit
+  first-spend or first-seen basis so it is auditable.
+
+## D030 — Wire Unused-Approved Aggregate Behind Proof Gates
+
+Decision: the briefing route may emit the existing
+`unused_approved_creatives` page-level aggregate from `meta_creative_daily`
+only when both explicit review/approval status proof and zero lifetime
+delivery proof are present for the candidate creatives.
+
+Scope:
+
+- Use the existing aggregate builder; do not add row-level `brief_variation` or
+  a second decision core.
+- Treat explicit review/approval status as the status proof source for this
+  aggregate. Active effective status alone is not sufficient.
+- Suppress the candidate if policy or review reason text is populated.
+- Require the latest status proof row to be inside the configured
+  unused-approved lookback window so old zero-delivery rows do not create a
+  stale backlog recommendation.
+- Require lifetime spend and impressions to be zero before describing a
+  creative as unused; the delivery sum remains lifetime within the warehouse,
+  not just the lookback window.
+- Pass `creative_review_status`, `delivery_proof`, and `lifetime_delivery` as
+  available aggregate data only when every emitted candidate has the required
+  proof. Otherwise the deny-by-default aggregate builder suppresses it.
+- Cap affected creative ids through central config so the aggregate is auditable
+  without serializing an unbounded backlog.
+
+Constraints:
+
+- This aggregate is recommendation evidence only; it does not create, edit,
+  launch, pause, or publish anything.
+- Missing enrichment must suppress the aggregate instead of producing a
+  high-confidence supply recommendation.
+- Aggregate query errors are logged and must not break row-level briefing
+  decisions.
+
+Rejected alternatives:
+
+- Infer unused-approved backlog from zero spend alone. That would confuse
+  paused, rejected, inactive, or unlaunched rows with approved assets.
+- Infer approval from active effective status alone. That would overstate the
+  warehouse's current proof coverage while review-status fields are sparse.
+- Attach the recommendation to an arbitrary creative row. This remains
+  page-level aggregate context.

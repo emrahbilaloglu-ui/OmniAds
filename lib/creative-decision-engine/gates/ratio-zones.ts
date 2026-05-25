@@ -7,17 +7,16 @@ import type {
   FunnelStage,
 } from "../types";
 import {
+  AT_TARGET_MAX_RATIO,
+  REFRESH_RATIO_FALLBACK,
   MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
   SCALE_RATIO_BY_PRESET,
-} from "../config";
+  TARGET_BAND_MIN_RATIO,
+  WEAK_TARGET_MAX_RATIO,
+} from "../config-values";
 import { computeFunnelDiagnosis, hasUpperFunnelStrength } from "../funnel";
 import { finalizeDecision, type GateContext, type GateResult } from "./types";
 import { commercialMaturitySpendThreshold } from "./maturity";
-
-const TARGET_BAND_MIN_RATIO = 0.85;
-const WEAK_TARGET_MAX_RATIO = 0.95;
-const AT_TARGET_MAX_RATIO = 1.15;
-const REFRESH_RATIO_FALLBACK = 0.75;
 
 const FATIGUE_WATCH_BADGE: DecisionBadge = {
   type: "fatigue_watch",

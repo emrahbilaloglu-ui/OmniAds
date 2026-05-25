@@ -54,6 +54,71 @@ describe("diagnoseGate", () => {
     }
   });
 
+  it("diagnoses active creatives only when 24h no-delivery proof exists", () => {
+    const output = terminalOutput(
+      diagnoseGate(
+        resolvedContext({
+          effectiveStatus: "ACTIVE",
+          recent7dSpend: 0,
+          spend24h: 0,
+          impressions24h: 0,
+          spend: 500,
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("diagnose");
+    expect(output.reason).toContain("verified 0 spend and 0 impressions");
+    expect(output.badges).toContainEqual({
+      type: "delivery_no_spend_24h",
+      label:
+        "Active creative has verified 0 spend and 0 impressions in the latest daily delivery window.",
+      severity: "warning",
+    });
+  });
+
+  it("does not emit fix-delivery proof from stale latest-window data", () => {
+    const output = terminalOutput(
+      diagnoseGate(
+        resolvedContext({
+          effectiveStatus: "ACTIVE",
+          spend24h: 0,
+          impressions24h: 0,
+          spend: 500,
+          dataFreshnessHours: 72,
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("diagnose");
+    expect(output.reason).toBe(
+      "Stale data: last sync 72h ago — refresh ad insights pipeline.",
+    );
+    expect(output.badges).not.toContainEqual(
+      expect.objectContaining({ type: "delivery_no_spend_24h" }),
+    );
+  });
+
+  it("prioritizes stale data over lower-confidence delivery warnings", () => {
+    const output = terminalOutput(
+      diagnoseGate(
+        resolvedContext({
+          effectiveStatus: "ACTIVE",
+          recent7dSpend: 0,
+          spend: 500,
+          dataFreshnessHours: 72,
+        }),
+      ),
+    );
+
+    expect(output.reason).toBe(
+      "Stale data: last sync 72h ago — refresh ad insights pipeline.",
+    );
+    expect(output.badges).not.toContainEqual(
+      expect.objectContaining({ type: "delivery_limited" }),
+    );
+  });
+
   it("diagnoses rejected creatives with policy fallback reason", () => {
     const output = terminalOutput(
       diagnoseGate(
@@ -69,6 +134,11 @@ describe("diagnoseGate", () => {
       "Policy rejection detected — review and resubmit.",
     );
     expect(output.confidence).toBe(75);
+    expect(output.badges).toContainEqual({
+      type: "policy_blocked",
+      label: "Policy/review block detected",
+      severity: "warning",
+    });
   });
 
   it("diagnoses non-empty policy reasons regardless of active or paused status", () => {
@@ -93,6 +163,64 @@ describe("diagnoseGate", () => {
       "Policy reject: Creative has prohibited claims",
     );
     expect(pausedOutput.reason).toBe("Policy reject: Image text issue");
+  });
+
+  it("prioritizes stale data over stale policy proof", () => {
+    const output = terminalOutput(
+      diagnoseGate(
+        resolvedContext({
+          effectiveStatus: "REJECTED",
+          policyReason: "Creative has prohibited claims",
+          dataFreshnessHours: 72,
+        }),
+      ),
+    );
+
+    expect(output.reason).toBe(
+      "Stale data: last sync 72h ago — refresh ad insights pipeline.",
+    );
+    expect(output.confidence).toBe(60);
+    expect(output.badges).not.toContainEqual(
+      expect.objectContaining({ type: "policy_blocked" }),
+    );
+  });
+
+  it("uses exact review status membership for policy blocks", () => {
+    const blocked = terminalOutput(
+      diagnoseGate(
+        resolvedContext({
+          reviewStatus: "DISAPPROVED",
+        }),
+      ),
+    );
+    const passed = diagnoseGate(
+      resolvedContext({
+        reviewStatus: "ad rejected_review_passed",
+      }),
+    );
+
+    expect(blocked.badges).toContainEqual({
+      type: "policy_blocked",
+      label: "Policy/review block detected",
+      severity: "warning",
+    });
+    expect(passed.kind).toBe("advance");
+  });
+
+  it("does not treat issue-only review statuses as policy blocks", () => {
+    const withIssues = diagnoseGate(
+      resolvedContext({
+        reviewStatus: "WITH_ISSUES",
+      }),
+    );
+    const pendingBilling = diagnoseGate(
+      resolvedContext({
+        reviewStatus: "PENDING_BILLING_INFO",
+      }),
+    );
+
+    expect(withIssues.kind).toBe("advance");
+    expect(pendingBilling.kind).toBe("advance");
   });
 
   it("diagnoses stale data", () => {

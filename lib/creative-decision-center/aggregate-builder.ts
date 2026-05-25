@@ -22,7 +22,7 @@ export const REQUIRED_AGGREGATE_DATA = {
     "recent_launches",
     "production_state",
   ],
-  winner_gap: ["last_winner_date", "historical_snapshot_window"],
+  winner_gap: ["winner_cadence_window", "historical_snapshot_window"],
   fatigue_cluster: [
     "fatigue_trend_window",
     "cluster_definition",
@@ -111,6 +111,7 @@ export function buildWinnerGapAggregateCandidate(input: {
   scope?: "page" | "family";
   familyId?: string | null;
   lastWinnerDate: string | null;
+  windowStartDate?: string | null;
   windowEndDate: string;
   affectedCreativeIds: readonly string[];
   availableData?: readonly string[];
@@ -119,12 +120,14 @@ export function buildWinnerGapAggregateCandidate(input: {
   const action: CreativeDecisionCenterAggregateAction = "winner_gap";
   const end = parseIsoDate(input.windowEndDate);
   const lastWinner = parseIsoDate(input.lastWinnerDate);
+  const windowStart = parseIsoDate(input.windowStartDate);
+  const cadenceReference = lastWinner ?? windowStart;
   const missingData = [
-    ...(lastWinner ? [] : ["last_winner_date"]),
+    ...(cadenceReference ? [] : ["winner_cadence_window"]),
     ...(end ? [] : ["historical_snapshot_window"]),
   ];
   const daysSinceWinner =
-    lastWinner && end ? daysBetween(lastWinner, end) : null;
+    cadenceReference && end ? daysBetween(cadenceReference, end) : null;
   const threshold = input.minDaysSinceWinner ?? AGGREGATE_WINNER_GAP_MIN_DAYS;
 
   if (missingData.length === 0 && (daysSinceWinner ?? 0) < threshold) {
@@ -142,10 +145,16 @@ export function buildWinnerGapAggregateCandidate(input: {
     oneLine:
       daysSinceWinner === null
         ? "Winner cadence cannot be evaluated from the available snapshot."
+        : lastWinner === null
+          ? `No winner observed for ${daysSinceWinner} days in the available snapshot window.`
         : `No new winner for ${daysSinceWinner} days.`,
     reasons:
       daysSinceWinner === null
         ? ["last winner date or historical window is missing"]
+        : lastWinner === null
+          ? [
+              `No scale decision exists between ${input.windowStartDate} and ${input.windowEndDate}; threshold is ${threshold} days.`,
+            ]
         : [
             `Last winner date is ${input.lastWinnerDate}; threshold is ${threshold} days.`,
           ],

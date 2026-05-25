@@ -258,6 +258,59 @@ describe("Creative Decision Center V3 bridge", () => {
     expect(row.confidenceBand).toBe("low");
   });
 
+  it("maps verified no-delivery diagnostics to fix_delivery without missing delivery proof", () => {
+    const result = requireMapped(
+      bridgeV3DecisionToV21({
+        decision: makeV3Decision({
+          label: "diagnose",
+          badges: [badge("delivery_no_spend_24h", "warning")],
+          confidence: 75,
+          reason: "Delivery issue: active creative has verified 0 spend and 0 impressions.",
+        }),
+      }),
+    );
+    const row = validateMappedBridge(result);
+
+    expect(result.engine.problemClass).toBe("delivery");
+    expect(result.engine.missingData).toEqual([]);
+    expect(row.buyerAction).toBe("fix_delivery");
+  });
+
+  it("maps policy-block diagnostics to fix_policy", () => {
+    const result = requireMapped(
+      bridgeV3DecisionToV21({
+        decision: makeV3Decision({
+          label: "diagnose",
+          badges: [badge("policy_blocked", "warning")],
+          confidence: 75,
+          reason: "Policy reject: Creative has prohibited claims.",
+        }),
+      }),
+    );
+    const row = validateMappedBridge(result);
+
+    expect(result.engine.problemClass).toBe("policy");
+    expect(row.buyerAction).toBe("fix_policy");
+  });
+
+  it("maps launch-monitoring test_more diagnostics to watch_launch", () => {
+    const result = requireMapped(
+      bridgeV3DecisionToV21({
+        decision: makeV3Decision({
+          label: "test_more",
+          badges: [badge("launch_monitoring")],
+          confidence: 60,
+          reason: "Below commercial maturity inside the launch window.",
+        }),
+      }),
+    );
+    const row = validateMappedBridge(result);
+
+    expect(result.engine.primaryDecision).toBe("Test More");
+    expect(result.engine.problemClass).toBe("launch_monitoring");
+    expect(row.buyerAction).toBe("watch_launch");
+  });
+
   it("derives conservative maturity and priority without reading account profiles", () => {
     const tooEarly = requireMapped(
       bridgeV3DecisionToV21({
@@ -325,13 +378,7 @@ describe("Creative Decision Center V3 bridge", () => {
 });
 
 describe("Creative Decision Center V3 bridge documented coverage gaps", () => {
-  it.todo("GC-001 fix_delivery waits for 24h delivery proof fields");
-  it.todo("GC-004 fix_policy waits for policy/review proof fields");
-  it.todo("GC-005 fix_policy waits for policy/review proof fields");
-  it.todo("GC-007 watch_launch waits for first-seen launch basis");
-  it.todo("GC-008 watch_launch waits for first-spend launch basis");
-  it.todo("GC-009 watch_launch waits for launch monitoring proof fields");
-  it.todo("GC-022 fix_policy waits for policy/review proof fields");
+  it.todo("GC-009 watch_launch severe-overspend policy still needs final product decision");
   it.todo("GC-029 Protect waits for family/no-new-winner signal enrichment");
   it.todo("GC-031 Protect waits for family winner-aging signal enrichment");
   it.todo("GC-034 Protect waits for stable-winner family signal enrichment");

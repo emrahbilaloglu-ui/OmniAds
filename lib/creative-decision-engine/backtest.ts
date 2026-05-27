@@ -44,6 +44,8 @@ export interface DecisionBacktestSegmentSummary
   coverageScope: "global" | "week";
   minSegmentSampleSize: number;
   sampleReliable: boolean;
+  confidenceLevel: "insufficient_sample" | "directional" | "defensible";
+  nonComputableReason: string | null;
 }
 
 const HARD_ACTIONS = new Set<DecisionLabel>(["scale", "cut", "refresh"]);
@@ -177,13 +179,30 @@ export function summarizeDecisionBacktestByLabelAndWeek(input: {
         coverage: weekCoverage,
         maxStaleSnapshotCount: input.maxStaleSnapshotCount,
       });
+      const confidenceLevel: DecisionBacktestSegmentSummary["confidenceLevel"] =
+        summary.sampleSize >= minSegmentSampleSize
+          ? "defensible"
+          : summary.sampleSize >=
+              Math.max(10, Math.floor(minSegmentSampleSize / 2))
+            ? "directional"
+            : "insufficient_sample";
+      const insufficient = confidenceLevel === "insufficient_sample";
       return {
         label,
         weekStartDate,
         coverageScope,
         minSegmentSampleSize,
-        sampleReliable: summary.sampleSize >= minSegmentSampleSize,
         ...summary,
+        sampleReliable: confidenceLevel === "defensible",
+        confidenceLevel,
+        nonComputableReason: insufficient
+          ? "insufficient_segment_sample_size"
+          : null,
+        hardActionPrecision: insufficient ? null : summary.hardActionPrecision,
+        hardActionRecall: insufficient ? null : summary.hardActionRecall,
+        expectedCalibrationError: insufficient
+          ? null
+          : summary.expectedCalibrationError,
       };
     })
     .sort(

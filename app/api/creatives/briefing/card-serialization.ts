@@ -12,12 +12,15 @@ import {
   BRIEFING_PRIORITY_SCORE_BANDS,
   BRIEFING_PRIORITY_SCORE_SEVERITY_WEIGHTS,
   BRIEFING_PRIORITY_SPEND_EXPOSURE_FLOOR_RATIO,
+  BRIEFING_NEAR_MISS_MAX_COUNT,
+  CALIBRATION_REFIT_INTERVAL_DAYS,
 } from "@/lib/creative-decision-engine/config-values";
 import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import type {
   BriefingCreativeCard,
   BriefingDecisionExplainability,
   BriefingPriorityScore,
+  BriefingWatchingSubBucket,
 } from "@/components/creatives/briefing/types";
 
 function badgeLabels(badges: DecisionBadge[]) {
@@ -170,6 +173,134 @@ function priorityReason(label: DecisionLabel, score: number) {
   return `${band} priority from current signal strength and spend exposure.`;
 }
 
+export function deriveWatchingSubBucket(
+  decision: DecisionOutput,
+): BriefingWatchingSubBucket | null {
+  const badgeTypes = new Set(decision.badges.map((badge) => badge.type));
+  if (
+    decision.campaignLabelStatus === "unlabeled" &&
+    decision.blockedActionType
+  ) {
+    return "waiting_on_labels";
+  }
+  if (
+    decision.label === "diagnose" ||
+    badgeTypes.has("tracking_anomaly") ||
+    badgeTypes.has("delivery_no_spend_24h") ||
+    badgeTypes.has("policy_blocked") ||
+    badgeTypes.has("landing_page_issue") ||
+    badgeTypes.has("checkout_breakdown")
+  ) {
+    return "diagnostic";
+  }
+  if (
+    decision.label === "keep" &&
+    (badgeTypes.has("scale_readiness_blocked") ||
+      badgeTypes.has("below_breakeven") ||
+      badgeTypes.has("weak_performance"))
+  ) {
+    return "near_action";
+  }
+  if (
+    decision.label === "test_more" &&
+    !badgeTypes.has("launch_monitoring")
+  ) {
+    return "test_maturing";
+  }
+  return null;
+}
+
+function numericDelta(
+  threshold: string | number | null,
+  observed: string | number | null,
+) {
+  const thresholdNumber = Number(threshold);
+  const observedNumber = Number(observed);
+  if (!Number.isFinite(thresholdNumber) || !Number.isFinite(observedNumber)) {
+    return null;
+  }
+  return Math.max(0, thresholdNumber - observedNumber);
+}
+
+function formatNearMissNumber(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
+function formatNearMissCurrency(value: number) {
+  return `$${value.toFixed(0)}`;
+}
+
+function nearMissFromBlocker(
+  blocker: NonNullable<DecisionOutput["blockers"]>[number],
+) {
+  if (blocker.predicate === "scale_purchase_depth") {
+    const remaining = numericDelta(blocker.threshold, blocker.observed);
+    return remaining === null
+      ? "Purchase depth gate is still missing enough proof."
+      : `Needs ${formatNearMissNumber(remaining)} more purchases.`;
+  }
+  if (
+    blocker.predicate === "scale_spend_depth" ||
+    blocker.predicate === "scale_spend_maturity"
+  ) {
+    const remaining = numericDelta(blocker.threshold, blocker.observed);
+    return remaining === null
+      ? "Spend maturity gate is still missing enough proof."
+      : `Needs ${formatNearMissCurrency(remaining)} more spend at current ROAS.`;
+  }
+  if (blocker.predicate === "scale_recent_hold") {
+    return `Recent 7d ROAS ${blocker.observed ?? "missing"} below target ${blocker.threshold ?? "missing"}.`;
+  }
+  if (blocker.predicate === "scale_account_benchmark_ready") {
+    return "Account scale calibration is still thin.";
+  }
+  return null;
+}
+
+function deriveNearMisses(decision: DecisionOutput) {
+  if (
+    decision.label !== "keep" ||
+    decision.blockedActionType !== "scale" ||
+    !decision.blockers?.length
+  ) {
+    return [];
+  }
+  return decision.blockers
+    .map(nearMissFromBlocker)
+    .filter((item): item is string => Boolean(item))
+    .slice(0, BRIEFING_NEAR_MISS_MAX_COUNT);
+}
+
+function addDaysToIso(value: string | null | undefined, days: number) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString();
+}
+
+function thresholdProvenanceSource(
+  decision: DecisionOutput,
+): NonNullable<BriefingDecisionExplainability["thresholdProvenance"]>["source"] {
+  switch (decision.truthSource) {
+    case "commercial_truth":
+      return "operator_target";
+    case "account_baseline":
+      return "account_baseline";
+    case "account_baseline_thin":
+      return "account_baseline_thin";
+    case "global_default":
+      return "global_default";
+    default: {
+      return assertNever(decision.truthSource);
+    }
+  }
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled threshold provenance source: ${String(value)}`);
+}
+
 export function buildBriefingPriorityScore(
   decision: DecisionOutput,
 ): BriefingPriorityScore {
@@ -235,6 +366,8 @@ function buildBriefingDecisionExplainability(input: {
   const blockers = input.decision.blockers ?? [];
   const missingEvidence: string[] = [];
   const backtest = input.backtestSummary ?? null;
+  const calibrationComputedAt =
+    input.accountProfile?.accountBaselines.computedAt ?? null;
   if (!backtest) missingEvidence.push("current_version_outcome_window");
   if (!input.accountProfile?.quality.commercialTruthReady) {
     missingEvidence.push("commercial_truth_readiness");
@@ -256,8 +389,15 @@ function buildBriefingDecisionExplainability(input: {
         ? "commercial_truth"
         : input.decision.truthSource,
     thresholdQuality: input.accountProfile?.quality.thresholdQuality ?? null,
-    calibrationComputedAt:
-      input.accountProfile?.accountBaselines.computedAt ?? null,
+    calibrationComputedAt,
+    thresholdProvenance: {
+      calibrationComputedAt,
+      refitDueAt: addDaysToIso(
+        calibrationComputedAt,
+        CALIBRATION_REFIT_INTERVAL_DAYS,
+      ),
+      source: thresholdProvenanceSource(input.decision),
+    },
     spendUnit: input.accountProfile?.spendUnit ?? null,
     commercialMaturitySpend:
       input.accountProfile?.thresholds.commercialMaturitySpend ?? null,
@@ -269,6 +409,7 @@ function buildBriefingDecisionExplainability(input: {
       (blocker) =>
         `${blocker.predicate}: observed ${blocker.observed ?? "missing"} vs threshold ${blocker.threshold ?? "missing"} (${blocker.status})`,
     ),
+    nearMisses: deriveNearMisses(input.decision),
     historicalPrecision: backtest?.hardActionPrecision ?? null,
     historicalRecall: backtest?.hardActionRecall ?? null,
     expectedCalibrationError: backtest?.expectedCalibrationError ?? null,
@@ -325,6 +466,7 @@ export function cardForDecision(input: {
     creativeName: name,
     brand: row?.account_name ?? "Meta",
     label,
+    watchingSubBucket: deriveWatchingSubBucket(decision),
     truthSource: decision.truthSource,
     spendUnitSource: input.accountProfile?.spendUnitSource ?? null,
     spendUnitConfidence: input.accountProfile?.spendUnitConfidence ?? null,

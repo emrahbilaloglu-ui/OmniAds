@@ -93,7 +93,9 @@ import {
 } from "@/components/creatives/briefing/bulk-actions";
 import type {
   BriefingActionItem,
+  BriefingAggregateSuppressionTrace,
   BriefingCreativeCard,
+  BriefingLaneSummary,
   BriefingRollupItem,
   CreativesBriefingResponse,
   MetaSummaryPulseResponse,
@@ -160,7 +162,7 @@ interface CompareDrawerState {
 }
 
 type WorkspaceMode = "briefing" | "library";
-type CreativeLaneView = "action" | "watching" | "healthy";
+type CreativeLaneView = "all" | "action" | "watching" | "healthy";
 type CreativeActionFilter = "all" | "promote" | "scale" | "cut" | "fresh_test" | "add_existing";
 type CreativeCampaignFilter = "all" | "main" | "test" | "mixed";
 type DecisionCenterRowForCard = NonNullable<
@@ -272,6 +274,17 @@ function workspaceModeFromTab(value: string | null | undefined): WorkspaceMode {
   return value === "library" ? "library" : "briefing";
 }
 
+function creativeLaneFromParam(
+  value: string | null | undefined,
+): CreativeLaneView | null {
+  return value === "all" ||
+    value === "action" ||
+    value === "watching" ||
+    value === "healthy"
+    ? value
+    : null;
+}
+
 function relativeTime(value: string | null | undefined) {
   if (!value) return null;
   const parsed = new Date(value).getTime();
@@ -319,6 +332,48 @@ async function fetchJson<T>(path: string): Promise<T> {
     throw new Error(payload?.message ?? `Request failed (${response.status})`);
   }
   return payload as T;
+}
+
+export interface MetaInsightsRefreshResponse {
+  ok?: boolean;
+  status?: string | null;
+  provider?: string | null;
+  error?: string | null;
+  message?: string | null;
+}
+
+export async function requestMetaInsightsRefresh(
+  businessId: string,
+): Promise<MetaInsightsRefreshResponse> {
+  const response = await fetch("/api/sync/refresh", {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      businessId,
+      provider: "meta",
+    }),
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | MetaInsightsRefreshResponse
+    | null;
+  if (!response.ok) {
+    throw new Error(
+      payload?.message ?? payload?.error ?? `Refresh failed (${response.status})`,
+    );
+  }
+  return payload ?? { ok: true, status: "started", provider: "meta" };
+}
+
+function metaInsightsRefreshMessage(payload: MetaInsightsRefreshResponse) {
+  const status = payload.status ?? "started";
+  if (status === "already_running") return "Refresh already running";
+  if (status === "processing") return "Refresh processing";
+  if (status === "finalized_verified") return "Refresh verified";
+  if (status === "blocked") return "Refresh needs operator review";
+  return "Refresh queued";
 }
 
 type DecisionCenterUiParamState = "truthy" | "falsy" | "unset";
@@ -838,7 +893,9 @@ export function decisionVisibilitySummary(input: {
 }) {
   const total = input.actionCount + input.watchingCount + input.healthyCount;
   const activeCount =
-    input.activeLane === "action"
+    input.activeLane === "all"
+      ? total
+      : input.activeLane === "action"
       ? input.actionCount
       : input.activeLane === "watching"
         ? input.watchingCount
@@ -1040,6 +1097,87 @@ function CreativeLaneTab({
   );
 }
 
+function LaneSummaryHeader({
+  summary,
+}: {
+  summary?: BriefingLaneSummary | null;
+}) {
+  if (!summary) return null;
+  const watching = summary.watching;
+  return (
+    <div
+      className="mt-3 flex flex-wrap items-center gap-2 text-[11.5px] text-slate-500"
+      data-creative-lane-summary
+    >
+      <span className="font-semibold text-slate-700">
+        Server lane summary
+      </span>
+      <span className="chip chip--ghost">Action {summary.actionNow}</span>
+      <span className="chip chip--ghost">Watching {watching.total}</span>
+      <span className="chip chip--ghost">Healthy {summary.healthy}</span>
+      <span className="chip chip--ghost">Deferred {summary.deferred}</span>
+      {watching.total > 0 ? (
+        <>
+          <span className="text-slate-300">·</span>
+          <span>
+            Near action {watching.nearAction}, test maturing{" "}
+            {watching.testMaturing}, diagnostic {watching.diagnostic}, labels{" "}
+            {watching.waitingOnLabels}
+          </span>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function AggregateSuppressionNotice({
+  trace,
+}: {
+  trace?: BriefingAggregateSuppressionTrace | null;
+}) {
+  const suppressed = trace?.suppressed ?? [];
+  if (suppressed.length === 0) return null;
+  return (
+    <div
+      className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[12px] text-slate-600"
+      data-aggregate-suppression-trace
+    >
+      <div className="font-semibold text-slate-800">
+        Aggregate decisions not available
+      </div>
+      <div className="mt-1 flex flex-wrap gap-2">
+        {suppressed.slice(0, 4).map((item, index) => (
+          <span
+            key={`${item.action}-${index}`}
+            className="chip chip--ghost"
+            title={[
+              ...item.missingRequiredData,
+              ...item.candidateMissingData,
+            ].join(", ")}
+          >
+            {item.action.replace(/_/g, " ")}: {item.reason.replace(/_/g, " ")}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function watchingBucketLabel(value: BriefingCreativeCard["watchingSubBucket"]) {
+  if (value === "near_action") return "Near action";
+  if (value === "test_maturing") return "Test maturing";
+  if (value === "diagnostic") return "Diagnostic";
+  if (value === "waiting_on_labels") return "Waiting on labels";
+  return "Other watching";
+}
+
+function laneGroupTitle(lane: CreativeLaneView) {
+  if (lane === "action") return "Action Now";
+  if (lane === "watching") return "Watching";
+  if (lane === "healthy") return "Healthy";
+  return "All decisions";
+}
+
 function CreativePulseFinal({
   spendToday,
   conversions,
@@ -1048,9 +1186,11 @@ function CreativePulseFinal({
   roasTarget,
   topCreative,
   profile,
-  deferredCount,
   trackingAnomalyActive,
   engineVersion,
+  refreshStatus,
+  refreshMessage,
+  onRefreshInsights,
 }: {
   spendToday?: number | null;
   conversions?: number | null;
@@ -1059,9 +1199,11 @@ function CreativePulseFinal({
   roasTarget?: number | null;
   topCreative?: BriefingCreativeCard | null;
   profile?: AccountDecisionProfile | null;
-  deferredCount: number;
   trackingAnomalyActive: boolean;
   engineVersion?: string | null;
+  refreshStatus: "idle" | "running" | "queued" | "error";
+  refreshMessage?: string | null;
+  onRefreshInsights: () => void;
 }) {
   const roas = numberOrZero(roas7d);
   const target = numberOrZero(roasTarget) || roas || 1;
@@ -1078,6 +1220,16 @@ function CreativePulseFinal({
   const profileLabel = profile
     ? `${profile.accountBaselines.matureCreativeCount} mature · ${profile.preset}`
     : "Account profile";
+  const refreshBusy = refreshStatus === "running";
+  const refreshChipClass =
+    refreshStatus === "error"
+      ? "chip chip--action"
+      : refreshStatus === "queued"
+        ? "chip chip--healthy"
+        : "chip";
+  const refreshChipLabel =
+    refreshMessage ??
+    (refreshBusy ? "queueing" : "ad insights pipeline");
 
   return (
     <div className="pulse">
@@ -1111,9 +1263,30 @@ function CreativePulseFinal({
         <div className="micro">{trackingAnomalyActive ? "tracking confirmation required" : "briefing payload active"}</div>
       </div>
       <div className="cell">
-        <div className="label"><span>Deferred</span></div>
-        <div className="value" style={{ fontSize: 14 }}>{deferredCount} hidden</div>
-        <div className="status-row"><span className="chip"><span className="dot" />view</span><span className="chip"><span className="dot" />{engineVersion ?? "engine"}</span></div>
+        <div className="label">
+          <span>Insights data</span>
+          <span className="chip" style={{ height: 16, padding: "0 6px", fontSize: 9.5 }}>
+            <span className="dot" />read-only
+          </span>
+        </div>
+        <button
+          type="button"
+          className="btn btn--ghost"
+          style={{ justifyContent: "center", marginTop: 6, width: "100%" }}
+          disabled={refreshBusy}
+          onClick={onRefreshInsights}
+        >
+          <RefreshCw
+            className={`inline-block shrink-0 ${refreshBusy ? "animate-spin" : ""}`}
+            size={14}
+            aria-hidden="true"
+          />
+          {refreshBusy ? "Refreshing..." : "Refresh insights"}
+        </button>
+        <div className="status-row">
+          <span className={refreshChipClass}><span className="dot" />{refreshChipLabel}</span>
+          <span className="chip"><span className="dot" />{engineVersion ?? "engine"}</span>
+        </div>
       </div>
     </div>
   );
@@ -1140,6 +1313,7 @@ export function CreativesBriefingPage() {
   const libraryStart = dateRange.start;
   const libraryEnd = dateRange.end;
   const tabParam = searchParams?.get("tab") ?? null;
+  const laneParam = searchParams?.get("lane") ?? null;
   const decisionCenterUiEnabled = useMemo(
     () => isDecisionCenterUiEnabled(searchParams),
     [searchParams],
@@ -1148,7 +1322,7 @@ export function CreativesBriefingPage() {
     workspaceModeFromTab(tabParam),
   );
   const [manualActiveLane, setManualActiveLane] =
-    useState<CreativeLaneView | null>(null);
+    useState<CreativeLaneView | null>(() => creativeLaneFromParam(laneParam));
   const [actionFilter, setActionFilter] = useState<CreativeActionFilter>("all");
   const [campaignFilter, setCampaignFilter] = useState<CreativeCampaignFilter>("all");
   const [briefingSearch, setBriefingSearch] = useState("");
@@ -1234,6 +1408,10 @@ export function CreativesBriefingPage() {
     useState<CompareDrawerState>(CLOSED_COMPARE_DRAWER_STATE);
   const [evidenceDrawerState, setEvidenceDrawerState] =
     useState<EvidenceDrawerState>(CLOSED_EVIDENCE_DRAWER_STATE);
+  const [insightsRefreshState, setInsightsRefreshState] = useState<{
+    status: "idle" | "running" | "queued" | "error";
+    message: string | null;
+  }>({ status: "idle", message: null });
   const [trackingCutCard, setTrackingCutCard] =
     useState<BriefingCreativeCard | null>(null);
   const [librarySelectedRowIds, setLibrarySelectedRowIds] = useState<string[]>(
@@ -1251,6 +1429,9 @@ export function CreativesBriefingPage() {
   useEffect(() => {
     setWorkspaceMode(workspaceModeFromTab(tabParam));
   }, [tabParam]);
+  useEffect(() => {
+    setManualActiveLane(creativeLaneFromParam(laneParam));
+  }, [laneParam]);
   useEffect(() => {
     if (!presetParam) return;
     setLibraryMetricIds(assetMetricIdsFromPresetParam(presetParam));
@@ -1273,6 +1454,74 @@ export function CreativesBriefingPage() {
     const timeout = window.setTimeout(() => setToast(null), 3600);
     return () => window.clearTimeout(timeout);
   }, [toast]);
+
+  const handleRefreshInsights = useCallback(async () => {
+    if (!businessId) {
+      const message = "Select a workspace before refreshing Meta insights.";
+      setInsightsRefreshState({ status: "error", message });
+      showToast({ type: "error", message });
+      return;
+    }
+    setInsightsRefreshState({
+      status: "running",
+      message: "Queueing refresh",
+    });
+    try {
+      const payload = await requestMetaInsightsRefresh(businessId);
+      const message = metaInsightsRefreshMessage(payload);
+      setInsightsRefreshState({ status: "queued", message });
+      showToast({ type: "success", message });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["creatives-briefing", businessId, decisionCenterUiEnabled],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["creatives-briefing-meta-status", businessId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["creatives-briefing-meta-summary-today", businessId, todayIso],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: [
+            "creatives-briefing-meta-summary-7d",
+            businessId,
+            sevenDayStart,
+            todayIso,
+          ],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: [
+            "creatives-briefing-meta-trends-7d",
+            businessId,
+            sevenDayStart,
+            todayIso,
+          ],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: [
+            "creatives-briefing-asset-library",
+            businessId,
+            libraryStart,
+            libraryEnd,
+          ],
+        }),
+      ]);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Could not queue refresh.";
+      setInsightsRefreshState({ status: "error", message });
+      showToast({ type: "error", message });
+    }
+  }, [
+    businessId,
+    decisionCenterUiEnabled,
+    libraryEnd,
+    libraryStart,
+    queryClient,
+    sevenDayStart,
+    showToast,
+    todayIso,
+  ]);
 
   const handleToggleLane = useCallback((laneKey: LaneKey) => {
     if (laneKey !== "action" && laneKey !== "watching" && laneKey !== "healthy")
@@ -1372,12 +1621,23 @@ export function CreativesBriefingPage() {
     () => healthyItems.filter((card) => cardMatchesCreativeFilters(card, creativeFilterInput)),
     [creativeFilterInput, healthyItems],
   );
+  const allFilteredCards = useMemo(
+    () => [
+      ...filteredActionCards,
+      ...filteredWatchingItems,
+      ...filteredHealthyItems,
+    ],
+    [filteredActionCards, filteredHealthyItems, filteredWatchingItems],
+  );
   const defaultActiveLane = chooseDefaultCreativeLane({
     actionCount: filteredActionCards.length,
     watchingCount: filteredWatchingItems.length,
     healthyCount: filteredHealthyItems.length,
   });
   const activeLane = manualActiveLane ?? defaultActiveLane;
+  const laneSummary = normalizedBriefingData?.source?.laneSummary ?? null;
+  const aggregateSuppressionTrace =
+    normalizedBriefingData?.source?.aggregateSuppressionTrace ?? null;
   const visibilitySummary = decisionVisibilitySummary({
     actionCount: filteredActionCards.length,
     watchingCount: filteredWatchingItems.length,
@@ -1833,23 +2093,63 @@ export function CreativesBriefingPage() {
   }
 
   const activeCards =
-    activeLane === "action"
+    activeLane === "all"
+      ? allFilteredCards
+      : activeLane === "action"
       ? filteredActionCards
       : activeLane === "watching"
         ? filteredWatchingItems
         : filteredHealthyItems;
   const activeSelectedIds =
-    activeLane === "action"
+    activeLane === "all"
+      ? filterSelectedIdsForLane(selectedIds, allFilteredCards.map(cardId))
+      : activeLane === "action"
       ? actionSelectedIds
       : activeLane === "watching"
         ? watchingSelectedIds
         : healthySelectedIds;
   const activeSelectedCards =
-    activeLane === "action"
+    activeLane === "all"
+      ? selectedCardsForCards(allFilteredCards, activeSelectedIds)
+      : activeLane === "action"
       ? selectedActionCards.filter((card) => activeCards.some((item) => cardId(item) === cardId(card)))
       : activeLane === "watching"
         ? selectedWatchingCards.filter((card) => activeCards.some((item) => cardId(item) === cardId(card)))
         : selectedHealthyCards.filter((card) => activeCards.some((item) => cardId(item) === cardId(card)));
+  const activeGroups = (() => {
+    if (activeLane === "all") {
+      return [
+        { key: "action", title: "Action Now", cards: filteredActionCards },
+        { key: "watching", title: "Watching", cards: filteredWatchingItems },
+        { key: "healthy", title: "Healthy", cards: filteredHealthyItems },
+      ].filter((group) => group.cards.length > 0);
+    }
+    if (activeLane === "watching") {
+      const bucketOrder: Array<BriefingCreativeCard["watchingSubBucket"] | null> = [
+        "near_action",
+        "test_maturing",
+        "diagnostic",
+        "waiting_on_labels",
+        null,
+      ];
+      return bucketOrder
+        .map((bucket) => ({
+          key: bucket ?? "other",
+          title: watchingBucketLabel(bucket),
+          cards: filteredWatchingItems.filter(
+            (card) => (card.watchingSubBucket ?? null) === bucket,
+          ),
+        }))
+        .filter((group) => group.cards.length > 0);
+    }
+    return [
+      {
+        key: activeLane,
+        title: laneGroupTitle(activeLane),
+        cards: activeCards,
+      },
+    ];
+  })();
   const topCreative = [...actionCards, ...watchingItems, ...healthyItems]
     .filter((card) => Number.isFinite(card.roas ?? Number.NaN))
     .sort((a, b) => numberOrZero(b.roas) - numberOrZero(a.roas))[0] ?? null;
@@ -1879,9 +2179,11 @@ export function CreativesBriefingPage() {
         roasTarget={normalizedBriefingData?.pulse?.rolling7dRoasTarget}
         topCreative={topCreative}
         profile={engineProfile}
-        deferredCount={deferredCount}
         trackingAnomalyActive={trackingAnomalyActive}
         engineVersion={normalizedBriefingData?.pulse?.engineVersion}
+        refreshStatus={insightsRefreshState.status}
+        refreshMessage={insightsRefreshState.message}
+        onRefreshInsights={handleRefreshInsights}
       />
 
       {trackingAnomalyActive ? (
@@ -1908,6 +2210,7 @@ export function CreativesBriefingPage() {
       {workspaceMode === "briefing" ? (
         <>
           <div className="lane-tabs">
+            <CreativeLaneTab active={activeLane === "all"} className="all" label="All" count={allFilteredCards.length} onClick={() => handleLaneChange("all")} />
             <CreativeLaneTab active={activeLane === "action"} className="action" label="Action Now" count={filteredActionCards.length} onClick={() => handleLaneChange("action")} />
             <CreativeLaneTab active={activeLane === "watching"} className="watch" label="Watching" count={filteredWatchingItems.length} onClick={() => handleLaneChange("watching")} />
             <CreativeLaneTab active={activeLane === "healthy"} className="healthy" label="Healthy" count={filteredHealthyItems.length} onClick={() => handleLaneChange("healthy")} />
@@ -1929,6 +2232,8 @@ export function CreativesBriefingPage() {
               </>
             ) : null}
           </div>
+          <LaneSummaryHeader summary={laneSummary} />
+          <AggregateSuppressionNotice trace={aggregateSuppressionTrace} />
 
           <div className="controls" data-creative-secondary-controls>
             <div className="group" role="group" aria-label="Creative action filter">
@@ -1989,23 +2294,35 @@ export function CreativesBriefingPage() {
                   onBrowseAssetLibrary={() => handleWorkspaceModeChange("library")}
                 />
               ) : (
-                <div className="ccard-grid">
-                  {activeCards.map((card) => (
-                    <ActionNowCard
-                      key={cardId(card)}
-                      card={card}
-                      selected={selectedSet.has(cardId(card))}
-                      onSelectChange={handleSelectChange}
-                      deferred={deferState.isDeferred(getCreativeScopeId(card))}
-                      cutting={cuttingIds.has(cardId(card))}
-                      cutPending={cutPendingIds.has(cardId(card)) || bulkPendingIds.has(cardId(card))}
-                      onDefer={handleDefer}
-                      onUndefer={handleUndefer}
-                      onCut={handleCutRequest}
-                      onLaunchpadOpen={handleLaunchpadOpen}
-                      evidenceOpen={activeEvidenceCardId === cardId(card)}
-                      onEvidenceOpen={handleEvidenceOpen}
-                    />
+                <div className="space-y-5">
+                  {activeGroups.map((group) => (
+                    <section key={group.key} data-creative-lane-group={group.key}>
+                      {(activeLane === "all" || activeLane === "watching") ? (
+                        <div className="mb-2 flex items-center gap-2 text-[12px] font-semibold text-slate-700">
+                          <span>{group.title}</span>
+                          <span className="chip chip--ghost">{group.cards.length}</span>
+                        </div>
+                      ) : null}
+                      <div className="ccard-grid">
+                        {group.cards.map((card) => (
+                          <ActionNowCard
+                            key={cardId(card)}
+                            card={card}
+                            selected={selectedSet.has(cardId(card))}
+                            onSelectChange={handleSelectChange}
+                            deferred={deferState.isDeferred(getCreativeScopeId(card))}
+                            cutting={cuttingIds.has(cardId(card))}
+                            cutPending={cutPendingIds.has(cardId(card)) || bulkPendingIds.has(cardId(card))}
+                            onDefer={handleDefer}
+                            onUndefer={handleUndefer}
+                            onCut={handleCutRequest}
+                            onLaunchpadOpen={handleLaunchpadOpen}
+                            evidenceOpen={activeEvidenceCardId === cardId(card)}
+                            onEvidenceOpen={handleEvidenceOpen}
+                          />
+                        ))}
+                      </div>
+                    </section>
                   ))}
                 </div>
               )}

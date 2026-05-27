@@ -550,7 +550,34 @@ describe("GET /api/creatives/briefing", () => {
       },
       dataCompleteness: {
         totalInputs: expect.any(Number),
+        fields: expect.objectContaining({
+          reviewStatus: expect.objectContaining({
+            criticalForActions: expect.arrayContaining(["fix_policy"]),
+          }),
+          policyReason: expect.objectContaining({
+            criticalForActions: expect.arrayContaining(["fix_policy"]),
+          }),
+        }),
       },
+    });
+    expect(payload.source.laneSummary).toMatchObject({
+      actionNow: 1,
+      watching: {
+        total: 0,
+        nearAction: 0,
+        testMaturing: 0,
+        diagnostic: 0,
+        waitingOnLabels: 0,
+        other: 0,
+      },
+      healthy: 0,
+      totalDecisions: 1,
+    });
+    expect(payload.source.aggregateSuppressionTrace).toMatchObject({
+      candidateCount: expect.any(Number),
+      emittedCount: expect.any(Number),
+      suppressedCount: expect.any(Number),
+      suppressed: expect.any(Array),
     });
   });
 
@@ -725,6 +752,23 @@ describe("GET /api/creatives/briefing", () => {
 
     expect(response.status).toBe(200);
     expect(payload.decisionCenter.aggregateDecisions).toEqual([]);
+    expect(payload.source.aggregateSuppressionTrace).toMatchObject({
+      candidateCount: 2,
+      emittedCount: 0,
+      suppressedCount: 2,
+      suppressed: expect.arrayContaining([
+        expect.objectContaining({
+          action: "unused_approved_creatives",
+          reason: "missing_required_data",
+          missingRequiredData: ["creative_review_status"],
+          prerequisites: [
+            { field: "creative_review_status", availableNow: false },
+            { field: "delivery_proof", availableNow: true },
+            { field: "lifetime_delivery", availableNow: true },
+          ],
+        }),
+      ]),
+    });
   });
 
   it("logs aggregate SQL failures without breaking the briefing response", async () => {

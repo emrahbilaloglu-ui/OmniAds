@@ -63,6 +63,7 @@ import {
 } from "@/lib/creative-decision-center";
 import type {
   BriefingCreativeCard,
+  BriefingLaneSummary,
   CreativesBriefingMeasurementReconciliation,
   CreativesBriefingResponse,
 } from "@/components/creatives/briefing/types";
@@ -334,6 +335,7 @@ function buildDataCompletenessSummary(
 ): CreativesBriefingMeasurementReconciliation["dataCompleteness"] {
   const fields = {
     reviewStatus: (input: CreativeInput) => input.reviewStatus,
+    policyReason: (input: CreativeInput) => input.policyReason,
     disapprovalReason: (input: CreativeInput) => input.disapprovalReason,
     limitedReason: (input: CreativeInput) => input.limitedReason,
     firstSeenAt: (input: CreativeInput) => input.firstSeenAt,
@@ -345,6 +347,19 @@ function buildDataCompletenessSummary(
     frequency: (input: CreativeInput) => input.frequency,
   } as const;
   const total = inputs.length;
+  const criticalForActionsByField: Record<string, string[]> = {
+    reviewStatus: ["fix_policy", "unused_approved_creatives"],
+    policyReason: ["fix_policy", "unused_approved_creatives"],
+    disapprovalReason: ["fix_policy"],
+    limitedReason: ["fix_policy"],
+    firstSeenAt: ["watch_launch"],
+    firstSpendAt: ["watch_launch", "fix_delivery"],
+    spend24h: ["fix_delivery", "watch_launch"],
+    impressions24h: ["fix_delivery", "watch_launch"],
+    ctr: ["refresh", "diagnose_data"],
+    cpm: ["refresh", "diagnose_data"],
+    frequency: ["refresh", "diagnose_data"],
+  };
   const entries = Object.entries(fields).map(([field, read]) => {
     const present = inputs.filter((input) => hasPresentValue(read(input))).length;
     return [
@@ -353,12 +368,55 @@ function buildDataCompletenessSummary(
         present,
         total,
         coverage: coverage(present, total),
+        criticalForActions: criticalForActionsByField[field] ?? [],
       },
     ] as const;
   });
   return {
     totalInputs: total,
     fields: Object.fromEntries(entries),
+  };
+}
+
+function buildLaneSummary(input: {
+  lanes: Record<BriefingLane, BriefingCreativeCard[]>;
+  deferredCount: number;
+}): BriefingLaneSummary {
+  const watching = input.lanes.watching;
+  const totalDecisions =
+    input.lanes.action.length + watching.length + input.lanes.healthy.length;
+  const bucketCounts = {
+    nearAction: 0,
+    testMaturing: 0,
+    diagnostic: 0,
+    waitingOnLabels: 0,
+    other: 0,
+  };
+
+  for (const card of watching) {
+    if (card.watchingSubBucket === "near_action") {
+      bucketCounts.nearAction += 1;
+    } else if (card.watchingSubBucket === "test_maturing") {
+      bucketCounts.testMaturing += 1;
+    } else if (card.watchingSubBucket === "diagnostic") {
+      bucketCounts.diagnostic += 1;
+    } else if (card.watchingSubBucket === "waiting_on_labels") {
+      bucketCounts.waitingOnLabels += 1;
+    } else {
+      bucketCounts.other += 1;
+    }
+  }
+
+  return {
+    actionNow: input.lanes.action.length,
+    watching: {
+      total: watching.length,
+      ...bucketCounts,
+    },
+    healthy: input.lanes.healthy.length,
+    deferred: input.deferredCount,
+    totalDecisions,
+    coveragePct: totalDecisions > 0 ? 1 : null,
   };
 }
 
@@ -478,17 +536,21 @@ async function buildMeasurementReconciliation(input: {
 }): Promise<CreativesBriefingMeasurementReconciliation> {
   const startedAt = Date.now();
   const notes: string[] = [];
-  const [snapshotLatest, outcome] = await Promise.all([
-    readMeasurementSnapshotSummary(input).catch((error) => {
+  const measurementQueries = {
+    snapshotLatest: readMeasurementSnapshotSummary(input).catch((error) => {
       console.error("[creative-decision-center] measurement snapshot summary failed", error);
       notes.push("snapshot_summary_unavailable");
       return null;
     }),
-    readMeasurementOutcomeSummary(input).catch((error) => {
+    outcome: readMeasurementOutcomeSummary(input).catch((error) => {
       console.error("[creative-decision-center] measurement outcome summary failed", error);
       notes.push("outcome_summary_unavailable");
       return null;
     }),
+  };
+  const [snapshotLatest, outcome] = await Promise.all([
+    measurementQueries.snapshotLatest,
+    measurementQueries.outcome,
   ]);
   const actionNow = input.lanes.action.length;
   const watching = input.lanes.watching.length;
@@ -523,15 +585,16 @@ async function buildMeasurementReconciliation(input: {
   if (outcome && outcome.currentVersionRows14d === 0) {
     notes.push("current_version_14d_outcomes_not_yet_available_or_empty");
   }
+  const dataCompleteness = buildDataCompletenessSummary(input.inputs);
 
   return {
     durationMs: Date.now() - startedAt,
-    queryCount: 2,
+    queryCount: Object.keys(measurementQueries).length,
     briefingCounts: { actionNow, watching, healthy, total },
     decisionCenterRowCount: input.decisionCenterRowCount,
     snapshotLatest,
     outcome,
-    dataCompleteness: buildDataCompletenessSummary(input.inputs),
+    dataCompleteness,
     notes,
   };
 }
@@ -701,17 +764,19 @@ async function buildUnusedApprovedCreativesCandidateFromWarehouse(input: {
   if (approvedUnusedIds.length === 0) return null;
   const statusProofCount = safeCount(row?.status_proof_count);
   const deliveryProofCount = safeCount(row?.delivery_proof_count);
-  const hasRequiredProof =
-    approvedUnusedCount > 0 &&
-    statusProofCount >= approvedUnusedCount &&
-    deliveryProofCount >= approvedUnusedCount;
+  const availableData = [
+    ...(statusProofCount >= approvedUnusedCount
+      ? ["creative_review_status"]
+      : []),
+    ...(deliveryProofCount >= approvedUnusedCount
+      ? ["delivery_proof", "lifetime_delivery"]
+      : []),
+  ];
 
   return buildUnusedApprovedCreativesAggregateCandidate({
     approvedUnusedCreativeIds: approvedUnusedIds,
     approvedUnusedCount,
-    availableData: hasRequiredProof
-      ? [...REQUIRED_AGGREGATE_DATA.unused_approved_creatives]
-      : [],
+    availableData,
   });
 }
 
@@ -828,7 +893,7 @@ function buildBridgedDecisionCenterSnapshot(input: {
   inputsByCreativeId: Map<string, CreativeInput>;
   creativeRowsById: Map<string, MetaCreativeApiRow>;
   dataHealthDegraded: boolean;
-  aggregateCandidates: readonly CreativeDecisionCenterAggregateCandidate[];
+  aggregateDecisions: readonly CreativeDecisionCenterAggregateDecision[];
 }): DecisionCenterSnapshot | null {
   try {
     const rowDecisions = buildDecisionCenterRows({
@@ -837,16 +902,13 @@ function buildBridgedDecisionCenterSnapshot(input: {
       creativeRowsById: input.creativeRowsById,
       dataHealthDegraded: input.dataHealthDegraded,
     });
-    const { aggregateDecisions } = buildDecisionCenterAggregateDecisions({
-      candidates: input.aggregateCandidates,
-    });
     return buildDecisionCenterSnapshot({
       asOf: input.asOf,
       engineVersion: input.engineVersion,
       adapterVersion: DECISION_CENTER_BRIDGED_ADAPTER_VERSION,
       dataHealthDegraded: input.dataHealthDegraded,
       rowDecisions,
-      aggregateDecisions,
+      aggregateDecisions: [...input.aggregateDecisions],
     });
   } catch {
     return null;
@@ -1154,6 +1216,9 @@ export async function GET(request: NextRequest) {
     engineVersion: responseEngineVersion,
     decisions,
   });
+  const aggregateBuild = buildDecisionCenterAggregateDecisions({
+    candidates: aggregateCandidates,
+  });
   let decisionCenterSnapshot: DecisionCenterSnapshot | null | undefined;
   if (includeDecisionCenter) {
     decisionCenterSnapshot = buildBridgedDecisionCenterSnapshot({
@@ -1163,9 +1228,13 @@ export async function GET(request: NextRequest) {
       inputsByCreativeId: inputByCreativeId,
       creativeRowsById,
       dataHealthDegraded: Boolean(dataHealth.degraded),
-      aggregateCandidates,
+      aggregateDecisions: aggregateBuild.aggregateDecisions,
     });
   }
+  const laneSummary = buildLaneSummary({
+    lanes,
+    deferredCount: triageState.deferredCount,
+  });
   const measurementReconciliation = await buildMeasurementReconciliation({
     businessId: resolvedBusinessId,
     asOf,
@@ -1211,6 +1280,8 @@ export async function GET(request: NextRequest) {
       dataHealth,
       accountProfile: profile,
       measurementReconciliation,
+      laneSummary,
+      aggregateSuppressionTrace: aggregateBuild.trace,
     },
   };
 

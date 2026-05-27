@@ -35,12 +35,22 @@ export interface BriefingDecisionExplainability {
   thresholdSource?: string | null;
   thresholdQuality?: ThresholdQuality | string | null;
   calibrationComputedAt?: string | null;
+  thresholdProvenance?: {
+    calibrationComputedAt: string | null;
+    refitDueAt: string | null;
+    source:
+      | "operator_target"
+      | "account_baseline"
+      | "account_baseline_thin"
+      | "global_default";
+  } | null;
   spendUnit?: number | null;
   commercialMaturitySpend?: number | null;
   hardCutSpend?: number | null;
   scaleMinPurchases?: number | null;
   blockerCount?: number | null;
   blockerSummary?: string[] | null;
+  nearMisses?: string[] | null;
   historicalPrecision?: number | null;
   historicalRecall?: number | null;
   expectedCalibrationError?: number | null;
@@ -66,6 +76,28 @@ export interface BriefingPriorityScore {
 export interface BriefingCtrFunnel {
   value?: number | null;
   p50?: number | null;
+}
+
+export type BriefingWatchingSubBucket =
+  | "near_action"
+  | "test_maturing"
+  | "diagnostic"
+  | "waiting_on_labels";
+
+export interface BriefingLaneSummary {
+  actionNow: number;
+  watching: {
+    total: number;
+    nearAction: number;
+    testMaturing: number;
+    diagnostic: number;
+    waitingOnLabels: number;
+    other: number;
+  };
+  healthy: number;
+  deferred: number;
+  totalDecisions: number;
+  coveragePct: number | null;
 }
 
 export interface BriefingCreativePreview {
@@ -114,6 +146,7 @@ export interface BriefingCreativeCard {
   placements?: number | null;
   bestPlacement?: string | null;
   label?: DecisionLabel | string | null;
+  watchingSubBucket?: BriefingWatchingSubBucket | null;
   truthSource?: TruthSource | string | null;
   spendUnitSource?: SpendUnitSource | string | null;
   spendUnitConfidence?: SpendUnitConfidence | string | null;
@@ -237,10 +270,32 @@ export interface CreativesBriefingMeasurementReconciliation {
         present: number;
         total: number;
         coverage: number | null;
+        criticalForActions?: string[];
       }
     >;
   };
   notes: string[];
+}
+
+export interface BriefingAggregateSuppressionTraceItem {
+  index: number;
+  action: string;
+  scope: "page" | "family";
+  familyId?: string | null;
+  reason: string;
+  missingRequiredData: string[];
+  candidateMissingData: string[];
+  prerequisites?: Array<{
+    field: string;
+    availableNow: boolean;
+  }>;
+}
+
+export interface BriefingAggregateSuppressionTrace {
+  candidateCount: number;
+  emittedCount: number;
+  suppressedCount: number;
+  suppressed: BriefingAggregateSuppressionTraceItem[];
 }
 
 export interface CreativesBriefingResponse {
@@ -259,6 +314,8 @@ export interface CreativesBriefingResponse {
     dataHealth?: DataHealth | null;
     accountProfile?: AccountDecisionProfile | null;
     measurementReconciliation?: CreativesBriefingMeasurementReconciliation | null;
+    laneSummary?: BriefingLaneSummary | null;
+    aggregateSuppressionTrace?: BriefingAggregateSuppressionTrace | null;
   } | null;
   /**
    * Additive production-default Decision Center snapshot. Null indicates the

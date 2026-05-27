@@ -89,10 +89,16 @@ describe("buildEvidenceSections", () => {
         thresholdSource: "commercial_truth",
         thresholdQuality: "ready",
         calibrationComputedAt: "2026-05-25T06:00:00.000Z",
+        thresholdProvenance: {
+          calibrationComputedAt: "2026-05-25T06:00:00.000Z",
+          refitDueAt: "2026-08-23T06:00:00.000Z",
+          source: "operator_target",
+        },
         spendUnit: 36,
         commercialMaturitySpend: 72,
         hardCutSpend: 288,
         scaleMinPurchases: 1,
+        nearMisses: ["Needs 3 more purchases."],
         historicalPrecision: 0.91,
         historicalRecall: 0.86,
         expectedCalibrationError: 0.04,
@@ -127,6 +133,10 @@ describe("buildEvidenceSections", () => {
     expect(html).toContain("Target ROAS");
     expect(html).toContain("2.50×");
     expect(html).toContain("commercial truth");
+    expect(html).toContain("Calibration");
+    expect(html).toContain("2026-08-23");
+    expect(html).toContain("What would flip this decision?");
+    expect(html).toContain("Needs 3 more purchases.");
     expect(html).toContain("Priority medium");
     expect(html).toContain("Missing proof: current version outcome window");
   });

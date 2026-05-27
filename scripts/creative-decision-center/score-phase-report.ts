@@ -30,6 +30,8 @@ type CompletenessRow = Record<string, unknown> & {
   total_creatives: unknown;
   review_status_present: unknown;
   policy_reason_present: unknown;
+  disapproval_reason_present: unknown;
+  limited_reason_present: unknown;
   first_seen_present: unknown;
   first_spend_present: unknown;
   spend_24h_present: unknown;
@@ -37,6 +39,17 @@ type CompletenessRow = Record<string, unknown> & {
   ctr_present: unknown;
   cpm_present: unknown;
   frequency_present: unknown;
+};
+
+type BacktestPlanRow = Record<string, unknown> & {
+  scale_count: unknown;
+  cut_count: unknown;
+  refresh_count: unknown;
+  bucket_0_20_count: unknown;
+  bucket_20_40_count: unknown;
+  bucket_40_60_count: unknown;
+  bucket_60_80_count: unknown;
+  bucket_80_100_count: unknown;
 };
 
 function todayIsoDate() {
@@ -230,6 +243,12 @@ async function readCompleteness(input: { businessId: string; asOf: string }) {
            OR NULLIF(payload_json->>'disapproval_reason', '') IS NOT NULL
            OR NULLIF(payload_json->>'limited_reason', '') IS NOT NULL
       ) AS policy_reason_present,
+      COUNT(*) FILTER (
+        WHERE NULLIF(payload_json->>'disapproval_reason', '') IS NOT NULL
+      ) AS disapproval_reason_present,
+      COUNT(*) FILTER (
+        WHERE NULLIF(payload_json->>'limited_reason', '') IS NOT NULL
+      ) AS limited_reason_present,
       COUNT(*) FILTER (WHERE launch_date IS NOT NULL) AS first_seen_present,
       COUNT(*) FILTER (WHERE spend > 0) AS first_spend_present,
       COUNT(*) FILTER (WHERE spend IS NOT NULL) AS spend_24h_present,
@@ -245,6 +264,8 @@ async function readCompleteness(input: { businessId: string; asOf: string }) {
   const fields = {
     reviewStatus: int(row?.review_status_present),
     policyReason: int(row?.policy_reason_present),
+    disapprovalReason: int(row?.disapproval_reason_present),
+    limitedReason: int(row?.limited_reason_present),
     firstSeenAt: int(row?.first_seen_present),
     firstSpendAt: int(row?.first_spend_present),
     spend24h: int(row?.spend_24h_present),
@@ -264,6 +285,123 @@ async function readCompleteness(input: { businessId: string; asOf: string }) {
   };
 }
 
+function coverageValue(
+  completeness: Awaited<ReturnType<typeof readCompleteness>>,
+  field: string,
+) {
+  const value = completeness.fields[field] as
+    | { coverage: number | null }
+    | undefined;
+  return value?.coverage ?? null;
+}
+
+function isFullyCovered(value: number | null) {
+  return value !== null && value >= 0.9999;
+}
+
+function buildProofDetail(
+  coverage: Record<string, number | null>,
+  fields: string[],
+) {
+  const missingFields = fields.filter((field) => !isFullyCovered(coverage[field]));
+  const coveredFields = fields.filter((field) => isFullyCovered(coverage[field]));
+  return {
+    available: missingFields.length === 0,
+    coveragePct: fields.length > 0 ? coveredFields.length / fields.length : null,
+    missingFields,
+  };
+}
+
+function buildProofGateRisk(
+  dataCompleteness: Awaited<ReturnType<typeof readCompleteness>>,
+) {
+  const reviewStatus = coverageValue(dataCompleteness, "reviewStatus");
+  const policyReason = coverageValue(dataCompleteness, "policyReason");
+  const disapprovalReason = coverageValue(dataCompleteness, "disapprovalReason");
+  const limitedReason = coverageValue(dataCompleteness, "limitedReason");
+  const spend24h = coverageValue(dataCompleteness, "spend24h");
+  const impressions24h = coverageValue(dataCompleteness, "impressions24h");
+  const firstSeenAt = coverageValue(dataCompleteness, "firstSeenAt");
+  const firstSpendAt = coverageValue(dataCompleteness, "firstSpendAt");
+  const coverage = {
+    reviewStatus,
+    policyReason,
+    disapprovalReason,
+    limitedReason,
+    spend24h,
+    impressions24h,
+    firstSeenAt,
+    firstSpendAt,
+  };
+  const fixPolicy = buildProofDetail(coverage, [
+    "reviewStatus",
+    "policyReason",
+    "disapprovalReason",
+    "limitedReason",
+  ]);
+  const fixDelivery = buildProofDetail(coverage, [
+    "spend24h",
+    "impressions24h",
+  ]);
+  const launchMonitoring = buildProofDetail(coverage, [
+    "firstSeenAt",
+    "firstSpendAt",
+  ]);
+
+  return {
+    fix_policy_proof_available: fixPolicy.available,
+    fix_delivery_proof_available: fixDelivery.available,
+    launch_monitoring_proof_available: launchMonitoring.available,
+    details: {
+      fix_policy: fixPolicy,
+      fix_delivery: fixDelivery,
+      launch_monitoring: launchMonitoring,
+    },
+    coverage,
+  };
+}
+
+async function readBacktestPlan(input: {
+  businessId: string;
+  asOf: string;
+  engineVersion: string;
+}) {
+  const [row] = await getDb().query<BacktestPlanRow>(
+    `
+    SELECT
+      COUNT(*) FILTER (WHERE label = 'scale') AS scale_count,
+      COUNT(*) FILTER (WHERE label = 'cut') AS cut_count,
+      COUNT(*) FILTER (WHERE label = 'refresh') AS refresh_count,
+      COUNT(*) FILTER (WHERE confidence >= 0 AND confidence < 20) AS bucket_0_20_count,
+      COUNT(*) FILTER (WHERE confidence >= 20 AND confidence < 40) AS bucket_20_40_count,
+      COUNT(*) FILTER (WHERE confidence >= 40 AND confidence < 60) AS bucket_40_60_count,
+      COUNT(*) FILTER (WHERE confidence >= 60 AND confidence < 80) AS bucket_60_80_count,
+      COUNT(*) FILTER (WHERE confidence >= 80 AND confidence <= 100) AS bucket_80_100_count
+    FROM engine_v3_decision_outcomes_daily
+    WHERE (business_ref_id::text = $1 OR business_id = $1)
+      AND engine_version = $3
+      AND evaluation_date <= $2::date
+    `,
+    [input.businessId, input.asOf, input.engineVersion],
+  );
+  return {
+    perActionWindowSampleSize: {
+      scale: int(row?.scale_count),
+      cut: int(row?.cut_count),
+      refresh: int(row?.refresh_count),
+    },
+    perConfidenceBucketSampleSize: {
+      bucket0_20: int(row?.bucket_0_20_count),
+      bucket20_40: int(row?.bucket_20_40_count),
+      bucket40_60: int(row?.bucket_40_60_count),
+      bucket60_80: int(row?.bucket_60_80_count),
+      bucket80_100: int(row?.bucket_80_100_count),
+    },
+    minimumSampleForPrecisionClaim: 30,
+    minimumSampleForECEClaim: 10,
+  };
+}
+
 async function main() {
   const asOf = arg("asOf", todayIsoDate());
   const engineVersion = arg("engineVersion", ENGINE_VERSION);
@@ -273,16 +411,40 @@ async function main() {
   const reviews = [];
 
   for (const business of businesses) {
-    const [snapshot, outcome, dataCompleteness] = await Promise.all([
+    const [snapshot, outcome, dataCompleteness, backtestPlanSamples] = await Promise.all([
       readSnapshotSummary({ businessId: business.id, asOf, engineVersion }),
       readOutcomeSummary({ businessId: business.id, asOf, engineVersion }),
       readCompleteness({ businessId: business.id, asOf }),
+      readBacktestPlan({ businessId: business.id, asOf, engineVersion }),
     ]);
+    const totalOutcomeSamples =
+      Object.values(backtestPlanSamples.perActionWindowSampleSize).reduce(
+        (sum, value) => sum + value,
+        0,
+      );
     reviews.push({
       business,
       snapshot,
       outcome,
       dataCompleteness,
+      proofGateRisk: buildProofGateRisk(dataCompleteness),
+      backtestPlan: {
+        earliest7dOutcomeDate: outcome.first7dWindowClosesAt,
+        earliest14dOutcomeDate: outcome.first14dWindowClosesAt,
+        ...backtestPlanSamples,
+        precisionRecallStatus:
+          totalOutcomeSamples >= backtestPlanSamples.minimumSampleForPrecisionClaim
+            ? "measurable"
+            : "not_measurable_yet",
+        eceStatus:
+          totalOutcomeSamples >= backtestPlanSamples.minimumSampleForECEClaim
+            ? "measurable"
+            : "not_measurable_yet",
+        nonComputableReason:
+          totalOutcomeSamples >= backtestPlanSamples.minimumSampleForPrecisionClaim
+            ? null
+            : "insufficient_current_version_outcome_samples",
+      },
       notes: [
         snapshot.rowCount === 0 ? "no_current_snapshot_rows_for_scope" : null,
         outcome.currentVersionRows7d === 0

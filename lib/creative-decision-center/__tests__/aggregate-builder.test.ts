@@ -101,6 +101,11 @@ describe("Decision Center aggregate builder", () => {
           "backup_variant_status",
           "creative_supply_backlog",
         ],
+        prerequisites: [
+          { field: "family_winner_fatigue", availableNow: true },
+          { field: "backup_variant_status", availableNow: false },
+          { field: "creative_supply_backlog", availableNow: false },
+        ],
       }),
     ]);
   });

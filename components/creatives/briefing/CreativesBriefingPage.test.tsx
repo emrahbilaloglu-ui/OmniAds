@@ -9,6 +9,7 @@ import {
   decisionVisibilitySummary,
   isDecisionCenterUiEnabled,
   normalizeCreativesBriefingPayload,
+  requestMetaInsightsRefresh,
   selectedCardsForActionItems,
   selectedCardsForCards,
   filterRemovedActionItems,
@@ -182,8 +183,20 @@ function makeBriefingData() {
         campaign: "ABO",
         adset: "AdSet",
         label: "diagnose",
+        watchingSubBucket: "diagnostic" as const,
         confidence: 38,
         reason: "Low confidence.",
+      },
+      {
+        id: "cr_watch_near",
+        name: "Near Scale Watch",
+        brand: "TheSwaf",
+        campaign: "ABO",
+        adset: "AdSet",
+        label: "keep",
+        watchingSubBucket: "near_action" as const,
+        confidence: 62,
+        reason: "Scale readiness blocked.",
       },
     ],
     healthy: [
@@ -196,6 +209,42 @@ function makeBriefingData() {
         roas: 2.1,
       },
     ],
+    source: {
+      laneSummary: {
+        actionNow: 2,
+        watching: {
+          total: 2,
+          nearAction: 1,
+          testMaturing: 0,
+          diagnostic: 1,
+          waitingOnLabels: 0,
+          other: 0,
+        },
+        healthy: 1,
+        deferred: 3,
+        totalDecisions: 5,
+        coveragePct: 1,
+      },
+      aggregateSuppressionTrace: {
+        candidateCount: 1,
+        emittedCount: 0,
+        suppressedCount: 1,
+        suppressed: [
+          {
+            index: 0,
+            action: "unused_approved_creatives",
+            scope: "page" as const,
+            familyId: null,
+            reason: "missing_required_data",
+            missingRequiredData: ["creative_review_status"],
+            candidateMissingData: [],
+            prerequisites: [
+              { field: "creative_review_status", availableNow: false },
+            ],
+          },
+        ],
+      },
+    },
   };
 }
 
@@ -294,6 +343,9 @@ describe("CreativesBriefingPage", () => {
     expect(html).toContain("Action gated");
     expect(html).not.toContain("2026-05-04T12:00:00");
     expect(html).toContain("Account profile");
+    expect(html).toContain("Insights data");
+    expect(html).toContain("Refresh insights");
+    expect(html).not.toContain("3 hidden");
     expect(html).not.toContain("Saved 2s ago");
     expect(html).toContain("Tracking is currently in anomaly.");
     expect(html).toContain("Action Now");
@@ -304,6 +356,30 @@ describe("CreativesBriefingPage", () => {
     expect(html).not.toContain("Watcher A");
     expect(html).not.toContain("Healthy A");
     expect(html).toContain("Asset Library");
+  });
+
+  it("queues a read-only Meta insights refresh through the sync refresh endpoint", async () => {
+    const fetchSpy = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ ok: true, status: "started", provider: "meta" }),
+    }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    try {
+      const payload = await requestMetaInsightsRefresh("biz_1");
+
+      expect(payload.status).toBe("started");
+      expect(fetchSpy).toHaveBeenCalledWith("/api/sync/refresh", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ businessId: "biz_1", provider: "meta" }),
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("renders Asset Library as a URL-addressable workspace tab", () => {
@@ -588,7 +664,7 @@ describe("CreativesBriefingPage", () => {
     const html = renderToStaticMarkup(<CreativesBriefingPage />);
 
     expect(html).toContain("Nothing for you to do right now.");
-    expect(html).toContain("18 mature creatives · 1 watching · Data is loaded in the lanes below");
+    expect(html).toContain("18 mature creatives · 2 watching · Data is loaded in the lanes below");
     expect(html).toContain("Expand Watching below");
     expect(html).toContain("Launch a new test");
     expect(html).not.toContain("Scale Hero");
@@ -629,6 +705,32 @@ describe("CreativesBriefingPage", () => {
       activeCount: 39,
       isSparseActionDefault: true,
     });
+  });
+
+  it("renders the server-supplied all view and watching subgroups without deriving buyerAction", () => {
+    mockState.searchParams = new URLSearchParams("lane=all");
+
+    const html = renderToStaticMarkup(<CreativesBriefingPage />);
+
+    expect(html).toContain("Server lane summary");
+    expect(html).toContain("Near action 1, test maturing 0, diagnostic 1, labels 0");
+    expect(html).toContain("Aggregate decisions not available");
+    expect(html).toContain("Scale Hero");
+    expect(html).toContain("Watcher A");
+    expect(html).toContain("Near Scale Watch");
+    expect(html).toContain("Healthy A");
+    expect(html).not.toContain("buyerAction");
+  });
+
+  it("groups Watching cards by the server-supplied watchingSubBucket", () => {
+    mockState.searchParams = new URLSearchParams("lane=watching");
+
+    const html = renderToStaticMarkup(<CreativesBriefingPage />);
+
+    expect(html).toContain("Near action");
+    expect(html).toContain("Diagnostic");
+    expect(html).toContain("Near Scale Watch");
+    expect(html).toContain("Watcher A");
   });
 
   it("renders a setup notice instead of a silent empty page when no Meta ad account is assigned", () => {

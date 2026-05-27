@@ -62,6 +62,10 @@ export interface DecisionCenterAggregateSuppression {
   reason: DecisionCenterAggregateSuppressionReason;
   missingRequiredData: string[];
   candidateMissingData: string[];
+  prerequisites: Array<{
+    field: string;
+    availableNow: boolean;
+  }>;
 }
 
 export interface DecisionCenterAggregateBuildTrace {
@@ -245,6 +249,7 @@ export function buildDecisionCenterAggregateDecisions(
     }
 
     if (reason) {
+      const availableData = new Set(candidate.availableData ?? []);
       suppressed.push({
         index,
         action: candidate.action,
@@ -253,6 +258,10 @@ export function buildDecisionCenterAggregateDecisions(
         reason,
         missingRequiredData,
         candidateMissingData,
+        prerequisites: REQUIRED_AGGREGATE_DATA[candidate.action].map((field) => ({
+          field,
+          availableNow: availableData.has(field),
+        })),
       });
       return;
     }

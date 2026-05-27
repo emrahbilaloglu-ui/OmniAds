@@ -582,9 +582,30 @@ function ExplainabilityBody({ card }: { card: BriefingCreativeCard }) {
   const proof = card.explainability;
   const priority = card.priorityScore;
   const missingEvidence = proof?.missingEvidence ?? [];
+  const nearMisses = proof?.nearMisses ?? [];
+  const thresholdProvenance = proof?.thresholdProvenance ?? null;
 
   return (
     <div className="space-y-3">
+      {thresholdProvenance ? (
+        <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-slate-600">
+          <span className="inline-flex items-center rounded border border-slate-200 bg-white px-2 py-1 font-medium">
+            Calibration{" "}
+            {thresholdProvenance.calibrationComputedAt
+              ? thresholdProvenance.calibrationComputedAt.slice(0, 10)
+              : "unknown"}
+          </span>
+          <span className="inline-flex items-center rounded border border-slate-200 bg-white px-2 py-1 font-medium">
+            Refit due{" "}
+            {thresholdProvenance.refitDueAt
+              ? thresholdProvenance.refitDueAt.slice(0, 10)
+              : "unknown"}
+          </span>
+          <span className="inline-flex items-center rounded border border-slate-200 bg-white px-2 py-1 font-medium">
+            {thresholdProvenance.source.replace(/_/g, " ")}
+          </span>
+        </div>
+      ) : null}
       <div className="grid grid-cols-4 gap-3 text-[12px]">
         <Kv label="Target ROAS">
           {typeof proof?.targetRoas === "number"
@@ -646,6 +667,18 @@ function ExplainabilityBody({ card }: { card: BriefingCreativeCard }) {
             opportunity {formatCurrency(priority.inputs.opportunityValue)} ·
             confidence factor {priority.inputs.confidenceFactor.toFixed(2)}
           </div>
+        </div>
+      ) : null}
+      {nearMisses.length > 0 ? (
+        <div className="rounded-md border border-sky-100 bg-sky-50/70 px-2.5 py-2 text-[12px] text-slate-700">
+          <div className="font-semibold text-slate-900">
+            What would flip this decision?
+          </div>
+          <ul className="mt-1 list-disc space-y-0.5 pl-4">
+            {nearMisses.map((item, index) => (
+              <li key={`${item}-${index}`}>{item}</li>
+            ))}
+          </ul>
         </div>
       ) : null}
       {missingEvidence.length > 0 ? (

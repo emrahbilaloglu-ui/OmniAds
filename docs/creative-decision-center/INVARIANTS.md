@@ -9,6 +9,11 @@ These rules are hard gates for V2.1.
 - No `fix_delivery` without active status + no spend/impression proof.
 - No `fix_policy` without review/effective/disapproval/limited proof.
 - No high-confidence scale/cut on stale data.
+- Stale source evidence must not terminally hide a severe mature stop-loss cut;
+  it must surface as `stale_evidence` with capped confidence and review-only
+  actionability.
+- Stale source evidence must hard-veto scale because scale requires fresh
+  recent-hold proof.
 - No hard cut for new launch unless maturity threshold is met or severe-loss rule is explicit.
 - No high-confidence scale when benchmark/target is missing.
 - Cut maturity must use commercial loss-budget spend, not winner-pool purchase depth.
@@ -64,7 +69,7 @@ These rules are hard gates for V2.1.
 
 | Change                              | Expected behavior                                                                    |
 | ----------------------------------- | ------------------------------------------------------------------------------------ |
-| dataFreshness becomes stale         | confidence goes down or action becomes `diagnose_data`                               |
+| dataFreshness becomes stale         | stop-loss confidence is capped; mature severe losers may stay `cut`; scale is blocked |
 | benchmarkReliability strong -> weak | confidence goes down                                                                 |
 | campaignStatus active -> paused     | `fix_delivery` disappears                                                            |
 | reviewStatus -> disapproved         | policy overrides performance                                                         |

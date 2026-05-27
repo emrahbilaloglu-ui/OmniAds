@@ -96,6 +96,7 @@ const DATA_QUALITY_BADGES = new Set<V3BadgeType>([
   "truth_account_baseline_thin",
   "truth_global_default",
   "missing_recent_data",
+  "stale_evidence",
   "stale_calibration",
   "stale_lifecycle",
   "stale_decision_context",
@@ -201,6 +202,11 @@ function deriveMissingData(
 
   if (hasBadge(decision, "missing_recent_data")) {
     missingData.push("freshness");
+  }
+
+  if (hasBadge(decision, "stale_evidence")) {
+    missingData.push("stale_evidence");
+    missingReasonTags.push("stale_evidence");
   }
 
   if (

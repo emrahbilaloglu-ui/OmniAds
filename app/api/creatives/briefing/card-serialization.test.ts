@@ -140,4 +140,31 @@ describe("card serialization", () => {
       source: "operator_target",
     });
   });
+
+  it("serializes stale evidence on cut cards without changing the server action", () => {
+    const card = cardForDecision({
+      decision: decision({
+        label: "cut",
+        confidence: 65,
+        badges: [
+          {
+            type: "stale_evidence",
+            label: "Stale evidence",
+            severity: "warning",
+          },
+        ],
+        metrics: {
+          spend: 620,
+          purchases: 1,
+          roas: 0.27,
+          recent7dRoas: 0.25,
+        },
+      }),
+    });
+
+    expect(card.label).toBe("cut");
+    expect(card.primary).toEqual({ kind: "cut", label: "Cut" });
+    expect(card.badges).toContain("stale_evidence");
+    expect(card.priorityScore?.inputs.severityWeight).toBeGreaterThan(1);
+  });
 });

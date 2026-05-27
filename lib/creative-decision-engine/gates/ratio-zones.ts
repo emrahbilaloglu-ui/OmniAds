@@ -11,6 +11,7 @@ import {
   REFRESH_RATIO_FALLBACK,
   MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
   SCALE_RATIO_BY_PRESET,
+  STALE_SOURCE_UPDATED_AT_HOURS,
   TARGET_BAND_MIN_RATIO,
   WEAK_TARGET_MAX_RATIO,
 } from "../config-values";
@@ -100,6 +101,7 @@ function buildNearScaleReadiness(input: {
   recent7dRoas: number | null;
   targetRoas: number;
   scaleBenchmarkBlockers?: readonly string[];
+  scaleFreshnessBlockers?: readonly string[];
 }): NearScaleReadiness {
   const reasons: string[] = [];
   const blockers: DecisionPredicateBlocker[] = [];
@@ -186,6 +188,19 @@ function buildNearScaleReadiness(input: {
     );
   }
 
+  for (const reason of input.scaleFreshnessBlockers ?? []) {
+    reasons.push(reason);
+    blockers.push(
+      blocker({
+        predicate: "scale_recent_freshness",
+        observed: reason,
+        threshold: "fresh",
+        status: "missing",
+        reason,
+      }),
+    );
+  }
+
   return { reasons, blockers };
 }
 
@@ -218,6 +233,14 @@ function scaleReadinessBadges(
   }
 
   return [SCALE_READINESS_BLOCKED_BADGE, SCALE_CALIBRATION_THIN_BADGE];
+}
+
+function hasStaleEvidence(ctx: GateContext): boolean {
+  return (
+    ctx.badges.some((badge) => badge.type === "stale_evidence") ||
+    (ctx.input.dataFreshnessHours !== null &&
+      ctx.input.dataFreshnessHours > STALE_SOURCE_UPDATED_AT_HOURS)
+  );
 }
 
 function recentToTotalRoasRatio(input: CreativeInput): number | null {
@@ -456,6 +479,13 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
     const scalePurchasesThreshold = profile.thresholds.scaleMinPurchases;
     const recent7dRoas = input.recent7dRoas;
     const benchmarkBlockers = scaleBenchmarkBlockers(profile);
+    const staleScaleBlockers = hasStaleEvidence(ctx)
+      ? [
+          `source evidence is stale (${Math.round(
+            input.dataFreshnessHours ?? 0,
+          )}h); scale requires fresh recent performance proof`,
+        ]
+      : [];
     const hasScaleSpendDepth =
       scaleSpendThreshold !== null && input.spend >= scaleSpendThreshold;
     const hasScalePurchaseDepth = purchases >= scalePurchasesThreshold;
@@ -466,6 +496,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       hasScaleSpendDepth &&
       hasScalePurchaseDepth &&
       benchmarkBlockers.length === 0 &&
+      staleScaleBlockers.length === 0 &&
       recent7dRoas !== null &&
       recent7dRoas >= ctx.effectiveTargetRoas
     ) {
@@ -491,6 +522,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       recent7dRoas,
       targetRoas: ctx.effectiveTargetRoas,
       scaleBenchmarkBlockers: benchmarkBlockers,
+      scaleFreshnessBlockers: staleScaleBlockers,
     });
 
     return terminal(

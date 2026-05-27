@@ -4,7 +4,10 @@ import {
   type GateResult,
 } from "./types";
 import { computeFunnelDiagnosis } from "../funnel";
-import { STALE_TIER_NONE_MAX_HOURS } from "../config-values";
+import {
+  STALE_SOURCE_UPDATED_AT_HOURS,
+  STALE_TIER_NONE_MAX_HOURS,
+} from "../config-values";
 import type { DecisionBadge } from "../types";
 
 function terminal(ctx: GateContext, reason: string, confidenceBase: number) {
@@ -44,8 +47,27 @@ function reviewStatusIsPolicyBlocked(value: string | null | undefined) {
 function isStaleData(ctx: GateContext) {
   return (
     ctx.input.dataFreshnessHours !== null &&
-    ctx.input.dataFreshnessHours > 48
+    ctx.input.dataFreshnessHours > STALE_SOURCE_UPDATED_AT_HOURS
   );
+}
+
+function withStaleEvidence(ctx: GateContext): GateContext {
+  if (!isStaleData(ctx)) return ctx;
+  const hours = Math.round(ctx.input.dataFreshnessHours ?? 0);
+  if (ctx.badges.some((badge) => badge.type === "stale_evidence")) {
+    return ctx;
+  }
+  return {
+    ...ctx,
+    badges: [
+      ...ctx.badges,
+      {
+        type: "stale_evidence",
+        label: `Stale evidence: last sync ${hours}h ago - refresh pipeline before applying.`,
+        severity: "warning",
+      },
+    ],
+  };
 }
 
 function isVerifiedNoDelivery24h(ctx: GateContext) {
@@ -65,17 +87,8 @@ function isVerifiedNoDelivery24h(ctx: GateContext) {
 }
 
 export function diagnoseGate(ctx: GateContext): GateResult {
+  ctx = withStaleEvidence(ctx);
   const spend = ctx.input.spend;
-
-  if (isStaleData(ctx)) {
-    return terminal(
-      ctx,
-      `Stale data: last sync ${Math.round(
-        ctx.input.dataFreshnessHours ?? 0,
-      )}h ago — refresh ad insights pipeline.`,
-      60,
-    );
-  }
 
   if (isVerifiedNoDelivery24h(ctx)) {
     return terminal(
@@ -97,6 +110,7 @@ export function diagnoseGate(ctx: GateContext): GateResult {
   }
 
   if (
+    !isStaleData(ctx) &&
     ctx.input.effectiveStatus === "ACTIVE" &&
     (ctx.input.recent7dSpend ?? 0) === 0 &&
     spend > 0
@@ -161,6 +175,7 @@ export function diagnoseGate(ctx: GateContext): GateResult {
   });
 
   if (
+    !isStaleData(ctx) &&
     (funnelDiagnosis.primaryWeakStage === "landing_page" ||
       funnelDiagnosis.primaryWeakStage === "checkout") &&
     funnelDiagnosis.confidence >= 0.65

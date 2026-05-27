@@ -258,6 +258,33 @@ describe("Creative Decision Center V3 bridge", () => {
     expect(row.confidenceBand).toBe("low");
   });
 
+  it("keeps stale stop-loss cut as a Cut row with stale evidence missing-data marker", () => {
+    const result = requireMapped(
+      bridgeV3DecisionToV21({
+        decision: makeV3Decision({
+          label: "cut",
+          confidence: 65,
+          badges: [badge("stale_evidence", "warning")],
+          reason: "ROAS below target after mature spend - cut underperforming creative.",
+          metrics: {
+            spend: 620,
+            purchases: 1,
+            roas: 0.27,
+            recent7dRoas: 0.25,
+          },
+        }),
+      }),
+    );
+    const row = validateMappedBridge(result);
+
+    expect(result.engine.primaryDecision).toBe("Cut");
+    expect(result.engine.actionability).toBe("review_only");
+    expect(result.engine.applyEligible).toBe(false);
+    expect(result.engine.missingData).toEqual(["stale_evidence"]);
+    expect(result.engine.reasonTags).toContain("stale_evidence");
+    expect(row.buyerAction).toBe("cut");
+  });
+
   it("maps verified no-delivery diagnostics to fix_delivery without missing delivery proof", () => {
     const result = requireMapped(
       bridgeV3DecisionToV21({

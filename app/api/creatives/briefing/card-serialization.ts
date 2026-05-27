@@ -35,6 +35,7 @@ function badgeLabels(badges: DecisionBadge[]) {
     if (badge.type === "scale_calibration_thin")
       return ["scale_calibration_thin"];
     if (badge.type === "stop_loss_review") return ["stop_loss_review"];
+    if (badge.type === "stale_evidence") return ["stale_evidence"];
     if (badge.type === "delivery_no_spend_24h")
       return ["delivery_no_spend_24h"];
     if (badge.type === "policy_blocked") return ["policy_blocked"];
@@ -126,6 +127,7 @@ function severityWeight(decision: DecisionOutput) {
   if (
     decision.badges.some(
       (badge) =>
+        badge.type === "stale_evidence" ||
         badge.type === "stop_loss_review" ||
         badge.type === "policy_blocked" ||
         badge.type === "delivery_no_spend_24h",

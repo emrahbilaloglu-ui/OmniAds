@@ -739,5 +739,31 @@
     "expectedTopReasonTag": "strong_relative_winner",
     "expectedMaturity": "mature",
     "expectedSafeFallbackIfDataMissing": "diagnose_data"
+  },
+  {
+    "caseId": "GC-057",
+    "inputSummary": "stale source evidence with a severe scaled stop-loss loser",
+    "expectedPrimaryDecision": "Cut",
+    "expectedBuyerAction": "cut",
+    "expectedActionability": "review_only",
+    "expectedProblemClass": "performance",
+    "expectedPriorityBand": "high",
+    "expectedConfidenceBand": "medium",
+    "expectedTopReasonTag": "stale_stop_loss_review",
+    "expectedMaturity": "mature",
+    "expectedSafeFallbackIfDataMissing": "diagnose_data"
+  },
+  {
+    "caseId": "GC-058",
+    "inputSummary": "stale source evidence with a sustained loser past commercial maturity",
+    "expectedPrimaryDecision": "Cut",
+    "expectedBuyerAction": "cut",
+    "expectedActionability": "review_only",
+    "expectedProblemClass": "performance",
+    "expectedPriorityBand": "high",
+    "expectedConfidenceBand": "medium",
+    "expectedTopReasonTag": "stale_sustained_loser",
+    "expectedMaturity": "mature",
+    "expectedSafeFallbackIfDataMissing": "diagnose_data"
   }
 ]

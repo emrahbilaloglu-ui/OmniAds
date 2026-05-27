@@ -12,6 +12,7 @@ import {
 } from "../types";
 import { computeFunnelDiagnosis } from "../funnel";
 import { applyTestCohortRefreshOverride } from "../test-cohort-semantic";
+import { STALE_CONFIDENCE_CAP } from "../config-values";
 
 export interface GateContext {
   input: CreativeInput;
@@ -65,6 +66,18 @@ function hasDecisionBadge(
   type: DecisionBadge["type"],
 ): boolean {
   return badges.some((badge) => badge.type === type);
+}
+
+function confidenceCapForBadges(
+  badges: readonly DecisionBadge[],
+): number | null {
+  return hasDecisionBadge(badges, "stale_evidence")
+    ? STALE_CONFIDENCE_CAP
+    : null;
+}
+
+function capConfidence(confidence: number, cap: number | null): number {
+  return cap === null ? confidence : Math.min(confidence, cap);
 }
 
 function appendDecisionBadgeOnce(
@@ -392,7 +405,10 @@ export function finalizeDecision(
   return buildDecisionOutput(nextCtx, {
     label: softOnly.label,
     reason: softOnly.reason,
-    confidence: clampConfidence(ctx.confidenceBase, confidenceDeltas),
+    confidence: capConfidence(
+      clampConfidence(ctx.confidenceBase, confidenceDeltas),
+      confidenceCapForBadges(badges),
+    ),
     badges,
     labelTransform: transformed.labelTransform,
   });

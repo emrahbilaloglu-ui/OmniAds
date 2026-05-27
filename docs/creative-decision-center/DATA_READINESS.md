@@ -7,6 +7,9 @@ Known facts to preserve unless repo evidence proves otherwise:
 - V3 input now carries `ctr`, `cpm`, `frequency`, `firstSeenAt`, `firstSpendAt`, `spend24h`, `impressions24h`, `reviewStatus`, `disapprovalReason`, and `limitedReason` where warehouse rows expose them.
 - `fix_delivery`, `fix_policy`, and `watch_launch` remain proof-gated: they may emit only when those fields are present and the bridge can map the server-produced diagnostic badge.
 - If required data is missing, fallback to `diagnose_data` or cap confidence.
+- Stale source evidence caps confidence and disables execution readiness, but
+  it must not hide mature severe stop-loss `cut` decisions. Stale scale remains
+  blocked because scale depends on fresh recent-hold proof.
 - `brief_variation` requires family grouping / supply / backlog / winner gap data and should be aggregate only.
 
 ## Buyer Actions

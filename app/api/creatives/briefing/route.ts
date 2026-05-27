@@ -834,6 +834,12 @@ function decisionLane(
   }
   if (decision.label === "keep") return "healthy";
   if (
+    decision.label === "cut" &&
+    decision.badges.some((badge) => badge.type === "stale_evidence")
+  ) {
+    return "action";
+  }
+  if (
     decision.confidence >= 70 &&
     (decision.label === "scale" ||
       decision.label === "cut" ||

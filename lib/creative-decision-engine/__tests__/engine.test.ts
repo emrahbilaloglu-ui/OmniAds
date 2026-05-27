@@ -3,9 +3,11 @@ import { decideCreative, ENGINE_VERSION, MockDataSource } from "..";
 import {
   makeAccountDecisionProfile,
   makeAccountFunnelCalibration,
+  makeCreativeInput,
   makeDataHealth,
   makeDataLayerHealth,
 } from "./helpers";
+import { STALE_CONFIDENCE_CAP } from "../config-values";
 import { applyCreativeCampaignLabelGuard } from "../campaign-label-guard";
 import type {
   AccountCalibration,
@@ -159,6 +161,27 @@ describe("creative-decision-engine v3", () => {
       initiateCheckout: 25,
       ...overrides,
     };
+  }
+
+  function makeStaleStopLossInput(
+    overrides: Partial<CreativeInput> = {},
+  ): CreativeInput {
+    return makeCreativeInput({
+      targetRoas: 2.5,
+      recent7dSpend: 120,
+      recent7dRoas: 0.4,
+      dataFreshnessHours: 57,
+      effectiveStatus: "ACTIVE",
+      ageDays: 21,
+      fatigueStatus: "none",
+      ctr: 1.2,
+      thumbstop: 25,
+      linkClicks: 600,
+      landingPageViews: 480,
+      addToCart: 80,
+      initiateCheckout: 40,
+      ...overrides,
+    });
   }
 
   it("returns a typed decision for any input", async () => {
@@ -550,6 +573,93 @@ describe("creative-decision-engine v3", () => {
       "opportunity_window_open",
     );
     expect(out.confidence).toBe(67);
+  });
+
+  it("keeps stale severe stop-loss losers as cut decisions with a stale confidence cap", () => {
+    const output = decideCreative(
+      {
+        ...makeStaleStopLossInput({
+          creativeId: "Ad_Test_DepthHistorical",
+          creativeName: "Ad_Test_DepthHistorical",
+          spend: 620,
+          purchases: 1,
+          roas: 0.27,
+        }),
+      },
+      makeAccountDecisionProfile({
+        spendUnit: 36,
+        thresholds: {
+          commercialMaturitySpend: 72,
+          hardCutSpend: 360,
+          sustainedLoserSpend: 108,
+          severeLoserRatio: 0.4,
+        },
+      }),
+    );
+
+    expect(output.label).toBe("cut");
+    expect(output.reason).toContain("clear loser at scale");
+    expect(output.badges).toContainEqual({
+      type: "stale_evidence",
+      label:
+        "Stale evidence: last sync 57h ago - refresh pipeline before applying.",
+      severity: "warning",
+    });
+    expect(output.confidence).toBeLessThanOrEqual(STALE_CONFIDENCE_CAP);
+  });
+
+  it("keeps stale sustained losers as cut decisions instead of diagnose", () => {
+    const output = decideCreative(
+      makeStaleStopLossInput({
+        creativeId: "Ad_Test_ProtectionHistorical",
+        creativeName: "Ad_Test_ProtectionHistorical",
+        spend: 521,
+        purchases: 2,
+        roas: 0.85,
+      }),
+      makeAccountDecisionProfile({
+        thresholds: {
+          commercialMaturitySpend: 72,
+          hardCutSpend: 600,
+          sustainedLoserSpend: 108,
+          severeLoserRatio: 0.4,
+        },
+      }),
+    );
+
+    expect(output.label).toBe("cut");
+    expect(output.reason).toContain("sustained loser");
+    expect(output.badges.map((badge) => badge.type)).toContain(
+      "stale_evidence",
+    );
+    expect(output.confidence).toBeLessThanOrEqual(STALE_CONFIDENCE_CAP);
+  });
+
+  it("blocks hard scale on stale source evidence", () => {
+    const output = decideCreative(
+      makeCreativeInput({
+        spend: 1000,
+        purchases: 15,
+        roas: 3.5,
+        recent7dRoas: 3,
+        dataFreshnessHours: 57,
+      }),
+      makeAccountDecisionProfile(),
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.reason).toContain("scale requires fresh recent performance proof");
+    expect(output.badges.map((badge) => badge.type)).toEqual(
+      expect.arrayContaining(["stale_evidence", "scale_readiness_blocked"]),
+    );
+    expect(output.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          predicate: "scale_recent_freshness",
+          status: "missing",
+        }),
+      ]),
+    );
   });
 
   it("applies DataHealth stale badges and confidence penalties when provided", async () => {

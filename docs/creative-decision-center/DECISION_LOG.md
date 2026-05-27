@@ -892,9 +892,10 @@ Scope:
   a fresh warehouse row.
 - Emit a policy diagnostic only when effective status, review status, or
   policy/disapproval/limited reason text proves a policy/review block.
-- Treat stale insight data as the primary diagnostic before delivery or policy
-  proof. Stale policy text may still be useful context, but it is not allowed
-  to emit a higher-confidence `fix_policy` path until the row is fresh.
+- Treat stale insight data as a confidence-cap and missing-evidence signal.
+  Verified no-delivery still requires a fresh latest-window proof floor. Explicit
+  policy/review proof remains visible when present, but stale evidence prevents
+  high-confidence or auto-applicable handling.
 - Match review status through explicit blocked enum values rather than broad
   substring matching. Free-form reason fields remain proof only when populated
   by the warehouse as policy/disapproval/limited reasons.
@@ -1005,3 +1006,41 @@ Rejected alternative: keep the score model as a single number that mixes
 decision math, UI visibility, missing outcomes, and automation architecture.
 That hides whether the algorithm is wrong or the proof substrate is simply not
 ready yet.
+
+## D032 — Treat Stale Source Evidence As A Confidence Cap, Not A Terminal Stop-Loss Blocker
+
+Decision: source-row freshness older than the configured stale threshold is no
+longer a terminal `Diagnose` when the row already satisfies severe stop-loss
+math. The resolver adds a `stale_evidence` badge, caps confidence, and lets
+zero-conversion, commercial maturity, and ratio-zone stop-loss gates run. Stale
+scale evidence remains hard-vetoed because scaling needs fresh recent-hold
+proof.
+
+Reason: stale evidence is a safety condition, not proof that a severe mature
+loser should be hidden behind a diagnostic row. A buyer still needs to see the
+stop-loss risk, but Adsecute must not present it as high-confidence or
+auto-applicable until fresh evidence is available.
+
+Scope:
+
+- Stale source evidence adds a server-produced `stale_evidence` badge and caps
+  confidence through config-as-data.
+- Stale mature losers may emit `cut`; stale scale candidates emit near-scale
+  `keep` with `scale_readiness_blocked`.
+- Verified no-delivery still requires a fresh latest-window proof floor.
+- Stale landing/checkout diagnosis does not terminally block downstream
+  stop-loss math; any funnel issue remains secondary evidence on the cut.
+- Policy proof remains visible when explicit policy/review evidence exists,
+  while confidence remains capped by stale evidence.
+- UI and Decision Center bridge only render server-supplied labels, badges,
+  missing-data markers, and lane decisions; UI does not compute `buyerAction`.
+
+Rejected alternatives:
+
+- Keep stale source evidence as a terminal `Diagnose`. That hides clear
+  stop-loss decisions and makes severe losers look like data-refresh tasks.
+- Allow stale scale. Recent-hold and marginal-return proof are inherently
+  freshness-sensitive, so stale scale must remain blocked.
+- Use a manual refresh button as the primary fix. The button may help operators
+  during incidents, but the decision contract must stay correct even when a
+  source row is stale.

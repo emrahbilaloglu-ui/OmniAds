@@ -447,6 +447,7 @@ export interface DecisionBadge {
     | "stale_calibration"
     | "stale_lifecycle"
     | "stale_decision_context"
+    | "stale_evidence"
     | "lifecycle_unavailable"
     | "opportunity_window_open"
     | "opportunity_window_closing"
@@ -498,6 +499,10 @@ export const DECISION_BADGE_DISPLAY: Record<
   stale_decision_context: {
     label: "Stale decision context",
     severity: "info",
+  },
+  stale_evidence: {
+    label: "Stale evidence",
+    severity: "warning",
   },
   lifecycle_unavailable: {
     label: "Lifecycle data unavailable",

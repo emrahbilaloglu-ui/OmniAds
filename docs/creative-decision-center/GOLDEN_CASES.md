@@ -61,6 +61,8 @@ These cases must become executable fixtures before resolver behavior changes. Do
 | GC-054  | scale-ready winner in an explicit Test campaign                                                                        | Scale                   | promote_to_main     | review_only           | performance          | high                 | high                   | strong_relative_winner                  | mature           | diagnose_data                     |
 | GC-055  | scale-ready winner in an explicit Main campaign                                                                        | Scale                   | scale_budget        | review_only           | performance          | high                 | high                   | strong_relative_winner                  | mature           | diagnose_data                     |
 | GC-056  | scale-ready winner in an explicit Mixed campaign                                                                       | Scale                   | controlled_scale    | review_only           | performance          | high                 | high                   | strong_relative_winner                  | mature           | diagnose_data                     |
+| GC-057  | stale source evidence with a severe scaled stop-loss loser                                                              | Cut                     | cut                 | review_only           | performance          | high                 | medium                 | stale_stop_loss_review                  | mature           | diagnose_data                     |
+| GC-058  | stale source evidence with a sustained loser past commercial maturity                                                   | Cut                     | cut                 | review_only           | performance          | high                 | medium                 | stale_sustained_loser                   | mature           | diagnose_data                     |
 
 ## Case Notes
 
@@ -139,6 +141,10 @@ These cases must become executable fixtures before resolver behavior changes. Do
   budget/volume scaling, not promote-to-main.
 - GC-056 proves Mixed campaign scale is a winner verdict that needs structure
   review before an execution move.
+- GC-057 proves stale evidence is not a terminal Diagnose when a mature
+  severe-loss stop-loss rule is already met; confidence must stay capped.
+- GC-058 proves stale evidence is not a terminal Diagnose when a sustained loser
+  passes the commercial maturity and severe-loser thresholds.
 - P1b kind-segmented calibration was data-only. P1c consumes those
   baselines only through a strict profile selector: sufficient labeled kind
   data may change decisions; sparse, mixed-empty, or unlabeled rows must match

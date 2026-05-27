@@ -78,45 +78,49 @@ describe("diagnoseGate", () => {
   });
 
   it("does not emit fix-delivery proof from stale latest-window data", () => {
-    const output = terminalOutput(
-      diagnoseGate(
-        resolvedContext({
-          effectiveStatus: "ACTIVE",
-          spend24h: 0,
-          impressions24h: 0,
-          spend: 500,
-          dataFreshnessHours: 72,
-        }),
-      ),
+    const result = diagnoseGate(
+      resolvedContext({
+        effectiveStatus: "ACTIVE",
+        spend24h: 0,
+        impressions24h: 0,
+        spend: 500,
+        dataFreshnessHours: 72,
+      }),
     );
 
-    expect(output.label).toBe("diagnose");
-    expect(output.reason).toBe(
-      "Stale data: last sync 72h ago — refresh ad insights pipeline.",
-    );
-    expect(output.badges).not.toContainEqual(
-      expect.objectContaining({ type: "delivery_no_spend_24h" }),
-    );
+    expect(result.kind).toBe("advance");
+    if (result.kind === "advance") {
+      expect(result.context.badges).toContainEqual({
+        type: "stale_evidence",
+        label:
+          "Stale evidence: last sync 72h ago - refresh pipeline before applying.",
+        severity: "warning",
+      });
+      expect(result.context.badges).not.toContainEqual(
+        expect.objectContaining({ type: "delivery_no_spend_24h" }),
+      );
+    }
   });
 
-  it("prioritizes stale data over lower-confidence delivery warnings", () => {
-    const output = terminalOutput(
-      diagnoseGate(
-        resolvedContext({
-          effectiveStatus: "ACTIVE",
-          recent7dSpend: 0,
-          spend: 500,
-          dataFreshnessHours: 72,
-        }),
-      ),
+  it("keeps stale data as evidence and suppresses lower-confidence delivery warnings", () => {
+    const result = diagnoseGate(
+      resolvedContext({
+        effectiveStatus: "ACTIVE",
+        recent7dSpend: 0,
+        spend: 500,
+        dataFreshnessHours: 72,
+      }),
     );
 
-    expect(output.reason).toBe(
-      "Stale data: last sync 72h ago — refresh ad insights pipeline.",
-    );
-    expect(output.badges).not.toContainEqual(
-      expect.objectContaining({ type: "delivery_limited" }),
-    );
+    expect(result.kind).toBe("advance");
+    if (result.kind === "advance") {
+      expect(result.context.badges).toContainEqual(
+        expect.objectContaining({ type: "stale_evidence" }),
+      );
+      expect(result.context.badges).not.toContainEqual(
+        expect.objectContaining({ type: "delivery_limited" }),
+      );
+    }
   });
 
   it("diagnoses rejected creatives with policy fallback reason", () => {
@@ -165,7 +169,7 @@ describe("diagnoseGate", () => {
     expect(pausedOutput.reason).toBe("Policy reject: Image text issue");
   });
 
-  it("prioritizes stale data over stale policy proof", () => {
+  it("keeps policy proof visible with stale evidence and capped confidence", () => {
     const output = terminalOutput(
       diagnoseGate(
         resolvedContext({
@@ -176,12 +180,13 @@ describe("diagnoseGate", () => {
       ),
     );
 
-    expect(output.reason).toBe(
-      "Stale data: last sync 72h ago — refresh ad insights pipeline.",
-    );
-    expect(output.confidence).toBe(60);
-    expect(output.badges).not.toContainEqual(
-      expect.objectContaining({ type: "policy_blocked" }),
+    expect(output.reason).toBe("Policy reject: Creative has prohibited claims");
+    expect(output.confidence).toBe(65);
+    expect(output.badges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "stale_evidence" }),
+        expect.objectContaining({ type: "policy_blocked" }),
+      ]),
     );
   });
 
@@ -223,20 +228,22 @@ describe("diagnoseGate", () => {
     expect(pendingBilling.kind).toBe("advance");
   });
 
-  it("diagnoses stale data", () => {
-    const output = terminalOutput(
-      diagnoseGate(
-        resolvedContext({
-          dataFreshnessHours: 72,
-        }),
-      ),
+  it("does not terminally diagnose stale data by itself", () => {
+    const result = diagnoseGate(
+      resolvedContext({
+        dataFreshnessHours: 72,
+      }),
     );
 
-    expect(output.label).toBe("diagnose");
-    expect(output.reason).toBe(
-      "Stale data: last sync 72h ago — refresh ad insights pipeline.",
-    );
-    expect(output.confidence).toBe(60);
+    expect(result.kind).toBe("advance");
+    if (result.kind === "advance") {
+      expect(result.context.badges).toContainEqual({
+        type: "stale_evidence",
+        label:
+          "Stale evidence: last sync 72h ago - refresh pipeline before applying.",
+        severity: "warning",
+      });
+    }
   });
 
   it("does not diagnose tracking anomaly without healthy upstream funnel activity", () => {
@@ -311,30 +318,37 @@ describe("diagnoseGate", () => {
     expect(result.kind).toBe("advance");
   });
 
-  it("keeps truth source badges on diagnose terminals", () => {
-    const output = terminalOutput(
-      diagnoseGate(
-        resolvedContext(
-          {
-            targetRoas: null,
-            dataFreshnessHours: 72,
-          },
-          {
-            matureCreativeCount: 35,
-            roasP75: 2.4,
-          },
-        ),
+  it("keeps truth source badges when stale evidence advances", () => {
+    const result = diagnoseGate(
+      resolvedContext(
+        {
+          targetRoas: null,
+          dataFreshnessHours: 72,
+        },
+        {
+          matureCreativeCount: 35,
+          roasP75: 2.4,
+        },
       ),
     );
 
-    expect(output.truthSource).toBe("account_baseline");
-    expect(output.effectiveTargetRoas).toBe(2.4);
-    expect(output.badges).toEqual([
-      {
-        type: "truth_account_baseline",
-        label: "Truth: account baseline (P75)",
-        severity: "info",
-      },
-    ]);
+    expect(result.kind).toBe("advance");
+    if (result.kind === "advance") {
+      expect(result.context.truthSource).toBe("account_baseline");
+      expect(result.context.effectiveTargetRoas).toBe(2.4);
+      expect(result.context.badges).toEqual([
+        {
+          type: "truth_account_baseline",
+          label: "Truth: account baseline (P75)",
+          severity: "info",
+        },
+        {
+          type: "stale_evidence",
+          label:
+            "Stale evidence: last sync 72h ago - refresh pipeline before applying.",
+          severity: "warning",
+        },
+      ]);
+    }
   });
 });

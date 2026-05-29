@@ -710,6 +710,14 @@ export async function runMigrations(options?: {
           created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
         )`,
+        sql`CREATE TABLE IF NOT EXISTS system_capacity_snapshots (
+          id         BIGSERIAL PRIMARY KEY,
+          source     TEXT NOT NULL,
+          hostname   TEXT,
+          payload    JSONB NOT NULL DEFAULT '{}'::jsonb,
+          sampled_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
         sql`CREATE TABLE IF NOT EXISTS meta_config_snapshots (
           id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id   TEXT NOT NULL,
@@ -2596,6 +2604,8 @@ export async function runMigrations(options?: {
           ON meta_raw_snapshots (fetched_at ASC, id ASC, partition_id)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshots_partition_endpoint
           ON meta_raw_snapshots (partition_id, endpoint_name, page_index)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_system_capacity_snapshots_source_sampled
+          ON system_capacity_snapshots (source, sampled_at DESC)`.catch(() => {}),
         sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS partition_id UUID REFERENCES meta_sync_partitions(id) ON DELETE CASCADE`.catch(() => {}),
         sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS checkpoint_id UUID REFERENCES meta_sync_checkpoints(id) ON DELETE SET NULL`.catch(() => {}),
         sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS run_id TEXT`.catch(() => {}),

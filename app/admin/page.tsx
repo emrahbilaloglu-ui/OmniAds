@@ -4,9 +4,10 @@ import { type ReactNode, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Users, Building2, CreditCard, ShieldAlert,
-  UserPlus, Activity, AlertTriangle, KeyRound, RefreshCw, TrendingDown,
+  UserPlus, Activity, AlertTriangle, KeyRound, RefreshCw, HardDrive, TrendingDown,
 } from "lucide-react";
 import { InlineHelp } from "@/components/admin/inline-help";
+import type { SystemCapacityStatus } from "@/lib/admin-system-capacity";
 
 interface Stats {
   users: { total: number; last7d: number; last30d: number; suspended: number; admins: number };
@@ -58,6 +59,16 @@ interface Stats {
     unsubscribedBusinesses: number;
     topIssue: string | null;
   };
+  systemCapacitySummary?: {
+    status: SystemCapacityStatus;
+    databaseSizeBytes: number;
+    databaseSizePretty: string;
+    diskUsedPercent: number | null;
+    diskAvailableBytes: number | null;
+    diskPath: string | null;
+    diskStatus: SystemCapacityStatus;
+    topRelation: string | null;
+  };
 }
 
 const PLAN_LABELS: Record<string, string> = {
@@ -82,7 +93,30 @@ const DASHBOARD_HELP: Record<string, string> = {
   Refreshing: "Background snapshot refreshes currently in progress.",
   "Failed 24h": "Background sync jobs that failed during the last 24 hours.",
   "Non-active": "Subscription records whose billing state is not active.",
+  DB: "Current PostgreSQL database size reported by pg_database_size.",
+  Disk: "Runtime disk usage reported by df for the configured server path.",
+  Free: "Available bytes on the primary reported disk path.",
 };
+
+function formatBytes(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let nextValue = value;
+  let unitIndex = 0;
+  while (nextValue >= 1024 && unitIndex < units.length - 1) {
+    nextValue /= 1024;
+    unitIndex += 1;
+  }
+  const digits = unitIndex <= 1 ? 0 : 1;
+  return `${nextValue.toFixed(digits)} ${units[unitIndex]}`;
+}
+
+function capacityBadgeLabel(status: SystemCapacityStatus) {
+  if (status === "ok") return "Normal";
+  if (status === "warning") return "Uyarı";
+  if (status === "critical") return "Kritik";
+  return "Bilinmiyor";
+}
 
 function actionLabel(action: string): string {
   const map: Record<string, string> = {
@@ -226,6 +260,16 @@ export default function AdminDashboard() {
     nonActiveSubscriptions: 0,
     unsubscribedBusinesses: 0,
     topIssue: null,
+  };
+  const systemCapacitySummary = stats?.systemCapacitySummary ?? {
+    status: "unknown" as const,
+    databaseSizeBytes: 0,
+    databaseSizePretty: "—",
+    diskUsedPercent: null,
+    diskAvailableBytes: null,
+    diskPath: null,
+    diskStatus: "unknown" as const,
+    topRelation: null,
   };
 
   return (
@@ -404,7 +448,7 @@ export default function AdminDashboard() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
         <SummaryPanel
           href="/admin/auth-health"
           icon={<KeyRound className="w-4 h-4 text-indigo-600" />}
@@ -461,6 +505,33 @@ export default function AdminDashboard() {
             { label: "At risk", value: revenueRiskSummary.atRiskBusinesses },
           ]}
           footnote={revenueRiskSummary.topIssue ?? "Gelir tarafında aktif risk yok"}
+        />
+
+        <SummaryPanel
+          href="/admin/system-capacity"
+          icon={<HardDrive className="w-4 h-4 text-slate-700" />}
+          title="System Capacity"
+          subtitle={systemCapacitySummary.diskPath ? `Disk path: ${systemCapacitySummary.diskPath}` : "Disk kaynağı bekleniyor"}
+          badge={capacityBadgeLabel(systemCapacitySummary.status)}
+          badgeTone={
+            systemCapacitySummary.status === "ok"
+              ? "healthy"
+              : systemCapacitySummary.status === "unknown"
+                ? "neutral"
+                : "warning"
+          }
+          metrics={[
+            { label: "DB", value: systemCapacitySummary.databaseSizePretty },
+            {
+              label: "Disk",
+              value:
+                systemCapacitySummary.diskUsedPercent == null
+                  ? "—"
+                  : `${systemCapacitySummary.diskUsedPercent}%`,
+            },
+            { label: "Free", value: formatBytes(systemCapacitySummary.diskAvailableBytes) },
+          ]}
+          footnote={systemCapacitySummary.topRelation ?? "DB relation detayı ayrı ekranda"}
         />
       </div>
 
@@ -538,7 +609,7 @@ function SummaryPanel({
   subtitle: string;
   badge: string;
   badgeTone: "healthy" | "warning" | "neutral";
-  metrics: Array<{ label: string; value: number }>;
+  metrics: Array<{ label: string; value: number | string }>;
   footnote: string;
 }) {
   return (

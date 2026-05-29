@@ -22,6 +22,41 @@ Those tables are rebuilt from provider sync jobs after a restore.
 - Root disk usage
 - Current database size
 
+## Admin capacity surface
+
+Superadmins can inspect current capacity from `/admin/system-capacity`.
+
+The page reads PostgreSQL size directly with `pg_database_size(current_database())`
+and lists the largest application relations. DB-host disk usage is shown in its
+own section from the latest `db_host_healthcheck` snapshot written by
+`adsecute-db-healthcheck.sh`. Adsecute prod server disk usage is shown in a
+separate section. Local development reads it over SSH from
+`ADMIN_SYSTEM_CAPACITY_PROD_SSH_HOST`, falling back to the Adsecute prod SSH
+host, while production reads live runtime `df -Pk` directly. Both paths use
+`ADMIN_SYSTEM_CAPACITY_DISK_PATHS`, or `/` when unset. If no DB-host snapshot
+exists yet, the DB-host section falls back to the runtime values and displays a
+warning note.
+Disk totals are filesystem-usable GiB values, so provider raw GB values can look
+larger in Hetzner Cloud. Local macOS development can show APFS `df` values; that
+is labeled as local runtime and is not the production server.
+
+Optional environment overrides:
+
+```bash
+ADMIN_SYSTEM_CAPACITY_DISK_PATHS=/,/var/lib/postgresql
+ADMIN_SYSTEM_CAPACITY_PROD_SSH_HOST=root@178.156.222.119
+ADMIN_SYSTEM_CAPACITY_WARN_PCT=85
+ADMIN_SYSTEM_CAPACITY_CRITICAL_PCT=95
+```
+
+After increasing the Hetzner volume size, grow the mounted ext4 filesystem on the
+DB host as well:
+
+```bash
+resize2fs /dev/sdb
+df -hT /var/lib/postgresql
+```
+
 ## Commands
 
 Run a backup now:

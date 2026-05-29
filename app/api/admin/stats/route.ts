@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { getAdminIntegrationHealth } from "@/lib/admin-integration-health";
 import { getAdminOperationsHealth } from "@/lib/admin-operations-health";
+import {
+  getAdminSystemCapacity,
+  summarizeAdminSystemCapacity,
+} from "@/lib/admin-system-capacity";
 import { getDb } from "@/lib/db";
 
 export async function GET(request: NextRequest) {
@@ -53,9 +57,10 @@ export async function GET(request: NextRequest) {
 
     const u = (userStats as any[])[0] ?? {};
     const b = (businessStats as any[])[0] ?? {};
-    const [integrationHealth, operationsHealth] = await Promise.all([
+    const [integrationHealth, operationsHealth, systemCapacity] = await Promise.all([
       getAdminIntegrationHealth(),
       getAdminOperationsHealth(),
+      getAdminSystemCapacity({ relationLimit: 1 }),
     ]);
 
     return NextResponse.json({
@@ -85,6 +90,7 @@ export async function GET(request: NextRequest) {
       authHealthSummary: operationsHealth.authHealth.summary,
       syncHealthSummary: operationsHealth.syncHealth.summary,
       revenueRiskSummary: operationsHealth.revenueRisk.summary,
+      systemCapacitySummary: summarizeAdminSystemCapacity(systemCapacity),
     });
   } catch (err) {
     console.error("[admin/stats GET]", err);

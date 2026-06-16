@@ -1,4 +1,5 @@
 import { GOOGLE_CONFIG } from "@/lib/oauth/google-config";
+import { fetchWithTimeout } from "@/lib/http-fetch-with-timeout";
 import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 export interface GoogleAdsCustomerNormalized {
@@ -86,16 +87,20 @@ export async function refreshGoogleAccessToken(refreshToken: string): Promise<{
   accessToken: string;
   expiresIn: number;
 }> {
-  const res = await fetch(GOOGLE_CONFIG.tokenUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: GOOGLE_CONFIG.clientId,
-      client_secret: GOOGLE_CONFIG.clientSecret,
-      grant_type: "refresh_token",
-      refresh_token: refreshToken,
-    }),
-  });
+  const res = await fetchWithTimeout(
+    GOOGLE_CONFIG.tokenUrl,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: GOOGLE_CONFIG.clientId,
+        client_secret: GOOGLE_CONFIG.clientSecret,
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+      }),
+    },
+    { timeoutMs: 30_000, label: "Google token refresh" },
+  );
 
   const data = await res.json();
 

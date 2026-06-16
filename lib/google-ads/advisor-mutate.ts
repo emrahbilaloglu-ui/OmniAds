@@ -2,8 +2,13 @@ import { GOOGLE_CONFIG } from "@/lib/oauth/google-config";
 import { getIntegration, upsertIntegration } from "@/lib/integrations";
 import { refreshGoogleAccessToken } from "@/lib/google-ads-accounts";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
+import { fetchWithTimeout } from "@/lib/http-fetch-with-timeout";
 
 type MutateHttpMethod = "POST";
+
+// Google Ads mutate/search are small request/response calls; bound them so a
+// stalled socket can never park the single-threaded sync worker.
+const GOOGLE_ADS_MUTATE_TIMEOUT_MS = 30_000;
 
 export interface AddNegativeKeywordPayload {
   campaignId: string;
@@ -111,18 +116,22 @@ async function googleAdsMutateRequest(input: {
   let lastError: string | null = null;
 
   for (const loginCustomerId of await loginCustomerIdCandidates(input.businessId, accountId)) {
-    const response = await fetch(url, {
-      method: "POST" satisfies MutateHttpMethod,
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "developer-token": GOOGLE_CONFIG.developerToken,
-        "content-type": "application/json",
-        Accept: "application/json",
-        ...(loginCustomerId ? { "login-customer-id": loginCustomerId } : {}),
+    const response = await fetchWithTimeout(
+      url,
+      {
+        method: "POST" satisfies MutateHttpMethod,
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "developer-token": GOOGLE_CONFIG.developerToken,
+          "content-type": "application/json",
+          Accept: "application/json",
+          ...(loginCustomerId ? { "login-customer-id": loginCustomerId } : {}),
+        },
+        body: JSON.stringify(input.body),
+        cache: "no-store",
       },
-      body: JSON.stringify(input.body),
-      cache: "no-store",
-    });
+      { timeoutMs: GOOGLE_ADS_MUTATE_TIMEOUT_MS, label: "Google Ads mutate" },
+    );
     const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
     if (response.ok && payload) {
       return payload;
@@ -149,18 +158,22 @@ async function googleAdsSearchRequest(input: {
   let lastError: string | null = null;
 
   for (const loginCustomerId of await loginCustomerIdCandidates(input.businessId, accountId)) {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "developer-token": GOOGLE_CONFIG.developerToken,
-        "content-type": "application/json",
-        Accept: "application/json",
-        ...(loginCustomerId ? { "login-customer-id": loginCustomerId } : {}),
+    const response = await fetchWithTimeout(
+      url,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "developer-token": GOOGLE_CONFIG.developerToken,
+          "content-type": "application/json",
+          Accept: "application/json",
+          ...(loginCustomerId ? { "login-customer-id": loginCustomerId } : {}),
+        },
+        body: JSON.stringify({ query: input.query }),
+        cache: "no-store",
       },
-      body: JSON.stringify({ query: input.query }),
-      cache: "no-store",
-    });
+      { timeoutMs: GOOGLE_ADS_MUTATE_TIMEOUT_MS, label: "Google Ads search" },
+    );
     const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
     if (response.ok && payload) {
       return payload;

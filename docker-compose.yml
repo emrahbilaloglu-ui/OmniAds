@@ -36,6 +36,8 @@ services:
       SYNC_WORKER_MODE: "1"
     depends_on:
       - web
+    labels:
+      autoheal: "true"
     healthcheck:
       test:
         - CMD-SHELL
@@ -57,3 +59,19 @@ services:
       DEPLOY_MIGRATION_TIMEOUT_MS: "${DEPLOY_MIGRATION_TIMEOUT_MS}"
     command: ["node", "--import", "tsx", "scripts/run-migrations.ts"]
     restart: "no"
+
+  # Restarts any container that Docker reports as "unhealthy". The worker's own
+  # restart policy (unless-stopped) only fires when the process EXITS, so a hung
+  # worker that never exits is invisible to it — this sidecar closes that gap.
+  # The worker healthcheck has retries: 5 at a 30s interval, so Docker only marks
+  # it unhealthy after ~150s of failures, which debounces transient blips.
+  autoheal:
+    image: willfarrell/autoheal:1.2.0
+    restart: unless-stopped
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: autoheal
+      AUTOHEAL_INTERVAL: "30"
+      AUTOHEAL_START_PERIOD: "60"
+      AUTOHEAL_DEFAULT_STOP_TIMEOUT: "15"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock

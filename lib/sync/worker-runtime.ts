@@ -482,6 +482,7 @@ export async function runDurableWorkerRuntime(
     "WORKER_CONSUME_BUSINESS_FALLBACK_COOLDOWN_MS",
     60_000,
   );
+  const stallExitMs = envNumber("WORKER_STALL_EXIT_MS", 300_000);
   const workerStartedAt = new Date().toISOString();
   const workerBuildId = getCurrentRuntimeBuildId();
   const startedAtMs = Date.now();
@@ -562,6 +563,29 @@ export async function runDurableWorkerRuntime(
       force: true,
     }).catch(() => null);
   }
+
+  // Self-heal watchdog. The tick loop is a single sequential event loop, so any
+  // unguarded await (a stalled fetch, a blocked DB call) freezes the entire
+  // worker WITHOUT the process exiting — which is how it once went dark for 12
+  // days while `restart: unless-stopped` never fired. This independent timer
+  // still runs in the timer phase even while the loop is parked on I/O; if no
+  // heartbeat has advanced within the stall window, force a restart via the
+  // container restart policy. Per-request fetch timeouts should make this rarely
+  // fire — it is the catch-all backstop for any future unguarded await.
+  const stallWatchdog = setInterval(() => {
+    if (shuttingDown || lastHeartbeatAt === 0) return;
+    const sinceHeartbeatMs = Date.now() - lastHeartbeatAt;
+    if (sinceHeartbeatMs > stallExitMs) {
+      console.error("[durable-worker] tick_stalled_self_exit", {
+        workerId,
+        lastHeartbeatAt: new Date(lastHeartbeatAt).toISOString(),
+        sinceHeartbeatMs,
+        stallExitMs,
+      });
+      process.exit(1);
+    }
+  }, Math.min(stallExitMs, 30_000));
+  stallWatchdog.unref();
 
   while (!shuttingDown) {
     if (Date.now() >= nextPruneAt) {
@@ -1114,6 +1138,7 @@ export async function runDurableWorkerRuntime(
     await sleep(pollIntervalMs);
   }
 
+  clearInterval(stallWatchdog);
   await heartbeat({
     providerScope: "all",
     status: "stopped",

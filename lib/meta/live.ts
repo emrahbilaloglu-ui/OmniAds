@@ -16,6 +16,7 @@
  */
 
 import { resolveMetaCredentials, getAdSets } from "@/lib/api/meta";
+import { fetchWithTimeout } from "@/lib/http-fetch-with-timeout";
 import {
   readLatestMetaConfigSnapshots,
   readPreviousDifferentMetaConfigDiffs,
@@ -94,12 +95,20 @@ function r2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+// Live Meta Graph calls run inside the sync worker loop; bound every request so
+// a stalled socket cannot park the worker (see worker hang runbook).
+const META_LIVE_FETCH_TIMEOUT_MS = 90_000;
+
 async function fetchPagedMeta<T>(initialUrl: string): Promise<T[]> {
   const rows: T[] = [];
   let nextUrl: string | null = initialUrl;
   let page = 0;
   while (nextUrl && page < 20) {
-    const res = await fetch(nextUrl, { cache: "no-store" });
+    const res = await fetchWithTimeout(
+      nextUrl,
+      { cache: "no-store" },
+      { timeoutMs: META_LIVE_FETCH_TIMEOUT_MS, label: "Meta live page" },
+    );
     if (!res.ok) break;
     const json = (await res.json()) as { data?: T[]; paging?: { next?: string } };
     rows.push(...(json.data ?? []));
@@ -171,7 +180,11 @@ export async function getMetaLiveCampaignRows(input: {
       adsetConfigUrl.searchParams.set("access_token", accessToken);
 
       const [insightRes, campaignRows, adsetRows] = await Promise.all([
-        fetch(insightUrl.toString(), { cache: "no-store" })
+        fetchWithTimeout(
+          insightUrl.toString(),
+          { cache: "no-store" },
+          { timeoutMs: META_LIVE_FETCH_TIMEOUT_MS, label: "Meta live insight" },
+        )
           .then((r) =>
             r.ok ? (r.json() as Promise<{ data?: RawCampaignInsight[] }>) : { data: [] as RawCampaignInsight[] }
           )

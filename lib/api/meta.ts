@@ -14,6 +14,7 @@
  */
 
 import { getDb } from "@/lib/db";
+import { fetchWithTimeout } from "@/lib/http-fetch-with-timeout";
 import {
   appendMetaConfigSnapshots,
   readLatestMetaConfigSnapshots,
@@ -858,7 +859,11 @@ async function fetchPagedCollection<TItem>(initialUrl: string): Promise<TItem[]>
   let pageCount = 0;
 
   while (nextUrl && pageCount < 20) {
-    const res = await fetch(nextUrl, { cache: "no-store" });
+    const res = await fetchWithTimeout(
+      nextUrl,
+      { cache: "no-store" },
+      { timeoutMs: META_FETCH_TIMEOUT_MS, label: "Meta page" },
+    );
     if (!res.ok) break;
     const json = (await res.json()) as MetaGraphCollectionResponse<TItem>;
     rows.push(...(json.data ?? []));
@@ -3862,7 +3867,11 @@ export async function getCampaignTimeBreakdown(
       url.searchParams.set("access_token", credentials.accessToken);
 
       try {
-        const res = await fetch(url.toString(), { cache: "no-store" });
+        const res = await fetchWithTimeout(
+      url.toString(),
+      { cache: "no-store" },
+      { timeoutMs: META_FETCH_TIMEOUT_MS, label: "Meta request" },
+    );
         if (!res.ok) return;
         const json = (await res.json()) as {
           data?: Array<
@@ -4098,7 +4107,11 @@ async function fetchCampaignInsights(
   url.searchParams.set("access_token", accessToken);
 
   try {
-    const res = await fetch(url.toString(), { cache: "no-store" });
+    const res = await fetchWithTimeout(
+      url.toString(),
+      { cache: "no-store" },
+      { timeoutMs: META_FETCH_TIMEOUT_MS, label: "Meta request" },
+    );
     if (!res.ok) {
       await recordMetaRawSnapshot({
         credentials,
@@ -4486,8 +4499,16 @@ export async function getAdSets(
 
       try {
         const [statusRes, insightRes, campaignConfigs] = await Promise.all([
-          fetch(statusUrl.toString(), { cache: "no-store" }),
-          fetch(insightUrl.toString(), { cache: "no-store" }),
+          fetchWithTimeout(
+            statusUrl.toString(),
+            { cache: "no-store" },
+            { timeoutMs: META_FETCH_TIMEOUT_MS, label: "Meta adset status" },
+          ),
+          fetchWithTimeout(
+            insightUrl.toString(),
+            { cache: "no-store" },
+            { timeoutMs: META_FETCH_TIMEOUT_MS, label: "Meta adset insight" },
+          ),
           fetchMetaCampaignConfigs(credentials, accountId, credentials.accessToken),
         ]);
 
@@ -4825,7 +4846,11 @@ async function fetchBreakdownRaw(
   url.searchParams.set("access_token", accessToken);
 
   try {
-    const res = await fetch(url.toString(), { cache: "no-store" });
+    const res = await fetchWithTimeout(
+      url.toString(),
+      { cache: "no-store" },
+      { timeoutMs: META_FETCH_TIMEOUT_MS, label: "Meta request" },
+    );
     if (!res.ok) {
       await recordMetaRawSnapshot({
         credentials,

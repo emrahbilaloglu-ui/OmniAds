@@ -1,4 +1,5 @@
 import { getIntegration } from "@/lib/integrations";
+import { fetchWithTimeout } from "@/lib/http-fetch-with-timeout";
 import { refreshGA4AccessToken } from "@/lib/google-analytics-accounts";
 import {
   buildGoogleRequestSignature,
@@ -9,6 +10,9 @@ import { runProviderRequestWithGovernance } from "@/lib/provider-request-governa
 const REPORTING_API_BASE = "https://analyticsdata.googleapis.com/v1beta";
 // 60 sn → 5 dk: quota hatasında daha uzun bekleme
 const QUOTA_COOLDOWN_MS = 5 * 60_000;
+// GA4 runReport is called from the sync worker loop; bound it so a stalled
+// socket cannot park the worker.
+const GA4_FETCH_TIMEOUT_MS = 30_000;
 let quotaCooldownUntil = 0;
 
 // GA4 token quota: property başına günlük 200k token limit.
@@ -120,14 +124,18 @@ export async function runGA4Report(
     const numericId = params.propertyId.replace(/^properties\//, "");
     const url = `${REPORTING_API_BASE}/properties/${numericId}:runReport`;
 
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${params.accessToken}`,
-        "Content-Type": "application/json",
+    const res = await fetchWithTimeout(
+      url,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${params.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
       },
-      body: JSON.stringify(body),
-    });
+      { timeoutMs: GA4_FETCH_TIMEOUT_MS, label: "GA4 runReport" },
+    );
 
     // Quota bilgisini response header'larından oku
     updateQuotaFromHeaders(params.propertyId, res.headers);

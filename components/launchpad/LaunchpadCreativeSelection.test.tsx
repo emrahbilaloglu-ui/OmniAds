@@ -207,7 +207,11 @@ describe("LaunchpadCreativeSelection", () => {
         creativeId: "creative_3",
         name: "Closed Refresh",
         effectiveStatus: "PAUSED",
-        launchDate: "2026-05-01",
+        // Relative to "now" so the closed_30d assertion below stays deterministic
+        // instead of breaking once a hardcoded date ages past the 30-day window.
+        launchDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 10),
       }),
     ];
     const decisions = new Map<string, DecisionOutput>([

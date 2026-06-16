@@ -3234,6 +3234,28 @@ function isGoogleAdsOptionalMetricFailure(
   );
 }
 
+// A retried Google Ads fetch can re-wrap the same
+// "google_ads_<scope>_fetch_failed: query=<q>: message=<...>" prefix onto a
+// failure message every cycle, producing unbounded self-nesting (132x observed
+// on 2026-06-04, which hid the real root error). Collapse any chain of these
+// wrapper prefixes down to the innermost real error and cap the length so thrown
+// errors and logs stay readable.
+const GOOGLE_ADS_FETCH_FAILURE_WRAPPER =
+  /^google_ads_[a-z_]+_fetch_failed: (?:query=[^:]*: )?(?:apiStatus=[^:]*: )?(?:apiErrorCode=[^:]*: )?message=/;
+const GOOGLE_ADS_FETCH_FAILURE_MESSAGE_MAX = 500;
+
+export function collapseGoogleAdsFetchFailureMessage(message: string): string {
+  let current = message;
+  for (let guard = 0; guard < 512; guard += 1) {
+    const stripped = current.replace(GOOGLE_ADS_FETCH_FAILURE_WRAPPER, "");
+    if (stripped === current) break;
+    current = stripped;
+  }
+  return current.length > GOOGLE_ADS_FETCH_FAILURE_MESSAGE_MAX
+    ? `${current.slice(0, GOOGLE_ADS_FETCH_FAILURE_MESSAGE_MAX)}…(truncated)`
+    : current;
+}
+
 export function getGoogleAdsWarehouseFetchFailureReason(input: {
   scope: GoogleAdsWarehouseScope;
   report: GoogleAdsWarehouseReportLike | null | undefined;
@@ -3262,7 +3284,9 @@ export function getGoogleAdsWarehouseFetchFailureReason(input: {
     first?.query ? `query=${first.query}` : null,
     first?.apiStatus ? `apiStatus=${first.apiStatus}` : null,
     first?.apiErrorCode ? `apiErrorCode=${first.apiErrorCode}` : null,
-    first?.message ? `message=${first.message}` : null,
+    first?.message
+      ? `message=${collapseGoogleAdsFetchFailureMessage(first.message)}`
+      : null,
   ]
     .filter(Boolean)
     .join(": ");

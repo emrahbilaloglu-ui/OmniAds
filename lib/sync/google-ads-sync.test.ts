@@ -442,6 +442,38 @@ describe("getGoogleAdsWarehouseFetchFailureReason", () => {
     ).toContain("google_ads_search_term_daily_fetch_failed");
   });
 
+  it("collapses self-referential nested fetch-failure messages to the root error", () => {
+    const nested = Array.from({ length: 50 }).reduce<string>(
+      (acc) =>
+        `google_ads_campaign_daily_fetch_failed: query=campaign_core_basic: message=${acc}`,
+      "provider_request_failed:permission:status_403",
+    );
+    const reason = getGoogleAdsWarehouseFetchFailureReason({
+      scope: "campaign_daily",
+      report: {
+        rows: [],
+        meta: {
+          query_names: ["campaign_core_basic"],
+          row_counts: { campaign_core_basic: 0 },
+          failed_queries: [
+            {
+              query: "campaign_core_basic",
+              family: "campaign_core",
+              customerId: "180-473-3335",
+              message: nested,
+              severity: "core",
+              category: "unknown",
+            },
+          ],
+        },
+      },
+    });
+    expect(reason).toBe(
+      "google_ads_campaign_daily_fetch_failed: query=campaign_core_basic: message=provider_request_failed:permission:status_403",
+    );
+    expect((reason?.match(/_fetch_failed/g) ?? []).length).toBe(1);
+  });
+
   it("allows product fallback when the legacy product query completed", () => {
     expect(
       getGoogleAdsWarehouseFetchFailureReason({

@@ -25,6 +25,7 @@ export function classifyGoogleAdsSyncFailure(input: {
   error?: unknown;
   errorClass?: string | null;
   message?: string | null;
+  nowMs?: number;
 }): GoogleAdsSyncFailureClassification {
   const rawMessage =
     input.message != null ? String(input.message) : normalizeMessage(input.error);
@@ -120,6 +121,34 @@ export function classifyGoogleAdsSyncFailure(input: {
       recoveryKind: "terminal_action_required",
       actionRequired: true,
       reasonCode: "google_ads_customer_action_required",
+    };
+  }
+
+  if (
+    providedClass === "daily_request_budget" ||
+    hasAny(lower, [
+      "request budget reached",
+      "daily google ads request budget",
+    ])
+  ) {
+    // The per-business daily request budget only resets at UTC midnight. A short
+    // retry just re-fails instantly and lets one budget-exhausted business
+    // monopolize the worker, starving every other business (observed 2026-06-17).
+    // Back off until the daily reset instead.
+    const nowMs = input.nowMs ?? Date.now();
+    const reset = new Date(nowMs);
+    reset.setUTCHours(24, 0, 0, 0);
+    const minutesUntilReset = Math.max(
+      15,
+      Math.ceil((reset.getTime() - nowMs) / 60000),
+    );
+    return {
+      errorClass: "daily_request_budget_exhausted",
+      terminal: false,
+      retryDelayMinutes: minutesUntilReset,
+      recoveryKind: "replayable_transient",
+      actionRequired: false,
+      reasonCode: "google_ads_daily_budget_retry",
     };
   }
 
@@ -247,6 +276,7 @@ export function shouldDeadLetterGoogleAdsFailure(input: {
   if (input.terminal) return true;
   const retryableClasses = new Set([
     "quota",
+    "daily_request_budget_exhausted",
     "transient",
     "database_timeout",
     "database_disk_pressure",

@@ -92,4 +92,34 @@ describe("classifyGoogleAdsSyncFailure", () => {
       }),
     ).toBe(true);
   });
+
+  it("backs a daily request budget exhaustion off until the UTC reset, not a short retry", () => {
+    const nowMs = Date.UTC(2026, 5, 17, 7, 0, 0); // 2026-06-17 07:00 UTC
+    const classification = classifyGoogleAdsSyncFailure({
+      message:
+        "google_ads_product_daily_fetch_failed: query=product_performance: message=Daily Google Ads request budget reached for business 979a04f6.",
+      nowMs,
+    });
+
+    expect(classification).toMatchObject({
+      errorClass: "daily_request_budget_exhausted",
+      terminal: false,
+      recoveryKind: "replayable_transient",
+      reasonCode: "google_ads_daily_budget_retry",
+    });
+    // 17h until the next UTC midnight — far longer than the old ~5 min transient
+    // retry that let a budget-exhausted business monopolize the worker.
+    expect(classification.retryDelayMinutes).toBe(1020);
+
+    // Must NOT dead-letter even past maxAttempts; it is legitimately retryable
+    // once the daily budget resets.
+    expect(
+      shouldDeadLetterGoogleAdsFailure({
+        errorClass: classification.errorClass,
+        terminal: classification.terminal,
+        attemptCount: 10,
+        maxAttempts: 6,
+      }),
+    ).toBe(false);
+  });
 });

@@ -484,7 +484,12 @@ describe("google ads warehouse ownership safety", () => {
 
     expect(queries.join("\n")).toContain("OR NOT (scope = ANY($10::text[]))");
     expect(queries.join("\n")).toContain("action_partition.status = 'dead_letter'");
-    expect(queries.join("\n")).toContain("action_partition.updated_at >= now() - interval '6 hours'");
+    // Account-wide gate: 24h window and no per-scope match, so one broken scope
+    // blocks leasing across the whole account.
+    expect(queries.join("\n")).toContain("action_partition.updated_at >= now() - interval '24 hours'");
+    expect(queries.join("\n")).not.toContain(
+      "action_partition.scope = google_ads_sync_partitions.scope",
+    );
     expect(queries.join("\n")).toContain("latest_action_run.error_class");
     expect(params[0]?.at(9)).toEqual(["product_daily"]);
   });

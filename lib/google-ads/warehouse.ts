@@ -1551,9 +1551,12 @@ export async function leaseGoogleAdsSyncPartitions(input: {
             ) latest_action_run ON true
             WHERE action_partition.business_id = google_ads_sync_partitions.business_id
               AND action_partition.provider_account_id = google_ads_sync_partitions.provider_account_id
-              AND action_partition.scope = google_ads_sync_partitions.scope
+              -- Account-wide (no scope match): a 403/auth failure is an account
+              -- credential problem, so one broken scope must block leasing for
+              -- every scope on that account instead of letting fresh queued
+              -- partitions in other scopes keep hammering the broken account.
               AND action_partition.status = 'dead_letter'
-              AND action_partition.updated_at >= now() - interval '6 hours'
+              AND action_partition.updated_at >= now() - interval '24 hours'
               AND (
                 COALESCE(latest_action_run.error_class, '') IN (
                   'account_action_required',
@@ -5972,6 +5975,55 @@ export async function hasRecentGoogleAdsTerminalActionRequiredDeadLetter(input: 
     (row) =>
       classifyGoogleAdsDeadLetterCandidate(row).recoveryKind ===
       "terminal_action_required",
+  );
+}
+
+const GOOGLE_ADS_ACCOUNT_ACTION_REQUIRED_COOLDOWN_HOURS = 24;
+const GOOGLE_ADS_ACCOUNT_ACTION_REQUIRED_TRIP_THRESHOLD = 2;
+
+// Account-wide (cross-scope) variant of the action-required check. Trips once an
+// account has accumulated several terminal (auth/permission/account) dead-letter
+// partitions, so the enqueue path can stop creating fresh work for an account
+// whose credentials are broken (e.g. repeated 403 PERMISSION_DENIED) instead of
+// burning the daily request budget and starving healthy businesses.
+export async function hasRecentGoogleAdsTerminalActionRequiredDeadLetterForAccount(input: {
+  businessId: string;
+  providerAccountId: string;
+  cooldownHours?: number;
+  threshold?: number;
+}) {
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT
+      partition.last_error,
+      latest_run.error_class,
+      latest_run.error_message
+    FROM google_ads_sync_partitions partition
+    LEFT JOIN LATERAL (
+      SELECT run.error_class, run.error_message
+      FROM google_ads_sync_runs run
+      WHERE run.partition_id = partition.id
+      ORDER BY run.updated_at DESC
+      LIMIT 1
+    ) latest_run ON true
+    WHERE partition.business_id = ${input.businessId}
+      AND partition.provider_account_id = ${input.providerAccountId}
+      AND partition.status = 'dead_letter'
+      AND partition.updated_at >= now() - (${input.cooldownHours ?? GOOGLE_ADS_ACCOUNT_ACTION_REQUIRED_COOLDOWN_HOURS} || ' hours')::interval
+    ORDER BY partition.updated_at DESC
+    LIMIT 50
+  `) as GoogleAdsDeadLetterCandidateRow[];
+
+  const terminalCount = rows.filter(
+    (row) =>
+      classifyGoogleAdsDeadLetterCandidate(row).recoveryKind ===
+      "terminal_action_required",
+  ).length;
+
+  return (
+    terminalCount >=
+    (input.threshold ?? GOOGLE_ADS_ACCOUNT_ACTION_REQUIRED_TRIP_THRESHOLD)
   );
 }
 

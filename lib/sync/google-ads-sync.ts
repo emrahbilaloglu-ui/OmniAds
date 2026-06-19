@@ -72,6 +72,7 @@ import {
   getGoogleAdsWorkerDeadLetterBlockedReasonCodes,
   getGoogleAdsWarehouseIntegrityIncidents,
   hasRecentGoogleAdsTerminalActionRequiredDeadLetter,
+  hasRecentGoogleAdsTerminalActionRequiredDeadLetterForAccount,
   hasGoogleAdsRepairableBlockingDeadLetters,
   hasGoogleAdsThroughputBlockingDeadLetters,
   getLatestGoogleAdsCheckpointForPartition,
@@ -3279,10 +3280,22 @@ export function getGoogleAdsWarehouseFetchFailureReason(input: {
   });
   if (blockingFailures.length === 0) return null;
   const first = blockingFailures[0];
+  // A raw HTTP 403/401 sometimes arrives without the gRPC status string
+  // (apiStatus empty), which made the partition error read as a generic
+  // "transient" failure and retry forever instead of dead-lettering as
+  // account_action_required. Synthesize the status from the HTTP code so the
+  // classifier reliably sees a terminal permission/auth failure.
+  const apiStatus =
+    first?.apiStatus ||
+    (first?.status === 403
+      ? "PERMISSION_DENIED"
+      : first?.status === 401
+        ? "UNAUTHENTICATED"
+        : null);
   return [
     `google_ads_${input.scope}_fetch_failed`,
     first?.query ? `query=${first.query}` : null,
-    first?.apiStatus ? `apiStatus=${first.apiStatus}` : null,
+    apiStatus ? `apiStatus=${apiStatus}` : null,
     first?.apiErrorCode ? `apiErrorCode=${first.apiErrorCode}` : null,
     first?.message
       ? `message=${collapseGoogleAdsFetchFailureMessage(first.message)}`
@@ -3889,6 +3902,19 @@ async function enqueueHistoricalCorePartitions(businessId: string) {
   if (accountIds.length === 0) return 0;
   let queued = 0;
   for (const providerAccountId of accountIds) {
+    if (
+      await hasRecentGoogleAdsTerminalActionRequiredDeadLetterForAccount({
+        businessId,
+        providerAccountId,
+      }).catch(() => false)
+    ) {
+      console.warn("[google-ads-sync] enqueue_skipped_account_action_required", {
+        businessId,
+        providerAccountId,
+        phase: "historical_core",
+      });
+      continue;
+    }
     const { historicalStart, yesterday } = await computeHistoricalTargets(
       businessId,
       providerAccountId,
@@ -3982,6 +4008,19 @@ async function enqueueMaintenancePartitions(businessId: string) {
   );
   if (accountIds.length === 0) return;
   for (const providerAccountId of accountIds) {
+    if (
+      await hasRecentGoogleAdsTerminalActionRequiredDeadLetterForAccount({
+        businessId,
+        providerAccountId,
+      }).catch(() => false)
+    ) {
+      console.warn("[google-ads-sync] enqueue_skipped_account_action_required", {
+        businessId,
+        providerAccountId,
+        phase: "maintenance",
+      });
+      continue;
+    }
     const { today, yesterday } = await computeHistoricalTargets(
       businessId,
       providerAccountId,

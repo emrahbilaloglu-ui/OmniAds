@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { classifyGoogleAdsSyncFailure } from "@/lib/sync/google-ads-error-classification";
 import {
   buildGoogleAdsAccountDailyAuditPayload,
   buildGoogleAdsLaneAdmissionPolicy,
@@ -472,6 +473,42 @@ describe("getGoogleAdsWarehouseFetchFailureReason", () => {
       "google_ads_campaign_daily_fetch_failed: query=campaign_core_basic: message=provider_request_failed:permission:status_403",
     );
     expect((reason?.match(/_fetch_failed/g) ?? []).length).toBe(1);
+  });
+
+  it("synthesizes a terminal PERMISSION_DENIED reason from a bare HTTP 403 so it dead-letters instead of retrying forever", () => {
+    const reason = getGoogleAdsWarehouseFetchFailureReason({
+      scope: "search_term_daily",
+      report: {
+        rows: [],
+        meta: {
+          query_names: ["search_term_core"],
+          row_counts: { search_term_core: 0 },
+          failed_queries: [
+            {
+              query: "search_term_core",
+              family: "search_term_core",
+              customerId: "180-473-3335",
+              status: 403,
+              message: "The caller does not have permission",
+              severity: "core",
+              category: "unknown",
+            },
+          ],
+        },
+      },
+    });
+    expect(reason).toContain("apiStatus=PERMISSION_DENIED");
+    // The synthesized reason must classify as terminal account-action-required
+    // (not retryable transient) so the partition dead-letters and the account
+    // circuit breaker can stop further requests to the broken account.
+    const classification = classifyGoogleAdsSyncFailure({
+      errorClass: "transient",
+      message: reason ?? "",
+    });
+    expect(classification).toMatchObject({
+      terminal: true,
+      errorClass: "account_action_required",
+    });
   });
 
   it("allows product fallback when the legacy product query completed", () => {

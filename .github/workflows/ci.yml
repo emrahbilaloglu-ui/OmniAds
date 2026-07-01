@@ -154,6 +154,7 @@ jobs:
               '|docs/v3-01-release-authority\.md$'
               '|Dockerfile$|docker-compose\.yml$|package\.json$|package-lock\.json$'
               '|next\.config\.ts$|next-env\.d\.ts$|postcss\.config\.mjs$'
+              '|instrumentation\.ts$|instrumentation\.node\.ts$'
               '|tsconfig\.json$|proxy\.ts$|proxy\.test\.ts$'
               '|middleware\.ts$|middleware\.test\.ts$)'
             )

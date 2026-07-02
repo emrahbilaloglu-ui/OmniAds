@@ -765,5 +765,44 @@
     "expectedTopReasonTag": "stale_sustained_loser",
     "expectedMaturity": "mature",
     "expectedSafeFallbackIfDataMissing": "diagnose_data"
+  },
+  {
+    "caseId": "GC-059",
+    "inputSummary": "cut-zone creative has enough recent spend and recent 7d ROAS above target",
+    "expectedPrimaryDecision": "Keep",
+    "expectedBuyerAction": "review",
+    "expectedActionability": "review_only",
+    "expectedProblemClass": "performance",
+    "expectedPriorityBand": "high",
+    "expectedConfidenceBand": "high",
+    "expectedTopReasonTag": "recovery_hold",
+    "expectedMaturity": "mature",
+    "expectedSafeFallbackIfDataMissing": "diagnose_data"
+  },
+  {
+    "caseId": "GC-060",
+    "inputSummary": "scale-ready winner has unknown source freshness",
+    "expectedPrimaryDecision": "Keep",
+    "expectedBuyerAction": "review",
+    "expectedActionability": "review_only",
+    "expectedProblemClass": "data_quality",
+    "expectedPriorityBand": "high",
+    "expectedConfidenceBand": "medium",
+    "expectedTopReasonTag": "unknown_freshness_scale_block",
+    "expectedMaturity": "mature",
+    "expectedSafeFallbackIfDataMissing": "diagnose_data"
+  },
+  {
+    "caseId": "GC-061",
+    "inputSummary": "funnel-step issue has unknown source freshness, so fresh proof is unavailable",
+    "expectedPrimaryDecision": "Keep",
+    "expectedBuyerAction": "review",
+    "expectedActionability": "review_only",
+    "expectedProblemClass": "data_quality",
+    "expectedPriorityBand": "medium",
+    "expectedConfidenceBand": "medium",
+    "expectedTopReasonTag": "unknown_freshness_funnel_proof_required",
+    "expectedMaturity": "mature",
+    "expectedSafeFallbackIfDataMissing": "diagnose_data"
   }
 ]

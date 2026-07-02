@@ -1,7 +1,7 @@
 import type { DecisionLabel } from "./types";
 
 export const CREATIVE_OUTCOME_CLASSIFIER_VERSION =
-  "creative-outcome-classifier.v1";
+  "creative-outcome-classifier.v2";
 
 export type CreativeDecisionRealizedOutcome =
   | "positive"
@@ -48,9 +48,9 @@ function severityFromSpend(
   baselineSpend: number | null,
 ): CreativeDecisionOutcomeSeverity {
   const baseline = positive(baselineSpend) ? baselineSpend : 250;
-  if (outcomeSpend >= Math.max(1_000, baseline)) return "critical";
-  if (outcomeSpend >= Math.max(500, baseline * 0.5)) return "high";
-  if (outcomeSpend >= Math.max(150, baseline * 0.25)) return "medium";
+  if (outcomeSpend >= baseline) return "critical";
+  if (outcomeSpend >= baseline * 0.5) return "high";
+  if (outcomeSpend >= baseline * 0.25) return "medium";
   return "low";
 }
 

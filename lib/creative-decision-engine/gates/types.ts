@@ -71,7 +71,8 @@ function hasDecisionBadge(
 function confidenceCapForBadges(
   badges: readonly DecisionBadge[],
 ): number | null {
-  return hasDecisionBadge(badges, "stale_evidence")
+  return hasDecisionBadge(badges, "stale_evidence") ||
+    hasDecisionBadge(badges, "unknown_freshness")
     ? STALE_CONFIDENCE_CAP
     : null;
 }

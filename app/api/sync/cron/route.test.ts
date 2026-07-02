@@ -27,6 +27,7 @@ vi.mock("@/lib/meta/decision-responses", async (importOriginal) => {
 
 vi.mock("@/lib/creative-decision-engine", () => ({
   runDecisionOutcomesJobForActiveBusinessesIfDue: vi.fn(),
+  runEngineV3ProducerChainForActiveBusinessesIfDue: vi.fn(),
 }));
 
 vi.mock("@/lib/sync/ga4-sync", () => ({
@@ -103,6 +104,13 @@ describe("POST /api/sync/cron", () => {
     });
     vi.mocked(
       creativeDecisionEngine.runDecisionOutcomesJobForActiveBusinessesIfDue,
+    ).mockResolvedValue({
+      skipped: true,
+      reason: "outside_slot",
+      asOf: "2026-04-15",
+    });
+    vi.mocked(
+      creativeDecisionEngine.runEngineV3ProducerChainForActiveBusinessesIfDue,
     ).mockResolvedValue({
       skipped: true,
       reason: "outside_slot",
@@ -284,6 +292,28 @@ describe("POST /api/sync/cron", () => {
       reason: "outside_slot",
       asOf: "2026-04-15",
     });
+    expect(payload.decisionProducerJob).toEqual({
+      skipped: true,
+      reason: "outside_slot",
+      asOf: "2026-04-15",
+    });
+    expect(
+      creativeDecisionEngine.runEngineV3ProducerChainForActiveBusinessesIfDue,
+    ).toHaveBeenCalledWith(expect.any(Date));
+    expect(
+      creativeDecisionEngine.runDecisionOutcomesJobForActiveBusinessesIfDue,
+    ).toHaveBeenCalledWith(expect.any(Date), [
+      { id: "biz_1", name: "Biz 1" },
+    ]);
+    expect(
+      vi.mocked(
+        creativeDecisionEngine.runEngineV3ProducerChainForActiveBusinessesIfDue,
+      ).mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      vi.mocked(
+        creativeDecisionEngine.runDecisionOutcomesJobForActiveBusinessesIfDue,
+      ).mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+    );
   });
 
   it("does not fail cron when the Meta snapshot job fails", async () => {
@@ -347,6 +377,30 @@ describe("POST /api/sync/cron", () => {
     expect(payload.decisionOutcomesJob.reason).toBe("failed");
     expect(spy).toHaveBeenCalledWith(
       "[sync-cron] decision_outcomes_job_failed",
+      expect.any(Error),
+    );
+
+    spy.mockRestore();
+  });
+
+  it("does not fail cron when the Creative decision producer job fails", async () => {
+    vi.mocked(
+      creativeDecisionEngine.runEngineV3ProducerChainForActiveBusinessesIfDue,
+    ).mockRejectedValue(new Error("producer failed"));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const request = new NextRequest("http://localhost/api/sync/cron", {
+      method: "POST",
+      headers: { authorization: "Bearer secret" },
+    });
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.decisionProducerJob.skipped).toBe(true);
+    expect(payload.decisionProducerJob.reason).toBe("failed");
+    expect(spy).toHaveBeenCalledWith(
+      "[sync-cron] decision_producer_job_failed",
       expect.any(Error),
     );
 

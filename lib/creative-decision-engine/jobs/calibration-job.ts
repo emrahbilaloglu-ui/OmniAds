@@ -11,6 +11,7 @@ import {
   type AccountCalibration,
   type CalibrationCampaignKind,
 } from "../types";
+import { getBusinessGuardFailure } from "./business-guard";
 
 export const JOB_NAME = "engine_v3_calibration_job";
 const ACCOUNT_SCOPE_TYPE = "account";
@@ -40,7 +41,7 @@ export interface CalibrationJobResult {
   rowsWritten: number;
   durationMs: number;
   calibration: AccountCalibration | null;
-  reason?: "engine_v3_disabled";
+  reason?: "engine_v3_disabled" | "business_not_found" | "invalid_business_id";
   errorMessage?: string;
 }
 
@@ -602,13 +603,60 @@ export async function runCalibrationJob(
   input: CalibrationJobInput,
 ): Promise<CalibrationJobResult> {
   const startedAt = Date.now();
-  const flags = await resolveEngineV3Flags(input.businessId);
-  if (!flags.enabled) {
+  const businessGuardFailure = await getBusinessGuardFailure(input.businessId);
+  if (businessGuardFailure?.reason === "invalid_business_id") {
     return {
       jobRunId: "",
-      status: "skipped",
+      status: "failed",
       rowsWritten: 0,
       durationMs: Date.now() - startedAt,
+      calibration: null,
+      reason: "invalid_business_id",
+      errorMessage: businessGuardFailure.message,
+    };
+  }
+  if (businessGuardFailure) {
+    const durationMs = Date.now() - startedAt;
+    const jobRunId = await insertJobRun({
+      businessId: input.businessId,
+      asOf: input.asOf,
+      status: "failed",
+      durationMs,
+      rowCount: 0,
+      errorMessage: businessGuardFailure.message,
+      errorJson: businessGuardFailure.errorJson,
+    });
+    return {
+      jobRunId,
+      status: "failed",
+      rowsWritten: 0,
+      durationMs,
+      calibration: null,
+      reason: "business_not_found",
+      errorMessage: businessGuardFailure.message,
+    };
+  }
+
+  const flags = await resolveEngineV3Flags(input.businessId);
+  if (!flags.enabled) {
+    const durationMs = Date.now() - startedAt;
+    const jobRunId = await insertJobRun({
+      businessId: input.businessId,
+      asOf: input.asOf,
+      status: "skipped",
+      durationMs,
+      rowCount: 0,
+      errorMessage: "engine_v3_disabled",
+      errorJson: {
+        name: "engine_v3_disabled",
+        businessId: input.businessId,
+      },
+    });
+    return {
+      jobRunId,
+      status: "skipped",
+      rowsWritten: 0,
+      durationMs,
       calibration: null,
       reason: "engine_v3_disabled",
     };
@@ -809,17 +857,18 @@ async function insertJobRun(input: {
   durationMs?: number;
   rowCount?: number;
   errorMessage?: string;
+  errorJson?: unknown;
 }) {
   const [row] = await getDb().query<JobRunIdRow>(
     `
     INSERT INTO engine_v3_job_runs (
       job_name, business_ref_id, business_id, as_of_date, engine_version,
-      status, finished_at, duration_ms, row_count, error_message
+      status, finished_at, duration_ms, row_count, error_message, error_json
     )
     VALUES (
       $1, $2::uuid, $3, $4::date, $5,
       $6, CASE WHEN $6 = 'running' THEN NULL ELSE now() END,
-      $7::integer, $8::integer, $9
+      $7::integer, $8::integer, $9, $10::jsonb
     )
     RETURNING id
     `,
@@ -833,6 +882,7 @@ async function insertJobRun(input: {
       input.durationMs ?? null,
       input.rowCount ?? null,
       input.errorMessage ?? null,
+      input.errorJson === undefined ? null : JSON.stringify(input.errorJson),
     ],
   );
 

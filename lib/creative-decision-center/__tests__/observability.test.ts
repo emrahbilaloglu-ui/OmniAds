@@ -82,6 +82,12 @@ function input(overrides: Partial<DecisionCenterObservabilityInput> = {}) {
           scope: "family",
         }),
       ],
+      dataFreshness: {
+        status: "stale",
+        maxAgeHours: 26,
+        latestSnapshotAsOf: "2026-05-18",
+        snapshotAgeHours: 48,
+      },
     }),
     businessIdHash: "hashed_business",
     accountIdHashes: ["hashed_account_2", "hashed_account_1", "hashed_account_1"],
@@ -110,6 +116,11 @@ describe("Decision Center observability", () => {
       rowCount: 3,
       aggregateCount: 1,
       todayBriefCount: 0,
+      dataFreshnessStatus: "stale",
+      latestSnapshotAsOf: "2026-05-18",
+      snapshotAgeHours: 48,
+      maxAgeHours: 26,
+      staleData: true,
     });
   });
 

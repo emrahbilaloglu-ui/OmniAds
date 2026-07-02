@@ -1,0 +1,3010 @@
+{
+  "contractVersion": "adsecute.f1-f2-cut-threshold-sweep.v1",
+  "revision": 2,
+  "revisionNotes": [
+    "Episode dedup now requires at least one post-trigger daily spend > 0 before the same creative can open a new cut episode.",
+    "Evidence limits now describe attribution lag in both directions.",
+    "Recommendation is reframed from no-change-supported to no-uniform-change-supported with account-level signals."
+  ],
+  "generatedAt": "2026-07-02T17:41:03.872Z",
+  "readOnly": true,
+  "mutatesData": false,
+  "asOf": "2026-07-02",
+  "engineVersion": "v3-2026-07-02-math-guardrails",
+  "methodology": {
+    "unitOfAnalysis": "cut episode, not daily row; after one creative opens an episode, another episode requires a new cut run plus at least one post-trigger daily spend > 0",
+    "lookaheadBiasStatus": "trailing 90d calibration percentiles are recomputed for each replay day from data available on or before that day",
+    "targetHistoryAssumption": "business_target_packs keeps the latest target pack; historical target ROAS and breakeven ROAS are assumed fixed",
+    "guardrailScope": "formula-level threshold sweep; campaign-label guard, provider writes, DB writes, migrations, and resolver threshold changes are not applied",
+    "nonMutationStatement": "This report only reads meta_creative_daily, businesses, target/config/flag tables and writes local JSON/MD artifacts.",
+    "queryCostBound": "per-business generated daily replay bounded to 180 lookback days, 90d trailing calibration, and 28d forward windows",
+    "defensibleEpisodeThreshold": 30
+  },
+  "variants": [
+    {
+      "id": "V0_current",
+      "label": "Current formula baseline; recovery guard already live",
+      "purchaseFloor": null,
+      "boundaryMode": "current",
+      "isBaseline": true
+    },
+    {
+      "id": "V1a_purchase_floor_2",
+      "label": "F1 sensitivity: purchase floor 2 or sustained-loser spend",
+      "purchaseFloor": "fixed_2",
+      "boundaryMode": "current",
+      "isBaseline": false
+    },
+    {
+      "id": "V1b_purchase_floor_3",
+      "label": "F1 sensitivity: purchase floor 3 or sustained-loser spend",
+      "purchaseFloor": "fixed_3",
+      "boundaryMode": "current",
+      "isBaseline": false
+    },
+    {
+      "id": "V1c_purchase_floor_5",
+      "label": "F1 sensitivity: fixed purchase floor 5 or sustained-loser spend",
+      "purchaseFloor": "fixed_5",
+      "boundaryMode": "current",
+      "isBaseline": false
+    },
+    {
+      "id": "V1d_purchase_floor_half_winner",
+      "label": "F1 account-relative: max(2, ceil(0.5 * winnerPurchaseP50)) or sustained-loser spend",
+      "purchaseFloor": "half_winner",
+      "boundaryMode": "current",
+      "isBaseline": false
+    },
+    {
+      "id": "V2a_p25_upper_clamp_1",
+      "label": "F2 sensitivity: cut boundary min(P25, 1.0)",
+      "purchaseFloor": null,
+      "boundaryMode": "upper_1",
+      "isBaseline": false
+    },
+    {
+      "id": "V2b_p25_breakeven_floor",
+      "label": "F2 sensitivity: cut boundary clamped to [breakevenRatio, 1.0]",
+      "purchaseFloor": null,
+      "boundaryMode": "breakeven_floor",
+      "isBaseline": false
+    },
+    {
+      "id": "V3_recommended_combo",
+      "label": "F1+F2 combined: account-relative purchase floor and [breakevenRatio, 1.0] boundary",
+      "purchaseFloor": "half_winner",
+      "boundaryMode": "breakeven_floor",
+      "isBaseline": false
+    }
+  ],
+  "businessesRequested": [
+    "IwaStore",
+    "EMOLOS",
+    "Grandmix",
+    "TheSwaf"
+  ],
+  "businessesFound": 4,
+  "reviews": [
+    {
+      "business": {
+        "id": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+        "name": "EMOLOS"
+      },
+      "status": "ok",
+      "sourceStats": {
+        "latestDataDate": "2026-07-01",
+        "earliestDataDate": "2025-03-02",
+        "sourceRows": 8755,
+        "creativeCount": 453,
+        "campaignCount": 26,
+        "totalSpend": 54590.499999999854
+      },
+      "targetConfig": {
+        "targetCpa": null,
+        "targetRoas": 2.5,
+        "breakEvenCpa": null,
+        "breakEvenRoas": 2,
+        "operatorAovAssumption": null,
+        "defaultRiskPosture": "balanced",
+        "enginePresetLabel": null,
+        "attributionAovAdjustmentMultiplier": 1,
+        "presetOverride": null,
+        "resolvedPreset": "balanced"
+      },
+      "evaluatedWindow": {
+        "startDate": "2025-12-06",
+        "endDate": "2026-06-03",
+        "lookbackDays": 180,
+        "forwardWindowDays": 28
+      },
+      "rowsEvaluated": 16762,
+      "candidateRowsWithTarget": 16762,
+      "variants": [
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+            "name": "EMOLOS"
+          },
+          "episodes": 71,
+          "defensible": true,
+          "dailyCutRows": 524,
+          "affectedDailyRowsVsBaseline": 0,
+          "baselineEpisodesMatched": 71,
+          "baselineEpisodesSuppressed": 0,
+          "additionalEpisodesVsBaseline": 0,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_sustained_loser": 7,
+            "ratio_hard_cut": 34,
+            "ratio_loss_budget": 30
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 33,
+            "unknownEpisodes": 38,
+            "recoveredAboveTarget": 3,
+            "earlyCutRate": 0.0909,
+            "trueLoserEpisodes": 21,
+            "savedSpend": 5459.93,
+            "savedSpendUnits": 161.45
+          },
+          "window28": {
+            "knownEpisodes": 35,
+            "unknownEpisodes": 36,
+            "recoveredAboveTarget": 4,
+            "earlyCutRate": 0.1143,
+            "trueLoserEpisodes": 29,
+            "savedSpend": 9789.48,
+            "savedSpendUnits": 293.79
+          }
+        },
+        {
+          "variantId": "V1a_purchase_floor_2",
+          "business": {
+            "id": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+            "name": "EMOLOS"
+          },
+          "episodes": 60,
+          "defensible": true,
+          "dailyCutRows": 468,
+          "affectedDailyRowsVsBaseline": 56,
+          "baselineEpisodesMatched": 60,
+          "baselineEpisodesSuppressed": 11,
+          "additionalEpisodesVsBaseline": 0,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_sustained_loser": 8,
+            "ratio_hard_cut": 34,
+            "ratio_loss_budget": 18
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 27,
+            "unknownEpisodes": 33,
+            "recoveredAboveTarget": 2,
+            "earlyCutRate": 0.0741,
+            "trueLoserEpisodes": 18,
+            "savedSpend": 4890.56,
+            "savedSpendUnits": 144.78
+          },
+          "window28": {
+            "knownEpisodes": 29,
+            "unknownEpisodes": 31,
+            "recoveredAboveTarget": 2,
+            "earlyCutRate": 0.069,
+            "trueLoserEpisodes": 26,
+            "savedSpend": 9086.6,
+            "savedSpendUnits": 272.99
+          }
+        },
+        {
+          "variantId": "V1b_purchase_floor_3",
+          "business": {
+            "id": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+            "name": "EMOLOS"
+          },
+          "episodes": 60,
+          "defensible": true,
+          "dailyCutRows": 468,
+          "affectedDailyRowsVsBaseline": 56,
+          "baselineEpisodesMatched": 60,
+          "baselineEpisodesSuppressed": 11,
+          "additionalEpisodesVsBaseline": 0,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_sustained_loser": 8,
+            "ratio_hard_cut": 34,
+            "ratio_loss_budget": 18
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 27,
+            "unknownEpisodes": 33,
+            "recoveredAboveTarget": 2,
+            "earlyCutRate": 0.0741,
+            "trueLoserEpisodes": 18,
+            "savedSpend": 4890.56,
+            "savedSpendUnits": 144.78
+          },
+          "window28": {
+            "knownEpisodes": 29,
+            "unknownEpisodes": 31,
+            "recoveredAboveTarget": 2,
+            "earlyCutRate": 0.069,
+            "trueLoserEpisodes": 26,
+            "savedSpend": 9086.6,
+            "savedSpendUnits": 272.99
+          }
+        },
+        {
+          "variantId": "V1c_purchase_floor_5",
+          "business": {
+            "id": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+            "name": "EMOLOS"
+          },
+          "episodes": 60,
+          "defensible": true,
+          "dailyCutRows": 468,
+          "affectedDailyRowsVsBaseline": 56,
+          "baselineEpisodesMatched": 60,
+          "baselineEpisodesSuppressed": 11,
+          "additionalEpisodesVsBaseline": 0,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_sustained_loser": 8,
+            "ratio_hard_cut": 34,
+            "ratio_loss_budget": 18
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 27,
+            "unknownEpisodes": 33,
+            "recoveredAboveTarget": 2,
+            "earlyCutRate": 0.0741,
+            "trueLoserEpisodes": 18,
+            "savedSpend": 4890.56,
+            "savedSpendUnits": 144.78
+          },
+          "window28": {
+            "knownEpisodes": 29,
+            "unknownEpisodes": 31,
+            "recoveredAboveTarget": 2,
+            "earlyCutRate": 0.069,
+            "trueLoserEpisodes": 26,
+            "savedSpend": 9086.6,
+            "savedSpendUnits": 272.99
+          }
+        },
+        {
+          "variantId": "V1d_purchase_floor_half_winner",
+          "business": {
+            "id": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+            "name": "EMOLOS"
+          },
+          "episodes": 60,
+          "defensible": true,
+          "dailyCutRows": 468,
+          "affectedDailyRowsVsBaseline": 56,
+          "baselineEpisodesMatched": 60,
+          "baselineEpisodesSuppressed": 11,
+          "additionalEpisodesVsBaseline": 0,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_sustained_loser": 8,
+            "ratio_hard_cut": 34,
+            "ratio_loss_budget": 18
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 27,
+            "unknownEpisodes": 33,
+            "recoveredAboveTarget": 2,
+            "earlyCutRate": 0.0741,
+            "trueLoserEpisodes": 18,
+            "savedSpend": 4890.56,
+            "savedSpendUnits": 144.78
+          },
+          "window28": {
+            "knownEpisodes": 29,
+            "unknownEpisodes": 31,
+            "recoveredAboveTarget": 2,
+            "earlyCutRate": 0.069,
+            "trueLoserEpisodes": 26,
+            "savedSpend": 9086.6,
+            "savedSpendUnits": 272.99
+          }
+        },
+        {
+          "variantId": "V2a_p25_upper_clamp_1",
+          "business": {
+            "id": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+            "name": "EMOLOS"
+          },
+          "episodes": 71,
+          "defensible": true,
+          "dailyCutRows": 524,
+          "affectedDailyRowsVsBaseline": 0,
+          "baselineEpisodesMatched": 71,
+          "baselineEpisodesSuppressed": 0,
+          "additionalEpisodesVsBaseline": 0,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_sustained_loser": 7,
+            "ratio_hard_cut": 34,
+            "ratio_loss_budget": 30
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 33,
+            "unknownEpisodes": 38,
+            "recoveredAboveTarget": 3,
+            "earlyCutRate": 0.0909,
+            "trueLoserEpisodes": 21,
+            "savedSpend": 5459.93,
+            "savedSpendUnits": 161.45
+          },
+          "window28": {
+            "knownEpisodes": 35,
+            "unknownEpisodes": 36,
+            "recoveredAboveTarget": 4,
+            "earlyCutRate": 0.1143,
+            "trueLoserEpisodes": 29,
+            "savedSpend": 9789.48,
+            "savedSpendUnits": 293.79
+          }
+        },
+        {
+          "variantId": "V2b_p25_breakeven_floor",
+          "business": {
+            "id": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+            "name": "EMOLOS"
+          },
+          "episodes": 106,
+          "defensible": true,
+          "dailyCutRows": 1146,
+          "affectedDailyRowsVsBaseline": 622,
+          "baselineEpisodesMatched": 43,
+          "baselineEpisodesSuppressed": 28,
+          "additionalEpisodesVsBaseline": 63,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_hard_cut": 42,
+            "ratio_sustained_loser": 7,
+            "ratio_loss_budget": 57
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 65,
+            "unknownEpisodes": 41,
+            "recoveredAboveTarget": 13,
+            "earlyCutRate": 0.2,
+            "trueLoserEpisodes": 41,
+            "savedSpend": 9448.2,
+            "savedSpendUnits": 284.44
+          },
+          "window28": {
+            "knownEpisodes": 69,
+            "unknownEpisodes": 37,
+            "recoveredAboveTarget": 14,
+            "earlyCutRate": 0.2029,
+            "trueLoserEpisodes": 48,
+            "savedSpend": 13757.06,
+            "savedSpendUnits": 417.2
+          }
+        },
+        {
+          "variantId": "V3_recommended_combo",
+          "business": {
+            "id": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+            "name": "EMOLOS"
+          },
+          "episodes": 96,
+          "defensible": true,
+          "dailyCutRows": 1062,
+          "affectedDailyRowsVsBaseline": 650,
+          "baselineEpisodesMatched": 44,
+          "baselineEpisodesSuppressed": 27,
+          "additionalEpisodesVsBaseline": 52,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_hard_cut": 42,
+            "ratio_sustained_loser": 8,
+            "ratio_loss_budget": 46
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 59,
+            "unknownEpisodes": 37,
+            "recoveredAboveTarget": 12,
+            "earlyCutRate": 0.2034,
+            "trueLoserEpisodes": 38,
+            "savedSpend": 8837.86,
+            "savedSpendUnits": 266.58
+          },
+          "window28": {
+            "knownEpisodes": 62,
+            "unknownEpisodes": 34,
+            "recoveredAboveTarget": 13,
+            "earlyCutRate": 0.2097,
+            "trueLoserEpisodes": 42,
+            "savedSpend": 12658.06,
+            "savedSpendUnits": 383.87
+          }
+        }
+      ],
+      "samples": [
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+            "name": "EMOLOS"
+          },
+          "asOfDate": "2025-12-14",
+          "creativeId": "1042063388039271",
+          "creativeName": "Instock",
+          "campaignId": "120228361935450459",
+          "source": "ratio_hard_cut",
+          "spend28": 2079.4599999999996,
+          "purchases28": 31,
+          "roas28": 1.1146307214372964,
+          "recent7Spend": 350.04,
+          "recent7Roas": 1.064535481659239,
+          "targetRoas": 2.5,
+          "breakEvenRoas": 2,
+          "forward14Spend": 769.98,
+          "forward14Roas": 0.8026961739265954,
+          "forward28Spend": 1031.6100000000001,
+          "forward28Roas": 1.1208208528416745,
+          "spendUnit": 30.92506493506493,
+          "boundary": 0.4591611479028697,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+            "name": "EMOLOS"
+          },
+          "asOfDate": "2025-12-30",
+          "creativeId": "1042063388039271",
+          "creativeName": "Instock",
+          "campaignId": "120228361935450459",
+          "source": "ratio_hard_cut",
+          "spend28": 1594.2500000000002,
+          "purchases28": 16,
+          "roas28": 0.7327458052375723,
+          "recent7Spend": 348.76,
+          "recent7Roas": 0.4876992774400734,
+          "targetRoas": 2.5,
+          "breakEvenRoas": 2,
+          "forward14Spend": 217.6,
+          "forward14Roas": 2.4732996323529415,
+          "forward28Spend": 348.14000000000004,
+          "forward28Roas": 1.950709484690067,
+          "spendUnit": 31.461941520467843,
+          "boundary": 0.3066544925336552,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+            "name": "EMOLOS"
+          },
+          "asOfDate": "2026-03-26",
+          "creativeId": "1893545804624747",
+          "creativeName": "Instock",
+          "campaignId": "120240423011600459",
+          "source": "ratio_hard_cut",
+          "spend28": 981.1699999999998,
+          "purchases28": 21,
+          "roas28": 1.8047433166525682,
+          "recent7Spend": 257.88,
+          "recent7Roas": 1.8540018613308515,
+          "targetRoas": 2.5,
+          "breakEvenRoas": 2,
+          "forward14Spend": 345.36,
+          "forward14Roas": 1.0613562659254112,
+          "forward28Spend": 496.6399999999999,
+          "forward28Roas": 1.0369080219072169,
+          "spendUnit": 34.28340983606556,
+          "boundary": 0.7323648452247937,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+            "name": "EMOLOS"
+          },
+          "asOfDate": "2026-04-12",
+          "creativeId": "867701699494448",
+          "creativeName": "Slim Fit Jeans Washed",
+          "campaignId": "120240929579820459",
+          "source": "ratio_hard_cut",
+          "spend28": 860.9,
+          "purchases28": 12,
+          "roas28": 1.3351608781507724,
+          "recent7Spend": 322.82,
+          "recent7Roas": 0.4173533238337154,
+          "targetRoas": 2.5,
+          "breakEvenRoas": 2,
+          "forward14Spend": 174.95,
+          "forward14Roas": 0,
+          "forward28Spend": 174.95,
+          "forward28Roas": 0,
+          "spendUnit": 33.79662275449101,
+          "boundary": 0.5592841163310962,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+            "name": "EMOLOS"
+          },
+          "asOfDate": "2026-01-15",
+          "creativeId": "1042063388039271",
+          "creativeName": "Instock",
+          "campaignId": "120228361935450459",
+          "source": "ratio_hard_cut",
+          "spend28": 830.9999999999999,
+          "purchases28": 9,
+          "roas28": 0.8523225030084238,
+          "recent7Spend": 65.6,
+          "recent7Roas": 0.9756097560975611,
+          "targetRoas": 2.5,
+          "breakEvenRoas": 2,
+          "forward14Spend": 118.59999999999998,
+          "forward14Roas": 1.1882799325463747,
+          "forward28Spend": 159.72,
+          "forward28Roas": 0.8823566240921613,
+          "spendUnit": 32.01763350785341,
+          "boundary": 0.3741729409080538,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+            "name": "EMOLOS"
+          },
+          "asOfDate": "2026-03-17",
+          "creativeId": "867701699494448",
+          "creativeName": "Slim Fit Jeans Washed",
+          "campaignId": "120240929579820459",
+          "source": "ratio_hard_cut",
+          "spend28": 744.64,
+          "purchases28": 11,
+          "roas28": 1.4807826600773526,
+          "recent7Spend": 141.5,
+          "recent7Roas": 1.0681272084805653,
+          "targetRoas": 2.5,
+          "breakEvenRoas": 2,
+          "forward14Spend": 273.27,
+          "forward14Roas": 2.1494858564789405,
+          "forward28Spend": 921.76,
+          "forward28Roas": 1.1649127755597986,
+          "spendUnit": 33.65508888888887,
+          "boundary": 0.6354677523756181,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+            "name": "EMOLOS"
+          },
+          "asOfDate": "2026-03-25",
+          "creativeId": "1070949738554203",
+          "creativeName": "UGC Christian E",
+          "campaignId": "120240929579820459",
+          "source": "ratio_hard_cut",
+          "spend28": 723.98,
+          "purchases28": 15,
+          "roas28": 1.5440343655902096,
+          "recent7Spend": 156.04000000000002,
+          "recent7Roas": 0.8559343758010766,
+          "targetRoas": 2.5,
+          "breakEvenRoas": 2,
+          "forward14Spend": 118.68,
+          "forward14Roas": 0,
+          "forward28Spend": 118.68,
+          "forward28Roas": 0,
+          "spendUnit": 33.92331111111109,
+          "boundary": 0.7133221510495215,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+            "name": "EMOLOS"
+          },
+          "asOfDate": "2026-04-17",
+          "creativeId": "1893545804624747",
+          "creativeName": "Instock",
+          "campaignId": "120240423011600459",
+          "source": "ratio_hard_cut",
+          "spend28": 706.1499999999999,
+          "purchases28": 12,
+          "roas28": 1.2474686681300011,
+          "recent7Spend": 117.32,
+          "recent7Roas": 1.2650869416979205,
+          "targetRoas": 2.5,
+          "breakEvenRoas": 2,
+          "forward14Spend": 15.99,
+          "forward14Roas": 0,
+          "forward28Spend": 15.99,
+          "forward28Roas": 0,
+          "spendUnit": 34.226540880503144,
+          "boundary": 0.5365198050257914,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+            "name": "EMOLOS"
+          },
+          "asOfDate": "2026-03-14",
+          "creativeId": "867701699494448",
+          "creativeName": "Slim Fit Jeans Washed",
+          "campaignId": "120240929579820459",
+          "source": "ratio_hard_cut",
+          "spend28": 701.3,
+          "purchases28": 11,
+          "roas28": 1.5485241693996865,
+          "recent7Spend": 157.91,
+          "recent7Roas": 1.9977835475903998,
+          "targetRoas": 2.5,
+          "breakEvenRoas": 2,
+          "forward14Spend": 244.46,
+          "forward14Roas": 2.4018653358422646,
+          "forward28Spend": 833.0699999999999,
+          "forward28Roas": 1.3797640054257148,
+          "spendUnit": 33.5467640449438,
+          "boundary": 0.621384650549514,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+            "name": "EMOLOS"
+          },
+          "asOfDate": "2026-06-01",
+          "creativeId": "962418690099350",
+          "creativeName": "Retest | Polo Product Video - Premium Pique Polo Shirt Dark Grey | Video DOF5",
+          "campaignId": "120245714163440459",
+          "source": "ratio_hard_cut",
+          "spend28": 479.4600000000001,
+          "purchases28": 4,
+          "roas28": 0.5761273098902931,
+          "recent7Spend": 257.46000000000004,
+          "recent7Roas": 0.19032082653616092,
+          "targetRoas": 2.5,
+          "breakEvenRoas": 2,
+          "forward14Spend": 23.96,
+          "forward14Roas": 0,
+          "forward28Spend": 23.96,
+          "forward28Roas": 0,
+          "spendUnit": 35.365961290322566,
+          "boundary": 0.23770431959624802,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+            "name": "EMOLOS"
+          },
+          "asOfDate": "2026-04-08",
+          "creativeId": "1070949738554203",
+          "creativeName": "UGC Christian E",
+          "campaignId": "120240929579820459",
+          "source": "ratio_hard_cut",
+          "spend28": 476.39000000000004,
+          "purchases28": 5,
+          "roas28": 0.7467830978819874,
+          "recent7Spend": 0,
+          "recent7Roas": null,
+          "targetRoas": 2.5,
+          "breakEvenRoas": 2,
+          "forward14Spend": 0,
+          "forward14Roas": null,
+          "forward28Spend": 0,
+          "forward28Roas": null,
+          "spendUnit": 33.915233532934124,
+          "boundary": 0.502789707405183,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+            "name": "EMOLOS"
+          },
+          "asOfDate": "2026-05-28",
+          "creativeId": "1323544629737422",
+          "creativeName": "Retest HOLD | Hoodies - R 4 | Video DOF5",
+          "campaignId": "120245714163440459",
+          "source": "ratio_hard_cut",
+          "spend28": 373.91,
+          "purchases28": 1,
+          "roas28": 0.48982375437939607,
+          "recent7Spend": 259.36,
+          "recent7Roas": 0.7061613201727329,
+          "targetRoas": 2.5,
+          "breakEvenRoas": 2,
+          "forward14Spend": 206.31,
+          "forward14Roas": 0.2859774126314769,
+          "forward28Spend": 206.31,
+          "forward28Roas": 0.2859774126314769,
+          "spendUnit": 35.2909487179487,
+          "boundary": 0.26234045845540893,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        }
+      ]
+    },
+    {
+      "business": {
+        "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+        "name": "Grandmix"
+      },
+      "status": "ok",
+      "sourceStats": {
+        "latestDataDate": "2026-07-01",
+        "earliestDataDate": "2025-02-01",
+        "sourceRows": 8918,
+        "creativeCount": 387,
+        "campaignCount": 99,
+        "totalSpend": 244420.41000000027
+      },
+      "targetConfig": {
+        "targetCpa": null,
+        "targetRoas": 2.2,
+        "breakEvenCpa": null,
+        "breakEvenRoas": 1.8,
+        "operatorAovAssumption": null,
+        "defaultRiskPosture": "conservative",
+        "enginePresetLabel": null,
+        "attributionAovAdjustmentMultiplier": 1,
+        "presetOverride": null,
+        "resolvedPreset": "conservative"
+      },
+      "evaluatedWindow": {
+        "startDate": "2025-12-06",
+        "endDate": "2026-06-03",
+        "lookbackDays": 180,
+        "forwardWindowDays": 28
+      },
+      "rowsEvaluated": 5895,
+      "candidateRowsWithTarget": 5895,
+      "variants": [
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+            "name": "Grandmix"
+          },
+          "episodes": 52,
+          "defensible": true,
+          "dailyCutRows": 477,
+          "affectedDailyRowsVsBaseline": 0,
+          "baselineEpisodesMatched": 52,
+          "baselineEpisodesSuppressed": 0,
+          "additionalEpisodesVsBaseline": 0,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_sustained_loser": 5,
+            "ratio_loss_budget": 33,
+            "ratio_hard_cut": 14
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 25,
+            "unknownEpisodes": 27,
+            "recoveredAboveTarget": 9,
+            "earlyCutRate": 0.36,
+            "trueLoserEpisodes": 16,
+            "savedSpend": 10425.17,
+            "savedSpendUnits": 97.99
+          },
+          "window28": {
+            "knownEpisodes": 26,
+            "unknownEpisodes": 26,
+            "recoveredAboveTarget": 9,
+            "earlyCutRate": 0.3462,
+            "trueLoserEpisodes": 17,
+            "savedSpend": 12119.36,
+            "savedSpendUnits": 114.36
+          }
+        },
+        {
+          "variantId": "V1a_purchase_floor_2",
+          "business": {
+            "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+            "name": "Grandmix"
+          },
+          "episodes": 43,
+          "defensible": true,
+          "dailyCutRows": 404,
+          "affectedDailyRowsVsBaseline": 73,
+          "baselineEpisodesMatched": 43,
+          "baselineEpisodesSuppressed": 9,
+          "additionalEpisodesVsBaseline": 0,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_sustained_loser": 11,
+            "ratio_loss_budget": 18,
+            "ratio_hard_cut": 14
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 21,
+            "unknownEpisodes": 22,
+            "recoveredAboveTarget": 7,
+            "earlyCutRate": 0.3333,
+            "trueLoserEpisodes": 13,
+            "savedSpend": 7407.58,
+            "savedSpendUnits": 70.01
+          },
+          "window28": {
+            "knownEpisodes": 22,
+            "unknownEpisodes": 21,
+            "recoveredAboveTarget": 7,
+            "earlyCutRate": 0.3182,
+            "trueLoserEpisodes": 14,
+            "savedSpend": 9101.77,
+            "savedSpendUnits": 86.38
+          }
+        },
+        {
+          "variantId": "V1b_purchase_floor_3",
+          "business": {
+            "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+            "name": "Grandmix"
+          },
+          "episodes": 35,
+          "defensible": true,
+          "dailyCutRows": 325,
+          "affectedDailyRowsVsBaseline": 152,
+          "baselineEpisodesMatched": 35,
+          "baselineEpisodesSuppressed": 17,
+          "additionalEpisodesVsBaseline": 0,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_sustained_loser": 12,
+            "ratio_hard_cut": 14,
+            "ratio_loss_budget": 9
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 17,
+            "unknownEpisodes": 18,
+            "recoveredAboveTarget": 5,
+            "earlyCutRate": 0.2941,
+            "trueLoserEpisodes": 11,
+            "savedSpend": 5455.29,
+            "savedSpendUnits": 51.54
+          },
+          "window28": {
+            "knownEpisodes": 18,
+            "unknownEpisodes": 17,
+            "recoveredAboveTarget": 5,
+            "earlyCutRate": 0.2778,
+            "trueLoserEpisodes": 12,
+            "savedSpend": 7149.48,
+            "savedSpendUnits": 67.91
+          }
+        },
+        {
+          "variantId": "V1c_purchase_floor_5",
+          "business": {
+            "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+            "name": "Grandmix"
+          },
+          "episodes": 31,
+          "defensible": true,
+          "dailyCutRows": 308,
+          "affectedDailyRowsVsBaseline": 169,
+          "baselineEpisodesMatched": 31,
+          "baselineEpisodesSuppressed": 21,
+          "additionalEpisodesVsBaseline": 0,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_sustained_loser": 12,
+            "ratio_hard_cut": 14,
+            "ratio_loss_budget": 5
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 15,
+            "unknownEpisodes": 16,
+            "recoveredAboveTarget": 4,
+            "earlyCutRate": 0.2667,
+            "trueLoserEpisodes": 10,
+            "savedSpend": 5284.85,
+            "savedSpendUnits": 49.94
+          },
+          "window28": {
+            "knownEpisodes": 15,
+            "unknownEpisodes": 16,
+            "recoveredAboveTarget": 4,
+            "earlyCutRate": 0.2667,
+            "trueLoserEpisodes": 10,
+            "savedSpend": 6614.27,
+            "savedSpendUnits": 62.83
+          }
+        },
+        {
+          "variantId": "V1d_purchase_floor_half_winner",
+          "business": {
+            "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+            "name": "Grandmix"
+          },
+          "episodes": 39,
+          "defensible": true,
+          "dailyCutRows": 366,
+          "affectedDailyRowsVsBaseline": 111,
+          "baselineEpisodesMatched": 39,
+          "baselineEpisodesSuppressed": 13,
+          "additionalEpisodesVsBaseline": 0,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_sustained_loser": 12,
+            "ratio_loss_budget": 13,
+            "ratio_hard_cut": 14
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 18,
+            "unknownEpisodes": 21,
+            "recoveredAboveTarget": 4,
+            "earlyCutRate": 0.2222,
+            "trueLoserEpisodes": 13,
+            "savedSpend": 7030.58,
+            "savedSpendUnits": 66.51
+          },
+          "window28": {
+            "knownEpisodes": 19,
+            "unknownEpisodes": 20,
+            "recoveredAboveTarget": 4,
+            "earlyCutRate": 0.2105,
+            "trueLoserEpisodes": 14,
+            "savedSpend": 8724.77,
+            "savedSpendUnits": 82.88
+          }
+        },
+        {
+          "variantId": "V2a_p25_upper_clamp_1",
+          "business": {
+            "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+            "name": "Grandmix"
+          },
+          "episodes": 51,
+          "defensible": true,
+          "dailyCutRows": 473,
+          "affectedDailyRowsVsBaseline": 4,
+          "baselineEpisodesMatched": 51,
+          "baselineEpisodesSuppressed": 1,
+          "additionalEpisodesVsBaseline": 0,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_sustained_loser": 5,
+            "ratio_loss_budget": 33,
+            "ratio_hard_cut": 13
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 24,
+            "unknownEpisodes": 27,
+            "recoveredAboveTarget": 9,
+            "earlyCutRate": 0.375,
+            "trueLoserEpisodes": 15,
+            "savedSpend": 10350.73,
+            "savedSpendUnits": 97.3
+          },
+          "window28": {
+            "knownEpisodes": 25,
+            "unknownEpisodes": 26,
+            "recoveredAboveTarget": 9,
+            "earlyCutRate": 0.36,
+            "trueLoserEpisodes": 16,
+            "savedSpend": 11950.1,
+            "savedSpendUnits": 112.79
+          }
+        },
+        {
+          "variantId": "V2b_p25_breakeven_floor",
+          "business": {
+            "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+            "name": "Grandmix"
+          },
+          "episodes": 59,
+          "defensible": true,
+          "dailyCutRows": 677,
+          "affectedDailyRowsVsBaseline": 208,
+          "baselineEpisodesMatched": 39,
+          "baselineEpisodesSuppressed": 13,
+          "additionalEpisodesVsBaseline": 20,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_sustained_loser": 5,
+            "ratio_hard_cut": 19,
+            "ratio_loss_budget": 35
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 29,
+            "unknownEpisodes": 30,
+            "recoveredAboveTarget": 11,
+            "earlyCutRate": 0.3793,
+            "trueLoserEpisodes": 17,
+            "savedSpend": 12332.23,
+            "savedSpendUnits": 115.97
+          },
+          "window28": {
+            "knownEpisodes": 30,
+            "unknownEpisodes": 29,
+            "recoveredAboveTarget": 11,
+            "earlyCutRate": 0.3667,
+            "trueLoserEpisodes": 18,
+            "savedSpend": 14424.85,
+            "savedSpendUnits": 136.08
+          }
+        },
+        {
+          "variantId": "V3_recommended_combo",
+          "business": {
+            "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+            "name": "Grandmix"
+          },
+          "episodes": 52,
+          "defensible": true,
+          "dailyCutRows": 560,
+          "affectedDailyRowsVsBaseline": 309,
+          "baselineEpisodesMatched": 34,
+          "baselineEpisodesSuppressed": 18,
+          "additionalEpisodesVsBaseline": 18,
+          "medianDelayDaysVsBaseline": 1,
+          "sourceCounts": {
+            "ratio_sustained_loser": 12,
+            "ratio_hard_cut": 19,
+            "ratio_loss_budget": 21
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 24,
+            "unknownEpisodes": 28,
+            "recoveredAboveTarget": 7,
+            "earlyCutRate": 0.2917,
+            "trueLoserEpisodes": 15,
+            "savedSpend": 9763.94,
+            "savedSpendUnits": 92.11
+          },
+          "window28": {
+            "knownEpisodes": 25,
+            "unknownEpisodes": 27,
+            "recoveredAboveTarget": 7,
+            "earlyCutRate": 0.28,
+            "trueLoserEpisodes": 16,
+            "savedSpend": 11856.56,
+            "savedSpendUnits": 112.22
+          }
+        }
+      ],
+      "samples": [
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+            "name": "Grandmix"
+          },
+          "asOfDate": "2026-03-25",
+          "creativeId": "1198166982248690",
+          "creativeName": "BathroomMeta",
+          "campaignId": "120239129177770316",
+          "source": "ratio_hard_cut",
+          "spend28": 3542.379999999999,
+          "purchases28": 39,
+          "roas28": 1.7706203174137165,
+          "recent7Spend": 745.16,
+          "recent7Roas": 1.7818723495625102,
+          "targetRoas": 2.2,
+          "breakEvenRoas": 1.8,
+          "forward14Spend": 1533.2199999999998,
+          "forward14Roas": 3.2563689490092753,
+          "forward28Spend": 1867.71,
+          "forward28Roas": 2.776116206477451,
+          "spendUnit": 104.73344302756074,
+          "boundary": 1.0684797768947534,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+            "name": "Grandmix"
+          },
+          "asOfDate": "2026-03-27",
+          "creativeId": "1198166982248690",
+          "creativeName": "BathroomMeta",
+          "campaignId": "120239129177770316",
+          "source": "ratio_hard_cut",
+          "spend28": 3354.2200000000003,
+          "purchases28": 39,
+          "roas28": 2.0347919933695464,
+          "recent7Spend": 808.2,
+          "recent7Roas": 1.9317371937639198,
+          "targetRoas": 2.2,
+          "breakEvenRoas": 1.8,
+          "forward14Spend": 1384.79,
+          "forward14Roas": 2.983701499866406,
+          "forward28Spend": 1599.04,
+          "forward28Roas": 2.704153742245347,
+          "spendUnit": 105.54671135316302,
+          "boundary": 1.149493237946661,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+            "name": "Grandmix"
+          },
+          "asOfDate": "2026-03-04",
+          "creativeId": "1938058770465536",
+          "creativeName": "WallArtMeta",
+          "campaignId": "120239129102250316",
+          "source": "ratio_hard_cut",
+          "spend28": 2652.38,
+          "purchases28": 25,
+          "roas28": 2.0766406020253507,
+          "recent7Spend": 222.57,
+          "recent7Roas": 0.440760210270926,
+          "targetRoas": 2.2,
+          "breakEvenRoas": 1.8,
+          "forward14Spend": 1140.5500000000002,
+          "forward14Roas": 4.187199158300819,
+          "forward28Spend": 2563.5299999999997,
+          "forward28Roas": 3.365671554458111,
+          "spendUnit": 105.91041625760852,
+          "boundary": 0.9440324741605551,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+            "name": "Grandmix"
+          },
+          "asOfDate": "2025-12-05",
+          "creativeId": "3361410234026836",
+          "creativeName": "BathroomMeta",
+          "campaignId": "120238561375260316",
+          "source": "ratio_hard_cut",
+          "spend28": 2086.38,
+          "purchases28": 13,
+          "roas28": 0.9712803995437073,
+          "recent7Spend": 0,
+          "recent7Roas": null,
+          "targetRoas": 2.2,
+          "breakEvenRoas": 1.8,
+          "forward14Spend": 0,
+          "forward14Roas": null,
+          "forward28Spend": 0,
+          "forward28Roas": null,
+          "spendUnit": 102.85306882383149,
+          "boundary": 0.5011649251859255,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+            "name": "Grandmix"
+          },
+          "asOfDate": "2025-12-19",
+          "creativeId": "699745209504941",
+          "creativeName": "Utility",
+          "campaignId": "120239002228500316",
+          "source": "ratio_hard_cut",
+          "spend28": 1356.52,
+          "purchases28": 7,
+          "roas28": 1.1342700439359539,
+          "recent7Spend": 255.52999999999997,
+          "recent7Roas": 1.8561421359527257,
+          "targetRoas": 2.2,
+          "breakEvenRoas": 1.8,
+          "forward14Spend": 1234.6,
+          "forward14Roas": 1.3939656568929208,
+          "forward28Spend": 1234.6,
+          "forward28Roas": 1.3939656568929208,
+          "spendUnit": 101.46600944510027,
+          "boundary": 0.5203686817419912,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+            "name": "Grandmix"
+          },
+          "asOfDate": "2026-05-16",
+          "creativeId": "1712545453512108",
+          "creativeName": "Claude-2TS-I4-1cac0362",
+          "campaignId": "120247433863580316",
+          "source": "ratio_hard_cut",
+          "spend28": 1159.23,
+          "purchases28": 4,
+          "roas28": 1.0859967392148235,
+          "recent7Spend": 1036.79,
+          "recent7Roas": 1.2142478226063136,
+          "targetRoas": 2.2,
+          "breakEvenRoas": 1.8,
+          "forward14Spend": 0,
+          "forward14Roas": null,
+          "forward28Spend": 0,
+          "forward28Roas": null,
+          "spendUnit": 106.58150738150735,
+          "boundary": 0.4936348814612835,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+            "name": "Grandmix"
+          },
+          "asOfDate": "2026-04-12",
+          "creativeId": "1893195024959579",
+          "creativeName": "TowelRack",
+          "campaignId": "120239129177770316",
+          "source": "ratio_hard_cut",
+          "spend28": 1145.38,
+          "purchases28": 12,
+          "roas28": 2.3089280413487225,
+          "recent7Spend": 192.37,
+          "recent7Roas": 1.394188282996309,
+          "targetRoas": 2.2,
+          "breakEvenRoas": 1.8,
+          "forward14Spend": 74.44,
+          "forward14Roas": 0.8342289091886084,
+          "forward28Spend": 169.25999999999996,
+          "forward28Roas": 0.3668911733427863,
+          "spendUnit": 107.42040428858613,
+          "boundary": 1.091461405454844,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+            "name": "Grandmix"
+          },
+          "asOfDate": "2026-01-19",
+          "creativeId": "699745209504941",
+          "creativeName": "Utility",
+          "campaignId": "120239002228500316",
+          "source": "ratio_hard_cut",
+          "spend28": 1120.12,
+          "purchases28": 4,
+          "roas28": 1.1231832303681748,
+          "recent7Spend": 0,
+          "recent7Roas": null,
+          "targetRoas": 2.2,
+          "breakEvenRoas": 1.8,
+          "forward14Spend": 0,
+          "forward14Roas": null,
+          "forward28Spend": 0,
+          "forward28Roas": null,
+          "spendUnit": 101.47356060606056,
+          "boundary": 0.5597178809318482,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+            "name": "Grandmix"
+          },
+          "asOfDate": "2026-04-29",
+          "creativeId": "1198166982248690",
+          "creativeName": "BathroomMeta",
+          "campaignId": "120239129177770316",
+          "source": "ratio_hard_cut",
+          "spend28": 1098.85,
+          "purchases28": 10,
+          "roas28": 1.8576966828957548,
+          "recent7Spend": 0,
+          "recent7Roas": null,
+          "targetRoas": 2.2,
+          "breakEvenRoas": 1.8,
+          "forward14Spend": 268.34,
+          "forward14Roas": 0.6012521428039056,
+          "forward28Spend": 268.34,
+          "forward28Roas": 0.6012521428039056,
+          "spendUnit": 107.02219843868042,
+          "boundary": 0.9133083867878353,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+            "name": "Grandmix"
+          },
+          "asOfDate": "2026-05-02",
+          "creativeId": "1198166982248690",
+          "creativeName": "BathroomMeta",
+          "campaignId": "120247004624320316",
+          "source": "ratio_hard_cut",
+          "spend28": 1009.0199999999999,
+          "purchases28": 7,
+          "roas28": 1.1040316346554084,
+          "recent7Spend": 268.34,
+          "recent7Roas": 0.6012521428039056,
+          "targetRoas": 2.2,
+          "breakEvenRoas": 1.8,
+          "forward14Spend": 0,
+          "forward14Roas": null,
+          "forward28Spend": 0,
+          "forward28Roas": null,
+          "spendUnit": 108.79056653491435,
+          "boundary": 0.7539279436558641,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+            "name": "Grandmix"
+          },
+          "asOfDate": "2025-12-17",
+          "creativeId": "2783146011889872",
+          "creativeName": "BathroomMeta",
+          "campaignId": "120238720456120316",
+          "source": "ratio_hard_cut",
+          "spend28": 968.8499999999999,
+          "purchases28": 4,
+          "roas28": 0.6359911234969294,
+          "recent7Spend": 0,
+          "recent7Roas": null,
+          "targetRoas": 2.2,
+          "breakEvenRoas": 1.8,
+          "forward14Spend": 0,
+          "forward14Roas": null,
+          "forward28Spend": 0,
+          "forward28Roas": null,
+          "spendUnit": 100.54050024050015,
+          "boundary": 0.5183864531015444,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+            "name": "Grandmix"
+          },
+          "asOfDate": "2025-12-25",
+          "creativeId": "1307663170492590",
+          "creativeName": "Jealous - Winner",
+          "campaignId": "120228233477210316",
+          "source": "ratio_hard_cut",
+          "spend28": 894.3199999999999,
+          "purchases28": 1,
+          "roas28": 0.21938456033634493,
+          "recent7Spend": 215.06,
+          "recent7Roas": 0.9123035431972473,
+          "targetRoas": 2.2,
+          "breakEvenRoas": 1.8,
+          "forward14Spend": 465.26000000000005,
+          "forward14Roas": 0,
+          "forward28Spend": 824.0399999999998,
+          "forward28Roas": 0,
+          "spendUnit": 102.19773863636352,
+          "boundary": 0.5228704808481122,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        }
+      ]
+    },
+    {
+      "business": {
+        "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+        "name": "IwaStore"
+      },
+      "status": "ok",
+      "sourceStats": {
+        "latestDataDate": "2026-07-01",
+        "earliestDataDate": "2025-02-01",
+        "sourceRows": 16083,
+        "creativeCount": 589,
+        "campaignCount": 33,
+        "totalSpend": 444840.29000000237
+      },
+      "targetConfig": {
+        "targetCpa": null,
+        "targetRoas": 3.5,
+        "breakEvenCpa": null,
+        "breakEvenRoas": 2.7,
+        "operatorAovAssumption": null,
+        "defaultRiskPosture": "balanced",
+        "enginePresetLabel": null,
+        "attributionAovAdjustmentMultiplier": 1,
+        "presetOverride": null,
+        "resolvedPreset": "balanced"
+      },
+      "evaluatedWindow": {
+        "startDate": "2025-12-06",
+        "endDate": "2026-06-03",
+        "lookbackDays": 180,
+        "forwardWindowDays": 28
+      },
+      "rowsEvaluated": 17192,
+      "candidateRowsWithTarget": 17192,
+      "variants": [
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+            "name": "IwaStore"
+          },
+          "episodes": 151,
+          "defensible": true,
+          "dailyCutRows": 1303,
+          "affectedDailyRowsVsBaseline": 0,
+          "baselineEpisodesMatched": 151,
+          "baselineEpisodesSuppressed": 0,
+          "additionalEpisodesVsBaseline": 0,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_hard_cut": 78,
+            "ratio_sustained_loser": 12,
+            "ratio_loss_budget": 61
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 76,
+            "unknownEpisodes": 75,
+            "recoveredAboveTarget": 28,
+            "earlyCutRate": 0.3684,
+            "trueLoserEpisodes": 29,
+            "savedSpend": 10736.03,
+            "savedSpendUnits": 211.57
+          },
+          "window28": {
+            "knownEpisodes": 76,
+            "unknownEpisodes": 75,
+            "recoveredAboveTarget": 32,
+            "earlyCutRate": 0.4211,
+            "trueLoserEpisodes": 27,
+            "savedSpend": 10785.84,
+            "savedSpendUnits": 208.11
+          }
+        },
+        {
+          "variantId": "V1a_purchase_floor_2",
+          "business": {
+            "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+            "name": "IwaStore"
+          },
+          "episodes": 139,
+          "defensible": true,
+          "dailyCutRows": 1148,
+          "affectedDailyRowsVsBaseline": 155,
+          "baselineEpisodesMatched": 139,
+          "baselineEpisodesSuppressed": 12,
+          "additionalEpisodesVsBaseline": 0,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_hard_cut": 79,
+            "ratio_sustained_loser": 23,
+            "ratio_loss_budget": 37
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 73,
+            "unknownEpisodes": 66,
+            "recoveredAboveTarget": 31,
+            "earlyCutRate": 0.4247,
+            "trueLoserEpisodes": 25,
+            "savedSpend": 10101.89,
+            "savedSpendUnits": 199.12
+          },
+          "window28": {
+            "knownEpisodes": 73,
+            "unknownEpisodes": 66,
+            "recoveredAboveTarget": 34,
+            "earlyCutRate": 0.4658,
+            "trueLoserEpisodes": 24,
+            "savedSpend": 9467.48,
+            "savedSpendUnits": 182.55
+          }
+        },
+        {
+          "variantId": "V1b_purchase_floor_3",
+          "business": {
+            "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+            "name": "IwaStore"
+          },
+          "episodes": 130,
+          "defensible": true,
+          "dailyCutRows": 1064,
+          "affectedDailyRowsVsBaseline": 239,
+          "baselineEpisodesMatched": 130,
+          "baselineEpisodesSuppressed": 21,
+          "additionalEpisodesVsBaseline": 0,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_hard_cut": 79,
+            "ratio_sustained_loser": 23,
+            "ratio_loss_budget": 28
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 68,
+            "unknownEpisodes": 62,
+            "recoveredAboveTarget": 27,
+            "earlyCutRate": 0.3971,
+            "trueLoserEpisodes": 25,
+            "savedSpend": 10101.89,
+            "savedSpendUnits": 199.12
+          },
+          "window28": {
+            "knownEpisodes": 68,
+            "unknownEpisodes": 62,
+            "recoveredAboveTarget": 30,
+            "earlyCutRate": 0.4412,
+            "trueLoserEpisodes": 23,
+            "savedSpend": 9281.84,
+            "savedSpendUnits": 178.47
+          }
+        },
+        {
+          "variantId": "V1c_purchase_floor_5",
+          "business": {
+            "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+            "name": "IwaStore"
+          },
+          "episodes": 127,
+          "defensible": true,
+          "dailyCutRows": 1058,
+          "affectedDailyRowsVsBaseline": 245,
+          "baselineEpisodesMatched": 127,
+          "baselineEpisodesSuppressed": 24,
+          "additionalEpisodesVsBaseline": 0,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_hard_cut": 79,
+            "ratio_sustained_loser": 23,
+            "ratio_loss_budget": 25
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 67,
+            "unknownEpisodes": 60,
+            "recoveredAboveTarget": 27,
+            "earlyCutRate": 0.403,
+            "trueLoserEpisodes": 25,
+            "savedSpend": 10101.89,
+            "savedSpendUnits": 199.12
+          },
+          "window28": {
+            "knownEpisodes": 67,
+            "unknownEpisodes": 60,
+            "recoveredAboveTarget": 30,
+            "earlyCutRate": 0.4478,
+            "trueLoserEpisodes": 23,
+            "savedSpend": 9281.84,
+            "savedSpendUnits": 178.47
+          }
+        },
+        {
+          "variantId": "V1d_purchase_floor_half_winner",
+          "business": {
+            "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+            "name": "IwaStore"
+          },
+          "episodes": 130,
+          "defensible": true,
+          "dailyCutRows": 1061,
+          "affectedDailyRowsVsBaseline": 242,
+          "baselineEpisodesMatched": 130,
+          "baselineEpisodesSuppressed": 21,
+          "additionalEpisodesVsBaseline": 0,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_hard_cut": 79,
+            "ratio_sustained_loser": 23,
+            "ratio_loss_budget": 28
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 68,
+            "unknownEpisodes": 62,
+            "recoveredAboveTarget": 28,
+            "earlyCutRate": 0.4118,
+            "trueLoserEpisodes": 25,
+            "savedSpend": 10101.89,
+            "savedSpendUnits": 199.12
+          },
+          "window28": {
+            "knownEpisodes": 68,
+            "unknownEpisodes": 62,
+            "recoveredAboveTarget": 31,
+            "earlyCutRate": 0.4559,
+            "trueLoserEpisodes": 23,
+            "savedSpend": 9281.84,
+            "savedSpendUnits": 178.47
+          }
+        },
+        {
+          "variantId": "V2a_p25_upper_clamp_1",
+          "business": {
+            "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+            "name": "IwaStore"
+          },
+          "episodes": 151,
+          "defensible": true,
+          "dailyCutRows": 1303,
+          "affectedDailyRowsVsBaseline": 0,
+          "baselineEpisodesMatched": 151,
+          "baselineEpisodesSuppressed": 0,
+          "additionalEpisodesVsBaseline": 0,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_hard_cut": 78,
+            "ratio_sustained_loser": 12,
+            "ratio_loss_budget": 61
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 76,
+            "unknownEpisodes": 75,
+            "recoveredAboveTarget": 28,
+            "earlyCutRate": 0.3684,
+            "trueLoserEpisodes": 29,
+            "savedSpend": 10736.03,
+            "savedSpendUnits": 211.57
+          },
+          "window28": {
+            "knownEpisodes": 76,
+            "unknownEpisodes": 75,
+            "recoveredAboveTarget": 32,
+            "earlyCutRate": 0.4211,
+            "trueLoserEpisodes": 27,
+            "savedSpend": 10785.84,
+            "savedSpendUnits": 208.11
+          }
+        },
+        {
+          "variantId": "V2b_p25_breakeven_floor",
+          "business": {
+            "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+            "name": "IwaStore"
+          },
+          "episodes": 162,
+          "defensible": true,
+          "dailyCutRows": 1808,
+          "affectedDailyRowsVsBaseline": 505,
+          "baselineEpisodesMatched": 101,
+          "baselineEpisodesSuppressed": 50,
+          "additionalEpisodesVsBaseline": 61,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_hard_cut": 76,
+            "ratio_sustained_loser": 9,
+            "ratio_loss_budget": 77
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 85,
+            "unknownEpisodes": 77,
+            "recoveredAboveTarget": 30,
+            "earlyCutRate": 0.3529,
+            "trueLoserEpisodes": 38,
+            "savedSpend": 13190.92,
+            "savedSpendUnits": 259.81
+          },
+          "window28": {
+            "knownEpisodes": 86,
+            "unknownEpisodes": 76,
+            "recoveredAboveTarget": 35,
+            "earlyCutRate": 0.407,
+            "trueLoserEpisodes": 36,
+            "savedSpend": 13070.97,
+            "savedSpendUnits": 249.84
+          }
+        },
+        {
+          "variantId": "V3_recommended_combo",
+          "business": {
+            "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+            "name": "IwaStore"
+          },
+          "episodes": 137,
+          "defensible": true,
+          "dailyCutRows": 1511,
+          "affectedDailyRowsVsBaseline": 692,
+          "baselineEpisodesMatched": 90,
+          "baselineEpisodesSuppressed": 61,
+          "additionalEpisodesVsBaseline": 47,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_hard_cut": 77,
+            "ratio_sustained_loser": 20,
+            "ratio_loss_budget": 40
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 73,
+            "unknownEpisodes": 64,
+            "recoveredAboveTarget": 29,
+            "earlyCutRate": 0.3973,
+            "trueLoserEpisodes": 30,
+            "savedSpend": 12146.51,
+            "savedSpendUnits": 240.18
+          },
+          "window28": {
+            "knownEpisodes": 73,
+            "unknownEpisodes": 64,
+            "recoveredAboveTarget": 34,
+            "earlyCutRate": 0.4658,
+            "trueLoserEpisodes": 27,
+            "savedSpend": 10680.99,
+            "savedSpendUnits": 203.97
+          }
+        }
+      ],
+      "samples": [
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+            "name": "IwaStore"
+          },
+          "asOfDate": "2026-02-22",
+          "creativeId": "1260515432605551",
+          "creativeName": "In each name",
+          "campaignId": "120235405224780077",
+          "source": "ratio_hard_cut",
+          "spend28": 2488.3999999999996,
+          "purchases28": 31,
+          "roas28": 2.131429834431764,
+          "recent7Spend": 68.14,
+          "recent7Roas": 0,
+          "targetRoas": 3.5,
+          "breakEvenRoas": 2.7,
+          "forward14Spend": 0,
+          "forward14Roas": null,
+          "forward28Spend": 0,
+          "forward28Roas": null,
+          "spendUnit": 59.53824175824176,
+          "boundary": 0.6392557152377001,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+            "name": "IwaStore"
+          },
+          "asOfDate": "2025-12-23",
+          "creativeId": "1187268629573551",
+          "creativeName": "home.ideas.by.g",
+          "campaignId": "120235405224780077",
+          "source": "ratio_hard_cut",
+          "spend28": 2361.0200000000004,
+          "purchases28": 35,
+          "roas28": 2.4191408797892437,
+          "recent7Spend": 701.6100000000001,
+          "recent7Roas": 2.235102122261655,
+          "targetRoas": 3.5,
+          "breakEvenRoas": 2.7,
+          "forward14Spend": 2635.6,
+          "forward14Roas": 5.763738807102746,
+          "forward28Spend": 5895.52,
+          "forward28Roas": 5.262877574836486,
+          "spendUnit": 45.36450864740582,
+          "boundary": 0.705823518268152,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+            "name": "IwaStore"
+          },
+          "asOfDate": "2025-12-19",
+          "creativeId": "1187268629573551",
+          "creativeName": "home.ideas.by.g",
+          "campaignId": "120235405224780077",
+          "source": "ratio_hard_cut",
+          "spend28": 1912.8400000000001,
+          "purchases28": 29,
+          "roas28": 2.4081261370527596,
+          "recent7Spend": 570.2700000000001,
+          "recent7Roas": 2.6891297104880145,
+          "targetRoas": 3.5,
+          "breakEvenRoas": 2.7,
+          "forward14Spend": 2343.9500000000003,
+          "forward14Roas": 5.242748352140617,
+          "forward28Spend": 5386.159999999999,
+          "forward28Roas": 4.8082381511132235,
+          "spendUnit": 45.10696046534559,
+          "boundary": 0.6889765376037889,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+            "name": "IwaStore"
+          },
+          "asOfDate": "2026-03-28",
+          "creativeId": "1508870986854224",
+          "creativeName": "I’m so happy",
+          "campaignId": "120235405224780077",
+          "source": "ratio_hard_cut",
+          "spend28": 1786.93,
+          "purchases28": 26,
+          "roas28": 1.94556026257324,
+          "recent7Spend": 0,
+          "recent7Roas": null,
+          "targetRoas": 3.5,
+          "breakEvenRoas": 2.7,
+          "forward14Spend": 0,
+          "forward14Roas": null,
+          "forward28Spend": 0,
+          "forward28Roas": null,
+          "spendUnit": 60.12439897698205,
+          "boundary": 0.6176518408385946,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+            "name": "IwaStore"
+          },
+          "asOfDate": "2026-02-17",
+          "creativeId": "1552139042742757",
+          "creativeName": "A prayer rug",
+          "campaignId": "120235405224780077",
+          "source": "ratio_hard_cut",
+          "spend28": 1687.3500000000006,
+          "purchases28": 17,
+          "roas28": 2.130648650250392,
+          "recent7Spend": 414.55,
+          "recent7Roas": 1.9289832348329516,
+          "targetRoas": 3.5,
+          "breakEvenRoas": 2.7,
+          "forward14Spend": 0,
+          "forward14Roas": null,
+          "forward28Spend": 0,
+          "forward28Roas": null,
+          "spendUnit": 59.33352415726676,
+          "boundary": 0.6163713386844396,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+            "name": "IwaStore"
+          },
+          "asOfDate": "2026-02-13",
+          "creativeId": "1552139042742757",
+          "creativeName": "A prayer rug",
+          "campaignId": "120235405224780077",
+          "source": "ratio_hard_cut",
+          "spend28": 1584.6500000000005,
+          "purchases28": 16,
+          "roas28": 2.1262928722430816,
+          "recent7Spend": 825.97,
+          "recent7Roas": 2.8446311609380484,
+          "targetRoas": 3.5,
+          "breakEvenRoas": 2.7,
+          "forward14Spend": 104.06,
+          "forward14Roas": 2.1691331923890065,
+          "forward28Spend": 104.06,
+          "forward28Roas": 2.1691331923890065,
+          "spendUnit": 57.35990565373514,
+          "boundary": 0.6238629776050308,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+            "name": "IwaStore"
+          },
+          "asOfDate": "2025-12-05",
+          "creativeId": "1079920077040713",
+          "creativeName": "Whenever I am",
+          "campaignId": "120209675915250077",
+          "source": "ratio_hard_cut",
+          "spend28": 1471.5,
+          "purchases28": 24,
+          "roas28": 2.0205096839959222,
+          "recent7Spend": 153.26999999999998,
+          "recent7Roas": 0,
+          "targetRoas": 3.5,
+          "breakEvenRoas": 2.7,
+          "forward14Spend": 0,
+          "forward14Roas": null,
+          "forward28Spend": 0,
+          "forward28Roas": null,
+          "spendUnit": 44.563758790097324,
+          "boundary": 0.678114769162749,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+            "name": "IwaStore"
+          },
+          "asOfDate": "2026-03-11",
+          "creativeId": "4323651824628064",
+          "creativeName": "Febieyyi",
+          "campaignId": "120235405224780077",
+          "source": "ratio_hard_cut",
+          "spend28": 1463.64,
+          "purchases28": 20,
+          "roas28": 2.0738159656746196,
+          "recent7Spend": 132.69,
+          "recent7Roas": 0.7883789283291883,
+          "targetRoas": 3.5,
+          "breakEvenRoas": 2.7,
+          "forward14Spend": 800.53,
+          "forward14Roas": 2.3390503791238304,
+          "forward28Spend": 800.53,
+          "forward28Roas": 2.3390503791238304,
+          "spendUnit": 59.819723387907054,
+          "boundary": 0.6088796997638483,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+            "name": "IwaStore"
+          },
+          "asOfDate": "2026-03-21",
+          "creativeId": "4323651824628064",
+          "creativeName": "Febieyyi",
+          "campaignId": "120235405224780077",
+          "source": "ratio_hard_cut",
+          "spend28": 1365.91,
+          "purchases28": 14,
+          "roas28": 1.7928780080678812,
+          "recent7Spend": 546.08,
+          "recent7Roas": 2.450227072956343,
+          "targetRoas": 3.5,
+          "breakEvenRoas": 2.7,
+          "forward14Spend": 115.09,
+          "forward14Roas": 4.643843948214441,
+          "forward28Spend": 115.09,
+          "forward28Roas": 4.643843948214441,
+          "spendUnit": 60.03402334817664,
+          "boundary": 0.5765973400201589,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+            "name": "IwaStore"
+          },
+          "asOfDate": "2025-12-27",
+          "creativeId": "1415597136874013",
+          "creativeName": "WallArtCatalog",
+          "campaignId": "120235405224780077",
+          "source": "ratio_hard_cut",
+          "spend28": 1352.8700000000003,
+          "purchases28": 21,
+          "roas28": 2.3127351482404066,
+          "recent7Spend": 435.61,
+          "recent7Roas": 2.5128211014439525,
+          "targetRoas": 3.5,
+          "breakEvenRoas": 2.7,
+          "forward14Spend": 1016.33,
+          "forward14Roas": 4.539185107199433,
+          "forward28Spend": 2244.5799999999995,
+          "forward28Roas": 4.60005435315293,
+          "spendUnit": 45.86090782122908,
+          "boundary": 0.7217387743401789,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+            "name": "IwaStore"
+          },
+          "asOfDate": "2026-01-10",
+          "creativeId": "1791712624822480",
+          "creativeName": "maryamlina2",
+          "campaignId": "120235405224780077",
+          "source": "ratio_hard_cut",
+          "spend28": 1287.5900000000001,
+          "purchases28": 17,
+          "roas28": 2.17039585582367,
+          "recent7Spend": 258.89,
+          "recent7Roas": 2.8167175248174905,
+          "targetRoas": 3.5,
+          "breakEvenRoas": 2.7,
+          "forward14Spend": 96.03999999999999,
+          "forward14Roas": 4.447834235735112,
+          "forward28Spend": 96.03999999999999,
+          "forward28Roas": 4.447834235735112,
+          "spendUnit": 48.327744039127786,
+          "boundary": 0.6322190609258127,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+            "name": "IwaStore"
+          },
+          "asOfDate": "2026-02-10",
+          "creativeId": "1552139042742757",
+          "creativeName": "A prayer rug",
+          "campaignId": "120235405224780077",
+          "source": "ratio_hard_cut",
+          "spend28": 1274.9300000000003,
+          "purchases28": 12,
+          "roas28": 2.1926615578894526,
+          "recent7Spend": 839.59,
+          "recent7Roas": 3.0249407448873855,
+          "targetRoas": 3.5,
+          "breakEvenRoas": 2.7,
+          "forward14Spend": 414.55,
+          "forward14Roas": 1.9289832348329516,
+          "forward28Spend": 414.55,
+          "forward28Roas": 1.9289832348329516,
+          "spendUnit": 56.75480600564886,
+          "boundary": 0.6522142302772632,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        }
+      ]
+    },
+    {
+      "business": {
+        "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+        "name": "TheSwaf"
+      },
+      "status": "ok",
+      "sourceStats": {
+        "latestDataDate": "2026-07-01",
+        "earliestDataDate": "2025-02-01",
+        "sourceRows": 8381,
+        "creativeCount": 449,
+        "campaignCount": 59,
+        "totalSpend": 604296.6700000009
+      },
+      "targetConfig": {
+        "targetCpa": null,
+        "targetRoas": 2.2,
+        "breakEvenCpa": null,
+        "breakEvenRoas": 1.71,
+        "operatorAovAssumption": null,
+        "defaultRiskPosture": "aggressive",
+        "enginePresetLabel": null,
+        "attributionAovAdjustmentMultiplier": 1,
+        "presetOverride": null,
+        "resolvedPreset": "aggressive"
+      },
+      "evaluatedWindow": {
+        "startDate": "2025-12-06",
+        "endDate": "2026-06-03",
+        "lookbackDays": 180,
+        "forwardWindowDays": 28
+      },
+      "rowsEvaluated": 9892,
+      "candidateRowsWithTarget": 9892,
+      "variants": [
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+            "name": "TheSwaf"
+          },
+          "episodes": 90,
+          "defensible": true,
+          "dailyCutRows": 805,
+          "affectedDailyRowsVsBaseline": 0,
+          "baselineEpisodesMatched": 90,
+          "baselineEpisodesSuppressed": 0,
+          "additionalEpisodesVsBaseline": 0,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_loss_budget": 24,
+            "ratio_hard_cut": 61,
+            "ratio_sustained_loser": 5
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 46,
+            "unknownEpisodes": 44,
+            "recoveredAboveTarget": 8,
+            "earlyCutRate": 0.1739,
+            "trueLoserEpisodes": 28,
+            "savedSpend": 32596.43,
+            "savedSpendUnits": 371.97
+          },
+          "window28": {
+            "knownEpisodes": 48,
+            "unknownEpisodes": 42,
+            "recoveredAboveTarget": 9,
+            "earlyCutRate": 0.1875,
+            "trueLoserEpisodes": 28,
+            "savedSpend": 42888.7,
+            "savedSpendUnits": 484.08
+          }
+        },
+        {
+          "variantId": "V1a_purchase_floor_2",
+          "business": {
+            "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+            "name": "TheSwaf"
+          },
+          "episodes": 82,
+          "defensible": true,
+          "dailyCutRows": 754,
+          "affectedDailyRowsVsBaseline": 51,
+          "baselineEpisodesMatched": 82,
+          "baselineEpisodesSuppressed": 8,
+          "additionalEpisodesVsBaseline": 0,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_hard_cut": 61,
+            "ratio_sustained_loser": 7,
+            "ratio_loss_budget": 14
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 43,
+            "unknownEpisodes": 39,
+            "recoveredAboveTarget": 8,
+            "earlyCutRate": 0.186,
+            "trueLoserEpisodes": 24,
+            "savedSpend": 31775.35,
+            "savedSpendUnits": 362.57
+          },
+          "window28": {
+            "knownEpisodes": 45,
+            "unknownEpisodes": 37,
+            "recoveredAboveTarget": 9,
+            "earlyCutRate": 0.2,
+            "trueLoserEpisodes": 25,
+            "savedSpend": 42072.15,
+            "savedSpendUnits": 475.34
+          }
+        },
+        {
+          "variantId": "V1b_purchase_floor_3",
+          "business": {
+            "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+            "name": "TheSwaf"
+          },
+          "episodes": 82,
+          "defensible": true,
+          "dailyCutRows": 754,
+          "affectedDailyRowsVsBaseline": 51,
+          "baselineEpisodesMatched": 82,
+          "baselineEpisodesSuppressed": 8,
+          "additionalEpisodesVsBaseline": 0,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_hard_cut": 61,
+            "ratio_sustained_loser": 7,
+            "ratio_loss_budget": 14
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 43,
+            "unknownEpisodes": 39,
+            "recoveredAboveTarget": 8,
+            "earlyCutRate": 0.186,
+            "trueLoserEpisodes": 24,
+            "savedSpend": 31775.35,
+            "savedSpendUnits": 362.57
+          },
+          "window28": {
+            "knownEpisodes": 45,
+            "unknownEpisodes": 37,
+            "recoveredAboveTarget": 9,
+            "earlyCutRate": 0.2,
+            "trueLoserEpisodes": 25,
+            "savedSpend": 42072.15,
+            "savedSpendUnits": 475.34
+          }
+        },
+        {
+          "variantId": "V1c_purchase_floor_5",
+          "business": {
+            "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+            "name": "TheSwaf"
+          },
+          "episodes": 82,
+          "defensible": true,
+          "dailyCutRows": 754,
+          "affectedDailyRowsVsBaseline": 51,
+          "baselineEpisodesMatched": 82,
+          "baselineEpisodesSuppressed": 8,
+          "additionalEpisodesVsBaseline": 0,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_hard_cut": 61,
+            "ratio_sustained_loser": 7,
+            "ratio_loss_budget": 14
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 43,
+            "unknownEpisodes": 39,
+            "recoveredAboveTarget": 8,
+            "earlyCutRate": 0.186,
+            "trueLoserEpisodes": 24,
+            "savedSpend": 31775.35,
+            "savedSpendUnits": 362.57
+          },
+          "window28": {
+            "knownEpisodes": 45,
+            "unknownEpisodes": 37,
+            "recoveredAboveTarget": 9,
+            "earlyCutRate": 0.2,
+            "trueLoserEpisodes": 25,
+            "savedSpend": 42072.15,
+            "savedSpendUnits": 475.34
+          }
+        },
+        {
+          "variantId": "V1d_purchase_floor_half_winner",
+          "business": {
+            "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+            "name": "TheSwaf"
+          },
+          "episodes": 82,
+          "defensible": true,
+          "dailyCutRows": 754,
+          "affectedDailyRowsVsBaseline": 51,
+          "baselineEpisodesMatched": 82,
+          "baselineEpisodesSuppressed": 8,
+          "additionalEpisodesVsBaseline": 0,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_hard_cut": 61,
+            "ratio_sustained_loser": 7,
+            "ratio_loss_budget": 14
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 43,
+            "unknownEpisodes": 39,
+            "recoveredAboveTarget": 8,
+            "earlyCutRate": 0.186,
+            "trueLoserEpisodes": 24,
+            "savedSpend": 31775.35,
+            "savedSpendUnits": 362.57
+          },
+          "window28": {
+            "knownEpisodes": 45,
+            "unknownEpisodes": 37,
+            "recoveredAboveTarget": 9,
+            "earlyCutRate": 0.2,
+            "trueLoserEpisodes": 25,
+            "savedSpend": 42072.15,
+            "savedSpendUnits": 475.34
+          }
+        },
+        {
+          "variantId": "V2a_p25_upper_clamp_1",
+          "business": {
+            "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+            "name": "TheSwaf"
+          },
+          "episodes": 90,
+          "defensible": true,
+          "dailyCutRows": 805,
+          "affectedDailyRowsVsBaseline": 0,
+          "baselineEpisodesMatched": 90,
+          "baselineEpisodesSuppressed": 0,
+          "additionalEpisodesVsBaseline": 0,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_loss_budget": 24,
+            "ratio_hard_cut": 61,
+            "ratio_sustained_loser": 5
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 46,
+            "unknownEpisodes": 44,
+            "recoveredAboveTarget": 8,
+            "earlyCutRate": 0.1739,
+            "trueLoserEpisodes": 28,
+            "savedSpend": 32596.43,
+            "savedSpendUnits": 371.97
+          },
+          "window28": {
+            "knownEpisodes": 48,
+            "unknownEpisodes": 42,
+            "recoveredAboveTarget": 9,
+            "earlyCutRate": 0.1875,
+            "trueLoserEpisodes": 28,
+            "savedSpend": 42888.7,
+            "savedSpendUnits": 484.08
+          }
+        },
+        {
+          "variantId": "V2b_p25_breakeven_floor",
+          "business": {
+            "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+            "name": "TheSwaf"
+          },
+          "episodes": 147,
+          "defensible": true,
+          "dailyCutRows": 1582,
+          "affectedDailyRowsVsBaseline": 777,
+          "baselineEpisodesMatched": 54,
+          "baselineEpisodesSuppressed": 36,
+          "additionalEpisodesVsBaseline": 93,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_loss_budget": 38,
+            "ratio_hard_cut": 106,
+            "ratio_sustained_loser": 3
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 92,
+            "unknownEpisodes": 55,
+            "recoveredAboveTarget": 24,
+            "earlyCutRate": 0.2609,
+            "trueLoserEpisodes": 49,
+            "savedSpend": 72168.11,
+            "savedSpendUnits": 836.28
+          },
+          "window28": {
+            "knownEpisodes": 97,
+            "unknownEpisodes": 50,
+            "recoveredAboveTarget": 19,
+            "earlyCutRate": 0.1959,
+            "trueLoserEpisodes": 52,
+            "savedSpend": 132134.52,
+            "savedSpendUnits": 1640.06
+          }
+        },
+        {
+          "variantId": "V3_recommended_combo",
+          "business": {
+            "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+            "name": "TheSwaf"
+          },
+          "episodes": 138,
+          "defensible": true,
+          "dailyCutRows": 1465,
+          "affectedDailyRowsVsBaseline": 762,
+          "baselineEpisodesMatched": 53,
+          "baselineEpisodesSuppressed": 37,
+          "additionalEpisodesVsBaseline": 85,
+          "medianDelayDaysVsBaseline": 0,
+          "sourceCounts": {
+            "ratio_hard_cut": 106,
+            "ratio_loss_budget": 26,
+            "ratio_sustained_loser": 6
+          },
+          "purchaseFloorFallbackEpisodes": 0,
+          "window14": {
+            "knownEpisodes": 88,
+            "unknownEpisodes": 50,
+            "recoveredAboveTarget": 24,
+            "earlyCutRate": 0.2727,
+            "trueLoserEpisodes": 45,
+            "savedSpend": 71175.09,
+            "savedSpendUnits": 825.02
+          },
+          "window28": {
+            "knownEpisodes": 92,
+            "unknownEpisodes": 46,
+            "recoveredAboveTarget": 19,
+            "earlyCutRate": 0.2065,
+            "trueLoserEpisodes": 49,
+            "savedSpend": 131146.03,
+            "savedSpendUnits": 1629.46
+          }
+        }
+      ],
+      "samples": [
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+            "name": "TheSwaf"
+          },
+          "asOfDate": "2026-05-20",
+          "creativeId": "1347969233807910",
+          "creativeName": "EMB - CatalogAd",
+          "campaignId": "120244034187190042",
+          "source": "ratio_hard_cut",
+          "spend28": 11505.98,
+          "purchases28": 49,
+          "roas28": 0.8673611461170626,
+          "recent7Spend": 2893.55,
+          "recent7Roas": 0.3747852983359541,
+          "targetRoas": 2.2,
+          "breakEvenRoas": 1.71,
+          "forward14Spend": 658.28,
+          "forward14Roas": 2.042079358327763,
+          "forward28Spend": 658.28,
+          "forward28Roas": 2.042079358327763,
+          "spendUnit": 92.64730421094052,
+          "boundary": 0.4207554193104227,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+            "name": "TheSwaf"
+          },
+          "asOfDate": "2026-05-12",
+          "creativeId": "2061764034369276",
+          "creativeName": "aura (added)",
+          "campaignId": "120244034388050042",
+          "source": "ratio_hard_cut",
+          "spend28": 4027.1300000000006,
+          "purchases28": 18,
+          "roas28": 0.9756824338921265,
+          "recent7Spend": 4027.1300000000006,
+          "recent7Roas": 0.9756824338921265,
+          "targetRoas": 2.2,
+          "breakEvenRoas": 1.71,
+          "forward14Spend": 6231.67,
+          "forward14Roas": 1.8960182423010201,
+          "forward28Spend": 6231.67,
+          "forward28Roas": 1.8960182423010201,
+          "spendUnit": 91.82441053183123,
+          "boundary": 0.45503833917888736,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+            "name": "TheSwaf"
+          },
+          "asOfDate": "2026-05-18",
+          "creativeId": "841424642307232",
+          "creativeName": "EMB - CatalogAd",
+          "campaignId": "120241884546980430",
+          "source": "ratio_hard_cut",
+          "spend28": 3025.21,
+          "purchases28": 14,
+          "roas28": 0.8819784411660678,
+          "recent7Spend": 0,
+          "recent7Roas": null,
+          "targetRoas": 2.2,
+          "breakEvenRoas": 1.71,
+          "forward14Spend": 0,
+          "forward14Roas": null,
+          "forward28Spend": 0,
+          "forward28Roas": null,
+          "spendUnit": 91.88657352748254,
+          "boundary": 0.42138269817362584,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+            "name": "TheSwaf"
+          },
+          "asOfDate": "2025-12-16",
+          "creativeId": "1731674561122458",
+          "creativeName": "Alexis3",
+          "campaignId": "120237994272130042",
+          "source": "ratio_hard_cut",
+          "spend28": 2445.27,
+          "purchases28": 32,
+          "roas28": 1.4327865634469812,
+          "recent7Spend": 642.89,
+          "recent7Roas": 1.1017436886559133,
+          "targetRoas": 2.2,
+          "breakEvenRoas": 1.71,
+          "forward14Spend": 890.1200000000001,
+          "forward14Roas": 1.6823686693928905,
+          "forward28Spend": 1132.52,
+          "forward28Roas": 1.7845689259350828,
+          "spendUnit": 60.19174917491746,
+          "boundary": 0.6525015126355291,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+            "name": "TheSwaf"
+          },
+          "asOfDate": "2026-05-11",
+          "creativeId": "2804457086560981",
+          "creativeName": "wearthefearrevise",
+          "campaignId": "120244054243050042",
+          "source": "ratio_hard_cut",
+          "spend28": 2026.6199999999994,
+          "purchases28": 8,
+          "roas28": 0.8717717184277272,
+          "recent7Spend": 14.8,
+          "recent7Roas": 26.013513513513512,
+          "targetRoas": 2.2,
+          "breakEvenRoas": 1.71,
+          "forward14Spend": 0,
+          "forward14Roas": null,
+          "forward28Spend": 0,
+          "forward28Roas": null,
+          "spendUnit": 91.57124449624445,
+          "boundary": 0.4751676128918106,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+            "name": "TheSwaf"
+          },
+          "asOfDate": "2026-04-26",
+          "creativeId": "2804457086560981",
+          "creativeName": "wearthefearrevise",
+          "campaignId": "120244054243050042",
+          "source": "ratio_hard_cut",
+          "spend28": 1569.9900000000002,
+          "purchases28": 7,
+          "roas28": 0.949050630895738,
+          "recent7Spend": 725.4000000000001,
+          "recent7Roas": 0,
+          "targetRoas": 2.2,
+          "breakEvenRoas": 1.71,
+          "forward14Spend": 783.53,
+          "forward14Roas": 1.130779931846898,
+          "forward28Spend": 783.53,
+          "forward28Roas": 1.130779931846898,
+          "spendUnit": 95.70640903117904,
+          "boundary": 0.5094263204152657,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+            "name": "TheSwaf"
+          },
+          "asOfDate": "2026-03-23",
+          "creativeId": "843375834746830",
+          "creativeName": "AllRings",
+          "campaignId": "120232295655250430",
+          "source": "ratio_hard_cut",
+          "spend28": 1534.9299999999998,
+          "purchases28": 4,
+          "roas28": 0.552383496315793,
+          "recent7Spend": 324,
+          "recent7Roas": 0,
+          "targetRoas": 2.2,
+          "breakEvenRoas": 1.71,
+          "forward14Spend": 581.43,
+          "forward14Roas": 0.9813907091137369,
+          "forward28Spend": 619.95,
+          "forward28Roas": 0.9204129365271393,
+          "spendUnit": 89.24323376623376,
+          "boundary": 0.45596542109473515,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+            "name": "TheSwaf"
+          },
+          "asOfDate": "2026-01-12",
+          "creativeId": "842521121813118",
+          "creativeName": "Alexis1",
+          "campaignId": "120237994272130042",
+          "source": "ratio_hard_cut",
+          "spend28": 1493.8600000000001,
+          "purchases28": 14,
+          "roas28": 1.1630474073875732,
+          "recent7Spend": 1.99,
+          "recent7Roas": 0,
+          "targetRoas": 2.2,
+          "breakEvenRoas": 1.71,
+          "forward14Spend": 0,
+          "forward14Roas": null,
+          "forward28Spend": 0,
+          "forward28Roas": null,
+          "spendUnit": 62.32461462113456,
+          "boundary": 0.5608613892298985,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+            "name": "TheSwaf"
+          },
+          "asOfDate": "2026-05-23",
+          "creativeId": "967749279083373",
+          "creativeName": "protection",
+          "campaignId": "120244034388050042",
+          "source": "ratio_hard_cut",
+          "spend28": 1251.5000000000002,
+          "purchases28": 7,
+          "roas28": 0.9410707151418296,
+          "recent7Spend": 67.14,
+          "recent7Roas": 0,
+          "targetRoas": 2.2,
+          "breakEvenRoas": 1.71,
+          "forward14Spend": 0,
+          "forward14Roas": null,
+          "forward28Spend": 0,
+          "forward28Roas": null,
+          "spendUnit": 92.90526756931004,
+          "boundary": 0.43207423438792475,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+            "name": "TheSwaf"
+          },
+          "asOfDate": "2026-03-14",
+          "creativeId": "2098714574268217",
+          "creativeName": "Alexis4",
+          "campaignId": "120237994272130042",
+          "source": "ratio_hard_cut",
+          "spend28": 1191.08,
+          "purchases28": 7,
+          "roas28": 1.0043573899318265,
+          "recent7Spend": 0,
+          "recent7Roas": null,
+          "targetRoas": 2.2,
+          "breakEvenRoas": 1.71,
+          "forward14Spend": 0,
+          "forward14Roas": null,
+          "forward28Spend": 0,
+          "forward28Roas": null,
+          "spendUnit": 80.24063143445439,
+          "boundary": 0.5142157086238474,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+            "name": "TheSwaf"
+          },
+          "asOfDate": "2026-04-18",
+          "creativeId": "841424642307232",
+          "creativeName": "EMB - CatalogAd",
+          "campaignId": "120241884546980430",
+          "source": "ratio_hard_cut",
+          "spend28": 1183.4399999999998,
+          "purchases28": 5,
+          "roas28": 1.0344166159670116,
+          "recent7Spend": 653.83,
+          "recent7Roas": 0.5928758239909456,
+          "targetRoas": 2.2,
+          "breakEvenRoas": 1.71,
+          "forward14Spend": 2932.3599999999997,
+          "forward14Roas": 1.027186293633797,
+          "forward28Spend": 3468.0299999999997,
+          "forward28Roas": 0.9083139419209177,
+          "spendUnit": 94.20912712785218,
+          "boundary": 0.5157885700602264,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        },
+        {
+          "variantId": "V0_current",
+          "business": {
+            "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+            "name": "TheSwaf"
+          },
+          "asOfDate": "2026-04-16",
+          "creativeId": "841424642307232",
+          "creativeName": "EMB - CatalogAd",
+          "campaignId": "120241884546980430",
+          "source": "ratio_hard_cut",
+          "spend28": 1119.52,
+          "purchases28": 5,
+          "roas28": 1.0934775618122052,
+          "recent7Spend": 1015.3500000000001,
+          "recent7Roas": 0.7703648988033682,
+          "targetRoas": 2.2,
+          "breakEvenRoas": 1.71,
+          "forward14Spend": 2606.71,
+          "forward14Roas": 1.069942571287178,
+          "forward28Spend": 3531.95,
+          "forward28Roas": 0.8918755928028427,
+          "spendUnit": 93.49372857311737,
+          "boundary": 0.5419941200834641,
+          "purchaseFloor": null,
+          "purchaseFloorUsedFallback": false
+        }
+      ]
+    }
+  ],
+  "pooled": [
+    {
+      "variantId": "V0_current",
+      "episodes": 364,
+      "defensible": true,
+      "affectedDailyRowsVsBaseline": 0,
+      "medianDelayDaysVsBaseline": 0,
+      "window14": {
+        "knownEpisodes": 180,
+        "unknownEpisodes": 184,
+        "recoveredAboveTarget": 48,
+        "earlyCutRate": 0.2667,
+        "trueLoserEpisodes": 94,
+        "savedSpend": null,
+        "savedSpendUnits": 842.98
+      },
+      "window28": {
+        "knownEpisodes": 185,
+        "unknownEpisodes": 179,
+        "recoveredAboveTarget": 54,
+        "earlyCutRate": 0.2919,
+        "trueLoserEpisodes": 101,
+        "savedSpend": null,
+        "savedSpendUnits": 1100.34
+      }
+    },
+    {
+      "variantId": "V1a_purchase_floor_2",
+      "episodes": 324,
+      "defensible": true,
+      "affectedDailyRowsVsBaseline": 335,
+      "medianDelayDaysVsBaseline": 0,
+      "window14": {
+        "knownEpisodes": 164,
+        "unknownEpisodes": 160,
+        "recoveredAboveTarget": 48,
+        "earlyCutRate": 0.2927,
+        "trueLoserEpisodes": 80,
+        "savedSpend": null,
+        "savedSpendUnits": 776.48
+      },
+      "window28": {
+        "knownEpisodes": 169,
+        "unknownEpisodes": 155,
+        "recoveredAboveTarget": 52,
+        "earlyCutRate": 0.3077,
+        "trueLoserEpisodes": 89,
+        "savedSpend": null,
+        "savedSpendUnits": 1017.26
+      }
+    },
+    {
+      "variantId": "V1b_purchase_floor_3",
+      "episodes": 307,
+      "defensible": true,
+      "affectedDailyRowsVsBaseline": 498,
+      "medianDelayDaysVsBaseline": 0,
+      "window14": {
+        "knownEpisodes": 155,
+        "unknownEpisodes": 152,
+        "recoveredAboveTarget": 42,
+        "earlyCutRate": 0.271,
+        "trueLoserEpisodes": 78,
+        "savedSpend": null,
+        "savedSpendUnits": 758.01
+      },
+      "window28": {
+        "knownEpisodes": 160,
+        "unknownEpisodes": 147,
+        "recoveredAboveTarget": 46,
+        "earlyCutRate": 0.2875,
+        "trueLoserEpisodes": 86,
+        "savedSpend": null,
+        "savedSpendUnits": 994.71
+      }
+    },
+    {
+      "variantId": "V1c_purchase_floor_5",
+      "episodes": 300,
+      "defensible": true,
+      "affectedDailyRowsVsBaseline": 521,
+      "medianDelayDaysVsBaseline": 0,
+      "window14": {
+        "knownEpisodes": 152,
+        "unknownEpisodes": 148,
+        "recoveredAboveTarget": 41,
+        "earlyCutRate": 0.2697,
+        "trueLoserEpisodes": 77,
+        "savedSpend": null,
+        "savedSpendUnits": 756.41
+      },
+      "window28": {
+        "knownEpisodes": 156,
+        "unknownEpisodes": 144,
+        "recoveredAboveTarget": 45,
+        "earlyCutRate": 0.2885,
+        "trueLoserEpisodes": 84,
+        "savedSpend": null,
+        "savedSpendUnits": 989.63
+      }
+    },
+    {
+      "variantId": "V1d_purchase_floor_half_winner",
+      "episodes": 311,
+      "defensible": true,
+      "affectedDailyRowsVsBaseline": 460,
+      "medianDelayDaysVsBaseline": 0,
+      "window14": {
+        "knownEpisodes": 156,
+        "unknownEpisodes": 155,
+        "recoveredAboveTarget": 42,
+        "earlyCutRate": 0.2692,
+        "trueLoserEpisodes": 80,
+        "savedSpend": null,
+        "savedSpendUnits": 772.98
+      },
+      "window28": {
+        "knownEpisodes": 161,
+        "unknownEpisodes": 150,
+        "recoveredAboveTarget": 46,
+        "earlyCutRate": 0.2857,
+        "trueLoserEpisodes": 88,
+        "savedSpend": null,
+        "savedSpendUnits": 1009.68
+      }
+    },
+    {
+      "variantId": "V2a_p25_upper_clamp_1",
+      "episodes": 363,
+      "defensible": true,
+      "affectedDailyRowsVsBaseline": 4,
+      "medianDelayDaysVsBaseline": 0,
+      "window14": {
+        "knownEpisodes": 179,
+        "unknownEpisodes": 184,
+        "recoveredAboveTarget": 48,
+        "earlyCutRate": 0.2682,
+        "trueLoserEpisodes": 93,
+        "savedSpend": null,
+        "savedSpendUnits": 842.29
+      },
+      "window28": {
+        "knownEpisodes": 184,
+        "unknownEpisodes": 179,
+        "recoveredAboveTarget": 54,
+        "earlyCutRate": 0.2935,
+        "trueLoserEpisodes": 100,
+        "savedSpend": null,
+        "savedSpendUnits": 1098.77
+      }
+    },
+    {
+      "variantId": "V2b_p25_breakeven_floor",
+      "episodes": 474,
+      "defensible": true,
+      "affectedDailyRowsVsBaseline": 2112,
+      "medianDelayDaysVsBaseline": 0,
+      "window14": {
+        "knownEpisodes": 271,
+        "unknownEpisodes": 203,
+        "recoveredAboveTarget": 78,
+        "earlyCutRate": 0.2878,
+        "trueLoserEpisodes": 145,
+        "savedSpend": null,
+        "savedSpendUnits": 1496.5
+      },
+      "window28": {
+        "knownEpisodes": 282,
+        "unknownEpisodes": 192,
+        "recoveredAboveTarget": 79,
+        "earlyCutRate": 0.2801,
+        "trueLoserEpisodes": 154,
+        "savedSpend": null,
+        "savedSpendUnits": 2443.18
+      }
+    },
+    {
+      "variantId": "V3_recommended_combo",
+      "episodes": 423,
+      "defensible": true,
+      "affectedDailyRowsVsBaseline": 2413,
+      "medianDelayDaysVsBaseline": 0,
+      "window14": {
+        "knownEpisodes": 244,
+        "unknownEpisodes": 179,
+        "recoveredAboveTarget": 72,
+        "earlyCutRate": 0.2951,
+        "trueLoserEpisodes": 128,
+        "savedSpend": null,
+        "savedSpendUnits": 1423.89
+      },
+      "window28": {
+        "knownEpisodes": 252,
+        "unknownEpisodes": 171,
+        "recoveredAboveTarget": 73,
+        "earlyCutRate": 0.2897,
+        "trueLoserEpisodes": 134,
+        "savedSpend": null,
+        "savedSpendUnits": 2329.52
+      }
+    }
+  ],
+  "evidenceLimits": [
+    "Survivorship: history contains creatives operators did not already kill, so observed early-cut rate is a lower bound.",
+    "Attribution lag can move in both directions: delayed conversions may make forward ROAS look too low, while conversions caused by pre-cut spend may make post-cut recovery look too high.",
+    "Target history is not versioned in business_target_packs; target and breakeven are held constant across the replay.",
+    "The sweep uses raw forward ROAS and does not depend on v1/v2 outcome classifiers.",
+    "Pooled saved-spend uses spendUnit-normalized units; raw currency is not pooled across businesses.",
+    "This report does not change thresholds; any parameter adoption requires user approval, new golden cases, and an ENGINE_VERSION bump."
+  ],
+  "recommendation": {
+    "status": "no_uniform_change_supported",
+    "text": "A uniform/global threshold change is not supported yet. The useful signal is account-level heterogeneity; re-test after current-version accrual before proposing per-account parameters.",
+    "accountLevelSignals": [
+      "IwaStore V0 28d early-cut rate is 42.1%; this is an account-level alarm, not a global-rule proof.",
+      "Grandmix V1d moves 28d early-cut rate 34.6% -> 21.1% (-13.6 pp).",
+      "TheSwaf V2b saved spend units 484.08 -> 1,640.06 (3.4x) while 28d early-cut rate remains 19.6%.",
+      "V2a upper-clamp-only effect is scarce in this replay: 4 affected daily rows vs V0."
+    ]
+  }
+}

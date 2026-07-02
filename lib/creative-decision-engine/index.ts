@@ -30,3 +30,7 @@ export {
   JOB_NAME as OPERATOR_RESPONSE_JOB_NAME,
   runOperatorResponseJob,
 } from "./jobs/operator-response-job";
+export {
+  ENGINE_V3_PRODUCER_DAILY_UTC_START_HOUR,
+  runEngineV3ProducerChainForActiveBusinessesIfDue,
+} from "./jobs/scheduled";

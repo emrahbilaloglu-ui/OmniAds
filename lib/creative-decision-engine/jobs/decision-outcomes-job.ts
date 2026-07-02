@@ -7,6 +7,7 @@ import {
 } from "../outcome-classifier";
 import { ENGINE_VERSION, type DecisionLabel } from "../types";
 import { hashAdvisoryLock } from "./calibration-job";
+import { engineV3JobsDisabled } from "./job-switch";
 
 export const JOB_NAME = "engine_v3_decision_outcomes_job";
 export const DECISION_OUTCOME_WINDOWS_DAYS = [7, 14] as const;
@@ -36,6 +37,7 @@ export interface DecisionOutcomesJobResult {
 export interface DecisionOutcomesJobDueResult {
   skipped: boolean;
   reason?:
+    | "jobs_disabled"
     | "outside_slot"
     | "schema_not_ready"
     | "already_ran"
@@ -135,12 +137,14 @@ candidate_windows AS (
     s.roas AS baseline_roas
   FROM eligible_snapshots s
   CROSS JOIN windows w
+  LEFT JOIN engine_v3_decision_outcomes_daily existing
+    ON existing.decision_snapshot_id = s.id
+   AND existing.outcome_window_days = w.outcome_window_days
   WHERE s.as_of_date <= ($2::date - (w.outcome_window_days * INTERVAL '1 day'))
-    AND NOT EXISTS (
-      SELECT 1
-      FROM engine_v3_decision_outcomes_daily existing
-      WHERE existing.decision_snapshot_id = s.id
-        AND existing.outcome_window_days = w.outcome_window_days
+    AND (
+      existing.id IS NULL
+      OR existing.realized_outcome = 'unknown'
+      OR existing.classifier_version IS DISTINCT FROM $6::text
     )
 )
 SELECT
@@ -329,6 +333,9 @@ export async function runDecisionOutcomesJobForActiveBusinessesIfDue(
   activeBusinesses?: readonly { id: string; name?: string | null }[],
 ): Promise<DecisionOutcomesJobDueResult> {
   const asOf = decisionOutcomeAsOfFor(now);
+  if (engineV3JobsDisabled()) {
+    return { skipped: true, reason: "jobs_disabled", asOf };
+  }
   if (!isDailyDecisionOutcomeSlot(now)) {
     return { skipped: true, reason: "outside_slot", asOf };
   }
@@ -531,6 +538,7 @@ async function readOutcomeSourceRows(input: DecisionOutcomesJobInput) {
     input.windowsDays ?? DECISION_OUTCOME_WINDOWS_DAYS,
     input.lookbackDays ?? DECISION_OUTCOME_LOOKBACK_DAYS,
     input.batchLimit ?? DECISION_OUTCOME_BATCH_LIMIT,
+    CREATIVE_OUTCOME_CLASSIFIER_VERSION,
   ]);
 }
 

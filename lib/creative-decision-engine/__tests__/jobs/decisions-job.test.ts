@@ -42,14 +42,19 @@ const IWASTORE_BUSINESS_ID = "f8a3b5ac-588c-462f-8702-11cd24ff3cd2";
 const FAILURE_BUSINESS_ID = "00000000-0000-4000-8000-000000000551";
 const PERSISTED_GUARD_BUSINESS_ID =
   "00000000-0000-4000-8000-000000000552";
+const PERSISTED_NO_CAMPAIGN_GUARD_BUSINESS_ID =
+  "00000000-0000-4000-8000-000000000555";
 const LABEL_TRANSFORM_BUSINESS_ID =
   "00000000-0000-4000-8000-000000000553";
+const UNKNOWN_BUSINESS_ID = "00000000-0000-4000-8000-000000000554";
 const TEST_BUSINESS_IDS = [
   THESWAF_BUSINESS_ID,
   IWASTORE_BUSINESS_ID,
   FAILURE_BUSINESS_ID,
   PERSISTED_GUARD_BUSINESS_ID,
+  PERSISTED_NO_CAMPAIGN_GUARD_BUSINESS_ID,
   LABEL_TRANSFORM_BUSINESS_ID,
+  UNKNOWN_BUSINESS_ID,
 ];
 
 type CountRow = Record<string, unknown> & {
@@ -377,7 +382,7 @@ const READY_FUNNEL_CALIBRATION: AccountFunnelCalibration = {
 
 function scalingCreativeInput(input: {
   businessId: string;
-  campaignId: string;
+  campaignId: string | null;
 }): CreativeInput {
   return {
     creativeId: "persisted-guard-scale-creative",
@@ -843,6 +848,11 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
       snapshotsWritten: 0,
       changeEventsWritten: 0,
     });
+    expect(result.jobRunId).not.toBe("");
+    const jobRun = await fetchJobRun(result.jobRunId);
+    expect(jobRun?.status).toBe("skipped");
+    expect(toNumber(jobRun?.row_count)).toBe(0);
+    expect(jobRun?.error_message).toBe("engine_v3_disabled");
     expect(await countDecisionSnapshots(businessId)).toBe(0);
   });
 
@@ -851,6 +861,34 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
     const creativeInput = scalingCreativeInput({
       businessId,
       campaignId: "persisted-guard-unlabeled-campaign",
+    });
+    mockWarehouseForSingleCreative(creativeInput);
+
+    const result = await runDecisionsJob({ businessId, asOf: AS_OF });
+
+    expect(result.status).toBe("success");
+    expect(result.snapshotsWritten).toBe(1);
+
+    const [snapshot] = await fetchDecisionSnapshots({ businessId, limit: 1 });
+    expect(snapshot?.creative_id).toBe(creativeInput.creativeId);
+    expect(snapshot?.label).toBe("diagnose");
+    expect(toNumber(snapshot?.confidence)).toBeLessThanOrEqual(50);
+    expect(snapshot?.reason).toContain(
+      "[Unlabeled campaign - label to enable action]",
+    );
+    expect(snapshot?.badges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "unlabeled_campaign_context" }),
+      ]),
+    );
+    expect(snapshot?.label_transform).toBeNull();
+  });
+
+  it("persists the campaign-label guard output for no-campaign hard decisions", async () => {
+    const businessId = PERSISTED_NO_CAMPAIGN_GUARD_BUSINESS_ID;
+    const creativeInput = scalingCreativeInput({
+      businessId,
+      campaignId: null,
     });
     mockWarehouseForSingleCreative(creativeInput);
 
@@ -979,5 +1017,27 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
     expect(jobRun?.status).toBe("failed");
     expect(toNumber(jobRun?.row_count)).toBe(0);
     expect(jobRun?.error_message).toBe("simulated decisions failure");
+  });
+
+  it("records a failed job run when the business id does not exist", async () => {
+    const result = await runDecisionsJob({
+      businessId: UNKNOWN_BUSINESS_ID,
+      asOf: AS_OF,
+    });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      snapshotsWritten: 0,
+      changeEventsWritten: 0,
+      reason: "business_not_found",
+      errorMessage: `Business not found: ${UNKNOWN_BUSINESS_ID}`,
+    });
+
+    const jobRun = await fetchJobRun(result.jobRunId);
+    expect(jobRun?.status).toBe("failed");
+    expect(toNumber(jobRun?.row_count)).toBe(0);
+    expect(jobRun?.error_message).toBe(
+      `Business not found: ${UNKNOWN_BUSINESS_ID}`,
+    );
   });
 });

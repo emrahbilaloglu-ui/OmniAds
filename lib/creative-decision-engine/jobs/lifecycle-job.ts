@@ -22,6 +22,7 @@ import {
   hashAdvisoryLock,
   JOB_NAME as CALIBRATION_JOB_NAME,
 } from "./calibration-job";
+import { getBusinessGuardFailure } from "./business-guard";
 
 export const JOB_NAME = "engine_v3_lifecycle_job";
 
@@ -71,7 +72,7 @@ export interface LifecycleJobResult {
   status: JobStatus;
   rowsWritten: number;
   durationMs: number;
-  reason?: "engine_v3_disabled";
+  reason?: "engine_v3_disabled" | "business_not_found" | "invalid_business_id";
   errorMessage?: string;
 }
 
@@ -1036,14 +1037,63 @@ export async function runLifecycleJob(
   input: LifecycleJobInput,
 ): Promise<LifecycleJobResult> {
   const startedAt = Date.now();
-  const flags = await resolveEngineV3Flags(input.businessId);
-  if (!flags.enabled) {
+  const businessGuardFailure = await getBusinessGuardFailure(input.businessId);
+  if (businessGuardFailure?.reason === "invalid_business_id") {
     return {
       jobRunId: "",
       dependencyRunId: null,
-      status: "skipped",
+      status: "failed",
       rowsWritten: 0,
       durationMs: Date.now() - startedAt,
+      reason: "invalid_business_id",
+      errorMessage: businessGuardFailure.message,
+    };
+  }
+  if (businessGuardFailure) {
+    const durationMs = Date.now() - startedAt;
+    const jobRunId = await insertJobRun({
+      businessId: input.businessId,
+      asOf: input.asOf,
+      status: "failed",
+      dependencyRunId: null,
+      durationMs,
+      rowCount: 0,
+      errorMessage: businessGuardFailure.message,
+      errorJson: businessGuardFailure.errorJson,
+    });
+    return {
+      jobRunId,
+      dependencyRunId: null,
+      status: "failed",
+      rowsWritten: 0,
+      durationMs,
+      reason: "business_not_found",
+      errorMessage: businessGuardFailure.message,
+    };
+  }
+
+  const flags = await resolveEngineV3Flags(input.businessId);
+  if (!flags.enabled) {
+    const durationMs = Date.now() - startedAt;
+    const jobRunId = await insertJobRun({
+      businessId: input.businessId,
+      asOf: input.asOf,
+      status: "skipped",
+      dependencyRunId: null,
+      durationMs,
+      rowCount: 0,
+      errorMessage: "engine_v3_disabled",
+      errorJson: {
+        name: "engine_v3_disabled",
+        businessId: input.businessId,
+      },
+    });
+    return {
+      jobRunId,
+      dependencyRunId: null,
+      status: "skipped",
+      rowsWritten: 0,
+      durationMs,
       reason: "engine_v3_disabled",
     };
   }
@@ -1191,17 +1241,19 @@ async function insertJobRun(input: {
   durationMs?: number;
   rowCount?: number;
   errorMessage?: string;
+  errorJson?: unknown;
 }) {
   const [row] = await getDb().query<JobRunIdRow>(
     `
     INSERT INTO engine_v3_job_runs (
       job_name, business_ref_id, business_id, as_of_date, engine_version,
-      status, dependency_run_id, finished_at, duration_ms, row_count, error_message
+      status, dependency_run_id, finished_at, duration_ms, row_count,
+      error_message, error_json
     )
     VALUES (
       $1, $2::uuid, $3, $4::date, $5,
       $6, $7::uuid, CASE WHEN $6 = 'running' THEN NULL ELSE now() END,
-      $8::integer, $9::integer, $10
+      $8::integer, $9::integer, $10, $11::jsonb
     )
     RETURNING id
     `,
@@ -1216,6 +1268,7 @@ async function insertJobRun(input: {
       input.durationMs ?? null,
       input.rowCount ?? null,
       input.errorMessage ?? null,
+      input.errorJson === undefined ? null : JSON.stringify(input.errorJson),
     ],
   );
 

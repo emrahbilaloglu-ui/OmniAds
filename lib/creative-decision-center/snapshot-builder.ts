@@ -40,6 +40,8 @@ export interface DecisionCenterSnapshotBuilderInput {
   dataFreshness: {
     status: CreativeDecisionCenterFreshnessStatus;
     maxAgeHours?: number | null;
+    latestSnapshotAsOf?: string | null;
+    snapshotAgeHours?: number | null;
   };
   /**
    * Operator-provided coverage map. The builder does not derive coverage
@@ -131,6 +133,8 @@ export function assembleDecisionCenterSnapshot(
     dataFreshness: {
       status: input.dataFreshness.status,
       maxAgeHours: input.dataFreshness.maxAgeHours ?? null,
+      latestSnapshotAsOf: input.dataFreshness.latestSnapshotAsOf ?? null,
+      snapshotAgeHours: input.dataFreshness.snapshotAgeHours ?? null,
     },
     inputCoverageSummary: input.inputCoverageSummary
       ? { ...input.inputCoverageSummary }

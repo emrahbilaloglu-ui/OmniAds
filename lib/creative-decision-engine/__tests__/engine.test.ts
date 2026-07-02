@@ -662,6 +662,68 @@ describe("creative-decision-engine v3", () => {
     );
   });
 
+  it("blocks hard scale on unknown source freshness", () => {
+    const output = decideCreative(
+      makeCreativeInput({
+        spend: 1000,
+        purchases: 15,
+        roas: 3.5,
+        recent7dRoas: 3,
+        dataFreshnessHours: null,
+      }),
+      makeAccountDecisionProfile(),
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.reason).toContain("scale requires fresh recent performance proof");
+    expect(output.badges.map((badge) => badge.type)).toEqual(
+      expect.arrayContaining(["unknown_freshness", "scale_readiness_blocked"]),
+    );
+    expect(output.confidence).toBeLessThanOrEqual(STALE_CONFIDENCE_CAP);
+    expect(output.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          predicate: "scale_recent_freshness",
+          status: "missing",
+        }),
+      ]),
+    );
+  });
+
+  it("keeps unknown-freshness severe losers as capped cut decisions", () => {
+    const output = decideCreative(
+      {
+        ...makeStaleStopLossInput({
+          creativeId: "Ad_Test_UnknownFreshnessLoser",
+          creativeName: "Ad_Test_UnknownFreshnessLoser",
+          spend: 620,
+          purchases: 1,
+          roas: 0.27,
+        }),
+        dataFreshnessHours: null,
+      },
+      makeAccountDecisionProfile({
+        spendUnit: 36,
+        thresholds: {
+          commercialMaturitySpend: 72,
+          hardCutSpend: 360,
+          sustainedLoserSpend: 108,
+          severeLoserRatio: 0.4,
+        },
+      }),
+    );
+
+    expect(output.label).toBe("cut");
+    expect(output.reason).toContain("clear loser at scale");
+    expect(output.badges).toContainEqual({
+      type: "unknown_freshness",
+      label:
+        "Unknown freshness: source sync age is unavailable - refresh pipeline before applying.",
+      severity: "warning",
+    });
+    expect(output.confidence).toBeLessThanOrEqual(STALE_CONFIDENCE_CAP);
+  });
+
   it("applies DataHealth stale badges and confidence penalties when provided", async () => {
     const input = await getMockCreativeInput("c-1");
     const profile = await getMockProfile();

@@ -11,6 +11,8 @@
     "creative:decision:data-readiness": "node --import tsx scripts/creative-decision-center/data-readiness-probe.ts",
     "creative:decision:shadow-report": "node --import tsx scripts/creative-decision-center/shadow-report-probe.ts",
     "creative:decision:score-phase-report": "node --import tsx scripts/creative-decision-center/score-phase-report.ts",
+    "creative:decision:phase1-checkpoint": "node --import tsx scripts/creative-decision-center/phase1-outcome-baseline-checkpoint.ts",
+    "creative:decision:f1-f2-sweep": "node --import tsx scripts/creative-decision-center/f1-f2-cut-threshold-sweep.ts",
     "creative:engine-v3:outcomes": "node --import tsx scripts/engine-v3-decision-outcomes.ts",
     "test:local-db": "node --import tsx scripts/with-local-postgres.ts -- vitest run",
     "test:watch": "vitest",

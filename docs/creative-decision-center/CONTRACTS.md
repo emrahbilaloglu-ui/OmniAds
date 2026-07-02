@@ -109,6 +109,8 @@ interface DecisionCenterSnapshot {
   dataFreshness: {
     status: "fresh" | "stale" | "unknown";
     maxAgeHours?: number | null;
+    latestSnapshotAsOf?: string | null;
+    snapshotAgeHours?: number | null;
   };
   inputCoverageSummary: Record<string, number>;
   missingDataSummary: Record<string, number>;
@@ -195,4 +197,3 @@ interface CreativeDecisionConfig {
 - `priority`
 - `nextStep`
 - `missingData` if any
-

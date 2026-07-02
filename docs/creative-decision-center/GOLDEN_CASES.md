@@ -63,6 +63,9 @@ These cases must become executable fixtures before resolver behavior changes. Do
 | GC-056  | scale-ready winner in an explicit Mixed campaign                                                                       | Scale                   | controlled_scale    | review_only           | performance          | high                 | high                   | strong_relative_winner                  | mature           | diagnose_data                     |
 | GC-057  | stale source evidence with a severe scaled stop-loss loser                                                              | Cut                     | cut                 | review_only           | performance          | high                 | medium                 | stale_stop_loss_review                  | mature           | diagnose_data                     |
 | GC-058  | stale source evidence with a sustained loser past commercial maturity                                                   | Cut                     | cut                 | review_only           | performance          | high                 | medium                 | stale_sustained_loser                   | mature           | diagnose_data                     |
+| GC-059  | cut-zone creative has enough recent spend and recent 7d ROAS above target                                               | Keep                    | review              | review_only           | performance          | high                 | high                   | recovery_hold                          | mature           | diagnose_data                     |
+| GC-060  | scale-ready winner has unknown source freshness                                                                        | Keep                    | review              | review_only           | data_quality         | high                 | medium                 | unknown_freshness_scale_block           | mature           | diagnose_data                     |
+| GC-061  | funnel-step issue has unknown source freshness, so fresh proof is unavailable                                           | Keep                    | review              | review_only           | data_quality         | medium               | medium                 | unknown_freshness_funnel_proof_required | mature           | diagnose_data                     |
 
 ## Case Notes
 
@@ -145,6 +148,12 @@ These cases must become executable fixtures before resolver behavior changes. Do
   severe-loss stop-loss rule is already met; confidence must stay capped.
 - GC-058 proves stale evidence is not a terminal Diagnose when a sustained loser
   passes the commercial maturity and severe-loser thresholds.
+- GC-059 proves recent target-above recovery can hold a cut-zone row as
+  review-only `Keep` instead of emitting a hard cut.
+- GC-060 proves unknown source freshness blocks hard scale and caps confidence
+  while preserving the scale-readiness evidence for review.
+- GC-061 proves funnel-step diagnosis requires fresh source proof; unknown
+  freshness must not emit a high-confidence landing/checkout diagnosis.
 - P1b kind-segmented calibration was data-only. P1c consumes those
   baselines only through a strict profile selector: sufficient labeled kind
   data may change decisions; sparse, mixed-empty, or unlabeled rows must match

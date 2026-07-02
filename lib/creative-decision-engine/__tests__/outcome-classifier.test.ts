@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { classifyCreativeDecisionOutcome } from "../outcome-classifier";
+import {
+  CREATIVE_OUTCOME_CLASSIFIER_VERSION,
+  classifyCreativeDecisionOutcome,
+} from "../outcome-classifier";
 
 const base = {
   confidence: 80,
@@ -15,6 +18,12 @@ const base = {
 };
 
 describe("classifyCreativeDecisionOutcome", () => {
+  it("uses the v2 classifier contract", () => {
+    expect(CREATIVE_OUTCOME_CLASSIFIER_VERSION).toBe(
+      "creative-outcome-classifier.v2",
+    );
+  });
+
   it("marks scale positive when the outcome window holds above target", () => {
     expect(
       classifyCreativeDecisionOutcome({
@@ -24,6 +33,34 @@ describe("classifyCreativeDecisionOutcome", () => {
     ).toMatchObject({
       realizedOutcome: "positive",
       evidence: { rule: "scale_held_above_target" },
+    });
+  });
+
+  it("grades spend severity against the row baseline instead of absolute thresholds", () => {
+    expect(
+      classifyCreativeDecisionOutcome({
+        ...base,
+        label: "scale",
+        baselineSpend: 100,
+        outcomeSpend: 80,
+        outcomeRoas: 2.5,
+      }),
+    ).toMatchObject({
+      realizedOutcome: "positive",
+      severity: "high",
+    });
+
+    expect(
+      classifyCreativeDecisionOutcome({
+        ...base,
+        label: "scale",
+        baselineSpend: 100,
+        outcomeSpend: 120,
+        outcomeRoas: 2.5,
+      }),
+    ).toMatchObject({
+      realizedOutcome: "positive",
+      severity: "critical",
     });
   });
 

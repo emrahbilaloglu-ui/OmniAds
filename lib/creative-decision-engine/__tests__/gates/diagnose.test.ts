@@ -123,6 +123,30 @@ describe("diagnoseGate", () => {
     }
   });
 
+  it("marks unknown freshness and suppresses lower-confidence delivery warnings", () => {
+    const result = diagnoseGate(
+      resolvedContext({
+        effectiveStatus: "ACTIVE",
+        recent7dSpend: 0,
+        spend: 500,
+        dataFreshnessHours: null,
+      }),
+    );
+
+    expect(result.kind).toBe("advance");
+    if (result.kind === "advance") {
+      expect(result.context.badges).toContainEqual({
+        type: "unknown_freshness",
+        label:
+          "Unknown freshness: source sync age is unavailable - refresh pipeline before applying.",
+        severity: "warning",
+      });
+      expect(result.context.badges).not.toContainEqual(
+        expect.objectContaining({ type: "delivery_limited" }),
+      );
+    }
+  });
+
   it("diagnoses rejected creatives with policy fallback reason", () => {
     const output = terminalOutput(
       diagnoseGate(

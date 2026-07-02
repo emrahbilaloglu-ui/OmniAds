@@ -108,14 +108,14 @@ const INVARIANT_COVERAGE: InvariantCoverage[] = [
   {
     id: "I14",
     docText: "A `scale` verdict and the executable primary action are separate contracts:",
-    status: "pending",
-    reason: "buyerAction/briefing adapter is not active in this slice",
+    status: "executable",
+    reason: "adapter and briefing route keep buyerAction separate from executionAction",
   },
   {
     id: "I15",
     docText: "Test campaign scale may show `Promote to main`; Main campaign scale must",
-    status: "pending",
-    reason: "campaign-kind-aware execution CTA is briefing adapter work",
+    status: "executable",
+    reason: "adapter and route tests cover Test/Main/Mixed scale execution CTAs",
   },
   {
     id: "I16",
@@ -145,14 +145,14 @@ const INVARIANT_COVERAGE: InvariantCoverage[] = [
   {
     id: "I20",
     docText: "Missing required data must produce `diagnose_data` or confidence cap.",
-    status: "pending",
-    reason: "diagnose_data is buyerAction output, not active V3 output",
+    status: "executable",
+    reason: "adapter confidence cap and decision-center invariant audit tests",
   },
   {
     id: "I21",
     docText: "Aggregate decisions must not attach to a random `creativeId`.",
-    status: "pending",
-    reason: "aggregate decision builder is not active yet",
+    status: "executable",
+    reason: "aggregate invariant audit and aggregate builder tests",
   },
   {
     id: "I22",
@@ -182,8 +182,8 @@ const INVARIANT_COVERAGE: InvariantCoverage[] = [
   {
     id: "I26",
     docText: "Unlabeled creatives must use canonical baselines; the campaign-label guard",
-    status: "pending",
-    reason: "guard behavior is covered in golden cases; full adapter remains pending",
+    status: "executable",
+    reason: "campaign-label guard tests cover unlabeled and no-campaign hard-action downgrades",
   },
   {
     id: "I27",
@@ -265,8 +265,8 @@ describe("Creative Decision Center invariants", () => {
       expect(item.reason.length, item.id).toBeGreaterThan(0);
     }
 
-    expect(INVARIANT_COVERAGE.filter((item) => item.status === "executable")).toHaveLength(18);
-    expect(INVARIANT_COVERAGE.filter((item) => item.status === "pending")).toHaveLength(14);
+    expect(INVARIANT_COVERAGE.filter((item) => item.status === "executable")).toHaveLength(23);
+    expect(INVARIANT_COVERAGE.filter((item) => item.status === "pending")).toHaveLength(9);
   });
 
   it("keeps DecisionOutput row-safe and UI from computing buyerAction", () => {

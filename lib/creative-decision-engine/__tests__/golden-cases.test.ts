@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { decideCreative } from "..";
 import { applyCreativeCampaignLabelGuard } from "../campaign-label-guard";
+import { STALE_CONFIDENCE_CAP } from "../config-values";
 import type {
   AccountCalibration,
   AccountDecisionProfile,
@@ -110,6 +111,9 @@ const EXECUTABLE_PRIMARY_CASE_IDS = new Set([
   "GC-053",
   "GC-057",
   "GC-058",
+  "GC-059",
+  "GC-060",
+  "GC-061",
 ]);
 
 function parseCanonicalGoldenCases(): GoldenCase[] {
@@ -246,6 +250,25 @@ function wouldRefreshInput(
     landingPageViews: 320,
     addToCart: 50,
     initiateCheckout: 25,
+    ...overrides,
+  });
+}
+
+function unknownFunnelIssueInput(
+  overrides: Partial<CreativeInput> = {},
+): CreativeInput {
+  return makeCreativeInput({
+    spend: 500,
+    purchases: 8,
+    roas: 3,
+    recent7dRoas: 2.8,
+    dataFreshnessHours: null,
+    linkClicks: 1_000,
+    landingPageViews: 200,
+    addToCart: 10,
+    initiateCheckout: 5,
+    ctr: 1.5,
+    thumbstop: 30,
     ...overrides,
   });
 }
@@ -521,6 +544,32 @@ function decideGoldenPrimary(caseId: string): DecisionOutput {
           },
         }),
       );
+    case "GC-059":
+      return decideCreative(
+        makeCreativeInput({
+          spend: 300,
+          purchases: 1,
+          roas: 1.1,
+          recent7dRoas: 2.4,
+          recent7dSpend: 80,
+          ctr: 0.5,
+          thumbstop: 10,
+        }),
+        baseProfile,
+      );
+    case "GC-060":
+      return decideCreative(
+        makeCreativeInput({
+          spend: 1000,
+          purchases: 15,
+          roas: 3.5,
+          recent7dRoas: 3,
+          dataFreshnessHours: null,
+        }),
+        baseProfile,
+      );
+    case "GC-061":
+      return decideCreative(unknownFunnelIssueInput(), baseProfile);
     default:
       throw new Error(`Golden case ${caseId} is not executable in active V3.`);
   }
@@ -578,7 +627,7 @@ const pendingCases = fixtureCases.filter(
 describe("Creative Decision Center golden cases", () => {
   it("keeps the executable fixture in lockstep with GOLDEN_CASES.md", () => {
     expect(fixtureCases).toEqual(parseCanonicalGoldenCases());
-    expect(fixtureCases).toHaveLength(59);
+    expect(fixtureCases).toHaveLength(62);
   });
 
   it("asserts the full contract surface for every canonical case", () => {
@@ -627,6 +676,9 @@ describe("Creative Decision Center golden cases", () => {
       "GC-053",
       "GC-057",
       "GC-058",
+      "GC-059",
+      "GC-060",
+      "GC-061",
     ]);
 
     expect(pendingCases).toHaveLength(37);
@@ -649,6 +701,51 @@ describe("Creative Decision Center golden cases", () => {
       expectPrimaryLabel(output, expectedLabel as DecisionLabel);
     },
   );
+
+  it("locks phase-end guardrail semantics for recovery and freshness golden cases", () => {
+    const recovery = decideGoldenPrimary("GC-059");
+    expect(recovery.label).toBe("keep");
+    expect(recovery.reason).toContain("[recovery hold]");
+    expect(recovery.reason).toContain("do not hard cut while recovery is holding");
+    expect(recovery.badges.map((badge) => badge.type)).toContain(
+      "weak_performance",
+    );
+
+    const unknownScale = decideGoldenPrimary("GC-060");
+    expect(unknownScale.label).toBe("keep");
+    expect(unknownScale.reason).toContain(
+      "scale requires fresh recent performance proof",
+    );
+    expect(unknownScale.confidence).toBeLessThanOrEqual(STALE_CONFIDENCE_CAP);
+    expect(unknownScale.badges.map((badge) => badge.type)).toEqual(
+      expect.arrayContaining(["unknown_freshness", "scale_readiness_blocked"]),
+    );
+    expect(unknownScale.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          predicate: "scale_recent_freshness",
+          status: "missing",
+        }),
+      ]),
+    );
+
+    const unknownFunnel = decideGoldenPrimary("GC-061");
+    expect(unknownFunnel.label).toBe("keep");
+    expect(unknownFunnel.reason).not.toContain("Landing page issue");
+    expect(unknownFunnel.confidence).toBeLessThanOrEqual(STALE_CONFIDENCE_CAP);
+    expect(unknownFunnel.badges.map((badge) => badge.type)).toContain(
+      "unknown_freshness",
+    );
+
+    const freshFunnel = decideCreative(
+      unknownFunnelIssueInput({ dataFreshnessHours: 6 }),
+      makeAccountDecisionProfile(),
+    );
+    expect(freshFunnel.label).toBe("diagnose");
+    expect(freshFunnel.badges.map((badge) => badge.type)).toContain(
+      "landing_page_issue",
+    );
+  });
 
   it("keeps canonical fallback cases equal to canonical all-account behavior", () => {
     const baseline = decideCreative(

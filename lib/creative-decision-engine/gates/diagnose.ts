@@ -51,7 +51,35 @@ function isStaleData(ctx: GateContext) {
   );
 }
 
-function withStaleEvidence(ctx: GateContext): GateContext {
+function isUnknownFreshness(ctx: GateContext) {
+  return ctx.input.dataFreshnessHours === null;
+}
+
+function hasFreshDeliveryEvidence(ctx: GateContext) {
+  return (
+    ctx.input.dataFreshnessHours !== null &&
+    ctx.input.dataFreshnessHours <= STALE_TIER_NONE_MAX_HOURS
+  );
+}
+
+function withFreshnessEvidence(ctx: GateContext): GateContext {
+  if (isUnknownFreshness(ctx)) {
+    if (ctx.badges.some((badge) => badge.type === "unknown_freshness")) {
+      return ctx;
+    }
+    return {
+      ...ctx,
+      badges: [
+        ...ctx.badges,
+        {
+          type: "unknown_freshness",
+          label: "Unknown freshness: source sync age is unavailable - refresh pipeline before applying.",
+          severity: "warning",
+        },
+      ],
+    };
+  }
+
   if (!isStaleData(ctx)) return ctx;
   const hours = Math.round(ctx.input.dataFreshnessHours ?? 0);
   if (ctx.badges.some((badge) => badge.type === "stale_evidence")) {
@@ -79,15 +107,14 @@ function isVerifiedNoDelivery24h(ctx: GateContext) {
     ctx.input.impressions24h !== undefined &&
     // Keep this stricter than the stale-data terminal: a no-delivery claim
     // needs a fresh latest-day proof window, while 36-48h rows fall through.
-    ctx.input.dataFreshnessHours !== null &&
-    ctx.input.dataFreshnessHours <= STALE_TIER_NONE_MAX_HOURS &&
+    hasFreshDeliveryEvidence(ctx) &&
     ctx.input.spend24h <= 0 &&
     ctx.input.impressions24h <= 0
   );
 }
 
 export function diagnoseGate(ctx: GateContext): GateResult {
-  ctx = withStaleEvidence(ctx);
+  ctx = withFreshnessEvidence(ctx);
   const spend = ctx.input.spend;
 
   if (isVerifiedNoDelivery24h(ctx)) {
@@ -110,7 +137,7 @@ export function diagnoseGate(ctx: GateContext): GateResult {
   }
 
   if (
-    !isStaleData(ctx) &&
+    hasFreshDeliveryEvidence(ctx) &&
     ctx.input.effectiveStatus === "ACTIVE" &&
     (ctx.input.recent7dSpend ?? 0) === 0 &&
     spend > 0
@@ -175,7 +202,7 @@ export function diagnoseGate(ctx: GateContext): GateResult {
   });
 
   if (
-    !isStaleData(ctx) &&
+    hasFreshDeliveryEvidence(ctx) &&
     (funnelDiagnosis.primaryWeakStage === "landing_page" ||
       funnelDiagnosis.primaryWeakStage === "checkout") &&
     funnelDiagnosis.confidence >= 0.65

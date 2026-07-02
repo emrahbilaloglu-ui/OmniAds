@@ -39,6 +39,14 @@ describe("card serialization", () => {
     expect(
       deriveWatchingSubBucket(
         decision({
+          campaignLabelStatus: "no_campaign",
+          blockedActionType: "scale",
+        }),
+      ),
+    ).toBe("waiting_on_labels");
+    expect(
+      deriveWatchingSubBucket(
+        decision({
           label: "keep",
           blockedActionType: "scale",
           badges: [
@@ -69,6 +77,19 @@ describe("card serialization", () => {
       "test_maturing",
     );
     expect(deriveWatchingSubBucket(decision())).toBeNull();
+  });
+
+  it("keeps no-campaign stop-loss reviews visible as review actions", () => {
+    const card = cardForDecision({
+      decision: decision({
+        label: "diagnose",
+        campaignLabelStatus: "no_campaign",
+        blockedActionType: "cut",
+      }),
+    });
+
+    expect(card.primary).toEqual({ kind: "review", label: "Cut review" });
+    expect(card.watchingSubBucket).toBe("waiting_on_labels");
   });
 
   it("adds server-side near-miss prose and threshold provenance", () => {
@@ -166,5 +187,24 @@ describe("card serialization", () => {
     expect(card.primary).toEqual({ kind: "cut", label: "Cut" });
     expect(card.badges).toContain("stale_evidence");
     expect(card.priorityScore?.inputs.severityWeight).toBeGreaterThan(1);
+  });
+
+  it("dual-writes decisionCenterRow and maps adapter scale execution to the legacy CTA field", () => {
+    const decisionCenterRow = {
+      buyerAction: "scale",
+      buyerLabel: "Scale - Promote to main",
+      executionAction: "promote_to_main",
+    };
+    const card = cardForDecision({
+      decision: decision({
+        label: "scale",
+        campaignKind: "main",
+        confidence: 90,
+      }),
+      decisionCenterRow: decisionCenterRow as never,
+    });
+
+    expect(card.decisionCenterRow).toBe(decisionCenterRow);
+    expect(card.primary).toEqual({ kind: "promote", label: "Promote to main" });
   });
 });

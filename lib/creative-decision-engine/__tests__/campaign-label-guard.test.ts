@@ -69,13 +69,29 @@ function guard(
 }
 
 describe("applyCreativeCampaignLabelGuard", () => {
-  it("passes through decisions with no campaign attribution", () => {
-    const decision = guard("scale", null);
+  it("downgrades hard decisions with no campaign attribution to diagnose", () => {
+    for (const label of ["scale", "cut", "refresh"] as const) {
+      const decision = guard(label, null);
 
-    expect(decision.label).toBe("scale");
+      expect(decision.label).toBe("diagnose");
+      expect(decision.confidence).toBe(CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP);
+      expect(decision.campaignLabelStatus).toBe("no_campaign");
+      expect(decision.campaignKind).toBeNull();
+      expect(decision.blockedActionType).toBe(label);
+      expect(decision.badges.map((badge) => badge.type)).toContain(
+        "unlabeled_campaign_context",
+      );
+    }
+  });
+
+  it("passes through soft decisions with no campaign attribution", () => {
+    const decision = guard("test_more", null);
+
+    expect(decision.label).toBe("test_more");
     expect(decision.confidence).toBe(82);
     expect(decision.campaignLabelStatus).toBe("no_campaign");
     expect(decision.campaignKind).toBeNull();
+    expect(decision.blockedActionType).toBeNull();
     expect(decision.badges).toHaveLength(0);
   });
 
@@ -160,6 +176,22 @@ describe("applyCreativeCampaignLabelGuard", () => {
     expect(
       twice.badges.filter((badge) => badge.type === "unlabeled_campaign_context"),
     ).toHaveLength(1);
+    expect(twice.blockedActionType).toBe("scale");
+  });
+
+  it("is idempotent for already guarded no-campaign decisions", () => {
+    const once = guard("scale", null);
+    const twice = applyCreativeCampaignLabelGuard({
+      decision: once,
+      input: makeInput(null),
+      campaignLabelsById: makeLabelMap(),
+    });
+
+    expect(twice.reason).toBe(once.reason);
+    expect(
+      twice.badges.filter((badge) => badge.type === "unlabeled_campaign_context"),
+    ).toHaveLength(1);
+    expect(twice.campaignLabelStatus).toBe("no_campaign");
     expect(twice.blockedActionType).toBe("scale");
   });
 });

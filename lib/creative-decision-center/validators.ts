@@ -124,6 +124,22 @@ function validateDataFreshness(state: ValidationState, value: unknown, path: str
   if (hasOwn(value, "maxAgeHours") && value.maxAgeHours !== null) {
     requireNumber(state, value.maxAgeHours, `${path}.maxAgeHours`);
   }
+  if (
+    hasOwn(value, "latestSnapshotAsOf") &&
+    value.latestSnapshotAsOf !== null
+  ) {
+    requireString(
+      state,
+      value.latestSnapshotAsOf,
+      `${path}.latestSnapshotAsOf`,
+    );
+  }
+  if (
+    hasOwn(value, "snapshotAgeHours") &&
+    value.snapshotAgeHours !== null
+  ) {
+    requireNumber(state, value.snapshotAgeHours, `${path}.snapshotAgeHours`);
+  }
 }
 
 export function validateCreativeDecisionOsV21Output(

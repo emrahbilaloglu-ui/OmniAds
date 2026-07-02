@@ -243,12 +243,51 @@ function hasStaleEvidence(ctx: GateContext): boolean {
   );
 }
 
+function hasUnknownFreshness(ctx: GateContext): boolean {
+  return (
+    ctx.badges.some((badge) => badge.type === "unknown_freshness") ||
+    ctx.input.dataFreshnessHours === null
+  );
+}
+
+function scaleFreshnessBlockers(ctx: GateContext): string[] {
+  if (hasUnknownFreshness(ctx)) {
+    return [
+      "source evidence freshness is unknown; scale requires fresh recent performance proof",
+    ];
+  }
+
+  if (hasStaleEvidence(ctx)) {
+    return [
+      `source evidence is stale (${Math.round(
+        ctx.input.dataFreshnessHours ?? 0,
+      )}h); scale requires fresh recent performance proof`,
+    ];
+  }
+
+  return [];
+}
+
 function recentToTotalRoasRatio(input: CreativeInput): number | null {
   if (input.recent7dRoas === null || input.roas === null || input.roas <= 0) {
     return null;
   }
 
   return input.recent7dRoas / input.roas;
+}
+
+function hasRecentRecovery(ctx: GateContext): boolean {
+  const recentSpend = ctx.input.recent7dSpend;
+  const recentRoas = ctx.input.recent7dRoas;
+  const recentSpendThreshold = ctx.profile.thresholds.recentSampleMinSpend;
+
+  return (
+    recentSpend !== null &&
+    recentRoas !== null &&
+    recentSpendThreshold !== null &&
+    recentSpend >= recentSpendThreshold &&
+    recentRoas > ctx.effectiveTargetRoas
+  );
 }
 
 function appendReasonSuffix(reason: string, suffix: string): string {
@@ -479,13 +518,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
     const scalePurchasesThreshold = profile.thresholds.scaleMinPurchases;
     const recent7dRoas = input.recent7dRoas;
     const benchmarkBlockers = scaleBenchmarkBlockers(profile);
-    const staleScaleBlockers = hasStaleEvidence(ctx)
-      ? [
-          `source evidence is stale (${Math.round(
-            input.dataFreshnessHours ?? 0,
-          )}h); scale requires fresh recent performance proof`,
-        ]
-      : [];
+    const freshnessBlockers = scaleFreshnessBlockers(ctx);
     const hasScaleSpendDepth =
       scaleSpendThreshold !== null && input.spend >= scaleSpendThreshold;
     const hasScalePurchaseDepth = purchases >= scalePurchasesThreshold;
@@ -496,7 +529,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       hasScaleSpendDepth &&
       hasScalePurchaseDepth &&
       benchmarkBlockers.length === 0 &&
-      staleScaleBlockers.length === 0 &&
+      freshnessBlockers.length === 0 &&
       recent7dRoas !== null &&
       recent7dRoas >= ctx.effectiveTargetRoas
     ) {
@@ -522,7 +555,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       recent7dRoas,
       targetRoas: ctx.effectiveTargetRoas,
       scaleBenchmarkBlockers: benchmarkBlockers,
-      scaleFreshnessBlockers: staleScaleBlockers,
+      scaleFreshnessBlockers: freshnessBlockers,
     });
 
     return terminal(
@@ -601,6 +634,21 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
     const hardCutSpend = profile.thresholds.hardCutSpend;
     const sustainedLoserSpend = profile.thresholds.sustainedLoserSpend;
     const severeLoserRatio = profile.thresholds.severeLoserRatio;
+
+    if (hasRecentRecovery(ctx)) {
+      return terminal(
+        ctx,
+        "keep",
+        `[recovery hold] ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
+          ratio,
+        )}% of target, but recent 7d ROAS ${formatRoas(
+          input.recent7dRoas ?? 0,
+        )} is above target on $${formatSpend(
+          input.recent7dSpend ?? 0,
+        )} recent spend — do not hard cut while recovery is holding.`,
+        [WEAK_PERFORMANCE_BADGE],
+      );
+    }
 
     if (hardCutSpend !== null && input.spend >= hardCutSpend) {
       return terminal(

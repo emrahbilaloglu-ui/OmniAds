@@ -53,6 +53,9 @@ interface DecisionCenterSnapshotObservedEvent
   adapterVersion: string;
   configVersion: string;
   dataFreshnessStatus: DecisionCenterSnapshot["dataFreshness"]["status"];
+  latestSnapshotAsOf: string | null;
+  snapshotAgeHours: number | null;
+  maxAgeHours: number | null;
   staleData: boolean;
 }
 
@@ -221,6 +224,9 @@ export function buildDecisionCenterObservabilityEvents(
       adapterVersion: input.snapshot.adapterVersion,
       configVersion: input.snapshot.configVersion,
       dataFreshnessStatus: input.snapshot.dataFreshness.status,
+      latestSnapshotAsOf: input.snapshot.dataFreshness.latestSnapshotAsOf ?? null,
+      snapshotAgeHours: input.snapshot.dataFreshness.snapshotAgeHours ?? null,
+      maxAgeHours: input.snapshot.dataFreshness.maxAgeHours ?? null,
       staleData: input.snapshot.dataFreshness.status === "stale",
     },
   ];

@@ -39,6 +39,8 @@ const TEST_BUSINESS_IDS = [
   MIXED_OBJECTIVE_FIXTURE.businessId,
   ...CAMPAIGN_SCOPE_FIXTURES.map((fixture) => fixture.businessId),
 ];
+const UNKNOWN_BUSINESS_ID = "00000000-0000-4000-8000-000000000397";
+const CLEANUP_BUSINESS_IDS = [...TEST_BUSINESS_IDS, UNKNOWN_BUSINESS_ID];
 
 type CountRow = Record<string, unknown> & {
   count: unknown;
@@ -47,6 +49,7 @@ type CountRow = Record<string, unknown> & {
 type JobRunRow = Record<string, unknown> & {
   status: unknown;
   row_count: unknown;
+  error_message: unknown;
 };
 
 type CalibrationRow = Record<string, unknown> & {
@@ -82,7 +85,7 @@ async function cleanupEngineRows() {
     WHERE business_ref_id = ANY($1::uuid[])
       AND engine_version = $2
     `,
-    [TEST_BUSINESS_IDS, ENGINE_VERSION],
+    [CLEANUP_BUSINESS_IDS, ENGINE_VERSION],
   );
   await db.query(
     `
@@ -91,7 +94,7 @@ async function cleanupEngineRows() {
       AND engine_version = $2
       AND job_name = $3
     `,
-    [TEST_BUSINESS_IDS, ENGINE_VERSION, JOB_NAME],
+    [CLEANUP_BUSINESS_IDS, ENGINE_VERSION, JOB_NAME],
   );
 }
 
@@ -684,5 +687,33 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
     );
     expect(jobRun?.status).toBe("skipped");
     expect(toNumber(jobRun?.row_count)).toBe(0);
+  });
+
+  it("records a failed job run when the business id does not exist", async () => {
+    const result = await runCalibrationJob({
+      businessId: UNKNOWN_BUSINESS_ID,
+      asOf: AS_OF,
+    });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      rowsWritten: 0,
+      reason: "business_not_found",
+      errorMessage: `Business not found: ${UNKNOWN_BUSINESS_ID}`,
+    });
+
+    const [jobRun] = await getDb().query<JobRunRow>(
+      `
+      SELECT status, row_count, error_message
+      FROM engine_v3_job_runs
+      WHERE id = $1::uuid
+      `,
+      [result.jobRunId],
+    );
+    expect(jobRun?.status).toBe("failed");
+    expect(toNumber(jobRun?.row_count)).toBe(0);
+    expect(jobRun?.error_message).toBe(
+      `Business not found: ${UNKNOWN_BUSINESS_ID}`,
+    );
   });
 });

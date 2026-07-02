@@ -178,6 +178,36 @@ describe("ratioZonesGate - scale zone", () => {
     );
   });
 
+  it("blocks hard scale when source freshness is unknown", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(1.5, {
+          input: {
+            purchases: 15,
+            recent7dRoas: 2.2,
+            dataFreshnessHours: null,
+          },
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.reason).toContain("source evidence freshness is unknown");
+    expect(output.badges.map((badge) => badge.type)).toContain(
+      "scale_readiness_blocked",
+    );
+    expect(output.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          predicate: "scale_recent_freshness",
+          observed:
+            "source evidence freshness is unknown; scale requires fresh recent performance proof",
+          status: "missing",
+        }),
+      ]),
+    );
+  });
+
   it("blocks hard scale when account calibration is too thin for scale", () => {
     const profile = makeAccountDecisionProfile({
       accountBaselines: makeAccountCalibration({
@@ -453,6 +483,30 @@ describe("ratioZonesGate - cut zone", () => {
     expect(output.reason).toBe(
       "ROAS 1.00 (28d) = 50% of target after $300 spend (28d) — loss-budget maturity reached at $200; cut underperforming creative.",
     );
+  });
+
+  it("keeps cut-zone creatives when recent recovery is holding above target", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.5, {
+          input: {
+            spend: 300,
+            purchases: 1,
+            recent7dRoas: 2.4,
+            recent7dSpend: 80,
+          },
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.reason).toContain("[recovery hold]");
+    expect(output.reason).toContain("do not hard cut while recovery is holding");
+    expect(output.badges).toContainEqual({
+      type: "weak_performance",
+      label: "Below target",
+      severity: "warning",
+    });
   });
 
   it("returns test_more below cut maturity without fatigue", () => {

@@ -1,0 +1,1647 @@
+{
+  "contractVersion": "adsecute.phase0.current-engine-simulation.v1",
+  "generatedAt": "2026-07-02T16:23:34.453Z",
+  "readOnly": true,
+  "mutatesData": false,
+  "requestedAsOf": "2026-07-01",
+  "freshnessMode": "historical",
+  "engineVersion": "v3-2026-07-02-math-guardrails",
+  "businessesRequested": [
+    "IwaStore",
+    "EMOLOS",
+    "Grandmix",
+    "TheSwaf"
+  ],
+  "businessesFound": 4,
+  "reviews": [
+    {
+      "status": "ok",
+      "business": {
+        "id": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+        "name": "EMOLOS"
+      },
+      "requestedAsOf": "2026-07-01",
+      "simulationAsOf": "2026-07-01",
+      "freshnessMode": "historical",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "readOnly": true,
+      "mutatesData": false,
+      "flags": {
+        "enabled": true,
+        "surfaceVisible": true,
+        "shadowOnly": false,
+        "presetOverride": null,
+        "source": {
+          "enabled": "env",
+          "surfaceVisible": "env",
+          "shadowOnly": "env",
+          "presetOverride": null
+        }
+      },
+      "source": {
+        "creativeInputCount": 85,
+        "dedupedDecisionCount": 85,
+        "uniqueCampaignIds": 7,
+        "campaignLabelsFound": 2
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "target_pack_risk_posture",
+        "spendUnit": 34.53815384615385,
+        "spendUnitSource": "meta_derived_aov",
+        "spendUnitConfidence": "medium",
+        "thresholds": {
+          "zeroConvBurnerSpend": 103.61446153846154,
+          "cutCandidateSpend": 69.0763076923077,
+          "sustainedLoserSpend": 103.61446153846154,
+          "commercialMaturitySpend": 69.0763076923077,
+          "hardCutSpend": 172.69076923076923,
+          "recentSampleMinSpend": 17.269076923076923,
+          "winnerMemoryMinSpend": 51.80723076923077,
+          "scaleMinPurchases": 1,
+          "winnerMemoryMinPurchases": 2,
+          "bottomQuartileRatio": 0.20694492839869327,
+          "severeLoserRatio": 0.10230725276547874
+        },
+        "hardActionEligibility": {
+          "scale": true,
+          "cut": true,
+          "refresh": true,
+          "reason": null,
+          "reasons": {
+            "scale": null,
+            "cut": null,
+            "refresh": null
+          }
+        },
+        "quality": {
+          "commercialTruthReady": true,
+          "calibrationReady": true,
+          "metaAovQuality": "ready",
+          "thresholdQuality": "ready"
+        },
+        "accountBaselines": {
+          "matureCreativeCount": 50,
+          "roasRatioP10": 0.10230725276547874,
+          "roasRatioP25": 0.20694492839869327,
+          "roasRatioP50": 0.3416684677761042,
+          "roasRatioP75": 0.6690302622754352,
+          "winnerPurchaseP50": 1,
+          "metaAovQuality": "ready"
+        },
+        "scope": {
+          "type": "account",
+          "id": "*"
+        }
+      },
+      "dataHealth": {
+        "calibration": {
+          "asOfDate": "2026-07-01",
+          "computedAt": "2026-07-02T16:23:01.934Z",
+          "sourceFreshnessHours": 0,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "no precomputed row available; runtime fallback in use; historical replay freshness normalized"
+        },
+        "lifecycle": {
+          "asOfDate": "2026-07-01",
+          "computedAt": "2026-07-02T16:23:06.912Z",
+          "sourceFreshnessHours": null,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "no precomputed row available; runtime fallback in use; historical replay freshness normalized"
+        },
+        "decisions": {
+          "asOfDate": "2026-07-01",
+          "computedAt": "2026-07-02T16:23:07.313Z",
+          "sourceFreshnessHours": 0,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "Decision snapshots are not populated until Phase 3.5; runtime decisions are computed on request; historical replay freshness normalized"
+        },
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "calibration": {
+          "asOfDate": "2026-07-01",
+          "computedAt": "2026-07-02T16:23:01.934Z",
+          "sourceFreshnessHours": 15,
+          "staleTier": "warning",
+          "fallbackMode": "runtime_sql",
+          "note": "no precomputed row available; runtime fallback in use"
+        },
+        "lifecycle": {
+          "asOfDate": "2026-07-01",
+          "computedAt": "2026-07-02T16:23:06.912Z",
+          "sourceFreshnessHours": null,
+          "staleTier": "warning",
+          "fallbackMode": "runtime_sql",
+          "note": "no precomputed row available; runtime fallback in use"
+        },
+        "decisions": {
+          "asOfDate": "2026-07-01",
+          "computedAt": "2026-07-02T16:23:07.313Z",
+          "sourceFreshnessHours": 28,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "Decision snapshots are not populated until Phase 3.5; runtime decisions are computed on request"
+        },
+        "worstTier": "warning",
+        "degraded": false
+      },
+      "distributions": {
+        "label": {
+          "test_more": 64,
+          "keep": 10,
+          "diagnose": 11
+        },
+        "hardLabel": {},
+        "blockedActionType": {
+          "null": 74,
+          "cut": 11
+        },
+        "campaignLabelStatus": {
+          "unlabeled": 82,
+          "labeled": 3
+        },
+        "campaignKind": {
+          "null": 82,
+          "test": 2,
+          "main": 1
+        },
+        "decisionKindSource": {
+          "all_fallback": 85
+        },
+        "truthSource": {
+          "commercial_truth": 85
+        },
+        "confidenceBucket": {
+          "70_79": 66,
+          "60_69": 8,
+          "50_59": 11
+        },
+        "badgeType": {
+          "delivery_limited": 21,
+          "unlabeled_campaign_context": 82,
+          "launch_monitoring": 17,
+          "low_ctr": 9,
+          "weak_performance": 10,
+          "missing_recent_data": 11,
+          "lifecycle_unavailable": 11,
+          "stop_loss_review": 11,
+          "below_breakeven": 5
+        },
+        "labelTransform": {
+          "null": 85
+        },
+        "signalFamily": {
+          "delivery": 21,
+          "campaign_label": 33,
+          "launch_monitoring": 17,
+          "data_health": 11,
+          "insufficient_signal": 3
+        }
+      },
+      "risks": {
+        "hardActionRows": 0,
+        "blockedHardActionRows": 11,
+        "unlabeledOrNoCampaignRows": 82,
+        "staleEvidenceRows": 0,
+        "staleHardActionRows": 0,
+        "nullFreshnessRows": 0,
+        "globalDefaultTruthRows": 0,
+        "accountBaselineTruthRows": 0,
+        "highConfidenceHardRows": 0,
+        "highConfidenceHardWithoutCommercialTruthRows": 0,
+        "scaleReadinessBlockedRows": 0,
+        "scaleCalibrationThinRows": 0,
+        "lowCtrHardRows": 0,
+        "labelTransformRows": 0,
+        "cutBoundary": {
+          "bottomQuartileRatio": 0.20694492839869327,
+          "severeLoserRatio": 0.10230725276547874,
+          "commercialMaturitySpend": 69.0763076923077,
+          "hardCutSpend": 172.69076923076923
+        }
+      },
+      "riskHints": [
+        "historical_freshness_normalized_not_actual_runtime",
+        "campaign_label_guard_is_blocking_hard_actions",
+        "raw_wall_clock_data_health_was_stale",
+        "cut_boundary_is_loose_and_may_miss_weak_losers"
+      ],
+      "samples": [
+        {
+          "creativeId": "2114021279176127",
+          "creativeName": "Control | Denim Jacket 2li | USCA-DEFR | 17Jun Setup",
+          "campaignId": "120247978903560459",
+          "campaignKind": null,
+          "campaignLabelStatus": "unlabeled",
+          "decisionKindSource": "all_fallback",
+          "label": "diagnose",
+          "blockedActionType": "cut",
+          "confidence": 50,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 0.1615327570367583,
+          "spend": 903.47,
+          "purchases": 4,
+          "roas": 0.4038318925918957,
+          "recent7dRoas": 0.6052171146810879,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "lifecycle_unavailable",
+            "unlabeled_campaign_context",
+            "stop_loss_review"
+          ],
+          "labelTransform": null,
+          "reason": "[Stop-loss review - label campaign before cut] ROAS 0.40 (28d) = 16% of target after $903 spend (28d) — clear loser at scale."
+        },
+        {
+          "creativeId": "882021054308247",
+          "creativeName": "Control | Denim Jacket 2li | GB | 17Jun Setup",
+          "campaignId": "120247976989260459",
+          "campaignKind": null,
+          "campaignLabelStatus": "unlabeled",
+          "decisionKindSource": "all_fallback",
+          "label": "diagnose",
+          "blockedActionType": "cut",
+          "confidence": 50,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 0.08195041999590248,
+          "spend": 829.77,
+          "purchases": 2,
+          "roas": 0.2048760499897562,
+          "recent7dRoas": 0.3668695239328413,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "lifecycle_unavailable",
+            "unlabeled_campaign_context",
+            "stop_loss_review"
+          ],
+          "labelTransform": null,
+          "reason": "[Stop-loss review - label campaign before cut] ROAS 0.20 (28d) = 8% of target after $830 spend (28d) — clear loser at scale."
+        },
+        {
+          "creativeId": "2140854016698365",
+          "creativeName": "5Jun | Polo | StaticCollection | GB",
+          "campaignId": "120246844298470459",
+          "campaignKind": null,
+          "campaignLabelStatus": "unlabeled",
+          "decisionKindSource": "all_fallback",
+          "label": "diagnose",
+          "blockedActionType": "cut",
+          "confidence": 50,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 0.04799451491258142,
+          "spend": 408.38,
+          "purchases": 1,
+          "roas": 0.11998628728145355,
+          "recent7dRoas": null,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "lifecycle_unavailable",
+            "missing_recent_data",
+            "unlabeled_campaign_context",
+            "stop_loss_review"
+          ],
+          "labelTransform": null,
+          "reason": "[Stop-loss review - label campaign before cut] ROAS 0.12 (28d) = 5% of target after $408 spend (28d) — clear loser at scale."
+        },
+        {
+          "creativeId": "874161595187435",
+          "creativeName": "17Jun | Slim Fit Jeans | Mixed Video | USCA-DEFR",
+          "campaignId": "120247978903560459",
+          "campaignKind": null,
+          "campaignLabelStatus": "unlabeled",
+          "decisionKindSource": "all_fallback",
+          "label": "diagnose",
+          "blockedActionType": "cut",
+          "confidence": 50,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 0.10456912307320942,
+          "spend": 289.99,
+          "purchases": 1,
+          "roas": 0.26142280768302356,
+          "recent7dRoas": 0,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "lifecycle_unavailable",
+            "unlabeled_campaign_context",
+            "stop_loss_review"
+          ],
+          "labelTransform": null,
+          "reason": "[Stop-loss review - label campaign before cut] ROAS 0.26 (28d) = 10% of target after $290 spend (28d) — clear loser at scale."
+        },
+        {
+          "creativeId": "1984995775464428",
+          "creativeName": "17Jun | Slim Fit Jeans | Color Carousel | GB",
+          "campaignId": "120247976989260459",
+          "campaignKind": null,
+          "campaignLabelStatus": "unlabeled",
+          "decisionKindSource": "all_fallback",
+          "label": "diagnose",
+          "blockedActionType": "cut",
+          "confidence": 50,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 0,
+          "spend": 216.49,
+          "purchases": 0,
+          "roas": 0,
+          "recent7dRoas": 0,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "lifecycle_unavailable",
+            "unlabeled_campaign_context",
+            "stop_loss_review"
+          ],
+          "labelTransform": null,
+          "reason": "[Stop-loss review - label campaign before cut] ROAS 0.00 (28d) = 0% of target after $216 spend (28d) — clear loser at scale."
+        },
+        {
+          "creativeId": "1570024971411166",
+          "creativeName": "17Jun | Chino Pants | Color Carousel | GB",
+          "campaignId": "120247976989260459",
+          "campaignKind": null,
+          "campaignLabelStatus": "unlabeled",
+          "decisionKindSource": "all_fallback",
+          "label": "diagnose",
+          "blockedActionType": "cut",
+          "confidence": 50,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 0,
+          "spend": 190.95,
+          "purchases": 0,
+          "roas": 0,
+          "recent7dRoas": 0,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "lifecycle_unavailable",
+            "unlabeled_campaign_context",
+            "stop_loss_review"
+          ],
+          "labelTransform": null,
+          "reason": "[Stop-loss review - label campaign before cut] ROAS 0.00 (28d) = 0% of target after $191 spend (28d) — clear loser at scale."
+        },
+        {
+          "creativeId": "1787452825569906",
+          "creativeName": "17Jun | Chino Pants | Color Carousel | USCA-DEFR",
+          "campaignId": "120247978903560459",
+          "campaignKind": null,
+          "campaignLabelStatus": "unlabeled",
+          "decisionKindSource": "all_fallback",
+          "label": "diagnose",
+          "blockedActionType": "cut",
+          "confidence": 50,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 0,
+          "spend": 169.33999999999997,
+          "purchases": 0,
+          "roas": 0,
+          "recent7dRoas": 0,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "lifecycle_unavailable",
+            "unlabeled_campaign_context",
+            "stop_loss_review"
+          ],
+          "labelTransform": null,
+          "reason": "[Stop-loss review - label campaign before cut] ROAS 0.00 (28d) = 0% of target after $169 spend (28d) — sustained loser."
+        },
+        {
+          "creativeId": "2055930891688956",
+          "creativeName": "5Jun | SprayOnJeans | MixedVideo | USCA",
+          "campaignId": "120246844311280459",
+          "campaignKind": null,
+          "campaignLabelStatus": "unlabeled",
+          "decisionKindSource": "all_fallback",
+          "label": "diagnose",
+          "blockedActionType": "cut",
+          "confidence": 50,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 0,
+          "spend": 167.72000000000003,
+          "purchases": 0,
+          "roas": 0,
+          "recent7dRoas": null,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "missing_recent_data",
+            "lifecycle_unavailable",
+            "unlabeled_campaign_context",
+            "stop_loss_review"
+          ],
+          "labelTransform": null,
+          "reason": "[Stop-loss review - label campaign before cut] 0 purchases on $168 spend (28d cumulative, age 18d) — sustained zero-conversion burn past CPA-anchored maturity threshold $104."
+        },
+        {
+          "creativeId": "3325839554275052",
+          "creativeName": "5Jun | Polo | StaticCollection | USCA",
+          "campaignId": "120246844311280459",
+          "campaignKind": null,
+          "campaignLabelStatus": "unlabeled",
+          "decisionKindSource": "all_fallback",
+          "label": "diagnose",
+          "blockedActionType": "cut",
+          "confidence": 50,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 0,
+          "spend": 138.13,
+          "purchases": 0,
+          "roas": 0,
+          "recent7dRoas": null,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "lifecycle_unavailable",
+            "missing_recent_data",
+            "unlabeled_campaign_context",
+            "stop_loss_review"
+          ],
+          "labelTransform": null,
+          "reason": "[Stop-loss review - label campaign before cut] ROAS 0.00 (28d) = 0% of target after $138 spend (28d) — sustained loser."
+        },
+        {
+          "creativeId": "2041704626539529",
+          "creativeName": "17Jun | Polo Shirt | Voiceover Video | GB",
+          "campaignId": "120247976989260459",
+          "campaignKind": null,
+          "campaignLabelStatus": "unlabeled",
+          "decisionKindSource": "all_fallback",
+          "label": "diagnose",
+          "blockedActionType": "cut",
+          "confidence": 50,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 0,
+          "spend": 105.43999999999998,
+          "purchases": 0,
+          "roas": 0,
+          "recent7dRoas": 0,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "lifecycle_unavailable",
+            "unlabeled_campaign_context",
+            "stop_loss_review"
+          ],
+          "labelTransform": null,
+          "reason": "[Stop-loss review - label campaign before cut] ROAS 0.00 (28d) = 0% of target after $105 spend (28d) — sustained loser."
+        },
+        {
+          "creativeId": "1027652930238244",
+          "creativeName": "Control | Chino Black | USCA-DEFR | 17Jun Setup",
+          "campaignId": "120247978903560459",
+          "campaignKind": null,
+          "campaignLabelStatus": "unlabeled",
+          "decisionKindSource": "all_fallback",
+          "label": "diagnose",
+          "blockedActionType": "cut",
+          "confidence": 50,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 0,
+          "spend": 70.25000000000001,
+          "purchases": 0,
+          "roas": 0,
+          "recent7dRoas": 0,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "lifecycle_unavailable",
+            "unlabeled_campaign_context",
+            "stop_loss_review"
+          ],
+          "labelTransform": null,
+          "reason": "[Stop-loss review - label campaign before cut] ROAS 0.00 (28d) = 0% of target after $70 spend (28d) — loss-budget maturity reached at $69; cut underperforming creative."
+        }
+      ]
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+        "name": "Grandmix"
+      },
+      "requestedAsOf": "2026-07-01",
+      "simulationAsOf": "2026-07-01",
+      "freshnessMode": "historical",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "readOnly": true,
+      "mutatesData": false,
+      "flags": {
+        "enabled": true,
+        "surfaceVisible": true,
+        "shadowOnly": false,
+        "presetOverride": null,
+        "source": {
+          "enabled": "env",
+          "surfaceVisible": "env",
+          "shadowOnly": "env",
+          "presetOverride": null
+        }
+      },
+      "source": {
+        "creativeInputCount": 82,
+        "dedupedDecisionCount": 82,
+        "uniqueCampaignIds": 7,
+        "campaignLabelsFound": 4
+      },
+      "profile": {
+        "preset": "conservative",
+        "presetSource": "target_pack_risk_posture",
+        "spendUnit": 105.70290135396516,
+        "spendUnitSource": "meta_derived_aov",
+        "spendUnitConfidence": "medium",
+        "thresholds": {
+          "zeroConvBurnerSpend": 528.5145067698259,
+          "cutCandidateSpend": 317.1087040618955,
+          "sustainedLoserSpend": 528.5145067698259,
+          "commercialMaturitySpend": 264.25725338491293,
+          "hardCutSpend": 845.6232108317213,
+          "recentSampleMinSpend": 105.70290135396516,
+          "winnerMemoryMinSpend": 211.40580270793032,
+          "scaleMinPurchases": 5,
+          "winnerMemoryMinPurchases": 6,
+          "bottomQuartileRatio": 0.46212220845262375,
+          "severeLoserRatio": 0.2372980245483718
+        },
+        "hardActionEligibility": {
+          "scale": true,
+          "cut": true,
+          "refresh": true,
+          "reason": null,
+          "reasons": {
+            "scale": null,
+            "cut": null,
+            "refresh": null
+          }
+        },
+        "quality": {
+          "commercialTruthReady": true,
+          "calibrationReady": true,
+          "metaAovQuality": "ready",
+          "thresholdQuality": "ready"
+        },
+        "accountBaselines": {
+          "matureCreativeCount": 71,
+          "roasRatioP10": 0.2372980245483718,
+          "roasRatioP25": 0.46212220845262375,
+          "roasRatioP50": 0.7530534055957785,
+          "roasRatioP75": 1.512718826516323,
+          "winnerPurchaseP50": 3,
+          "metaAovQuality": "ready"
+        },
+        "scope": {
+          "type": "account",
+          "id": "*"
+        }
+      },
+      "dataHealth": {
+        "calibration": {
+          "asOfDate": "2026-07-01",
+          "computedAt": "2026-07-02T16:23:11.110Z",
+          "sourceFreshnessHours": 0,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "Runtime SQL fallback (precomputed calibration stale for asOf 2026-07-01); historical replay freshness normalized"
+        },
+        "lifecycle": {
+          "asOfDate": "2026-07-01",
+          "computedAt": "2026-07-02T16:23:15.413Z",
+          "sourceFreshnessHours": null,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "no precomputed row available; runtime fallback in use; historical replay freshness normalized"
+        },
+        "decisions": {
+          "asOfDate": "2026-07-01",
+          "computedAt": "2026-07-02T16:23:15.812Z",
+          "sourceFreshnessHours": 0,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "Decision snapshots are not populated until Phase 3.5; runtime decisions are computed on request; historical replay freshness normalized"
+        },
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "calibration": {
+          "asOfDate": "2026-07-01",
+          "computedAt": "2026-07-02T16:23:11.110Z",
+          "sourceFreshnessHours": 8,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "Runtime SQL fallback (precomputed calibration stale for asOf 2026-07-01)"
+        },
+        "lifecycle": {
+          "asOfDate": "2026-07-01",
+          "computedAt": "2026-07-02T16:23:15.413Z",
+          "sourceFreshnessHours": null,
+          "staleTier": "warning",
+          "fallbackMode": "runtime_sql",
+          "note": "no precomputed row available; runtime fallback in use"
+        },
+        "decisions": {
+          "asOfDate": "2026-07-01",
+          "computedAt": "2026-07-02T16:23:15.812Z",
+          "sourceFreshnessHours": 8,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "Decision snapshots are not populated until Phase 3.5; runtime decisions are computed on request"
+        },
+        "worstTier": "warning",
+        "degraded": false
+      },
+      "distributions": {
+        "label": {
+          "test_more": 61,
+          "cut": 1,
+          "diagnose": 13,
+          "keep": 7
+        },
+        "hardLabel": {
+          "cut": 1
+        },
+        "blockedActionType": {
+          "null": 81,
+          "scale": 1
+        },
+        "campaignLabelStatus": {
+          "labeled": 21,
+          "unlabeled": 61
+        },
+        "campaignKind": {
+          "main": 21,
+          "null": 61
+        },
+        "decisionKindSource": {
+          "all_fallback": 82
+        },
+        "truthSource": {
+          "commercial_truth": 82
+        },
+        "confidenceBucket": {
+          "70_79": 81,
+          "50_59": 1
+        },
+        "badgeType": {
+          "launch_monitoring": 46,
+          "low_ctr": 9,
+          "creative_quality_weak": 1,
+          "lifecycle_unavailable": 2,
+          "checkout_breakdown": 5,
+          "unlabeled_campaign_context": 61,
+          "landing_page_issue": 7,
+          "fatigue_watch": 1,
+          "weak_performance": 3,
+          "scale_readiness_blocked": 2,
+          "below_breakeven": 1
+        },
+        "labelTransform": {
+          "null": 82
+        },
+        "signalFamily": {
+          "launch_monitoring": 46,
+          "data_health": 2,
+          "campaign_label": 24,
+          "diagnose": 5,
+          "fatigue": 1,
+          "scale_readiness": 2,
+          "performance_loser": 2
+        }
+      },
+      "risks": {
+        "hardActionRows": 1,
+        "blockedHardActionRows": 1,
+        "unlabeledOrNoCampaignRows": 61,
+        "staleEvidenceRows": 0,
+        "staleHardActionRows": 0,
+        "nullFreshnessRows": 0,
+        "globalDefaultTruthRows": 0,
+        "accountBaselineTruthRows": 0,
+        "highConfidenceHardRows": 0,
+        "highConfidenceHardWithoutCommercialTruthRows": 0,
+        "scaleReadinessBlockedRows": 2,
+        "scaleCalibrationThinRows": 0,
+        "lowCtrHardRows": 0,
+        "labelTransformRows": 0,
+        "cutBoundary": {
+          "bottomQuartileRatio": 0.46212220845262375,
+          "severeLoserRatio": 0.2372980245483718,
+          "commercialMaturitySpend": 264.25725338491293,
+          "hardCutSpend": 845.6232108317213
+        }
+      },
+      "riskHints": [
+        "historical_freshness_normalized_not_actual_runtime",
+        "campaign_label_guard_is_blocking_hard_actions",
+        "raw_wall_clock_data_health_was_stale",
+        "scale_candidates_exist_but_benchmark_or_purchase_depth_blocks_action"
+      ],
+      "samples": [
+        {
+          "creativeId": "1003770772089284",
+          "creativeName": "BestSellerWallArt",
+          "campaignId": "120247884799930316",
+          "campaignKind": "main",
+          "campaignLabelStatus": "labeled",
+          "decisionKindSource": "all_fallback",
+          "label": "cut",
+          "blockedActionType": null,
+          "confidence": 75,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 0.4443723583540314,
+          "spend": 473.62,
+          "purchases": 3,
+          "roas": 0.9776191883788691,
+          "recent7dRoas": 0,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "creative_quality_weak",
+            "lifecycle_unavailable"
+          ],
+          "labelTransform": null,
+          "reason": "ROAS 0.98 (28d) = 44% of target after $474 spend (28d) — loss-budget maturity reached at $264; cut underperforming creative."
+        },
+        {
+          "creativeId": "27134621589538352",
+          "creativeName": "BathroomMeta-Original",
+          "campaignId": "120249371622510316",
+          "campaignKind": null,
+          "campaignLabelStatus": "unlabeled",
+          "decisionKindSource": "all_fallback",
+          "label": "diagnose",
+          "blockedActionType": "scale",
+          "confidence": 50,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 2.034835705729044,
+          "spend": 1045.74,
+          "purchases": 23,
+          "roas": 4.476638552603897,
+          "recent7dRoas": 4.575386525222887,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "lifecycle_unavailable",
+            "unlabeled_campaign_context"
+          ],
+          "labelTransform": null,
+          "reason": "[Unlabeled campaign - label to enable action] ROAS 4.48 (28d) = 203% of target 2.20 with 23 purchases (28d) and recent 7d holding at 4.58 — scale the ad set budget."
+        }
+      ]
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+        "name": "IwaStore"
+      },
+      "requestedAsOf": "2026-07-01",
+      "simulationAsOf": "2026-07-01",
+      "freshnessMode": "historical",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "readOnly": true,
+      "mutatesData": false,
+      "flags": {
+        "enabled": true,
+        "surfaceVisible": true,
+        "shadowOnly": false,
+        "presetOverride": null,
+        "source": {
+          "enabled": "env",
+          "surfaceVisible": "business_override",
+          "shadowOnly": "business_override",
+          "presetOverride": null
+        }
+      },
+      "source": {
+        "creativeInputCount": 80,
+        "dedupedDecisionCount": 80,
+        "uniqueCampaignIds": 12,
+        "campaignLabelsFound": 5
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "target_pack_risk_posture",
+        "spendUnit": 49.998753125520935,
+        "spendUnitSource": "meta_derived_aov",
+        "spendUnitConfidence": "medium",
+        "thresholds": {
+          "zeroConvBurnerSpend": 149.99625937656282,
+          "cutCandidateSpend": 99.99750625104187,
+          "sustainedLoserSpend": 149.99625937656282,
+          "commercialMaturitySpend": 99.99750625104187,
+          "hardCutSpend": 249.99376562760466,
+          "recentSampleMinSpend": 24.999376562760467,
+          "winnerMemoryMinSpend": 74.99812968828141,
+          "scaleMinPurchases": 3,
+          "winnerMemoryMinPurchases": 5,
+          "bottomQuartileRatio": 0.6709036131526684,
+          "severeLoserRatio": 0.42517970032419217
+        },
+        "hardActionEligibility": {
+          "scale": true,
+          "cut": true,
+          "refresh": true,
+          "reason": null,
+          "reasons": {
+            "scale": null,
+            "cut": null,
+            "refresh": null
+          }
+        },
+        "quality": {
+          "commercialTruthReady": true,
+          "calibrationReady": true,
+          "metaAovQuality": "ready",
+          "thresholdQuality": "ready"
+        },
+        "accountBaselines": {
+          "matureCreativeCount": 58,
+          "roasRatioP10": 0.42517970032419217,
+          "roasRatioP25": 0.6709036131526684,
+          "roasRatioP50": 1.1539194978133698,
+          "roasRatioP75": 1.6457491005991929,
+          "winnerPurchaseP50": 3,
+          "metaAovQuality": "ready"
+        },
+        "scope": {
+          "type": "account",
+          "id": "*"
+        }
+      },
+      "dataHealth": {
+        "calibration": {
+          "asOfDate": "2026-07-01",
+          "computedAt": "2026-07-02T16:23:19.298Z",
+          "sourceFreshnessHours": 0,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "Runtime SQL fallback (precomputed calibration stale for asOf 2026-07-01); historical replay freshness normalized"
+        },
+        "lifecycle": {
+          "asOfDate": "2026-07-01",
+          "computedAt": "2026-07-02T16:23:23.959Z",
+          "sourceFreshnessHours": null,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "no precomputed row available; runtime fallback in use; historical replay freshness normalized"
+        },
+        "decisions": {
+          "asOfDate": "2026-07-01",
+          "computedAt": "2026-07-02T16:23:24.493Z",
+          "sourceFreshnessHours": 0,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "Decision snapshots are not populated until Phase 3.5; runtime decisions are computed on request; historical replay freshness normalized"
+        },
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "calibration": {
+          "asOfDate": "2026-07-01",
+          "computedAt": "2026-07-02T16:23:19.298Z",
+          "sourceFreshnessHours": 9,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "Runtime SQL fallback (precomputed calibration stale for asOf 2026-07-01)"
+        },
+        "lifecycle": {
+          "asOfDate": "2026-07-01",
+          "computedAt": "2026-07-02T16:23:23.959Z",
+          "sourceFreshnessHours": null,
+          "staleTier": "warning",
+          "fallbackMode": "runtime_sql",
+          "note": "no precomputed row available; runtime fallback in use"
+        },
+        "decisions": {
+          "asOfDate": "2026-07-01",
+          "computedAt": "2026-07-02T16:23:24.493Z",
+          "sourceFreshnessHours": 9,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "Decision snapshots are not populated until Phase 3.5; runtime decisions are computed on request"
+        },
+        "worstTier": "warning",
+        "degraded": false
+      },
+      "distributions": {
+        "label": {
+          "test_more": 46,
+          "diagnose": 23,
+          "keep": 3,
+          "out_of_scope": 6,
+          "scale": 2
+        },
+        "hardLabel": {
+          "scale": 2
+        },
+        "blockedActionType": {
+          "null": 78,
+          "cut": 2
+        },
+        "campaignLabelStatus": {
+          "unlabeled": 35,
+          "labeled": 45
+        },
+        "campaignKind": {
+          "null": 35,
+          "main": 32,
+          "test": 13
+        },
+        "decisionKindSource": {
+          "all_fallback": 80
+        },
+        "truthSource": {
+          "commercial_truth": 74,
+          "global_default": 6
+        },
+        "confidenceBucket": {
+          "70_79": 72,
+          "60_69": 6,
+          "50_59": 2
+        },
+        "badgeType": {
+          "launch_monitoring": 32,
+          "unlabeled_campaign_context": 35,
+          "landing_page_issue": 18,
+          "delivery_limited": 5,
+          "low_ctr": 8,
+          "lifecycle_unavailable": 4,
+          "fatigue_watch": 1,
+          "checkout_breakdown": 3,
+          "creative_quality_weak": 2,
+          "stop_loss_review": 2,
+          "weak_performance": 1
+        },
+        "labelTransform": {
+          "null": 80
+        },
+        "signalFamily": {
+          "launch_monitoring": 32,
+          "campaign_label": 14,
+          "diagnose": 13,
+          "keep": 1,
+          "insufficient_signal": 9,
+          "delivery": 5,
+          "data_health": 4,
+          "fatigue": 1,
+          "performance_loser": 1
+        }
+      },
+      "risks": {
+        "hardActionRows": 2,
+        "blockedHardActionRows": 2,
+        "unlabeledOrNoCampaignRows": 35,
+        "staleEvidenceRows": 0,
+        "staleHardActionRows": 0,
+        "nullFreshnessRows": 0,
+        "globalDefaultTruthRows": 6,
+        "accountBaselineTruthRows": 0,
+        "highConfidenceHardRows": 0,
+        "highConfidenceHardWithoutCommercialTruthRows": 0,
+        "scaleReadinessBlockedRows": 0,
+        "scaleCalibrationThinRows": 0,
+        "lowCtrHardRows": 0,
+        "labelTransformRows": 0,
+        "cutBoundary": {
+          "bottomQuartileRatio": 0.6709036131526684,
+          "severeLoserRatio": 0.42517970032419217,
+          "commercialMaturitySpend": 99.99750625104187,
+          "hardCutSpend": 249.99376562760466
+        }
+      },
+      "riskHints": [
+        "historical_freshness_normalized_not_actual_runtime",
+        "campaign_label_guard_is_blocking_hard_actions",
+        "raw_wall_clock_data_health_was_stale",
+        "global_default_truth_used_confidence_should_remain_capped"
+      ],
+      "samples": [
+        {
+          "creativeId": "946471284944193",
+          "creativeName": "So happy with",
+          "campaignId": "120242560371390077",
+          "campaignKind": "test",
+          "campaignLabelStatus": "labeled",
+          "decisionKindSource": "all_fallback",
+          "label": "scale",
+          "blockedActionType": null,
+          "confidence": 75,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 1.5453719001403083,
+          "spend": 688.2799999999999,
+          "purchases": 21,
+          "roas": 5.408801650491079,
+          "recent7dRoas": 5.974964917204603,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "lifecycle_unavailable"
+          ],
+          "labelTransform": null,
+          "reason": "ROAS 5.41 (28d) = 155% of target 3.50 with 21 purchases (28d) and recent 7d holding at 5.97 — scale the ad set budget."
+        },
+        {
+          "creativeId": "1655577498670460",
+          "creativeName": "Since I hung",
+          "campaignId": "120242560371390077",
+          "campaignKind": "test",
+          "campaignLabelStatus": "labeled",
+          "decisionKindSource": "all_fallback",
+          "label": "scale",
+          "blockedActionType": null,
+          "confidence": 75,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 2.7816024284794403,
+          "spend": 232.95000000000002,
+          "purchases": 8,
+          "roas": 9.73560849967804,
+          "recent7dRoas": 11.978845236201687,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "lifecycle_unavailable"
+          ],
+          "labelTransform": null,
+          "reason": "ROAS 9.74 (28d) = 278% of target 3.50 with 8 purchases (28d) and recent 7d holding at 11.98 — scale the ad set budget."
+        },
+        {
+          "creativeId": "2266296250855098",
+          "creativeName": "The peace of",
+          "campaignId": "120246476058260077",
+          "campaignKind": null,
+          "campaignLabelStatus": "unlabeled",
+          "decisionKindSource": "all_fallback",
+          "label": "diagnose",
+          "blockedActionType": "cut",
+          "confidence": 50,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 0.20112135284500657,
+          "spend": 142.43,
+          "purchases": 1,
+          "roas": 0.703924734957523,
+          "recent7dRoas": 0.703924734957523,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "creative_quality_weak",
+            "lifecycle_unavailable",
+            "unlabeled_campaign_context",
+            "stop_loss_review"
+          ],
+          "labelTransform": null,
+          "reason": "[Stop-loss review - label campaign before cut] ROAS 0.70 (28d) = 20% of target after $142 spend (28d) — loss-budget maturity reached at $100; cut underperforming creative."
+        },
+        {
+          "creativeId": "1888743981790432",
+          "creativeName": "One of my favorite",
+          "campaignId": "120246441524690077",
+          "campaignKind": null,
+          "campaignLabelStatus": "unlabeled",
+          "decisionKindSource": "all_fallback",
+          "label": "diagnose",
+          "blockedActionType": "cut",
+          "confidence": 50,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 0.23584167906965012,
+          "spend": 113.25999999999999,
+          "purchases": 1,
+          "roas": 0.8254458767437755,
+          "recent7dRoas": 0.8254458767437755,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "creative_quality_weak",
+            "lifecycle_unavailable",
+            "unlabeled_campaign_context",
+            "stop_loss_review"
+          ],
+          "labelTransform": null,
+          "reason": "[Stop-loss review - label campaign before cut] ROAS 0.83 (28d) = 24% of target after $113 spend (28d) — loss-budget maturity reached at $100; cut underperforming creative."
+        }
+      ]
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+        "name": "TheSwaf"
+      },
+      "requestedAsOf": "2026-07-01",
+      "simulationAsOf": "2026-07-01",
+      "freshnessMode": "historical",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "readOnly": true,
+      "mutatesData": false,
+      "flags": {
+        "enabled": true,
+        "surfaceVisible": true,
+        "shadowOnly": false,
+        "presetOverride": null,
+        "source": {
+          "enabled": "env",
+          "surfaceVisible": "business_override",
+          "shadowOnly": "business_override",
+          "presetOverride": null
+        }
+      },
+      "source": {
+        "creativeInputCount": 120,
+        "dedupedDecisionCount": 120,
+        "uniqueCampaignIds": 18,
+        "campaignLabelsFound": 8
+      },
+      "profile": {
+        "preset": "aggressive",
+        "presetSource": "target_pack_risk_posture",
+        "spendUnit": 94.43254692251227,
+        "spendUnitSource": "meta_derived_aov",
+        "spendUnitConfidence": "medium",
+        "thresholds": {
+          "zeroConvBurnerSpend": 188.86509384502455,
+          "cutCandidateSpend": 141.6488203837684,
+          "sustainedLoserSpend": 188.86509384502455,
+          "commercialMaturitySpend": 141.6488203837684,
+          "hardCutSpend": 283.2976407675368,
+          "recentSampleMinSpend": 23.60813673062807,
+          "winnerMemoryMinSpend": 94.43254692251227,
+          "scaleMinPurchases": 2,
+          "winnerMemoryMinPurchases": 2,
+          "bottomQuartileRatio": 0.39487539487539486,
+          "severeLoserRatio": 0.2824118666771818
+        },
+        "hardActionEligibility": {
+          "scale": true,
+          "cut": true,
+          "refresh": true,
+          "reason": null,
+          "reasons": {
+            "scale": null,
+            "cut": null,
+            "refresh": null
+          }
+        },
+        "quality": {
+          "commercialTruthReady": true,
+          "calibrationReady": true,
+          "metaAovQuality": "ready",
+          "thresholdQuality": "ready"
+        },
+        "accountBaselines": {
+          "matureCreativeCount": 109,
+          "roasRatioP10": 0.2824118666771818,
+          "roasRatioP25": 0.39487539487539486,
+          "roasRatioP50": 0.5881122902399498,
+          "roasRatioP75": 1.009395048639111,
+          "winnerPurchaseP50": 2,
+          "metaAovQuality": "ready"
+        },
+        "scope": {
+          "type": "account",
+          "id": "*"
+        }
+      },
+      "dataHealth": {
+        "calibration": {
+          "asOfDate": "2026-07-01",
+          "computedAt": "2026-07-02T16:23:28.001Z",
+          "sourceFreshnessHours": 0,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "Runtime SQL fallback (precomputed calibration stale for asOf 2026-07-01); historical replay freshness normalized"
+        },
+        "lifecycle": {
+          "asOfDate": "2026-07-01",
+          "computedAt": "2026-07-02T16:23:32.453Z",
+          "sourceFreshnessHours": null,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "no precomputed row available; runtime fallback in use; historical replay freshness normalized"
+        },
+        "decisions": {
+          "asOfDate": "2026-07-01",
+          "computedAt": "2026-07-02T16:23:32.852Z",
+          "sourceFreshnessHours": 0,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "Decision snapshots are not populated until Phase 3.5; runtime decisions are computed on request; historical replay freshness normalized"
+        },
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "calibration": {
+          "asOfDate": "2026-07-01",
+          "computedAt": "2026-07-02T16:23:28.001Z",
+          "sourceFreshnessHours": 11,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "Runtime SQL fallback (precomputed calibration stale for asOf 2026-07-01)"
+        },
+        "lifecycle": {
+          "asOfDate": "2026-07-01",
+          "computedAt": "2026-07-02T16:23:32.453Z",
+          "sourceFreshnessHours": null,
+          "staleTier": "warning",
+          "fallbackMode": "runtime_sql",
+          "note": "no precomputed row available; runtime fallback in use"
+        },
+        "decisions": {
+          "asOfDate": "2026-07-01",
+          "computedAt": "2026-07-02T16:23:32.852Z",
+          "sourceFreshnessHours": 11,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "Decision snapshots are not populated until Phase 3.5; runtime decisions are computed on request"
+        },
+        "worstTier": "warning",
+        "degraded": false
+      },
+      "distributions": {
+        "label": {
+          "cut": 10,
+          "test_more": 71,
+          "keep": 21,
+          "diagnose": 16,
+          "scale": 2
+        },
+        "hardLabel": {
+          "cut": 10,
+          "scale": 2
+        },
+        "blockedActionType": {
+          "null": 108,
+          "cut": 12
+        },
+        "campaignLabelStatus": {
+          "labeled": 38,
+          "unlabeled": 82
+        },
+        "campaignKind": {
+          "mixed": 38,
+          "null": 82
+        },
+        "decisionKindSource": {
+          "all_fallback": 120
+        },
+        "truthSource": {
+          "commercial_truth": 120
+        },
+        "confidenceBucket": {
+          "70_79": 94,
+          "60_69": 14,
+          "50_59": 12
+        },
+        "badgeType": {
+          "lifecycle_unavailable": 24,
+          "unlabeled_campaign_context": 82,
+          "creative_quality_weak": 19,
+          "below_breakeven": 7,
+          "weak_performance": 14,
+          "missing_recent_data": 26,
+          "low_ctr": 12,
+          "landing_page_issue": 2,
+          "launch_monitoring": 11,
+          "stop_loss_review": 12,
+          "scale_readiness_blocked": 2,
+          "delivery_limited": 4,
+          "checkout_breakdown": 2,
+          "fatigue_watch": 1
+        },
+        "labelTransform": {
+          "null": 120
+        },
+        "signalFamily": {
+          "data_health": 24,
+          "campaign_label": 65,
+          "performance_loser": 9,
+          "launch_monitoring": 11,
+          "scale_readiness": 2,
+          "delivery": 4,
+          "keep": 1,
+          "diagnose": 1,
+          "insufficient_signal": 2,
+          "fatigue": 1
+        }
+      },
+      "risks": {
+        "hardActionRows": 12,
+        "blockedHardActionRows": 12,
+        "unlabeledOrNoCampaignRows": 82,
+        "staleEvidenceRows": 0,
+        "staleHardActionRows": 0,
+        "nullFreshnessRows": 0,
+        "globalDefaultTruthRows": 0,
+        "accountBaselineTruthRows": 0,
+        "highConfidenceHardRows": 0,
+        "highConfidenceHardWithoutCommercialTruthRows": 0,
+        "scaleReadinessBlockedRows": 2,
+        "scaleCalibrationThinRows": 0,
+        "lowCtrHardRows": 0,
+        "labelTransformRows": 0,
+        "cutBoundary": {
+          "bottomQuartileRatio": 0.39487539487539486,
+          "severeLoserRatio": 0.2824118666771818,
+          "commercialMaturitySpend": 141.6488203837684,
+          "hardCutSpend": 283.2976407675368
+        }
+      },
+      "riskHints": [
+        "historical_freshness_normalized_not_actual_runtime",
+        "campaign_label_guard_is_blocking_hard_actions",
+        "raw_wall_clock_data_health_was_stale",
+        "scale_candidates_exist_but_benchmark_or_purchase_depth_blocks_action",
+        "cut_boundary_is_loose_and_may_miss_weak_losers"
+      ],
+      "samples": [
+        {
+          "creativeId": "1962656064410174",
+          "creativeName": "Ad_F5K_US_CORE_VALUE_RELIGIOUS_DUALITY_02_SAINT_MICHAEL_CROSS_20260614",
+          "campaignId": "120248656753610042",
+          "campaignKind": "mixed",
+          "campaignLabelStatus": "labeled",
+          "decisionKindSource": "all_fallback",
+          "label": "cut",
+          "blockedActionType": null,
+          "confidence": 75,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 0.29051251579288867,
+          "spend": 6761.53,
+          "purchases": 21,
+          "roas": 0.6391275347443551,
+          "recent7dRoas": 0.7862862114435639,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "creative_quality_weak",
+            "lifecycle_unavailable"
+          ],
+          "labelTransform": null,
+          "reason": "ROAS 0.64 (28d) = 29% of target after $6,762 spend (28d) — clear loser at scale."
+        },
+        {
+          "creativeId": "3041651776171249",
+          "creativeName": "Ad_F5K_GB_DIAGNOSTIC_VALUE_03_ANGEL_DEVIL_20260614",
+          "campaignId": "120248657183060042",
+          "campaignKind": "mixed",
+          "campaignLabelStatus": "labeled",
+          "decisionKindSource": "all_fallback",
+          "label": "cut",
+          "blockedActionType": null,
+          "confidence": 75,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 0.33586630003527285,
+          "spend": 6543.770000000001,
+          "purchases": 34,
+          "roas": 0.7389058600776003,
+          "recent7dRoas": 0.7998215657272034,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "lifecycle_unavailable"
+          ],
+          "labelTransform": null,
+          "reason": "ROAS 0.74 (28d) = 34% of target after $6,544 spend (28d) — clear loser at scale."
+        },
+        {
+          "creativeId": "913690625083809",
+          "creativeName": "Ad_F5K_US_10JUN_HERO_TEST_02_SAINT_MICHAEL_CROSS_20260614",
+          "campaignId": "120248657047720042",
+          "campaignKind": "mixed",
+          "campaignLabelStatus": "labeled",
+          "decisionKindSource": "all_fallback",
+          "label": "cut",
+          "blockedActionType": null,
+          "confidence": 75,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 0.25437328480226473,
+          "spend": 3933.7500000000005,
+          "purchases": 10,
+          "roas": 0.5596212265649825,
+          "recent7dRoas": 0.574213816109078,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "creative_quality_weak",
+            "lifecycle_unavailable"
+          ],
+          "labelTransform": null,
+          "reason": "ROAS 0.56 (28d) = 25% of target after $3,934 spend (28d) — clear loser at scale."
+        },
+        {
+          "creativeId": "1546542256949523",
+          "creativeName": "Ad_F5K_US_10JUN_HERO_TEST_03_ELVEN_SWORD_20260614",
+          "campaignId": "120248657047720042",
+          "campaignKind": "mixed",
+          "campaignLabelStatus": "labeled",
+          "decisionKindSource": "all_fallback",
+          "label": "cut",
+          "blockedActionType": null,
+          "confidence": 75,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 0.3679424968717482,
+          "spend": 2148.31,
+          "purchases": 9,
+          "roas": 0.8094734931178461,
+          "recent7dRoas": 0.9882067353852285,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "creative_quality_weak",
+            "lifecycle_unavailable"
+          ],
+          "labelTransform": null,
+          "reason": "ROAS 0.81 (28d) = 37% of target after $2,148 spend (28d) — clear loser at scale."
+        },
+        {
+          "creativeId": "1000844809459077",
+          "creativeName": "Ad_F5K_GB_DIAGNOSTIC_VALUE_04_CRUCIFIX_CROSS_20260614",
+          "campaignId": "120248657183060042",
+          "campaignKind": "mixed",
+          "campaignLabelStatus": "labeled",
+          "decisionKindSource": "all_fallback",
+          "label": "cut",
+          "blockedActionType": null,
+          "confidence": 75,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 0.36465360937763536,
+          "spend": 689.92,
+          "purchases": 3,
+          "roas": 0.8022379406307979,
+          "recent7dRoas": 0,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "lifecycle_unavailable"
+          ],
+          "labelTransform": null,
+          "reason": "ROAS 0.80 (28d) = 36% of target after $690 spend (28d) — clear loser at scale."
+        },
+        {
+          "creativeId": "1007048011875307",
+          "creativeName": "Ad_Core_AngelDevil_AlexisFlexible_NonTesvik",
+          "campaignId": "120244828390840430",
+          "campaignKind": "mixed",
+          "campaignLabelStatus": "labeled",
+          "decisionKindSource": "all_fallback",
+          "label": "cut",
+          "blockedActionType": null,
+          "confidence": 75,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 0,
+          "spend": 524.16,
+          "purchases": 0,
+          "roas": 0,
+          "recent7dRoas": 0,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "creative_quality_weak",
+            "lifecycle_unavailable"
+          ],
+          "labelTransform": null,
+          "reason": "ROAS 0.00 (28d) = 0% of target after $524 spend (28d) — clear loser at scale."
+        },
+        {
+          "creativeId": "1337157688566977",
+          "creativeName": "Ad_F5K_US_31MAY_CONTROLLED_TEST_01_SAINT_BENEDICT_20260614",
+          "campaignId": "120248657114880042",
+          "campaignKind": "mixed",
+          "campaignLabelStatus": "labeled",
+          "decisionKindSource": "all_fallback",
+          "label": "cut",
+          "blockedActionType": null,
+          "confidence": 75,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 0.3319602376206149,
+          "spend": 411.81000000000006,
+          "purchases": 2,
+          "roas": 0.7303125227653529,
+          "recent7dRoas": 1.024123805188894,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "creative_quality_weak",
+            "lifecycle_unavailable"
+          ],
+          "labelTransform": null,
+          "reason": "ROAS 0.73 (28d) = 33% of target after $412 spend (28d) — clear loser at scale."
+        },
+        {
+          "creativeId": "2080314776223824",
+          "creativeName": "Ad_F5K_US_CORE_VALUE_RELIGIOUS_DUALITY_04_LIFE_AND_DEATH_20260614",
+          "campaignId": "120248656753610042",
+          "campaignKind": "mixed",
+          "campaignLabelStatus": "labeled",
+          "decisionKindSource": "all_fallback",
+          "label": "cut",
+          "blockedActionType": null,
+          "confidence": 65,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 0.26946406292524794,
+          "spend": 337.37,
+          "purchases": 1,
+          "roas": 0.5928209384355455,
+          "recent7dRoas": null,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "creative_quality_weak",
+            "missing_recent_data",
+            "lifecycle_unavailable"
+          ],
+          "labelTransform": null,
+          "reason": "ROAS 0.59 (28d) = 27% of target after $337 spend (28d) — clear loser at scale."
+        },
+        {
+          "creativeId": "1932525757401873",
+          "creativeName": "Ad_F5K_US_365D_WINNER_RETEST_05_HIST_ALL_RINGS_20260614",
+          "campaignId": "120248657011350042",
+          "campaignKind": "mixed",
+          "campaignLabelStatus": "labeled",
+          "decisionKindSource": "all_fallback",
+          "label": "cut",
+          "blockedActionType": null,
+          "confidence": 65,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 0.32206810666895686,
+          "spend": 254.04000000000002,
+          "purchases": 1,
+          "roas": 0.7085498346717052,
+          "recent7dRoas": null,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "creative_quality_weak",
+            "missing_recent_data",
+            "lifecycle_unavailable"
+          ],
+          "labelTransform": null,
+          "reason": "ROAS 0.71 (28d) = 32% of target after $254 spend (28d) — loss-budget maturity reached at $142; cut underperforming creative."
+        },
+        {
+          "creativeId": "2734470570262623",
+          "creativeName": "Ad_F5K_US_31MAY_CONTROLLED_TEST_03_CRUCIFIX_CROSS_20260614",
+          "campaignId": "120248657114880042",
+          "campaignKind": "mixed",
+          "campaignLabelStatus": "labeled",
+          "decisionKindSource": "all_fallback",
+          "label": "cut",
+          "blockedActionType": null,
+          "confidence": 65,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 0,
+          "spend": 144.58,
+          "purchases": 0,
+          "roas": 0,
+          "recent7dRoas": null,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "creative_quality_weak",
+            "missing_recent_data",
+            "lifecycle_unavailable"
+          ],
+          "labelTransform": null,
+          "reason": "ROAS 0.00 (28d) = 0% of target after $145 spend (28d) — loss-budget maturity reached at $142; cut underperforming creative."
+        },
+        {
+          "creativeId": "1377865124404006",
+          "creativeName": "Ad_F5K_US_CORE_VALUE_RELIGIOUS_DUALITY_05_MOTHER_MARY_RING_20260614",
+          "campaignId": "120248656753610042",
+          "campaignKind": "mixed",
+          "campaignLabelStatus": "labeled",
+          "decisionKindSource": "all_fallback",
+          "label": "scale",
+          "blockedActionType": null,
+          "confidence": 75,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 1.7864649553115661,
+          "spend": 1059.66,
+          "purchases": 10,
+          "roas": 3.930222901685446,
+          "recent7dRoas": 4.403642970905583,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "lifecycle_unavailable"
+          ],
+          "labelTransform": null,
+          "reason": "ROAS 3.93 (28d) = 179% of target 2.20 with 10 purchases (28d) and recent 7d holding at 4.40 — scale the ad set budget."
+        },
+        {
+          "creativeId": "1511570353840312",
+          "creativeName": "Ad_NonTesvik_DPA_InStock",
+          "campaignId": "120244828402390430",
+          "campaignKind": "mixed",
+          "campaignLabelStatus": "labeled",
+          "decisionKindSource": "all_fallback",
+          "label": "scale",
+          "blockedActionType": null,
+          "confidence": 75,
+          "truthSource": "commercial_truth",
+          "ratioToTarget": 1.4917783967056968,
+          "spend": 417.46999999999997,
+          "purchases": 7,
+          "roas": 3.2819124727525333,
+          "recent7dRoas": 3.289067676289636,
+          "dataFreshnessHours": 6,
+          "badges": [
+            "lifecycle_unavailable"
+          ],
+          "labelTransform": null,
+          "reason": "ROAS 3.28 (28d) = 149% of target 2.20 with 7 purchases (28d) and recent 7d holding at 3.29 — scale the ad set budget."
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "This is a replay of the current engine pipeline; it does not change formulas or persist decisions.",
+    "The report measures output distribution and guard pressure, not outcome precision or causal correctness.",
+    "Historical rows may be marked stale because the current data-source computes freshness against wall-clock now.",
+    "Historical freshness mode is analysis-only; actual runtime still uses wall-clock freshness.",
+    "If a business has no lifecycle/meta source date, no formula conclusion should be drawn for that business."
+  ]
+}

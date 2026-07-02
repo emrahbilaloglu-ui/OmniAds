@@ -151,25 +151,29 @@ describe("Creative Decision Center V3 bridge", () => {
     }
   });
 
-  it("lets the existing adapter block unlabeled scale execution", () => {
+  it("downgrades missing-campaign hard actions before adapter execution mapping", () => {
     const result = requireMapped(
       bridgeV3DecisionToV21({
         decision: makeV3Decision({
           label: "scale",
-          campaignKind: null,
-          campaignLabelStatus: "unlabeled",
+          campaignKind: "main",
+          campaignLabelStatus: "no_campaign",
           confidence: 90,
           reason: "Would scale if campaign kind were labeled.",
         }),
-        context: { campaignKind: null },
+        context: { campaignKind: "main" },
       }),
     );
     const { row, trace } = adaptCreativeDecisionToRow(result.adapterInput);
 
-    expect(result.engine.primaryDecision).toBe("Scale");
+    expect(result.engine.primaryDecision).toBe("Diagnose");
+    expect(result.engine.problemClass).toBe("campaign_context");
+    expect(result.engine.actionability).toBe("diagnose");
+    expect(result.engine.reasonTags).toContain("campaign_label_missing");
+    expect(result.engine.blockerReasons).toContain("campaign_label_missing");
     expect(row.buyerAction).toBe("diagnose_data");
     expect(row.executionAction).toBeNull();
-    expect(trace.unlabeledScaleSafetyApplied).toBe(true);
+    expect(trace.unlabeledScaleSafetyApplied).toBe(false);
     expect(validateCreativeDecisionCenterRowDecision(row).ok).toBe(true);
   });
 

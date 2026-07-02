@@ -206,6 +206,8 @@ export interface DecisionCenterSnapshot {
   dataFreshness: {
     status: CreativeDecisionCenterFreshnessStatus;
     maxAgeHours?: number | null;
+    latestSnapshotAsOf?: string | null;
+    snapshotAgeHours?: number | null;
   };
   inputCoverageSummary: Record<string, number>;
   missingDataSummary: Record<string, number>;

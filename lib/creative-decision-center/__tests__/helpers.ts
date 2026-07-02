@@ -83,7 +83,12 @@ export function makeSnapshot(
     adapterVersion: "test-adapter",
     configVersion: "test-config",
     generatedAt: "2026-05-20T00:00:00.000Z",
-    dataFreshness: { status: "unknown", maxAgeHours: null },
+    dataFreshness: {
+      status: "unknown",
+      maxAgeHours: null,
+      latestSnapshotAsOf: null,
+      snapshotAgeHours: null,
+    },
     inputCoverageSummary: { truth: 0 },
     missingDataSummary: { truth: 1 },
     todayBrief: [

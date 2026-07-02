@@ -19,6 +19,7 @@ describe("calibration job failure handling", () => {
   it("marks a running job as failed when calibration computation errors", async () => {
     const jobRunId = "11111111-1111-4111-8111-111111111111";
     dbMocks.query
+      .mockResolvedValueOnce([{ exists: true }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ acquired: true }])
       .mockResolvedValueOnce([{ id: jobRunId }])

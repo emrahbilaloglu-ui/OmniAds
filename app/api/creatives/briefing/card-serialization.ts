@@ -23,6 +23,10 @@ import type {
   BriefingWatchingSubBucket,
 } from "@/components/creatives/briefing/types";
 
+type DecisionCenterRowForCard = NonNullable<
+  BriefingCreativeCard["decisionCenterRow"]
+>;
+
 function badgeLabels(badges: DecisionBadge[]) {
   return badges.flatMap((badge) => {
     if (badge.type === "below_breakeven") return ["below_breakeven"];
@@ -51,7 +55,8 @@ function primaryActionForDecision(decision: DecisionOutput): {
   if (
     decision.label === "diagnose" &&
     decision.blockedActionType === "cut" &&
-    decision.campaignLabelStatus === "unlabeled"
+    (decision.campaignLabelStatus === "unlabeled" ||
+      decision.campaignLabelStatus === "no_campaign")
   ) {
     return { kind: "review", label: "Cut review" };
   }
@@ -75,6 +80,25 @@ function primaryActionForDecision(decision: DecisionOutput): {
   if (decision.label === "diagnose")
     return { kind: "review", label: "Open evidence" };
   return { kind: "review", label: "Review" };
+}
+
+function primaryActionForDecisionCenterRow(
+  row: DecisionCenterRowForCard | null | undefined,
+): {
+  kind: string;
+  label: string;
+} | null {
+  if (row?.buyerAction !== "scale") return null;
+  if (row.executionAction === "promote_to_main") {
+    return { kind: "promote", label: "Promote to main" };
+  }
+  if (row.executionAction === "scale_budget") {
+    return { kind: "scale_budget", label: "Scale budget" };
+  }
+  if (row.executionAction === "controlled_scale") {
+    return { kind: "controlled_scale", label: "Review structure & scale" };
+  }
+  return null;
 }
 
 export function safeNumber(value: number | null | undefined) {
@@ -180,7 +204,8 @@ export function deriveWatchingSubBucket(
 ): BriefingWatchingSubBucket | null {
   const badgeTypes = new Set(decision.badges.map((badge) => badge.type));
   if (
-    decision.campaignLabelStatus === "unlabeled" &&
+    (decision.campaignLabelStatus === "unlabeled" ||
+      decision.campaignLabelStatus === "no_campaign") &&
     decision.blockedActionType
   ) {
     return "waiting_on_labels";
@@ -429,6 +454,7 @@ export function cardForDecision(input: {
   profileScope?: string | null;
   accountProfile?: AccountDecisionProfile | null;
   backtestSummary?: DecisionBacktestSummary | null;
+  decisionCenterRow?: DecisionCenterRowForCard | null;
 }): BriefingCreativeCard {
   const { decision, creativeInput, row } = input;
   const label = decision.label as DecisionLabel;
@@ -449,6 +475,7 @@ export function cardForDecision(input: {
   });
   const priorityScore = buildBriefingPriorityScore(decision);
 
+  const decisionCenterRow = input.decisionCenterRow ?? null;
   return {
     id: row?.id || decision.creativeId,
     creativeId: decision.creativeId,
@@ -498,11 +525,14 @@ export function cardForDecision(input: {
       value: ctr,
       p50: null,
     },
-    primary: primaryActionForDecision(decision),
+    primary:
+      primaryActionForDecisionCenterRow(decisionCenterRow) ??
+      primaryActionForDecision(decision),
     automationReadiness: creativeAutomationReadiness({
       decision,
       backtestSummary: input.backtestSummary ?? null,
     }),
+    ...(decisionCenterRow ? { decisionCenterRow } : {}),
     status: creativeInput?.effectiveStatus ?? row?.effective_status ?? null,
     ageDays: creativeInput?.ageDays ?? null,
     firstSeenAt: creativeInput?.firstSeenAt ?? null,

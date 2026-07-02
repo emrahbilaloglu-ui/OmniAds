@@ -75,6 +75,7 @@ type BriefingLane = "action" | "watching" | "healthy";
 const DECISION_CENTER_OBSERVABILITY_ROUTE = "GET /api/creatives/briefing";
 const LOCAL_DECISION_CENTER_OBSERVABILITY_SALT =
   "creative-decision-center.observability.v1.local-default";
+const DECISION_CENTER_SNAPSHOT_MAX_AGE_HOURS = 26;
 
 type DecisionCenterParamState = "truthy" | "falsy" | "unset";
 
@@ -223,20 +224,36 @@ function buildDecisionCenterSnapshot(input: {
   engineVersion: string;
   adapterVersion?: string;
   dataHealthDegraded: boolean;
+  snapshotLatest?: CreativesBriefingMeasurementReconciliation["snapshotLatest"];
   rowDecisions?: CreativeDecisionCenterRowDecision[];
   aggregateDecisions?: CreativeDecisionCenterAggregateDecision[];
 }): DecisionCenterSnapshot | null {
+  if (!parseDateOnly(input.asOf)) return null;
+  const generatedAt = new Date().toISOString();
+  const latestSnapshotAsOf = input.snapshotLatest?.asOfDate ?? null;
+  const snapshotAgeHours = latestSnapshotAsOf
+    ? hoursBetweenUtcDates(latestSnapshotAsOf, generatedAt)
+    : null;
   const dataFreshnessStatus: CreativeDecisionCenterFreshnessStatus =
-    input.dataHealthDegraded ? "stale" : "fresh";
-  const generatedAtDate = new Date(`${input.asOf}T00:00:00.000Z`);
-  if (!Number.isFinite(generatedAtDate.getTime())) return null;
-  const generatedAt = generatedAtDate.toISOString();
+    latestSnapshotAsOf === null
+      ? "unknown"
+      : input.dataHealthDegraded ||
+          (snapshotAgeHours !== null &&
+            snapshotAgeHours > DECISION_CENTER_SNAPSHOT_MAX_AGE_HOURS) ||
+          (input.snapshotLatest?.staleRows ?? 0) > 0
+        ? "stale"
+        : "fresh";
   const { snapshot } = assembleDecisionCenterSnapshot({
     engineVersion: input.engineVersion,
     adapterVersion: input.adapterVersion ?? CREATIVE_DECISION_CENTER_ADAPTER_VERSION,
     configVersion: CREATIVE_DECISION_ENGINE_CONFIG_VERSION,
     generatedAt,
-    dataFreshness: { status: dataFreshnessStatus, maxAgeHours: null },
+    dataFreshness: {
+      status: dataFreshnessStatus,
+      maxAgeHours: DECISION_CENTER_SNAPSHOT_MAX_AGE_HOURS,
+      latestSnapshotAsOf,
+      snapshotAgeHours,
+    },
     rowDecisions: input.rowDecisions ?? [],
     aggregateDecisions: input.aggregateDecisions ?? [],
   });
@@ -317,6 +334,15 @@ function safeCount(value: unknown): number {
 function numericCount(value: unknown): number {
   const numeric = Number(value ?? 0);
   return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 0;
+}
+
+function hoursBetweenUtcDates(startDateOnly: string, endIso: string) {
+  const start = new Date(`${startDateOnly}T00:00:00.000Z`);
+  const end = new Date(endIso);
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
+    return null;
+  }
+  return Math.max(0, Number(((end.getTime() - start.getTime()) / 3_600_000).toFixed(2)));
 }
 
 function coverage(present: number, total: number): number | null {
@@ -822,7 +848,8 @@ function decisionLane(
   if (
     decision.label === "diagnose" &&
     decision.blockedActionType === "cut" &&
-    decision.campaignLabelStatus === "unlabeled"
+    (decision.campaignLabelStatus === "unlabeled" ||
+      decision.campaignLabelStatus === "no_campaign")
   ) {
     return "action";
   }
@@ -858,6 +885,46 @@ function rowForDecision(
   return (
     creativeRowsById.get(decision.creativeId) ??
     (input?.creativeId ? creativeRowsById.get(input.creativeId) : undefined) ??
+    null
+  );
+}
+
+interface DecisionCenterRowMaps {
+  byRowId: Map<string, CreativeDecisionCenterRowDecision>;
+  byCreativeId: Map<string, CreativeDecisionCenterRowDecision>;
+}
+
+function normalizedDecisionCenterKey(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function buildDecisionCenterRowMaps(
+  rows: readonly CreativeDecisionCenterRowDecision[],
+): DecisionCenterRowMaps {
+  const byRowId = new Map<string, CreativeDecisionCenterRowDecision>();
+  const byCreativeId = new Map<string, CreativeDecisionCenterRowDecision>();
+  for (const row of rows) {
+    const rowId = normalizedDecisionCenterKey(row.rowId);
+    const creativeId = normalizedDecisionCenterKey(row.creativeId);
+    if (rowId && !byRowId.has(rowId)) byRowId.set(rowId, row);
+    if (creativeId && !byCreativeId.has(creativeId)) {
+      byCreativeId.set(creativeId, row);
+    }
+  }
+  return { byRowId, byCreativeId };
+}
+
+function decisionCenterRowForDecision(input: {
+  decision: DecisionOutput;
+  row: MetaCreativeApiRow | null;
+  maps: DecisionCenterRowMaps;
+}): CreativeDecisionCenterRowDecision | null {
+  const rowId = normalizedDecisionCenterKey(input.row?.id);
+  const creativeId = normalizedDecisionCenterKey(input.decision.creativeId);
+  return (
+    (rowId ? input.maps.byRowId.get(rowId) : undefined) ??
+    (creativeId ? input.maps.byCreativeId.get(creativeId) : undefined) ??
     null
   );
 }
@@ -899,20 +966,26 @@ function buildBridgedDecisionCenterSnapshot(input: {
   inputsByCreativeId: Map<string, CreativeInput>;
   creativeRowsById: Map<string, MetaCreativeApiRow>;
   dataHealthDegraded: boolean;
+  snapshotLatest?: CreativesBriefingMeasurementReconciliation["snapshotLatest"];
+  rowDecisions?: readonly CreativeDecisionCenterRowDecision[];
   aggregateDecisions: readonly CreativeDecisionCenterAggregateDecision[];
 }): DecisionCenterSnapshot | null {
   try {
-    const rowDecisions = buildDecisionCenterRows({
-      decisions: input.decisions,
-      inputsByCreativeId: input.inputsByCreativeId,
-      creativeRowsById: input.creativeRowsById,
-      dataHealthDegraded: input.dataHealthDegraded,
-    });
+    const rowDecisions =
+      input.rowDecisions === undefined
+        ? buildDecisionCenterRows({
+            decisions: input.decisions,
+            inputsByCreativeId: input.inputsByCreativeId,
+            creativeRowsById: input.creativeRowsById,
+            dataHealthDegraded: input.dataHealthDegraded,
+          })
+        : [...input.rowDecisions];
     return buildDecisionCenterSnapshot({
       asOf: input.asOf,
       engineVersion: input.engineVersion,
       adapterVersion: DECISION_CENTER_BRIDGED_ADAPTER_VERSION,
       dataHealthDegraded: input.dataHealthDegraded,
+      snapshotLatest: input.snapshotLatest,
       rowDecisions,
       aggregateDecisions: [...input.aggregateDecisions],
     });
@@ -1182,10 +1255,26 @@ export async function GET(request: NextRequest) {
     asOf,
     activeCreativeCount: enrichedInputs.length,
   }).catch(() => null);
+  const decisionCenterRows = includeDecisionCenter
+    ? buildDecisionCenterRows({
+        decisions,
+        inputsByCreativeId: inputByCreativeId,
+        creativeRowsById,
+        dataHealthDegraded: Boolean(dataHealth.degraded),
+      })
+    : [];
+  const decisionCenterRowMaps = buildDecisionCenterRowMaps(decisionCenterRows);
 
   for (const decision of decisions) {
     const creativeInput = inputByCreativeId.get(decision.creativeId);
     const row = rowForDecision(decision, creativeInput, creativeRowsById);
+    const decisionCenterRow = includeDecisionCenter
+      ? decisionCenterRowForDecision({
+          decision,
+          row,
+          maps: decisionCenterRowMaps,
+        })
+      : null;
     const card = cardForDecision({
       decision,
       creativeInput,
@@ -1195,6 +1284,7 @@ export async function GET(request: NextRequest) {
       profileScope: `${profile.scope.type}:${profile.scope.id}`,
       accountProfile: profile,
       backtestSummary,
+      decisionCenterRow,
     });
     const deferred =
       deferredIds.has(decision.creativeId) ||
@@ -1225,18 +1315,6 @@ export async function GET(request: NextRequest) {
   const aggregateBuild = buildDecisionCenterAggregateDecisions({
     candidates: aggregateCandidates,
   });
-  let decisionCenterSnapshot: DecisionCenterSnapshot | null | undefined;
-  if (includeDecisionCenter) {
-    decisionCenterSnapshot = buildBridgedDecisionCenterSnapshot({
-      asOf,
-      engineVersion: responseEngineVersion,
-      decisions,
-      inputsByCreativeId: inputByCreativeId,
-      creativeRowsById,
-      dataHealthDegraded: Boolean(dataHealth.degraded),
-      aggregateDecisions: aggregateBuild.aggregateDecisions,
-    });
-  }
   const laneSummary = buildLaneSummary({
     lanes,
     deferredCount: triageState.deferredCount,
@@ -1246,12 +1324,27 @@ export async function GET(request: NextRequest) {
     asOf,
     engineVersion: responseEngineVersion,
     lanes,
-    decisionCenterRowCount:
-      decisionCenterSnapshot === undefined
-        ? null
-        : decisionCenterSnapshot?.rowDecisions.length ?? null,
+    decisionCenterRowCount: null,
     inputs: enrichedInputs,
   });
+  let decisionCenterSnapshot: DecisionCenterSnapshot | null | undefined;
+  if (includeDecisionCenter) {
+    decisionCenterSnapshot = buildBridgedDecisionCenterSnapshot({
+      asOf,
+      engineVersion: responseEngineVersion,
+      decisions,
+      inputsByCreativeId: inputByCreativeId,
+      creativeRowsById,
+      dataHealthDegraded: Boolean(dataHealth.degraded),
+      snapshotLatest: measurementReconciliation.snapshotLatest,
+      rowDecisions: decisionCenterRows,
+      aggregateDecisions: aggregateBuild.aggregateDecisions,
+    });
+  }
+  measurementReconciliation.decisionCenterRowCount =
+    decisionCenterSnapshot === undefined
+      ? null
+      : decisionCenterSnapshot?.rowDecisions.length ?? null;
 
   const responseBody: CreativesBriefingResponse & {
     statusFilter: typeof statusFilter;

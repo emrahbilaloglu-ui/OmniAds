@@ -9,7 +9,10 @@ import { syncGA4Reports } from "@/lib/sync/ga4-sync";
 import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
 import { syncShopifyCommerceReports } from "@/lib/sync/shopify-sync";
 import { runSyncSoakGate } from "@/lib/sync/soak-gate";
-import { runDecisionOutcomesJobForActiveBusinessesIfDue } from "@/lib/creative-decision-engine";
+import {
+  runDecisionOutcomesJobForActiveBusinessesIfDue,
+  runEngineV3ProducerChainForActiveBusinessesIfDue,
+} from "@/lib/creative-decision-engine";
 import {
   evaluateAndPersistSyncGates,
   shouldEnforceSyncGateFailure,
@@ -233,6 +236,36 @@ export async function POST(request: NextRequest) {
       error: error instanceof Error ? error.message : String(error),
     };
   });
+  const decisionProducerJob = await runEngineV3ProducerChainForActiveBusinessesIfDue(
+    new Date(),
+  ).catch((error) => {
+    console.error("[sync-cron] decision_producer_job_failed", error);
+    return {
+      skipped: true,
+      reason: "failed" as const,
+      asOf: new Date().toISOString().slice(0, 10),
+      error: error instanceof Error ? error.message : String(error),
+    };
+  });
+  if (!decisionProducerJob.skipped && "results" in decisionProducerJob) {
+    for (const result of decisionProducerJob.results ?? []) {
+      for (const [job, jobResult] of [
+        ["calibration", result.calibration],
+        ["lifecycle", result.lifecycle],
+        ["decisions", result.decisions],
+      ] as const) {
+        if (jobResult.status === "failed") {
+          console.error("[sync-cron] decision_producer_business_job_failed", {
+            businessId: result.businessId,
+            businessName: result.businessName,
+            job,
+            jobRunId: jobResult.jobRunId,
+            errorMessage: jobResult.errorMessage ?? null,
+          });
+        }
+      }
+    }
+  }
   const decisionOutcomesJob = await runDecisionOutcomesJobForActiveBusinessesIfDue(
     new Date(),
     businesses,
@@ -368,6 +401,9 @@ export async function POST(request: NextRequest) {
     metaIgnoredMarkerJobSkipped: metaIgnoredMarkerJob.skipped,
     metaIgnoredMarkerJobReason:
       "reason" in metaIgnoredMarkerJob ? metaIgnoredMarkerJob.reason : null,
+    decisionProducerJobSkipped: decisionProducerJob.skipped,
+    decisionProducerJobReason:
+      "reason" in decisionProducerJob ? decisionProducerJob.reason : null,
     decisionOutcomesJobSkipped: decisionOutcomesJob.skipped,
     decisionOutcomesJobReason:
       "reason" in decisionOutcomesJob ? decisionOutcomesJob.reason : null,
@@ -386,6 +422,7 @@ export async function POST(request: NextRequest) {
       ...(googleAutoRepair ? { googleAutoRepairResults: googleAutoRepair.results } : {}),
       metaSnapshotJob,
       metaIgnoredMarkerJob,
+      decisionProducerJob,
       decisionOutcomesJob,
     },
     { status: soakGate?.outcome === "fail" ? 503 : 200 }

@@ -25,6 +25,11 @@ describe("decision outcomes job SQL contracts", () => {
     expect(source).not.toContain("AND s.engine_version =");
     expect(source).toContain("($4::integer - 1)");
     expect(source).toContain("LIMIT $5::integer");
+    expect(source).toContain("existing.realized_outcome = 'unknown'");
+    expect(source).toContain(
+      "existing.classifier_version IS DISTINCT FROM $6::text",
+    );
+    expect(source).toContain("CREATIVE_OUTCOME_CLASSIFIER_VERSION");
   });
 
   it("keeps the daily scheduler due-gated and schema-gated", () => {
@@ -39,6 +44,8 @@ describe("decision outcomes job SQL contracts", () => {
       "now.getUTCHours() === DECISION_OUTCOME_DAILY_UTC_HOUR",
     );
     expect(source).toContain("findBusinessesPendingDecisionOutcomes");
+    expect(source).toContain("engineV3JobsDisabled");
+    expect(source).toContain('reason: "jobs_disabled"');
     expect(source).toContain("pendingBusinesses.length === 0");
     expect(source).toContain(
       "pendingBusinesses.map(async (business) => ({",

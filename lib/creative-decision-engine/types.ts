@@ -13,7 +13,7 @@ import type {
 import type { EngineV3Flags } from "./feature-flags";
 import type { OperatorResponseResult } from "./operator-response-detection";
 
-export const ENGINE_VERSION = "v3-2026-05-16-phase-h2";
+export const ENGINE_VERSION = "v3-2026-07-02-math-guardrails";
 
 /** Final decision label. */
 export type DecisionLabel =
@@ -448,6 +448,7 @@ export interface DecisionBadge {
     | "stale_lifecycle"
     | "stale_decision_context"
     | "stale_evidence"
+    | "unknown_freshness"
     | "lifecycle_unavailable"
     | "opportunity_window_open"
     | "opportunity_window_closing"
@@ -502,6 +503,10 @@ export const DECISION_BADGE_DISPLAY: Record<
   },
   stale_evidence: {
     label: "Stale evidence",
+    severity: "warning",
+  },
+  unknown_freshness: {
+    label: "Unknown freshness",
     severity: "warning",
   },
   lifecycle_unavailable: {

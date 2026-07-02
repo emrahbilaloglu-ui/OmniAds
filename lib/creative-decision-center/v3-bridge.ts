@@ -130,6 +130,12 @@ const REVIEW_WORTHY_KEEP_BADGES = new Set<V3BadgeType>([
   "stop_loss_review",
 ]);
 
+const HARD_V3_ACTION_LABELS = new Set<DecisionLabel>([
+  "scale",
+  "cut",
+  "refresh",
+]);
+
 function hasBadge(
   decision: DecisionOutput,
   badgeType: V3BadgeType,
@@ -150,6 +156,14 @@ function uniqueStable(values: readonly string[]): string[] {
 
 function sourceDecisionFor(decision: DecisionOutput): string {
   return decision.labelTransform ?? `v3:${decision.label}`;
+}
+
+function hasCampaignLabelGap(decision: DecisionOutput): boolean {
+  return (
+    hasBadge(decision, "unlabeled_campaign_context") ||
+    decision.campaignLabelStatus === "unlabeled" ||
+    decision.campaignLabelStatus === "no_campaign"
+  );
 }
 
 function normalizedCampaignKind(
@@ -230,16 +244,11 @@ function deriveProblemClass(
   decision: DecisionOutput,
   label: DecisionLabel,
 ): CreativeDecisionCenterProblemClass {
-  const campaignLabelMissing =
-    hasBadge(decision, "unlabeled_campaign_context") ||
-    decision.campaignLabelStatus === "unlabeled" ||
-    decision.campaignLabelStatus === "no_campaign";
-
   if (hasBadge(decision, "policy_blocked")) return "policy";
   if (hasBadge(decision, "delivery_no_spend_24h")) return "delivery";
   if (hasBadge(decision, "launch_monitoring")) return "launch_monitoring";
   if (hasAnyBadge(decision, DATA_QUALITY_BADGES)) return "data_quality";
-  if (campaignLabelMissing) return "campaign_context";
+  if (hasCampaignLabelGap(decision)) return "campaign_context";
   if (hasAnyBadge(decision, FATIGUE_BADGES)) return "fatigue";
   if (hasBadge(decision, "delivery_limited")) return "data_quality";
   if (hasAnyBadge(decision, PERFORMANCE_BADGES)) return "performance";
@@ -253,12 +262,7 @@ function deriveProblemClass(
 function mapKeep(
   decision: DecisionOutput,
 ): MappingDecision | V3BridgeOmitReason {
-  const campaignLabelMissing =
-    hasBadge(decision, "unlabeled_campaign_context") ||
-    decision.campaignLabelStatus === "unlabeled" ||
-    decision.campaignLabelStatus === "no_campaign";
-
-  if (campaignLabelMissing) {
+  if (hasCampaignLabelGap(decision)) {
     return {
       primaryDecision: "Diagnose",
       problemClass: "campaign_context",
@@ -306,6 +310,18 @@ function mapKeep(
 function mapDecision(
   decision: DecisionOutput,
 ): MappingDecision | V3BridgeOmitReason {
+  if (
+    HARD_V3_ACTION_LABELS.has(decision.label) &&
+    hasCampaignLabelGap(decision)
+  ) {
+    return {
+      primaryDecision: "Diagnose",
+      problemClass: deriveProblemClass(decision, decision.label),
+      actionability: "diagnose",
+      reasonTags: ["campaign_label_missing"],
+    };
+  }
+
   switch (decision.label) {
     case "scale":
       return {

@@ -524,7 +524,13 @@ describe("GET /api/creatives/briefing", () => {
       adapterVersion:
         "creative-decision-center.v3-bridge.v1+creative-decision-center.shadow-adapter.v1",
       configVersion: "creative-decision-engine.config.v1",
-      generatedAt: "2026-05-07T00:00:00.000Z",
+      generatedAt: expect.any(String),
+      dataFreshness: {
+        status: "unknown",
+        maxAgeHours: 26,
+        latestSnapshotAsOf: null,
+        snapshotAgeHours: null,
+      },
       aggregateDecisions: [],
       todayBrief: [],
       missingDataSummary: {},
@@ -815,7 +821,13 @@ describe("GET /api/creatives/briefing", () => {
       adapterVersion:
         "creative-decision-center.v3-bridge.v1+creative-decision-center.shadow-adapter.v1",
       configVersion: "creative-decision-engine.config.v1",
-      generatedAt: "2026-05-07T00:00:00.000Z",
+      generatedAt: expect.any(String),
+      dataFreshness: {
+        status: "unknown",
+        maxAgeHours: 26,
+        latestSnapshotAsOf: null,
+        snapshotAgeHours: null,
+      },
       aggregateDecisions: [],
       todayBrief: [],
       missingDataSummary: {},
@@ -840,9 +852,15 @@ describe("GET /api/creatives/briefing", () => {
         applyEligible: false,
       },
     });
-    expect(payload.decisionCenter.dataFreshness.status).toMatch(
-      /^(fresh|stale)$/,
-    );
+    expect(payload.actionNow[0]).toMatchObject({
+      primary: { kind: "scale_budget", label: "Scale budget" },
+      decisionCenterRow: {
+        buyerAction: "scale",
+        executionAction: "scale_budget",
+        sourceDecision: "v3:scale",
+      },
+    });
+    expect(payload.decisionCenter.dataFreshness.status).toBe("unknown");
     expect(payload.decisionCenter.engineVersion).toBeTruthy();
     expect(payload.decisionCenter.actionBoard.scale).toEqual(["row_1"]);
     expect(Object.keys(payload.decisionCenter.actionBoard)).toEqual([

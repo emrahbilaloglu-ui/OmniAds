@@ -12,6 +12,7 @@ import {
   type CalibrationCampaignKind,
 } from "../types";
 import { getBusinessGuardFailure } from "./business-guard";
+import { ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS } from "./job-runtime";
 
 export const JOB_NAME = "engine_v3_calibration_job";
 const ACCOUNT_SCOPE_TYPE = "account";
@@ -26,7 +27,8 @@ const CALIBRATION_FORMATS = [
 ] as const;
 const ACCOUNT_CALIBRATION_KINDS = ["all", "main", "test", "mixed"] as const;
 type CalibrationCreativeFormat = (typeof CALIBRATION_FORMATS)[number];
-type CalibrationScopeType = typeof ACCOUNT_SCOPE_TYPE | typeof CAMPAIGN_SCOPE_TYPE;
+type CalibrationScopeType =
+  typeof ACCOUNT_SCOPE_TYPE | typeof CAMPAIGN_SCOPE_TYPE;
 
 export interface CalibrationJobInput {
   businessId: string;
@@ -668,122 +670,125 @@ export async function runCalibrationJob(
     `${JOB_NAME}:${input.businessId}:${input.asOf}`,
   );
 
-  return runDbTransaction(async () => {
-    const db = getDb();
-    const [lockRow] = await db.query<AdvisoryLockRow>(
-      "SELECT pg_try_advisory_xact_lock($1::bigint) AS acquired",
-      [lockKey.toString()],
-    );
+  return runDbTransaction(
+    async () => {
+      const db = getDb();
+      const [lockRow] = await db.query<AdvisoryLockRow>(
+        "SELECT pg_try_advisory_xact_lock($1::bigint) AS acquired",
+        [lockKey.toString()],
+      );
 
-    if (lockRow?.acquired !== true) {
-      const durationMs = Date.now() - startedAt;
+      if (lockRow?.acquired !== true) {
+        const durationMs = Date.now() - startedAt;
+        const jobRunId = await insertJobRun({
+          businessId: input.businessId,
+          asOf: input.asOf,
+          status: "skipped",
+          durationMs,
+          rowCount: 0,
+          errorMessage:
+            "Advisory lock not acquired (job may already be running)",
+        });
+        return {
+          jobRunId,
+          status: "skipped",
+          rowsWritten: 0,
+          durationMs,
+          calibration: null,
+          errorMessage:
+            "Advisory lock not acquired (job may already be running)",
+        };
+      }
+
       const jobRunId = await insertJobRun({
         businessId: input.businessId,
         asOf: input.asOf,
-        status: "skipped",
-        durationMs,
-        rowCount: 0,
-        errorMessage: "Advisory lock not acquired (job may already be running)",
+        status: "running",
       });
-      return {
-        jobRunId,
-        status: "skipped",
-        rowsWritten: 0,
-        durationMs,
-        calibration: null,
-        errorMessage: "Advisory lock not acquired (job may already be running)",
-      };
-    }
 
-    const jobRunId = await insertJobRun({
-      businessId: input.businessId,
-      asOf: input.asOf,
-      status: "running",
-    });
+      await db.query("SAVEPOINT engine_v3_calibration_job_work");
+      try {
+        const calibrations = await computeCalibrations({
+          businessId: input.businessId,
+          asOf: input.asOf,
+          scopeType,
+          scopeId,
+        });
+        for (const calibration of calibrations) {
+          await db.query(UPSERT_CALIBRATION_QUERY, [
+            calibration.businessId,
+            calibration.businessId,
+            calibration.scopeType,
+            calibration.scopeId,
+            calibration.creativeFormat,
+            calibration.asOfDate,
+            ENGINE_VERSION,
+            calibration.sampleWindowStart,
+            calibration.sampleWindowEnd,
+            calibration.sampleWindowDays,
+            calibration.eligibleCreativeCount,
+            calibration.matureCreativeCount,
+            calibration.zeroConversionCount,
+            calibration.roasP75,
+            calibration.roasP60,
+            calibration.refreshRatioP10,
+            calibration.lowCtrP10,
+            calibration.accountCpaP50,
+            calibration.accountCpaSampleCount,
+            calibration.metaAttributedAovMean90d,
+            calibration.metaAttributedAovPurchaseCount90d,
+            calibration.metaAttributedRevenue90d,
+            calibration.metaAovQuality,
+            calibration.matureSpendP50,
+            calibration.matureSpendP75,
+            calibration.winnerSpendP25,
+            calibration.winnerSpendP50,
+            calibration.winnerPurchaseP50,
+            calibration.roasRatioP10,
+            calibration.roasRatioP25,
+            calibration.roasRatioP50,
+            calibration.roasRatioP75,
+            calibration.ctrP25,
+            calibration.ctrP50,
+            calibration.cpmP50,
+            calibration.cpmP75,
+            calibration.thumbstopP25,
+            calibration.thumbstopP50,
+            calibration.linkToLpvP25,
+            calibration.linkToLpvP50,
+            calibration.linkToAtcP25,
+            calibration.linkToAtcP50,
+            calibration.lpvToAtcP25,
+            calibration.lpvToAtcP50,
+            calibration.atcToIcP25,
+            calibration.atcToIcP50,
+            calibration.icToPurchaseP25,
+            calibration.icToPurchaseP50,
+            calibration.clickToPurchaseP25,
+            calibration.clickToPurchaseP50,
+            calibration.funnelSampleCount,
+            calibration.funnelQualityStatus,
+            calibration.sourceMinDate,
+            calibration.sourceMaxDate,
+            calibration.sourceMaxUpdatedAt,
+            calibration.campaignKind,
+            calibration.qualityStatus,
+            jobRunId,
+            calibration.computedAt,
+          ]);
+        }
 
-    await db.query("SAVEPOINT engine_v3_calibration_job_work");
-    try {
-      const calibrations = await computeCalibrations({
-        businessId: input.businessId,
-        asOf: input.asOf,
-        scopeType,
-        scopeId,
-      });
-      for (const calibration of calibrations) {
-        await db.query(UPSERT_CALIBRATION_QUERY, [
-          calibration.businessId,
-          calibration.businessId,
-          calibration.scopeType,
-          calibration.scopeId,
-          calibration.creativeFormat,
-          calibration.asOfDate,
-          ENGINE_VERSION,
-          calibration.sampleWindowStart,
-          calibration.sampleWindowEnd,
-          calibration.sampleWindowDays,
-          calibration.eligibleCreativeCount,
-          calibration.matureCreativeCount,
-          calibration.zeroConversionCount,
-          calibration.roasP75,
-          calibration.roasP60,
-          calibration.refreshRatioP10,
-          calibration.lowCtrP10,
-          calibration.accountCpaP50,
-          calibration.accountCpaSampleCount,
-          calibration.metaAttributedAovMean90d,
-          calibration.metaAttributedAovPurchaseCount90d,
-          calibration.metaAttributedRevenue90d,
-          calibration.metaAovQuality,
-          calibration.matureSpendP50,
-          calibration.matureSpendP75,
-          calibration.winnerSpendP25,
-          calibration.winnerSpendP50,
-          calibration.winnerPurchaseP50,
-          calibration.roasRatioP10,
-          calibration.roasRatioP25,
-          calibration.roasRatioP50,
-          calibration.roasRatioP75,
-          calibration.ctrP25,
-          calibration.ctrP50,
-          calibration.cpmP50,
-          calibration.cpmP75,
-          calibration.thumbstopP25,
-          calibration.thumbstopP50,
-          calibration.linkToLpvP25,
-          calibration.linkToLpvP50,
-          calibration.linkToAtcP25,
-          calibration.linkToAtcP50,
-          calibration.lpvToAtcP25,
-          calibration.lpvToAtcP50,
-          calibration.atcToIcP25,
-          calibration.atcToIcP50,
-          calibration.icToPurchaseP25,
-          calibration.icToPurchaseP50,
-          calibration.clickToPurchaseP25,
-          calibration.clickToPurchaseP50,
-          calibration.funnelSampleCount,
-          calibration.funnelQualityStatus,
-          calibration.sourceMinDate,
-          calibration.sourceMaxDate,
-          calibration.sourceMaxUpdatedAt,
-          calibration.campaignKind,
-          calibration.qualityStatus,
-          jobRunId,
-          calibration.computedAt,
-        ]);
-      }
+        const overallCalibration = calibrations.find(
+          (calibration) =>
+            calibration.scopeType === ACCOUNT_SCOPE_TYPE &&
+            calibration.scopeId === ACCOUNT_SCOPE_ID &&
+            calibration.campaignKind === "all" &&
+            calibration.creativeFormat === "overall",
+        );
 
-      const overallCalibration = calibrations.find(
-        (calibration) =>
-          calibration.scopeType === ACCOUNT_SCOPE_TYPE &&
-          calibration.scopeId === ACCOUNT_SCOPE_ID &&
-          calibration.campaignKind === "all" &&
-          calibration.creativeFormat === "overall",
-      );
-
-      const durationMs = Date.now() - startedAt;
-      await db.query(
-        `
+        const durationMs = Date.now() - startedAt;
+        await db.query(
+          `
         UPDATE engine_v3_job_runs
         SET
           status = 'success',
@@ -796,34 +801,34 @@ export async function runCalibrationJob(
           updated_at = now()
         WHERE id = $6::uuid
         `,
-        [
-          durationMs,
-          calibrations.length,
-          overallCalibration?.sourceMinDate ?? null,
-          overallCalibration?.sourceMaxDate ?? null,
-          overallCalibration?.sourceMaxUpdatedAt ?? null,
-          jobRunId,
-        ],
-      );
+          [
+            durationMs,
+            calibrations.length,
+            overallCalibration?.sourceMinDate ?? null,
+            overallCalibration?.sourceMaxDate ?? null,
+            overallCalibration?.sourceMaxUpdatedAt ?? null,
+            jobRunId,
+          ],
+        );
 
-      return {
-        jobRunId,
-        status: "success",
-        rowsWritten: calibrations.length,
-        durationMs,
-        calibration: overallCalibration
-          ? calibrationToAccountCalibration(overallCalibration)
-          : null,
-      };
-    } catch (error) {
-      await db
-        .query("ROLLBACK TO SAVEPOINT engine_v3_calibration_job_work")
-        .catch(() => undefined);
-      const durationMs = Date.now() - startedAt;
-      const message = error instanceof Error ? error.message : String(error);
-      await db
-        .query(
-          `
+        return {
+          jobRunId,
+          status: "success",
+          rowsWritten: calibrations.length,
+          durationMs,
+          calibration: overallCalibration
+            ? calibrationToAccountCalibration(overallCalibration)
+            : null,
+        };
+      } catch (error) {
+        await db
+          .query("ROLLBACK TO SAVEPOINT engine_v3_calibration_job_work")
+          .catch(() => undefined);
+        const durationMs = Date.now() - startedAt;
+        const message = error instanceof Error ? error.message : String(error);
+        await db
+          .query(
+            `
           UPDATE engine_v3_job_runs
           SET
             status = 'failed',
@@ -835,19 +840,21 @@ export async function runCalibrationJob(
             updated_at = now()
           WHERE id = $4::uuid
           `,
-          [durationMs, message, JSON.stringify(errorToJson(error)), jobRunId],
-        )
-        .catch(() => undefined);
-      return {
-        jobRunId,
-        status: "failed",
-        rowsWritten: 0,
-        durationMs,
-        calibration: null,
-        errorMessage: message,
-      };
-    }
-  });
+            [durationMs, message, JSON.stringify(errorToJson(error)), jobRunId],
+          )
+          .catch(() => undefined);
+        return {
+          jobRunId,
+          status: "failed",
+          rowsWritten: 0,
+          durationMs,
+          calibration: null,
+          errorMessage: message,
+        };
+      }
+    },
+    { timeoutMs: ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS },
+  );
 }
 
 async function insertJobRun(input: {
@@ -911,7 +918,9 @@ async function computeCalibrations(input: {
 
   for (const scope of scopes) {
     const campaignKinds: readonly CalibrationCampaignKind[] =
-      scope.scopeType === ACCOUNT_SCOPE_TYPE ? ACCOUNT_CALIBRATION_KINDS : ["all"];
+      scope.scopeType === ACCOUNT_SCOPE_TYPE
+        ? ACCOUNT_CALIBRATION_KINDS
+        : ["all"];
     for (const creativeFormat of CALIBRATION_FORMATS) {
       for (const campaignKind of campaignKinds) {
         calibrations.push(
@@ -977,8 +986,7 @@ async function computeCalibration(input: {
       input.campaignKind,
     ],
   );
-  const matureCreativeCount =
-    toIntegerOrNull(row?.mature_creative_count) ?? 0;
+  const matureCreativeCount = toIntegerOrNull(row?.mature_creative_count) ?? 0;
   const sampleWindowDays =
     toIntegerOrNull(row?.sample_window_days) ?? SAMPLE_WINDOW_DAYS;
   const sourceMaxUpdatedAt = toIsoTimestampOrNull(row?.source_max_updated_at);
@@ -995,8 +1003,7 @@ async function computeCalibration(input: {
       sampleWindowStartForAsOf(input.asOf),
     sampleWindowEnd: toIsoDateOrNull(row?.sample_window_end) ?? input.asOf,
     sampleWindowDays,
-    eligibleCreativeCount:
-      toIntegerOrNull(row?.eligible_creative_count) ?? 0,
+    eligibleCreativeCount: toIntegerOrNull(row?.eligible_creative_count) ?? 0,
     matureCreativeCount,
     zeroConversionCount: toIntegerOrNull(row?.zero_conversion_count) ?? 0,
     roasP75: toNumberOrNull(row?.roas_p75),
@@ -1004,11 +1011,8 @@ async function computeCalibration(input: {
     refreshRatioP10: toNumberOrNull(row?.refresh_ratio_p10),
     lowCtrP10: toNumberOrNull(row?.low_ctr_p10),
     accountCpaP50: toNumberOrNull(row?.account_cpa_p50),
-    accountCpaSampleCount:
-      toIntegerOrNull(row?.account_cpa_sample_count) ?? 0,
-    metaAttributedAovMean90d: toNumberOrNull(
-      row?.meta_attributed_aov_mean_90d,
-    ),
+    accountCpaSampleCount: toIntegerOrNull(row?.account_cpa_sample_count) ?? 0,
+    metaAttributedAovMean90d: toNumberOrNull(row?.meta_attributed_aov_mean_90d),
     metaAttributedAovPurchaseCount90d:
       toIntegerOrNull(row?.meta_attributed_aov_purchase_count_90d) ?? 0,
     metaAttributedRevenue90d:
@@ -1090,7 +1094,9 @@ function determineQualityStatus(input: {
   sampleWindowDays: number;
   sourceMaxUpdatedAt: string | null;
 }): QualityStatus {
-  if (isOlderThanHours(input.sourceMaxUpdatedAt, STALE_TIER_WARNING_MAX_HOURS)) {
+  if (
+    isOlderThanHours(input.sourceMaxUpdatedAt, STALE_TIER_WARNING_MAX_HOURS)
+  ) {
     return "stale";
   }
   if (input.matureCreativeCount >= 30) return "ready";
@@ -1166,7 +1172,9 @@ function toStringOrNull(value: unknown): string | null {
   return trimmed ? trimmed : null;
 }
 
-function toMetaAovQuality(value: unknown): AccountCalibration["metaAovQuality"] {
+function toMetaAovQuality(
+  value: unknown,
+): AccountCalibration["metaAovQuality"] {
   const text = toStringOrNull(value);
   if (
     text === "unavailable" ||
@@ -1183,11 +1191,7 @@ function toFunnelQualityStatus(
   value: unknown,
 ): ComputedCalibration["funnelQualityStatus"] {
   const text = toStringOrNull(value);
-  if (
-    text === "ready" ||
-    text === "low_sample" ||
-    text === "insufficient"
-  ) {
+  if (text === "ready" || text === "low_sample" || text === "insufficient") {
     return text;
   }
   return "insufficient";

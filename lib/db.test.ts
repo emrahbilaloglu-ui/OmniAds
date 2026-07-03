@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  buildLocalStatementTimeoutSql,
   buildParameterizedQuery,
   buildStatementTimeoutSql,
   getDbRuntimeDiagnostics,
@@ -50,10 +51,14 @@ describe("resolveDbTimeoutMs", () => {
 
   it("uses the worker default when sync worker mode is enabled", () => {
     expect(
-      resolveDbTimeoutMs({ SYNC_WORKER_MODE: "1" } as unknown as NodeJS.ProcessEnv),
+      resolveDbTimeoutMs({
+        SYNC_WORKER_MODE: "1",
+      } as unknown as NodeJS.ProcessEnv),
     ).toBe(30_000);
     expect(
-      resolveDbTimeoutMs({ SYNC_WORKER_MODE: "true" } as unknown as NodeJS.ProcessEnv),
+      resolveDbTimeoutMs({
+        SYNC_WORKER_MODE: "true",
+      } as unknown as NodeJS.ProcessEnv),
     ).toBe(30_000);
   });
 
@@ -81,7 +86,9 @@ describe("resolveDbPoolMax", () => {
 
   it("uses the worker pool default when sync worker mode is enabled", () => {
     expect(
-      resolveDbPoolMax({ SYNC_WORKER_MODE: "1" } as unknown as NodeJS.ProcessEnv),
+      resolveDbPoolMax({
+        SYNC_WORKER_MODE: "1",
+      } as unknown as NodeJS.ProcessEnv),
     ).toBe(12);
   });
 
@@ -195,7 +202,11 @@ describe("buildParameterizedQuery", () => {
   it("converts a tagged template into a parameterized query", () => {
     expect(
       buildParameterizedQuery(
-        ["SELECT * FROM users WHERE id = ", " AND email = ", ""] as unknown as TemplateStringsArray,
+        [
+          "SELECT * FROM users WHERE id = ",
+          " AND email = ",
+          "",
+        ] as unknown as TemplateStringsArray,
         ["user-1", "test@example.com"],
       ),
     ).toEqual({
@@ -207,7 +218,10 @@ describe("buildParameterizedQuery", () => {
   it("normalizes undefined values to null", () => {
     expect(
       buildParameterizedQuery(
-        ["SELECT * FROM users WHERE avatar IS NOT DISTINCT FROM ", ""] as unknown as TemplateStringsArray,
+        [
+          "SELECT * FROM users WHERE avatar IS NOT DISTINCT FROM ",
+          "",
+        ] as unknown as TemplateStringsArray,
         [undefined],
       ),
     ).toEqual({
@@ -219,8 +233,26 @@ describe("buildParameterizedQuery", () => {
 
 describe("buildStatementTimeoutSql", () => {
   it("uses a sanitized millisecond integer for server-side query cancellation", () => {
-    expect(buildStatementTimeoutSql(30_000.9)).toBe("SET statement_timeout = 30000");
+    expect(buildStatementTimeoutSql(30_000.9)).toBe(
+      "SET statement_timeout = 30000",
+    );
     expect(buildStatementTimeoutSql(0)).toBe("SET statement_timeout = 1");
-    expect(buildStatementTimeoutSql(Number.NaN)).toBe("SET statement_timeout = 1");
+    expect(buildStatementTimeoutSql(Number.NaN)).toBe(
+      "SET statement_timeout = 1",
+    );
+  });
+});
+
+describe("buildLocalStatementTimeoutSql", () => {
+  it("uses a transaction-local timeout so pooled connections do not retain job overrides", () => {
+    expect(buildLocalStatementTimeoutSql(30_000.9)).toBe(
+      "SET LOCAL statement_timeout = 30000",
+    );
+    expect(buildLocalStatementTimeoutSql(0)).toBe(
+      "SET LOCAL statement_timeout = 1",
+    );
+    expect(buildLocalStatementTimeoutSql(Number.NaN)).toBe(
+      "SET LOCAL statement_timeout = 1",
+    );
   });
 });

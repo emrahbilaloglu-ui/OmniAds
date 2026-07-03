@@ -13,10 +13,12 @@ vi.mock("../../feature-flags", () => ({
 }));
 
 vi.mock("../../jobs/calibration-job", () => ({
+  JOB_NAME: "engine_v3_calibration_job",
   runCalibrationJob: vi.fn(),
 }));
 
 vi.mock("../../jobs/lifecycle-job", () => ({
+  JOB_NAME: "engine_v3_lifecycle_job",
   runLifecycleJob: vi.fn(),
 }));
 
@@ -137,10 +139,9 @@ describe("runEngineV3ProducerChainForActiveBusinessesIfDue", () => {
     expect(readiness.getDbSchemaReadiness).not.toHaveBeenCalled();
   });
 
-  it("uses enabled engine businesses and skips businesses with completed decisions", async () => {
-    vi.mocked(db.getDb).mockReturnValue(
-      makeDbRows([{ business_ref_id: "biz_1" }]) as never,
-    );
+  it("uses enabled engine businesses and skips businesses with completed producer chains", async () => {
+    const query = vi.fn().mockResolvedValue([{ business_ref_id: "biz_1" }]);
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
 
     const result = await runEngineV3ProducerChainForActiveBusinessesIfDue(
       new Date("2026-05-08T05:10:00.000Z"),
@@ -154,6 +155,13 @@ describe("runEngineV3ProducerChainForActiveBusinessesIfDue", () => {
       businessId: "biz_2",
       asOf: "2026-05-08",
     });
+    expect(query.mock.calls[0]?.[0]).toContain("engine_v3_calibration_job");
+    expect(query.mock.calls[0]?.[0]).toContain("engine_v3_lifecycle_job");
+    expect(query.mock.calls[0]?.[1]).toEqual([
+      "engine_v3_decisions_job",
+      "2026-05-08",
+      expect.any(String),
+    ]);
   });
 
   it("runs calibration, lifecycle, and decisions in order", async () => {
@@ -176,14 +184,17 @@ describe("runEngineV3ProducerChainForActiveBusinessesIfDue", () => {
     );
   });
 
-  it("keeps running downstream jobs when an upstream producer job fails", async () => {
+  it("skips downstream jobs for a business when calibration fails but continues the batch", async () => {
     vi.mocked(calibrationJob.runCalibrationJob).mockRejectedValueOnce(
       new Error("calibration failed"),
     );
 
     const result = await runEngineV3ProducerChainForActiveBusinessesIfDue(
       new Date("2026-05-08T03:10:00.000Z"),
-      [{ id: "biz_1", name: null }],
+      [
+        { id: "biz_1", name: null },
+        { id: "biz_2", name: null },
+      ],
     );
 
     expect(result.skipped).toBe(false);
@@ -191,8 +202,159 @@ describe("runEngineV3ProducerChainForActiveBusinessesIfDue", () => {
     expect(result.results?.[0]?.calibration.errorMessage).toBe(
       "calibration failed",
     );
-    expect(lifecycleJob.runLifecycleJob).toHaveBeenCalled();
-    expect(decisionsJob.runDecisionsJob).toHaveBeenCalled();
+    expect(result.results?.[0]?.lifecycle.status).toBe("skipped");
+    expect(result.results?.[0]?.lifecycle.errorMessage).toBe(
+      "upstream_calibration_not_success",
+    );
+    expect(result.results?.[0]?.decisions.status).toBe("skipped");
+    expect(result.results?.[0]?.decisions.errorMessage).toBe(
+      "upstream_calibration_not_success",
+    );
+    expect(result.results?.[1]?.calibration.status).toBe("success");
+    expect(lifecycleJob.runLifecycleJob).toHaveBeenCalledTimes(1);
+    expect(lifecycleJob.runLifecycleJob).toHaveBeenCalledWith({
+      businessId: "biz_2",
+      asOf: "2026-05-08",
+    });
+    expect(decisionsJob.runDecisionsJob).toHaveBeenCalledTimes(1);
+    expect(decisionsJob.runDecisionsJob).toHaveBeenCalledWith({
+      businessId: "biz_2",
+      asOf: "2026-05-08",
+    });
+  });
+
+  it("continues downstream when calibration skips but the same-day success already exists", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ exists: true }]);
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+    vi.mocked(calibrationJob.runCalibrationJob).mockResolvedValueOnce({
+      jobRunId: "skipped-calibration-run",
+      status: "skipped",
+      rowsWritten: 0,
+      durationMs: 1,
+      calibration: null,
+      errorMessage: "Advisory lock not acquired (job may already be running)",
+    } as never);
+
+    const result = await runEngineV3ProducerChainForActiveBusinessesIfDue(
+      new Date("2026-05-08T03:10:00.000Z"),
+      [{ id: "biz_1", name: null }],
+    );
+
+    expect(result.skipped).toBe(false);
+    expect(result.results?.[0]?.calibration.status).toBe("skipped");
+    expect(result.results?.[0]?.lifecycle.status).toBe("success");
+    expect(result.results?.[0]?.decisions.status).toBe("success");
+    expect(lifecycleJob.runLifecycleJob).toHaveBeenCalledWith({
+      businessId: "biz_1",
+      asOf: "2026-05-08",
+    });
+    expect(decisionsJob.runDecisionsJob).toHaveBeenCalledWith({
+      businessId: "biz_1",
+      asOf: "2026-05-08",
+    });
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls[1]?.[1]).toEqual([
+      "biz_1",
+      "2026-05-08",
+      expect.any(String),
+      "engine_v3_calibration_job",
+    ]);
+  });
+
+  it("skips decisions for a business when lifecycle fails but continues the batch", async () => {
+    vi.mocked(lifecycleJob.runLifecycleJob)
+      .mockRejectedValueOnce(new Error("lifecycle failed"))
+      .mockResolvedValueOnce(successLifecycle as never);
+
+    const result = await runEngineV3ProducerChainForActiveBusinessesIfDue(
+      new Date("2026-05-08T03:10:00.000Z"),
+      [
+        { id: "biz_1", name: null },
+        { id: "biz_2", name: null },
+      ],
+    );
+
+    expect(result.skipped).toBe(false);
+    expect(result.results?.[0]?.calibration.status).toBe("success");
+    expect(result.results?.[0]?.lifecycle.status).toBe("failed");
+    expect(result.results?.[0]?.lifecycle.errorMessage).toBe(
+      "lifecycle failed",
+    );
+    expect(result.results?.[0]?.decisions.status).toBe("skipped");
+    expect(result.results?.[0]?.decisions.errorMessage).toBe(
+      "upstream_lifecycle_not_success",
+    );
+    expect(result.results?.[1]?.decisions.status).toBe("success");
+    expect(decisionsJob.runDecisionsJob).toHaveBeenCalledTimes(1);
+    expect(decisionsJob.runDecisionsJob).toHaveBeenCalledWith({
+      businessId: "biz_2",
+      asOf: "2026-05-08",
+    });
+  });
+
+  it("continues decisions when lifecycle skips but the same-day success already exists", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ exists: true }]);
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+    vi.mocked(lifecycleJob.runLifecycleJob).mockResolvedValueOnce({
+      jobRunId: "skipped-lifecycle-run",
+      dependencyRunId: "calibration-run",
+      status: "skipped",
+      rowsWritten: 0,
+      durationMs: 1,
+      errorMessage: "Advisory lock not acquired (job may already be running)",
+    } as never);
+
+    const result = await runEngineV3ProducerChainForActiveBusinessesIfDue(
+      new Date("2026-05-08T03:10:00.000Z"),
+      [{ id: "biz_1", name: null }],
+    );
+
+    expect(result.skipped).toBe(false);
+    expect(result.results?.[0]?.lifecycle.status).toBe("skipped");
+    expect(result.results?.[0]?.decisions.status).toBe("success");
+    expect(decisionsJob.runDecisionsJob).toHaveBeenCalledWith({
+      businessId: "biz_1",
+      asOf: "2026-05-08",
+    });
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls[1]?.[1]).toEqual([
+      "biz_1",
+      "2026-05-08",
+      expect.any(String),
+      "engine_v3_lifecycle_job",
+    ]);
+  });
+
+  it("retries a partial lifecycle failure on the next tick before marking the business complete", async () => {
+    vi.mocked(lifecycleJob.runLifecycleJob).mockRejectedValueOnce(
+      new Error("lifecycle failed"),
+    );
+
+    const first = await runEngineV3ProducerChainForActiveBusinessesIfDue(
+      new Date("2026-05-08T03:10:00.000Z"),
+      [{ id: "biz_1", name: null }],
+    );
+    const second = await runEngineV3ProducerChainForActiveBusinessesIfDue(
+      new Date("2026-05-08T03:20:00.000Z"),
+      [{ id: "biz_1", name: null }],
+    );
+
+    expect(first.skipped).toBe(false);
+    expect(first.results?.[0]?.lifecycle.status).toBe("failed");
+    expect(first.results?.[0]?.decisions.status).toBe("skipped");
+    expect(second.skipped).toBe(false);
+    expect(second.results?.[0]?.calibration.status).toBe("success");
+    expect(second.results?.[0]?.lifecycle.status).toBe("success");
+    expect(second.results?.[0]?.decisions.status).toBe("success");
+    expect(calibrationJob.runCalibrationJob).toHaveBeenCalledTimes(2);
+    expect(lifecycleJob.runLifecycleJob).toHaveBeenCalledTimes(2);
+    expect(decisionsJob.runDecisionsJob).toHaveBeenCalledTimes(1);
   });
 
   it("isolates failures so one business does not prevent the next business", async () => {

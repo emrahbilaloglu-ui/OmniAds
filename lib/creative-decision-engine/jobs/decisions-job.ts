@@ -19,6 +19,7 @@ import {
 } from "../types";
 import { hashAdvisoryLock } from "./calibration-job";
 import { getBusinessGuardFailure } from "./business-guard";
+import { ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS } from "./job-runtime";
 import { JOB_NAME as LIFECYCLE_JOB_NAME } from "./lifecycle-job";
 
 export const JOB_NAME = "engine_v3_decisions_job";
@@ -358,128 +359,137 @@ export async function runDecisionsJob(
 
   const lockKey = decisionsJobAdvisoryLockKey(input);
 
-  return runDbTransaction(async () => {
-    const db = getDb();
-    const [lockRow] = await db.query<AdvisoryLockRow>(
-      "SELECT pg_try_advisory_xact_lock($1::bigint) AS acquired",
-      [lockKey.toString()],
-    );
-    const dependencyRunId = await findLatestSuccessfulLifecycleRun(input);
+  return runDbTransaction(
+    async () => {
+      const db = getDb();
+      const [lockRow] = await db.query<AdvisoryLockRow>(
+        "SELECT pg_try_advisory_xact_lock($1::bigint) AS acquired",
+        [lockKey.toString()],
+      );
+      const dependencyRunId = await findLatestSuccessfulLifecycleRun(input);
 
-    if (lockRow?.acquired !== true) {
-      const durationMs = Date.now() - startedAt;
+      if (lockRow?.acquired !== true) {
+        const durationMs = Date.now() - startedAt;
+        const jobRunId = await insertJobRun({
+          businessId: input.businessId,
+          asOf: input.asOf,
+          status: "skipped",
+          dependencyRunId,
+          durationMs,
+          rowCount: 0,
+          errorMessage:
+            "Advisory lock not acquired (job may already be running)",
+        });
+        return {
+          jobRunId,
+          status: "skipped",
+          snapshotsWritten: 0,
+          changeEventsWritten: 0,
+          durationMs,
+          errorMessage:
+            "Advisory lock not acquired (job may already be running)",
+        };
+      }
+
       const jobRunId = await insertJobRun({
         businessId: input.businessId,
         asOf: input.asOf,
-        status: "skipped",
+        status: "running",
         dependencyRunId,
-        durationMs,
-        rowCount: 0,
-        errorMessage: "Advisory lock not acquired (job may already be running)",
       });
-      return {
-        jobRunId,
-        status: "skipped",
-        snapshotsWritten: 0,
-        changeEventsWritten: 0,
-        durationMs,
-        errorMessage: "Advisory lock not acquired (job may already be running)",
-      };
-    }
 
-    const jobRunId = await insertJobRun({
-      businessId: input.businessId,
-      asOf: input.asOf,
-      status: "running",
-      dependencyRunId,
-    });
-
-    await db.query("SAVEPOINT engine_v3_decisions_job_work");
-    try {
-      const dataSource = new WarehouseDataSource();
-      const profile = await resolveAccountDecisionProfile({
-        businessId: input.businessId,
-        asOf: input.asOf,
-        dataSource,
-        flags,
-      });
-      const dataHealth = await dataSource.getDataHealth({
-        businessId: input.businessId,
-        asOf: input.asOf,
-      });
-      const creativeInputs = await dataSource.listCreativeInputs({
-        businessId: input.businessId,
-        asOf: input.asOf,
-      });
-      const campaignLabelsById =
-        await readCreativeCampaignLabelsById({
+      await db.query("SAVEPOINT engine_v3_decisions_job_work");
+      try {
+        const dataSource = new WarehouseDataSource();
+        const profile = await resolveAccountDecisionProfile({
+          businessId: input.businessId,
+          asOf: input.asOf,
+          dataSource,
+          flags,
+        });
+        const dataHealth = await dataSource.getDataHealth({
+          businessId: input.businessId,
+          asOf: input.asOf,
+        });
+        const creativeInputs = await dataSource.listCreativeInputs({
+          businessId: input.businessId,
+          asOf: input.asOf,
+        });
+        const campaignLabelsById = await readCreativeCampaignLabelsById({
           businessId: input.businessId,
           creativeInputs,
         });
-      const rawDecisions: DecisionComputation[] = creativeInputs.map(
-        (creativeInput) => {
-          const inputWithCampaignKind = withCreativeCampaignLabelContext(
-            creativeInput,
-            campaignLabelsById,
-          );
-          return {
-            input: inputWithCampaignKind,
-            decision: applyCreativeCampaignLabelGuard({
-              decision: decideCreative(inputWithCampaignKind, profile, dataHealth),
-              input: inputWithCampaignKind,
+        const rawDecisions: DecisionComputation[] = creativeInputs.map(
+          (creativeInput) => {
+            const inputWithCampaignKind = withCreativeCampaignLabelContext(
+              creativeInput,
               campaignLabelsById,
-            }),
-          };
-        },
-      );
-      const decisions = dedupeDecisionComputations(rawDecisions);
+            );
+            return {
+              input: inputWithCampaignKind,
+              decision: applyCreativeCampaignLabelGuard({
+                decision: decideCreative(
+                  inputWithCampaignKind,
+                  profile,
+                  dataHealth,
+                ),
+                input: inputWithCampaignKind,
+                campaignLabelsById,
+              }),
+            };
+          },
+        );
+        const decisions = dedupeDecisionComputations(rawDecisions);
 
-      const creativeIds = decisions.map((decision) => decision.input.creativeId);
-      const lifecycleRowIdsByCreative =
-        await findLatestLifecycleRowIdsByCreative({
+        const creativeIds = decisions.map(
+          (decision) => decision.input.creativeId,
+        );
+        const lifecycleRowIdsByCreative =
+          await findLatestLifecycleRowIdsByCreative({
+            businessId: input.businessId,
+            asOf: input.asOf,
+            creativeIds,
+          });
+        const calibrationRowId = await findLatestCalibrationRowId(input);
+
+        const computedAt = new Date().toISOString();
+        const snapshotRows = decisions.map(
+          ({ input: creativeInput, decision }) =>
+            toSnapshotPayloadRow({
+              businessId: input.businessId,
+              asOf: input.asOf,
+              jobRunId,
+              scope: profile.scope,
+              creativeInput,
+              decision,
+              lifecycleRowId:
+                lifecycleRowIdsByCreative.get(creativeInput.creativeId) ?? null,
+              calibrationRowId,
+              computedAt,
+            }),
+        );
+        const upsertedSnapshots = await upsertDecisionSnapshots(snapshotRows);
+        const snapshotsWritten = upsertedSnapshots.size;
+
+        const previousSnapshots = await findPreviousSnapshotsByCreative({
           businessId: input.businessId,
           asOf: input.asOf,
           creativeIds,
         });
-      const calibrationRowId = await findLatestCalibrationRowId(input);
-
-      const computedAt = new Date().toISOString();
-      const snapshotRows = decisions.map(({ input: creativeInput, decision }) =>
-        toSnapshotPayloadRow({
+        const changeEventRows = toDecisionChangeEventRows({
           businessId: input.businessId,
           asOf: input.asOf,
           jobRunId,
-          scope: profile.scope,
-          creativeInput,
-          decision,
-          lifecycleRowId:
-            lifecycleRowIdsByCreative.get(creativeInput.creativeId) ?? null,
-          calibrationRowId,
-          computedAt,
-        }),
-      );
-      const upsertedSnapshots = await upsertDecisionSnapshots(snapshotRows);
-      const snapshotsWritten = upsertedSnapshots.size;
+          decisions,
+          previousSnapshots,
+          currentSnapshots: upsertedSnapshots,
+        });
+        const changeEventsWritten =
+          await insertDecisionChangeEvents(changeEventRows);
 
-      const previousSnapshots = await findPreviousSnapshotsByCreative({
-        businessId: input.businessId,
-        asOf: input.asOf,
-        creativeIds,
-      });
-      const changeEventRows = toDecisionChangeEventRows({
-        businessId: input.businessId,
-        asOf: input.asOf,
-        jobRunId,
-        decisions,
-        previousSnapshots,
-        currentSnapshots: upsertedSnapshots,
-      });
-      const changeEventsWritten =
-        await insertDecisionChangeEvents(changeEventRows);
-
-      const durationMs = Date.now() - startedAt;
-      await db.query(
-        `
+        const durationMs = Date.now() - startedAt;
+        await db.query(
+          `
         UPDATE engine_v3_job_runs
         SET
           status = 'success',
@@ -490,34 +500,34 @@ export async function runDecisionsJob(
           updated_at = now()
         WHERE id = $4::uuid
         `,
-        [
-          durationMs,
-          snapshotsWritten,
-          JSON.stringify({
-            metadata: {
-              change_event_count: changeEventsWritten,
-            },
-          }),
-          jobRunId,
-        ],
-      );
+          [
+            durationMs,
+            snapshotsWritten,
+            JSON.stringify({
+              metadata: {
+                change_event_count: changeEventsWritten,
+              },
+            }),
+            jobRunId,
+          ],
+        );
 
-      return {
-        jobRunId,
-        status: "success",
-        snapshotsWritten,
-        changeEventsWritten,
-        durationMs,
-      };
-    } catch (error) {
-      await db
-        .query("ROLLBACK TO SAVEPOINT engine_v3_decisions_job_work")
-        .catch(() => undefined);
-      const durationMs = Date.now() - startedAt;
-      const message = error instanceof Error ? error.message : String(error);
-      await db
-        .query(
-          `
+        return {
+          jobRunId,
+          status: "success",
+          snapshotsWritten,
+          changeEventsWritten,
+          durationMs,
+        };
+      } catch (error) {
+        await db
+          .query("ROLLBACK TO SAVEPOINT engine_v3_decisions_job_work")
+          .catch(() => undefined);
+        const durationMs = Date.now() - startedAt;
+        const message = error instanceof Error ? error.message : String(error);
+        await db
+          .query(
+            `
           UPDATE engine_v3_job_runs
           SET
             status = 'failed',
@@ -529,20 +539,22 @@ export async function runDecisionsJob(
             updated_at = now()
           WHERE id = $4::uuid
           `,
-          [durationMs, message, JSON.stringify(errorToJson(error)), jobRunId],
-        )
-        .catch(() => undefined);
+            [durationMs, message, JSON.stringify(errorToJson(error)), jobRunId],
+          )
+          .catch(() => undefined);
 
-      return {
-        jobRunId,
-        status: "failed",
-        snapshotsWritten: 0,
-        changeEventsWritten: 0,
-        durationMs,
-        errorMessage: message,
-      };
-    }
-  });
+        return {
+          jobRunId,
+          status: "failed",
+          snapshotsWritten: 0,
+          changeEventsWritten: 0,
+          durationMs,
+          errorMessage: message,
+        };
+      }
+    },
+    { timeoutMs: ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS },
+  );
 }
 
 async function findLatestSuccessfulLifecycleRun(input: DecisionsJobInput) {
@@ -727,7 +739,8 @@ async function findPreviousSnapshotsByCreative(input: {
   asOf: string;
   creativeIds: string[];
 }) {
-  if (input.creativeIds.length === 0) return new Map<string, PreviousSnapshot>();
+  if (input.creativeIds.length === 0)
+    return new Map<string, PreviousSnapshot>();
 
   const rows = await getDb().query<SnapshotRow>(
     `
@@ -893,7 +906,9 @@ function normalizePreviousSnapshotForCampaignLabelGuard(
   return previous;
 }
 
-async function insertDecisionChangeEvents(rows: DecisionChangeEventPayloadRow[]) {
+async function insertDecisionChangeEvents(
+  rows: DecisionChangeEventPayloadRow[],
+) {
   if (rows.length === 0) return 0;
 
   const insertedRows = await getDb().query<InsertedEventRow>(

@@ -23,6 +23,7 @@ import {
   JOB_NAME as CALIBRATION_JOB_NAME,
 } from "./calibration-job";
 import { getBusinessGuardFailure } from "./business-guard";
+import { ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS } from "./job-runtime";
 
 export const JOB_NAME = "engine_v3_lifecycle_job";
 
@@ -1100,55 +1101,58 @@ export async function runLifecycleJob(
 
   const lockKey = lifecycleJobAdvisoryLockKey(input);
 
-  return runDbTransaction(async () => {
-    const db = getDb();
-    const [lockRow] = await db.query<AdvisoryLockRow>(
-      "SELECT pg_try_advisory_xact_lock($1::bigint) AS acquired",
-      [lockKey.toString()],
-    );
-    const dependencyRunId = await findLatestSuccessfulCalibrationRun(input);
+  return runDbTransaction(
+    async () => {
+      const db = getDb();
+      const [lockRow] = await db.query<AdvisoryLockRow>(
+        "SELECT pg_try_advisory_xact_lock($1::bigint) AS acquired",
+        [lockKey.toString()],
+      );
+      const dependencyRunId = await findLatestSuccessfulCalibrationRun(input);
 
-    if (lockRow?.acquired !== true) {
-      const durationMs = Date.now() - startedAt;
+      if (lockRow?.acquired !== true) {
+        const durationMs = Date.now() - startedAt;
+        const jobRunId = await insertJobRun({
+          businessId: input.businessId,
+          asOf: input.asOf,
+          status: "skipped",
+          dependencyRunId,
+          durationMs,
+          rowCount: 0,
+          errorMessage:
+            "Advisory lock not acquired (job may already be running)",
+        });
+        return {
+          jobRunId,
+          dependencyRunId,
+          status: "skipped",
+          rowsWritten: 0,
+          durationMs,
+          errorMessage:
+            "Advisory lock not acquired (job may already be running)",
+        };
+      }
+
       const jobRunId = await insertJobRun({
         businessId: input.businessId,
         asOf: input.asOf,
-        status: "skipped",
+        status: "running",
         dependencyRunId,
-        durationMs,
-        rowCount: 0,
-        errorMessage: "Advisory lock not acquired (job may already be running)",
       });
-      return {
-        jobRunId,
-        dependencyRunId,
-        status: "skipped",
-        rowsWritten: 0,
-        durationMs,
-        errorMessage: "Advisory lock not acquired (job may already be running)",
-      };
-    }
 
-    const jobRunId = await insertJobRun({
-      businessId: input.businessId,
-      asOf: input.asOf,
-      status: "running",
-      dependencyRunId,
-    });
+      await db.query("SAVEPOINT engine_v3_lifecycle_job_work");
+      try {
+        const batch = await computeLifecycleRows({
+          businessId: input.businessId,
+          asOf: input.asOf,
+          jobRunId,
+          flags,
+        });
+        const rowsWritten = await upsertLifecycleRows(batch.rows);
+        const durationMs = Date.now() - startedAt;
 
-    await db.query("SAVEPOINT engine_v3_lifecycle_job_work");
-    try {
-      const batch = await computeLifecycleRows({
-        businessId: input.businessId,
-        asOf: input.asOf,
-        jobRunId,
-        flags,
-      });
-      const rowsWritten = await upsertLifecycleRows(batch.rows);
-      const durationMs = Date.now() - startedAt;
-
-      await db.query(
-        `
+        await db.query(
+          `
         UPDATE engine_v3_job_runs
         SET
           status = 'success',
@@ -1161,32 +1165,32 @@ export async function runLifecycleJob(
           updated_at = now()
         WHERE id = $6::uuid
         `,
-        [
-          durationMs,
-          rowsWritten,
-          batch.sourceMinDate,
-          batch.sourceMaxDate,
-          batch.sourceMaxUpdatedAt,
-          jobRunId,
-        ],
-      );
+          [
+            durationMs,
+            rowsWritten,
+            batch.sourceMinDate,
+            batch.sourceMaxDate,
+            batch.sourceMaxUpdatedAt,
+            jobRunId,
+          ],
+        );
 
-      return {
-        jobRunId,
-        dependencyRunId,
-        status: "success",
-        rowsWritten,
-        durationMs,
-      };
-    } catch (error) {
-      await db
-        .query("ROLLBACK TO SAVEPOINT engine_v3_lifecycle_job_work")
-        .catch(() => undefined);
-      const durationMs = Date.now() - startedAt;
-      const message = error instanceof Error ? error.message : String(error);
-      await db
-        .query(
-          `
+        return {
+          jobRunId,
+          dependencyRunId,
+          status: "success",
+          rowsWritten,
+          durationMs,
+        };
+      } catch (error) {
+        await db
+          .query("ROLLBACK TO SAVEPOINT engine_v3_lifecycle_job_work")
+          .catch(() => undefined);
+        const durationMs = Date.now() - startedAt;
+        const message = error instanceof Error ? error.message : String(error);
+        await db
+          .query(
+            `
           UPDATE engine_v3_job_runs
           SET
             status = 'failed',
@@ -1198,20 +1202,22 @@ export async function runLifecycleJob(
             updated_at = now()
           WHERE id = $4::uuid
           `,
-          [durationMs, message, JSON.stringify(errorToJson(error)), jobRunId],
-        )
-        .catch(() => undefined);
+            [durationMs, message, JSON.stringify(errorToJson(error)), jobRunId],
+          )
+          .catch(() => undefined);
 
-      return {
-        jobRunId,
-        dependencyRunId,
-        status: "failed",
-        rowsWritten: 0,
-        durationMs,
-        errorMessage: message,
-      };
-    }
-  });
+        return {
+          jobRunId,
+          dependencyRunId,
+          status: "failed",
+          rowsWritten: 0,
+          durationMs,
+          errorMessage: message,
+        };
+      }
+    },
+    { timeoutMs: ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS },
+  );
 }
 
 async function findLatestSuccessfulCalibrationRun(input: LifecycleJobInput) {
@@ -1358,9 +1364,7 @@ function mapLifecycleComputationRow(input: {
   const outboundClicks28d = toIntegerOrNull(input.row.outbound_clicks_28d);
   const landingPageViews28d = toIntegerOrNull(input.row.landing_page_views_28d);
   const addToCart28d = toIntegerOrNull(input.row.add_to_cart_28d);
-  const initiateCheckout28d = toIntegerOrNull(
-    input.row.initiate_checkout_28d,
-  );
+  const initiateCheckout28d = toIntegerOrNull(input.row.initiate_checkout_28d);
   const thumbstop28d = toNumberOrNull(input.row.thumbstop_28d);
   const video25Rate28d = toNumberOrNull(input.row.video25_rate_28d);
   const video50Rate28d = toNumberOrNull(input.row.video50_rate_28d);
@@ -1645,11 +1649,7 @@ function classifyLifecyclePosition(input: {
   roas28d: number | null;
   recent7dRoas: number | null;
 }): LifecyclePosition {
-  if (
-    input.ageDays === null ||
-    input.ageDays < 7 ||
-    input.activeDays30d < 5
-  ) {
+  if (input.ageDays === null || input.ageDays < 7 || input.activeDays30d < 5) {
     return "insufficient_history";
   }
 
@@ -1717,7 +1717,10 @@ function toHistoricalWindow(
 }
 
 function normalizeToken(value: string) {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_");
 }
 
 function toCampaignObjective(value: unknown): CampaignObjective | null {

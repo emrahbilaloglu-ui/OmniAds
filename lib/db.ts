@@ -111,7 +111,9 @@ function isWorkerRuntime(env: NodeJS.ProcessEnv = process.env) {
   return workerMode === "1" || workerMode === "true";
 }
 
-export function resolveDbRuntimeRole(env: NodeJS.ProcessEnv = process.env): DbRuntimeRole {
+export function resolveDbRuntimeRole(
+  env: NodeJS.ProcessEnv = process.env,
+): DbRuntimeRole {
   return isWorkerRuntime(env) ? "worker" : "web";
 }
 
@@ -160,10 +162,15 @@ function resolveRoleScopedOptionalPositiveNumber(input: {
 }) {
   const env = input.env ?? process.env;
   const runtime = input.runtime ?? resolveDbRuntimeRole(env);
-  return parseOptionalPositiveNumber(resolveRoleScopedRawValue(env, runtime, input.sharedKey));
+  return parseOptionalPositiveNumber(
+    resolveRoleScopedRawValue(env, runtime, input.sharedKey),
+  );
 }
 
-function resolveDbApplicationName(env: NodeJS.ProcessEnv, runtime: DbRuntimeRole) {
+function resolveDbApplicationName(
+  env: NodeJS.ProcessEnv,
+  runtime: DbRuntimeRole,
+) {
   const roleSpecific =
     runtime === "worker"
       ? env.DB_WORKER_APPLICATION_NAME?.trim()
@@ -180,7 +187,9 @@ export function resolveDbTimeoutMs(env: NodeJS.ProcessEnv = process.env) {
     runtime,
     sharedKey: "DB_QUERY_TIMEOUT_MS",
     fallback:
-      runtime === "worker" ? DEFAULT_WORKER_DB_TIMEOUT_MS : DEFAULT_WEB_DB_TIMEOUT_MS,
+      runtime === "worker"
+        ? DEFAULT_WORKER_DB_TIMEOUT_MS
+        : DEFAULT_WEB_DB_TIMEOUT_MS,
   });
 }
 
@@ -190,11 +199,16 @@ export function resolveDbPoolMax(env: NodeJS.ProcessEnv = process.env) {
     env,
     runtime,
     sharedKey: "DB_POOL_MAX",
-    fallback: runtime === "worker" ? DEFAULT_WORKER_DB_POOL_MAX : DEFAULT_WEB_DB_POOL_MAX,
+    fallback:
+      runtime === "worker"
+        ? DEFAULT_WORKER_DB_POOL_MAX
+        : DEFAULT_WEB_DB_POOL_MAX,
   });
 }
 
-export function resolveDbRuntimeSettings(env: NodeJS.ProcessEnv = process.env): DbRuntimeSettings {
+export function resolveDbRuntimeSettings(
+  env: NodeJS.ProcessEnv = process.env,
+): DbRuntimeSettings {
   const runtime = resolveDbRuntimeRole(env);
   return {
     runtime,
@@ -260,7 +274,8 @@ function buildDbStartupDetails(settings: DbRuntimeSettings) {
     idleTimeoutMs: settings.idleTimeoutMs,
     maxLifetimeSeconds: settings.maxLifetimeSeconds,
     statementTimeoutMs: settings.statementTimeoutMs,
-    idleInTransactionSessionTimeoutMs: settings.idleInTransactionSessionTimeoutMs,
+    idleInTransactionSessionTimeoutMs:
+      settings.idleInTransactionSessionTimeoutMs,
     retryAttempts: settings.retryAttempts,
     retryBackoffMs: settings.retryBackoffMs,
     retryMaxBackoffMs: settings.retryMaxBackoffMs,
@@ -275,21 +290,36 @@ function getDbPoolMax() {
   return resolveDbPoolMax(process.env);
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation: string): Promise<T> {
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  operation: string,
+): Promise<T> {
   return Promise.race([
     promise,
     new Promise<T>((_, reject) => {
       const timer = setTimeout(() => {
         reject(new Error(`${operation} timed out after ${timeoutMs}ms.`));
       }, timeoutMs);
-      promise.finally(() => clearTimeout(timer)).catch(() => clearTimeout(timer));
+      promise
+        .finally(() => clearTimeout(timer))
+        .catch(() => clearTimeout(timer));
     }),
   ]);
 }
 
+function sanitizeStatementTimeoutMs(timeoutMs: number) {
+  return Math.max(1, Math.floor(Number.isFinite(timeoutMs) ? timeoutMs : 1));
+}
+
 export function buildStatementTimeoutSql(timeoutMs: number) {
-  const safeTimeoutMs = Math.max(1, Math.floor(Number.isFinite(timeoutMs) ? timeoutMs : 1));
+  const safeTimeoutMs = sanitizeStatementTimeoutMs(timeoutMs);
   return `SET statement_timeout = ${safeTimeoutMs}`;
+}
+
+export function buildLocalStatementTimeoutSql(timeoutMs: number) {
+  const safeTimeoutMs = sanitizeStatementTimeoutMs(timeoutMs);
+  return `SET LOCAL statement_timeout = ${safeTimeoutMs}`;
 }
 
 async function executePoolQueryWithStatementTimeout<TRow extends DbRow = DbRow>(
@@ -310,7 +340,8 @@ async function executePoolQueryWithStatementTimeout<TRow extends DbRow = DbRow>(
       try {
         await client.query("RESET statement_timeout");
       } catch (error) {
-        releaseError = error instanceof Error ? error : new Error(String(error));
+        releaseError =
+          error instanceof Error ? error : new Error(String(error));
       }
     }
     client.release(releaseError);
@@ -405,7 +436,10 @@ function normalizeQueryValue(value: unknown) {
   return value === undefined ? null : value;
 }
 
-export function buildParameterizedQuery(strings: TemplateStringsArray, values: unknown[]) {
+export function buildParameterizedQuery(
+  strings: TemplateStringsArray,
+  values: unknown[],
+) {
   let text = strings[0] ?? "";
   const params: unknown[] = [];
 
@@ -463,12 +497,22 @@ function getPoolSaturationState(input: {
   return "idle";
 }
 
-function observePoolSnapshot(pool: Pool | undefined, metrics: DbRuntimeMetrics, poolMax: number) {
+function observePoolSnapshot(
+  pool: Pool | undefined,
+  metrics: DbRuntimeMetrics,
+  poolMax: number,
+) {
   const totalCount = pool?.totalCount ?? 0;
   const idleCount = pool?.idleCount ?? 0;
   const waitingCount = pool?.waitingCount ?? 0;
-  const utilizationPercent = calculatePoolUtilizationPercent(totalCount, poolMax);
-  metrics.maxObservedWaitingCount = Math.max(metrics.maxObservedWaitingCount, waitingCount);
+  const utilizationPercent = calculatePoolUtilizationPercent(
+    totalCount,
+    poolMax,
+  );
+  metrics.maxObservedWaitingCount = Math.max(
+    metrics.maxObservedWaitingCount,
+    waitingCount,
+  );
   metrics.maxObservedUtilizationPercent = Math.max(
     metrics.maxObservedUtilizationPercent,
     utilizationPercent,
@@ -496,7 +540,10 @@ function observePoolSnapshot(pool: Pool | undefined, metrics: DbRuntimeMetrics, 
   } satisfies DbRuntimePoolSnapshot;
 }
 
-function recordDbError(metrics: DbRuntimeMetrics, error: ReturnType<typeof classifyDbError>) {
+function recordDbError(
+  metrics: DbRuntimeMetrics,
+  error: ReturnType<typeof classifyDbError>,
+) {
   const at = nowIso();
   if (error.retryable) {
     metrics.retryableErrorCount += 1;
@@ -611,7 +658,10 @@ function createWrappedDbExecutor(
                 defaultTimeoutMs,
               )
             : await withTimeout(
-                queryable.query<TRow>(queryText, params.map(normalizeQueryValue)),
+                queryable.query<TRow>(
+                  queryText,
+                  params.map(normalizeQueryValue),
+                ),
                 defaultTimeoutMs,
                 "Database query",
               );
@@ -634,7 +684,11 @@ function createWrappedDbExecutor(
         }
         metrics.retryAttemptCount += 1;
         await sleep(
-          computeRetryDelayMs(settings.retryBackoffMs, settings.retryMaxBackoffMs, attempt),
+          computeRetryDelayMs(
+            settings.retryBackoffMs,
+            settings.retryMaxBackoffMs,
+            attempt,
+          ),
         );
       }
     }
@@ -657,7 +711,11 @@ function createWrappedDbExecutor(
   );
 }
 
-function createWrappedDb(pool: Pool, settings: DbRuntimeSettings, defaultTimeoutMs: number): DbClient {
+function createWrappedDb(
+  pool: Pool,
+  settings: DbRuntimeSettings,
+  defaultTimeoutMs: number,
+): DbClient {
   return createWrappedDbExecutor(pool, settings, defaultTimeoutMs, {
     pool,
     allowRetries: true,
@@ -677,7 +735,11 @@ export function getDbRuntimeDiagnostics(): DbRuntimeDiagnostics {
     runtime: settings.runtime,
     applicationName: settings.applicationName,
     settings: { ...settings },
-    pool: observePoolSnapshot(globalStore.__omniadsDbPool, metrics, settings.poolMax),
+    pool: observePoolSnapshot(
+      globalStore.__omniadsDbPool,
+      metrics,
+      settings.poolMax,
+    ),
     counters: {
       queryCount: metrics.queryCount,
       successCount: metrics.successCount,
@@ -744,7 +806,11 @@ export function getDbWithTimeout(timeoutMs: number) {
   if (existing) return existing;
 
   const settings = getCachedOrResolvedDbSettings();
-  const wrapped = createWrappedDb(globalStore.__omniadsDbPool, settings, timeoutMs);
+  const wrapped = createWrappedDb(
+    globalStore.__omniadsDbPool,
+    settings,
+    timeoutMs,
+  );
   globalStore.__omniadsDbWrappedByTimeout.set(timeoutMs, wrapped);
   logStartupEvent("db_client_timeout_wrapper_initialized", {
     runtime: settings.runtime,
@@ -782,6 +848,7 @@ export async function runDbTransaction<T>(
   });
 
   await wrapped.query("BEGIN");
+  await wrapped.query(buildLocalStatementTimeoutSql(timeoutMs));
   try {
     const result = await dbTransactionStorage.run(wrapped, fn);
     await wrapped.query("COMMIT");

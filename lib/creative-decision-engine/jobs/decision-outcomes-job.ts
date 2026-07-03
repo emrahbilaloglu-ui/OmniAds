@@ -8,6 +8,7 @@ import {
 import { ENGINE_VERSION, type DecisionLabel } from "../types";
 import { hashAdvisoryLock } from "./calibration-job";
 import { engineV3JobsDisabled } from "./job-switch";
+import { ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS } from "./job-runtime";
 
 export const JOB_NAME = "engine_v3_decision_outcomes_job";
 export const DECISION_OUTCOME_WINDOWS_DAYS = [7, 14] as const;
@@ -324,7 +325,9 @@ async function findBusinessesPendingDecisionOutcomes(input: {
     `,
     [JOB_NAME, input.asOf, ENGINE_VERSION],
   );
-  const completed = new Set(rows.map((row) => toStringOrNull(row.business_ref_id)));
+  const completed = new Set(
+    rows.map((row) => toStringOrNull(row.business_ref_id)),
+  );
   return input.businesses.filter((business) => !completed.has(business.id));
 }
 
@@ -382,50 +385,53 @@ export async function runDecisionOutcomesJob(
   const startedAt = Date.now();
   const lockKey = decisionOutcomesJobAdvisoryLockKey(input);
 
-  return runDbTransaction(async () => {
-    const db = getDb();
-    const [lockRow] = await db.query<AdvisoryLockRow>(
-      "SELECT pg_try_advisory_xact_lock($1::bigint) AS acquired",
-      [lockKey.toString()],
-    );
+  return runDbTransaction(
+    async () => {
+      const db = getDb();
+      const [lockRow] = await db.query<AdvisoryLockRow>(
+        "SELECT pg_try_advisory_xact_lock($1::bigint) AS acquired",
+        [lockKey.toString()],
+      );
 
-    if (lockRow?.acquired !== true) {
-      const durationMs = Date.now() - startedAt;
+      if (lockRow?.acquired !== true) {
+        const durationMs = Date.now() - startedAt;
+        const jobRunId = await insertJobRun({
+          businessId: input.businessId,
+          asOf: input.asOf,
+          status: "skipped",
+          durationMs,
+          rowCount: 0,
+          errorMessage:
+            "Advisory lock not acquired (job may already be running)",
+        });
+        return {
+          jobRunId,
+          status: "skipped",
+          outcomesWritten: 0,
+          durationMs,
+          errorMessage:
+            "Advisory lock not acquired (job may already be running)",
+        };
+      }
+
       const jobRunId = await insertJobRun({
         businessId: input.businessId,
         asOf: input.asOf,
-        status: "skipped",
-        durationMs,
-        rowCount: 0,
-        errorMessage: "Advisory lock not acquired (job may already be running)",
+        status: "running",
       });
-      return {
-        jobRunId,
-        status: "skipped",
-        outcomesWritten: 0,
-        durationMs,
-        errorMessage: "Advisory lock not acquired (job may already be running)",
-      };
-    }
 
-    const jobRunId = await insertJobRun({
-      businessId: input.businessId,
-      asOf: input.asOf,
-      status: "running",
-    });
+      await db.query("SAVEPOINT engine_v3_decision_outcomes_job_work");
+      try {
+        const sourceRows = await readOutcomeSourceRows(input);
+        const computedAt = new Date().toISOString();
+        const payloadRows = sourceRows.map((row) =>
+          toOutcomePayloadRow({ row, jobRunId, computedAt }),
+        );
+        const outcomesWritten = await insertOutcomes(payloadRows);
+        const durationMs = Date.now() - startedAt;
 
-    await db.query("SAVEPOINT engine_v3_decision_outcomes_job_work");
-    try {
-      const sourceRows = await readOutcomeSourceRows(input);
-      const computedAt = new Date().toISOString();
-      const payloadRows = sourceRows.map((row) =>
-        toOutcomePayloadRow({ row, jobRunId, computedAt }),
-      );
-      const outcomesWritten = await insertOutcomes(payloadRows);
-      const durationMs = Date.now() - startedAt;
-
-      await db.query(
-        `
+        await db.query(
+          `
         UPDATE engine_v3_job_runs
         SET
           status = 'success',
@@ -436,34 +442,35 @@ export async function runDecisionOutcomesJob(
           updated_at = now()
         WHERE id = $4::uuid
         `,
-        [
-          durationMs,
-          outcomesWritten,
-          JSON.stringify({
-            metadata: {
-              classifier_version: CREATIVE_OUTCOME_CLASSIFIER_VERSION,
-              windows_days: input.windowsDays ?? DECISION_OUTCOME_WINDOWS_DAYS,
-            },
-          }),
-          jobRunId,
-        ],
-      );
+          [
+            durationMs,
+            outcomesWritten,
+            JSON.stringify({
+              metadata: {
+                classifier_version: CREATIVE_OUTCOME_CLASSIFIER_VERSION,
+                windows_days:
+                  input.windowsDays ?? DECISION_OUTCOME_WINDOWS_DAYS,
+              },
+            }),
+            jobRunId,
+          ],
+        );
 
-      return {
-        jobRunId,
-        status: "success",
-        outcomesWritten,
-        durationMs,
-      };
-    } catch (error) {
-      await db
-        .query("ROLLBACK TO SAVEPOINT engine_v3_decision_outcomes_job_work")
-        .catch(() => undefined);
-      const durationMs = Date.now() - startedAt;
-      const message = error instanceof Error ? error.message : String(error);
-      await db
-        .query(
-          `
+        return {
+          jobRunId,
+          status: "success",
+          outcomesWritten,
+          durationMs,
+        };
+      } catch (error) {
+        await db
+          .query("ROLLBACK TO SAVEPOINT engine_v3_decision_outcomes_job_work")
+          .catch(() => undefined);
+        const durationMs = Date.now() - startedAt;
+        const message = error instanceof Error ? error.message : String(error);
+        await db
+          .query(
+            `
           UPDATE engine_v3_job_runs
           SET
             status = 'failed',
@@ -475,19 +482,21 @@ export async function runDecisionOutcomesJob(
             updated_at = now()
           WHERE id = $4::uuid
           `,
-          [durationMs, message, JSON.stringify(errorToJson(error)), jobRunId],
-        )
-        .catch(() => undefined);
+            [durationMs, message, JSON.stringify(errorToJson(error)), jobRunId],
+          )
+          .catch(() => undefined);
 
-      return {
-        jobRunId,
-        status: "failed",
-        outcomesWritten: 0,
-        durationMs,
-        errorMessage: message,
-      };
-    }
-  });
+        return {
+          jobRunId,
+          status: "failed",
+          outcomesWritten: 0,
+          durationMs,
+          errorMessage: message,
+        };
+      }
+    },
+    { timeoutMs: ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS },
+  );
 }
 
 async function insertJobRun(input: {
@@ -559,7 +568,8 @@ function toOutcomePayloadRow(input: {
   const outcomeRevenue = toNumberOrNull(input.row.outcome_revenue) ?? 0;
   const outcomeRoas = toNumberOrNull(input.row.outcome_roas);
   const outcomeWindowDays =
-    toIntegerOrNull(input.row.outcome_window_days) ?? DECISION_OUTCOME_WINDOWS_DAYS[0];
+    toIntegerOrNull(input.row.outcome_window_days) ??
+    DECISION_OUTCOME_WINDOWS_DAYS[0];
   const classification = classifyCreativeDecisionOutcome({
     label,
     confidence,
@@ -579,10 +589,16 @@ function toOutcomePayloadRow(input: {
       input.row.decision_snapshot_id,
       "decision_snapshot_id",
     ),
-    business_ref_id: requiredString(input.row.business_ref_id, "business_ref_id"),
+    business_ref_id: requiredString(
+      input.row.business_ref_id,
+      "business_ref_id",
+    ),
     business_id: toStringOrNull(input.row.business_id),
     creative_id: requiredString(input.row.creative_id, "creative_id"),
-    decision_as_of_date: requiredDate(input.row.decision_as_of_date, "decision_as_of_date"),
+    decision_as_of_date: requiredDate(
+      input.row.decision_as_of_date,
+      "decision_as_of_date",
+    ),
     evaluation_date: requiredDate(input.row.evaluation_date, "evaluation_date"),
     outcome_window_days: outcomeWindowDays,
     engine_version: requiredString(input.row.engine_version, "engine_version"),

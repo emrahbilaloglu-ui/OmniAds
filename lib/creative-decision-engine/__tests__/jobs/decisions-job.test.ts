@@ -61,6 +61,10 @@ type CountRow = Record<string, unknown> & {
   count: unknown;
 };
 
+type IdRow = Record<string, unknown> & {
+  id: unknown;
+};
+
 type SnapshotLinkageCountRow = Record<string, unknown> & {
   missing_lifecycle_count: unknown;
   missing_calibration_count: unknown;
@@ -130,11 +134,20 @@ function alternateLabel(label: DecisionLabel): DecisionLabel {
 }
 
 function changeEventCountMetadata(value: unknown) {
+  return metadataNumber(value, "change_event_count");
+}
+
+function jobRunMetadata(value: unknown) {
   if (value === null || typeof value !== "object") return null;
   const metadata = (value as { metadata?: unknown }).metadata;
   if (metadata === null || typeof metadata !== "object") return null;
-  const count = (metadata as { change_event_count?: unknown })
-    .change_event_count;
+  return metadata as Record<string, unknown>;
+}
+
+function metadataNumber(value: unknown, key: string) {
+  const metadata = jobRunMetadata(value);
+  if (metadata === null) return null;
+  const count = metadata[key];
   return typeof count === "number" ? count : null;
 }
 
@@ -171,6 +184,67 @@ describe("decisions job SQL contracts", () => {
     );
     expect(mapper).toContain(
       "label_transform: input.decision.labelTransform ?? null",
+    );
+  });
+
+  it("prunes only stale current-day decision materialization for the same scope", () => {
+    const source = readFileSync(
+      "lib/creative-decision-engine/jobs/decisions-job.ts",
+      "utf8",
+    );
+    const pruneQuery = source.match(
+      /const PRUNE_STALE_DECISION_SNAPSHOTS_QUERY = `[\s\S]*?`;/,
+    )?.[0];
+
+    expect(pruneQuery).toContain("as_of_date = $2::date");
+    expect(pruneQuery).toContain("engine_version = $3");
+    expect(pruneQuery).toContain("scope_type = $4");
+    expect(pruneQuery).toContain("scope_id = $5");
+    expect(pruneQuery).toContain(
+      "AND NOT (creative_id = ANY($6::text[]))",
+    );
+    expect(pruneQuery).toContain(
+      "RETURNING snapshots.id, snapshots.creative_id",
+    );
+    expect(pruneQuery).toContain("DELETE FROM engine_v3_decision_events");
+    expect(pruneQuery).toContain("USING deleted_snapshots snapshots");
+    expect(pruneQuery).toContain("events.event_type = 'decision_changed'");
+    expect(pruneQuery).toContain(
+      "DELETE FROM engine_v3_decision_snapshots_daily",
+    );
+  });
+
+  it("guards empty decision payloads before pruning and records prune metadata", () => {
+    const source = readFileSync(
+      "lib/creative-decision-engine/jobs/decisions-job.ts",
+      "utf8",
+    );
+    const pruneHelper = source.match(
+      /async function pruneStaleDecisionSnapshots[\s\S]*?skippedBecauseEmptyPayload: false,[\s\S]*?};\n}/,
+    )?.[0];
+    const successMetadata = source.match(
+      /metadata: \{[\s\S]*?prune_skipped_empty_payload:[\s\S]*?\},/,
+    )?.[0];
+
+    expect(pruneHelper).toContain("input.currentCreativeIds.length === 0");
+    expect(pruneHelper).toContain("skippedBecauseEmptyPayload: true");
+    expect(successMetadata).toContain("pruned_snapshot_count");
+    expect(successMetadata).toContain("pruned_event_count");
+    expect(successMetadata).toContain("prune_skipped_empty_payload");
+  });
+
+  it("documents why stale decision change events are explicitly pruned", () => {
+    const source = readFileSync(
+      "lib/creative-decision-engine/jobs/decisions-job.ts",
+      "utf8",
+    );
+    const migrations = readFileSync("lib/migrations.ts", "utf8");
+
+    expect(source).toContain(
+      "decision_snapshot_id uses ON DELETE SET NULL for events",
+    );
+    expect(migrations).toContain(
+      "decision_snapshot_id       UUID REFERENCES engine_v3_decision_snapshots_daily(id) ON DELETE SET NULL",
     );
   });
 });
@@ -503,6 +577,52 @@ function mockWarehouseForSingleCreative(creativeInput: CreativeInput) {
   );
 }
 
+function mockWarehouseForNoCreatives(businessId: string) {
+  vi.spyOn(
+    WarehouseDataSource.prototype,
+    "getBusinessTargetPack",
+  ).mockResolvedValue({
+    targetCpa: null,
+    targetRoas: 2,
+    breakEvenCpa: null,
+    breakEvenRoas: 1,
+    operatorAovAssumption: null,
+    defaultRiskPosture: "balanced",
+  });
+  vi.spyOn(
+    WarehouseDataSource.prototype,
+    "getDecisionCalibrationProfile",
+  ).mockResolvedValue(null);
+  vi.spyOn(
+    WarehouseDataSource.prototype,
+    "getAccountCalibration",
+  ).mockResolvedValue({
+    ...READY_ACCOUNT_CALIBRATION,
+    businessId,
+  });
+  vi.spyOn(
+    WarehouseDataSource.prototype,
+    "getAccountFunnelCalibration",
+  ).mockResolvedValue(READY_FUNNEL_CALIBRATION);
+  vi.spyOn(
+    WarehouseDataSource.prototype,
+    "getMetaAttributedAov",
+  ).mockResolvedValue({
+    aovMean: 50,
+    purchaseCount: 35,
+    totalRevenue: 1750,
+    windowStart: "2026-02-05",
+    windowEnd: AS_OF,
+  });
+  vi.spyOn(WarehouseDataSource.prototype, "getDataHealth").mockResolvedValue(
+    FRESH_DATA_HEALTH,
+  );
+  vi.spyOn(
+    WarehouseDataSource.prototype,
+    "listCreativeInputs",
+  ).mockResolvedValue([]);
+}
+
 async function insertCampaignLabel(input: {
   businessId: string;
   campaignId: string;
@@ -569,6 +689,24 @@ async function countDecisionEvents(businessId: string) {
       AND event_type = 'decision_changed'
     `,
     [businessId, AS_OF],
+  );
+  return toNumber(row?.count);
+}
+
+async function countDecisionEventsForCreative(input: {
+  businessId: string;
+  creativeId: string;
+}) {
+  const [row] = await getDb().query<CountRow>(
+    `
+    SELECT COUNT(*) AS count
+    FROM engine_v3_decision_events
+    WHERE business_ref_id = $1::uuid
+      AND creative_id = $2
+      AND event_date = $3::date
+      AND event_type = 'decision_changed'
+    `,
+    [input.businessId, input.creativeId, AS_OF],
   );
   return toNumber(row?.count);
 }
@@ -651,6 +789,149 @@ async function fetchDecisionSnapshots(input: {
     LIMIT $4::integer
     `,
     [input.businessId, AS_OF, ENGINE_VERSION, input.limit],
+  );
+}
+
+async function fetchDecisionSnapshotByCreative(input: {
+  businessId: string;
+  creativeId: string;
+}) {
+  const [row] = await getDb().query<DecisionSnapshotFixtureRow>(
+    `
+    SELECT
+      id,
+      business_id,
+      creative_id,
+      scope_type,
+      scope_id,
+      label,
+      confidence,
+      truth_source,
+      effective_target_roas,
+      ratio_to_target,
+      badges,
+      reason,
+      spend,
+      purchases,
+      roas,
+      recent7d_roas,
+      label_transform
+    FROM engine_v3_decision_snapshots_daily
+    WHERE business_ref_id = $1::uuid
+      AND creative_id = $2
+      AND as_of_date = $3::date
+      AND engine_version = $4
+    LIMIT 1
+    `,
+    [input.businessId, input.creativeId, AS_OF, ENGINE_VERSION],
+  );
+  return row;
+}
+
+async function insertDecisionSnapshotFixture(input: {
+  businessId: string;
+  creativeId: string;
+  label?: DecisionLabel;
+}) {
+  const [row] = await getDb().query<IdRow>(
+    `
+    INSERT INTO engine_v3_decision_snapshots_daily (
+      business_ref_id,
+      business_id,
+      creative_id,
+      as_of_date,
+      engine_version,
+      scope_type,
+      scope_id,
+      label,
+      confidence,
+      truth_source,
+      effective_target_roas,
+      ratio_to_target,
+      badges,
+      reason,
+      spend,
+      purchases,
+      roas,
+      recent7d_roas,
+      computed_at
+    )
+    VALUES (
+      $1::uuid,
+      $2,
+      $3,
+      $4::date,
+      $5,
+      'account',
+      '*',
+      $6,
+      50,
+      'commercial_truth',
+      2,
+      1,
+      '[]'::jsonb,
+      'test stale snapshot',
+      100,
+      1,
+      2,
+      2,
+      now()
+    )
+    RETURNING id
+    `,
+    [
+      input.businessId,
+      input.businessId,
+      input.creativeId,
+      AS_OF,
+      ENGINE_VERSION,
+      input.label ?? "diagnose",
+    ],
+  );
+  return toString(row?.id);
+}
+
+async function insertDecisionChangedEvent(input: {
+  businessId: string;
+  creativeId: string;
+  decisionSnapshotId: string;
+}) {
+  await getDb().query(
+    `
+    INSERT INTO engine_v3_decision_events (
+      business_ref_id,
+      business_id,
+      creative_id,
+      event_date,
+      event_type,
+      previous_label,
+      current_label,
+      previous_confidence,
+      current_confidence,
+      operator_evidence,
+      decision_snapshot_id
+    )
+    VALUES (
+      $1::uuid,
+      $2,
+      $3,
+      $4::date,
+      'decision_changed',
+      'diagnose',
+      'test_more',
+      40,
+      60,
+      jsonb_build_object('inserted_by', 'decisions-job-test'),
+      $5::uuid
+    )
+    `,
+    [
+      input.businessId,
+      input.businessId,
+      input.creativeId,
+      AS_OF,
+      input.decisionSnapshotId,
+    ],
   );
 }
 
@@ -777,6 +1058,142 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
     );
     expect(await countDecisionEvents(businessId)).toBe(0);
     expect(await countDecisionJobRuns(businessId)).toBe(2);
+  });
+
+  it("prunes stale current-day snapshots that are absent from the current payload", async () => {
+    const businessId = IWASTORE_BUSINESS_ID;
+    const staleCreativeId = "stale-current-day-decision-creative";
+    await prepareUpstream(businessId);
+
+    const first = await runDecisionsJob({ businessId, asOf: AS_OF });
+    expect(first.status).toBe("success");
+    expect(first.snapshotsWritten).toBeGreaterThan(0);
+
+    await insertDecisionSnapshotFixture({
+      businessId,
+      creativeId: staleCreativeId,
+    });
+    expect(await countDecisionSnapshots(businessId)).toBe(
+      first.snapshotsWritten + 1,
+    );
+
+    const second = await runDecisionsJob({ businessId, asOf: AS_OF });
+
+    expect(second.status).toBe("success");
+    expect(second.snapshotsWritten).toBe(first.snapshotsWritten);
+    expect(await countDecisionSnapshots(businessId)).toBe(
+      second.snapshotsWritten,
+    );
+    await expect(
+      fetchDecisionSnapshotByCreative({
+        businessId,
+        creativeId: staleCreativeId,
+      }),
+    ).resolves.toBeUndefined();
+
+    const jobRun = await fetchJobRun(second.jobRunId);
+    expect(jobRunMetadata(jobRun?.error_json)).toMatchObject({
+      pruned_snapshot_count: 1,
+      pruned_event_count: 0,
+    });
+    expect(jobRunMetadata(jobRun?.error_json)).not.toHaveProperty(
+      "prune_skipped_empty_payload",
+    );
+  });
+
+  it("does not prune when the current payload is empty", async () => {
+    const businessId = PERSISTED_GUARD_BUSINESS_ID;
+    const staleCreativeId = "empty-payload-preserved-creative";
+    await insertDecisionSnapshotFixture({
+      businessId,
+      creativeId: staleCreativeId,
+    });
+    mockWarehouseForNoCreatives(businessId);
+
+    const result = await runDecisionsJob({ businessId, asOf: AS_OF });
+
+    expect(result.status).toBe("success");
+    expect(result.snapshotsWritten).toBe(0);
+    await expect(
+      fetchDecisionSnapshotByCreative({
+        businessId,
+        creativeId: staleCreativeId,
+      }),
+    ).resolves.toBeDefined();
+
+    const jobRun = await fetchJobRun(result.jobRunId);
+    expect(jobRunMetadata(jobRun?.error_json)).toMatchObject({
+      pruned_snapshot_count: 0,
+      pruned_event_count: 0,
+      prune_skipped_empty_payload: true,
+    });
+  });
+
+  it("prunes same-day decision change events for stale snapshots only", async () => {
+    const businessId = THESWAF_BUSINESS_ID;
+    const staleCreativeId = "stale-event-pruned-creative";
+    await prepareUpstream(businessId);
+
+    const initial = await runDecisionsJob({ businessId, asOf: AS_OF });
+    expect(initial.status).toBe("success");
+    const [currentSnapshot] = await fetchDecisionSnapshots({
+      businessId,
+      limit: 1,
+    });
+    expect(currentSnapshot).toBeDefined();
+    const currentCreativeId = toString(currentSnapshot!.creative_id);
+
+    const staleSnapshotId = await insertDecisionSnapshotFixture({
+      businessId,
+      creativeId: staleCreativeId,
+    });
+    await insertDecisionChangedEvent({
+      businessId,
+      creativeId: staleCreativeId,
+      decisionSnapshotId: staleSnapshotId,
+    });
+    await insertDecisionChangedEvent({
+      businessId,
+      creativeId: currentCreativeId,
+      decisionSnapshotId: toString(currentSnapshot!.id),
+    });
+    expect(
+      await countDecisionEventsForCreative({
+        businessId,
+        creativeId: staleCreativeId,
+      }),
+    ).toBe(1);
+    expect(
+      await countDecisionEventsForCreative({
+        businessId,
+        creativeId: currentCreativeId,
+      }),
+    ).toBe(1);
+
+    const result = await runDecisionsJob({ businessId, asOf: AS_OF });
+
+    expect(result.status).toBe("success");
+    expect(
+      await countDecisionEventsForCreative({
+        businessId,
+        creativeId: staleCreativeId,
+      }),
+    ).toBe(0);
+    expect(
+      await countDecisionEventsForCreative({
+        businessId,
+        creativeId: currentCreativeId,
+      }),
+    ).toBe(1);
+
+    const jobRun = await fetchJobRun(result.jobRunId);
+    expect(jobRunMetadata(jobRun?.error_json)).toMatchObject({
+      pruned_snapshot_count: 1,
+      pruned_event_count: 1,
+    });
+    expect(jobRunMetadata(jobRun?.error_json)).not.toHaveProperty(
+      "prune_skipped_empty_payload",
+    );
   });
 
   it("records skipped when the advisory lock is already held", async () => {

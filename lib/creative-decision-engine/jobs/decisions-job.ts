@@ -61,6 +61,11 @@ type SnapshotRow = Record<string, unknown> & {
   confidence: unknown;
 };
 
+type PruneDecisionSnapshotRow = Record<string, unknown> & {
+  pruned_snapshot_count: unknown;
+  pruned_event_count: unknown;
+};
+
 type InsertedEventRow = Record<string, unknown> & {
   id: unknown;
 };
@@ -114,6 +119,12 @@ interface CurrentSnapshot {
   id: string;
   label: DecisionLabel;
   confidence: number;
+}
+
+interface DecisionSnapshotPruneResult {
+  prunedSnapshots: number;
+  prunedEvents: number;
+  skippedBecauseEmptyPayload: boolean;
 }
 
 interface PreviousSnapshot {
@@ -224,6 +235,39 @@ DO UPDATE SET
   computed_at = EXCLUDED.computed_at,
   updated_at = now()
 RETURNING id, creative_id, label, confidence
+`;
+
+// decision_snapshot_id uses ON DELETE SET NULL for events, so stale
+// decision_changed rows need an explicit prune after their snapshots are removed.
+const PRUNE_STALE_DECISION_SNAPSHOTS_QUERY = `
+WITH stale_snapshots AS (
+  SELECT id, creative_id
+  FROM engine_v3_decision_snapshots_daily
+  WHERE business_ref_id = $1::uuid
+    AND as_of_date = $2::date
+    AND engine_version = $3
+    AND scope_type = $4
+    AND scope_id = $5
+    AND NOT (creative_id = ANY($6::text[]))
+),
+deleted_snapshots AS (
+  DELETE FROM engine_v3_decision_snapshots_daily snapshots
+  USING stale_snapshots stale
+  WHERE snapshots.id = stale.id
+  RETURNING snapshots.id, snapshots.creative_id
+),
+deleted_events AS (
+  DELETE FROM engine_v3_decision_events events
+  USING deleted_snapshots snapshots
+  WHERE events.business_ref_id = $1::uuid
+    AND events.event_date = $2::date
+    AND events.event_type = 'decision_changed'
+    AND events.creative_id = snapshots.creative_id
+  RETURNING events.id
+)
+SELECT
+  (SELECT COUNT(*) FROM deleted_snapshots)::integer AS pruned_snapshot_count,
+  (SELECT COUNT(*) FROM deleted_events)::integer AS pruned_event_count
 `;
 
 const INSERT_DECISION_CHANGE_EVENTS_QUERY = `
@@ -468,6 +512,12 @@ export async function runDecisionsJob(
               computedAt,
             }),
         );
+        const pruneResult = await pruneStaleDecisionSnapshots({
+          businessId: input.businessId,
+          asOf: input.asOf,
+          scope: profile.scope,
+          currentCreativeIds: creativeIds,
+        });
         const upsertedSnapshots = await upsertDecisionSnapshots(snapshotRows);
         const snapshotsWritten = upsertedSnapshots.size;
 
@@ -506,6 +556,11 @@ export async function runDecisionsJob(
             JSON.stringify({
               metadata: {
                 change_event_count: changeEventsWritten,
+                pruned_snapshot_count: pruneResult.prunedSnapshots,
+                pruned_event_count: pruneResult.prunedEvents,
+                ...(pruneResult.skippedBecauseEmptyPayload
+                  ? { prune_skipped_empty_payload: true }
+                  : {}),
               },
             }),
             jobRunId,
@@ -732,6 +787,39 @@ async function upsertDecisionSnapshots(rows: DecisionSnapshotPayloadRow[]) {
         : [];
     }),
   );
+}
+
+async function pruneStaleDecisionSnapshots(input: {
+  businessId: string;
+  asOf: string;
+  scope: DecisionProfileScope;
+  currentCreativeIds: string[];
+}): Promise<DecisionSnapshotPruneResult> {
+  if (input.currentCreativeIds.length === 0) {
+    return {
+      prunedSnapshots: 0,
+      prunedEvents: 0,
+      skippedBecauseEmptyPayload: true,
+    };
+  }
+
+  const [row] = await getDb().query<PruneDecisionSnapshotRow>(
+    PRUNE_STALE_DECISION_SNAPSHOTS_QUERY,
+    [
+      input.businessId,
+      input.asOf,
+      ENGINE_VERSION,
+      input.scope.type,
+      input.scope.id,
+      input.currentCreativeIds,
+    ],
+  );
+
+  return {
+    prunedSnapshots: toIntegerOrNull(row?.pruned_snapshot_count) ?? 0,
+    prunedEvents: toIntegerOrNull(row?.pruned_event_count) ?? 0,
+    skippedBecauseEmptyPayload: false,
+  };
 }
 
 async function findPreviousSnapshotsByCreative(input: {

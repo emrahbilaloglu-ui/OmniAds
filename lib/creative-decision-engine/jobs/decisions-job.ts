@@ -515,12 +515,12 @@ export async function runDecisionsJob(
         const creativeIds = decisions.map(
           (decision) => decision.input.creativeId,
         );
-        const lifecycleRowIdsByCreative =
-          await findLatestLifecycleRowIdsByCreative({
-            businessId: input.businessId,
-            asOf: input.asOf,
-            creativeIds,
-          });
+        const lifecycleJoin = await findLatestLifecycleRowIdsByCreative({
+          businessId: input.businessId,
+          asOf: input.asOf,
+          creativeIds,
+        });
+        const lifecycleRowIdsByCreative = lifecycleJoin.byCreative;
         const calibrationRowId = await findLatestCalibrationRowId(input);
 
         const computedAt = new Date().toISOString();
@@ -588,6 +588,7 @@ export async function runDecisionsJob(
                 change_event_count: changeEventsWritten,
                 pruned_snapshot_count: pruneResult.prunedSnapshots,
                 pruned_event_count: pruneResult.prunedEvents,
+                lagged_lifecycle_row_count: lifecycleJoin.laggedRowCount,
                 ...(pruneResult.skippedBecauseEmptyPayload
                   ? { prune_skipped_empty_payload: true }
                   : {}),
@@ -712,11 +713,13 @@ async function findLatestLifecycleRowIdsByCreative(input: {
   asOf: string;
   creativeIds: string[];
 }) {
-  if (input.creativeIds.length === 0) return new Map<string, string>();
+  if (input.creativeIds.length === 0) {
+    return { byCreative: new Map<string, string>(), laggedRowCount: 0 };
+  }
 
   const rows = await getDb().query<RowIdByCreativeRow>(
     `
-    SELECT DISTINCT ON (creative_id) creative_id, id
+    SELECT DISTINCT ON (creative_id) creative_id, id, as_of_date::text AS as_of_date
     FROM engine_v3_creative_lifecycle_daily
     WHERE business_ref_id = $1::uuid
       AND engine_version = $2
@@ -727,13 +730,22 @@ async function findLatestLifecycleRowIdsByCreative(input: {
     [input.businessId, ENGINE_VERSION, input.creativeIds, input.asOf],
   );
 
-  return new Map(
+  // A decision can legitimately bind a prior-day lifecycle row (catch-up,
+  // partial reruns). That class was previously invisible; callers count it
+  // into job metadata so "today's decision on yesterday's lifecycle" is
+  // observable instead of inferred during incident review.
+  let laggedRowCount = 0;
+  const byCreative = new Map(
     rows.flatMap((row) => {
       const creativeId = toStringOrNull(row.creative_id);
       const id = toStringOrNull(row.id);
-      return creativeId !== null && id !== null ? [[creativeId, id]] : [];
+      const rowDate = toStringOrNull((row as { as_of_date?: unknown }).as_of_date);
+      if (creativeId === null || id === null) return [];
+      if (rowDate !== null && rowDate < input.asOf) laggedRowCount += 1;
+      return [[creativeId, id]] as const;
     }),
   );
+  return { byCreative, laggedRowCount };
 }
 
 async function findLatestCalibrationRowId(input: DecisionsJobInput) {

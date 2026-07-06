@@ -603,6 +603,16 @@ async function buildMeasurementReconciliation(input: {
     Math.abs(snapshotLatest.rowCount - total) > 2
   ) {
     notes.push("snapshot_count_differs_from_live_briefing_count");
+    // Direction disambiguation: the two universes differ by design classes.
+    // live > snapshot: runtime fallback sees creatives the lifecycle 72h
+    // hydration guard scoped out (known safe-direction class, e.g. Tiles
+    // 208 vs 143). snapshot > live: snapshot universe retains rows the live
+    // path no longer produces - the prune/self-heal watch class.
+    notes.push(
+      total > snapshotLatest.rowCount
+        ? "live_universe_larger_than_snapshot_universe_hydration_guard_class"
+        : "snapshot_universe_larger_than_live_universe_prune_watch_class",
+    );
   }
   if (
     input.decisionCenterRowCount !== null &&

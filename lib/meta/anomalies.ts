@@ -591,6 +591,11 @@ function hydrateAnomaly(row: SnapshotAnomalyRow): MetaAnomaly {
 export async function readMetaAnomaliesForBusiness(input: {
   businessId: string;
   activeOnly?: boolean;
+  /** Scope the anomaly snapshot to the selected range: the newest anomaly
+   * snapshot at or before this date. Without it a historical range would
+   * show today's anomalies. Status-filter scoping is NOT supported here -
+   * anomaly rows carry no per-entity briefing status (documented gap). */
+  endDate?: string | null;
 }): Promise<ReadMetaAnomaliesResult> {
   const readiness = await getDbSchemaReadiness({
     tables: ["meta_decision_snapshots_daily"],
@@ -601,11 +606,13 @@ export async function readMetaAnomaliesForBusiness(input: {
 
   const sql = getDb();
   const activeOnly = input.activeOnly === true;
+  const endDateBound = input.endDate?.trim() || null;
   const [latest] = (await sql`
     SELECT MAX(snapshot_date)::text AS snapshot_date
     FROM meta_decision_snapshots_daily
     WHERE business_id = ${input.businessId}
       AND kind = 'anomaly'
+      AND (${endDateBound}::date IS NULL OR snapshot_date <= ${endDateBound}::date)
   `) as Array<{ snapshot_date: string | null }>;
   const snapshotDate = latest?.snapshot_date ?? null;
   if (!snapshotDate) {

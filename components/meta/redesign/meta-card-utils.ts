@@ -1,6 +1,7 @@
 import type { DecisionLabel } from "@/components/common/briefing/types";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import type { MetaLaunchMode } from "@/components/meta/redesign/types";
+import { formatCurrency as legacyFormatCurrency } from "@/lib/briefing/utils";
 
 export function scopeIdForRec(rec: MetaRecommendation) {
   if (rec.level === "adset") return rec.adsetId ?? rec.id;
@@ -38,6 +39,29 @@ export function launchModeForRec(rec: MetaRecommendation): MetaLaunchMode | null
 
 export function primaryLabelForRec(rec: MetaRecommendation) {
   return rec.primaryActionLabel ?? "Open drilldown";
+}
+
+// Currency-aware money formatting shared by the Meta Decision Center
+// surfaces: the ad-account currency from the pulse payload wins, then the
+// business currency prop; only when both are unknown do we fall back to the
+// legacy USD-style formatter. No silent "$" for non-USD accounts.
+export function formatMoney(
+  value: number | null | undefined,
+  currency: string | null | undefined,
+) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  if (currency) {
+    try {
+      return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency,
+        maximumFractionDigits: value >= 1000 ? 0 : 2,
+      }).format(value);
+    } catch {
+      return `${value.toLocaleString("en-US", { maximumFractionDigits: 2 })} ${currency}`;
+    }
+  }
+  return legacyFormatCurrency(value);
 }
 
 export function evidenceValue(rec: MetaRecommendation, label: string) {

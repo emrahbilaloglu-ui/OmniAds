@@ -6,6 +6,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const businessId = searchParams.get("businessId");
   const activeOnly = searchParams.get("activeOnly") === "1";
+  const endDate = searchParams.get("endDate")?.trim() || null;
 
   const access = await requireBusinessAccess({
     request,
@@ -24,6 +25,7 @@ export async function GET(request: NextRequest) {
   const result = await readMetaAnomaliesForBusiness({
     businessId,
     activeOnly,
+    endDate,
   });
 
   return NextResponse.json(result);

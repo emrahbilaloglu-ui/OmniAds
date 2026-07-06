@@ -90,7 +90,7 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain("Archive");
     // Fixture endDate is historical, so the honest label names the day.
     expect(html).toContain("Spend · 2026-05-07");
-    expect(html).toContain("avg $350/day");
+    expect(html).toContain("avg $350.00/day");
     expect(html).toContain("+15%");
     expect(html).toContain("7d avg 2/day");
     expect(html).toContain("Run snapshot");

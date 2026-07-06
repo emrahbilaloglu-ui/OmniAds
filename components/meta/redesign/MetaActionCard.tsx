@@ -26,9 +26,11 @@ import {
   proposedBidMinorForExecute,
   scopeIdForRec,
   scopeNameForRec,
+  formatMoney,
 } from "@/components/meta/redesign/meta-card-utils";
 
 interface MetaActionCardProps {
+  moneyCurrency?: string | null;
   rec?: MetaRecommendation;
   anomaly?: MetaAnomaly;
   selected?: boolean;
@@ -192,13 +194,54 @@ function metricTone(label: string, value: string | null) {
   return "";
 }
 
-function cardMetricRows(rec: MetaRecommendation, evidenceWindow: string) {
+function cardMetricRows(
+  rec: MetaRecommendation,
+  evidenceWindow: string,
+  moneyCurrency?: string | null,
+) {
+  // Server-supplied structured metrics are the primary source for the KPI
+  // strip (currency-aware); evidence display strings are fallback-only for
+  // rows the server did not attach numbers to.
+  const metrics = rec.metrics ?? null;
   const metricEvidence = [
-    { key: "Spend", value: evidenceValue(rec, /spend/i), pattern: /spend/i },
-    { key: `ROAS ${evidenceWindow}`, value: evidenceValue(rec, /roas/i), pattern: /roas/i },
-    { key: "CPA", value: evidenceValue(rec, /cpa/i), pattern: /cpa/i },
-    { key: "Purchases", value: evidenceValue(rec, /purchase/i), pattern: /purchase/i },
-    { key: "Freq", value: evidenceValue(rec, /freq/i), pattern: /freq/i },
+    {
+      key: "Spend",
+      value:
+        metrics?.spend != null
+          ? formatMoney(metrics.spend, moneyCurrency)
+          : evidenceValue(rec, /spend/i),
+      pattern: /spend/i,
+    },
+    {
+      key: `ROAS ${evidenceWindow}`,
+      value:
+        metrics?.roas != null ? `${metrics.roas.toFixed(2)}x` : evidenceValue(rec, /roas/i),
+      pattern: /roas/i,
+    },
+    {
+      key: "CPA",
+      value:
+        metrics?.cpa != null
+          ? formatMoney(metrics.cpa, moneyCurrency)
+          : evidenceValue(rec, /cpa/i),
+      pattern: /cpa/i,
+    },
+    {
+      key: "Purchases",
+      value:
+        metrics?.purchases != null
+          ? metrics.purchases.toLocaleString("en-US")
+          : evidenceValue(rec, /purchase/i),
+      pattern: /purchase/i,
+    },
+    {
+      key: "Freq",
+      value:
+        metrics?.frequency != null
+          ? metrics.frequency.toFixed(1)
+          : evidenceValue(rec, /freq/i),
+      pattern: /freq/i,
+    },
   ];
   const rows = metricEvidence.flatMap((metric) =>
     metric.value ? [{ key: metric.key, value: metric.value }] : [],
@@ -269,6 +312,7 @@ function DeploymentQueue({ rec }: { rec: MetaRecommendation }) {
 }
 
 export function MetaActionCard({
+  moneyCurrency,
   rec,
   anomaly,
   selected = false,
@@ -335,7 +379,7 @@ export function MetaActionCard({
   const calibration = calibrationScopeText(rec);
   const signalQuality = signalQualityText(rec);
   const automationReadiness = automationReadinessText(rec);
-  const metricRows = cardMetricRows(rec, evidenceWindow);
+  const metricRows = cardMetricRows(rec, evidenceWindow, moneyCurrency);
   const watchPrimaryDefers =
     rec.decisionState === "watch" && Boolean(onDefer) && effectiveResponseState !== "deferred";
   const primaryActionLabel = watchPrimaryDefers ? "Let cook" : primaryLabelForRec(rec);

@@ -34,6 +34,9 @@ describe("meta page UI contract doc stays consistent with code", () => {
     expect(page).toContain('data-testid="meta-data-readiness"');
     expect(doc).not.toMatch(/dataReadiness[^.\n]*payload-only/i);
     expect(doc).not.toMatch(/dataReadiness[^.\n]*(never|not) render/i);
+    // The first stale copy hid two paragraphs apart from the field name -
+    // the phrase itself is banned while the banner exists in code.
+    expect(doc).not.toMatch(/not currently rendered/i);
   });
 
   it("symbols the doc cites as code must exist in the source they cite", () => {

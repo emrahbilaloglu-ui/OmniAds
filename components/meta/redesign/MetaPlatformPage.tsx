@@ -35,6 +35,7 @@ import {
   scopeIdForRec,
   scopeNameForRec,
   structuredMetricsForRec,
+  formatMoney,
 } from "@/components/meta/redesign/meta-card-utils";
 import { formatCurrency, formatRoas, sparklinePath } from "@/lib/briefing/utils";
 import {
@@ -220,8 +221,20 @@ function fetchLanes(businessId: string, window: MetaWindowKey, statusFilter: Bri
   return readJson<MetaLanePayload>(`/api/meta/lane-classify?${params.toString()}`);
 }
 
-function fetchAnomalies(businessId: string) {
+function fetchAnomalies(
+  businessId: string,
+  window: MetaWindowKey,
+  range?: Pick<HtmlDateRangeValue, "start" | "end">,
+) {
   const params = new URLSearchParams({ businessId, activeOnly: "1" });
+  // Scope the anomaly snapshot to the selected range's end so historical
+  // ranges do not surface today's anomalies. Status-filter scoping is not
+  // supported by the anomaly store (no per-entity briefing status) - a
+  // documented non-UI gap; the query key still carries the full scope so
+  // the feed refetches in lockstep with the lanes.
+  if (window === "custom" && range) {
+    params.set("endDate", range.end);
+  }
   return readJson<AnomaliesPayload>(`/api/meta/anomalies?${params.toString()}`);
 }
 
@@ -510,7 +523,13 @@ function SyntheticHealthyCampaignHeader({
   );
 }
 
-function MetaHealthyHierarchy({ groups }: { groups: HealthyCampaignGroup[] }) {
+function MetaHealthyHierarchy({
+  groups,
+  moneyCurrency,
+}: {
+  groups: HealthyCampaignGroup[];
+  moneyCurrency?: string | null;
+}) {
   return (
     <>
       {groups.map((group) => {
@@ -535,6 +554,7 @@ function MetaHealthyHierarchy({ groups }: { groups: HealthyCampaignGroup[] }) {
             {group.campaign ? (
               <MetaHealthyRow
                 row={group.campaign}
+                moneyCurrency={moneyCurrency}
                 optimizationValueOverride={hasAdsets ? optimizationSummary.value : undefined}
                 bidStrategyValueOverride={hasAdsets ? bidStrategySummary.value : undefined}
                 showBidValue={false}
@@ -556,6 +576,7 @@ function MetaHealthyHierarchy({ groups }: { groups: HealthyCampaignGroup[] }) {
                   <MetaHealthyRow
                     key={`${row.level}-${row.id}`}
                     row={row}
+                    moneyCurrency={moneyCurrency}
                     depth="child"
                     hideCampaignName={row.campaignName === group.campaignName}
                     hideOptimization={!optimizationSummary.isMixed}
@@ -773,26 +794,6 @@ function formatSignedPercent(value: number | null | undefined) {
   const rounded = Math.round(value);
   if (rounded === 0) return "0%";
   return `${rounded > 0 ? "+" : ""}${rounded}%`;
-}
-
-// Currency-aware money formatting: the ad-account currency from the pulse
-// payload wins, then the business currency prop; only when both are unknown
-// do we fall back to the legacy USD-style formatter. No silent "$".
-export function formatMoney(value: number | null | undefined, currency: string | null | undefined) {
-  if (value == null || !Number.isFinite(value)) return "—";
-  if (currency) {
-    try {
-      return new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency,
-        maximumFractionDigits: value >= 1000 ? 0 : 2,
-      }).format(value);
-    } catch {
-      // Unknown ISO code: fall through to the plain formatter with the code.
-      return `${value.toLocaleString("en-US", { maximumFractionDigits: 2 })} ${currency}`;
-    }
-  }
-  return formatCurrency(value);
 }
 
 /**
@@ -1016,7 +1017,7 @@ function FinalMetaPulse({
           <span className="sub">
             {avg7dSpend == null
               ? " avg —"
-              : ` avg ${formatCurrency(avg7dSpend)}/day${spendVs7dAvg ? ` · ${spendVs7dAvg}` : ""}`}
+              : ` avg ${formatMoney(avg7dSpend, moneyCurrency)}/day${spendVs7dAvg ? ` · ${spendVs7dAvg}` : ""}`}
           </span>
         </div>
         <div className="micro">
@@ -1172,9 +1173,16 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
     queryFn: () => fetchLanes(businessId, selectedWindow, selectedStatusFilter, selectedDateRange),
   });
   const anomalyQuery = useQuery({
-    queryKey: ["meta-anomalies", businessId],
+    queryKey: [
+      "meta-anomalies",
+      businessId,
+      selectedWindow,
+      selectedStatusFilter,
+      selectedDateRange?.start ?? null,
+      selectedDateRange?.end ?? null,
+    ],
     enabled: Boolean(businessId),
-    queryFn: () => fetchAnomalies(businessId),
+    queryFn: () => fetchAnomalies(businessId, selectedWindow, selectedDateRange),
   });
   const campaignDefer = useDeferState({
     businessId,
@@ -2094,6 +2102,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                 {individualActionNow.map((rec) => (
                   <MetaActionCard
                     key={rec.id}
+                    moneyCurrency={moneyCurrency}
                     rec={rec}
                     selected={selectedIds.has(rec.id)}
                     deferred={isDeferred(rec)}
@@ -2126,6 +2135,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                 {filteredWatching.map((rec) => (
                   <MetaActionCard
                     key={rec.id}
+                    moneyCurrency={moneyCurrency}
                     rec={rec}
                     selected={selectedIds.has(rec.id)}
                     deferred={isDeferred(rec)}
@@ -2145,7 +2155,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
               </>
             ) : activeLane === "healthy" ? (
               healthyGroups.length > 0 ? (
-                <MetaHealthyHierarchy groups={healthyGroups} />
+                <MetaHealthyHierarchy groups={healthyGroups} moneyCurrency={moneyCurrency} />
               ) : (
                 <div className="lane-empty">Healthy entities will appear after the latest snapshot has enough stable mature rows.</div>
               )
@@ -2161,6 +2171,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                   ) : (
                     <MetaActionCard
                       key={rec.id}
+                      moneyCurrency={moneyCurrency}
                       rec={rec}
                       selected={selectedIds.has(rec.id)}
                       deferred={isDeferred(rec)}
@@ -2206,9 +2217,9 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                             </span>
                           </td>
                           <td><span className="chip chip--ghost"><span className="dot" />{row.statusLabel}</span></td>
-                          <td className="num">{formatCurrency(row.spend)}</td>
+                          <td className="num">{formatMoney(row.spend, moneyCurrency)}</td>
                           <td className="num">{formatRoas(row.roas)}</td>
-                          <td className="num">{row.cpa == null ? "—" : formatCurrency(row.cpa)}</td>
+                          <td className="num">{row.cpa == null ? "—" : formatMoney(row.cpa, moneyCurrency)}</td>
                           <td>
                             {canResume ? (
                               <div className="archive-action-cell">

@@ -252,8 +252,9 @@ warehouse read models). Key semantics:
 - `labelCoverage`, `targetAnchor` — readiness inputs for the notice/empty
   states.
 - `dataReadiness` — `{status, isPartial, notReadyReason, evidenceSource}`
-  passthrough from the campaigns source (`account-pulse/route.ts:496-501`).
-  Present in the payload; not currently rendered (see caveats).
+  passthrough from the campaigns source. Rendered as a warning banner
+  (`data-testid="meta-data-readiness"`) when status is not `ok` or the
+  range is partial.
 
 ### `/api/meta/lane-classify` → `MetaLanePayload` (`types.ts:135-151`)
 
@@ -304,6 +305,13 @@ Every rec in `actionNow`, `watching`, and `nonSales` leaves the route through
 section.
 
 ### `/api/meta/anomalies`
+
+- Accepts `endDate` to scope the anomaly snapshot to the selected range's
+  end (newest anomaly snapshot at or before that date); the client threads
+  it for custom ranges and keys the query on the full window/status scope.
+- NON-UI gap: anomaly rows carry no per-entity briefing status, so the
+  status filter cannot scope this feed; Action Now tab counts can therefore
+  include anomalies for entities outside the current status filter.
 
 `{ anomalies, snapshotDate, count }` from `readMetaAnomaliesForBusiness`
 (`lib/meta/anomalies.ts`). The page always fetches `activeOnly=1` and does not

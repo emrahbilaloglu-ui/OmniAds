@@ -134,3 +134,36 @@ describe("MetaActionCard", () => {
     expect(html).not.toContain("data-cohort-chip");
   });
 });
+
+describe("card KPI strip uses structured metrics", () => {
+  it("renders server metrics with the account currency, ignoring display strings", () => {
+    const html = renderToStaticMarkup(
+      <MetaActionCard
+        moneyCurrency="TRY"
+        rec={metaRec({
+          metrics: { spend: 1250, roas: 3.2, cpa: 21.5, purchases: 44, frequency: 1.8 },
+          evidence: [
+            { label: "Spend", value: "$999,999 STALE DISPLAY", tone: "neutral" },
+            { label: "ROAS", value: "0.01x STALE", tone: "warning" },
+          ],
+        })}
+      />,
+    );
+    expect(html).toContain("TRY");
+    expect(html).toContain("3.20x");
+    expect(html).not.toContain("STALE DISPLAY");
+    expect(html).not.toContain("0.01x STALE");
+  });
+
+  it("falls back to evidence display strings only when metrics are absent", () => {
+    const html = renderToStaticMarkup(
+      <MetaActionCard
+        rec={metaRec({
+          metrics: null,
+          evidence: [{ label: "Spend", value: "$1,200", tone: "neutral" }],
+        })}
+      />,
+    );
+    expect(html).toContain("$1,200");
+  });
+});

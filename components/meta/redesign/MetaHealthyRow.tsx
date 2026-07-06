@@ -1,10 +1,12 @@
 import { CheckCircle2, SlidersHorizontal, Target } from "lucide-react";
 import type { MetaHealthyEntity } from "@/components/meta/redesign/types";
 import { MetaScopeChip } from "@/components/meta/redesign/MetaScopeChip";
+import { formatMoney } from "@/components/meta/redesign/meta-card-utils";
 import { formatCurrency, formatRoas } from "@/lib/briefing/utils";
 import { cn } from "@/lib/utils";
 
 interface MetaHealthyRowProps {
+  moneyCurrency?: string | null;
   row: MetaHealthyEntity;
   depth?: "root" | "child";
   hideCampaignName?: boolean;
@@ -99,6 +101,7 @@ function BidConfigChip({ strategy, bid }: { strategy: string | null; bid: string
 }
 
 export function MetaHealthyRow({
+  moneyCurrency,
   row,
   depth = "root",
   hideCampaignName = false,
@@ -170,7 +173,7 @@ export function MetaHealthyRow({
           />
         ) : null}
       </div>
-      <div className="font-mono tabular-nums text-[11.5px] text-slate-600">{formatCurrency(row.spend)}</div>
+      <div className="font-mono tabular-nums text-[11.5px] text-slate-600">{formatMoney(row.spend, moneyCurrency)}</div>
       <div className="font-mono tabular-nums text-[11.5px] text-emerald-700">{formatRoas(row.roas)}</div>
     </div>
   );

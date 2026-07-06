@@ -70,6 +70,7 @@ describe("GET /api/meta/anomalies", () => {
     expect(anomalies.readMetaAnomaliesForBusiness).toHaveBeenCalledWith({
       businessId: "biz_1",
       activeOnly: true,
+      endDate: null,
     });
   });
 
@@ -86,6 +87,7 @@ describe("GET /api/meta/anomalies", () => {
     expect(anomalies.readMetaAnomaliesForBusiness).toHaveBeenCalledWith({
       businessId: "biz_1",
       activeOnly: false,
+      endDate: null,
     });
   });
 
@@ -112,4 +114,23 @@ describe("GET /api/meta/anomalies", () => {
     expect(payload.error).toBe("missing_params");
     expect(anomalies.readMetaAnomaliesForBusiness).not.toHaveBeenCalled();
   });
+  it("threads endDate scoping into the anomaly read", async () => {
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/anomalies?businessId=biz_1&activeOnly=1&endDate=2026-06-15",
+      ),
+    );
+    expect(response.status).toBe(200);
+    expect(anomalies.readMetaAnomaliesForBusiness).toHaveBeenCalledWith(
+      expect.objectContaining({ businessId: "biz_1", endDate: "2026-06-15" }),
+    );
+  });
+
+  it("passes null endDate when the param is absent", async () => {
+    await GET(new NextRequest("http://localhost/api/meta/anomalies?businessId=biz_1"));
+    expect(anomalies.readMetaAnomaliesForBusiness).toHaveBeenCalledWith(
+      expect.objectContaining({ endDate: null }),
+    );
+  });
+
 });

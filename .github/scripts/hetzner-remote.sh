@@ -203,6 +203,28 @@ persist_sync_control_plane() {
   verify_local_sync_control_plane meta
   persist_sync_control_plane_via_web google_ads
   verify_local_sync_control_plane google_ads
+  persist_image_tag_env
+}
+
+# Recurring P1 (image-tag env drift): docker compose falls back to the host
+# .env APP_IMAGE_TAG on any MANUAL compose command. CI exports the SHA per
+# invocation, so the .env value silently ages until an operator recreate
+# rolls containers back to a months-old build. Each deploy therefore pins
+# the host .env to the deployed SHA so manual compose commands inherit it.
+persist_image_tag_env() {
+  env_file=".env"
+  log "Pinning ${env_file} APP_IMAGE_TAG/APP_BUILD_ID to ${DEPLOY_SHA}"
+  touch "${env_file}"
+  for key in APP_IMAGE_TAG APP_BUILD_ID; do
+    if grep -q "^${key}=" "${env_file}"; then
+      sed -i "s|^${key}=.*|${key}=${DEPLOY_SHA}|" "${env_file}"
+    else
+      printf '%s=%s\n' "${key}" "${DEPLOY_SHA}" >> "${env_file}"
+    fi
+  done
+  pinned_tag="$(grep "^APP_IMAGE_TAG=" "${env_file}" | tail -1 | cut -d= -f2)"
+  echo "env_pinned_app_image_tag=${pinned_tag}"
+  test "${pinned_tag}" = "${DEPLOY_SHA}"
 }
 
 verify_service_image() {

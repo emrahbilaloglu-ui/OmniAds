@@ -227,4 +227,29 @@ describe("observed rate at confidence", () => {
     expect(html).toContain("Obs. @ conf");
     expect(html).toContain("62% (n=64)");
   });
+
+  it("marks thin buckets explicitly", () => {
+    const card: BriefingCreativeCard = {
+      id: "creative_t",
+      creativeId: "creative_t",
+      name: "Creative T",
+      campaign: "ASC Main",
+      label: "cut",
+      confidence: 74,
+      reason: "r",
+      primary: { kind: "cut", label: "Cut" },
+      spend: 100,
+      roas: 0.5,
+      explainability: {
+        targetRoas: 2.0,
+        bucketObservedRate: 0.5,
+        bucketObservedSampleSize: 8,
+        empiricalSampleSize: 8,
+      },
+    };
+    const html = renderToStaticMarkup(
+      <>{buildEvidenceSections(card).map((section) => section.content)}</>,
+    );
+    expect(html).toContain("50% (n=8, thin)");
+  });
 });

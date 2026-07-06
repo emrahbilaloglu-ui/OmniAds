@@ -656,7 +656,7 @@ function ExplainabilityBody({ card }: { card: BriefingCreativeCard }) {
         </Kv>
         <Kv label="Obs. @ conf">
           {typeof proof?.bucketObservedRate === "number"
-            ? `${Math.round(proof.bucketObservedRate * 100)}% (n=${proof.bucketObservedSampleSize ?? 0})`
+            ? `${Math.round(proof.bucketObservedRate * 100)}% (n=${proof.bucketObservedSampleSize ?? 0}${(proof.bucketObservedSampleSize ?? 0) < MIN_RELIABLE_CALIBRATION_SAMPLE ? ", thin" : ""})`
             : "—"}
         </Kv>
       </div>

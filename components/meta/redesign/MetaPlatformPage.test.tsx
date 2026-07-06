@@ -765,3 +765,21 @@ describe("compare math uses structured metrics, never display strings", () => {
     expect(item.roas).toBeUndefined();
   });
 });
+
+describe("data readiness banner", () => {
+  it("surfaces not-ready data instead of silent zeros", () => {
+    state.pulsePayload = metaPulse({
+      dataReadiness: {
+        status: "no_accounts_assigned",
+        isPartial: false,
+        notReadyReason: "No Meta ad account is assigned to this workspace.",
+        evidenceSource: "unknown",
+      },
+    });
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+    expect(html).toContain("Data is not fully ready.");
+    expect(html).toContain("No Meta ad account is assigned");
+  });
+});

@@ -748,64 +748,6 @@ function archiveStatusClassName(status: string) {
   return "border-slate-200 bg-white text-slate-500";
 }
 
-function MetaArchiveTable({ rows }: { rows: MetaArchivedEntity[] }) {
-  if (rows.length === 0) {
-    return (
-      <div className="rounded-xl border border-slate-200 bg-white p-4 text-[12.5px] text-slate-500" data-meta-archive-empty>
-        No closed entities in this briefing scope.
-      </div>
-    );
-  }
-
-  return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white" data-meta-archive>
-      <div className="grid grid-cols-[minmax(220px,1.8fr)_120px_110px_90px_90px] border-b border-slate-100 bg-slate-50 px-3 py-2 text-[10.5px] font-semibold uppercase tracking-wider text-slate-400">
-        <div>Entity</div>
-        <div>Status</div>
-        <div className="text-right">Spend</div>
-        <div className="text-right">ROAS</div>
-        <div className="text-right">CPA</div>
-      </div>
-      <div className="divide-y divide-slate-100">
-        {rows.slice(0, 30).map((row) => (
-          <div
-            key={`${row.level}-${row.id}`}
-            className="grid grid-cols-[minmax(220px,1.8fr)_120px_110px_90px_90px] items-center gap-2 px-3 py-2 text-[12px]"
-            data-meta-archive-row={`${row.level}-${row.id}`}
-          >
-            <div className="min-w-0">
-              <div className="truncate font-medium text-slate-900">{row.name}</div>
-              <div className="truncate text-[11px] text-slate-500">
-                {row.level === "campaign" ? "Campaign" : row.campaignName ? `Adset · ${row.campaignName}` : "Adset"}
-                {row.diagnosticNote ? ` · ${row.diagnosticNote}` : ""}
-              </div>
-            </div>
-            <div>
-              <span
-                className={cn(
-                  "inline-flex max-w-full items-center rounded-md border px-1.5 py-0.5 text-[10.5px] font-medium",
-                  archiveStatusClassName(row.status),
-                )}
-              >
-                <span className="truncate">{row.statusLabel}</span>
-              </span>
-            </div>
-            <div className="text-right font-mono tabular-nums text-slate-700">{formatCurrency(row.spend)}</div>
-            <div className="text-right font-mono tabular-nums text-slate-700">{formatRoas(row.roas)}</div>
-            <div className="text-right font-mono tabular-nums text-slate-700">
-              {row.cpa == null ? "—" : formatCurrency(row.cpa)}
-            </div>
-          </div>
-        ))}
-      </div>
-      {rows.length > 30 ? (
-        <div className="border-t border-slate-100 px-3 py-2 text-[11.5px] text-slate-500">
-          Showing 30 of {rows.length} closed entities.
-        </div>
-      ) : null}
-    </div>
-  );
-}
 
 function shortRelativeTime(value: string | null | undefined) {
   if (!value) return null;
@@ -1527,6 +1469,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   const isTrackingSensitiveRec = (rec: MetaRecommendation) => {
     return (
       rec.actionKind === "execute_pause" ||
+      rec.actionKind === "execute_bid" ||
       rec.actionKind === "route_launchpad_rebuild"
     );
   };
@@ -1869,6 +1812,21 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
         onManageLabels={() => setLabelModalOpen(true)}
         moneyCurrency={moneyCurrency}
       />
+
+      {pulseQuery.data?.dataReadiness &&
+      (pulseQuery.data.dataReadiness.status !== "ok" ||
+        pulseQuery.data.dataReadiness.isPartial) ? (
+        <div className="banner warn" data-testid="meta-data-readiness">
+          <div className="icon">i</div>
+          <div className="msg">
+            <b>Data is not fully ready.</b>
+            <span className="sub">
+              {pulseQuery.data.dataReadiness.notReadyReason ??
+                "The selected range is partially verified; numbers may be incomplete."}
+            </span>
+          </div>
+        </div>
+      ) : null}
 
       <ReadinessNotice
         pulse={pulseQuery.data ?? null}

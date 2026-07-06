@@ -1021,13 +1021,26 @@ describe("cardMatchesActionFilter chip completeness (review regressions)", () =>
     ).toBe(true);
   });
 
-  it("keeps protect rows out of every chip, matching legacy", () => {
+  it("gives protect/fix/diagnose rows a home under the Diagnose chip", () => {
     const card = rowCard2(
       decisionCenterRow({ buyerAction: "protect", executionAction: null }),
     );
     for (const chip of ["promote", "scale", "cut", "fresh_test"] as const) {
       expect(cardMatchesActionFilter(card, chip)).toBe(false);
     }
+    expect(cardMatchesActionFilter(card, "diagnose")).toBe(true);
     expect(cardMatchesActionFilter(card, "all")).toBe(true);
+    expect(
+      cardMatchesActionFilter(
+        rowCard2(decisionCenterRow({ buyerAction: "fix_delivery", executionAction: null })),
+        "diagnose",
+      ),
+    ).toBe(true);
+    // Blocked cuts stay under Cut, not Diagnose-only.
+    const blockedCut = rowCard2(
+      decisionCenterRow({ buyerAction: "diagnose_data", executionAction: null }),
+      { blockedActionType: "cut" },
+    );
+    expect(cardMatchesActionFilter(blockedCut, "cut")).toBe(true);
   });
 });

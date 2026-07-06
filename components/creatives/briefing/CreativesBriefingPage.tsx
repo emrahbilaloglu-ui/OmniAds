@@ -163,7 +163,14 @@ interface CompareDrawerState {
 
 type WorkspaceMode = "briefing" | "library";
 type CreativeLaneView = "all" | "action" | "watching" | "healthy";
-type CreativeActionFilter = "all" | "promote" | "scale" | "cut" | "fresh_test" | "add_existing";
+type CreativeActionFilter =
+  | "all"
+  | "promote"
+  | "scale"
+  | "cut"
+  | "fresh_test"
+  | "diagnose"
+  | "add_existing";
 type CreativeCampaignFilter = "all" | "main" | "test" | "mixed";
 type DecisionCenterRowForCard = NonNullable<
   BriefingCreativeCard["decisionCenterRow"]
@@ -866,9 +873,12 @@ export function cardMatchesActionFilter(
       default:
         // Blocked cuts surface as diagnose_data rows but the server marks
         // the blocked action; legacy showed them under the Cut chip
-        // ("Cut review"). protect / fix_* / unblocked diagnose_data had no
-        // chip under the legacy matcher either; they remain All-lane only.
-        return actionFilter === "cut" && card.blockedActionType === "cut";
+        // ("Cut review") and the Cut chip keeps that. Everything else in
+        // the default arm (protect / fix_delivery / fix_policy / unblocked
+        // diagnose_data) previously had no chip at all - the Diagnose chip
+        // gives those rows a home.
+        if (actionFilter === "cut") return card.blockedActionType === "cut";
+        return actionFilter === "diagnose";
     }
   }
   const kind = String(card.primary?.kind ?? card.label ?? "").toLowerCase();
@@ -881,7 +891,9 @@ export function cardMatchesActionFilter(
         ? kind.includes("cut") || label.includes("cut") || kind.includes("pause")
         : actionFilter === "fresh_test"
           ? kind.includes("fresh") || kind.includes("test") || label.includes("fresh")
-          : kind.includes("existing") || label.includes("existing");
+          : actionFilter === "diagnose"
+            ? kind.includes("diagnose") || kind.includes("fix") || kind.includes("review") || label.includes("diagnose") || label.includes("fix")
+            : kind.includes("existing") || label.includes("existing");
 }
 
 function cardMatchesCreativeFilters(card: BriefingCreativeCard, input: {
@@ -2277,6 +2289,7 @@ export function CreativesBriefingPage() {
                 ["scale", "Scale"],
                 ["cut", "Cut"],
                 ["fresh_test", "Fresh test"],
+                ["diagnose", "Diagnose"],
                 ["add_existing", "Add existing"],
               ] as Array<[CreativeActionFilter, string]>).map(([value, label]) => (
                 <button key={value} type="button" className={actionFilter === value ? "on" : ""} onClick={() => setActionFilter(value)}>

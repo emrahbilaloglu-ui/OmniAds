@@ -13,7 +13,9 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
     docsState: "current",
     references: [
       { kind: "page", path: "app/(dashboard)/platforms/meta/page.tsx", label: "Meta page" },
-      { kind: "component", path: "components/meta/meta-operating-mode-card.tsx", label: "Meta operating mode card" },
+      // Operating mode now renders in the redesign pulse strip (Mode cell);
+      // the legacy card component is dead code (no importer).
+      { kind: "component", path: "components/meta/redesign/MetaPlatformPage.tsx", label: "Meta Decision Center (pulse Mode cell)" },
       { kind: "component", path: "components/creatives/creative-commercial-context-card.tsx", label: "Creative commercial context" },
       { kind: "api", path: "app/api/business-operating-mode/route.ts", label: "Operating mode route" },
       { kind: "doc", path: RELEASE_AUTHORITY_CANONICAL_DOC, label: "V3-01 authority doc" },
@@ -33,7 +35,9 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
     docsState: "current",
     references: [
       { kind: "page", path: "app/(dashboard)/platforms/meta/page.tsx", label: "Meta page" },
-      { kind: "component", path: "components/meta/meta-account-recs.tsx", label: "Recommendations panel" },
+      // Recommendations render as Decision Center lanes in the redesign;
+      // the legacy panel component is dead code (no importer).
+      { kind: "component", path: "components/meta/redesign/MetaPlatformPage.tsx", label: "Meta Decision Center lanes" },
       { kind: "api", path: "app/api/meta/recommendations/route.ts", label: "Recommendations route" },
       { kind: "doc", path: RELEASE_AUTHORITY_CANONICAL_DOC, label: "V3-01 authority doc" },
       { kind: "doc", path: "docs/phase-03-meta-decision-os.md", label: "Phase 03 Meta Decision OS" },

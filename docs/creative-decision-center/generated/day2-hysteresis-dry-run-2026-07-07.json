@@ -1,0 +1,287 @@
+{
+  "title": "Day-2 hysteresis dry run - simulated asOf 2026-07-07 against live state of 2026-07-06",
+  "generatedAt": "2026-07-06T14:28:19.621Z",
+  "engineVersion": "v3-2026-07-06-decision-stability",
+  "readOnly": true,
+  "dbWrites": false,
+  "providerWrites": false,
+  "caveat": "Projection: uses data available now (today's warehouse rows) as tomorrow's inputs. Real day-2 metrics will differ; the point is proving the persisted-state seams and chaining, not predicting labels.",
+  "seams": {
+    "decisionLabelMemory": {
+      "pass": true,
+      "detail": "readPreviousPublishedLabels returned 1602 previous labels (1602 with raw_label) from today's persisted snapshots via the production reader/version key."
+    },
+    "contextStateRoundTrip": {
+      "pass": true,
+      "detail": "parseHysteresisState parsed 95 persisted context states; 73 carry non-default counters/class (full-field round-trip live)."
+    }
+  },
+  "totals": {
+    "businesses": 14,
+    "decisionInputs": 1602,
+    "previousLabelMemory": 1602,
+    "memoryWithRawLabel": 1602,
+    "wouldSuppressTomorrowIfMetricsHeld": 1
+  },
+  "perBusiness": [
+    {
+      "business": "IwaStore",
+      "inputs": 156,
+      "previousLabelMemory": 156,
+      "memoryWithRawLabel": 156,
+      "wouldSuppressTomorrow": 0,
+      "contextStatesToday": 12
+    },
+    {
+      "business": "Grandmix",
+      "inputs": 210,
+      "previousLabelMemory": 210,
+      "memoryWithRawLabel": 210,
+      "wouldSuppressTomorrow": 0,
+      "contextStatesToday": 9
+    },
+    {
+      "business": "Tiles Workshop",
+      "inputs": 141,
+      "previousLabelMemory": 141,
+      "memoryWithRawLabel": 141,
+      "wouldSuppressTomorrow": 1,
+      "contextStatesToday": 22
+    },
+    {
+      "business": "Adsecute Demo",
+      "inputs": 0,
+      "previousLabelMemory": 0,
+      "memoryWithRawLabel": 0,
+      "wouldSuppressTomorrow": 0,
+      "contextStatesToday": 0
+    },
+    {
+      "business": "Bilsem Zeka",
+      "inputs": 90,
+      "previousLabelMemory": 90,
+      "memoryWithRawLabel": 90,
+      "wouldSuppressTomorrow": 0,
+      "contextStatesToday": 6
+    },
+    {
+      "business": "Silveristic",
+      "inputs": 48,
+      "previousLabelMemory": 48,
+      "memoryWithRawLabel": 48,
+      "wouldSuppressTomorrow": 0,
+      "contextStatesToday": 6
+    },
+    {
+      "business": "TheSwaf",
+      "inputs": 279,
+      "previousLabelMemory": 279,
+      "memoryWithRawLabel": 279,
+      "wouldSuppressTomorrow": 0,
+      "contextStatesToday": 17
+    },
+    {
+      "business": "IwaTR",
+      "inputs": 100,
+      "previousLabelMemory": 100,
+      "memoryWithRawLabel": 100,
+      "wouldSuppressTomorrow": 0,
+      "contextStatesToday": 3
+    },
+    {
+      "business": "ColorFullWorldsTR",
+      "inputs": 50,
+      "previousLabelMemory": 50,
+      "memoryWithRawLabel": 50,
+      "wouldSuppressTomorrow": 0,
+      "contextStatesToday": 3
+    },
+    {
+      "business": "Vornom",
+      "inputs": 49,
+      "previousLabelMemory": 49,
+      "memoryWithRawLabel": 49,
+      "wouldSuppressTomorrow": 0,
+      "contextStatesToday": 2
+    },
+    {
+      "business": "BskTR",
+      "inputs": 37,
+      "previousLabelMemory": 37,
+      "memoryWithRawLabel": 37,
+      "wouldSuppressTomorrow": 0,
+      "contextStatesToday": 5
+    },
+    {
+      "business": "Halıcızade",
+      "inputs": 165,
+      "previousLabelMemory": 165,
+      "memoryWithRawLabel": 165,
+      "wouldSuppressTomorrow": 0,
+      "contextStatesToday": 5
+    },
+    {
+      "business": "EMOLOS",
+      "inputs": 277,
+      "previousLabelMemory": 277,
+      "memoryWithRawLabel": 277,
+      "wouldSuppressTomorrow": 0,
+      "contextStatesToday": 5
+    },
+    {
+      "business": "Enise",
+      "inputs": 0,
+      "previousLabelMemory": 0,
+      "memoryWithRawLabel": 0,
+      "wouldSuppressTomorrow": 0,
+      "contextStatesToday": 0
+    }
+  ],
+  "suppressionSamples": [
+    {
+      "business": "Tiles Workshop",
+      "creativeId": "1124168746317341",
+      "previousPublished": "keep",
+      "previousRaw": "keep",
+      "rawToday": "cut",
+      "wouldPublish": "keep"
+    }
+  ],
+  "contextSeamSamples": [
+    {
+      "business": "IwaStore",
+      "campaignId": "120241677292560077",
+      "persistedKind": "main",
+      "parsedState": {
+        "stableKind": "main",
+        "stableClass": "high",
+        "pendingKind": null,
+        "pendingCount": 0,
+        "graceDaysUsed": 0,
+        "pendingConflictCount": 0
+      }
+    },
+    {
+      "business": "IwaStore",
+      "campaignId": "120246441524690077",
+      "persistedKind": "test",
+      "parsedState": {
+        "stableKind": "test",
+        "stableClass": "low",
+        "pendingKind": null,
+        "pendingCount": 0,
+        "graceDaysUsed": 0,
+        "pendingConflictCount": 0
+      }
+    },
+    {
+      "business": "IwaStore",
+      "campaignId": "120216916619760077",
+      "persistedKind": "main",
+      "parsedState": {
+        "stableKind": "main",
+        "stableClass": "medium",
+        "pendingKind": null,
+        "pendingCount": 0,
+        "graceDaysUsed": 0,
+        "pendingConflictCount": 0
+      }
+    },
+    {
+      "business": "IwaStore",
+      "campaignId": "120209671132750077",
+      "persistedKind": "main",
+      "parsedState": {
+        "stableKind": "main",
+        "stableClass": "high",
+        "pendingKind": null,
+        "pendingCount": 0,
+        "graceDaysUsed": 0,
+        "pendingConflictCount": 0
+      }
+    },
+    {
+      "business": "IwaStore",
+      "campaignId": "120241683217280077",
+      "persistedKind": "main",
+      "parsedState": {
+        "stableKind": "main",
+        "stableClass": "high",
+        "pendingKind": null,
+        "pendingCount": 0,
+        "graceDaysUsed": 0,
+        "pendingConflictCount": 0
+      }
+    },
+    {
+      "business": "IwaStore",
+      "campaignId": "120241702971470077",
+      "persistedKind": "main",
+      "parsedState": {
+        "stableKind": "main",
+        "stableClass": "medium",
+        "pendingKind": null,
+        "pendingCount": 0,
+        "graceDaysUsed": 0,
+        "pendingConflictCount": 0
+      }
+    },
+    {
+      "business": "Grandmix",
+      "campaignId": "120249371622510316",
+      "persistedKind": "main",
+      "parsedState": {
+        "stableKind": "main",
+        "stableClass": "medium",
+        "pendingKind": null,
+        "pendingCount": 0,
+        "graceDaysUsed": 0,
+        "pendingConflictCount": 0
+      }
+    },
+    {
+      "business": "Grandmix",
+      "campaignId": "120247883838010316",
+      "persistedKind": "main",
+      "parsedState": {
+        "stableKind": "main",
+        "stableClass": "high",
+        "pendingKind": null,
+        "pendingCount": 0,
+        "graceDaysUsed": 0,
+        "pendingConflictCount": 0
+      }
+    },
+    {
+      "business": "Grandmix",
+      "campaignId": "120247018751090316",
+      "persistedKind": "main",
+      "parsedState": {
+        "stableKind": "main",
+        "stableClass": "high",
+        "pendingKind": null,
+        "pendingCount": 0,
+        "graceDaysUsed": 0,
+        "pendingConflictCount": 0
+      }
+    },
+    {
+      "business": "Grandmix",
+      "campaignId": "120247884799930316",
+      "persistedKind": "main",
+      "parsedState": {
+        "stableKind": "main",
+        "stableClass": "medium",
+        "pendingKind": null,
+        "pendingCount": 0,
+        "graceDaysUsed": 0,
+        "pendingConflictCount": 0
+      }
+    }
+  ],
+  "evidenceLimits": [
+    "Read-only projection; no rows written, no jobs triggered.",
+    "Tomorrow's inputs are approximated by today's warehouse state; the suppression count is a lower-bound sanity signal, not a forecast.",
+    "Decision seam proof = non-empty previous-label memory including raw_label through the production reader; context seam proof = persisted hysteresis_state_json parsing through the production parser."
+  ]
+}

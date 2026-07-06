@@ -70,7 +70,15 @@ function weekStartIsoDate(value: string): string {
 export function computeExpectedCalibrationError(
   rows: readonly CreativeDecisionBacktestRow[],
 ): number | null {
-  const known = rows.filter((row) => row.realizedOutcome !== "unknown");
+  // Hard-action rows only. For non-hard labels "positive" means a missed hard
+  // action (the decision was WRONG), the opposite polarity of hard rows where
+  // "positive" validates the action. Pooling both made the metric
+  // unpassable-by-construction: a confident correct keep registered as
+  // near-maximal calibration error. Calibration is therefore measured on the
+  // rows whose confidence claims an action, i.e. hard rows.
+  const known = rows.filter(
+    (row) => isHardAction(row.label) && row.realizedOutcome !== "unknown",
+  );
   if (known.length === 0) return null;
 
   const buckets = new Map<number, { total: number; positives: number }>();
@@ -128,6 +136,7 @@ export function summarizeDecisionBacktest(input: {
         ? truePositiveHardRows.length / positiveRows.length
         : null,
     ),
+    // Hard-only by construction; see computeExpectedCalibrationError.
     expectedCalibrationError: computeExpectedCalibrationError(input.rows),
     criticalFalsePositiveRate: round(
       hardRows.length > 0 ? criticalFalsePositiveRows.length / hardRows.length : null,

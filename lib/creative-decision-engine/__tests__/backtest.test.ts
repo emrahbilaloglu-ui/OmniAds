@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  computeExpectedCalibrationError,
   summarizeDecisionBacktest,
   summarizeDecisionBacktestByLabelAndWeek,
 } from "../backtest";
@@ -165,5 +166,72 @@ describe("summarizeDecisionBacktest", () => {
         nonComputableReason: "insufficient_segment_sample_size",
       }),
     ]);
+  });
+});
+
+describe("computeExpectedCalibrationError", () => {
+  it("measures calibration on hard-action rows only", () => {
+    const hardOnly = computeExpectedCalibrationError([
+      {
+        creativeId: "c1",
+        asOfDate: "2026-05-03",
+        label: "cut",
+        confidence: 85,
+        realizedOutcome: "positive",
+        severity: "high",
+      },
+    ]);
+    // A confident correct keep must not register as calibration error: for
+    // non-hard labels "positive" flags a missed action (opposite polarity).
+    const withConfidentKeeps = computeExpectedCalibrationError([
+      {
+        creativeId: "c1",
+        asOfDate: "2026-05-03",
+        label: "cut",
+        confidence: 85,
+        realizedOutcome: "positive",
+        severity: "high",
+      },
+      {
+        creativeId: "c2",
+        asOfDate: "2026-05-03",
+        label: "keep",
+        confidence: 85,
+        realizedOutcome: "negative",
+        severity: "low",
+      },
+      {
+        creativeId: "c3",
+        asOfDate: "2026-05-03",
+        label: "keep",
+        confidence: 85,
+        realizedOutcome: "negative",
+        severity: "low",
+      },
+    ]);
+    expect(withConfidentKeeps).toBe(hardOnly);
+  });
+
+  it("returns null when there are no known hard-action rows", () => {
+    expect(
+      computeExpectedCalibrationError([
+        {
+          creativeId: "c1",
+          asOfDate: "2026-05-03",
+          label: "keep",
+          confidence: 60,
+          realizedOutcome: "negative",
+          severity: "low",
+        },
+        {
+          creativeId: "c2",
+          asOfDate: "2026-05-03",
+          label: "cut",
+          confidence: 90,
+          realizedOutcome: "unknown",
+          severity: "high",
+        },
+      ]),
+    ).toBeNull();
   });
 });

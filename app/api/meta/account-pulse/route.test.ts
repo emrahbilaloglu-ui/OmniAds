@@ -46,6 +46,7 @@ function mockSql(input: {
   targetRoas?: number | null;
   calibrationP50?: number | null;
   trackingScore?: number | null;
+  lastSyncAt?: string | null;
 } = {}) {
   const sql = vi.fn(async (strings: TemplateStringsArray) => {
     const text = strings.join(" ");
@@ -60,6 +61,15 @@ function mockSql(input: {
     }
     if (text.includes("engine_v3_creative_lifecycle_daily")) {
       return [{ row_count: 1, tracking_anomaly_score: input.trackingScore ?? 0.1 }];
+    }
+    return [];
+  });
+  // The route's freshness read uses the .query(text, params) interface.
+  (sql as unknown as { query: unknown }).query = vi.fn(async (text: string) => {
+    if (text.includes("MAX(updated_at)")) {
+      return input.lastSyncAt === undefined
+        ? []
+        : [{ last_sync_at: input.lastSyncAt }];
     }
     return [];
   });
@@ -132,7 +142,16 @@ describe("GET /api/meta/account-pulse", () => {
     });
     expect(payload.targetAnchor.configured).toBe(true);
     expect(payload.trackingHealth.status).toBe("healthy");
-    expect(typeof payload.lastSyncAt).toBe("string");
+    // Freshness is never fabricated: with no warehouse ingest metadata the
+    // payload says unknown (null) instead of "now".
+    expect(payload.lastSyncAt).toBeNull();
+    expect(payload.currency).toBeNull();
+    expect(payload.dataReadiness).toEqual({
+      status: "ok",
+      isPartial: false,
+      notReadyReason: null,
+      evidenceSource: "live",
+    });
   });
 
   it("returns today spend and 7 day daily average for the pulse comparison tile", async () => {
@@ -248,6 +267,67 @@ describe("GET /api/meta/account-pulse", () => {
     expect(payload.statusFilter).toBe("all");
     expect(payload.pacing.mtdSpend).toBe(1000);
     expect(payload.revenue.current).toBe(2100);
+  });
+
+
+  it("returns the real warehouse ingest timestamp and account currency", async () => {
+    mockSql({ targetRoas: 2.4, lastSyncAt: "2026-07-06 09:12:00" });
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [campaign({ currency: "TRY" })] as never,
+      isPartial: false,
+      notReadyReason: null,
+      evidenceSource: "warehouse",
+    });
+    const response = await GET(new NextRequest("http://localhost/api/meta/account-pulse?businessId=biz_1"));
+    const payload = await response.json();
+    expect(payload.lastSyncAt).toBe("2026-07-06 09:12:00");
+    expect(payload.currency).toBe("TRY");
+  });
+
+  it("computes true month-to-date pacing instead of relabeling the selected window", async () => {
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockImplementation(async (input) => {
+      const monthStart = `${String(input.endDate).slice(0, 8)}01`;
+      if (input.startDate === monthStart) {
+        return {
+          status: "ok",
+          rows: [campaign({ spend: 5000 })] as never,
+          isPartial: false,
+          notReadyReason: null,
+          evidenceSource: "warehouse",
+        };
+      }
+      return {
+        status: "ok",
+        rows: [campaign({ spend: 1200 })] as never,
+        isPartial: false,
+        notReadyReason: null,
+        evidenceSource: "warehouse",
+      };
+    });
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/account-pulse?businessId=biz_1&window=7d&endDate=2026-07-15"),
+    );
+    const payload = await response.json();
+    expect(payload.pacing.mtdSpend).toBe(5000);
+    expect(payload.pacing.windowSpend).toBe(1200);
+    // day 15 of month: extrapolated target = 5000/15*30 = 10000
+    expect(payload.pacing.mtdTarget).toBeCloseTo(10000, 5);
+  });
+
+  it("surfaces not-ready data instead of silently reporting zeros", async () => {
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
+      status: "no_accounts_assigned",
+      rows: [] as never,
+      isPartial: false,
+      notReadyReason: "No Meta ad account is assigned to this workspace.",
+      evidenceSource: "unknown",
+    });
+    const response = await GET(new NextRequest("http://localhost/api/meta/account-pulse?businessId=biz_1"));
+    const payload = await response.json();
+    expect(payload.dataReadiness.status).toBe("no_accounts_assigned");
+    expect(payload.dataReadiness.notReadyReason).toContain("assigned");
+    expect(payload.lastSyncAt).toBeNull();
   });
 
   it("authorizes guest access", async () => {

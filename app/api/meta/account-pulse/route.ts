@@ -323,7 +323,8 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const [current, previous, today, d7, d14, d28, engineMetadata, trackingHealth, roasBenchmark, targetAnchor, roasHistory] =
+  const monthStart = `${endDate.slice(0, 8)}01`;
+  const [current, previous, today, d7, d14, d28, engineMetadata, trackingHealth, roasBenchmark, targetAnchor, roasHistory, monthToDate, warehouseLastSyncAt] =
     await Promise.all([
       getMetaCampaignsForRange({ businessId, startDate, endDate }),
       getMetaCampaignsForRange({
@@ -375,6 +376,20 @@ export async function GET(request: NextRequest) {
         breakEvenCpa: null,
       })),
       readRoasHistory({ businessId, startDate, endDate }).catch(() => []),
+      getMetaCampaignsForRange({ businessId, startDate: monthStart, endDate }),
+      // Real ingest freshness: the newest warehouse write for this business.
+      // Never fabricate "now" - unknown is unknown.
+      Promise.resolve()
+        .then(() =>
+          getDb().query<{ last_sync_at: string | null }>(
+            `SELECT MAX(updated_at)::text AS last_sync_at
+             FROM meta_campaign_daily
+             WHERE business_ref_id::text = $1 OR business_id = $1`,
+            [businessId],
+          ),
+        )
+        .then((rows) => rows[0]?.last_sync_at ?? null)
+        .catch(() => null),
     ]);
 
   const currentRows = (current.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
@@ -396,7 +411,13 @@ export async function GET(request: NextRequest) {
   const currentTotals = totals(currentRows);
   const previousTotals = totals(previousRows);
   const currentDayOfMonth = Math.max(1, new Date(`${endDate}T00:00:00.000Z`).getUTCDate());
-  const mtdTarget = Math.max(currentTotals.spend, (currentTotals.spend / currentDayOfMonth) * 30);
+  // True month-to-date (month start .. endDate), not the selected window
+  // relabeled: the previous implementation extrapolated the selected-window
+  // spend and called it MTD, which was wrong for every non-28d window.
+  const mtdTotals = totals(
+    (monthToDate.rows ?? []).filter((row) => isInBriefing(row, statusFilter)),
+  );
+  const mtdTarget = Math.max(mtdTotals.spend, (mtdTotals.spend / currentDayOfMonth) * 30);
   const matureCampaigns = currentRows.filter(
     (row) => toNumber(row.spend) >= 250 || toNumber(row.purchases) >= 5,
   ).length;
@@ -437,9 +458,10 @@ export async function GET(request: NextRequest) {
       startDate,
       endDate,
       pacing: {
-        mtdSpend: currentTotals.spend,
+        mtdSpend: mtdTotals.spend,
         mtdTarget,
-        dayPace: mtdTarget > 0 ? currentTotals.spend / mtdTarget : 0,
+        dayPace: mtdTarget > 0 ? mtdTotals.spend / mtdTarget : 0,
+        windowSpend: currentTotals.spend,
         spendToday: todayTotals.spend,
         dailyTarget: mtdTarget / 30,
         avg7dSpend,
@@ -469,7 +491,14 @@ export async function GET(request: NextRequest) {
       labelCoverage,
       targetAnchor,
       trackingHealth,
-      lastSyncAt: new Date().toISOString(),
+      lastSyncAt: warehouseLastSyncAt,
+      currency: currentRows.find((row) => row.currency)?.currency ?? null,
+      dataReadiness: {
+        status: current.status ?? "ok",
+        isPartial: current.isPartial ?? false,
+        notReadyReason: current.notReadyReason ?? null,
+        evidenceSource: current.evidenceSource,
+      },
       trackingAnomalyActive:
         trackingHealth.status === "blocked" || trackingHealth.status === "degraded",
     },

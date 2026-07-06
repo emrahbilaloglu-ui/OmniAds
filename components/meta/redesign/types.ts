@@ -12,9 +12,12 @@ export interface MetaPulsePayload {
   startDate: string;
   endDate: string;
   pacing: {
+    /** True month-to-date spend (month start .. endDate). */
     mtdSpend: number;
     mtdTarget: number;
     dayPace: number;
+    /** Selected-window spend (the old field incorrectly labeled MTD). */
+    windowSpend?: number;
     spendToday?: number;
     dailyTarget?: number;
     avg7dSpend?: number;
@@ -45,7 +48,16 @@ export interface MetaPulsePayload {
   targetAnchor?: MetaTargetAnchor | null;
   trackingHealth: { status: "healthy" | "degraded" | "blocked" | "syncing" | "unknown"; detail: string };
   trackingAnomalyActive?: boolean;
+  /** Newest warehouse ingest timestamp; null = unknown, never fabricated. */
   lastSyncAt?: string | null;
+  /** Ad-account currency code from warehouse rows; null = unknown. */
+  currency?: string | null;
+  dataReadiness?: {
+    status: "ok" | "no_accounts_assigned" | "account_not_assigned" | "not_connected";
+    isPartial: boolean;
+    notReadyReason: string | null;
+    evidenceSource: string;
+  } | null;
 }
 
 export interface MetaLabelCoverage {

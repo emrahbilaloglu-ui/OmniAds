@@ -833,6 +833,26 @@ function formatSignedPercent(value: number | null | undefined) {
   return `${rounded > 0 ? "+" : ""}${rounded}%`;
 }
 
+// Currency-aware money formatting: the ad-account currency from the pulse
+// payload wins, then the business currency prop; only when both are unknown
+// do we fall back to the legacy USD-style formatter. No silent "$".
+export function formatMoney(value: number | null | undefined, currency: string | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  if (currency) {
+    try {
+      return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency,
+        maximumFractionDigits: value >= 1000 ? 0 : 2,
+      }).format(value);
+    } catch {
+      // Unknown ISO code: fall through to the plain formatter with the code.
+      return `${value.toLocaleString("en-US", { maximumFractionDigits: 2 })} ${currency}`;
+    }
+  }
+  return formatCurrency(value);
+}
+
 function percentDelta(current: number | null | undefined, previous: number | null | undefined) {
   if (current == null || previous == null || !Number.isFinite(current) || !Number.isFinite(previous) || previous <= 0) {
     return null;
@@ -968,11 +988,18 @@ function FinalMetaPulse({
   pulse,
   window,
   onManageLabels,
+  moneyCurrency,
 }: {
   pulse?: MetaPulsePayload | null;
   window: MetaWindowKey;
   onManageLabels: () => void;
+  moneyCurrency?: string | null;
 }) {
+  const endIsToday =
+    !pulse?.endDate || pulse.endDate === new Date().toISOString().slice(0, 10);
+  const lastSyncLabel = pulse?.lastSyncAt
+    ? shortRelativeTime(pulse.lastSyncAt)
+    : null;
   const labelPercent = labelCoveragePercent(pulse);
   const snapshotAge =
     pulse?.snapshotHealth?.ageHours != null
@@ -1001,11 +1028,11 @@ function FinalMetaPulse({
     <div className="pulse pulse--five">
       <div className="cell">
         <div className="label">
-          <span>Spend · today</span>
+          <span>{endIsToday ? "Spend · today" : `Spend · ${pulse?.endDate ?? "last day"}`}</span>
           <span style={{ color: "var(--muted)" }}>vs 7d avg</span>
         </div>
         <div className="value">
-          {dailySpend == null ? "—" : formatCurrency(dailySpend)}
+          {dailySpend == null ? "—" : formatMoney(dailySpend, moneyCurrency)}
           <span className="sub">
             {avg7dSpend == null
               ? " avg —"
@@ -1040,7 +1067,10 @@ function FinalMetaPulse({
           </span>
         </div>
         <div className="value">{snapshotAge ?? "—"}</div>
-        <div className="micro">engine {pulse?.engineVersion ?? "—"} · ran {pulse?.engineLastRun ? new Date(pulse.engineLastRun).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}</div>
+        <div className="micro">
+          engine {pulse?.engineVersion ?? "—"} · ran {pulse?.engineLastRun ? new Date(pulse.engineLastRun).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"} · data{" "}
+          {lastSyncLabel ? `synced ${lastSyncLabel}` : "sync unknown"}
+        </div>
       </div>
       <div className="cell">
         <div className="label">
@@ -1080,7 +1110,6 @@ function FinalMetaPulse({
 }
 
 export function MetaPlatformPage({ businessId, businessName, currency = "USD" }: MetaPlatformPageProps) {
-  void currency;
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
@@ -1155,6 +1184,8 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
     enabled: Boolean(businessId),
     queryFn: () => fetchPulse(businessId, selectedWindow, selectedStatusFilter, selectedDateRange),
   });
+  const moneyCurrency = pulseQuery.data?.currency ?? currency ?? null;
+
   const laneQuery = useQuery({
     queryKey: ["meta-lanes", businessId, selectedWindow, selectedStatusFilter, selectedDateRange.start, selectedDateRange.end],
     enabled: Boolean(businessId),
@@ -1811,6 +1842,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
         pulse={pulseQuery.data ?? null}
         window={selectedWindow}
         onManageLabels={() => setLabelModalOpen(true)}
+        moneyCurrency={moneyCurrency}
       />
 
       {notice ? (

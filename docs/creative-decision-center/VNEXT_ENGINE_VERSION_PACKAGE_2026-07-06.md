@@ -33,18 +33,27 @@ disjoint-winner-memory-materiality.ts, automatic-mode-decision-diff.ts.
   same semantics. Waiting remains available but adds no new information
   class; the user may waive it explicitly.
 
-## Deploy procedure (single decision, Codex executes on user approval)
+## Deploy procedure (single decision - IMPLEMENTED, push-button)
 
-1. Implement the two label flips (stale ceiling demote in the gate pipeline;
-   fatigue winnerMemory := disjointWinnerMemory) - both currently shadow.
-2. Bump ENGINE_VERSION (e.g. v3-2026-07-0X-vnext); update GS goldens if any
-   sequence semantics change (none expected - hysteresis rules untouched).
-3. Rerun the label-diff gate: HEAD-vnext vs current HEAD on a fresh fixture;
-   expected diffs = exactly the three measured sets above (assert counts).
-4. Set CAMPAIGN_CONTEXT_MODE=automatic on both hosts (env-only; rollback =
+The code is DONE on branch `vnext-2026-07` (commit bb25f7ee), on top of the
+16-commit main batch:
+- Both label flips implemented with tests; full suite 3544 green in that
+  tree; typecheck + lint clean; ENGINE_VERSION = v3-2026-07-07-vnext-stale-fatigue.
+- Decision-diff gate run against the 2026-07-06 live fixture: exactly 11
+  label changes (all Tiles dead-feed cuts -> diagnose), 0 confidence
+  changes, 41 badge removals all being cut-specific badges dropping off
+  demoted rows, nothing added. GS goldens and the 72-case canonical set
+  unchanged.
+- Note: the fatigue swap's decision effect materializes through the next
+  lifecycle computation (fatigueStatus is computed upstream of decisions);
+  live estimate remains <=10 conservative softenings from 37 bit flips.
+
+Remaining steps on approval (Codex):
+1. Merge `vnext-2026-07` into main after the main batch is pushed.
+2. Set CAMPAIGN_CONTEXT_MODE=automatic on both hosts (env-only; rollback =
    unset).
-5. Push + standard deploy; day-1 runbook applies (clean-epoch wave expected).
-6. Rollback: revert commits + unset env; prior-version snapshots intact.
+3. Push + standard deploy; day-1 runbook applies (clean-epoch wave expected).
+4. Rollback: revert merge + unset env; prior-version snapshots intact.
 
 ## Operator pre-flip checklist (optional, improves day-one labels)
 

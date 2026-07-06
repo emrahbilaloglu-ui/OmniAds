@@ -973,3 +973,64 @@ describe("ratioZonesGate - lifecycle reason hints", () => {
     expect(output.reason).not.toContain("; momentum:");
   });
 });
+
+describe("ratioZonesGate - F2 cut boundary clamp", () => {
+  it("caps the cut boundary at 1.0 when account P25 exceeds it (curve-grading guard)", () => {
+    // Strong account: roasRatioP25 = 1.3. A creative at ratio 1.05 is above
+    // the clamped boundary and must not be zone-cut despite being below P25.
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(1.05, {
+          profile: profileWithBreakeven({
+            breakEvenRoas: 1.7,
+            bottomQuartileRatio: 1.3,
+          }),
+          input: { spend: 1500 },
+        }),
+      ),
+    );
+    expect(output.label).not.toBe("cut");
+  });
+
+  it("still cuts genuinely below-boundary losers with a high account P25", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.5, {
+          profile: profileWithBreakeven({
+            breakEvenRoas: 1.7,
+            bottomQuartileRatio: 1.3,
+          }),
+          input: { spend: 1500 },
+        }),
+      ),
+    );
+    expect(output.label).toBe("cut");
+  });
+});
+
+describe("ratioZonesGate - paused-delivery advisory badges", () => {
+  it("adds confirm_kill to a cut verdict on a PAUSED creative", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.5, {
+          input: { spend: 1500, effectiveStatus: "PAUSED" },
+        }),
+      ),
+    );
+    expect(output.label).toBe("cut");
+    expect(output.badges.map((badge) => badge.type)).toContain("confirm_kill");
+  });
+
+  it("adds no advisory badge on ACTIVE creatives", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.5, {
+          input: { spend: 1500, effectiveStatus: "ACTIVE" },
+        }),
+      ),
+    );
+    expect(output.label).toBe("cut");
+    expect(output.badges.map((badge) => badge.type)).not.toContain("confirm_kill");
+  });
+});
+

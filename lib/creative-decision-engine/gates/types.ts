@@ -103,6 +103,27 @@ export function applyPostProcess(
   const badges: DecisionBadge[] = [...ctx.badges];
   const confidenceDeltas: number[] = [...ctx.confidenceDeltas];
 
+  // Paused-delivery advisory semantics: a hard action on a paused creative is
+  // advice about a non-delivering object ("resume this winner" / "confirm the
+  // kill"), not a live-delivery intervention. Label is unchanged; the badge
+  // makes the semantics explicit. CAMPAIGN_PAUSED/ADSET_PAUSED currently
+  // coerce to null in CreativeInput and are a documented follow-up.
+  if (ctx.input.effectiveStatus === "PAUSED") {
+    if (label === "scale") {
+      badges.push({
+        type: "resume_candidate",
+        label: "Creative is paused - scale verdict means resume candidate",
+        severity: "info",
+      });
+    } else if (label === "cut") {
+      badges.push({
+        type: "confirm_kill",
+        label: "Creative is paused - cut verdict means confirm kill / do not resume",
+        severity: "info",
+      });
+    }
+  }
+
   if (ctx.dataHealth) {
     if (ctx.dataHealth.calibration.staleTier === "warning") {
       badges.push({

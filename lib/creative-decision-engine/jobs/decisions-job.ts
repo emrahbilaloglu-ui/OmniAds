@@ -19,6 +19,10 @@ import {
 } from "../types";
 import { hashAdvisoryLock } from "./calibration-job";
 import { getBusinessGuardFailure } from "./business-guard";
+import {
+  readPreviousPublishedLabels,
+  stabilizeDecisionLabel,
+} from "../decision-stability";
 import { ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS } from "./job-runtime";
 import { JOB_NAME as LIFECYCLE_JOB_NAME } from "./lifecycle-job";
 
@@ -84,6 +88,7 @@ interface DecisionSnapshotPayloadRow {
   scope_type: DecisionProfileScope["type"];
   scope_id: string;
   label: DecisionLabel;
+  raw_label: DecisionLabel;
   confidence: number;
   truth_source: DecisionOutput["truthSource"];
   effective_target_roas: number;
@@ -145,6 +150,7 @@ WITH payload AS (
     scope_type text,
     scope_id text,
     label text,
+    raw_label text,
     confidence integer,
     truth_source text,
     effective_target_roas double precision,
@@ -171,6 +177,7 @@ INSERT INTO engine_v3_decision_snapshots_daily (
   scope_type,
   scope_id,
   label,
+  raw_label,
   confidence,
   truth_source,
   effective_target_roas,
@@ -196,6 +203,7 @@ SELECT
   scope_type,
   scope_id,
   label,
+  raw_label,
   confidence,
   truth_source,
   effective_target_roas,
@@ -218,6 +226,7 @@ DO UPDATE SET
   scope_type = EXCLUDED.scope_type,
   scope_id = EXCLUDED.scope_id,
   label = EXCLUDED.label,
+  raw_label = EXCLUDED.raw_label,
   confidence = EXCLUDED.confidence,
   truth_source = EXCLUDED.truth_source,
   effective_target_roas = EXCLUDED.effective_target_roas,
@@ -484,7 +493,24 @@ export async function runDecisionsJob(
             };
           },
         );
-        const decisions = dedupeDecisionComputations(rawDecisions);
+        const dedupedDecisions = dedupeDecisionComputations(rawDecisions);
+        const previousLabels = await readPreviousPublishedLabels({
+          businessId: input.businessId,
+          asOf: input.asOf,
+          creativeIds: dedupedDecisions.map((d) => d.input.creativeId),
+        });
+        const rawLabelsByCreative = new Map<string, DecisionLabel>();
+        const decisions = dedupedDecisions.map((computation) => {
+          const stabilized = stabilizeDecisionLabel(
+            computation.decision,
+            previousLabels.get(computation.input.creativeId) ?? null,
+          );
+          rawLabelsByCreative.set(
+            computation.input.creativeId,
+            stabilized.rawLabel,
+          );
+          return { ...computation, decision: stabilized.decision };
+        });
 
         const creativeIds = decisions.map(
           (decision) => decision.input.creativeId,
@@ -507,6 +533,9 @@ export async function runDecisionsJob(
               scope: profile.scope,
               creativeInput,
               decision,
+              rawLabel:
+                rawLabelsByCreative.get(creativeInput.creativeId) ??
+                decision.label,
               lifecycleRowId:
                 lifecycleRowIdsByCreative.get(creativeInput.creativeId) ?? null,
               calibrationRowId,
@@ -735,6 +764,7 @@ function toSnapshotPayloadRow(input: {
   scope: DecisionProfileScope;
   creativeInput: CreativeInput;
   decision: DecisionOutput;
+  rawLabel: DecisionLabel;
   lifecycleRowId: string | null;
   calibrationRowId: string | null;
   computedAt: string;
@@ -748,6 +778,7 @@ function toSnapshotPayloadRow(input: {
     scope_type: input.scope.type,
     scope_id: input.scope.id,
     label: input.decision.label,
+    raw_label: input.rawLabel,
     confidence: toConfidenceInteger(input.decision.confidence),
     truth_source: input.decision.truthSource,
     effective_target_roas: input.decision.effectiveTargetRoas,

@@ -13,7 +13,7 @@ import type {
 import type { EngineV3Flags } from "./feature-flags";
 import type { OperatorResponseResult } from "./operator-response-detection";
 
-export const ENGINE_VERSION = "v3-2026-07-02-math-guardrails";
+export const ENGINE_VERSION = "v3-2026-07-06-decision-stability";
 
 /** Final decision label. */
 export type DecisionLabel =
@@ -470,6 +470,9 @@ export interface DecisionBadge {
     | "campaign_context_unresolved"
     | "campaign_context_low_confidence"
     | "campaign_context_conflict"
+    | "pending_transition"
+    | "resume_candidate"
+    | "confirm_kill"
     | "stop_loss_review";
   label: string;
   severity: "info" | "warning";
@@ -523,6 +526,18 @@ export const DECISION_BADGE_DISPLAY: Record<
   campaign_context_conflict: {
     label: "Campaign context conflict",
     severity: "warning",
+  },
+  pending_transition: {
+    label: "Label transition pending",
+    severity: "info",
+  },
+  resume_candidate: {
+    label: "Paused delivery - scale means resume candidate",
+    severity: "info",
+  },
+  confirm_kill: {
+    label: "Paused delivery - cut means confirm kill",
+    severity: "info",
   },
   lifecycle_unavailable: {
     label: "Lifecycle data unavailable",

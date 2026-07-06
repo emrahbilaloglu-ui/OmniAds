@@ -20,6 +20,10 @@ import {
 import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
 import { resolveDataSource } from "@/app/api/creatives/decision-engine-v3/data-source";
 import { readCampaignContextLabelMap } from "@/lib/creative-decision-engine/campaign-context/source";
+import {
+  readPreviousPublishedLabels,
+  stabilizeDecisionLabel,
+} from "@/lib/creative-decision-engine/decision-stability";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
 import {
   isInBriefing,
@@ -1243,13 +1247,24 @@ export async function GET(request: NextRequest) {
   const inputByCreativeId = new Map(
     enrichedInputs.map((input) => [input.creativeId, input]),
   );
-  const decisions = enrichedInputs.map((creativeInput) =>
-    applyCreativeCampaignLabelGuard({
+  // Same hard-label hysteresis as the persisted decisions job so the live
+  // briefing never diverges from the snapshot record on pending transitions.
+  const previousPublishedLabels = await readPreviousPublishedLabels({
+    businessId: resolvedBusinessId,
+    asOf,
+    creativeIds: enrichedInputs.map((input) => input.creativeId),
+  }).catch(() => new Map());
+  const decisions = enrichedInputs.map((creativeInput) => {
+    const guarded = applyCreativeCampaignLabelGuard({
       decision: decideCreative(creativeInput, profile, dataHealth),
       input: creativeInput,
       campaignLabelsById,
-    }),
-  );
+    });
+    return stabilizeDecisionLabel(
+      guarded,
+      previousPublishedLabels.get(creativeInput.creativeId) ?? null,
+    ).decision;
+  });
   const backtestSummary = await readCreativeDecisionBacktestSummary({
     businessId: resolvedBusinessId,
     asOf,

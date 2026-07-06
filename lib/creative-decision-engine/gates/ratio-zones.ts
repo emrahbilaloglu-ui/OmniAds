@@ -14,6 +14,7 @@ import {
   STALE_SOURCE_UPDATED_AT_HOURS,
   TARGET_BAND_MIN_RATIO,
   WEAK_TARGET_MAX_RATIO,
+  CUT_BOUNDARY_RATIO_CLAMP,
 } from "../config-values";
 import { computeFunnelDiagnosis, hasUpperFunnelStrength } from "../funnel";
 import { finalizeDecision, type GateContext, type GateResult } from "./types";
@@ -503,7 +504,10 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
   const ratio = ctx.ratioToTarget;
   const roas = input.roas;
   const purchases = input.purchases ?? 0;
-  const workingZoneMinRatio = profile.thresholds.bottomQuartileRatio ?? 0.7;
+  const workingZoneMinRatio = Math.min(
+    profile.thresholds.bottomQuartileRatio ?? 0.7,
+    CUT_BOUNDARY_RATIO_CLAMP,
+  );
 
   if (ratio === null || roas === null) {
     return terminal(
@@ -743,7 +747,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       `[demote candidate] ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
         ratio,
       )}% of target — above account bottom quartile (${formatRatioPercent(
-        profile.thresholds.bottomQuartileRatio ?? 0.7,
+        Math.min(profile.thresholds.bottomQuartileRatio ?? 0.7, CUT_BOUNDARY_RATIO_CLAMP),
       )}%) but below breakeven (${formatRoas(
         breakevenRoas ?? 0,
       )} = ${formatRatioPercent(breakevenRatio)}% of target) at $${formatSpend(

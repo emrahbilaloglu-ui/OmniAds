@@ -5328,6 +5328,12 @@ export async function runMigrations(options?: {
           (decision_snapshot_id, outcome_window_days)`,
       ]);
 
+      // ── Decision-label hysteresis: persist the raw (pre-hysteresis) label ─
+      await runMigrationBatchSequentially([
+        sql`ALTER TABLE engine_v3_decision_snapshots_daily
+          ADD COLUMN IF NOT EXISTS raw_label TEXT NULL`,
+      ]);
+
       // ── Automatic campaign context (D033): daily inferred campaign role ──
       await runMigrationBatchSequentially([
         sql`CREATE TABLE IF NOT EXISTS engine_v3_campaign_context_daily (

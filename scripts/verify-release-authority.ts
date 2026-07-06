@@ -8,7 +8,12 @@ import {
   resolveLocalGitHeadSha,
   resolveOriginMainSha,
 } from "@/lib/release-authority/integrity";
-import { buildReleaseAuthorityReport } from "@/lib/release-authority/report";
+import {
+  buildReleaseAuthorityReport,
+  isFullCommitSha,
+  reconcileReleaseAuthorityMainSha,
+  type ReleaseAuthorityResolvedMainShaSource,
+} from "@/lib/release-authority/report";
 import type { ReleaseAuthorityReport } from "@/lib/release-authority/types";
 
 configureOperationalScriptRuntime();
@@ -61,6 +66,67 @@ function tryReadCanonicalDoc() {
   } catch {
     return null;
   }
+}
+
+interface CheckerMainShaResolution {
+  sha: string | null;
+  source: ReleaseAuthorityResolvedMainShaSource | "unresolved";
+  detail: string;
+}
+
+/**
+ * Resolve the remote main SHA from the checker's own vantage point so the
+ * post-deploy verdicts do not depend on the live runtime being able to query
+ * the (private) GitHub repository anonymously.
+ *
+ * Resolution order:
+ * 1. RELEASE_AUTHORITY_REMOTE_MAIN_SHA env override (explicit input),
+ * 2. `git ls-remote origin refs/heads/main` (works in the workflow because
+ *    actions/checkout persists credentials, and on any local clone),
+ * 3. GITHUB_SHA when the workflow was dispatched on refs/heads/main.
+ */
+function resolveCheckerMainSha(): CheckerMainShaResolution {
+  const envOverride = process.env.RELEASE_AUTHORITY_REMOTE_MAIN_SHA?.trim();
+  if (envOverride && isFullCommitSha(envOverride)) {
+    return {
+      sha: envOverride.toLowerCase(),
+      source: "env_override",
+      detail: "RELEASE_AUTHORITY_REMOTE_MAIN_SHA",
+    };
+  }
+
+  try {
+    const sha = resolveOriginMainSha();
+    if (sha && isFullCommitSha(sha)) {
+      return {
+        sha: sha.toLowerCase(),
+        source: "git_remote",
+        detail: "git ls-remote origin refs/heads/main",
+      };
+    }
+  } catch {
+    // fall through to the GITHUB_SHA fallback below
+  }
+
+  const githubSha = process.env.GITHUB_SHA?.trim();
+  if (
+    githubSha &&
+    isFullCommitSha(githubSha) &&
+    process.env.GITHUB_REF === "refs/heads/main"
+  ) {
+    return {
+      sha: githubSha.toLowerCase(),
+      source: "github_branch_head",
+      detail: "GITHUB_SHA (refs/heads/main workflow head)",
+    };
+  }
+
+  return {
+    sha: null,
+    source: "unresolved",
+    detail:
+      "No RELEASE_AUTHORITY_REMOTE_MAIN_SHA override, git ls-remote lookup failed, and no GITHUB_SHA on refs/heads/main.",
+  };
 }
 
 function normalizeBaseUrl(value: string | null | undefined) {
@@ -365,17 +431,57 @@ async function main() {
     }),
   ]);
 
+  const rawAuthorityReport =
+    authority.payload && hasCurrentReleaseAuthoritySchema(authority.payload)
+      ? authority.payload
+      : null;
+  const runtimeMainUnresolved =
+    rawAuthorityReport !== null &&
+    (rawAuthorityReport.runtime.currentMainShaSource === "unresolved" ||
+      !isFullCommitSha(rawAuthorityReport.runtime.currentMainSha));
+
+  const checkerMain = runtimeMainUnresolved ? resolveCheckerMainSha() : null;
+  let verifiedAuthorityReport = rawAuthorityReport;
+  if (
+    rawAuthorityReport &&
+    checkerMain?.sha &&
+    checkerMain.source !== "unresolved"
+  ) {
+    verifiedAuthorityReport = reconcileReleaseAuthorityMainSha(
+      rawAuthorityReport,
+      {
+        currentMainSha: checkerMain.sha,
+        currentMainShaSource: checkerMain.source,
+      },
+    );
+  }
+  const mainShaReconciliationApplied =
+    verifiedAuthorityReport !== null &&
+    verifiedAuthorityReport !== rawAuthorityReport;
+
   const summary = buildPostDeploySummary({
     expectedBuildId: options.expectedBuildId,
     buildInfo,
-    authority,
+    authority: verifiedAuthorityReport
+      ? { ...authority, payload: verifiedAuthorityReport }
+      : authority,
   });
 
+  if (mainShaReconciliationApplied && checkerMain?.sha) {
+    summary.notes.push(
+      `Live runtime could not resolve remote main; the checker resolved refs/heads/main to ${checkerMain.sha} via ${checkerMain.detail} and re-derived the live-vs-main verdict from that SHA.`,
+    );
+  } else if (runtimeMainUnresolved) {
+    summary.notes.push(
+      `Neither the live runtime nor the checker could resolve the remote main SHA (${checkerMain?.detail ?? "checker resolution unavailable"}), so the live-vs-main verdict stays unresolved.`,
+    );
+  }
+
   if (authority.payload) {
-    if (hasCurrentReleaseAuthoritySchema(authority.payload)) {
+    if (verifiedAuthorityReport) {
       if (
         tryReadCanonicalDoc() !==
-        buildReleaseAuthorityCanonicalDoc(authority.payload)
+        buildReleaseAuthorityCanonicalDoc(verifiedAuthorityReport)
       ) {
         summary.result = "fail";
         summary.blockers.push(
@@ -398,6 +504,15 @@ async function main() {
         expectedBuildId: options.expectedBuildId,
         buildInfo,
         authority,
+        mainShaReconciliation: {
+          applied: mainShaReconciliationApplied,
+          checkerMainSha: checkerMain?.sha ?? null,
+          checkerMainShaSource: checkerMain?.source ?? null,
+          checkerMainShaDetail: checkerMain?.detail ?? null,
+          reconciledLiveVsMain: mainShaReconciliationApplied
+            ? (verifiedAuthorityReport?.verdicts.liveVsMain ?? null)
+            : null,
+        },
         summary,
       },
       null,

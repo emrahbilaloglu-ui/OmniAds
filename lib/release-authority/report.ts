@@ -18,7 +18,7 @@ import {
   type ReleaseAuthorityVerdict,
 } from "@/lib/release-authority/types";
 
-function isFullSha(value: string | null | undefined) {
+export function isFullCommitSha(value: string | null | undefined) {
   return /^[0-9a-f]{40}$/i.test(String(value ?? "").trim());
 }
 
@@ -150,7 +150,10 @@ function summarizeLiveVsMain(input: {
   currentLiveSha: string;
   currentMainSha: string | null;
 }) {
-  if (!isFullSha(input.currentLiveSha) || !isFullSha(input.currentMainSha)) {
+  if (
+    !isFullCommitSha(input.currentLiveSha) ||
+    !isFullCommitSha(input.currentMainSha)
+  ) {
     return buildVerdict(
       "unknown",
       "Current live SHA or remote main SHA could not be resolved as a full commit SHA.",
@@ -257,6 +260,55 @@ function buildReviewOrder(input: {
   return items;
 }
 
+function buildLiveMainDocsVerdict(input: {
+  liveVsMain: ReleaseAuthorityVerdict;
+  docsVsRuntime: ReleaseAuthorityVerdict;
+  flagsVsRuntime: ReleaseAuthorityVerdict;
+}): ReleaseAuthorityVerdict {
+  const status: ReleaseAuthorityDriftState =
+    input.liveVsMain.status === "drifted" ||
+    input.docsVsRuntime.status === "drifted" ||
+    input.flagsVsRuntime.status === "drifted"
+      ? "drifted"
+      : input.liveVsMain.status === "unknown" ||
+          input.docsVsRuntime.status === "unknown" ||
+          input.flagsVsRuntime.status === "unknown"
+        ? "unknown"
+        : "aligned";
+
+  return buildVerdict(
+    status,
+    status === "aligned"
+      ? "Live, main, docs, and flag posture are aligned."
+      : status === "unknown"
+        ? "At least one live/main/docs authority signal could not be fully resolved."
+        : "Live, main, docs, or flag posture still drift.",
+    status !== "aligned",
+  );
+}
+
+function buildOverallVerdict(
+  unresolvedDriftItems: ReleaseAuthorityDriftItem[],
+): ReleaseAuthorityVerdict {
+  const status: ReleaseAuthorityDriftState = unresolvedDriftItems.some(
+    (item) => item.status === "drifted",
+  )
+    ? "drifted"
+    : unresolvedDriftItems.some((item) => item.status === "unknown")
+      ? "unknown"
+      : "aligned";
+
+  return buildVerdict(
+    status,
+    status === "aligned"
+      ? "One release authority now explains the accepted baseline."
+      : status === "unknown"
+        ? "Release authority remains partially unresolved."
+        : "Release authority still contains explainable drift that needs review.",
+    status !== "aligned",
+  );
+}
+
 function buildCarryForward(input: {
   surfaces: ReleaseAuthoritySurface[];
 }): ReleaseAuthorityReport["carryForward"] {
@@ -306,24 +358,6 @@ export function buildReleaseAuthorityReport(input: {
   });
   const carryForward = buildCarryForward({ surfaces });
 
-  const liveMainDocsStatus: ReleaseAuthorityDriftState =
-    liveVsMain.status === "drifted" ||
-    docsVsRuntime.status === "drifted" ||
-    flagsVsRuntime.status === "drifted"
-      ? "drifted"
-      : liveVsMain.status === "unknown" ||
-          docsVsRuntime.status === "unknown" ||
-          flagsVsRuntime.status === "unknown"
-        ? "unknown"
-        : "aligned";
-
-  const overallStatus: ReleaseAuthorityDriftState =
-    unresolvedDriftItems.some((item) => item.status === "drifted")
-      ? "drifted"
-      : unresolvedDriftItems.some((item) => item.status === "unknown")
-        ? "unknown"
-        : "aligned";
-
   return {
     schemaVersion: RELEASE_AUTHORITY_SCHEMA_VERSION,
     generatedAt: input.generatedAt ?? new Date().toISOString(),
@@ -352,30 +386,94 @@ export function buildReleaseAuthorityReport(input: {
       liveVsMain,
       docsVsRuntime,
       flagsVsRuntime,
-      liveMainDocs: buildVerdict(
-        liveMainDocsStatus,
-        liveMainDocsStatus === "aligned"
-          ? "Live, main, docs, and flag posture are aligned."
-          : liveMainDocsStatus === "unknown"
-            ? "At least one live/main/docs authority signal could not be fully resolved."
-            : "Live, main, docs, or flag posture still drift.",
-        liveMainDocsStatus !== "aligned",
-      ),
-      overall: buildVerdict(
-        overallStatus,
-        overallStatus === "aligned"
-          ? "One release authority now explains the accepted baseline."
-          : overallStatus === "unknown"
-            ? "Release authority remains partially unresolved."
-            : "Release authority still contains explainable drift that needs review.",
-        overallStatus !== "aligned",
-      ),
+      liveMainDocs: buildLiveMainDocsVerdict({
+        liveVsMain,
+        docsVsRuntime,
+        flagsVsRuntime,
+      }),
+      overall: buildOverallVerdict(unresolvedDriftItems),
     },
     surfaces,
     unresolvedDriftItems,
     carryForward,
     reviewOrder: buildReviewOrder({
       currentLiveSha,
+      currentMainSha,
+      unresolvedDriftItems,
+    }),
+  };
+}
+
+export type ReleaseAuthorityResolvedMainShaSource = Exclude<
+  ReleaseAuthorityReport["runtime"]["currentMainShaSource"],
+  "unresolved"
+>;
+
+/**
+ * Fill in the remote-main SHA on a report whose runtime could not resolve it
+ * (for example production runtimes that cannot query the private GitHub repo
+ * anonymously), and re-derive every verdict that depends on that SHA.
+ *
+ * This only substitutes an externally-verified SHA when the report itself is
+ * unresolved; a report that already resolved remote main is returned
+ * unchanged so a genuine runtime-observed drift can never be overwritten.
+ */
+export function reconcileReleaseAuthorityMainSha(
+  report: ReleaseAuthorityReport,
+  input: {
+    currentMainSha: string;
+    currentMainShaSource: ReleaseAuthorityResolvedMainShaSource;
+  },
+): ReleaseAuthorityReport {
+  const runtimeAlreadyResolved =
+    report.runtime.currentMainShaSource !== "unresolved" &&
+    isFullCommitSha(report.runtime.currentMainSha);
+  if (runtimeAlreadyResolved || !isFullCommitSha(input.currentMainSha)) {
+    return report;
+  }
+
+  const currentMainSha = input.currentMainSha.trim().toLowerCase();
+  const liveVsMain = summarizeLiveVsMain({
+    currentLiveSha: report.runtime.currentLiveSha,
+    currentMainSha,
+  });
+
+  const retainedDriftItems = report.unresolvedDriftItems.filter(
+    (item) => item.id !== "release-live-vs-main",
+  );
+  const unresolvedDriftItems: ReleaseAuthorityDriftItem[] =
+    liveVsMain.status === "aligned"
+      ? retainedDriftItems
+      : [
+          {
+            id: "release-live-vs-main",
+            scope: "release",
+            status: liveVsMain.status,
+            detail: liveVsMain.summary,
+          },
+          ...retainedDriftItems,
+        ];
+
+  return {
+    ...report,
+    runtime: {
+      ...report.runtime,
+      currentMainSha,
+      currentMainShaSource: input.currentMainShaSource,
+    },
+    verdicts: {
+      ...report.verdicts,
+      liveVsMain,
+      liveMainDocs: buildLiveMainDocsVerdict({
+        liveVsMain,
+        docsVsRuntime: report.verdicts.docsVsRuntime,
+        flagsVsRuntime: report.verdicts.flagsVsRuntime,
+      }),
+      overall: buildOverallVerdict(unresolvedDriftItems),
+    },
+    unresolvedDriftItems,
+    reviewOrder: buildReviewOrder({
+      currentLiveSha: report.runtime.currentLiveSha,
       currentMainSha,
       unresolvedDriftItems,
     }),
@@ -393,6 +491,11 @@ export async function resolveRemoteMainSha(input: {
     };
   }
 
+  const githubToken =
+    process.env.RELEASE_AUTHORITY_GITHUB_TOKEN?.trim() ||
+    process.env.GITHUB_TOKEN?.trim() ||
+    null;
+
   try {
     const response = await fetch(
       `https://api.github.com/repos/${RELEASE_AUTHORITY_REPOSITORY.fullName}/commits/${RELEASE_AUTHORITY_REPOSITORY.branch}`,
@@ -400,6 +503,9 @@ export async function resolveRemoteMainSha(input: {
         headers: {
           Accept: "application/vnd.github+json",
           "User-Agent": "adsecute-release-authority",
+          ...(githubToken
+            ? { Authorization: `Bearer ${githubToken}` }
+            : {}),
         },
         signal: AbortSignal.timeout(input.timeoutMs ?? 5_000),
         cache: "no-store",

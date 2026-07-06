@@ -64,6 +64,10 @@ jobs:
       - name: Install
         run: npm ci
 
+      # The live runtime cannot resolve the private repo's main SHA anonymously,
+      # so the checker resolves refs/heads/main itself (git ls-remote via the
+      # persisted checkout credentials, with GITHUB_SHA as fallback) and
+      # re-derives the live-vs-main verdict before judging the deploy.
       - name: Verify public release authority (report-only)
         id: release_authority
         continue-on-error: true

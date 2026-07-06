@@ -10,6 +10,7 @@ import {
   metaBidApplyNotice,
   isTrackingWriteBlocked,
   compareItemForRec,
+  trackingConfirmLabelForRec,
 } from "@/components/meta/redesign/MetaPlatformPage";
 
 const state = vi.hoisted(() => ({
@@ -781,5 +782,28 @@ describe("data readiness banner", () => {
     );
     expect(html).toContain("Data is not fully ready.");
     expect(html).toContain("No Meta ad account is assigned");
+  });
+});
+
+describe("tracking confirm label follows the server actionKind", () => {
+  it("never shows Rebuild anyway for an apply-bid action", () => {
+    const bidRec = metaRec({
+      type: "bid_value_guidance",
+      level: "adset",
+      proposedAction: { kind: "apply_bid", bidAmountMinor: 500 },
+    });
+    expect(bidRec.actionKind).toBe("execute_bid");
+    expect(trackingConfirmLabelForRec(bidRec)).toBe("Apply bid anyway");
+    expect(trackingConfirmLabelForRec(bidRec)).not.toBe("Rebuild anyway");
+  });
+
+  it("maps every gated action to copy naming what confirming does", () => {
+    expect(
+      trackingConfirmLabelForRec(metaRec({ type: "adset_cut_spend" })),
+    ).toBe("Pause anyway");
+    expect(
+      trackingConfirmLabelForRec(metaRec({ type: "rebuild_with_constraints" })),
+    ).toBe("Rebuild anyway");
+    expect(trackingConfirmLabelForRec(null)).toBe("Continue anyway");
   });
 });

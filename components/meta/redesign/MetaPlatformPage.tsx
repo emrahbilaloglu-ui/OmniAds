@@ -796,6 +796,29 @@ export function formatMoney(value: number | null | undefined, currency: string |
 }
 
 /**
+ * Tracking confirm label from the server-owned actionKind. The old ternary
+ * keyed on rec.type and defaulted to "Rebuild anyway", so once execute_bid
+ * became tracking-gated its confirm modal lied about the action (Codex
+ * follow-up review). Copy must always name what confirming will do.
+ */
+export function trackingConfirmLabelForRec(
+  rec: Pick<MetaRecommendation, "actionKind"> | null | undefined,
+): string {
+  switch (rec?.actionKind) {
+    case "execute_pause":
+      return "Pause anyway";
+    case "execute_bid":
+      return "Apply bid anyway";
+    case "execute_resume":
+      return "Resume anyway";
+    case "route_launchpad_rebuild":
+      return "Rebuild anyway";
+    default:
+      return "Continue anyway";
+  }
+}
+
+/**
  * Write gate for tracking anomalies. Pure and dismissal-free BY SIGNATURE:
  * the banner's Dismiss button only hides the banner; it can never unlock
  * pause/rebuild/resume (Codex review: the old gate keyed on dismissal).
@@ -2332,7 +2355,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
 
       <TrackingConfirmModal
         open={pendingPrimaryRec != null}
-        primaryLabel={pendingPrimaryRec?.type === "adset_cut_spend" ? "Pause anyway" : "Rebuild anyway"}
+        primaryLabel={trackingConfirmLabelForRec(pendingPrimaryRec)}
         onClose={() => setPendingPrimaryRec(null)}
         onConfirm={() => {
           const rec = pendingPrimaryRec;

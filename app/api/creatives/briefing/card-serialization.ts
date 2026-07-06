@@ -481,6 +481,7 @@ export function cardForDecision(input: {
   decisionCenterRow?: DecisionCenterRowForCard | null;
   hysteresis?: { rawLabel: DecisionLabel; suppressed: boolean } | null;
   decisionHistory?: BriefingCreativeCard["decisionHistory"];
+  currency?: string | null;
 }): BriefingCreativeCard {
   const { decision, creativeInput, row } = input;
   const label = decision.label as DecisionLabel;
@@ -528,6 +529,7 @@ export function cardForDecision(input: {
     rawLabel: input.hysteresis?.rawLabel ?? null,
     pendingTransition: input.hysteresis?.suppressed ?? false,
     decisionHistory: input.decisionHistory ?? null,
+    currency: input.currency ?? null,
     spendUnitSource: input.accountProfile?.spendUnitSource ?? null,
     spendUnitConfidence: input.accountProfile?.spendUnitConfidence ?? null,
     metaAovQuality: input.accountProfile?.quality.metaAovQuality ?? null,

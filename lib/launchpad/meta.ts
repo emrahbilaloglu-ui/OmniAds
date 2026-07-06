@@ -65,6 +65,12 @@ export interface MetaLaunchAdSetPayload {
 
 export interface MetaLaunchPayload {
   mode?: "new_campaign";
+  /**
+   * ISO 4217 code for the ad-account currency the minor-unit amounts are
+   * denominated in. Optional and additive: legacy templates/drafts persisted
+   * without it normalize to null and stay valid.
+   */
+  currencyCode?: string | null;
   campaign: {
     name: string;
     objective: "OUTCOME_SALES";
@@ -129,6 +135,11 @@ function asStringArray(value: unknown) {
 
 function uniqueStrings(values: string[]) {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function normalizeCurrencyCode(value: unknown): string | null {
+  const code = asString(value).toUpperCase();
+  return /^[A-Z]{3}$/.test(code) ? code : null;
 }
 
 function normalizeBudget(value: unknown, fallbackMode: MetaBudgetMode): MetaLaunchBudgetPayload {
@@ -293,6 +304,7 @@ export function normalizeMetaLaunchPayload(value: unknown): MetaLaunchPayload {
 
   return {
     mode: "new_campaign",
+    currencyCode: normalizeCurrencyCode(record.currencyCode),
     campaign: {
       name: asString(campaign.name),
       objective: "OUTCOME_SALES",

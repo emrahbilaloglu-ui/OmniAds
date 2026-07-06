@@ -152,6 +152,10 @@ export interface BriefingCreativeCard {
   truthSource?: TruthSource | string | null;
   rawLabel?: DecisionLabel | string | null;
   pendingTransition?: boolean | null;
+  /** Ad-account currency for this card's money fields; null = unknown.
+   * Load-bearing for cross-business surfaces (creative inbox) where rows
+   * from different businesses must not all render as USD. */
+  currency?: string | null;
   decisionHistory?: Array<{
     date: string;
     previousLabel: string | null;

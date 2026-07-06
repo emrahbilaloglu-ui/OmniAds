@@ -208,3 +208,15 @@ describe("card serialization", () => {
     expect(card.primary).toEqual({ kind: "promote", label: "Promote to main" });
   });
 });
+
+describe("card currency", () => {
+  it("carries the account currency so cross-business surfaces do not assume USD", () => {
+    const card = cardForDecision({
+      decision: decision(),
+      currency: "TRY",
+    });
+    expect(card.currency).toBe("TRY");
+    const unknown = cardForDecision({ decision: decision() });
+    expect(unknown.currency).toBeNull();
+  });
+});

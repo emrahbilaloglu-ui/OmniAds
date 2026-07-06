@@ -1332,6 +1332,21 @@ export async function GET(request: NextRequest) {
         NonNullable<BriefingCreativeCard["decisionHistory"]>
       >();
     });
+  // Ad-account currency from the warehouse (newest non-null value); null =
+  // unknown. Carried per card so cross-business surfaces (creative inbox)
+  // render each business's money in its own currency instead of implicit $.
+  const accountCurrency = await getDb()
+    .query<{ account_currency: string | null }>(
+      `SELECT account_currency
+       FROM meta_creative_daily
+       WHERE (business_ref_id::text = $1 OR business_id = $1)
+         AND account_currency IS NOT NULL
+       ORDER BY date DESC
+       LIMIT 1`,
+      [resolvedBusinessId],
+    )
+    .then((rows) => rows[0]?.account_currency ?? null)
+    .catch(() => null);
   const hysteresisByCreative = new Map<
     string,
     { rawLabel: DecisionLabel; suppressed: boolean }
@@ -1389,6 +1404,7 @@ export async function GET(request: NextRequest) {
       decisionCenterRow,
       hysteresis: hysteresisByCreative.get(decision.creativeId) ?? null,
       decisionHistory: decisionHistoryByCreative.get(decision.creativeId) ?? null,
+      currency: accountCurrency,
     });
     const deferred =
       deferredIds.has(decision.creativeId) ||

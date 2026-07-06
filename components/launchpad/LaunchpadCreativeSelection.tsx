@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import type { DecisionLabel, DecisionOutput } from "@/lib/creative-decision-engine";
+import { formatMoney } from "@/components/meta/redesign/meta-card-utils";
 import { cn } from "@/lib/utils";
 
 type StatusFilter = "all" | "active" | "closed_30d" | "recently_duplicated";
@@ -207,6 +208,7 @@ export function LaunchpadCreativeSelection({
   decisionByCreativeId,
   loading = false,
   initialStatusFilter = "active",
+  currency = null,
   getSelectionId = (row) => row.creativeId,
   onToggleCreative,
   onSetSelectedCreativeIds,
@@ -216,6 +218,7 @@ export function LaunchpadCreativeSelection({
   decisionByCreativeId: Map<string, DecisionOutput>;
   loading?: boolean;
   initialStatusFilter?: StatusFilter;
+  currency?: string | null;
   getSelectionId?: (row: MetaCreativeRow) => string;
   onToggleCreative: (row: MetaCreativeRow) => void;
   onSetSelectedCreativeIds?: (ids: string[]) => void;
@@ -581,7 +584,7 @@ export function LaunchpadCreativeSelection({
                     ) : null}
                   </div>
                   <div className="pt-1 text-right text-sm tabular-nums">
-                    <span className="font-semibold text-slate-950">${row.spend.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                    <span className="font-semibold text-slate-950">{formatMoney(row.spend, currency)}</span>
                     <span className="text-slate-400"> · ROAS </span>
                     <span className={cn("font-semibold", row.roas >= 2 ? "text-emerald-700" : row.roas < 1 ? "text-rose-700" : "text-slate-950")}>{row.roas.toFixed(2)}x</span>
                     <span className="text-slate-400"> · </span>
@@ -658,7 +661,7 @@ export function LaunchpadCreativeSelection({
                   </div>
                 </div>
                 <div className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-100 pt-3 text-xs">
-                  <Metric label="Spend" value={`$${row.spend.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} />
+                  <Metric label="Spend" value={formatMoney(row.spend, currency)} />
                   <Metric label="ROAS" value={`${row.roas.toFixed(2)}x`} tone={row.roas >= 2 ? "good" : row.roas < 1 ? "bad" : "neutral"} />
                   <Metric label="Purch." value={row.purchases.toLocaleString()} />
                 </div>
@@ -688,7 +691,7 @@ export function LaunchpadCreativeSelection({
             <span className="text-slate-500">selected</span>
           </span>
           <span className="font-mono tabular-nums text-slate-600">
-            Spend <strong className="text-slate-950">${summary.totalSpend.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
+            Spend <strong className="text-slate-950">{formatMoney(summary.totalSpend, currency)}</strong>
           </span>
           <span className="font-mono tabular-nums text-slate-600">
             Avg ROAS <strong className={summary.averageRoas != null && summary.averageRoas >= 2 ? "text-emerald-700" : "text-slate-950"}>

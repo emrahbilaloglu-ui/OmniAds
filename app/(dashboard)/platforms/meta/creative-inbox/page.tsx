@@ -10,7 +10,7 @@ import {
   cardName,
   numberOrZero,
 } from "@/components/creatives/briefing/card-utils";
-import { formatCurrency } from "@/lib/briefing/utils";
+import { formatMoney } from "@/components/meta/redesign/meta-card-utils";
 import { useAppStore } from "@/store/app-store";
 
 type InboxCard = BriefingCreativeCard & {
@@ -132,7 +132,10 @@ export default function MetaCreativeInboxPage() {
                   {card.primary?.label ?? card.label ?? "Review"}
                 </span>
                 <span className="rounded border border-slate-200 px-2 py-1">
-                  Spend {formatCurrency(card.spend)}
+                  {/* Cross-business list: each card renders in its own
+                      account currency; unknown currency falls back to the
+                      legacy formatter rather than asserting USD. */}
+                  Spend {formatMoney(numberOrZero(card.spend), card.currency ?? null)}
                 </span>
                 <span className="rounded border border-slate-200 px-2 py-1">
                   ROAS {numberOrZero(card.roas).toFixed(2)}

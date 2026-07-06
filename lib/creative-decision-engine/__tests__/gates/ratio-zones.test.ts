@@ -303,7 +303,6 @@ describe("ratioZonesGate - scale zone", () => {
     ]);
   });
 });
-
 describe("ratioZonesGate - target band", () => {
   it("keeps weak-target creatives in the weak target sub-band", () => {
     const output = terminalOutput(ratioZonesGate(ratioContext(0.9)));
@@ -1033,4 +1032,3 @@ describe("ratioZonesGate - paused-delivery advisory badges", () => {
     expect(output.badges.map((badge) => badge.type)).not.toContain("confirm_kill");
   });
 });
-

@@ -1384,5 +1384,3 @@ Fidelity mismatch samples:
 | 1437835607584666 | test_more | null | 47 | null | [quality-only neutral] Upper/mid-funnel score 0.89x vs account baseline (hook score 0.50x; ctr score 0.92x; cpm_efficiency score 2.00x; click_to_lpv score 0.80x). No hard action until profit target or stronger funnel separation exists. | null |
 | 1443857737094759 | test_more | null | 47 | null | [quality-only below_average] Upper/mid-funnel score 0.83x vs account baseline (hook score 1.19x; ctr score 0.50x; cpm_efficiency score 1.47x; click_to_lpv score 0.94x). Deprioritize this creative before adding budget; no hard cut without profit target or mature sales evidence. | null |
 | 1452182979458051 | out_of_scope | null | 60 | null | Engine currently supports OUTCOME_SALES only; this creative is OUTCOME_AWARENESS. | null |
-
-

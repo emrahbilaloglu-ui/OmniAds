@@ -55,6 +55,10 @@ import {
   type CreativeDayRow,
   type LineageStats,
 } from "@/lib/creative-decision-engine/campaign-context/data";
+import {
+  applyDailyHysteresis,
+  type HysteresisState,
+} from "@/lib/creative-decision-engine/jobs/campaign-context-job";
 
 const DEFAULT_BUSINESSES = ["IwaStore", "EMOLOS", "Grandmix", "TheSwaf"];
 const DEFAULT_START_DATE = "2026-06-01";
@@ -254,12 +258,16 @@ async function readGuardImpact(
   };
 }
 
-function buildAsOfGrid(startDate: string, endDate: string): string[] {
+function buildAsOfGrid(
+  startDate: string,
+  endDate: string,
+  stepDays: number,
+): string[] {
   const grid: string[] = [];
   let cursor = startDate;
   while (cursor <= endDate) {
     grid.push(cursor);
-    cursor = addDays(cursor, 7);
+    cursor = addDays(cursor, stepDays);
   }
   if (grid[grid.length - 1] !== endDate) grid.push(endDate);
   return grid;
@@ -278,7 +286,11 @@ async function main() {
   process.env.DB_QUERY_TIMEOUT_MS = String(args.queryTimeoutMs);
   const generatedAt = new Date().toISOString();
   const engineVersion = "v3-2026-07-02-math-guardrails";
-  const asOfGrid = buildAsOfGrid(args.startDate, args.endDate);
+  // Daily grid matches production cadence (the context job runs daily);
+  // weekly remains available for quick approximations.
+  const gridStepDays =
+    arg(process.argv.slice(2), "gridMode", "daily") === "weekly" ? 7 : 1;
+  const asOfGrid = buildAsOfGrid(args.startDate, args.endDate, gridStepDays);
   const rangeStart = addDays(args.startDate, -(FEATURE_WINDOW_DAYS - 1));
 
   const businesses = await readBusinessScope(args.businesses);
@@ -323,12 +335,54 @@ async function main() {
 
     const campaigns = [...sequences.entries()].map(([campaignId, sequence]) => {
       const last = sequence[sequence.length - 1].resolution;
-      const hysteresis = applyHysteresisSequence(
-        sequence.map((item) => ({
-          kind: item.resolution.kind,
-          confidenceClass: item.resolution.confidenceClass,
-        })),
-      );
+      // Production hysteresis (applyDailyHysteresis from the context job),
+      // chained causally over the grid, with the full per-date sequence
+      // persisted so adjacent-date flips are auditable. The previous
+      // analysis-only applyHysteresisSequence skipped null resolutions
+      // (pinning stale kinds through conflict/unknown) and used lookahead;
+      // its outputs must not be used for flip decisions.
+      let hysteresisState: HysteresisState | null = null;
+      let suppressedDays = 0;
+      let publishedFlips = 0;
+      let rawFlips = 0;
+      let previousPublishedKind: CampaignKind | null = null;
+      let previousRawKind: CampaignKind | null = null;
+      const perDate = sequence.map((item, index) => {
+        const outcome = applyDailyHysteresis(
+          hysteresisState,
+          item.resolution.kind,
+          item.resolution.confidenceClass,
+        );
+        hysteresisState = outcome.state;
+        if (outcome.suppressedFlip) suppressedDays += 1;
+        if (index > 0 && outcome.publishedKind !== previousPublishedKind) {
+          publishedFlips += 1;
+        }
+        if (index > 0 && item.resolution.kind !== previousRawKind) {
+          rawFlips += 1;
+        }
+        previousPublishedKind = outcome.publishedKind;
+        previousRawKind = item.resolution.kind;
+        return {
+          asOf: item.asOf,
+          rawKind: item.resolution.kind,
+          rawClass: item.resolution.confidenceClass,
+          publishedKind: outcome.publishedKind,
+          publishedClass: outcome.publishedClass,
+          suppressedFlip: outcome.suppressedFlip,
+        };
+      });
+      const lastPerDate = perDate[perDate.length - 1];
+      const hysteresis = {
+        finalKind: lastPerDate?.publishedKind ?? null,
+        finalClass: lastPerDate?.publishedClass ?? ("unknown" as const),
+        publishedFlips,
+        rawFlips,
+        suppressedDays,
+        finalDivergence:
+          (lastPerDate?.publishedKind ?? null) !== (lastPerDate?.rawKind ?? null),
+        perDate,
+      };
       const ablation = featureById.has(campaignId)
         ? classifyCampaignContext(featureById.get(campaignId)!, DEFAULT_CONTEXT_CONFIG, {
             includeLineage: false,
@@ -478,10 +532,25 @@ async function main() {
             : null,
       },
       flipSummary: {
-        campaignsWithFlips: campaigns.filter((c) => c.hysteresis.flips > 0).length,
-        campaignsWithSuppressedFlips: campaigns.filter(
-          (c) => c.hysteresis.suppressedFlip,
+        campaignsWithPublishedFlips: campaigns.filter(
+          (c) => c.hysteresis.publishedFlips > 0,
         ).length,
+        campaignsWithRawFlips: campaigns.filter((c) => c.hysteresis.rawFlips > 0)
+          .length,
+        campaignsWithSuppressedDays: campaigns.filter(
+          (c) => c.hysteresis.suppressedDays > 0,
+        ).length,
+        campaignsWithFinalDivergence: campaigns.filter(
+          (c) => c.hysteresis.finalDivergence,
+        ).length,
+        totalPublishedFlips: campaigns.reduce(
+          (sum, c) => sum + c.hysteresis.publishedFlips,
+          0,
+        ),
+        totalRawFlips: campaigns.reduce(
+          (sum, c) => sum + c.hysteresis.rawFlips,
+          0,
+        ),
       },
       evaluation: {
         labeledCampaigns: labeled.length,
@@ -548,7 +617,8 @@ async function main() {
       "Creative lineage visibility is capped by warehouse first-non-null campaign attribution; same-day multi-campaign reuse is invisible, so visibleLineageCoverage understates true reuse.",
       "Guard-impact numbers are APPROXIMATE: decision snapshots do not persist campaign ids; the join uses the latest meta_creative_daily campaign per creative.",
       "Campaign names come from meta_campaign_daily as of the data ceiling; historical renames are not versioned here.",
-      "Weekly asOf grid hysteresis approximates daily hysteresis; production would evaluate daily.",
+      "Hysteresis uses the production applyDailyHysteresis function chained causally over the asOf grid; run with the default daily grid for production-cadence fidelity (gridMode=weekly is an approximation).",
+      "Per-campaign perDate sequences (raw and published kind/class per asOf) are persisted so adjacent-date flips are auditable; earlier artifacts without perDate cannot support flip claims.",
     ],
   };
 
@@ -578,7 +648,9 @@ function renderMarkdown(report: Record<string, unknown>): string {
   lines.push(`- generatedAt: ${report.generatedAt as string}`);
   lines.push(`- resolverVersion: ${report.resolverVersion as string}`);
   lines.push(`- engineVersion (guard-impact join): ${report.engineVersion as string}`);
-  lines.push(`- window: ${report.startDate as string} .. ${report.endDate as string}, feature window ${report.featureWindowDays as number}d, weekly asOf grid`);
+  lines.push(
+    `- window: ${report.startDate as string} .. ${report.endDate as string}, feature window ${report.featureWindowDays as number}d, asOf grid: ${(report.asOfGrid as string[]).length} dates`,
+  );
   lines.push("- source: live_db_read_only; tables: meta_creative_daily, meta_campaign_daily, meta_campaign_labels, engine_v3_decision_snapshots_daily, businesses");
   lines.push("");
   for (const business of businesses) {
@@ -592,7 +664,7 @@ function renderMarkdown(report: Record<string, unknown>): string {
     );
     const flips = business.flipSummary as Row;
     lines.push(
-      `- hysteresis: ${flips.campaignsWithFlips as number} campaigns with confirmed flips, ${flips.campaignsWithSuppressedFlips as number} with suppressed one-off flips`,
+      `- hysteresis (production applyDailyHysteresis, causal): raw flips on ${flips.campaignsWithRawFlips as number} campaigns (${flips.totalRawFlips as number} total), published flips on ${flips.campaignsWithPublishedFlips as number} campaigns (${flips.totalPublishedFlips as number} total), ${flips.campaignsWithSuppressedDays as number} campaigns with suppressed days, ${flips.campaignsWithFinalDivergence as number} with final published!=raw divergence`,
     );
     const evaluation = business.evaluation as Row;
     lines.push("");

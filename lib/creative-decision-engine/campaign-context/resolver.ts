@@ -566,6 +566,13 @@ export interface HysteresisResult {
 
 // Class changes require persistence: a kind change only takes effect after two
 // consecutive evaluations agree; a one-off flip is suppressed and reported.
+/**
+ * @deprecated Analysis-only aggregate; NOT production semantics. It skips
+ * null resolutions (pinning stale kinds through conflict/unknown) and uses
+ * lookahead. For any flip/stability claim use applyDailyHysteresis from
+ * jobs/campaign-context-job.ts chained causally per date, as the shadow
+ * script now does.
+ */
 export function applyHysteresisSequence(
   sequence: ReadonlyArray<{
     kind: CampaignKind | null;

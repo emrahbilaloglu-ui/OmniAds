@@ -50,7 +50,7 @@ export interface CampaignContextJobResult {
   errorMessage?: string;
 }
 
-interface HysteresisState {
+export interface HysteresisState {
   stableKind: CampaignKind | null;
   pendingKind: CampaignKind | null;
   pendingCount: number;

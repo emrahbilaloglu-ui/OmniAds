@@ -35,6 +35,13 @@ export const JOB_NAME = "engine_v3_campaign_context_job";
 // query cost while covering new-creative detection and visible reuse.
 const SOURCE_WINDOW_DAYS = 56;
 const HYSTERESIS_CONFIRM_DAYS = 2;
+// Evidence-dip grace: a campaign whose kind was stable but whose resolution
+// drops to null via insufficient evidence (floors dip - weekends, spend
+// pauses, family evidence-floor oscillation) keeps its stable kind for up to
+// this many consecutive days, published at reduced confidence. Conflicts
+// never get grace; after grace exhausts, stable state clears so a stale kind
+// cannot resume weeks later without re-confirmation.
+const EVIDENCE_DIP_GRACE_DAYS = 3;
 
 export interface CampaignContextJobInput {
   businessId: string;
@@ -52,8 +59,11 @@ export interface CampaignContextJobResult {
 
 export interface HysteresisState {
   stableKind: CampaignKind | null;
+  stableClass?: ContextConfidenceClass | null;
   pendingKind: CampaignKind | null;
   pendingCount: number;
+  graceDaysUsed?: number;
+  pendingConflictCount?: number;
 }
 
 export interface DailyHysteresisOutcome {
@@ -77,11 +87,72 @@ export function applyDailyHysteresis(
 ): DailyHysteresisOutcome {
   const state: HysteresisState = {
     stableKind: previous?.stableKind ?? null,
+    stableClass: previous?.stableClass ?? null,
     pendingKind: previous?.pendingKind ?? null,
     pendingCount: previous?.pendingCount ?? 0,
+    graceDaysUsed: previous?.graceDaysUsed ?? 0,
+    pendingConflictCount: previous?.pendingConflictCount ?? 0,
   };
 
   if (resolvedKind === null) {
+    if (resolvedClass === "conflict") {
+      // Conflicts obey the same two-evaluation rule as kind changes: a
+      // single-day naming-vs-behavior blip is absorbed (stable kind held at
+      // reduced class); a conflict that persists a second evaluation
+      // surfaces and clears stable state - persistent conflicts remain
+      // operator-resolution material from day 2 onward.
+      const pendingConflictCount = (state.pendingConflictCount ?? 0) + 1;
+      if (
+        state.stableKind !== null &&
+        pendingConflictCount < HYSTERESIS_CONFIRM_DAYS
+      ) {
+        state.pendingConflictCount = pendingConflictCount;
+        const heldClass: ContextConfidenceClass =
+          state.stableClass === "high"
+            ? "medium"
+            : (state.stableClass ?? "low");
+        return {
+          publishedKind: state.stableKind,
+          publishedClass: heldClass,
+          state,
+          suppressedFlip: true,
+        };
+      }
+      state.stableKind = null;
+      state.stableClass = null;
+      state.pendingKind = null;
+      state.pendingCount = 0;
+      state.pendingConflictCount = 0;
+      return {
+        publishedKind: null,
+        publishedClass: resolvedClass,
+        state,
+        suppressedFlip: false,
+      };
+    }
+    state.pendingConflictCount = 0;
+    if (
+      state.stableKind !== null &&
+      (state.graceDaysUsed ?? 0) < EVIDENCE_DIP_GRACE_DAYS
+    ) {
+      state.graceDaysUsed = (state.graceDaysUsed ?? 0) + 1;
+      const heldClass: ContextConfidenceClass =
+        state.stableClass === "high"
+          ? "medium"
+          : (state.stableClass ?? "low");
+      return {
+        publishedKind: state.stableKind,
+        publishedClass: heldClass,
+        state,
+        suppressedFlip: true,
+      };
+    }
+    // Grace exhausted or never-classified: publish null and clear stable
+    // state so a stale kind cannot silently resume later.
+    state.stableKind = null;
+    state.stableClass = null;
+    state.pendingKind = null;
+    state.pendingCount = 0;
     return {
       publishedKind: null,
       publishedClass: resolvedClass,
@@ -90,8 +161,12 @@ export function applyDailyHysteresis(
     };
   }
 
+  state.graceDaysUsed = 0;
+  state.pendingConflictCount = 0;
+
   if (state.stableKind === null || state.stableKind === resolvedKind) {
     state.stableKind = resolvedKind;
+    state.stableClass = resolvedClass;
     state.pendingKind = null;
     state.pendingCount = 0;
     return {
@@ -106,6 +181,7 @@ export function applyDailyHysteresis(
     state.pendingKind === resolvedKind ? state.pendingCount + 1 : 1;
   if (pendingCount >= HYSTERESIS_CONFIRM_DAYS) {
     state.stableKind = resolvedKind;
+    state.stableClass = resolvedClass;
     state.pendingKind = null;
     state.pendingCount = 0;
     return {

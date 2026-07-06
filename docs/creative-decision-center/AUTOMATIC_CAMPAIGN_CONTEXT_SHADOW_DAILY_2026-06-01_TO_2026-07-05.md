@@ -4,7 +4,7 @@ Read-only shadow evaluation of the Automatic Campaign Context Resolver (D033). T
 
 ## Live Status
 
-- generatedAt: 2026-07-06T10:18:59.741Z
+- generatedAt: 2026-07-06T11:57:38.143Z
 - resolverVersion: campaign-context-resolver.v1-shadow-2026-07-06
 - engineVersion (guard-impact join): v3-2026-07-02-math-guardrails
 - window: 2026-06-01 .. 2026-07-05, feature window 28d, asOf grid: 35 dates
@@ -15,7 +15,7 @@ Read-only shadow evaluation of the Automatic Campaign Context Resolver (D033). T
 - campaigns evaluated: 11
 - class counts: {"unknown/unknown":6,"main/medium":3,"unknown/conflict":2}
 - lineage: 11/205 creatives visibly multi-campaign (coverage 0.0537)
-- hysteresis (production applyDailyHysteresis, causal): raw flips on 9 campaigns (15 total), published flips on 9 campaigns (14 total), 5 campaigns with suppressed days, 0 with final published!=raw divergence
+- hysteresis (production applyDailyHysteresis, causal): raw flips on 9 campaigns (15 total), published flips on 9 campaigns (14 total), 9 campaigns with suppressed days, 0 with final published!=raw divergence
 
 ### Evaluation vs manual labels (exact counts)
 
@@ -55,7 +55,7 @@ Read-only shadow evaluation of the Automatic Campaign Context Resolver (D033). T
 - campaigns evaluated: 16
 - class counts: {"unknown/unknown":11,"main/high":3,"main/medium":2}
 - lineage: 6/199 creatives visibly multi-campaign (coverage 0.0302)
-- hysteresis (production applyDailyHysteresis, causal): raw flips on 7 campaigns (12 total), published flips on 7 campaigns (12 total), 3 campaigns with suppressed days, 0 with final published!=raw divergence
+- hysteresis (production applyDailyHysteresis, causal): raw flips on 7 campaigns (12 total), published flips on 7 campaigns (12 total), 7 campaigns with suppressed days, 0 with final published!=raw divergence
 
 ### Evaluation vs manual labels (exact counts)
 
@@ -99,7 +99,7 @@ Read-only shadow evaluation of the Automatic Campaign Context Resolver (D033). T
 - campaigns evaluated: 12
 - class counts: {"main/high":3,"unknown/conflict":1,"main/medium":2,"unknown/unknown":6}
 - lineage: 0/104 creatives visibly multi-campaign (coverage 0)
-- hysteresis (production applyDailyHysteresis, causal): raw flips on 2 campaigns (3 total), published flips on 2 campaigns (3 total), 0 campaigns with suppressed days, 0 with final published!=raw divergence
+- hysteresis (production applyDailyHysteresis, causal): raw flips on 2 campaigns (3 total), published flips on 2 campaigns (3 total), 2 campaigns with suppressed days, 0 with final published!=raw divergence
 
 ### Evaluation vs manual labels (exact counts)
 
@@ -140,7 +140,7 @@ Read-only shadow evaluation of the Automatic Campaign Context Resolver (D033). T
 - campaigns evaluated: 32
 - class counts: {"unknown/unknown":15,"main/low":2,"main/medium":2,"test/low":1,"mixed/medium":10,"mixed/high":2}
 - lineage: 17/259 creatives visibly multi-campaign (coverage 0.0656)
-- hysteresis (production applyDailyHysteresis, causal): raw flips on 15 campaigns (34 total), published flips on 15 campaigns (32 total), 7 campaigns with suppressed days, 2 with final published!=raw divergence
+- hysteresis (production applyDailyHysteresis, causal): raw flips on 15 campaigns (34 total), published flips on 15 campaigns (26 total), 12 campaigns with suppressed days, 2 with final published!=raw divergence
 
 ### Evaluation vs manual labels (exact counts)
 

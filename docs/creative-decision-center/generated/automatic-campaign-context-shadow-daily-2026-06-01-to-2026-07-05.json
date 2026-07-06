@@ -1,6 +1,6 @@
 {
   "title": "Automatic Campaign Context Shadow Evaluation - 2026-06-01 to 2026-07-05",
-  "generatedAt": "2026-07-06T10:18:59.741Z",
+  "generatedAt": "2026-07-06T11:57:38.143Z",
   "resolverVersion": "campaign-context-resolver.v1-shadow-2026-07-06",
   "engineVersion": "v3-2026-07-02-math-guardrails",
   "readOnly": true,
@@ -126,7 +126,7 @@
       "flipSummary": {
         "campaignsWithPublishedFlips": 9,
         "campaignsWithRawFlips": 9,
-        "campaignsWithSuppressedDays": 5,
+        "campaignsWithSuppressedDays": 9,
         "campaignsWithFinalDivergence": 0,
         "totalPublishedFlips": 14,
         "totalRawFlips": 15
@@ -214,7 +214,7 @@
           "confidenceClass": "medium",
           "kindBasis": "behavioral",
           "confidenceScore": 0.5768,
-          "spend28": 1490.41,
+          "spend28": 1490.4099999999999,
           "evidence": [
             "scores test=0.05 main=0.5768 margin=0.5268 agreeing=[behavioral+naming+continuity]"
           ]
@@ -226,7 +226,7 @@
           "confidenceClass": "medium",
           "kindBasis": "behavioral",
           "confidenceScore": 0.5358,
-          "spend28": 1110.0600000000002,
+          "spend28": 1110.0599999999997,
           "evidence": [
             "scores test=0.045 main=0.5358 margin=0.4908 agreeing=[behavioral+naming+continuity]"
           ]
@@ -238,7 +238,7 @@
           "confidenceClass": "medium",
           "kindBasis": "behavioral",
           "confidenceScore": 0.4814,
-          "spend28": 270.42,
+          "spend28": 270.41999999999996,
           "evidence": [
             "scores test=0.0983 main=0.4814 margin=0.3831 agreeing=[behavioral+naming+continuity]"
           ]
@@ -292,7 +292,7 @@
             "finalClass": "unknown",
             "publishedFlips": 1,
             "rawFlips": 1,
-            "suppressedDays": 0,
+            "suppressedDays": 3,
             "finalDivergence": false,
             "perDate": [
               {
@@ -371,25 +371,25 @@
                 "asOf": "2026-06-10",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "test",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-11",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "test",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-12",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "test",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-13",
@@ -438,7 +438,7 @@
             "finalClass": "unknown",
             "publishedFlips": 2,
             "rawFlips": 2,
-            "suppressedDays": 1,
+            "suppressedDays": 4,
             "finalDivergence": false,
             "perDate": [
               {
@@ -637,25 +637,25 @@
                 "asOf": "2026-06-25",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-26",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-27",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-28",
@@ -704,7 +704,7 @@
             "finalClass": "unknown",
             "publishedFlips": 1,
             "rawFlips": 1,
-            "suppressedDays": 0,
+            "suppressedDays": 3,
             "finalDivergence": false,
             "perDate": [
               {
@@ -735,25 +735,25 @@
                 "asOf": "2026-06-04",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-05",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-06",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-07",
@@ -802,7 +802,7 @@
             "finalClass": "unknown",
             "publishedFlips": 1,
             "rawFlips": 1,
-            "suppressedDays": 0,
+            "suppressedDays": 3,
             "finalDivergence": false,
             "perDate": [
               {
@@ -833,25 +833,25 @@
                 "asOf": "2026-06-04",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-05",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-06",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-07",
@@ -900,7 +900,7 @@
             "finalClass": "unknown",
             "publishedFlips": 1,
             "rawFlips": 1,
-            "suppressedDays": 0,
+            "suppressedDays": 3,
             "finalDivergence": false,
             "perDate": [
               {
@@ -923,25 +923,25 @@
                 "asOf": "2026-06-03",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-04",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-05",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-06",
@@ -998,7 +998,7 @@
             "finalClass": "unknown",
             "publishedFlips": 2,
             "rawFlips": 3,
-            "suppressedDays": 2,
+            "suppressedDays": 5,
             "finalDivergence": false,
             "perDate": [
               {
@@ -1197,25 +1197,25 @@
                 "asOf": "2026-06-25",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "mixed",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-26",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "mixed",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-27",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "mixed",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-28",
@@ -1542,7 +1542,7 @@
             "confidenceClass": "medium"
           },
           "manualLabel": null,
-          "spend28": 1490.41
+          "spend28": 1490.4099999999999
         },
         {
           "campaignId": "120246844311280459",
@@ -1839,7 +1839,7 @@
             "confidenceClass": "medium"
           },
           "manualLabel": null,
-          "spend28": 1110.0600000000002
+          "spend28": 1110.0599999999997
         },
         {
           "campaignId": "120246844319660459",
@@ -2136,7 +2136,7 @@
             "confidenceClass": "medium"
           },
           "manualLabel": null,
-          "spend28": 270.42
+          "spend28": 270.41999999999996
         },
         {
           "campaignId": "120247976989260459",
@@ -2478,7 +2478,7 @@
             "confidenceClass": "conflict"
           },
           "manualLabel": null,
-          "spend28": 2201.5800000000004
+          "spend28": 2201.58
         }
       ]
     },
@@ -2499,7 +2499,7 @@
       "flipSummary": {
         "campaignsWithPublishedFlips": 7,
         "campaignsWithRawFlips": 7,
-        "campaignsWithSuppressedDays": 3,
+        "campaignsWithSuppressedDays": 7,
         "campaignsWithFinalDivergence": 0,
         "totalPublishedFlips": 12,
         "totalRawFlips": 12
@@ -2747,7 +2747,7 @@
             "finalClass": "unknown",
             "publishedFlips": 1,
             "rawFlips": 1,
-            "suppressedDays": 0,
+            "suppressedDays": 3,
             "finalDivergence": false,
             "perDate": [
               {
@@ -2802,25 +2802,25 @@
                 "asOf": "2026-06-07",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "test",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-08",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "test",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-09",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "test",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-10",
@@ -2869,7 +2869,7 @@
             "finalClass": "unknown",
             "publishedFlips": 3,
             "rawFlips": 3,
-            "suppressedDays": 2,
+            "suppressedDays": 5,
             "finalDivergence": false,
             "perDate": [
               {
@@ -3084,25 +3084,25 @@
                 "asOf": "2026-06-27",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-28",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-29",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-30",
@@ -3466,7 +3466,7 @@
             "finalClass": "unknown",
             "publishedFlips": 1,
             "rawFlips": 1,
-            "suppressedDays": 0,
+            "suppressedDays": 3,
             "finalDivergence": false,
             "perDate": [
               {
@@ -3497,25 +3497,25 @@
                 "asOf": "2026-06-04",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "test",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-05",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "test",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-06",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "test",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-07",
@@ -3718,7 +3718,7 @@
             "finalClass": "unknown",
             "publishedFlips": 1,
             "rawFlips": 1,
-            "suppressedDays": 0,
+            "suppressedDays": 3,
             "finalDivergence": false,
             "perDate": [
               {
@@ -3773,25 +3773,25 @@
                 "asOf": "2026-06-07",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-08",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-09",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-10",
@@ -4570,7 +4570,7 @@
             "confidenceClass": "high"
           },
           "manualLabel": "main",
-          "spend28": 469.0199999999999
+          "spend28": 469.01999999999987
         },
         {
           "campaignId": "120247049713670316",
@@ -4589,7 +4589,7 @@
             "finalClass": "unknown",
             "publishedFlips": 1,
             "rawFlips": 1,
-            "suppressedDays": 0,
+            "suppressedDays": 3,
             "finalDivergence": false,
             "perDate": [
               {
@@ -4644,25 +4644,25 @@
                 "asOf": "2026-06-07",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-08",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-09",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-10",
@@ -5513,7 +5513,7 @@
       "flipSummary": {
         "campaignsWithPublishedFlips": 2,
         "campaignsWithRawFlips": 2,
-        "campaignsWithSuppressedDays": 0,
+        "campaignsWithSuppressedDays": 2,
         "campaignsWithFinalDivergence": 0,
         "totalPublishedFlips": 3,
         "totalRawFlips": 3
@@ -5641,7 +5641,7 @@
           "confidenceClass": "high",
           "kindBasis": "behavioral",
           "confidenceScore": 0.6084,
-          "spend28": 552.4499999999999,
+          "spend28": 552.45,
           "evidence": [
             "scores test=0.0555 main=0.6084 margin=0.5529 agreeing=[behavioral+continuity]"
           ]
@@ -6009,7 +6009,7 @@
             "confidenceClass": "high"
           },
           "manualLabel": "main",
-          "spend28": 3868.42
+          "spend28": 3868.419999999999
         },
         {
           "campaignId": "120242560371390077",
@@ -6034,7 +6034,7 @@
             "finalClass": "conflict",
             "publishedFlips": 1,
             "rawFlips": 1,
-            "suppressedDays": 0,
+            "suppressedDays": 1,
             "finalDivergence": false,
             "perDate": [
               {
@@ -6049,9 +6049,9 @@
                 "asOf": "2026-06-02",
                 "rawKind": null,
                 "rawClass": "conflict",
-                "publishedKind": null,
-                "publishedClass": "conflict",
-                "suppressedFlip": false
+                "publishedKind": "mixed",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-03",
@@ -6949,7 +6949,7 @@
             "confidenceClass": "high"
           },
           "manualLabel": null,
-          "spend28": 552.4499999999999
+          "spend28": 552.45
         },
         {
           "campaignId": "120216916619760077",
@@ -7284,7 +7284,7 @@
             "finalClass": "medium",
             "publishedFlips": 2,
             "rawFlips": 2,
-            "suppressedDays": 0,
+            "suppressedDays": 3,
             "finalDivergence": false,
             "perDate": [
               {
@@ -7315,25 +7315,25 @@
                 "asOf": "2026-06-04",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-05",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-06",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-07",
@@ -7883,7 +7883,7 @@
             "confidenceClass": "unknown"
           },
           "manualLabel": "main",
-          "spend28": 14.73
+          "spend28": 14.730000000000002
         },
         {
           "campaignId": "120246441524690077",
@@ -8236,7 +8236,7 @@
             "confidenceClass": "unknown"
           },
           "manualLabel": null,
-          "spend28": 831.8700000000001
+          "spend28": 831.87
         }
       ]
     },
@@ -8260,9 +8260,9 @@
       "flipSummary": {
         "campaignsWithPublishedFlips": 15,
         "campaignsWithRawFlips": 15,
-        "campaignsWithSuppressedDays": 7,
+        "campaignsWithSuppressedDays": 12,
         "campaignsWithFinalDivergence": 2,
-        "totalPublishedFlips": 32,
+        "totalPublishedFlips": 26,
         "totalRawFlips": 34
       },
       "evaluation": {
@@ -8863,7 +8863,7 @@
             "finalClass": "unknown",
             "publishedFlips": 1,
             "rawFlips": 1,
-            "suppressedDays": 0,
+            "suppressedDays": 3,
             "finalDivergence": false,
             "perDate": [
               {
@@ -8974,25 +8974,25 @@
                 "asOf": "2026-06-14",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-15",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-16",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-17",
@@ -9041,7 +9041,7 @@
             "finalClass": "unknown",
             "publishedFlips": 1,
             "rawFlips": 1,
-            "suppressedDays": 0,
+            "suppressedDays": 3,
             "finalDivergence": false,
             "perDate": [
               {
@@ -9152,25 +9152,25 @@
                 "asOf": "2026-06-14",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-15",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-16",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-17",
@@ -9437,7 +9437,7 @@
             "finalClass": "unknown",
             "publishedFlips": 1,
             "rawFlips": 1,
-            "suppressedDays": 0,
+            "suppressedDays": 1,
             "finalDivergence": false,
             "perDate": [
               {
@@ -9468,9 +9468,9 @@
                 "asOf": "2026-06-04",
                 "rawKind": null,
                 "rawClass": "conflict",
-                "publishedKind": null,
-                "publishedClass": "conflict",
-                "suppressedFlip": false
+                "publishedKind": "mixed",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-05",
@@ -9615,7 +9615,7 @@
             "finalClass": "unknown",
             "publishedFlips": 3,
             "rawFlips": 3,
-            "suppressedDays": 1,
+            "suppressedDays": 4,
             "finalDivergence": false,
             "perDate": [
               {
@@ -9822,25 +9822,25 @@
                 "asOf": "2026-06-26",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "mixed",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-27",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "mixed",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-28",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "mixed",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-29",
@@ -9889,7 +9889,7 @@
             "finalClass": "unknown",
             "publishedFlips": 1,
             "rawFlips": 1,
-            "suppressedDays": 0,
+            "suppressedDays": 3,
             "finalDivergence": false,
             "perDate": [
               {
@@ -9944,25 +9944,25 @@
                 "asOf": "2026-06-07",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-08",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-09",
                 "rawKind": null,
                 "rawClass": "unknown",
-                "publishedKind": null,
-                "publishedClass": "unknown",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "medium",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-10",
@@ -12215,7 +12215,7 @@
             "confidenceClass": "medium"
           },
           "manualLabel": "mixed",
-          "spend28": 863.7899999999998
+          "spend28": 863.79
         },
         {
           "campaignId": "120244828390840430",
@@ -13406,9 +13406,9 @@
           "hysteresis": {
             "finalKind": "main",
             "finalClass": "low",
-            "publishedFlips": 3,
+            "publishedFlips": 1,
             "rawFlips": 3,
-            "suppressedDays": 0,
+            "suppressedDays": 1,
             "finalDivergence": false,
             "perDate": [
               {
@@ -13495,9 +13495,9 @@
                 "asOf": "2026-06-24",
                 "rawKind": null,
                 "rawClass": "conflict",
-                "publishedKind": null,
-                "publishedClass": "conflict",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-25",
@@ -13594,7 +13594,7 @@
             "confidenceClass": "low"
           },
           "manualLabel": "mixed",
-          "spend28": 12158.689999999999
+          "spend28": 12158.690000000002
         },
         {
           "campaignId": "120248656753610042",
@@ -13613,9 +13613,9 @@
           "hysteresis": {
             "finalKind": "main",
             "finalClass": "medium",
-            "publishedFlips": 3,
+            "publishedFlips": 1,
             "rawFlips": 4,
-            "suppressedDays": 1,
+            "suppressedDays": 2,
             "finalDivergence": true,
             "perDate": [
               {
@@ -13702,9 +13702,9 @@
                 "asOf": "2026-06-24",
                 "rawKind": null,
                 "rawClass": "conflict",
-                "publishedKind": null,
-                "publishedClass": "conflict",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-25",
@@ -14025,9 +14025,9 @@
           "hysteresis": {
             "finalKind": "main",
             "finalClass": "medium",
-            "publishedFlips": 3,
+            "publishedFlips": 1,
             "rawFlips": 4,
-            "suppressedDays": 1,
+            "suppressedDays": 2,
             "finalDivergence": true,
             "perDate": [
               {
@@ -14114,9 +14114,9 @@
                 "asOf": "2026-06-24",
                 "rawKind": null,
                 "rawClass": "conflict",
-                "publishedKind": null,
-                "publishedClass": "conflict",
-                "suppressedFlip": false
+                "publishedKind": "main",
+                "publishedClass": "low",
+                "suppressedFlip": true
               },
               {
                 "asOf": "2026-06-25",
@@ -14213,7 +14213,7 @@
             "confidenceClass": "high"
           },
           "manualLabel": "mixed",
-          "spend28": 14567.1
+          "spend28": 14567.099999999999
         },
         {
           "campaignId": "120248657135390042",
@@ -14626,7 +14626,7 @@
             "confidenceClass": "low"
           },
           "manualLabel": "mixed",
-          "spend28": 9588.69
+          "spend28": 9588.689999999999
         },
         {
           "campaignId": "120248657079690042",

@@ -1,0 +1,108 @@
+{
+  "generatedAt": "2026-07-06T21:20:54.635Z",
+  "liveStatus": {
+    "source": "live_db_tunnel",
+    "tunnelHost": "127.0.0.1",
+    "tunnelPort": 15432,
+    "readOnly": true
+  },
+  "engineVersion": "v1.0.0",
+  "coverage": {
+    "rows": 323829,
+    "stabilityKeys": 6559,
+    "snapshotDates": 59,
+    "firstSnapshotDate": "2026-05-09",
+    "lastSnapshotDate": "2026-07-06",
+    "businesses": 13
+  },
+  "observedChurn": {
+    "transitions": 140,
+    "actBoundaryTransitions": 128,
+    "roundTrips": 24,
+    "actBoundaryRoundTrips": 24
+  },
+  "hysteresisReplay": {
+    "suppressed": 108,
+    "preventedRoundTrips": 19,
+    "delayedConfirmations": 76,
+    "unresolvedOrThirdState": 13,
+    "note": "prevented = raw flip reverted next appearance (hold correct); delayed = raw flip confirmed (1-snapshot publish cost)"
+  },
+  "topChurnKeys": [
+    {
+      "key": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2|campaign|120241677292560077|bid_strategy_fit",
+      "actBoundaryTransitions": 10,
+      "appearances": 26
+    },
+    {
+      "key": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2|adset|120242817999530077|promote_test_to_main",
+      "actBoundaryTransitions": 6,
+      "appearances": 29
+    },
+    {
+      "key": "979a04f6-1ca9-41d8-be0a-5d58dd7c4bc7|adset|120230452896930268|adset_cut_spend",
+      "actBoundaryTransitions": 4,
+      "appearances": 17
+    },
+    {
+      "key": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f|campaign|120245714163440459|promote_test_to_main",
+      "actBoundaryTransitions": 4,
+      "appearances": 18
+    },
+    {
+      "key": "ae9114a3-2492-4be7-91e7-53fff0c2b1e8|campaign|120247029648280616|bid_strategy_fit",
+      "actBoundaryTransitions": 4,
+      "appearances": 5
+    },
+    {
+      "key": "172d0ab8-495b-4679-a4c6-ffa404c389d3|adset|120244054243040042|adset_cut_spend",
+      "actBoundaryTransitions": 3,
+      "appearances": 6
+    },
+    {
+      "key": "75f65b18-97e5-426c-a791-a8f693d34c84|campaign|120245112270730327|scale_for_profitability",
+      "actBoundaryTransitions": 3,
+      "appearances": 17
+    },
+    {
+      "key": "ae9114a3-2492-4be7-91e7-53fff0c2b1e8|campaign|120247029648280616|scale_for_profitability",
+      "actBoundaryTransitions": 3,
+      "appearances": 5
+    },
+    {
+      "key": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7|campaign|120240386684140340|bid_strategy_fit",
+      "actBoundaryTransitions": 3,
+      "appearances": 5
+    },
+    {
+      "key": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7|campaign|120241338151290340|bid_strategy_fit",
+      "actBoundaryTransitions": 3,
+      "appearances": 10
+    },
+    {
+      "key": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7|campaign|120241338151290340|scale_for_profitability",
+      "actBoundaryTransitions": 3,
+      "appearances": 8
+    },
+    {
+      "key": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2|campaign|120241683217280077|bid_strategy_fit",
+      "actBoundaryTransitions": 3,
+      "appearances": 23
+    },
+    {
+      "key": "172d0ab8-495b-4679-a4c6-ffa404c389d3|adset|120244061645080042|adset_scale_budget",
+      "actBoundaryTransitions": 2,
+      "appearances": 7
+    },
+    {
+      "key": "67a9b51a-663d-425e-b6fe-1d24aaa70dab|adset|120245285470960343|adset_cut_spend",
+      "actBoundaryTransitions": 2,
+      "appearances": 6
+    },
+    {
+      "key": "6c690fa4-6395-40b5-9755-e99b34d69bc3|adset|120234980498580626|adset_scale_budget",
+      "actBoundaryTransitions": 2,
+      "appearances": 11
+    }
+  ]
+}

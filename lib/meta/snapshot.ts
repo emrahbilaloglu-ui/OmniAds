@@ -14,6 +14,7 @@ import {
   runMetaCalibrationForBusiness,
   type RunMetaCalibrationResult,
 } from "@/lib/meta/calibration";
+import { metaConfidenceBucket } from "@/lib/meta/confidence-thresholds";
 import {
   readPreviousMetaDecisionStates,
   stabilizeMetaRecommendations,
@@ -159,9 +160,7 @@ function dayDiffInclusive(startDate: string, endDate: string): number {
 }
 
 function confidenceLabel(score: number): MetaRecommendationConfidence {
-  if (score >= 0.7) return "high";
-  if (score >= 0.55) return "medium";
-  return "low";
+  return metaConfidenceBucket(score);
 }
 
 async function readCampaignLabelKindMap(input: {
@@ -936,9 +935,7 @@ function decisionWeight(state: MetaRecommendation["decisionState"]) {
 }
 
 function priorityFromScore(score: number): MetaRecommendationPriority {
-  if (score >= 0.7) return "high";
-  if (score >= 0.55) return "medium";
-  return "low";
+  return metaConfidenceBucket(score);
 }
 
 function lensFromLevel(level: MetaRecommendationLevel): MetaRecommendationLens {

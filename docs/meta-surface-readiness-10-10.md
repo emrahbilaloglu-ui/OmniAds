@@ -6,16 +6,16 @@ debt that survives a redesign and must be engineered now, and (B) UI-only /
 design-shell debt that the redesign wipes — recorded so it cannot be used to
 hide backend/contract defects, and NOT worth polish time today.
 
-Scores are evidence-backed as of the cross-surface hardening pass plus the
-briefing/launchpad currency slice on 2026-07-06. Update this ledger when a
-surface's contract changes (same-PR discipline, as with
-docs/meta-page-ui-contract.md).
+Scores are evidence-backed as of the cross-surface hardening pass, the
+briefing/launchpad currency slice, and the Meta v1 stability/outcome slice
+on 2026-07-06. Update this ledger when a surface's contract changes
+(same-PR discipline, as with docs/meta-page-ui-contract.md).
 
 ## Surface scores
 
 | Surface | Score | Server truth? | Payload currency | Freshness honesty |
 |---|---|---|---|---|
-| Decision Center (/platforms/meta) | 8 | yes (post-hardening: server-owned actionKind/labels/metrics; anomalies status-filter-scoped, coarse+fail-open) | yes (pulse) | unified as-of: real lastSyncAt or "sync unknown", true lane snapshotDate rendered, anomaly-feed as-of rendered, dataReadiness banner |
+| Decision Center (/platforms/meta) | 8.8 | yes (post-hardening: server-owned actionKind/labels/metrics; anomalies status-filter-scoped, coarse+fail-open; act-boundary hysteresis and confidence cuts centralized) | yes (pulse) | unified as-of: real lastSyncAt or "sync unknown", true lane snapshotDate rendered, anomaly-feed as-of rendered, dataReadiness banner |
 | Creatives (/platforms/meta/creatives) | 9 | yes (CDC v3; invariant-guarded) | yes (briefing card contract + asset library default currency) | snapshot health + calibration honesty copy |
 | Launchpad | 9 | yes (server validate + forced-PAUSED launch; route contracts, payload normalizer, and the meta-store SQL seam all tested - the seam against real Postgres) | yes (new-campaign payload currencyCode + selection rendering) | honest (server updatedAt) |
 | Copies | 8 | yes (real funnel/video fields mapped+summed; seeMoreRate fabrication removed server+client; no client re-derivation) | yes (per-row) | generatedAt stamped and rendered; unresolved-count rendered |
@@ -24,18 +24,31 @@ docs/meta-page-ui-contract.md).
 
 ## A. NON-UI gaps (survive any redesign — engineering backlog, priority order)
 
-1. **Meta v1 recommendation engine lacks the CDC disciplines** — partially
-   closed this pass: act-boundary state hysteresis now runs at snapshot
-   write time (`lib/meta/decision-stability.ts`, mirroring the CDC rule:
-   act<->non-act flips publish only after two consecutive snapshots; memory
-   rides in signal_quality.stability, no schema change; disappearing recs
-   are deliberately NOT republished — that would fabricate decisions).
-   Unit + pipeline-integration tested, but NOT yet replay-verified against
-   live snapshot history the way CDC was — do not claim churn reduction
-   until day-over-day evidence exists. Still open: outcome/calibration
-   loop for confidence thresholds (calibration exists, thresholds untested
-   against outcomes), 30d fixed lookback. Largest remaining structural
-   item on the Decision Center path to 10.
+1. **Meta v1 recommendation engine still has calibration debt, but the
+   largest CDC-discipline gaps are now closed**. Act-boundary state
+   hysteresis runs at snapshot write time (`lib/meta/decision-stability.ts`,
+   mirroring the CDC rule: act<->non-act flips publish only after two
+   consecutive snapshots; memory rides in signal_quality.stability, no
+   schema change; disappearing recs are deliberately NOT republished —
+   that would fabricate decisions). It is now unit/pipeline tested AND
+   replay-verified against live snapshot history:
+   `docs/meta-readiness/hysteresis-historical-replay.json` covers 323,829
+   recommendation rows / 59 dates / 13 businesses and estimates 108
+   suppressed act-boundary flips, including 19 prevented round-trips.
+   Confidence thresholds are centralized
+   (`lib/meta/confidence-thresholds.ts`) and compared against realized
+   7d KPI movement in
+   `docs/meta-readiness/confidence-outcome-validation.json` (read-only
+   live tunnel, 16,659 decisions / 3 latest fully accrued dates / 12
+   businesses): high confidence improved share of judged = 0.683 vs
+   medium = 0.391. Honest limit: this is correlational and
+   operator-acted share is 0 in the sampled window, so it validates
+   threshold separation, not operator causality. The automated outcome
+   writer (`lib/meta/outcome-accrual.ts`) now accrues 7d-before vs
+   7d-after KPI labels at the 05:00 UTC cron slot with an explicit
+   `$50/window` spend floor. Still open before 10/10: threshold retuning
+   or model calibration from accrued outcome rows, and the 30d fixed
+   recommendation lookback.
 2. **Present-config-over-history in lib/meta/serving.ts — now an EXPLICIT
    CONTRACT** (docs/meta-serving-history-contract.md, pinned two-way by
    lib/meta/serving-contract.test.ts): identity columns describe the
@@ -106,6 +119,12 @@ snapshot as-of renders above the Action Now cards
 wording. Known residual asymmetry documented: pulse snapshotHealth is
 globally latest while lane snapshotDate is range-bounded - the render
 makes the divergence visible instead of reconciling it.
+Meta v1 stability/outcome hardening also landed in this pass: confidence
+thresholds are no longer duplicated literals; the snapshot/automation/
+recommendation/adset paths share the same 0.7/0.55 constants; a bounded
+read-only validation script writes `docs/meta-readiness/confidence-outcome-validation.json`
+without dumping full artifacts to stdout; and scheduled cron now exposes
+the outcome accrual job result beside the existing Meta jobs.
 
 ## B. UI-only / design-shell debt (redesign wipes it — do NOT polish now)
 

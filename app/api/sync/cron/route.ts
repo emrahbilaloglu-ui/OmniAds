@@ -5,6 +5,7 @@ import { enqueueMetaScheduledWork } from "@/lib/sync/meta-sync";
 import { enqueueGoogleAdsScheduledWork } from "@/lib/sync/google-ads-sync";
 import { runMetaSnapshotJobIfDue } from "@/lib/meta/scheduled";
 import { runMetaDecisionIgnoredMarkerIfDue } from "@/lib/meta/decision-responses";
+import { runMetaOutcomeAccrualIfDue } from "@/lib/meta/outcome-accrual";
 import { syncGA4Reports } from "@/lib/sync/ga4-sync";
 import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
 import { syncShopifyCommerceReports } from "@/lib/sync/shopify-sync";
@@ -236,6 +237,15 @@ export async function POST(request: NextRequest) {
       error: error instanceof Error ? error.message : String(error),
     };
   });
+  const metaOutcomeAccrualJob = await runMetaOutcomeAccrualIfDue().catch((error) => {
+    console.error("[sync-cron] meta_outcome_accrual_failed", error);
+    return {
+      skipped: true,
+      reason: "failed" as const,
+      runDate: new Date().toISOString().slice(0, 10),
+      error: error instanceof Error ? error.message : String(error),
+    };
+  });
   const decisionProducerJob = await runEngineV3ProducerChainForActiveBusinessesIfDue(
     new Date(),
   ).catch((error) => {
@@ -401,6 +411,9 @@ export async function POST(request: NextRequest) {
     metaIgnoredMarkerJobSkipped: metaIgnoredMarkerJob.skipped,
     metaIgnoredMarkerJobReason:
       "reason" in metaIgnoredMarkerJob ? metaIgnoredMarkerJob.reason : null,
+    metaOutcomeAccrualJobSkipped: metaOutcomeAccrualJob.skipped,
+    metaOutcomeAccrualJobReason:
+      "reason" in metaOutcomeAccrualJob ? metaOutcomeAccrualJob.reason : null,
     decisionProducerJobSkipped: decisionProducerJob.skipped,
     decisionProducerJobReason:
       "reason" in decisionProducerJob ? decisionProducerJob.reason : null,
@@ -422,6 +435,7 @@ export async function POST(request: NextRequest) {
       ...(googleAutoRepair ? { googleAutoRepairResults: googleAutoRepair.results } : {}),
       metaSnapshotJob,
       metaIgnoredMarkerJob,
+      metaOutcomeAccrualJob,
       decisionProducerJob,
       decisionOutcomesJob,
     },

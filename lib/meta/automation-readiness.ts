@@ -1,4 +1,5 @@
 import { decisionLabelForMetaRec } from "@/lib/meta/rec-label-mapping";
+import { META_CONFIDENCE_ACT_THRESHOLD } from "@/lib/meta/confidence-thresholds";
 import type { MetaEmpiricalOutcomeSummary } from "@/lib/meta/empirical-outcomes";
 import type { MetaDecisionLabel, MetaRecommendation } from "@/lib/meta/recommendations";
 
@@ -200,7 +201,7 @@ export function deriveMetaAutomationReadiness(
   if (rec.decisionState !== "act") blockers.push("not_action_state");
   if (readOnly) blockers.push("diagnostic_or_watch_state");
   if (!autoCandidateType) blockers.push("unsupported_action_class");
-  if (score < 0.7) blockers.push("low_confidence");
+  if (score < META_CONFIDENCE_ACT_THRESHOLD) blockers.push("low_confidence");
   if (isMissingCampaignLabel(rec)) {
     blockers.push("missing_campaign_label");
     missingEvidence.push("campaign_label");
@@ -214,7 +215,7 @@ export function deriveMetaAutomationReadiness(
   const executionCandidate =
     autoCandidateType &&
     rec.decisionState === "act" &&
-    score >= 0.7 &&
+    score >= META_CONFIDENCE_ACT_THRESHOLD &&
     !blockers.includes("missing_commercial_anchor");
 
   if (readOnly || blockers.includes("missing_campaign_label")) {

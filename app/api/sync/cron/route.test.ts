@@ -25,6 +25,10 @@ vi.mock("@/lib/meta/decision-responses", async (importOriginal) => {
   };
 });
 
+vi.mock("@/lib/meta/outcome-accrual", () => ({
+  runMetaOutcomeAccrualIfDue: vi.fn(),
+}));
+
 vi.mock("@/lib/creative-decision-engine", () => ({
   runDecisionOutcomesJobForActiveBusinessesIfDue: vi.fn(),
   runEngineV3ProducerChainForActiveBusinessesIfDue: vi.fn(),
@@ -70,6 +74,7 @@ const metaSync = await import("@/lib/sync/meta-sync");
 const googleSync = await import("@/lib/sync/google-ads-sync");
 const metaScheduled = await import("@/lib/meta/scheduled");
 const decisionResponses = await import("@/lib/meta/decision-responses");
+const outcomeAccrual = await import("@/lib/meta/outcome-accrual");
 const creativeDecisionEngine = await import("@/lib/creative-decision-engine");
 const ga4Sync = await import("@/lib/sync/ga4-sync");
 const searchConsoleSync = await import("@/lib/sync/search-console-sync");
@@ -101,6 +106,11 @@ describe("POST /api/sync/cron", () => {
       skipped: true,
       reason: "not_due",
       snapshotDate: "2026-04-15",
+    });
+    vi.mocked(outcomeAccrual.runMetaOutcomeAccrualIfDue).mockResolvedValue({
+      skipped: true,
+      reason: "not_due",
+      runDate: "2026-04-15",
     });
     vi.mocked(
       creativeDecisionEngine.runDecisionOutcomesJobForActiveBusinessesIfDue,
@@ -287,6 +297,11 @@ describe("POST /api/sync/cron", () => {
       reason: "not_due",
       snapshotDate: "2026-04-15",
     });
+    expect(payload.metaOutcomeAccrualJob).toEqual({
+      skipped: true,
+      reason: "not_due",
+      runDate: "2026-04-15",
+    });
     expect(payload.decisionOutcomesJob).toEqual({
       skipped: true,
       reason: "outside_slot",
@@ -353,6 +368,30 @@ describe("POST /api/sync/cron", () => {
     expect(payload.metaIgnoredMarkerJob.reason).toBe("failed");
     expect(spy).toHaveBeenCalledWith(
       "[sync-cron] meta_decision_ignored_marker_failed",
+      expect.any(Error),
+    );
+
+    spy.mockRestore();
+  });
+
+  it("does not fail cron when the Meta outcome accrual job fails", async () => {
+    vi.mocked(outcomeAccrual.runMetaOutcomeAccrualIfDue).mockRejectedValue(
+      new Error("outcome accrual failed"),
+    );
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const request = new NextRequest("http://localhost/api/sync/cron", {
+      method: "POST",
+      headers: { authorization: "Bearer secret" },
+    });
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.metaOutcomeAccrualJob.skipped).toBe(true);
+    expect(payload.metaOutcomeAccrualJob.reason).toBe("failed");
+    expect(spy).toHaveBeenCalledWith(
+      "[sync-cron] meta_outcome_accrual_failed",
       expect.any(Error),
     );
 

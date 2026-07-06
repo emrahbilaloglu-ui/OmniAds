@@ -1,0 +1,170 @@
+{
+  "generatedAt": "2026-07-06T21:40:40.180Z",
+  "liveStatus": {
+    "source": "live_db_tunnel",
+    "tunnelHost": "127.0.0.1",
+    "tunnelPort": 15432,
+    "readOnly": true
+  },
+  "engineVersion": "v1.0.0",
+  "thresholds": {
+    "act": 0.7,
+    "medium": 0.55,
+    "outcomeRule": "auto_kpi_7d.v1 bands (+-5% ROAS, $50/window floor)"
+  },
+  "coverage": {
+    "decisions": 16659,
+    "businesses": 12,
+    "snapshotDates": 3,
+    "firstSnapshotDate": "2026-06-26",
+    "lastSnapshotDate": "2026-06-28",
+    "maxSnapshotDates": 3,
+    "historyTruncated": true,
+    "stoppedEarly": false,
+    "queryTimeoutMs": 8000,
+    "maxRuntimeMs": 90000
+  },
+  "byConfidenceBucket": {
+    "high": {
+      "n": 269,
+      "improved": 41,
+      "regressed": 19,
+      "flat": 6,
+      "inconclusive": 203,
+      "improvedShareOfJudged": 0.683,
+      "improvedShareOfConclusive": 0.621,
+      "operatorActedShare": 0,
+      "medianRoasDelta": 0.21100787666740173
+    },
+    "medium": {
+      "n": 62,
+      "improved": 9,
+      "regressed": 14,
+      "flat": 4,
+      "inconclusive": 35,
+      "improvedShareOfJudged": 0.391,
+      "improvedShareOfConclusive": 0.333,
+      "operatorActedShare": 0,
+      "medianRoasDelta": -0.11281645515136063
+    },
+    "low": {
+      "n": 16328,
+      "improved": 114,
+      "regressed": 88,
+      "flat": 69,
+      "inconclusive": 16057,
+      "improvedShareOfJudged": 0.564,
+      "improvedShareOfConclusive": 0.421,
+      "operatorActedShare": 0,
+      "medianRoasDelta": 0
+    }
+  },
+  "byRawDecisionState": {
+    "act": {
+      "n": 217,
+      "improved": 32,
+      "regressed": 16,
+      "flat": 4,
+      "inconclusive": 165,
+      "improvedShareOfJudged": 0.667,
+      "improvedShareOfConclusive": 0.615,
+      "operatorActedShare": 0,
+      "medianRoasDelta": 0.19993269568313693
+    },
+    "test": {
+      "n": 57,
+      "improved": 9,
+      "regressed": 8,
+      "flat": 4,
+      "inconclusive": 36,
+      "improvedShareOfJudged": 0.529,
+      "improvedShareOfConclusive": 0.429,
+      "operatorActedShare": 0,
+      "medianRoasDelta": 0
+    },
+    "watch": {
+      "n": 16385,
+      "improved": 123,
+      "regressed": 97,
+      "flat": 71,
+      "inconclusive": 16094,
+      "improvedShareOfJudged": 0.559,
+      "improvedShareOfConclusive": 0.423,
+      "operatorActedShare": 0,
+      "medianRoasDelta": 0
+    }
+  },
+  "byRawDecisionStateOperatorActedOnly": {
+    "act": {
+      "n": 0,
+      "improved": 0,
+      "regressed": 0,
+      "flat": 0,
+      "inconclusive": 0,
+      "improvedShareOfJudged": null,
+      "improvedShareOfConclusive": null,
+      "operatorActedShare": null,
+      "medianRoasDelta": null
+    },
+    "test": {
+      "n": 0,
+      "improved": 0,
+      "regressed": 0,
+      "flat": 0,
+      "inconclusive": 0,
+      "improvedShareOfJudged": null,
+      "improvedShareOfConclusive": null,
+      "operatorActedShare": null,
+      "medianRoasDelta": null
+    },
+    "watch": {
+      "n": 0,
+      "improved": 0,
+      "regressed": 0,
+      "flat": 0,
+      "inconclusive": 0,
+      "improvedShareOfJudged": null,
+      "improvedShareOfConclusive": null,
+      "operatorActedShare": null,
+      "medianRoasDelta": null
+    }
+  },
+  "confidenceScoreHistogram": {
+    "0.35": 15980,
+    "0.40": 177,
+    "0.45": 169,
+    "0.46": 2,
+    "0.56": 2,
+    "0.57": 1,
+    "0.60": 56,
+    "0.61": 1,
+    "0.62": 1,
+    "0.67": 1,
+    "0.70": 21,
+    "0.71": 16,
+    "0.72": 13,
+    "0.73": 12,
+    "0.74": 8,
+    "0.75": 13,
+    "0.76": 9,
+    "0.77": 7,
+    "0.78": 41,
+    "0.79": 7,
+    "0.80": 1,
+    "0.81": 19,
+    "0.82": 2,
+    "0.83": 6,
+    "0.84": 2,
+    "0.85": 46,
+    "0.86": 2,
+    "0.87": 1,
+    "0.89": 2,
+    "0.90": 3,
+    "0.91": 2,
+    "0.92": 3,
+    "0.93": 1,
+    "0.95": 1,
+    "0.96": 6,
+    "1.00": 25
+  }
+}

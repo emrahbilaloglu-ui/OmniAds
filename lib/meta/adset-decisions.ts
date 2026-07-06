@@ -1,4 +1,5 @@
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
+import { META_CONFIDENCE_ACT_THRESHOLD } from "@/lib/meta/confidence-thresholds";
 import type { MetaAdSetData } from "@/lib/api/meta";
 import type {
   MetaCalibrationContext,
@@ -352,7 +353,7 @@ export function buildMetaAdsetRecommendations(
           lens: "volume",
           priority: "high",
           confidence: confidenceResult,
-          decisionState: confidenceResult.score >= 0.7 ? "act" : "test",
+          decisionState: confidenceResult.score >= META_CONFIDENCE_ACT_THRESHOLD ? "act" : "test",
           decision: "Scale this ad set carefully",
           title: `${adset.name}: ad set can absorb more budget`,
           why: "The ad set is above the calibrated ROAS line with enough purchase depth to justify a controlled scale test.",
@@ -390,7 +391,7 @@ export function buildMetaAdsetRecommendations(
           lens: "profitability",
           priority: severeLoser ? "high" : "medium",
           confidence: confidenceResult,
-          decisionState: severeLoser || confidenceResult.score >= 0.7 ? "act" : "test",
+          decisionState: severeLoser || confidenceResult.score >= META_CONFIDENCE_ACT_THRESHOLD ? "act" : "test",
           decision: "Cut or cap this ad set",
           title: `${adset.name}: ad set is below the calibrated efficiency line`,
           why: "The ad set is consuming meaningful spend while trailing calibrated ROAS expectations.",

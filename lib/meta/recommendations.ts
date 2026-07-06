@@ -54,6 +54,7 @@ import {
   type MetaEmpiricalOutcomeSummary,
 } from "@/lib/meta/empirical-outcomes";
 import { decisionLabelForMetaRec } from "@/lib/meta/rec-label-mapping";
+import { metaConfidenceBucket } from "@/lib/meta/confidence-thresholds";
 
 export type MetaDecisionState = "act" | "test" | "watch";
 export type MetaRecommendationLens = "volume" | "profitability" | "structure";
@@ -838,9 +839,7 @@ function clamp(value: number, min = 0, max = 1) {
 }
 
 function confidenceLabelFromScore(score: number): MetaRecommendationConfidence {
-  if (score >= 0.7) return "high";
-  if (score >= 0.55) return "medium";
-  return "low";
+  return metaConfidenceBucket(score);
 }
 
 function defaultConfidenceScore(confidence: MetaRecommendationConfidence) {

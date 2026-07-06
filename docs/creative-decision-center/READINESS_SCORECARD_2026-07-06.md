@@ -219,3 +219,51 @@ manufacture today - live operational confirmation (07-07 wave, 07-10
 outcome window), an outcome-calibrated confidence scheme that needs that
 live data, an isolated DB integration environment, and one product decision
 (budget CTA semantics). Each is named, dated, and has a runbook.
+
+
+## Post-deploy simulation pass (2026-07-06 evening, after SHA 459c80b3 went live)
+
+Directive: do not wait for the calendar; simulate what remains and work the
+named path-to-10 items. Six local commits on top of the deployed SHA
+(fe6c5a08..d3ce875d, not pushed). Suite 3534 green, typecheck + lint clean.
+
+| Component | Final (morning) | Now | What closed |
+|---|---|---|---|
+| Pipeline / data | 9.5 | 9.5 | (Tiles feed halt routed to its own task - a new finding, not a regression here) |
+| Formula / math | 8.5 | 9 | disjoint winner-memory shadow metric live next to the nested one; divergence measurable pre-flip |
+| Segmentation (D033) | 8 | 8.5 | day-1 wave PASSED same-day; context state round-trip proven on live data (95 states, 73 with counters); flip package prepared |
+| Measurement | 8.5 | 9 | operator-response join built and run (the named gap); day-2 seams proven live |
+| UI / operator | 8.5 | 9 | budget CTAs review-framed (copy = click); decision history surface |
+| Explainability | 8.5 | 9 | per-creative 30d decision history with closed 7d outcomes, server-supplied |
+| QA / golden | 8.5 | 9 | migrations-from-zero harness (found + fixed a real from-zero FK-ordering defect; 159 tables converge in one run) |
+| Release / ops | 8 | 8.5 | portable inode-preserving env pin; release-authority false-red routed to its own task |
+
+New evidence produced by simulation instead of waiting:
+- **Day-2 live dry run** (`day2-hysteresis-dry-run.ts`): tomorrow's chaining
+  executed against today's persisted production state - the production
+  reader returned 1602/1602 previous labels with raw_label, and
+  parseHysteresisState parsed all 95 persisted context states (73 carrying
+  non-default counters). The only day-2 unknown left is tomorrow's spend
+  data itself.
+- **Operator-response report**: 2/9 measurable cuts responded (1-day
+  median); TheSwaf ignored 7/7 measurable cuts (~3,195 truncated forward
+  spend); 50% of responded cuts land in the unknown-outcome bucket -
+  quantifying the precision-denominator interaction named in the math
+  review. Windows are heavily truncated (hard decisions exist only from
+  07-02); the script is rerunnable and self-truncates at the last complete
+  warehouse day (the first run caught fake compliance against today's
+  partial ingest).
+- **D033 day-1 gate passed same-day** (deploy-day catch-up): 14/14 context
+  success, no collapse, EMOLOS conflicts surfaced exactly as the shadow
+  predicted; day-1 hard-flip wave = 7 (expected clean-epoch class).
+
+Remaining to 10 - the irreducible set:
+1. Tomorrow's spend data (first day suppression CAN occur) and the 7d live
+   outcome window closing 2026-07-13 - future reality, not simulatable.
+2. The D033 automatic-mode flip - a user decision; package is ready
+   (D033_AUTOMATIC_MODE_FLIP_PACKAGE_2026-07-06.md).
+3. Prod-snapshot integration suite portability + staging environment -
+   infra investments beyond this repo session.
+4. Two routed investigations: Tiles Workshop feed halt (since 06-19, with
+   15 stale-data cuts to audit against the staleness guards) and the
+   release-authority checker false-red.

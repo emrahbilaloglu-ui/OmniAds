@@ -502,8 +502,10 @@ Real, current limitations — kept explicit on purpose:
   classification; lane tab counts reflect filtered rows.
 - **Present-config-over-history in serving.** Config classes used for cohort
   and lane routing (`optimizationGoal`, `customEventType`, bid strategy) come
-  from current config snapshots (`lib/meta/serving.ts:1440-1495`), so
-  historical windows are classified by present configuration.
+  from current config snapshots, so historical windows are classified by
+  present configuration — an explicit deliberate contract as of 2026-07-07;
+  see docs/meta-serving-history-contract.md for the rule and its decision
+  gates.
 - **`dataReadiness` is rendered as a warning banner** (`data-testid="meta-data-readiness"`)
   when status is not `ok` or the range is partial, so not-ready ranges do
   not present as silent zeros (regression-tested in

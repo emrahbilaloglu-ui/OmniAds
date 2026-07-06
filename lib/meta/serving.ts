@@ -1109,6 +1109,11 @@ export async function getMetaWarehouseCampaigns(input: {
     }),
   ]);
 
+  // PRESENT-CONFIG-OVER-HISTORY CONTRACT: identity columns (name, status,
+  // bid/budget/goal config) deliberately describe the present while metric
+  // columns describe the selected window. This is an explicit contract, not
+  // an oversight - see docs/meta-serving-history-contract.md for the rule,
+  // its eight classes, and why window-honest reconstruction is gated.
   aggregated = aggregated.map((row) => {
     const dimension = dimensions.get(row.campaignId);
     const latestConfig = latestConfigHistory.get(row.campaignId);
@@ -2119,6 +2124,7 @@ export async function getMetaWarehouseAdSets(input: {
             dimensions.get(row.adsetId)?.adsetNameCurrent ?? row.adsetNameCurrent,
           adsetNameHistorical:
             dimensions.get(row.adsetId)?.adsetNameHistorical ?? row.adsetNameHistorical,
+          // Present status by contract (docs/meta-serving-history-contract.md).
           adsetStatus: dimensions.get(row.adsetId)?.adsetStatus ?? row.adsetStatus,
           statusUpdatedAt: dimensions.get(row.adsetId)?.sourceUpdatedAt ?? row.updatedAt ?? null,
         },

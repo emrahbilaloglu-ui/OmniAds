@@ -36,9 +36,18 @@ docs/meta-page-ui-contract.md).
    loop for confidence thresholds (calibration exists, thresholds untested
    against outcomes), 30d fixed lookback. Largest remaining structural
    item on the Decision Center path to 10.
-2. **Present-config-over-history classes in lib/meta/serving.ts** (historical
-   windows classified by current status/bid config) — anachronism debt
-   shared by pulse and lanes.
+2. **Present-config-over-history in lib/meta/serving.ts — now an EXPLICIT
+   CONTRACT** (docs/meta-serving-history-contract.md, pinned two-way by
+   lib/meta/serving-contract.test.ts): identity columns describe the
+   present, metric columns the selected window, by design. The remaining
+   "window-honest" fixes are gated and stay open with reasons stated in
+   the contract doc: (a) product decision — reconstruction changes pulse
+   WoW headline numbers and table bid/budget values the operator is
+   calibrated to; (b) provenance gap — per-date columns are backfill-
+   contaminated for older spans with no marker; (c) write-time capture —
+   no status-history stream exists and cannot be backfilled. The cheap
+   safe piece (an as-of-date config-history reader) is a pure SQL addition
+   whenever the product decision lands.
 3. **Stale e2e specs assert dead testids** (`reviewer-smoke.spec.ts:42`,
     `commercial-truth-smoke.spec.ts:118,443,564` target components with no
     importer); the Playwright layer needs a redesign-era rewrite — blocked

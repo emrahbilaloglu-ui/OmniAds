@@ -46,6 +46,16 @@ describe("meta page UI contract doc stays consistent with code", () => {
     expect(doc).not.toContain("MetaArchiveTable");
   });
 
+  it("stale caveat phrases cannot return while the code has the fix", () => {
+    // Currency: the page formats money through formatMoney; the doc must
+    // not claim the archive table / 7d-avg sublabel still use legacy $.
+    expect(page).toContain("formatMoney(avg7dSpend, moneyCurrency)");
+    expect(doc).not.toMatch(/archive table[^.\n]*still use[^.\n]*formatCurrency/i);
+    expect(doc).not.toMatch(/Currency-awareness is partial/);
+    // Anomalies: endDate scoping exists; the old blanket sentence is banned.
+    expect(doc).not.toMatch(/does not scope by window or status filter/i);
+  });
+
   it("doc references to the page's key contracts stay alive in code", () => {
     for (const symbol of [
       "isTrackingWriteBlocked",

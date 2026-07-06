@@ -2307,6 +2307,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
       ) : null}
 
       <MetaDrillDrawer
+        moneyCurrency={moneyCurrency}
         item={drillItem}
         window={selectedWindow}
         onWindowChange={setWindow}

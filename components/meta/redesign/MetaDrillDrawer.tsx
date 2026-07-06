@@ -11,7 +11,7 @@ import {
   UpperFunnelKpiGrid,
   upperFunnelMetricsForRec,
 } from "@/components/meta/redesign/MetaUpperFunnelInformationalCard";
-import { formatCurrency } from "@/lib/briefing/utils";
+import { formatMoney } from "@/components/meta/redesign/meta-card-utils";
 import {
   decisionLabelForRec,
   evidenceValue,
@@ -20,6 +20,7 @@ import {
 } from "@/components/meta/redesign/meta-card-utils";
 
 interface MetaDrillDrawerProps {
+  moneyCurrency?: string | null;
   item: MetaDrillItem | null;
   window: MetaWindowKey;
   onWindowChange: (window: MetaWindowKey) => void;
@@ -47,18 +48,52 @@ function confidencePercent(rec: MetaRecommendation) {
   return Math.round((rec.confidenceScore ?? (rec.confidence === "high" ? 0.8 : rec.confidence === "medium" ? 0.62 : 0.42)) * 100);
 }
 
-function DecisionKpis({ rec, relatedRecs }: { rec: MetaRecommendation; relatedRecs: MetaRecommendation[] }) {
-  const spend =
+function DecisionKpis({
+  rec,
+  relatedRecs,
+  moneyCurrency,
+}: {
+  rec: MetaRecommendation;
+  relatedRecs: MetaRecommendation[];
+  moneyCurrency?: string | null;
+}) {
+  // Structured rec.metrics is the primary source (server-owned, currency
+  // aware). Evidence display strings remain an explicit fallback ONLY for
+  // payloads whose recommendations predate the metrics contract - that
+  // fallback is regression-tested, not incidental.
+  const structuredSpend =
     relatedRecs.length > 0
-      ? relatedRecs.reduce((sum, item) => sum + (parseMetric(evidenceAny(item, ["Ad set spend", "Spend", "Core spend"])) ?? 0), 0)
+      ? relatedRecs.reduce(
+          (sum, item) => sum + (item.metrics?.spend ?? 0),
+          0,
+        )
+      : rec.metrics?.spend ?? null;
+  const fallbackSpend =
+    relatedRecs.length > 0
+      ? relatedRecs.reduce(
+          (sum, item) =>
+            sum + (parseMetric(evidenceAny(item, ["Ad set spend", "Spend", "Core spend"])) ?? 0),
+          0,
+        )
       : parseMetric(evidenceAny(rec, ["Spend", "Ad set spend", "Core spend"]));
-  const roas = evidenceAny(rec, ["Core ROAS", "Ad set ROAS", "Selected ROAS", "Peer-group ROAS"]);
-  const cpa = evidenceAny(rec, ["Core CPA", "CPA", "Cost / lead"]);
+  const hasStructured =
+    relatedRecs.length > 0
+      ? relatedRecs.some((item) => item.metrics?.spend != null)
+      : rec.metrics?.spend != null;
+  const spend = hasStructured ? structuredSpend : fallbackSpend;
+  const roas =
+    rec.metrics?.roas != null
+      ? `${rec.metrics.roas.toFixed(2)}x`
+      : evidenceAny(rec, ["Core ROAS", "Ad set ROAS", "Selected ROAS", "Peer-group ROAS"]);
+  const cpa =
+    rec.metrics?.cpa != null
+      ? formatMoney(rec.metrics.cpa, moneyCurrency)
+      : evidenceAny(rec, ["Core CPA", "CPA", "Cost / lead"]);
 
   return (
     <section className="grid gap-2 md:grid-cols-4" data-meta-drill-kpis>
       <Kpi label="Decision" value={rec.decision} />
-      <Kpi label="Spend" value={spend != null && spend > 0 ? formatCurrency(spend) : "mixed"} mono />
+      <Kpi label="Spend" value={spend != null && spend > 0 ? formatMoney(spend, moneyCurrency) : "mixed"} mono />
       <Kpi label="ROAS" value={roas ?? "no ROAS"} mono />
       <Kpi label="CPA" value={cpa ?? "no CPA"} mono />
     </section>
@@ -135,6 +170,7 @@ function AdsetDepthTable({ recs }: { recs: MetaRecommendation[] }) {
 }
 
 export function MetaDrillDrawer({
+  moneyCurrency,
   item,
   window,
   onWindowChange,
@@ -238,7 +274,7 @@ export function MetaDrillDrawer({
             </section>
           ) : (
             <>
-              <DecisionKpis rec={item.rec} relatedRecs={relatedRecs} />
+              <DecisionKpis rec={item.rec} relatedRecs={relatedRecs} moneyCurrency={moneyCurrency} />
               <section className="rounded-xl border border-slate-200 bg-white p-4">
                 <div className="text-[12px] font-semibold uppercase tracking-wider text-slate-500">Engine reasoning</div>
                 <p className="mt-2 text-[13px] leading-relaxed text-slate-700">{item.rec.why}</p>

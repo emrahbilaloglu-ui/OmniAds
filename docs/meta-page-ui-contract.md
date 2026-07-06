@@ -484,15 +484,20 @@ Real, current limitations — kept explicit on purpose:
   `mtdSpend`/`mtdTarget`/`dayPace` are computed honestly, but the strip's
   spend cell renders `spendToday` vs 7d avg, using `dayPace × dailyTarget`
   only as a fallback (`MetaPlatformPage.tsx:1024-1028`).
-- **Currency-awareness is partial.** `formatMoney` covers the pulse spend
-  value; the 7d-avg sublabel, archive table, compare drawer, and card bid
-  chips still use the legacy `formatCurrency` (USD-style `$`).
-- **Display-string parsing survives in display-only paths.** The drill
-  drawer's KPI header aggregates evidence strings for display
-  (`MetaDrillDrawer.tsx:32-36, 50-56`) and `proposedBidDisplayValue` falls back
-  to parsing evidence text for the overlay's display value
-  (`meta-card-utils.ts:87-100`). Neither feeds executes or compare/bulk math;
-  the invariant scans deliberately scope to math, not display.
+- **Currency-awareness covers the Decision Center money surfaces.**
+  `formatMoney` (shared in `meta-card-utils.ts`) renders the pulse spend
+  cell and 7d-avg sublabel, card KPI strips, healthy hierarchy rows, the
+  archive table, and the drill-drawer KPI header with the account currency
+  (pulse payload `currency`, business prop fallback). Remaining legacy `$`:
+  the transient bid apply/dry-run notices and the compare drawer's internal
+  formatting (shared component) - tracked in the readiness ledger.
+- **Display-string parsing survives only as explicit fallback.** The
+  drill-drawer KPI header prefers structured `rec.metrics` (currency-aware)
+  and falls back to evidence strings only for payloads predating the
+  metrics contract - regression-tested. `proposedBidDisplayValue` still
+  falls back to parsing evidence text for the overlay's DISPLAY value
+  (`meta-card-utils.ts`); the executable bid amount never comes from
+  display strings (`proposedBidMinorForExecute`).
 
 
 ## Update discipline

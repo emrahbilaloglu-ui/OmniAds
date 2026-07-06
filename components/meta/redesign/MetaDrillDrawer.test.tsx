@@ -63,3 +63,51 @@ describe("MetaDrillDrawer", () => {
     expect(html).not.toContain("data-meta-drill-kpis");
   });
 });
+
+describe("drill KPIs prefer structured metrics", () => {
+  it("renders server metrics with account currency, not evidence strings", () => {
+    const html = renderToStaticMarkup(
+      <MetaDrillDrawer
+        moneyCurrency="TRY"
+        item={{
+          mode: "decision",
+          rec: metaRec({
+            metrics: { spend: 900, roas: 2.75, cpa: 30 },
+            evidence: [
+              { label: "Spend", value: "$123,456 STALE", tone: "neutral" },
+              { label: "Core ROAS", value: "0.10x STALE", tone: "warning" },
+            ],
+          }),
+        }}
+        window="28d"
+        onWindowChange={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+    // Scope to the KPI header: evidence sections legitimately display raw
+    // evidence strings as content; the KPI numbers must not derive from them.
+    const kpiStart = html.indexOf("data-meta-drill-kpis");
+    const kpiSection = html.slice(kpiStart, html.indexOf("</section>", kpiStart));
+    expect(kpiSection).toContain("2.75x");
+    expect(kpiSection).toContain("TRY");
+    expect(kpiSection).not.toContain("STALE");
+  });
+
+  it("falls back to evidence strings only when metrics are absent (explicit contract)", () => {
+    const html = renderToStaticMarkup(
+      <MetaDrillDrawer
+        item={{
+          mode: "decision",
+          rec: metaRec({
+            metrics: null,
+            evidence: [{ label: "Core ROAS", value: "1.90x", tone: "neutral" }],
+          }),
+        }}
+        window="28d"
+        onWindowChange={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+    expect(html).toContain("1.90x");
+  });
+});

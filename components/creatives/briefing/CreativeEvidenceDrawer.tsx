@@ -957,6 +957,54 @@ function CreativeEvidenceDrawerContent({
               )}
             </section>
 
+            {card.targetRoas != null || card.truthSource || (card.blockers?.length ?? 0) > 0 ? (
+              <section className="creative-evidence-section">
+                <h4>Decision basis</h4>
+                <ul className="creative-evidence-list">
+                  {card.targetRoas != null ? (
+                    <li className="creative-evidence-list-item">
+                      <div>
+                        <b>Target ROAS {card.targetRoas.toFixed(2)}</b>
+                        {card.ratioToTarget != null
+                          ? `Creative is at ${(card.ratioToTarget * 100).toFixed(0)}% of target`
+                          : "Ratio to target unavailable in payload"}
+                        <span className="src">/api/creatives/briefing - targetRoas / ratioToTarget</span>
+                      </div>
+                    </li>
+                  ) : null}
+                  {card.truthSource ? (
+                    <li className="creative-evidence-list-item">
+                      <div>
+                        <b>Truth source: {decisionCenterText(String(card.truthSource))}</b>
+                        Target and thresholds derive from this server-computed source.
+                        <span className="src">/api/creatives/briefing - truthSource</span>
+                      </div>
+                    </li>
+                  ) : null}
+                  {(card.blockers ?? []).map((blocker) => (
+                    <li
+                      key={blocker.predicate}
+                      className={
+                        blocker.severity === "warning"
+                          ? "creative-evidence-list-item warn"
+                          : "creative-evidence-list-item"
+                      }
+                    >
+                      <div>
+                        <b>
+                          Blocker: {decisionCenterText(blocker.predicate)} ({blocker.status})
+                        </b>
+                        {blocker.reason}
+                        <span className="src">
+                          observed {blocker.observed ?? "n/a"} - threshold {blocker.threshold ?? "n/a"}
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+
             {decisionCenterRow ? (
               <section className="creative-evidence-section">
                 <h4>Decision Center</h4>
@@ -964,7 +1012,7 @@ function CreativeEvidenceDrawerContent({
                   <strong>{decisionCenterRow.buyerLabel}</strong>
                   <p>{decisionCenterRow.oneLine}</p>
                   <span className="src">
-                    shadow surface - {decisionCenterRow.engine.contractVersion} -{" "}
+                    decision center - {decisionCenterRow.engine.contractVersion} -{" "}
                     {decisionCenterRow.engine.engineVersion}
                   </span>
                 </div>

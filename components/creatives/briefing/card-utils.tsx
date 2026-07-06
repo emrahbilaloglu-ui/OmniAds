@@ -578,6 +578,11 @@ function BlockersBody({ card }: { card: BriefingCreativeCard }) {
   );
 }
 
+// Mirrors the server-side reliable-sample default (minSegmentSampleSize in
+// lib/creative-decision-engine/backtest.ts). The sample size itself is a
+// server field; this constant only phrases the honesty copy.
+const MIN_RELIABLE_CALIBRATION_SAMPLE = 30;
+
 function ExplainabilityBody({ card }: { card: BriefingCreativeCard }) {
   const proof = card.explainability;
   const priority = card.priorityScore;
@@ -650,6 +655,18 @@ function ExplainabilityBody({ card }: { card: BriefingCreativeCard }) {
             : "—"}
         </Kv>
       </div>
+      {proof &&
+      (typeof proof.empiricalSampleSize !== "number" ||
+        proof.empiricalSampleSize < MIN_RELIABLE_CALIBRATION_SAMPLE) ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[12px] text-amber-800">
+          Calibration not proven:{" "}
+          {typeof proof.empiricalSampleSize === "number"
+            ? `only ${proof.empiricalSampleSize.toLocaleString("en-US")} realized outcome${proof.empiricalSampleSize === 1 ? "" : "s"}`
+            : "no realized-outcome window"}{" "}
+          for this engine version (needs {MIN_RELIABLE_CALIBRATION_SAMPLE}).
+          Precision, recall, and ECE above are directional, not proof.
+        </div>
+      ) : null}
       {priority ? (
         <div className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 text-[12px] text-slate-700">
           <div className="flex flex-wrap items-center gap-2">

@@ -596,14 +596,21 @@ function weightedRoas(rows: MetaCreativeRow[]) {
 export function filterAssetLibraryRows(
   rows: MetaCreativeRow[],
   filters: AssetLibraryFilters,
+  options?: { decisionCenterUiEnabled?: boolean },
 ) {
   const search = filters.search.trim().toLowerCase();
+  const decisionCenterUiEnabled = options?.decisionCenterUiEnabled ?? false;
   return safeRows(rows).filter((row) => {
     const extended = row as AssetLibraryRow;
     if (filters.status === "active" && extended.effectiveStatus !== "ACTIVE") return false;
     if (filters.status === "closed_30d" && extended.effectiveStatus === "ACTIVE") return false;
     if (filters.formats.length > 0 && !filters.formats.some((format) => rowMatchesFormat(extended, format))) return false;
-    if (filters.labels.length > 0 && !filters.labels.includes(rowEngineLabel(extended) as DecisionLabel)) return false;
+    if (
+      filters.labels.length > 0 &&
+      !filters.labels.includes(
+        rowEffectiveDecisionLabel(extended, decisionCenterUiEnabled) as DecisionLabel,
+      )
+    ) return false;
     if (filters.badges.length > 0 && !filters.badges.every((badge) => rowMatchesBadge(extended, badge))) return false;
     const campaignLabel = filters.campaignLabel ?? "all";
     if (campaignLabel !== "all" && !rowMatchesCampaignLabel(extended, campaignLabel)) return false;
@@ -664,8 +671,12 @@ export function AssetLibrarySection({
   const [actionStatus, setActionStatus] = useState<AssetLibraryActionStatus>("idle");
 
   const filteredRows = useMemo(
-    () => sortAssetLibraryRows(filterAssetLibraryRows(rows, filters), filters.sort),
-    [filters, rows],
+    () =>
+      sortAssetLibraryRows(
+        filterAssetLibraryRows(rows, filters, { decisionCenterUiEnabled }),
+        filters.sort,
+      ),
+    [decisionCenterUiEnabled, filters, rows],
   );
   useEffect(() => {
     onSortedRowsChange?.(filteredRows);
@@ -775,7 +786,7 @@ export function AssetLibrarySection({
 
   const exportCsv = () => {
     if (actionRows.length === 0) return;
-    const csv = buildAssetLibraryCsv(actionRows, visibleMetricColumns);
+    const csv = buildAssetLibraryCsv(actionRows, visibleMetricColumns, { decisionCenterUiEnabled });
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -1494,13 +1505,21 @@ export function ShareViewModal({
   );
 }
 
-function buildAssetLibraryCsv(rows: MetaCreativeRow[], metricColumns: AssetMetricColumn[]) {
+function buildAssetLibraryCsv(
+  rows: MetaCreativeRow[],
+  metricColumns: AssetMetricColumn[],
+  options?: { decisionCenterUiEnabled?: boolean },
+) {
   const headers = ["Creative", "Campaign", "Ad set", "Label", ...metricColumns.map((column) => column.label), "Gap"];
   const isCreativeTeamCsv = metricColumns.some((column) => column.id.startsWith("score."));
   const body = rows.map((row) => {
-    const label = isCreativeTeamCsv
-      ? creativeTeamLabel(row as AssetLibraryRow)
-      : rowEngineLabel(row as AssetLibraryRow) ?? "";
+    // Same resolution as the rendered table cell, so an exported CSV never
+    // disagrees with what the operator saw on screen.
+    const label =
+      resolveAssetLibraryRowLabel(row as AssetLibraryRow, {
+        creativeTeamPreset: isCreativeTeamCsv,
+        decisionCenterUiEnabled: options?.decisionCenterUiEnabled ?? false,
+      }).label ?? "";
     const gap = isCreativeTeamCsv
       ? creativeTeamGap(row)
       : buyerGap(row as AssetLibraryRow);
@@ -1579,6 +1598,33 @@ export function resolveAssetLibraryRowLabel(
 
 function rowEngineLabel(row: AssetLibraryRow) {
   return row.engineLabel ?? row.decisionLabel ?? row.briefingLabel ?? null;
+}
+
+// DecisionLabel-space projection of the decision-center buyer action so the
+// label filter compares against the same decision the row displays.
+const BUYER_ACTION_TO_DECISION_LABEL: Record<
+  DecisionCenterBuyerActionForAssetLabel,
+  DecisionLabel
+> = {
+  scale: "scale",
+  cut: "cut",
+  refresh: "refresh",
+  protect: "keep",
+  test_more: "test_more",
+  watch_launch: "test_more",
+  fix_delivery: "diagnose",
+  fix_policy: "diagnose",
+  diagnose_data: "diagnose",
+};
+
+export function rowEffectiveDecisionLabel(
+  row: AssetLibraryRow,
+  decisionCenterUiEnabled: boolean,
+) {
+  if (decisionCenterUiEnabled && row.decisionCenterRow) {
+    return BUYER_ACTION_TO_DECISION_LABEL[row.decisionCenterRow.buyerAction] ?? null;
+  }
+  return rowEngineLabel(row);
 }
 
 function creativeTeamLabel(row: AssetLibraryRow) {

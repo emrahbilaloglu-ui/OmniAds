@@ -156,3 +156,47 @@ describe("BadgeChip", () => {
     expect(html).not.toContain("out of scope");
   });
 });
+
+describe("calibration honesty copy", () => {
+  const baseCard = (empiricalSampleSize: number | null): BriefingCreativeCard => ({
+    id: "creative_n",
+    creativeId: "creative_n",
+    name: "Creative N",
+    campaign: "ASC Main",
+    label: "cut",
+    confidence: 82,
+    reason: "Loss-budget maturity reached.",
+    primary: { kind: "cut", label: "Cut" },
+    spend: 140,
+    roas: 0.46,
+    explainability: {
+      targetRoas: 2.5,
+      historicalPrecision: 0.9,
+      historicalRecall: 0.8,
+      expectedCalibrationError: 0.04,
+      empiricalSampleSize,
+    },
+  });
+
+  const renderExplainability = (card: BriefingCreativeCard) =>
+    renderToStaticMarkup(
+      <>{buildEvidenceSections(card).map((section) => section.content)}</>,
+    );
+
+  it("flags calibration as not proven below 30 realized outcomes", () => {
+    const html = renderExplainability(baseCard(12));
+    expect(html).toContain("Calibration not proven");
+    expect(html).toContain("only 12 realized outcomes");
+    expect(html).toContain("directional, not proof");
+  });
+
+  it("flags a missing outcome window explicitly", () => {
+    const html = renderExplainability(baseCard(null));
+    expect(html).toContain("no realized-outcome window");
+  });
+
+  it("stays silent at or above the reliable-sample floor", () => {
+    const html = renderExplainability(baseCard(120));
+    expect(html).not.toContain("Calibration not proven");
+  });
+});

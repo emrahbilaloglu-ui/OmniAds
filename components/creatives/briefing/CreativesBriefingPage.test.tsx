@@ -18,6 +18,7 @@ import {
   getCreativeDataSetupNotice,
   launchpadHrefFromOverlayState,
   openLaunchpadOverlayState,
+  cardMatchesActionFilter,
 } from "@/components/creatives/briefing/CreativesBriefingPage";
 import { buildEvidenceSections } from "@/components/creatives/briefing/card-utils";
 
@@ -911,5 +912,78 @@ describe("CreativesBriefingPage", () => {
     expect(getAssetLibraryEmptyMessage({ status: "no_access_token", message: null })).toBe(
       "Meta connection is missing an access token. Reconnect Meta to load creative data.",
     );
+  });
+});
+
+describe("cardMatchesActionFilter (decision-center contract)", () => {
+  const rowCard = (row: Record<string, unknown> | null, legacy: Record<string, unknown> = {}) =>
+    ({
+      id: "cr_1",
+      name: "Creative 1",
+      // Legacy fields deliberately contradict the decision-center row so the
+      // test proves which source wins.
+      primary: { kind: "cut", label: "Cut now" },
+      label: "cut",
+      decisionCenterRow: row,
+      ...legacy,
+    }) as never;
+
+  it("uses buyerAction from the decision-center row over legacy card kind", () => {
+    const card = rowCard(decisionCenterRow({ buyerAction: "scale" }));
+    expect(cardMatchesActionFilter(card, "scale")).toBe(true);
+    expect(cardMatchesActionFilter(card, "cut")).toBe(false);
+  });
+
+  it("matches promote via executionAction promote_to_main only", () => {
+    expect(
+      cardMatchesActionFilter(
+        rowCard(decisionCenterRow({ executionAction: "promote_to_main" })),
+        "promote",
+      ),
+    ).toBe(true);
+    expect(
+      cardMatchesActionFilter(
+        rowCard(decisionCenterRow({ executionAction: "scale_budget" })),
+        "promote",
+      ),
+    ).toBe(false);
+  });
+
+  it("maps fresh_test to test_more and watch_launch buyer actions", () => {
+    expect(
+      cardMatchesActionFilter(
+        rowCard(decisionCenterRow({ buyerAction: "test_more" })),
+        "fresh_test",
+      ),
+    ).toBe(true);
+    expect(
+      cardMatchesActionFilter(
+        rowCard(decisionCenterRow({ buyerAction: "watch_launch" })),
+        "fresh_test",
+      ),
+    ).toBe(true);
+    expect(
+      cardMatchesActionFilter(
+        rowCard(decisionCenterRow({ buyerAction: "scale" })),
+        "fresh_test",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps add_existing on the legacy card-kind match even with a row present", () => {
+    const card = rowCard(decisionCenterRow({ buyerAction: "scale" }), {
+      primary: { kind: "add_existing", label: "Add existing" },
+    });
+    expect(cardMatchesActionFilter(card, "add_existing")).toBe(true);
+  });
+
+  it("falls back to legacy substring matching without a decision-center row", () => {
+    const card = rowCard(null);
+    expect(cardMatchesActionFilter(card, "cut")).toBe(true);
+    expect(cardMatchesActionFilter(card, "scale")).toBe(false);
+  });
+
+  it("always matches the all filter", () => {
+    expect(cardMatchesActionFilter(rowCard(null), "all")).toBe(true);
   });
 });

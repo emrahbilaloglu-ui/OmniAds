@@ -221,7 +221,8 @@ describe("CreativeEvidenceDrawer", () => {
     expect(html).toContain("Decision Center");
     expect(html).toContain("Scale review");
     expect(html).toContain("Server supplied V2.1 decision.");
-    expect(html).toContain("shadow surface - creative-decision-os.v2.1");
+    expect(html).toContain("decision center - creative-decision-os.v2.1");
+    expect(html).not.toContain("shadow surface");
     expect(html).toContain("buyerAction scale - execution promote_to_main");
     expect(html).toContain("sourceDecision v3:scale");
     expect(html).toContain("Queue false - apply false");
@@ -265,5 +266,50 @@ describe("CreativeEvidenceDrawer", () => {
         <CreativeEvidenceDrawer open={false} card={card()} {...noopProps} />,
       ),
     ).toBe("");
+  });
+});
+
+describe("Decision basis section", () => {
+  it("renders server-supplied targetRoas, truthSource, and predicate blockers", () => {
+    const html = renderDrawer(
+      <CreativeEvidenceDrawer
+        open
+        card={card({
+          targetRoas: 2.2,
+          ratioToTarget: 0.7,
+          truthSource: "commercial_truth",
+          blockers: [
+            {
+              predicate: "min_spend",
+              observed: 120,
+              threshold: 300,
+              status: "failed",
+              severity: "warning",
+              reason: "Spend below hard-action floor.",
+            },
+          ],
+        })}
+        {...noopProps}
+      />,
+    );
+
+    expect(html).toContain("Decision basis");
+    expect(html).toContain("Target ROAS 2.20");
+    expect(html).toContain("Creative is at 70% of target");
+    expect(html).toContain("Truth source: Commercial Truth");
+    expect(html).toContain("Blocker: Min Spend (failed)");
+    expect(html).toContain("Spend below hard-action floor.");
+    expect(html).toContain("observed 120 - threshold 300");
+  });
+
+  it("omits the section entirely when the payload has none of the fields", () => {
+    const html = renderDrawer(
+      <CreativeEvidenceDrawer
+        open
+        card={card({ targetRoas: null, truthSource: null, blockers: null })}
+        {...noopProps}
+      />,
+    );
+    expect(html).not.toContain("Decision basis");
   });
 });

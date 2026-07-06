@@ -8,6 +8,7 @@ import {
   ShareViewModal,
   assetLibraryCountSummary,
   filterAssetLibraryRows,
+  rowEffectiveDecisionLabel,
   sortAssetLibraryRows,
   toggleArrayFilter,
 } from "@/components/creatives/briefing/AssetLibrarySection";
@@ -577,5 +578,84 @@ describe("AssetLibrarySection", () => {
     expect(ASSET_LIBRARY_VIEW_STORAGE_KEY).toBe(
       "creatives-briefing-asset-library-view",
     );
+  });
+});
+
+describe("decision-center label unification (filter/CSV vs display)", () => {
+  const dcRow = (buyerAction: string) => ({
+    scope: "creative",
+    creativeId: "cr_dc",
+    identityGrain: "creative",
+    familyId: null,
+    engine: {
+      contractVersion: "creative-decision-os.v2.1",
+      engineVersion: "test-engine",
+      primaryDecision: "Scale",
+      actionability: "review_only",
+      problemClass: "performance",
+      confidence: 80,
+      maturity: "mature",
+      priority: "high",
+      reasonTags: [],
+      evidenceSummary: "",
+      blockerReasons: [],
+      missingData: [],
+      queueEligible: false,
+      applyEligible: false,
+    },
+    buyerAction,
+    buyerLabel: "Scale review",
+    uiBucket: buyerAction,
+    confidenceBand: "high",
+    priority: "high",
+    oneLine: "",
+    reasons: [],
+    nextStep: "",
+    missingData: [],
+  });
+
+  it("filters on the displayed decision-center action when enabled, not the stale legacy label", () => {
+    const stale = row({
+      id: "stale",
+      name: "Stale Legacy",
+      engineLabel: "cut",
+      decisionCenterRow: dcRow("scale") as never,
+    });
+    const filters = {
+      status: "all",
+      formats: [],
+      labels: ["scale"],
+      badges: [],
+      campaignLabel: "all",
+      search: "",
+      sort: "spend_desc",
+    } as const;
+    expect(
+      filterAssetLibraryRows([stale], filters as never, { decisionCenterUiEnabled: true }).map(
+        (item) => item.id,
+      ),
+    ).toEqual(["stale"]);
+    // Disabled flag keeps legacy behavior: the row shows the legacy label, so
+    // the filter must use it too.
+    expect(
+      filterAssetLibraryRows([stale], filters as never, { decisionCenterUiEnabled: false }),
+    ).toEqual([]);
+  });
+
+  it("projects buyer actions into DecisionLabel space for filtering", () => {
+    const base = row({ id: "p", engineLabel: "cut" });
+    expect(
+      rowEffectiveDecisionLabel({ ...base, decisionCenterRow: dcRow("protect") as never }, true),
+    ).toBe("keep");
+    expect(
+      rowEffectiveDecisionLabel({ ...base, decisionCenterRow: dcRow("watch_launch") as never }, true),
+    ).toBe("test_more");
+    expect(
+      rowEffectiveDecisionLabel({ ...base, decisionCenterRow: dcRow("fix_delivery") as never }, true),
+    ).toBe("diagnose");
+    expect(rowEffectiveDecisionLabel(base, true)).toBe("cut");
+    expect(
+      rowEffectiveDecisionLabel({ ...base, decisionCenterRow: dcRow("scale") as never }, false),
+    ).toBe("cut");
   });
 });

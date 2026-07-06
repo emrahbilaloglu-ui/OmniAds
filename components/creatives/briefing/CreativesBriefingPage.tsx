@@ -836,26 +836,53 @@ function assetMetricIdsFromPresetParam(value: string | null | undefined) {
   return preset ? preset.metricIds : DEFAULT_VISIBLE_METRIC_IDS;
 }
 
+// Action filtering reads the server-supplied decisionCenter row (buyerAction /
+// executionAction enums) when present; the legacy substring match over
+// card.primary/card.label remains only as fallback for cards without a
+// decisionCenter row. The UI never derives buyerAction itself.
+export function cardMatchesActionFilter(
+  card: BriefingCreativeCard,
+  actionFilter: CreativeActionFilter,
+): boolean {
+  if (actionFilter === "all") return true;
+  const row = card.decisionCenterRow;
+  // add_existing is a launchpad workflow action with no decision-center
+  // equivalent, so it always uses the legacy card-kind match below.
+  if (row && actionFilter !== "add_existing") {
+    if (actionFilter === "promote") {
+      return row.executionAction === "promote_to_main";
+    }
+    switch (row.buyerAction) {
+      case "scale":
+        return actionFilter === "scale";
+      case "cut":
+        return actionFilter === "cut";
+      case "test_more":
+      case "watch_launch":
+        return actionFilter === "fresh_test";
+      default:
+        return false;
+    }
+  }
+  const kind = String(card.primary?.kind ?? card.label ?? "").toLowerCase();
+  const label = String(card.primary?.label ?? card.label ?? "").toLowerCase();
+  return actionFilter === "promote"
+    ? kind.includes("promote") || label.includes("promote")
+    : actionFilter === "scale"
+      ? kind.includes("scale") || label.includes("scale")
+      : actionFilter === "cut"
+        ? kind.includes("cut") || label.includes("cut") || kind.includes("pause")
+        : actionFilter === "fresh_test"
+          ? kind.includes("fresh") || kind.includes("test") || label.includes("fresh")
+          : kind.includes("existing") || label.includes("existing");
+}
+
 function cardMatchesCreativeFilters(card: BriefingCreativeCard, input: {
   actionFilter: CreativeActionFilter;
   campaignFilter: CreativeCampaignFilter;
   search: string;
 }) {
-  if (input.actionFilter !== "all") {
-    const kind = String(card.primary?.kind ?? card.label ?? "").toLowerCase();
-    const label = String(card.primary?.label ?? card.label ?? "").toLowerCase();
-    const matches =
-      input.actionFilter === "promote"
-        ? kind.includes("promote") || label.includes("promote")
-        : input.actionFilter === "scale"
-          ? kind.includes("scale") || label.includes("scale")
-          : input.actionFilter === "cut"
-            ? kind.includes("cut") || label.includes("cut") || kind.includes("pause")
-            : input.actionFilter === "fresh_test"
-              ? kind.includes("fresh") || kind.includes("test") || label.includes("fresh")
-              : kind.includes("existing") || label.includes("existing");
-    if (!matches) return false;
-  }
+  if (!cardMatchesActionFilter(card, input.actionFilter)) return false;
   if (input.campaignFilter !== "all" && card.campaignKind !== input.campaignFilter) return false;
   const search = input.search.trim().toLowerCase();
   if (!search) return true;

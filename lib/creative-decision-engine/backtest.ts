@@ -36,6 +36,18 @@ export interface DecisionBacktestSummary {
   conflictFreePass: boolean;
   sampleSize: number;
   hardActionKnownSampleSize: number;
+  /**
+   * Observed positive rate per confidence decade over hard rows with known
+   * outcomes - the empirical answer to "how often were decisions at this
+   * confidence actually right". Served to explainability so displayed
+   * confidence is always accompanied by its observed track record.
+   */
+  hardConfidenceBuckets: Array<{
+    bucket: string;
+    known: number;
+    positive: number;
+    observedRate: number;
+  }>;
 }
 
 export interface DecisionBacktestSegmentSummary
@@ -159,7 +171,31 @@ export function summarizeDecisionBacktest(input: {
     hardActionKnownSampleSize: hardRows.filter(
       (row) => row.realizedOutcome !== "unknown",
     ).length,
+    hardConfidenceBuckets: computeHardConfidenceBuckets(hardRows),
   };
+}
+
+function computeHardConfidenceBuckets(
+  hardRows: readonly CreativeDecisionBacktestRow[],
+) {
+  const byBucket = new Map<string, { known: number; positive: number }>();
+  for (const row of hardRows) {
+    if (row.realizedOutcome === "unknown") continue;
+    const decade = Math.min(9, Math.floor(Math.max(0, row.confidence) / 10));
+    const bucket = `${decade * 10}_${decade * 10 + 9}`;
+    const cell = byBucket.get(bucket) ?? { known: 0, positive: 0 };
+    cell.known += 1;
+    if (row.realizedOutcome === "positive") cell.positive += 1;
+    byBucket.set(bucket, cell);
+  }
+  return [...byBucket.entries()]
+    .map(([bucket, cell]) => ({
+      bucket,
+      known: cell.known,
+      positive: cell.positive,
+      observedRate: round(cell.positive / cell.known) ?? 0,
+    }))
+    .sort((left, right) => left.bucket.localeCompare(right.bucket));
 }
 
 export function summarizeDecisionBacktestByLabelAndWeek(input: {

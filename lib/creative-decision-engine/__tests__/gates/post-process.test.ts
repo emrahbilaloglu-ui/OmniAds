@@ -456,3 +456,21 @@ describe("applyPostProcess - lifecycle awareness", () => {
     expect(result.confidenceDeltas).toEqual([]);
   });
 });
+
+describe("applyPostProcess - stale hard-action ceiling (shadow)", () => {
+  it("badges hard labels computed from very stale data", () => {
+    const result = runPostProcess("cut", {
+      input: { dataFreshnessHours: 20 * 24 },
+    });
+    expect(badgeTypes(result)).toContain("stale_hard_ceiling_advisory");
+  });
+
+  it("does not badge fresh data or soft labels", () => {
+    const fresh = runPostProcess("cut", { input: { dataFreshnessHours: 24 } });
+    expect(badgeTypes(fresh)).not.toContain("stale_hard_ceiling_advisory");
+    const soft = runPostProcess("keep", {
+      input: { dataFreshnessHours: 20 * 24 },
+    });
+    expect(badgeTypes(soft)).not.toContain("stale_hard_ceiling_advisory");
+  });
+});

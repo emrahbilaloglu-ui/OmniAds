@@ -55,6 +55,8 @@ export interface BriefingDecisionExplainability {
   historicalRecall?: number | null;
   expectedCalibrationError?: number | null;
   empiricalSampleSize?: number | null;
+  bucketObservedRate?: number | null;
+  bucketObservedSampleSize?: number | null;
   missingEvidence?: string[] | null;
 }
 

@@ -235,3 +235,22 @@ describe("computeExpectedCalibrationError", () => {
     ).toBeNull();
   });
 });
+
+describe("hardConfidenceBuckets", () => {
+  it("reports observed positive rates per confidence decade over hard known rows", () => {
+    const summary = summarizeDecisionBacktest({
+      rows: [
+        { creativeId: "c1", asOfDate: "2026-05-03", label: "cut", confidence: 72, realizedOutcome: "positive", severity: "high" },
+        { creativeId: "c2", asOfDate: "2026-05-03", label: "cut", confidence: 78, realizedOutcome: "negative", severity: "high" },
+        { creativeId: "c3", asOfDate: "2026-05-03", label: "scale", confidence: 85, realizedOutcome: "positive", severity: "high" },
+        { creativeId: "c4", asOfDate: "2026-05-03", label: "keep", confidence: 75, realizedOutcome: "positive", severity: "high" },
+        { creativeId: "c5", asOfDate: "2026-05-03", label: "cut", confidence: 71, realizedOutcome: "unknown", severity: "high" },
+      ],
+      coverage: { activeCreativeCount: 5, snapshotRowCount: 5, staleSnapshotCount: 0, conflictingSnapshotCount: 0 },
+    });
+    expect(summary.hardConfidenceBuckets).toEqual([
+      { bucket: "70_79", known: 2, positive: 1, observedRate: 0.5 },
+      { bucket: "80_89", known: 1, positive: 1, observedRate: 1 },
+    ]);
+  });
+});

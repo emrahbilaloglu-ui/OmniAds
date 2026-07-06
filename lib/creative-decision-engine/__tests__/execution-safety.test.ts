@@ -291,6 +291,7 @@ describe("creative execution safety", () => {
         conflictFreePass: true,
         sampleSize: 200,
         hardActionKnownSampleSize: 200,
+        hardConfidenceBuckets: [],
       },
     });
 
@@ -344,6 +345,7 @@ describe("creative execution safety", () => {
         conflictFreePass: true,
         sampleSize: 200,
         hardActionKnownSampleSize: 200,
+        hardConfidenceBuckets: [],
       },
     });
 

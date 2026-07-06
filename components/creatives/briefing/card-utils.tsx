@@ -654,6 +654,11 @@ function ExplainabilityBody({ card }: { card: BriefingCreativeCard }) {
             ? proof.empiricalSampleSize.toLocaleString("en-US")
             : "—"}
         </Kv>
+        <Kv label="Obs. @ conf">
+          {typeof proof?.bucketObservedRate === "number"
+            ? `${Math.round(proof.bucketObservedRate * 100)}% (n=${proof.bucketObservedSampleSize ?? 0})`
+            : "—"}
+        </Kv>
       </div>
       {proof &&
       (typeof proof.empiricalSampleSize !== "number" ||

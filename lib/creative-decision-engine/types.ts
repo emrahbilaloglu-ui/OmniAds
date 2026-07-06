@@ -471,6 +471,7 @@ export interface DecisionBadge {
     | "campaign_context_low_confidence"
     | "campaign_context_conflict"
     | "pending_transition"
+  | "stale_hard_ceiling_advisory"
     | "resume_candidate"
     | "confirm_kill"
     | "stop_loss_review";
@@ -530,6 +531,10 @@ export const DECISION_BADGE_DISPLAY: Record<
   pending_transition: {
     label: "Label transition pending",
     severity: "info",
+  },
+  stale_hard_ceiling_advisory: {
+    label: "Hard action on very stale data",
+    severity: "warning",
   },
   resume_candidate: {
     label: "Paused delivery - scale means resume candidate",

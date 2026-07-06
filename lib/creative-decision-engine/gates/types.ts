@@ -12,7 +12,10 @@ import {
 } from "../types";
 import { computeFunnelDiagnosis } from "../funnel";
 import { applyTestCohortRefreshOverride } from "../test-cohort-semantic";
-import { STALE_CONFIDENCE_CAP } from "../config-values";
+import {
+  STALE_CONFIDENCE_CAP,
+  STALE_HARD_ACTION_CEILING_HOURS,
+} from "../config-values";
 
 export interface GateContext {
   input: CreativeInput;
@@ -123,6 +126,22 @@ export function applyPostProcess(
         severity: "info",
       });
     }
+  }
+
+  // Shadow: flags hard labels that the stale hard-action ceiling would
+  // demote to diagnose in the next engine version. Badge-only today so live
+  // prevalence is measurable before the label flip. Independent of
+  // dataHealth: the input's own feed age is the signal.
+  if (
+    (label === "cut" || label === "scale") &&
+    typeof ctx.input.dataFreshnessHours === "number" &&
+    ctx.input.dataFreshnessHours > STALE_HARD_ACTION_CEILING_HOURS
+  ) {
+    badges.push({
+      type: "stale_hard_ceiling_advisory",
+      label: `Data ${Math.round(ctx.input.dataFreshnessHours / 24)}d stale - next version demotes this hard action to diagnose`,
+      severity: "warning",
+    });
   }
 
   if (ctx.dataHealth) {

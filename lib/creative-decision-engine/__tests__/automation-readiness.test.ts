@@ -65,6 +65,7 @@ describe("creativeAutomationReadiness", () => {
         conflictFreePass: true,
         sampleSize: 200,
         hardActionKnownSampleSize: 200,
+        hardConfidenceBuckets: [],
       },
     });
 

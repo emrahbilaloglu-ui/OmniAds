@@ -126,10 +126,24 @@ async function runMigrationsChild(
   databaseUrl: string,
   runLabel: string,
 ): Promise<void> {
-  log(`running deploy migrations (${runLabel})...`);
+  await runChildScript(
+    repoRoot,
+    databaseUrl,
+    path.join("scripts", "run-migrations.ts"),
+    `deploy migrations (${runLabel})`,
+  );
+}
+
+async function runChildScript(
+  repoRoot: string,
+  databaseUrl: string,
+  scriptPath: string,
+  runLabel: string,
+): Promise<void> {
+  log(`running ${runLabel}...`);
   const child = spawn(
     process.execPath,
-    ["--import", "tsx", path.join("scripts", "run-migrations.ts")],
+    ["--import", "tsx", scriptPath],
     {
       cwd: repoRoot,
       stdio: "inherit",
@@ -154,9 +168,9 @@ async function runMigrationsChild(
   });
 
   if (exitCode !== 0) {
-    throw new Error(`Deploy migration run (${runLabel}) exited with code ${exitCode}.`);
+    throw new Error(`${runLabel} exited with code ${exitCode}.`);
   }
-  log(`deploy migrations (${runLabel}) exited clean.`);
+  log(`${runLabel} exited clean.`);
 }
 
 async function assertSchema(databaseUrl: string): Promise<string[]> {
@@ -307,6 +321,15 @@ async function main() {
     await runMigrationsChild(repoRoot, databaseUrl, "run 2: idempotency");
     const run2Tables = await assertSchema(databaseUrl);
     reportConvergenceGap(run1Tables, run2Tables);
+
+    // Production-seam checks against the freshly migrated schema: real
+    // write query -> real reader, the class of defect in-memory tests miss.
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join("scripts", "ephemeral-postgres-seam-child.ts"),
+      "hysteresis DB seam check",
+    );
 
     log("PASS: migrations build the schema from zero and are idempotent.");
   } catch (error) {

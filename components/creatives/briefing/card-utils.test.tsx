@@ -200,3 +200,31 @@ describe("calibration honesty copy", () => {
     expect(html).not.toContain("Calibration not proven");
   });
 });
+
+describe("observed rate at confidence", () => {
+  it("renders the bucket's empirical track record next to confidence", () => {
+    const card: BriefingCreativeCard = {
+      id: "creative_b",
+      creativeId: "creative_b",
+      name: "Creative B",
+      campaign: "ASC Main",
+      label: "cut",
+      confidence: 74,
+      reason: "Loss-budget maturity reached.",
+      primary: { kind: "cut", label: "Cut" },
+      spend: 100,
+      roas: 0.5,
+      explainability: {
+        targetRoas: 2.0,
+        bucketObservedRate: 0.62,
+        bucketObservedSampleSize: 64,
+        empiricalSampleSize: 64,
+      },
+    };
+    const html = renderToStaticMarkup(
+      <>{buildEvidenceSections(card).map((section) => section.content)}</>,
+    );
+    expect(html).toContain("Obs. @ conf");
+    expect(html).toContain("62% (n=64)");
+  });
+});

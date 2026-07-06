@@ -138,7 +138,11 @@ interface PreviousSnapshot {
   confidence: number;
 }
 
-const UPSERT_DECISION_SNAPSHOTS_QUERY = `
+// Exported for the ephemeral-postgres seam check: the write side of the
+// hysteresis memory must be exercised against a real database with the
+// exact production query, not a mock (an in-memory test cannot catch a
+// dropped column in this recordset).
+export const UPSERT_DECISION_SNAPSHOTS_QUERY = `
 WITH payload AS (
   SELECT *
   FROM jsonb_to_recordset($1::jsonb) AS row(

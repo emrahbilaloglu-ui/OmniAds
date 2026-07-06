@@ -35,6 +35,13 @@ export const STALE_SOURCE_UPDATED_AT_HOURS = 48;
 export const RECENT_SIGNAL_FRESHNESS_HOURS = 36;
 export const PREFLIGHT_FRESHNESS_HOURS = 12;
 export const STALE_CONFIDENCE_CAP = 65;
+// Shadow ceiling (next-ENGINE_VERSION candidate, badge-only today): when the
+// data feed is older than this, a hard action is advice about a data outage,
+// not about the creative - the correct label is diagnose. Observed live:
+// Tiles Workshop's feed died 2026-06-19 and the engine kept publishing cut
+// advice from 14+day-old data (fully stale-badged and floor-capped at 40,
+// but still labeled cut).
+export const STALE_HARD_ACTION_CEILING_HOURS = 7 * 24;
 
 // F2: the cut-zone boundary is the account-relative roasRatioP25. In strong
 // accounts that percentile can exceed 1.0, which would put profitable

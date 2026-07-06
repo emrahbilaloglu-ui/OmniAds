@@ -447,6 +447,24 @@ function buildBriefingDecisionExplainability(input: {
     // calibration-honesty copy gates on the metric's real sample, not the
     // total row count (which includes soft labels and unknown outcomes).
     empiricalSampleSize: backtest?.hardActionKnownSampleSize ?? null,
+    // The decision's own confidence decade, answered empirically: how often
+    // hard decisions at this confidence were realized positive.
+    bucketObservedRate: (() => {
+      const decade = Math.min(9, Math.floor(Math.max(0, input.decision.confidence) / 10));
+      const bucket = `${decade * 10}_${decade * 10 + 9}`;
+      const cell = backtest?.hardConfidenceBuckets.find(
+        (item) => item.bucket === bucket,
+      );
+      return cell ? cell.observedRate : null;
+    })(),
+    bucketObservedSampleSize: (() => {
+      const decade = Math.min(9, Math.floor(Math.max(0, input.decision.confidence) / 10));
+      const bucket = `${decade * 10}_${decade * 10 + 9}`;
+      const cell = backtest?.hardConfidenceBuckets.find(
+        (item) => item.bucket === bucket,
+      );
+      return cell ? cell.known : null;
+    })(),
     missingEvidence,
   };
 }

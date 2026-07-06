@@ -8,13 +8,57 @@ evidence (prod DB read-only checks on 2026-07-06), the historical replay
 | Component | Before | After | Status |
 |---|---|---|---|
 | Pipeline / data | 9 | 9 | held |
-| Formula / math | 6.5 | 8 | raised this session |
-| Segmentation (D033) | 5.5 | 7 | code deployed; **time-blocked** until day-1 wave |
-| Measurement / backtest | 4 | 7.5 | ECE fixed; **time-blocked** until 2026-07-10 outcomes |
+| Formula / math | 6.5 | 8 | hysteresis + F2 clamp, now with full-window replay evidence |
+| Segmentation (D033) | 5.5 | 7.5 | daily-grid production-hysteresis simulation done; live day-1 = operational confirmation only |
+| Measurement / backtest | 4 | 8 | ECE fixed + adversarially-reviewed historical simulation of the new engine |
 | UI / operator contract | 4 | 8 | raised this session |
 | Explainability | 7 | 8 | raised this session |
 | QA / golden | 7 | 8 | suite green incl. new flip fixtures + invariant scans |
 | Release / ops | 6 | 6.5 | image-tag env drift remains P1 ops debt |
+
+## Historical simulation addendum (2026-07-06, after the initial scorecard)
+
+Per the user's direction, the remaining time-gated evidence was produced by
+simulating the new engine over existing history instead of waiting.
+
+**Measurement 7.5 → 8.** The historical replay harness (contract v2) now
+chains the production hysteresis causally per business over
+2026-06-01..07-05 (14 businesses, 490 business-days, 0 failures) and scores
+realized outcomes from forward historical aggregates. The methodology
+survived a 3-lens adversarial review; confirmed defects were fixed before
+the evidence run: an inverted dedupe comparator (pre-existing harness bug -
+production keeps the highest-priority computation), a structurally-zero
+round-trip metric replaced by reversal-within-3-observations, resolution
+categories restricted to next-calendar-day evidence, and delay exposure
+measured as next-day spend. Headline results:
+- Hard reversals within 3 observations: 76 raw → 20 published (**-73.7%**);
+  hard transitions 272 → 183 (-32.7%).
+- Of resolved suppressions, 18.7% were pure noise absorbed; the rest
+  confirmed one day later (the designed cost: one-day delay).
+- Matched suppressed-day scoring (identical forward windows, symmetric
+  censoring): 46 flip-right vs 41 hold-right - single-day flip signals are
+  ~coin-flip, which is precisely why two-evaluation confirmation is correct.
+- Delay exposure: 89 suppressed cut days with 7,547 next-day spend under
+  historical operator policy (non-causal), scale delays 21 days / 771.
+- Hard-bucket weighted ECE: 0.14 published vs 0.19 raw on 7d windows - both
+  far above the 0.05 automation-readiness gate. **The auto-execution gate
+  stays closed on evidence, not on missing evidence.** Live 2026-07-10
+  outcomes remain as confirmation, not as the primary proof.
+
+**Segmentation (D033) 7 → 7.5.** The weekly shadow artifact's alarming
+temporal findings (32/71 stale-kind divergence, pinned high-class flips)
+were traced by adversarial review to the shadow's analysis-only hysteresis
+(skipped nulls = indefinite pinning; lookahead). The shadow now runs the
+production applyDailyHysteresis on a daily grid with per-date sequences
+persisted. Real picture: final divergence 2/71; kind-to-kind published churn
+on spending campaigns is rare (~5 campaigns, <=2 flips in 35 days); the
+residual is unknown/conflict days - cold-start maturation, honest
+naming-vs-behavior conflicts (IwaStore "Test Kampanyası -30 Nisan", EMOLOS
+Permanent pair - operator-override candidates), and TS_F5K family
+evidence-floor oscillation (7/22 unresolved days on the largest spenders).
+The guard is conservative in exactly those classes. Pre-automatic-mode
+gates are now named and quantified; the remaining live item (does the cron
+wave run operationally) is confirmation, not discovery.
 
 ## What changed this session (all local, NOT pushed)
 

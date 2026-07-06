@@ -352,3 +352,32 @@ flips as actual labels before the next ENGINE_VERSION; golden-promote the
 automatic-mode diff rows; Playwright UI verification; operator action
 journal; versioned target history; staging lane; post-deploy re-check of
 the release-authority fix (its live before/after was verified pre-push).
+
+
+## No-waiting pass (2026-07-06, final entry)
+
+User directive: nothing may sit behind a future date if data in hand can
+answer it. Three "wait" items were converted to evidence the same night:
+
+1. **v-next label flips fully quantified on live data** (see
+   VNEXT_ENGINE_VERSION_PACKAGE_2026-07-06.md): stale ceiling = 11
+   published cuts on the dead Tiles feed only; disjoint winner-memory = 37
+   bit flips / <=10 conservative status softenings; automatic mode = 22
+   reviewed unblocks. One consolidated ENGINE_VERSION decision, no date
+   gates; the 7-day live shadow is named extra caution, waivable.
+2. **Operator-response full windows via replayed June decisions**
+   (JUNE_OPERATOR_ALIGNMENT_2026-06.md, Tiles excluded): 65 deduped hard
+   decisions, zero truncation; 7d organic cut response 67.7% (all
+   responders on day 1); 14,264 spent over full 7d windows on 10
+   unresponded cuts (TheSwaf 14,113 of it); unknown-share of responded
+   cuts 47.6% - the precision-denominator interaction confirmed at scale.
+   Codex's "no full 7d window" measurement criticism is closed.
+3. **Day-2**: the only remaining unknown is tomorrow's spend itself; both
+   pending decisions (push, v-next) are decidable today and no plan step
+   depends on tomorrow's tick beyond routine verification.
+
+Joint reading after this pass: measurement moves from Codex's 8.0 bound
+toward 8.5-9 (full-window operator evidence + robustness cut + gates);
+formula/D033 decision-readiness is complete pending the user's v-next
+call. 16 local commits, all proven label/confidence-neutral by the
+HEAD-vs-deployed gate.

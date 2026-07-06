@@ -1,6 +1,6 @@
 {
   "contractVersion": "adsecute.current-engine-historical-replay.v2",
-  "generatedAt": "2026-07-06T11:36:23.326Z",
+  "generatedAt": "2026-07-06T13:24:01.056Z",
   "currentDate": "2026-07-06",
   "readOnly": true,
   "mutatesData": false,
@@ -31007,7 +31007,7 @@
               "creativeId": "1298865939017532",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 45,
               "snapshotConfidence": null,
               "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.22x vs account baseline (hook score 1.13x; ctr score 0.69x; cpm_efficiency score 1.78x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -31043,7 +31043,7 @@
               "creativeId": "1417831732911331",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 65,
               "snapshotConfidence": null,
               "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.03x vs account baseline (hook score 0.91x; ctr score 0.72x; cpm_efficiency score 1.89x; click_to_lpv score 0.88x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -31061,7 +31061,7 @@
               "creativeId": "1513543513755396",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 42,
               "snapshotConfidence": null,
               "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.12x vs account baseline (hook score 0.92x; ctr score 1.01x; cpm_efficiency score 1.32x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -31097,7 +31097,7 @@
               "creativeId": "1665290848045267",
               "replayLabel": "test_more",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 46,
               "snapshotConfidence": null,
               "replayReason": "[quality-only neutral] Upper/mid-funnel score 0.95x vs account baseline (hook score 0.94x; ctr score 0.50x; cpm_efficiency score 1.31x; click_to_lpv score 1.02x). No hard action until profit target or stronger funnel separation exists.",
               "snapshotReason": null
@@ -31135,7 +31135,7 @@
               "creativeId": "1298865939017532",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 45,
               "snapshotConfidence": null,
               "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.26x vs account baseline (hook score 1.14x; ctr score 0.78x; cpm_efficiency score 1.81x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -31171,7 +31171,7 @@
               "creativeId": "1417831732911331",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 65,
               "snapshotConfidence": null,
               "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.03x vs account baseline (hook score 0.91x; ctr score 0.72x; cpm_efficiency score 1.89x; click_to_lpv score 0.88x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -31189,7 +31189,7 @@
               "creativeId": "1513543513755396",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 41,
               "snapshotConfidence": null,
               "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.06x vs account baseline (hook score 0.93x; ctr score 0.79x; cpm_efficiency score 1.41x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -31225,7 +31225,7 @@
               "creativeId": "1665290848045267",
               "replayLabel": "test_more",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 43,
               "snapshotConfidence": null,
               "replayReason": "[quality-only neutral] Upper/mid-funnel score 0.94x vs account baseline (hook score 0.95x; ctr score 0.50x; cpm_efficiency score 1.36x). No hard action until profit target or stronger funnel separation exists.",
               "snapshotReason": null
@@ -31255,7 +31255,7 @@
             "creativeId": "1298865939017532",
             "replayLabel": "keep",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 45,
             "snapshotConfidence": null,
             "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.22x vs account baseline (hook score 1.13x; ctr score 0.69x; cpm_efficiency score 1.78x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
             "snapshotReason": null
@@ -31291,7 +31291,7 @@
             "creativeId": "1417831732911331",
             "replayLabel": "keep",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 65,
             "snapshotConfidence": null,
             "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.03x vs account baseline (hook score 0.91x; ctr score 0.72x; cpm_efficiency score 1.89x; click_to_lpv score 0.88x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
             "snapshotReason": null
@@ -31309,7 +31309,7 @@
             "creativeId": "1513543513755396",
             "replayLabel": "keep",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 42,
             "snapshotConfidence": null,
             "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.12x vs account baseline (hook score 0.92x; ctr score 1.01x; cpm_efficiency score 1.32x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
             "snapshotReason": null
@@ -31345,7 +31345,7 @@
             "creativeId": "1665290848045267",
             "replayLabel": "test_more",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 46,
             "snapshotConfidence": null,
             "replayReason": "[quality-only neutral] Upper/mid-funnel score 0.95x vs account baseline (hook score 0.94x; ctr score 0.50x; cpm_efficiency score 1.31x; click_to_lpv score 1.02x). No hard action until profit target or stronger funnel separation exists.",
             "snapshotReason": null
@@ -32351,6 +32351,7 @@
             "dataFreshnessHours": 6,
             "badges": [
               "lifecycle_unavailable",
+              "confirm_kill",
               "missing_recent_data"
             ],
             "labelTransform": null,
@@ -32384,6 +32385,7 @@
             "dataFreshnessHours": 6,
             "badges": [
               "lifecycle_unavailable",
+              "confirm_kill",
               "missing_recent_data"
             ],
             "labelTransform": null,
@@ -32417,6 +32419,7 @@
             "dataFreshnessHours": 6,
             "badges": [
               "lifecycle_unavailable",
+              "confirm_kill",
               "missing_recent_data"
             ],
             "labelTransform": null,
@@ -33199,7 +33202,7 @@
           "windowDays": 7,
           "hardClass": "hard",
           "bucket": "60_69",
-          "episodes": 6,
+          "episodes": 7,
           "knownEpisodes": 0,
           "positive": 0,
           "observedPositiveRate": null,
@@ -33210,7 +33213,7 @@
           "windowDays": 7,
           "hardClass": "hard",
           "bucket": "70_79",
-          "episodes": 8,
+          "episodes": 7,
           "knownEpisodes": 6,
           "positive": 6,
           "observedPositiveRate": 1,
@@ -33313,9 +33316,9 @@
           "label": "cut",
           "hardClass": "hard",
           "bucket": "60_69",
-          "episodes": 6,
+          "episodes": 7,
           "knownEpisodes": 0,
-          "unknownEpisodes": 6,
+          "unknownEpisodes": 7,
           "positive": 0,
           "negative": 0,
           "neutral": 0,
@@ -33331,9 +33334,9 @@
           "label": "cut",
           "hardClass": "hard",
           "bucket": "70_79",
-          "episodes": 8,
+          "episodes": 7,
           "knownEpisodes": 6,
-          "unknownEpisodes": 2,
+          "unknownEpisodes": 1,
           "positive": 6,
           "negative": 0,
           "neutral": 0,
@@ -33852,7 +33855,8 @@
             "asOfDateSpend": null,
             "dataFreshnessHours": 6,
             "badges": [
-              "lifecycle_unavailable"
+              "lifecycle_unavailable",
+              "confirm_kill"
             ],
             "labelTransform": null,
             "reason": "ROAS 0.42 (28d) = 17% of target after $580 spend (28d) — clear loser at scale."
@@ -33884,7 +33888,8 @@
             "asOfDateSpend": null,
             "dataFreshnessHours": 6,
             "badges": [
-              "lifecycle_unavailable"
+              "lifecycle_unavailable",
+              "confirm_kill"
             ],
             "labelTransform": null,
             "reason": "ROAS 0.42 (28d) = 17% of target after $580 spend (28d) — clear loser at scale."
@@ -33916,7 +33921,8 @@
             "asOfDateSpend": null,
             "dataFreshnessHours": 6,
             "badges": [
-              "lifecycle_unavailable"
+              "lifecycle_unavailable",
+              "confirm_kill"
             ],
             "labelTransform": null,
             "reason": "ROAS 0.42 (28d) = 17% of target after $580 spend (28d) — clear loser at scale."
@@ -33948,7 +33954,8 @@
             "asOfDateSpend": null,
             "dataFreshnessHours": 6,
             "badges": [
-              "lifecycle_unavailable"
+              "lifecycle_unavailable",
+              "confirm_kill"
             ],
             "labelTransform": null,
             "reason": "ROAS 0.42 (28d) = 17% of target after $580 spend (28d) — clear loser at scale."
@@ -33980,7 +33987,8 @@
             "asOfDateSpend": 31.91,
             "dataFreshnessHours": 6,
             "badges": [
-              "lifecycle_unavailable"
+              "lifecycle_unavailable",
+              "confirm_kill"
             ],
             "labelTransform": null,
             "reason": "ROAS 0.42 (28d) = 17% of target after $580 spend (28d) — clear loser at scale."
@@ -34012,7 +34020,8 @@
             "asOfDateSpend": null,
             "dataFreshnessHours": 6,
             "badges": [
-              "lifecycle_unavailable"
+              "lifecycle_unavailable",
+              "confirm_kill"
             ],
             "labelTransform": null,
             "reason": "ROAS 0.42 (28d) = 17% of target after $580 spend (28d) — clear loser at scale."
@@ -34044,7 +34053,8 @@
             "asOfDateSpend": null,
             "dataFreshnessHours": 6,
             "badges": [
-              "lifecycle_unavailable"
+              "lifecycle_unavailable",
+              "confirm_kill"
             ],
             "labelTransform": null,
             "reason": "ROAS 0.42 (28d) = 17% of target after $580 spend (28d) — clear loser at scale."
@@ -34076,7 +34086,8 @@
             "asOfDateSpend": 37.16,
             "dataFreshnessHours": 6,
             "badges": [
-              "lifecycle_unavailable"
+              "lifecycle_unavailable",
+              "confirm_kill"
             ],
             "labelTransform": null,
             "reason": "ROAS 0.44 (28d) = 18% of target after $548 spend (28d) — clear loser at scale."
@@ -34140,7 +34151,8 @@
             "asOfDateSpend": null,
             "dataFreshnessHours": 6,
             "badges": [
-              "lifecycle_unavailable"
+              "lifecycle_unavailable",
+              "confirm_kill"
             ],
             "labelTransform": null,
             "reason": "ROAS 0.55 (28d) = 22% of target after $503 spend (28d) — clear loser at scale."
@@ -34172,7 +34184,8 @@
             "asOfDateSpend": 23.96,
             "dataFreshnessHours": 6,
             "badges": [
-              "lifecycle_unavailable"
+              "lifecycle_unavailable",
+              "confirm_kill"
             ],
             "labelTransform": null,
             "reason": "ROAS 0.55 (28d) = 22% of target after $503 spend (28d) — clear loser at scale."
@@ -34204,7 +34217,8 @@
             "asOfDateSpend": null,
             "dataFreshnessHours": 6,
             "badges": [
-              "lifecycle_unavailable"
+              "lifecycle_unavailable",
+              "confirm_kill"
             ],
             "labelTransform": null,
             "reason": "ROAS 0.55 (28d) = 22% of target after $503 spend (28d) — clear loser at scale."
@@ -36015,6 +36029,7 @@
             "asOfDateSpend": 371.71,
             "dataFreshnessHours": 6,
             "badges": [
+              "confirm_kill",
               "lifecycle_unavailable"
             ],
             "labelTransform": null,
@@ -37389,7 +37404,8 @@
             "asOfDateSpend": 154.13,
             "dataFreshnessHours": 6,
             "badges": [
-              "lifecycle_unavailable"
+              "lifecycle_unavailable",
+              "confirm_kill"
             ],
             "labelTransform": null,
             "reason": "ROAS 0.00 (28d) = 0% of target after $20,367 spend (28d) — loss-budget maturity reached at $13,697; cut underperforming creative."
@@ -37421,7 +37437,8 @@
             "asOfDateSpend": null,
             "dataFreshnessHours": 6,
             "badges": [
-              "lifecycle_unavailable"
+              "lifecycle_unavailable",
+              "confirm_kill"
             ],
             "labelTransform": null,
             "reason": "ROAS 0.00 (28d) = 0% of target after $20,367 spend (28d) — sustained loser."
@@ -37549,6 +37566,7 @@
             "asOfDateSpend": 0,
             "dataFreshnessHours": 6,
             "badges": [
+              "confirm_kill",
               "creative_quality_weak",
               "lifecycle_unavailable"
             ],
@@ -37582,6 +37600,7 @@
             "asOfDateSpend": 0,
             "dataFreshnessHours": 6,
             "badges": [
+              "confirm_kill",
               "creative_quality_weak",
               "lifecycle_unavailable"
             ],
@@ -40137,7 +40156,7 @@
               "creativeId": "1030238108868060",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 65,
               "snapshotConfidence": null,
               "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.22x vs account baseline (hook score 1.07x; ctr score 1.06x; cpm_efficiency score 1.38x; click_to_lpv score 1.28x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -40155,7 +40174,7 @@
               "creativeId": "1098359138836126",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 58,
               "snapshotConfidence": null,
               "replayReason": "[quality-only strong] Upper/mid-funnel score 1.57x vs account baseline (hook score 1.08x; ctr score 1.39x; cpm_efficiency score 1.21x; click_to_lpv score 1.13x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -40164,7 +40183,7 @@
               "creativeId": "1136950221240357",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 60,
               "snapshotConfidence": null,
               "replayReason": "[quality-only strong] Upper/mid-funnel score 1.32x vs account baseline (hook score 0.50x; ctr score 2.00x; cpm_efficiency score 1.05x; click_to_lpv score 0.96x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -40191,7 +40210,7 @@
               "creativeId": "1207500747600201",
               "replayLabel": "test_more",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 41,
               "snapshotConfidence": null,
               "replayReason": "[quality-only below_average] Upper/mid-funnel score 0.73x vs account baseline (hook score 1.04x; ctr score 0.50x; cpm_efficiency score 0.80x). Deprioritize this creative before adding budget; no hard cut without profit target or mature sales evidence.",
               "snapshotReason": null
@@ -40200,7 +40219,7 @@
               "creativeId": "1223002432706265",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 51,
               "snapshotConfidence": null,
               "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.25x vs account baseline (hook score 1.05x; ctr score 0.81x; cpm_efficiency score 1.12x; click_to_lpv score 1.19x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -40209,7 +40228,7 @@
               "creativeId": "1225265562983552",
               "replayLabel": "test_more",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 41,
               "snapshotConfidence": null,
               "replayReason": "[quality-only below_average] Upper/mid-funnel score 0.77x vs account baseline (hook score 1.09x; ctr score 0.52x; cpm_efficiency score 0.85x). Deprioritize this creative before adding budget; no hard cut without profit target or mature sales evidence.",
               "snapshotReason": null
@@ -40256,7 +40275,7 @@
               "creativeId": "1026667059767519",
               "replayLabel": "test_more",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 41,
               "snapshotConfidence": null,
               "replayReason": "[quality-only neutral] Upper/mid-funnel score 0.92x vs account baseline (hook score 1.09x; ctr score 0.71x; cpm_efficiency score 1.04x). No hard action until profit target or stronger funnel separation exists.",
               "snapshotReason": null
@@ -40265,7 +40284,7 @@
               "creativeId": "1030238108868060",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 65,
               "snapshotConfidence": null,
               "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.26x vs account baseline (hook score 1.06x; ctr score 1.11x; cpm_efficiency score 1.37x; click_to_lpv score 1.27x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -40283,7 +40302,7 @@
               "creativeId": "1098359138836126",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 58,
               "snapshotConfidence": null,
               "replayReason": "[quality-only strong] Upper/mid-funnel score 1.50x vs account baseline (hook score 1.07x; ctr score 1.47x; cpm_efficiency score 1.21x; click_to_lpv score 1.12x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -40292,7 +40311,7 @@
               "creativeId": "1136950221240357",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 60,
               "snapshotConfidence": null,
               "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.26x vs account baseline (hook score 0.50x; ctr score 2.00x; cpm_efficiency score 1.05x; click_to_lpv score 0.95x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -40319,7 +40338,7 @@
               "creativeId": "1207500747600201",
               "replayLabel": "test_more",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 41,
               "snapshotConfidence": null,
               "replayReason": "[quality-only below_average] Upper/mid-funnel score 0.73x vs account baseline (hook score 1.04x; ctr score 0.50x; cpm_efficiency score 0.80x). Deprioritize this creative before adding budget; no hard cut without profit target or mature sales evidence.",
               "snapshotReason": null
@@ -40328,7 +40347,7 @@
               "creativeId": "1223002432706265",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 51,
               "snapshotConfidence": null,
               "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.26x vs account baseline (hook score 1.04x; ctr score 0.86x; cpm_efficiency score 1.12x; click_to_lpv score 1.18x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -40337,7 +40356,7 @@
               "creativeId": "1225265562983552",
               "replayLabel": "test_more",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 43,
               "snapshotConfidence": null,
               "replayReason": "[quality-only below_average] Upper/mid-funnel score 0.75x vs account baseline (hook score 1.09x; ctr score 0.50x; cpm_efficiency score 0.82x). Deprioritize this creative before adding budget; no hard cut without profit target or mature sales evidence.",
               "snapshotReason": null
@@ -40385,7 +40404,7 @@
             "creativeId": "1030238108868060",
             "replayLabel": "keep",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 65,
             "snapshotConfidence": null,
             "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.22x vs account baseline (hook score 1.07x; ctr score 1.06x; cpm_efficiency score 1.38x; click_to_lpv score 1.28x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
             "snapshotReason": null
@@ -40403,7 +40422,7 @@
             "creativeId": "1098359138836126",
             "replayLabel": "keep",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 58,
             "snapshotConfidence": null,
             "replayReason": "[quality-only strong] Upper/mid-funnel score 1.57x vs account baseline (hook score 1.08x; ctr score 1.39x; cpm_efficiency score 1.21x; click_to_lpv score 1.13x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
             "snapshotReason": null
@@ -40412,7 +40431,7 @@
             "creativeId": "1136950221240357",
             "replayLabel": "keep",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 60,
             "snapshotConfidence": null,
             "replayReason": "[quality-only strong] Upper/mid-funnel score 1.32x vs account baseline (hook score 0.50x; ctr score 2.00x; cpm_efficiency score 1.05x; click_to_lpv score 0.96x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
             "snapshotReason": null
@@ -40439,7 +40458,7 @@
             "creativeId": "1207500747600201",
             "replayLabel": "test_more",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 41,
             "snapshotConfidence": null,
             "replayReason": "[quality-only below_average] Upper/mid-funnel score 0.73x vs account baseline (hook score 1.04x; ctr score 0.50x; cpm_efficiency score 0.80x). Deprioritize this creative before adding budget; no hard cut without profit target or mature sales evidence.",
             "snapshotReason": null
@@ -40448,7 +40467,7 @@
             "creativeId": "1223002432706265",
             "replayLabel": "keep",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 51,
             "snapshotConfidence": null,
             "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.25x vs account baseline (hook score 1.05x; ctr score 0.81x; cpm_efficiency score 1.12x; click_to_lpv score 1.19x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
             "snapshotReason": null
@@ -40457,7 +40476,7 @@
             "creativeId": "1225265562983552",
             "replayLabel": "test_more",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 41,
             "snapshotConfidence": null,
             "replayReason": "[quality-only below_average] Upper/mid-funnel score 0.77x vs account baseline (hook score 1.09x; ctr score 0.52x; cpm_efficiency score 0.85x). Deprioritize this creative before adding budget; no hard cut without profit target or mature sales evidence.",
             "snapshotReason": null
@@ -40814,7 +40833,7 @@
               "creativeId": "1023001666791831",
               "replayLabel": "test_more",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 62,
               "snapshotConfidence": null,
               "replayReason": "[quality-only neutral] Upper/mid-funnel score 0.87x vs account baseline (hook score 1.80x; ctr score 0.70x; cpm_efficiency score 0.56x; click_to_lpv score 1.02x). No hard action until profit target or stronger funnel separation exists.",
               "snapshotReason": null
@@ -40823,7 +40842,7 @@
               "creativeId": "1033214469106065",
               "replayLabel": "diagnose",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 45,
               "snapshotConfidence": null,
               "replayReason": "[quality-only] checkout bottleneck detected before profit evaluation: IC-to-purchase 20.00% vs account baseline 21.82%. Do not judge the creative as a sales loser until this step is checked.",
               "snapshotReason": null
@@ -40859,7 +40878,7 @@
               "creativeId": "1471338801678548",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 65,
               "snapshotConfidence": null,
               "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.15x vs account baseline (hook score 0.50x; ctr score 1.40x; cpm_efficiency score 0.92x; click_to_lpv score 1.08x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -40877,7 +40896,7 @@
               "creativeId": "1510442940714267",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 65,
               "snapshotConfidence": null,
               "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.30x vs account baseline (hook score 0.50x; ctr score 1.60x; cpm_efficiency score 1.28x; click_to_lpv score 0.97x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -40886,7 +40905,7 @@
               "creativeId": "1521733932924068",
               "replayLabel": "test_more",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 46,
               "snapshotConfidence": null,
               "replayReason": "[quality-only weak] Upper/mid-funnel score 0.66x vs account baseline (hook score 0.50x; ctr score 0.91x; cpm_efficiency score 0.50x). Deprioritize this creative before adding budget; no hard cut without profit target or mature sales evidence.",
               "snapshotReason": null
@@ -40904,7 +40923,7 @@
               "creativeId": "1572249944256651",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 43,
               "snapshotConfidence": null,
               "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.01x vs account baseline (ctr score 1.13x; cpm_efficiency score 0.86x; click_to_lpv score 1.03x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -40942,7 +40961,7 @@
               "creativeId": "1023001666791831",
               "replayLabel": "test_more",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 50,
               "snapshotConfidence": null,
               "replayReason": "[quality-only below_average] Upper/mid-funnel score 0.79x vs account baseline (hook score 2.00x; ctr score 0.90x; cpm_efficiency score 0.50x; atc_to_ic score 0.62x). Deprioritize this creative before adding budget; no hard cut without profit target or mature sales evidence.",
               "snapshotReason": null
@@ -40951,7 +40970,7 @@
               "creativeId": "1033214469106065",
               "replayLabel": "diagnose",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 45,
               "snapshotConfidence": null,
               "replayReason": "[quality-only] checkout bottleneck detected before profit evaluation: IC-to-purchase 20.00% vs account baseline 21.82%. Do not judge the creative as a sales loser until this step is checked.",
               "snapshotReason": null
@@ -40987,7 +41006,7 @@
               "creativeId": "1471338801678548",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 65,
               "snapshotConfidence": null,
               "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.17x vs account baseline (hook score 0.50x; ctr score 1.38x; cpm_efficiency score 0.91x; click_to_lpv score 1.09x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -41005,7 +41024,7 @@
               "creativeId": "1510442940714267",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 65,
               "snapshotConfidence": null,
               "replayReason": "[quality-only strong] Upper/mid-funnel score 1.32x vs account baseline (hook score 0.50x; ctr score 1.59x; cpm_efficiency score 1.28x; click_to_lpv score 0.96x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -41014,7 +41033,7 @@
               "creativeId": "1521733932924068",
               "replayLabel": "test_more",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 46,
               "snapshotConfidence": null,
               "replayReason": "[quality-only weak] Upper/mid-funnel score 0.66x vs account baseline (hook score 0.50x; ctr score 0.90x; cpm_efficiency score 0.50x). Deprioritize this creative before adding budget; no hard cut without profit target or mature sales evidence.",
               "snapshotReason": null
@@ -41032,7 +41051,7 @@
               "creativeId": "1572249944256651",
               "replayLabel": "test_more",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 55,
               "snapshotConfidence": null,
               "replayReason": "[quality-only neutral] Upper/mid-funnel score 0.92x vs account baseline (ctr score 1.29x; cpm_efficiency score 0.87x; click_to_lpv score 1.03x; lpv_to_atc score 0.89x). No hard action until profit target or stronger funnel separation exists.",
               "snapshotReason": null
@@ -41062,7 +41081,7 @@
             "creativeId": "1023001666791831",
             "replayLabel": "test_more",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 62,
             "snapshotConfidence": null,
             "replayReason": "[quality-only neutral] Upper/mid-funnel score 0.87x vs account baseline (hook score 1.80x; ctr score 0.70x; cpm_efficiency score 0.56x; click_to_lpv score 1.02x). No hard action until profit target or stronger funnel separation exists.",
             "snapshotReason": null
@@ -41071,7 +41090,7 @@
             "creativeId": "1033214469106065",
             "replayLabel": "diagnose",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 45,
             "snapshotConfidence": null,
             "replayReason": "[quality-only] checkout bottleneck detected before profit evaluation: IC-to-purchase 20.00% vs account baseline 21.82%. Do not judge the creative as a sales loser until this step is checked.",
             "snapshotReason": null
@@ -41107,7 +41126,7 @@
             "creativeId": "1471338801678548",
             "replayLabel": "keep",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 65,
             "snapshotConfidence": null,
             "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.15x vs account baseline (hook score 0.50x; ctr score 1.40x; cpm_efficiency score 0.92x; click_to_lpv score 1.08x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
             "snapshotReason": null
@@ -41125,7 +41144,7 @@
             "creativeId": "1510442940714267",
             "replayLabel": "keep",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 65,
             "snapshotConfidence": null,
             "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.30x vs account baseline (hook score 0.50x; ctr score 1.60x; cpm_efficiency score 1.28x; click_to_lpv score 0.97x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
             "snapshotReason": null
@@ -41134,7 +41153,7 @@
             "creativeId": "1521733932924068",
             "replayLabel": "test_more",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 46,
             "snapshotConfidence": null,
             "replayReason": "[quality-only weak] Upper/mid-funnel score 0.66x vs account baseline (hook score 0.50x; ctr score 0.91x; cpm_efficiency score 0.50x). Deprioritize this creative before adding budget; no hard cut without profit target or mature sales evidence.",
             "snapshotReason": null
@@ -41152,7 +41171,7 @@
             "creativeId": "1572249944256651",
             "replayLabel": "keep",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 43,
             "snapshotConfidence": null,
             "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.01x vs account baseline (ctr score 1.13x; cpm_efficiency score 0.86x; click_to_lpv score 1.03x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
             "snapshotReason": null
@@ -44995,7 +45014,7 @@
               "creativeId": "1020768527549028",
               "replayLabel": "test_more",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 50,
               "snapshotConfidence": null,
               "replayReason": "[quality-only below_average] Upper/mid-funnel score 0.83x vs account baseline (hook score 0.77x; ctr score 1.44x; cpm_efficiency score 0.50x; click_to_lpv score 0.66x). Deprioritize this creative before adding budget; no hard cut without profit target or mature sales evidence.",
               "snapshotReason": null
@@ -45004,7 +45023,7 @@
               "creativeId": "1052280054449931",
               "replayLabel": "test_more",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 54,
               "snapshotConfidence": null,
               "replayReason": "[quality-only neutral] Upper/mid-funnel score 0.98x vs account baseline (hook score 1.11x; ctr score 0.50x; cpm_efficiency score 2.00x; click_to_lpv score 0.58x). No hard action until profit target or stronger funnel separation exists.",
               "snapshotReason": null
@@ -45013,7 +45032,7 @@
               "creativeId": "1068520515515581",
               "replayLabel": "test_more",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 65,
               "snapshotConfidence": null,
               "replayReason": "[quality-only neutral] Upper/mid-funnel score 0.90x vs account baseline (hook score 0.50x; ctr score 1.01x; cpm_efficiency score 1.17x; click_to_lpv score 0.99x). No hard action until profit target or stronger funnel separation exists.",
               "snapshotReason": null
@@ -45031,7 +45050,7 @@
               "creativeId": "1249540987094718",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 55,
               "snapshotConfidence": null,
               "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.11x vs account baseline (hook score 0.79x; ctr score 0.73x; cpm_efficiency score 1.10x; click_to_lpv score 0.99x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -45040,7 +45059,7 @@
               "creativeId": "1258933613045907",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 65,
               "snapshotConfidence": null,
               "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.28x vs account baseline (hook score 1.33x; ctr score 0.50x; cpm_efficiency score 1.73x; click_to_lpv score 1.13x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -45049,7 +45068,7 @@
               "creativeId": "1286573629509612",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 64,
               "snapshotConfidence": null,
               "replayReason": "[quality-only strong] Upper/mid-funnel score 1.45x vs account baseline (hook score 0.50x; ctr score 0.99x; cpm_efficiency score 0.90x; click_to_lpv score 0.90x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -45067,7 +45086,7 @@
               "creativeId": "1370044211804963",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 65,
               "snapshotConfidence": null,
               "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.12x vs account baseline (hook score 1.26x; ctr score 0.99x; cpm_efficiency score 1.04x; click_to_lpv score 1.21x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -45076,7 +45095,7 @@
               "creativeId": "1437835607584666",
               "replayLabel": "test_more",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 47,
               "snapshotConfidence": null,
               "replayReason": "[quality-only neutral] Upper/mid-funnel score 0.89x vs account baseline (hook score 0.50x; ctr score 0.92x; cpm_efficiency score 2.00x; click_to_lpv score 0.80x). No hard action until profit target or stronger funnel separation exists.",
               "snapshotReason": null
@@ -45085,7 +45104,7 @@
               "creativeId": "1443857737094759",
               "replayLabel": "test_more",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 47,
               "snapshotConfidence": null,
               "replayReason": "[quality-only below_average] Upper/mid-funnel score 0.83x vs account baseline (hook score 1.19x; ctr score 0.50x; cpm_efficiency score 1.47x; click_to_lpv score 0.94x). Deprioritize this creative before adding budget; no hard cut without profit target or mature sales evidence.",
               "snapshotReason": null
@@ -45123,7 +45142,7 @@
               "creativeId": "1020768527549028",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 60,
               "snapshotConfidence": null,
               "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.03x vs account baseline (hook score 0.97x; ctr score 1.04x; cpm_efficiency score 0.55x; click_to_lpv score 1.11x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -45132,7 +45151,7 @@
               "creativeId": "1052280054449931",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 62,
               "snapshotConfidence": null,
               "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.22x vs account baseline (hook score 1.24x; ctr score 0.50x; cpm_efficiency score 2.00x; click_to_lpv score 1.05x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -45141,7 +45160,7 @@
               "creativeId": "1068520515515581",
               "replayLabel": "test_more",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 65,
               "snapshotConfidence": null,
               "replayReason": "[quality-only neutral] Upper/mid-funnel score 0.90x vs account baseline (hook score 0.50x; ctr score 1.00x; cpm_efficiency score 1.18x; click_to_lpv score 1.00x). No hard action until profit target or stronger funnel separation exists.",
               "snapshotReason": null
@@ -45150,7 +45169,7 @@
               "creativeId": "1213490407486500",
               "replayLabel": "test_more",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 49,
               "snapshotConfidence": null,
               "replayReason": "[quality-only below_average] Upper/mid-funnel score 0.70x vs account baseline (hook score 0.50x; ctr score 0.53x; cpm_efficiency score 0.72x; click_to_lpv score 1.15x). Deprioritize this creative before adding budget; no hard cut without profit target or mature sales evidence.",
               "snapshotReason": null
@@ -45159,7 +45178,7 @@
               "creativeId": "1249540987094718",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 55,
               "snapshotConfidence": null,
               "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.10x vs account baseline (hook score 0.79x; ctr score 0.72x; cpm_efficiency score 1.11x; click_to_lpv score 0.99x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -45168,7 +45187,7 @@
               "creativeId": "1258933613045907",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 65,
               "snapshotConfidence": null,
               "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.29x vs account baseline (hook score 1.32x; ctr score 0.50x; cpm_efficiency score 1.74x; click_to_lpv score 1.13x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -45177,7 +45196,7 @@
               "creativeId": "1286573629509612",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 64,
               "snapshotConfidence": null,
               "replayReason": "[quality-only strong] Upper/mid-funnel score 1.45x vs account baseline (hook score 0.50x; ctr score 0.99x; cpm_efficiency score 0.90x; click_to_lpv score 0.90x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -45195,7 +45214,7 @@
               "creativeId": "1370044211804963",
               "replayLabel": "keep",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 65,
               "snapshotConfidence": null,
               "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.10x vs account baseline (hook score 1.26x; ctr score 1.01x; cpm_efficiency score 1.04x; click_to_lpv score 1.21x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
               "snapshotReason": null
@@ -45204,7 +45223,7 @@
               "creativeId": "1437835607584666",
               "replayLabel": "test_more",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 47,
               "snapshotConfidence": null,
               "replayReason": "[quality-only neutral] Upper/mid-funnel score 0.89x vs account baseline (hook score 0.50x; ctr score 0.92x; cpm_efficiency score 2.00x; click_to_lpv score 0.80x). No hard action until profit target or stronger funnel separation exists.",
               "snapshotReason": null
@@ -45213,7 +45232,7 @@
               "creativeId": "1443857737094759",
               "replayLabel": "test_more",
               "snapshotLabel": null,
-              "replayConfidence": 40,
+              "replayConfidence": 47,
               "snapshotConfidence": null,
               "replayReason": "[quality-only below_average] Upper/mid-funnel score 0.83x vs account baseline (hook score 1.19x; ctr score 0.50x; cpm_efficiency score 1.48x; click_to_lpv score 0.94x). Deprioritize this creative before adding budget; no hard cut without profit target or mature sales evidence.",
               "snapshotReason": null
@@ -45243,7 +45262,7 @@
             "creativeId": "1020768527549028",
             "replayLabel": "test_more",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 50,
             "snapshotConfidence": null,
             "replayReason": "[quality-only below_average] Upper/mid-funnel score 0.83x vs account baseline (hook score 0.77x; ctr score 1.44x; cpm_efficiency score 0.50x; click_to_lpv score 0.66x). Deprioritize this creative before adding budget; no hard cut without profit target or mature sales evidence.",
             "snapshotReason": null
@@ -45252,7 +45271,7 @@
             "creativeId": "1052280054449931",
             "replayLabel": "test_more",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 54,
             "snapshotConfidence": null,
             "replayReason": "[quality-only neutral] Upper/mid-funnel score 0.98x vs account baseline (hook score 1.11x; ctr score 0.50x; cpm_efficiency score 2.00x; click_to_lpv score 0.58x). No hard action until profit target or stronger funnel separation exists.",
             "snapshotReason": null
@@ -45261,7 +45280,7 @@
             "creativeId": "1068520515515581",
             "replayLabel": "test_more",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 65,
             "snapshotConfidence": null,
             "replayReason": "[quality-only neutral] Upper/mid-funnel score 0.90x vs account baseline (hook score 0.50x; ctr score 1.01x; cpm_efficiency score 1.17x; click_to_lpv score 0.99x). No hard action until profit target or stronger funnel separation exists.",
             "snapshotReason": null
@@ -45279,7 +45298,7 @@
             "creativeId": "1249540987094718",
             "replayLabel": "keep",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 55,
             "snapshotConfidence": null,
             "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.11x vs account baseline (hook score 0.79x; ctr score 0.73x; cpm_efficiency score 1.10x; click_to_lpv score 0.99x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
             "snapshotReason": null
@@ -45288,7 +45307,7 @@
             "creativeId": "1258933613045907",
             "replayLabel": "keep",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 65,
             "snapshotConfidence": null,
             "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.28x vs account baseline (hook score 1.33x; ctr score 0.50x; cpm_efficiency score 1.73x; click_to_lpv score 1.13x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
             "snapshotReason": null
@@ -45297,7 +45316,7 @@
             "creativeId": "1286573629509612",
             "replayLabel": "keep",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 64,
             "snapshotConfidence": null,
             "replayReason": "[quality-only strong] Upper/mid-funnel score 1.45x vs account baseline (hook score 0.50x; ctr score 0.99x; cpm_efficiency score 0.90x; click_to_lpv score 0.90x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
             "snapshotReason": null
@@ -45315,7 +45334,7 @@
             "creativeId": "1370044211804963",
             "replayLabel": "keep",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 65,
             "snapshotConfidence": null,
             "replayReason": "[quality-only above_average] Upper/mid-funnel score 1.12x vs account baseline (hook score 1.26x; ctr score 0.99x; cpm_efficiency score 1.04x; click_to_lpv score 1.21x). Keep testing; no profit-scale action without target ROAS or account ROAS benchmark.",
             "snapshotReason": null
@@ -45324,7 +45343,7 @@
             "creativeId": "1437835607584666",
             "replayLabel": "test_more",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 47,
             "snapshotConfidence": null,
             "replayReason": "[quality-only neutral] Upper/mid-funnel score 0.89x vs account baseline (hook score 0.50x; ctr score 0.92x; cpm_efficiency score 2.00x; click_to_lpv score 0.80x). No hard action until profit target or stronger funnel separation exists.",
             "snapshotReason": null
@@ -45333,7 +45352,7 @@
             "creativeId": "1443857737094759",
             "replayLabel": "test_more",
             "snapshotLabel": null,
-            "replayConfidence": 40,
+            "replayConfidence": 47,
             "snapshotConfidence": null,
             "replayReason": "[quality-only below_average] Upper/mid-funnel score 0.83x vs account baseline (hook score 1.19x; ctr score 0.50x; cpm_efficiency score 1.47x; click_to_lpv score 0.94x). Deprioritize this creative before adding budget; no hard cut without profit target or mature sales evidence.",
             "snapshotReason": null
@@ -46663,7 +46682,7 @@
         "windowDays": 7,
         "hardClass": "hard",
         "bucket": "60_69",
-        "episodes": 23,
+        "episodes": 24,
         "knownEpisodes": 0,
         "positive": 0,
         "observedPositiveRate": null,
@@ -46674,7 +46693,7 @@
         "windowDays": 7,
         "hardClass": "hard",
         "bucket": "70_79",
-        "episodes": 101,
+        "episodes": 100,
         "knownEpisodes": 84,
         "positive": 47,
         "observedPositiveRate": 0.5595,

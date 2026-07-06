@@ -116,3 +116,27 @@ function placementCreativeId(placement: BriefingPlacement) {
     ""
   );
 }
+
+// Server-supplied decision-center execution CTA (D019). Display and routing
+// only - the UI never derives the action. promote_to_main routes to the
+// launchpad promote flow; budget-type actions (scale_budget,
+// controlled_scale) intentionally open evidence instead: budget execution
+// lives at ad set/campaign level, not on the creative card.
+export const EXECUTION_ACTION_DISPLAY: Record<string, string> = {
+  promote_to_main: "Promote to main",
+  scale_budget: "Scale budget",
+  controlled_scale: "Controlled scale",
+};
+
+export function executionActionDisplay(value: string | null | undefined) {
+  if (!value) return null;
+  return Object.prototype.hasOwnProperty.call(EXECUTION_ACTION_DISPLAY, value)
+    ? EXECUTION_ACTION_DISPLAY[value]
+    : null;
+}
+
+export function mapExecutionActionToLaunchpadMode(
+  value: string | null | undefined,
+): LaunchpadOverlayMode | null {
+  return value === "promote_to_main" ? "promote" : null;
+}

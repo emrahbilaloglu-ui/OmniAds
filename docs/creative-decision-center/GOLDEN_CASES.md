@@ -203,3 +203,25 @@ These cases must become executable fixtures before resolver behavior changes. Do
 - Every fixture with missing required data must assert the safe fallback.
 - Aggregate-only cases must assert that no row-level `brief_variation` is emitted.
 - These cases are required before resolver behavior changes.
+
+## Hysteresis Sequence Golden Cases (GS series)
+
+Decision-label stability sequences for `v3-2026-07-06-decision-stability`.
+Each case chains `applyLabelHysteresis` day over day from a clean epoch; the
+executable lockstep lives in `golden-cases.test.ts` and parses this table.
+GS-001..003 are the live flip creatives observed on 2026-07-04..06.
+
+| Case    | Source                              | Raw sequence            | Published sequence      | Suppressed day indexes |
+|---------|-------------------------------------|-------------------------|-------------------------|------------------------|
+| GS-001  | IwaStore 946471284944193            | scale,keep,scale        | scale,scale,scale       | 1                      |
+| GS-002  | TheSwaf 1962656064410174            | cut,keep,cut            | cut,cut,cut             | 1                      |
+| GS-003  | Tiles 25889037484086563             | keep,cut,keep           | keep,keep,keep          | 1                      |
+| GS-004  | sustained transition confirms       | cut,keep,keep,keep      | cut,cut,keep,keep       | 1                      |
+| GS-005  | entering hard requires confirmation | keep,cut,cut            | keep,keep,cut           | 1                      |
+| GS-006  | soft-to-soft publishes immediately  | test_more,keep,diagnose | test_more,keep,diagnose | none                   |
+
+- A suppressed day republishes the previous published label with the
+  `pending_transition` badge; the raw label is persisted in `raw_label`.
+- Published period-2 hard round-trips are structurally impossible; the
+  replay evidence for oscillation reduction is the reversal-within-3 metric
+  (76 -> 20 over 2026-06-01..07-05).

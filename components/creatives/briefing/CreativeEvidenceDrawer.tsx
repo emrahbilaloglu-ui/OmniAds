@@ -957,10 +957,20 @@ function CreativeEvidenceDrawerContent({
               )}
             </section>
 
-            {card.targetRoas != null || card.truthSource || (card.blockers?.length ?? 0) > 0 ? (
+            {card.targetRoas != null || card.truthSource || card.pendingTransition || (card.blockers?.length ?? 0) > 0 ? (
               <section className="creative-evidence-section">
                 <h4>Decision basis</h4>
                 <ul className="creative-evidence-list">
+                  {card.pendingTransition && card.rawLabel ? (
+                    <li className="creative-evidence-list-item warn">
+                      <div>
+                        <b>Pending transition - held at previous decision</b>
+                        Today's raw engine signal is "{String(card.rawLabel)}"; the published
+                        label changes only if the signal holds a second evaluation.
+                        <span className="src">/api/creatives/briefing - rawLabel / pendingTransition</span>
+                      </div>
+                    </li>
+                  ) : null}
                   {card.targetRoas != null ? (
                     <li className="creative-evidence-list-item">
                       <div>

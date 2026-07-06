@@ -38,7 +38,9 @@ import {
 } from "@/components/creatives/briefing/action-handlers";
 import { getCreativeFormatPresentation } from "@/components/creatives/briefing/creative-format";
 import {
+  executionActionDisplay,
   mapBriefingPrimaryToLaunchpadMode,
+  mapExecutionActionToLaunchpadMode,
   type LaunchpadOpenPayload,
 } from "@/components/creatives/briefing/launchpad-bridge";
 import type {
@@ -111,10 +113,16 @@ export function ActionNowCard({
   const actionCardId = cardId(card);
   const scopeId = getCreativeScopeId(card);
   const cutAction = isCutPrimaryAction(card);
+  // Server-supplied execution CTA wins over the legacy primary label; cut
+  // stays cut (the execution CTA never overrides a cut decision).
+  const executionAction = cutAction
+    ? null
+    : (card.decisionCenterRow?.executionAction ?? null);
+  const executionLabel = executionActionDisplay(executionAction);
   const primaryKind = cutAction ? card.primary?.kind || "cut" : card.primary?.kind;
   const primaryLabel = cutAction
     ? card.primary?.label || "Cut"
-    : card.primary?.label;
+    : (executionLabel ?? card.primary?.label);
   const isEvidenceOpen = evidenceOpen ?? localEvidenceOpen;
   const kindLabel = campaignKindLabel(card);
   const preview = briefingPreviewPayload(card);
@@ -214,7 +222,9 @@ export function ActionNowCard({
                 onCut?.(card);
                 return;
               }
-              const mode = mapBriefingPrimaryToLaunchpadMode(card);
+              const mode = executionAction
+                ? mapExecutionActionToLaunchpadMode(executionAction)
+                : mapBriefingPrimaryToLaunchpadMode(card);
               if (mode) onLaunchpadOpen?.({ card, mode });
               else openEvidence();
             }}

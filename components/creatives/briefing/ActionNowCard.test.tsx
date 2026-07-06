@@ -139,3 +139,56 @@ describe("ActionNowCard", () => {
     expect(carouselHtml).toContain(">1:1<");
   });
 });
+
+describe("execution action CTA", () => {
+  const dcRow = (executionAction: string | null) =>
+    ({
+      scope: "creative",
+      creativeId: "cr_1",
+      identityGrain: "creative",
+      buyerAction: "scale",
+      buyerLabel: "Scale",
+      uiBucket: "scale",
+      executionAction,
+      confidenceBand: "high",
+      priority: "high",
+      oneLine: "",
+      reasons: [],
+      nextStep: "",
+      missingData: [],
+    }) as never;
+
+  it("renders the server-supplied execution action as the footer CTA", () => {
+    const html = renderToStaticMarkup(
+      <ActionNowCard
+        card={card({
+          primary: { kind: "scale", label: "Legacy scale label" },
+          decisionCenterRow: dcRow("scale_budget"),
+        })}
+      />,
+    );
+    expect(html).toContain("Scale budget");
+    expect(html).not.toContain("Legacy scale label");
+  });
+
+  it("never lets the execution CTA override a cut decision", () => {
+    const html = renderToStaticMarkup(
+      <ActionNowCard
+        card={card({
+          label: "cut",
+          primary: { kind: "cut", label: "Cut" },
+          decisionCenterRow: dcRow("promote_to_main"),
+        })}
+      />,
+    );
+    expect(html).not.toContain("Promote to main");
+    expect(html).toContain("Cut");
+  });
+
+  it("falls back to the legacy primary label without a decision-center row", () => {
+    const html = renderToStaticMarkup(
+      <ActionNowCard card={card({ decisionCenterRow: null })} />,
+    );
+    expect(html).toContain("Promote to main");
+  });
+});

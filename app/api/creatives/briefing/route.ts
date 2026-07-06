@@ -10,6 +10,7 @@ import {
   readCreativeDecisionBacktestSummary,
   resolveAccountDecisionProfile,
   type CreativeInput,
+  type DecisionLabel,
   type DecisionOutput,
 } from "@/lib/creative-decision-engine";
 import {
@@ -1254,16 +1255,25 @@ export async function GET(request: NextRequest) {
     asOf,
     creativeIds: enrichedInputs.map((input) => input.creativeId),
   }).catch(() => new Map());
+  const hysteresisByCreative = new Map<
+    string,
+    { rawLabel: DecisionLabel; suppressed: boolean }
+  >();
   const decisions = enrichedInputs.map((creativeInput) => {
     const guarded = applyCreativeCampaignLabelGuard({
       decision: decideCreative(creativeInput, profile, dataHealth),
       input: creativeInput,
       campaignLabelsById,
     });
-    return stabilizeDecisionLabel(
+    const stabilized = stabilizeDecisionLabel(
       guarded,
       previousPublishedLabels.get(creativeInput.creativeId) ?? null,
-    ).decision;
+    );
+    hysteresisByCreative.set(creativeInput.creativeId, {
+      rawLabel: stabilized.rawLabel,
+      suppressed: stabilized.suppressed,
+    });
+    return stabilized.decision;
   });
   const backtestSummary = await readCreativeDecisionBacktestSummary({
     businessId: resolvedBusinessId,
@@ -1300,6 +1310,7 @@ export async function GET(request: NextRequest) {
       accountProfile: profile,
       backtestSummary,
       decisionCenterRow,
+      hysteresis: hysteresisByCreative.get(decision.creativeId) ?? null,
     });
     const deferred =
       deferredIds.has(decision.creativeId) ||

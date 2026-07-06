@@ -313,3 +313,29 @@ describe("Decision basis section", () => {
     expect(html).not.toContain("Decision basis");
   });
 });
+
+describe("pending transition surface", () => {
+  it("renders the held-decision row from server hysteresis fields", () => {
+    const html = renderDrawer(
+      <CreativeEvidenceDrawer
+        open
+        card={card({ label: "cut", rawLabel: "keep", pendingTransition: true })}
+        {...noopProps}
+      />,
+    );
+    expect(html).toContain("Pending transition - held at previous decision");
+    expect(html).toContain("raw engine signal");
+    expect(html).toContain("keep");
+  });
+
+  it("omits the row when the decision is not held", () => {
+    const html = renderDrawer(
+      <CreativeEvidenceDrawer
+        open
+        card={card({ pendingTransition: false, rawLabel: null })}
+        {...noopProps}
+      />,
+    );
+    expect(html).not.toContain("Pending transition - held");
+  });
+});

@@ -148,6 +148,8 @@ export interface BriefingCreativeCard {
   label?: DecisionLabel | string | null;
   watchingSubBucket?: BriefingWatchingSubBucket | null;
   truthSource?: TruthSource | string | null;
+  rawLabel?: DecisionLabel | string | null;
+  pendingTransition?: boolean | null;
   spendUnitSource?: SpendUnitSource | string | null;
   spendUnitConfidence?: SpendUnitConfidence | string | null;
   metaAovQuality?: MetaAovQuality | string | null;

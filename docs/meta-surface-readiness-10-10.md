@@ -53,15 +53,6 @@ docs/meta-page-ui-contract.md).
     `commercial-truth-smoke.spec.ts:118,443,564` target components with no
     importer); the Playwright layer needs a redesign-era rewrite — blocked
     on/coupled to the frontend redesign decision.
-6. **Creatives surface still zero-fills the phantom seeMoreRate metric**
-   (`creatives/page-support.tsx:773`): no see-more metric exists in the
-   warehouse, yet the shared metric registry offers a "See more rate" column
-   (would show 0.0% for every row) and the derived hook/see-more 0-100
-   scores (`CreativesTableSection.tsx:355,379`, `page-support.tsx:276,313`)
-   take it as an input. The copies views no longer expose the column; the
-   shared registry and score model still do. Fix = remove the metric from
-   the registry and re-derive the scores without it (Creatives-surface
-   slice; noted, not done in the copies pass).
 
 Fixed this pass (was NON-UI debt): fabricated pulse lastSyncAt; fake MTD;
 dropped dataReadiness; lane drop-zone [0.55,0.7); non-time-bounded
@@ -88,7 +79,16 @@ dedup/merge, target dedup, copyMode whitelist, minor-unit round-trip);
 Copies bucket thumbstop/first_frame_retention now impression-weighted
 (rate metrics reconstruct as delivery-weighted means - unambiguous from
 the metric's plays/impressions semantics; null when the bucket had no
-delivery).
+delivery). Phantom seeMoreRate removed END-TO-END: the
+MetaCreativeRow field, the shared metric-registry entry, the table
+column/heat config/top-metric mapping, the demo-data fabrication
+(ctr_all*1.6), three launchpad synthetic fills, the copies API
+see_more_rate contract field, and the hook/click score inputs. Score
+formulas drop the phantom term WITHOUT renormalizing weights (input was
+always 0 outside demo mode, so published scores are byte-identical);
+regression tests pin the field's absence under both naming conventions.
+Stale persisted metric/sort selections degrade gracefully through the
+existing sanitizers.
 
 ## B. UI-only / design-shell debt (redesign wipes it — do NOT polish now)
 

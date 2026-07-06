@@ -321,7 +321,6 @@ const METRIC_DEFS: CreativeMetricDefinition[] = [
   { id: "thumbstopRatio", label: "Thumbstop ratio", direction: "high", format: fmtPercent, getValue: (r) => r.thumbstop },
   { id: "ctrOutbound", label: "Link CTR (compat)", direction: "high", format: fmtPercent, getValue: (r) => calculateCreativeLinkCtr(r) },
   { id: "clickToPurchaseRatio", label: "Click to purchase ratio", direction: "high", format: fmtPercent, getValue: (r) => calculateCreativeClickToPurchaseRate(r) },
-  { id: "seeMoreRate", label: "See more rate", direction: "high", format: fmtPercent, getValue: (r) => r.seeMoreRate },
   { id: "ctrAll", label: "Click through rate (all)", direction: "high", format: fmtPercent, getValue: (r) => r.ctrAll },
   { id: "video25Rate", label: "25% video plays (rate)", direction: "high", format: fmtPercent, getValue: (r) => r.video25 },
   { id: "video50Rate", label: "50% video plays (rate)", direction: "high", format: fmtPercent, getValue: (r) => r.video50 },

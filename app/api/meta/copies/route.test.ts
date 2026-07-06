@@ -181,8 +181,9 @@ describe("GET /api/meta/copies", () => {
     expect(row.video50).toBe(300);
     expect(row.video75).toBe(150);
     expect(row.video100).toBe(80);
-    // The old implementation fabricated ctr_all * 1.5 (= 2.25 here).
-    expect(row.see_more_rate).toBeNull();
+    // The old implementation fabricated see_more_rate = ctr_all * 1.5; the
+    // field is now removed from the contract entirely.
+    expect("see_more_rate" in row).toBe(false);
   });
 
   it("sums funnel/video metrics across grouped copy buckets", async () => {
@@ -227,7 +228,6 @@ describe("GET /api/meta/copies", () => {
     expect(row.messages).toBe(2);
     expect(row.video25).toBe(600);
     expect(row.video100).toBe(100);
-    expect(row.see_more_rate).toBeNull();
   });
 
   it("aggregates thumbstop as an impression-weighted mean, not a plain mean", async () => {

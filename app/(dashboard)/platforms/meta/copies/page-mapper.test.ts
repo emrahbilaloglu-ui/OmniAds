@@ -65,7 +65,6 @@ function buildCopyApiRow(overrides: Partial<MetaCopyApiRow> = {}): MetaCopyApiRo
     video75: 150,
     video100: 80,
     click_to_purchase: 20,
-    see_more_rate: null,
     thumbstop: 12,
     first_frame_retention: 12,
     aov: 25,
@@ -89,10 +88,14 @@ describe("copies page mapApiRowToCopyRow", () => {
     expect(row.video100).toBe(80);
   });
 
-  it("never fabricates seeMoreRate from ctr_all", () => {
-    // The old implementation computed clamp(ctr_all * 1.5) = 2.25 here.
-    const row = mapApiRowToCopyRow(buildCopyApiRow({ see_more_rate: null, ctr_all: 1.5 }));
-    expect(row.seeMoreRate).toBe(0);
+  it("carries no see-more field at all (the metric does not exist in the source)", () => {
+    // History: the API fabricated see_more_rate = clamp(ctr_all * 1.5) and the
+    // page re-fabricated it on null. The field was then nulled, and finally
+    // removed end-to-end together with the shared-registry column. This guard
+    // keeps the phantom from coming back under either name.
+    const row = mapApiRowToCopyRow(buildCopyApiRow({ ctr_all: 1.5 }));
+    expect("seeMoreRate" in row).toBe(false);
+    expect("see_more_rate" in row).toBe(false);
   });
 
   it("uses server-computed ratios verbatim without client re-derivation", () => {

@@ -273,10 +273,12 @@ function calculateCreativeTeamHookScore(row: MetaCreativeRow): number {
   const videoFirstStop = scaleMetricToScore(row.thumbstop, 28);
   const videoEarlyHold = scaleMetricToScore(row.video25, 32);
   const imageClickPull = scaleMetricToScore(row.ctrAll, 2.8);
-  const imageReadMore = scaleMetricToScore(row.seeMoreRate, 18);
+  // No see-more metric exists in the warehouse; the former 0.35-weight term
+  // was a phantom input (always 0 outside demo mode). The weight is NOT
+  // renormalized so published scores stay identical to pre-removal values.
   const base = hasCreativeVideoEvidence(row)
     ? videoFirstStop * 0.7 + videoEarlyHold * 0.3
-    : imageClickPull * 0.65 + imageReadMore * 0.35;
+    : imageClickPull * 0.65;
   const hookSignalBoost = hasAiTagValue(row, "hookTactic") ? 6 : 0;
   const headlineSignalBoost =
     hasAiTagValue(row, "headlineTactic", "Question Headline") ||
@@ -310,8 +312,9 @@ function calculateCreativeTeamOfferScore(row: MetaCreativeRow): number {
 function calculateCreativeTeamClickScore(row: MetaCreativeRow): number {
   const ctrAllScore = scaleMetricToScore(row.ctrAll, 2.8);
   const linkCtrScore = scaleMetricToScore(calculateCreativeLinkCtr(row), 2.2);
-  const seeMoreScore = scaleMetricToScore(row.seeMoreRate, 18);
-  return clampScore(ctrAllScore * 0.45 + linkCtrScore * 0.4 + seeMoreScore * 0.15);
+  // Former 0.15-weight see-more term removed (phantom input, always 0);
+  // weights intentionally not renormalized to preserve published scores.
+  return clampScore(ctrAllScore * 0.45 + linkCtrScore * 0.4);
 }
 
 function calculateCreativeTeamWatchScore(row: MetaCreativeRow): number {
@@ -770,7 +773,6 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     thumbstop: safeNumber(row.thumbstop),
     clickToAddToCart,
     clickToPurchase,
-    seeMoreRate: 0,
     video25: safeNumber(row.video25),
     video50: safeNumber(row.video50),
     video75: safeNumber(row.video75),

@@ -122,9 +122,6 @@ export function mapApiRowToCopyRow(row: MetaCopyApiRow): CopyMotionRow {
     thumbstop: row.thumbstop ?? 0,
     clickToAddToCart,
     clickToPurchase,
-    // No real see-more metric exists in the source; the API sends null and
-    // the copies views no longer display this column.
-    seeMoreRate: row.see_more_rate ?? 0,
     video25: row.video25 ?? 0,
     video50: row.video50 ?? 0,
     video75: row.video75 ?? 0,

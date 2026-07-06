@@ -69,7 +69,6 @@ function makeRow(overrides: Partial<MetaCreativeRow> = {}): MetaCreativeRow {
     thumbstop: 0,
     clickToAddToCart: 0,
     clickToPurchase: 0,
-    seeMoreRate: 0,
     video25: 0,
     video50: 0,
     video75: 0,

@@ -156,7 +156,6 @@ export interface MetaCreativeRow {
   thumbstop: number;
   clickToAddToCart: number;
   clickToPurchase: number;
-  seeMoreRate: number;
   video25: number;
   video50: number;
   video75: number;

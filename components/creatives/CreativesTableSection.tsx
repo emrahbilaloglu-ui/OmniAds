@@ -69,7 +69,6 @@ export type TableColumnKey =
   | "thumbstopRatio"
   | "ctrOutbound"
   | "clickToPurchaseRatio"
-  | "seeMoreRate"
   | "ctrAll"
   | "video25Rate"
   | "video50Rate"
@@ -352,10 +351,12 @@ function calculateCreativeHookScore(row: MetaCreativeRow): number {
   const videoFirstStop = scaleMetricToScore(row.thumbstop, 28);
   const videoEarlyHold = scaleMetricToScore(row.video25, 32);
   const imageClickPull = scaleMetricToScore(row.ctrAll, 2.8);
-  const imageReadMore = scaleMetricToScore(row.seeMoreRate, 18);
+  // No see-more metric exists in the warehouse; the former 0.35-weight term
+  // was a phantom input (always 0 outside demo mode). The weight is NOT
+  // renormalized so published scores stay identical to pre-removal values.
   const base = hasVideoEvidence(row)
     ? videoFirstStop * 0.7 + videoEarlyHold * 0.3
-    : imageClickPull * 0.65 + imageReadMore * 0.35;
+    : imageClickPull * 0.65;
   const hookSignalBoost = hasAiTagValue(row, "hookTactic") ? 6 : 0;
   const headlineSignalBoost =
     hasAiTagValue(row, "headlineTactic", "Question Headline") ||
@@ -376,8 +377,9 @@ function calculateCreativeWatchScore(row: MetaCreativeRow): number {
 function calculateCreativeClickScore(row: MetaCreativeRow): number {
   const ctrAllScore = scaleMetricToScore(row.ctrAll, 2.8);
   const linkCtrScore = scaleMetricToScore(calculateCreativeLinkCtr(row), 2.2);
-  const seeMoreScore = scaleMetricToScore(row.seeMoreRate, 18);
-  return clamp(ctrAllScore * 0.45 + linkCtrScore * 0.4 + seeMoreScore * 0.15, 0, 100);
+  // Former 0.15-weight see-more term removed (phantom input, always 0);
+  // weights intentionally not renormalized to preserve published scores.
+  return clamp(ctrAllScore * 0.45 + linkCtrScore * 0.4, 0, 100);
 }
 
 function calculateCreativeCtaScore(row: MetaCreativeRow): number {
@@ -539,7 +541,6 @@ const TABLE_COLUMNS: TableColumnDefinition[] = [
   { key: "thumbstopRatio", label: "Thumbstop ratio", description: "Thumbstop performance ratio.", direction: "high", minWidth: 120, preferredWidth: 140, align: "right", format: fmtPercent, getValue: (r) => r.thumbstop },
   { key: "ctrOutbound", label: "Link CTR (compat)", description: "Compatibility column that uses link clicks / impressions.", direction: "high", minWidth: 140, preferredWidth: 160, align: "right", format: fmtPercent, getValue: (r) => calculateCreativeLinkCtr(r) },
   { key: "clickToPurchaseRatio", label: "Click to purchase ratio", description: "Link clicks that became purchases.", direction: "high", minWidth: 145, preferredWidth: 165, align: "right", format: fmtPercent, getValue: (r) => calculateCreativeClickToPurchaseRate(r) },
-  { key: "seeMoreRate", label: "See more rate", description: "Estimated see-more expansion rate.", direction: "high", minWidth: 120, preferredWidth: 140, align: "right", format: fmtPercent, getValue: (r) => r.seeMoreRate },
   { key: "ctrAll", label: "Click through rate (all)", description: "All-click CTR.", direction: "high", minWidth: 135, preferredWidth: 150, align: "right", format: fmtPercent, getValue: (r) => r.ctrAll },
   { key: "video25Rate", label: "25% video plays (rate)", description: "25% play rate.", direction: "high", minWidth: 145, preferredWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.video25 },
   { key: "video50Rate", label: "50% video plays (rate)", description: "50% play rate.", direction: "high", minWidth: 145, preferredWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.video50 },
@@ -706,7 +707,6 @@ const TABLE_TO_TOP_METRIC_ID: Partial<Record<TableColumnKey, string>> = {
   thumbstopRatio: "thumbstopRatio",
   ctrOutbound: "ctrOutbound",
   clickToPurchaseRatio: "clickToPurchaseRatio",
-  seeMoreRate: "seeMoreRate",
   ctrAll: "ctrAll",
   video25Rate: "video25Rate",
   video50Rate: "video50Rate",
@@ -771,7 +771,6 @@ const TABLE_METRIC_CONFIG: Partial<Record<TableColumnKey, TableMetricConfig>> = 
   thumbstopRatio: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["video"], minConfidenceThreshold: { minSpend: 50, minImpressions: 1000, minEstimatedViews: 200 } },
   ctrOutbound: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["image", "video"] },
   clickToPurchaseRatio: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["image", "video"] },
-  seeMoreRate: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["image", "video"] },
   ctrAll: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["image", "video"] },
   video25Rate: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["video"], minConfidenceThreshold: { minSpend: 50, minImpressions: 1000, minEstimatedViews: 200 } },
   video50Rate: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["video"], minConfidenceThreshold: { minSpend: 50, minImpressions: 1000, minEstimatedViews: 200 } },

@@ -1677,7 +1677,6 @@ export function getDemoMetaCopies() {
     link_clicks: r.link_clicks,
     add_to_cart: r.add_to_cart,
     click_to_purchase: r.link_clicks > 0 ? (r.purchases / r.link_clicks) * 100 : 0,
-    see_more_rate: Math.min(92, r.ctr_all * 1.6),
     thumbstop: r.thumbstop,
     first_frame_retention: r.thumbstop,
     aov: r.purchases > 0 ? r.purchase_value / r.purchases : null,

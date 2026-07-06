@@ -66,6 +66,20 @@ describe("meta page UI contract doc stays consistent with code", () => {
     expect(doc).not.toMatch(/not window- or status-filter-scoped/i);
   });
 
+  it("unified as-of contract: lane/anomaly as-of rendering exists and the doc must not deny it", () => {
+    // The lane payload's own as-of renders in the Snapshot cell micro line
+    // and the anomaly feed's as-of renders above the Action Now cards.
+    expect(page).toContain("laneAsOf");
+    expect(page).toContain('data-testid="meta-anomaly-asof"');
+    expect(doc).toContain("unified as-of contract");
+    expect(doc).toContain("meta-anomaly-asof");
+    // Pre-fix wording (snapshotDate as the requested range end) is banned.
+    expect(doc).not.toMatch(/snapshotDate[^.\n]*requested range end(?![^.\n]*used to echo)/i);
+    const laneRoute = readFileSync("app/api/meta/lane-classify/route.ts", "utf8");
+    expect(laneRoute).toContain("snapshot?.snapshotDate ?? null");
+    expect(laneRoute).toContain("snapshotCreatedAt");
+  });
+
   it("doc references to the page's key contracts stay alive in code", () => {
     for (const symbol of [
       "isTrackingWriteBlocked",

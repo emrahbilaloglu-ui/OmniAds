@@ -974,11 +974,13 @@ function FinalMetaPulse({
   window,
   onManageLabels,
   moneyCurrency,
+  laneAsOf,
 }: {
   pulse?: MetaPulsePayload | null;
   window: MetaWindowKey;
   onManageLabels: () => void;
   moneyCurrency?: string | null;
+  laneAsOf?: { snapshotDate: string | null; snapshotCreatedAt?: string | null } | null;
 }) {
   const endIsToday =
     !pulse?.endDate || pulse.endDate === new Date().toISOString().slice(0, 10);
@@ -1055,6 +1057,7 @@ function FinalMetaPulse({
         <div className="micro">
           engine {pulse?.engineVersion ?? "—"} · ran {pulse?.engineLastRun ? new Date(pulse.engineLastRun).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"} · data{" "}
           {lastSyncLabel ? `synced ${lastSyncLabel}` : "sync unknown"}
+          {laneAsOf ? ` · lanes ${laneAsOf.snapshotDate ?? "unavailable"}` : null}
         </div>
       </div>
       <div className="cell">
@@ -1846,6 +1849,14 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
         window={selectedWindow}
         onManageLabels={() => setLabelModalOpen(true)}
         moneyCurrency={moneyCurrency}
+        laneAsOf={
+          laneQuery.data
+            ? {
+                snapshotDate: laneQuery.data.snapshotDate,
+                snapshotCreatedAt: laneQuery.data.snapshotCreatedAt ?? null,
+              }
+            : null
+        }
       />
 
       {pulseQuery.data?.dataReadiness &&
@@ -2069,6 +2080,11 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
           <div className="lane-stack">
             {activeLane === "action" ? (
               <>
+                {anomalies.length > 0 && anomalyQuery.data?.snapshotDate ? (
+                  <div className="micro" data-testid="meta-anomaly-asof" style={{ padding: "2px 4px" }}>
+                    anomaly scan as of {anomalyQuery.data.snapshotDate}
+                  </div>
+                ) : null}
                 {anomalies.map((anomaly) => (
                   <MetaActionCard key={anomaly.id} anomaly={anomaly} onOpenDrill={(item) => setDrillItem({ mode: "anomaly", anomaly: item as MetaAnomaly })} />
                 ))}

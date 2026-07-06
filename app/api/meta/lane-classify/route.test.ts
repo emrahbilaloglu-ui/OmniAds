@@ -67,6 +67,8 @@ describe("GET /api/meta/lane-classify", () => {
       businessId: "biz_1",
       startDate: "2026-04-10",
       endDate: "2026-05-07",
+      snapshotDate: "2026-05-06",
+      snapshotCreatedAt: "2026-05-06T03:10:00.000Z",
       sourceModel: "snapshot_persistent",
       summary: {
         title: "Snapshot",
@@ -181,6 +183,20 @@ describe("GET /api/meta/lane-classify", () => {
     expect(payload.counts.nonSales).toBe(0);
     expect(payload.counts.archive).toBe(0);
     expect(payload.statusFilter).toBe("active");
+  });
+
+  it("serves the true snapshot as-of, not the requested range end", async () => {
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    // The mocked snapshot read returns endDate 2026-05-07 but the served
+    // rows' snapshot_date is 2026-05-06 - the payload must expose the
+    // latter (echoing endDate overstated freshness and mis-scoped defers).
+    expect(payload.snapshotDate).toBe("2026-05-06");
+    expect(payload.snapshotCreatedAt).toBe("2026-05-06T03:10:00.000Z");
   });
 
   it("clears stale pause acted state when the current ad set is active again", async () => {

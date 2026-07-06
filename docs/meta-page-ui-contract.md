@@ -325,15 +325,35 @@ current `status_filter`. Anomaly cards render in Action Now and add
 to its tab count; they are `MetaAnomaly` objects, not recommendations, and are
 **not** annotated by `rec-presentation` (see caveats).
 
-### Two source models on one page
+### Two source models on one page — unified as-of contract
 
 The pulse strip is a **live/warehouse aggregate** view (fresh up to
-`lastSyncAt`); the lanes are a **persisted decision snapshot** view (fresh up
-to `snapshotHealth.lastRunAt` / `snapshotDate`). They can legitimately
-diverge. Freshness is communicated per model in the Snapshot cell: snapshot
-age + engine run time for the decision model, `synced X ago` / "sync unknown"
-for the ingest model. The ReadinessNotice remediates the snapshot side
-(run-now); the sync side has no page-level remediation control.
+`lastSyncAt`); the lanes are a **persisted decision snapshot** view. They can
+legitimately diverge. Each source carries its OWN as-of in its payload, and
+the Snapshot cell renders all of them together:
+
+- **Ingest (pulse):** `lastSyncAt` = real `MAX(updated_at)` from
+  `meta_campaign_daily`, null-honest ("sync unknown"). Never fabricated.
+- **Decision engine (pulse):** `snapshotHealth` (26h SLA, engine-version
+  check) + `engineLastRun`/`engineVersion`. NOTE: this is the GLOBALLY
+  latest engine run, not range-bounded.
+- **Lanes (lane-classify):** `snapshotDate` is the TRUE `snapshot_date` of
+  the served rows (the newest in-range snapshot — on historical ranges this
+  can be older than the requested end; the payload used to echo the range
+  end, which overstated freshness and mis-scoped deferral events).
+  `snapshotCreatedAt` is the engine write time of those rows. Rendered in
+  the Snapshot cell micro line as `lanes {snapshotDate}` from the lane
+  payload itself, so a pulse-vs-lane divergence is visible, not silent.
+- **Anomalies:** feed-level `snapshotDate` (newest anomaly snapshot at or
+  before the range end), rendered above the anomaly cards in Action Now
+  (`data-testid="meta-anomaly-asof"`); per-item `detectedAt` renders in the
+  drill drawer.
+- **Copies (separate page):** `meta.generatedAt` is response-generation
+  time — a cache-age stamp, NOT an ingest-freshness claim; the two
+  semantics are deliberately distinct.
+
+The ReadinessNotice remediates the snapshot side (run-now); the sync side
+has no page-level remediation control.
 
 ## Server-owned action presentation
 
@@ -468,7 +488,11 @@ Real, current limitations — kept explicit on purpose:
 
 - **Two source models diverge in freshness.** Pulse aggregates
   (live/warehouse) and lane snapshots (persisted engine output) can disagree;
-  the page communicates each model's freshness but does not reconcile them.
+  the page renders each source's own as-of (see the unified as-of contract)
+  but does not reconcile them. The pulse `snapshotHealth` is globally latest
+  while the lane `snapshotDate` is range-bounded — on historical ranges the
+  pulse can say "fresh" while the lanes serve an older in-range snapshot;
+  the rendered `lanes {snapshotDate}` makes that visible.
 - **Anomalies route is not presentation-annotated.** `MetaAnomaly` objects
   bypass `rec-presentation`; their CTA is hardcoded "Open diagnostic".
   Status filtering is coarse by design: it uses the write-time observed

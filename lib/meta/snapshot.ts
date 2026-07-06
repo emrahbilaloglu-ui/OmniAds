@@ -1169,6 +1169,12 @@ export async function readMetaDecisionSnapshotForRange(input: {
     businessId: input.businessId,
     recommendations: guardedRecommendations,
   });
+  const servedSnapshotDate = rows[0]?.snapshot_date ?? null;
+  const servedSnapshotCreatedAt = rows.reduce<string | null>(
+    (latest, row) =>
+      row.created_at && (!latest || row.created_at > latest) ? row.created_at : latest,
+    null,
+  );
   return {
     status: "ok",
     businessId: input.businessId,
@@ -1177,6 +1183,8 @@ export async function readMetaDecisionSnapshotForRange(input: {
     summary: buildSnapshotSummary(recommendations),
     recommendations,
     sourceModel: "snapshot_persistent",
+    snapshotDate: servedSnapshotDate,
+    snapshotCreatedAt: servedSnapshotCreatedAt,
     analysisSource: {
       system: "snapshot_persistent",
       decisionOsAvailable: false,

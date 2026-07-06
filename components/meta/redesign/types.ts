@@ -137,7 +137,10 @@ export interface MetaLanePayload {
   startDate: string;
   endDate: string;
   sourceModel: string;
+  /** True snapshot_date of the served lane rows (not the range end). */
   snapshotDate: string | null;
+  /** Engine write time (created_at) of the served snapshot rows. */
+  snapshotCreatedAt?: string | null;
   statusFilter?: BriefingStatusFilter;
   actionNow: MetaRecommendation[];
   watching: MetaRecommendation[];

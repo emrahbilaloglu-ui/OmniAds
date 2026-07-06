@@ -15,7 +15,7 @@ docs/meta-page-ui-contract.md).
 
 | Surface | Score | Server truth? | Payload currency | Freshness honesty |
 |---|---|---|---|---|
-| Decision Center (/platforms/meta) | 7.5 | yes (post-hardening: server-owned actionKind/labels/metrics; anomalies now status-filter-scoped, coarse+fail-open) | yes (pulse) | real lastSyncAt or "sync unknown"; dataReadiness banner |
+| Decision Center (/platforms/meta) | 8 | yes (post-hardening: server-owned actionKind/labels/metrics; anomalies status-filter-scoped, coarse+fail-open) | yes (pulse) | unified as-of: real lastSyncAt or "sync unknown", true lane snapshotDate rendered, anomaly-feed as-of rendered, dataReadiness banner |
 | Creatives (/platforms/meta/creatives) | 9 | yes (CDC v3; invariant-guarded) | yes (briefing card contract + asset library default currency) | snapshot health + calibration honesty copy |
 | Launchpad | 9 | yes (server validate + forced-PAUSED launch; route contracts, payload normalizer, and the meta-store SQL seam all tested - the seam against real Postgres) | yes (new-campaign payload currencyCode + selection rendering) | honest (server updatedAt) |
 | Copies | 8 | yes (real funnel/video fields mapped+summed; seeMoreRate fabrication removed server+client; no client re-derivation) | yes (per-row) | generatedAt stamped and rendered; unresolved-count rendered |
@@ -36,13 +36,10 @@ docs/meta-page-ui-contract.md).
    loop for confidence thresholds (calibration exists, thresholds untested
    against outcomes), 30d fixed lookback. Largest remaining structural
    item on the Decision Center path to 10.
-2. **Two-source freshness model on the Decision Center** (live pulse
-   aggregates vs persisted decision snapshot lanes) is communicated only by
-   the snapshot chip; a unified as-of contract would survive any redesign.
-3. **Present-config-over-history classes in lib/meta/serving.ts** (historical
+2. **Present-config-over-history classes in lib/meta/serving.ts** (historical
    windows classified by current status/bid config) — anachronism debt
    shared by pulse and lanes.
-4. **Stale e2e specs assert dead testids** (`reviewer-smoke.spec.ts:42`,
+3. **Stale e2e specs assert dead testids** (`reviewer-smoke.spec.ts:42`,
     `commercial-truth-smoke.spec.ts:118,443,564` target components with no
     importer); the Playwright layer needs a redesign-era rewrite — blocked
     on/coupled to the frontend redesign decision.
@@ -90,7 +87,16 @@ status IN (draft,failed) list filter, updated_at DESC ordering, payload
 normalization round-trips for both modes, and the recent-templates
 lateral join (top-5 by dim.updated_at, latest-config OUTCOME_SALES
 filter, adset counts) - verified green against a from-zero-migrated
-real Postgres.
+real Postgres. Unified as-of contract shipped: the lane payload now
+carries the TRUE served snapshot_date + snapshotCreatedAt (it used to echo
+the requested range end, overstating freshness on historical ranges and
+mis-scoping deferral events), the Snapshot cell renders each source's own
+as-of side by side (`lanes {snapshotDate}`), and the anomaly feed's
+snapshot as-of renders above the Action Now cards
+(data-testid="meta-anomaly-asof"); doc-contract guards ban the pre-fix
+wording. Known residual asymmetry documented: pulse snapshotHealth is
+globally latest while lane snapshotDate is range-bounded - the render
+makes the divergence visible instead of reconciling it.
 
 ## B. UI-only / design-shell debt (redesign wipes it — do NOT polish now)
 

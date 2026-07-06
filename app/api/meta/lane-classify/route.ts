@@ -1375,7 +1375,11 @@ export async function GET(request: NextRequest) {
     startDate,
     endDate,
     sourceModel: snapshot?.sourceModel ?? "snapshot_persistent",
-    snapshotDate: snapshot?.endDate ?? null,
+    // True served snapshot_date - NOT the requested endDate. On historical
+    // ranges the newest in-range snapshot can be older than the range end;
+    // echoing endDate here overstated freshness (and mis-scoped deferrals).
+    snapshotDate: snapshot?.snapshotDate ?? null,
+    snapshotCreatedAt: snapshot?.snapshotCreatedAt ?? null,
     actionNow: annotatedActionNow,
     watching: annotatedWatching,
     healthy,

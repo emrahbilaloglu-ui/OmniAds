@@ -313,6 +313,12 @@ export interface MetaRecommendationsResponse {
   summary: MetaDecisionSummary;
   recommendations: MetaRecommendation[];
   sourceModel?: "snapshot_heuristics" | "snapshot_persistent" | "snapshot_live";
+  /** True snapshot_date of the served rows (NOT the requested range end -
+   * on historical ranges the newest in-range snapshot can be older than
+   * endDate). Null when no snapshot rows were served. */
+  snapshotDate?: string | null;
+  /** created_at of the served snapshot rows (engine write time). */
+  snapshotCreatedAt?: string | null;
   analysisSource?: MetaRecommendationAnalysisSource;
 }
 

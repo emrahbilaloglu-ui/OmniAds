@@ -1,0 +1,6318 @@
+{
+  "title": "June Operator Alignment - replayed hard decisions (weekly June grid) vs organic operator response, full 7d windows",
+  "generatedAt": "2026-07-06T16:58:14.838Z",
+  "liveStatus": "live_db_read_only",
+  "readOnly": true,
+  "dbWrites": false,
+  "providerWrites": false,
+  "cronPosted": false,
+  "jobsExecuted": false,
+  "engineVersion": "v3-2026-07-06-decision-stability",
+  "asOfGrid": [
+    "2026-06-01",
+    "2026-06-08",
+    "2026-06-15",
+    "2026-06-22"
+  ],
+  "evaluationCeiling": "2026-07-05",
+  "responseWindowsDays": [
+    1,
+    3,
+    7
+  ],
+  "outcomeWindowDays": 7,
+  "cutSpendDropFraction": 0.1,
+  "scaleSpendRiseFactor": 1.25,
+  "businesses": {
+    "included": [
+      "Adsecute Demo",
+      "Bilsem Zeka",
+      "BskTR",
+      "ColorFullWorldsTR",
+      "EMOLOS",
+      "Enise",
+      "Grandmix",
+      "Halıcızade",
+      "IwaStore",
+      "IwaTR",
+      "Silveristic",
+      "TheSwaf",
+      "Vornom"
+    ],
+    "excluded": [
+      {
+        "name": "Tiles Workshop",
+        "reason": "broken feed / sync problem (user directive)"
+      }
+    ]
+  },
+  "gridSummaries": [
+    {
+      "asOf": "2026-06-01",
+      "businessesOk": 13,
+      "businessesFailed": 0,
+      "inputRows": 904,
+      "dedupedDecisions": 904,
+      "hardCut": 34,
+      "hardScale": 3,
+      "newInCohort": 37
+    },
+    {
+      "asOf": "2026-06-08",
+      "businessesOk": 13,
+      "businessesFailed": 0,
+      "inputRows": 897,
+      "dedupedDecisions": 897,
+      "hardCut": 35,
+      "hardScale": 5,
+      "newInCohort": 10
+    },
+    {
+      "asOf": "2026-06-15",
+      "businessesOk": 13,
+      "businessesFailed": 0,
+      "inputRows": 840,
+      "dedupedDecisions": 840,
+      "hardCut": 24,
+      "hardScale": 0,
+      "newInCohort": 6
+    },
+    {
+      "asOf": "2026-06-22",
+      "businessesOk": 13,
+      "businessesFailed": 0,
+      "inputRows": 730,
+      "dedupedDecisions": 730,
+      "hardCut": 21,
+      "hardScale": 2,
+      "newInCohort": 12
+    }
+  ],
+  "cohort": {
+    "hardDecisionRowsAcrossGrid": 124,
+    "dedupedDecisions": 65,
+    "cuts": 58,
+    "scales": 7,
+    "recurring": 37
+  },
+  "businessDataCeilings": {
+    "ColorFullWorldsTR": {
+      "raw": "2026-07-06",
+      "lastCompleteDayUsed": "2026-07-05"
+    },
+    "EMOLOS": {
+      "raw": "2026-07-06",
+      "lastCompleteDayUsed": "2026-07-05"
+    },
+    "Grandmix": {
+      "raw": "2026-07-06",
+      "lastCompleteDayUsed": "2026-07-05"
+    },
+    "Halıcızade": {
+      "raw": "2026-07-06",
+      "lastCompleteDayUsed": "2026-07-05"
+    },
+    "IwaStore": {
+      "raw": "2026-07-06",
+      "lastCompleteDayUsed": "2026-07-05"
+    },
+    "TheSwaf": {
+      "raw": "2026-07-06",
+      "lastCompleteDayUsed": "2026-07-05"
+    }
+  },
+  "overall": {
+    "decisions": 65,
+    "cuts": {
+      "total": 58,
+      "measurable": 31,
+      "zeroSpendAtDecision": 27,
+      "unobservableForwardWindow": 0,
+      "respondedWithinObservable": 21,
+      "byWindow": [
+        {
+          "windowDays": 1,
+          "evaluable": 31,
+          "responded": 21,
+          "responseRate": 0.6774,
+          "truncated": 0
+        },
+        {
+          "windowDays": 3,
+          "evaluable": 31,
+          "responded": 21,
+          "responseRate": 0.6774,
+          "truncated": 0
+        },
+        {
+          "windowDays": 7,
+          "evaluable": 31,
+          "responded": 21,
+          "responseRate": 0.6774,
+          "truncated": 0
+        }
+      ],
+      "medianDaysToResponse": 1,
+      "spendAfterUnrespondedCutsFull7d": 14264.06,
+      "unrespondedCutCount": 10,
+      "unknownOutcomeInteraction": {
+        "respondedCuts": 21,
+        "respondedCutsWithZeroForwardSpend": 10,
+        "unknownOutcomeShareOfRespondedCuts": 0.4762
+      }
+    },
+    "scales": {
+      "total": 7,
+      "measurable": 7,
+      "zeroSpendAtDecision": 0,
+      "unobservableForwardWindow": 0,
+      "byWindow": [
+        {
+          "windowDays": 1,
+          "evaluable": 7,
+          "responded": 2,
+          "responseRate": 0.2857,
+          "truncated": 0
+        },
+        {
+          "windowDays": 3,
+          "evaluable": 7,
+          "responded": 1,
+          "responseRate": 0.1429,
+          "truncated": 0
+        },
+        {
+          "windowDays": 7,
+          "evaluable": 7,
+          "responded": 2,
+          "responseRate": 0.2857,
+          "truncated": 0
+        }
+      ]
+    }
+  },
+  "byBusiness": [
+    {
+      "business": "ColorFullWorldsTR",
+      "isDemoBusiness": false,
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "summary": {
+        "decisions": 3,
+        "cuts": {
+          "total": 2,
+          "measurable": 0,
+          "zeroSpendAtDecision": 2,
+          "unobservableForwardWindow": 0,
+          "respondedWithinObservable": 0,
+          "byWindow": [
+            {
+              "windowDays": 1,
+              "evaluable": 0,
+              "responded": 0,
+              "responseRate": null,
+              "truncated": 0
+            },
+            {
+              "windowDays": 3,
+              "evaluable": 0,
+              "responded": 0,
+              "responseRate": null,
+              "truncated": 0
+            },
+            {
+              "windowDays": 7,
+              "evaluable": 0,
+              "responded": 0,
+              "responseRate": null,
+              "truncated": 0
+            }
+          ],
+          "medianDaysToResponse": null,
+          "spendAfterUnrespondedCutsFull7d": 0,
+          "unrespondedCutCount": 0,
+          "unknownOutcomeInteraction": {
+            "respondedCuts": 0,
+            "respondedCutsWithZeroForwardSpend": 0,
+            "unknownOutcomeShareOfRespondedCuts": null
+          }
+        },
+        "scales": {
+          "total": 1,
+          "measurable": 1,
+          "zeroSpendAtDecision": 0,
+          "unobservableForwardWindow": 0,
+          "byWindow": [
+            {
+              "windowDays": 1,
+              "evaluable": 1,
+              "responded": 0,
+              "responseRate": 0,
+              "truncated": 0
+            },
+            {
+              "windowDays": 3,
+              "evaluable": 1,
+              "responded": 0,
+              "responseRate": 0,
+              "truncated": 0
+            },
+            {
+              "windowDays": 7,
+              "evaluable": 1,
+              "responded": 0,
+              "responseRate": 0,
+              "truncated": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "business": "EMOLOS",
+      "isDemoBusiness": false,
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "summary": {
+        "decisions": 12,
+        "cuts": {
+          "total": 12,
+          "measurable": 6,
+          "zeroSpendAtDecision": 6,
+          "unobservableForwardWindow": 0,
+          "respondedWithinObservable": 6,
+          "byWindow": [
+            {
+              "windowDays": 1,
+              "evaluable": 6,
+              "responded": 6,
+              "responseRate": 1,
+              "truncated": 0
+            },
+            {
+              "windowDays": 3,
+              "evaluable": 6,
+              "responded": 6,
+              "responseRate": 1,
+              "truncated": 0
+            },
+            {
+              "windowDays": 7,
+              "evaluable": 6,
+              "responded": 6,
+              "responseRate": 1,
+              "truncated": 0
+            }
+          ],
+          "medianDaysToResponse": 1,
+          "spendAfterUnrespondedCutsFull7d": 0,
+          "unrespondedCutCount": 0,
+          "unknownOutcomeInteraction": {
+            "respondedCuts": 6,
+            "respondedCutsWithZeroForwardSpend": 1,
+            "unknownOutcomeShareOfRespondedCuts": 0.1667
+          }
+        },
+        "scales": {
+          "total": 0,
+          "measurable": 0,
+          "zeroSpendAtDecision": 0,
+          "unobservableForwardWindow": 0,
+          "byWindow": [
+            {
+              "windowDays": 1,
+              "evaluable": 0,
+              "responded": 0,
+              "responseRate": null,
+              "truncated": 0
+            },
+            {
+              "windowDays": 3,
+              "evaluable": 0,
+              "responded": 0,
+              "responseRate": null,
+              "truncated": 0
+            },
+            {
+              "windowDays": 7,
+              "evaluable": 0,
+              "responded": 0,
+              "responseRate": null,
+              "truncated": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "business": "Grandmix",
+      "isDemoBusiness": false,
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "summary": {
+        "decisions": 8,
+        "cuts": {
+          "total": 7,
+          "measurable": 1,
+          "zeroSpendAtDecision": 6,
+          "unobservableForwardWindow": 0,
+          "respondedWithinObservable": 0,
+          "byWindow": [
+            {
+              "windowDays": 1,
+              "evaluable": 1,
+              "responded": 0,
+              "responseRate": 0,
+              "truncated": 0
+            },
+            {
+              "windowDays": 3,
+              "evaluable": 1,
+              "responded": 0,
+              "responseRate": 0,
+              "truncated": 0
+            },
+            {
+              "windowDays": 7,
+              "evaluable": 1,
+              "responded": 0,
+              "responseRate": 0,
+              "truncated": 0
+            }
+          ],
+          "medianDaysToResponse": null,
+          "spendAfterUnrespondedCutsFull7d": 88.68,
+          "unrespondedCutCount": 1,
+          "unknownOutcomeInteraction": {
+            "respondedCuts": 0,
+            "respondedCutsWithZeroForwardSpend": 0,
+            "unknownOutcomeShareOfRespondedCuts": null
+          }
+        },
+        "scales": {
+          "total": 1,
+          "measurable": 1,
+          "zeroSpendAtDecision": 0,
+          "unobservableForwardWindow": 0,
+          "byWindow": [
+            {
+              "windowDays": 1,
+              "evaluable": 1,
+              "responded": 1,
+              "responseRate": 1,
+              "truncated": 0
+            },
+            {
+              "windowDays": 3,
+              "evaluable": 1,
+              "responded": 0,
+              "responseRate": 0,
+              "truncated": 0
+            },
+            {
+              "windowDays": 7,
+              "evaluable": 1,
+              "responded": 0,
+              "responseRate": 0,
+              "truncated": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "business": "Halıcızade",
+      "isDemoBusiness": false,
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "summary": {
+        "decisions": 1,
+        "cuts": {
+          "total": 1,
+          "measurable": 1,
+          "zeroSpendAtDecision": 0,
+          "unobservableForwardWindow": 0,
+          "respondedWithinObservable": 1,
+          "byWindow": [
+            {
+              "windowDays": 1,
+              "evaluable": 1,
+              "responded": 1,
+              "responseRate": 1,
+              "truncated": 0
+            },
+            {
+              "windowDays": 3,
+              "evaluable": 1,
+              "responded": 1,
+              "responseRate": 1,
+              "truncated": 0
+            },
+            {
+              "windowDays": 7,
+              "evaluable": 1,
+              "responded": 1,
+              "responseRate": 1,
+              "truncated": 0
+            }
+          ],
+          "medianDaysToResponse": 1,
+          "spendAfterUnrespondedCutsFull7d": 0,
+          "unrespondedCutCount": 0,
+          "unknownOutcomeInteraction": {
+            "respondedCuts": 1,
+            "respondedCutsWithZeroForwardSpend": 1,
+            "unknownOutcomeShareOfRespondedCuts": 1
+          }
+        },
+        "scales": {
+          "total": 0,
+          "measurable": 0,
+          "zeroSpendAtDecision": 0,
+          "unobservableForwardWindow": 0,
+          "byWindow": [
+            {
+              "windowDays": 1,
+              "evaluable": 0,
+              "responded": 0,
+              "responseRate": null,
+              "truncated": 0
+            },
+            {
+              "windowDays": 3,
+              "evaluable": 0,
+              "responded": 0,
+              "responseRate": null,
+              "truncated": 0
+            },
+            {
+              "windowDays": 7,
+              "evaluable": 0,
+              "responded": 0,
+              "responseRate": null,
+              "truncated": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "business": "IwaStore",
+      "isDemoBusiness": false,
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "summary": {
+        "decisions": 8,
+        "cuts": {
+          "total": 3,
+          "measurable": 3,
+          "zeroSpendAtDecision": 0,
+          "unobservableForwardWindow": 0,
+          "respondedWithinObservable": 2,
+          "byWindow": [
+            {
+              "windowDays": 1,
+              "evaluable": 3,
+              "responded": 2,
+              "responseRate": 0.6667,
+              "truncated": 0
+            },
+            {
+              "windowDays": 3,
+              "evaluable": 3,
+              "responded": 2,
+              "responseRate": 0.6667,
+              "truncated": 0
+            },
+            {
+              "windowDays": 7,
+              "evaluable": 3,
+              "responded": 2,
+              "responseRate": 0.6667,
+              "truncated": 0
+            }
+          ],
+          "medianDaysToResponse": 1,
+          "spendAfterUnrespondedCutsFull7d": 62.49,
+          "unrespondedCutCount": 1,
+          "unknownOutcomeInteraction": {
+            "respondedCuts": 2,
+            "respondedCutsWithZeroForwardSpend": 0,
+            "unknownOutcomeShareOfRespondedCuts": 0
+          }
+        },
+        "scales": {
+          "total": 5,
+          "measurable": 5,
+          "zeroSpendAtDecision": 0,
+          "unobservableForwardWindow": 0,
+          "byWindow": [
+            {
+              "windowDays": 1,
+              "evaluable": 5,
+              "responded": 1,
+              "responseRate": 0.2,
+              "truncated": 0
+            },
+            {
+              "windowDays": 3,
+              "evaluable": 5,
+              "responded": 1,
+              "responseRate": 0.2,
+              "truncated": 0
+            },
+            {
+              "windowDays": 7,
+              "evaluable": 5,
+              "responded": 2,
+              "responseRate": 0.4,
+              "truncated": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "business": "TheSwaf",
+      "isDemoBusiness": false,
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "summary": {
+        "decisions": 33,
+        "cuts": {
+          "total": 33,
+          "measurable": 20,
+          "zeroSpendAtDecision": 13,
+          "unobservableForwardWindow": 0,
+          "respondedWithinObservable": 12,
+          "byWindow": [
+            {
+              "windowDays": 1,
+              "evaluable": 20,
+              "responded": 12,
+              "responseRate": 0.6,
+              "truncated": 0
+            },
+            {
+              "windowDays": 3,
+              "evaluable": 20,
+              "responded": 12,
+              "responseRate": 0.6,
+              "truncated": 0
+            },
+            {
+              "windowDays": 7,
+              "evaluable": 20,
+              "responded": 12,
+              "responseRate": 0.6,
+              "truncated": 0
+            }
+          ],
+          "medianDaysToResponse": 1,
+          "spendAfterUnrespondedCutsFull7d": 14112.89,
+          "unrespondedCutCount": 8,
+          "unknownOutcomeInteraction": {
+            "respondedCuts": 12,
+            "respondedCutsWithZeroForwardSpend": 8,
+            "unknownOutcomeShareOfRespondedCuts": 0.6667
+          }
+        },
+        "scales": {
+          "total": 0,
+          "measurable": 0,
+          "zeroSpendAtDecision": 0,
+          "unobservableForwardWindow": 0,
+          "byWindow": [
+            {
+              "windowDays": 1,
+              "evaluable": 0,
+              "responded": 0,
+              "responseRate": null,
+              "truncated": 0
+            },
+            {
+              "windowDays": 3,
+              "evaluable": 0,
+              "responded": 0,
+              "responseRate": null,
+              "truncated": 0
+            },
+            {
+              "windowDays": 7,
+              "evaluable": 0,
+              "responded": 0,
+              "responseRate": null,
+              "truncated": 0
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "decisions": [
+    {
+      "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+      "businessName": "ColorFullWorldsTR",
+      "isDemoBusiness": false,
+      "creativeId": "1636437490809810",
+      "creativeName": "Burası sadece",
+      "campaignId": "120240386684140340",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 65,
+      "spend28d": 450.45,
+      "spend24h": null,
+      "reason": "ROAS 2.32 (28d) = 58% of target after $450 spend (28d) — clear loser at scale.",
+      "gridAppearances": 2,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+      "businessName": "ColorFullWorldsTR",
+      "isDemoBusiness": false,
+      "creativeId": "1696918907975404",
+      "creativeName": "2026 Dünya Kupası",
+      "campaignId": "120240386684140340",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 65,
+      "spend28d": 363.34,
+      "spend24h": null,
+      "reason": "ROAS 2.96 (28d) = 74% of target after $363 spend (28d) — clear loser at scale.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-01"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "bc0c6178-7853-4f6f-b026-ef0222a4b9e7",
+      "businessName": "ColorFullWorldsTR",
+      "isDemoBusiness": false,
+      "creativeId": "1369446851662907",
+      "creativeName": "Metal Harita Catalog",
+      "campaignId": "120241338151290340",
+      "label": "scale",
+      "asOf": "2026-06-22",
+      "confidence": 75,
+      "spend28d": 289.19,
+      "spend24h": 12.25,
+      "reason": "ROAS 5.43 (28d) = 136% of target 4.00 with 14 purchases (28d) and recent 7d holding at 10.28 — scale the ad set budget.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-22"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 12.25,
+      "trailing7dMeanDailySpend": 12.14,
+      "baselineDailySpend": 12.25,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-23",
+          "spend": 12.51,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-24",
+          "spend": 11.58,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-25",
+          "spend": 10.73,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 4,
+          "date": "2026-06-26",
+          "spend": 11.78,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 5,
+          "date": "2026-06-27",
+          "spend": 8.11,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 6,
+          "date": "2026-06-28",
+          "spend": 12.88,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 7,
+          "date": "2026-06-29",
+          "spend": 7.29,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 74.88,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+      "businessName": "EMOLOS",
+      "isDemoBusiness": false,
+      "creativeId": "1323544629737422",
+      "creativeName": "Retest HOLD | Hoodies - R 4 | Video DOF5",
+      "campaignId": "120245714163440459",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 75,
+      "spend28d": 511.15,
+      "spend24h": 41.5,
+      "reason": "ROAS 0.36 (28d) = 14% of target after $511 spend (28d) — clear loser at scale.",
+      "gridAppearances": 3,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08",
+        "2026-06-15"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 41.5,
+      "trailing7dMeanDailySpend": 39.82,
+      "baselineDailySpend": 41.5,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 37.16,
+          "effectiveStatus": "CAMPAIGN_PAUSED"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 31.91,
+          "effectiveStatus": "CAMPAIGN_PAUSED"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "status_left_active",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": true,
+        "7": true
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 69.07,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+      "businessName": "EMOLOS",
+      "isDemoBusiness": false,
+      "creativeId": "1365577345392907",
+      "creativeName": "Retest | Jeans Product Video - Slim Fit Jeans Washed Raw Denim | Video DOF5",
+      "campaignId": "120245714163440459",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 75,
+      "spend28d": 337.18,
+      "spend24h": 23.35,
+      "reason": "ROAS 0.38 (28d) = 15% of target after $337 spend (28d) — clear loser at scale.",
+      "gridAppearances": 2,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 23.35,
+      "trailing7dMeanDailySpend": 29.21,
+      "baselineDailySpend": 23.35,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 36.28,
+          "effectiveStatus": "CAMPAIGN_PAUSED"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 26.92,
+          "effectiveStatus": "CAMPAIGN_PAUSED"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": "CAMPAIGN_PAUSED"
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "status_left_active",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": true,
+        "7": true
+      },
+      "scaleRespondedWithin": {
+        "1": true,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 63.2,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+      "businessName": "EMOLOS",
+      "isDemoBusiness": false,
+      "creativeId": "1619630062596638",
+      "creativeName": "Jeans Carousel - Slim Fit Jeans Washed Raw Denim | Carousel DOF5",
+      "campaignId": "120245366776710459",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 65,
+      "spend28d": 385.8,
+      "spend24h": null,
+      "reason": "ROAS 0.17 (28d) = 7% of target after $386 spend (28d) — clear loser at scale.",
+      "gridAppearances": 2,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+      "businessName": "EMOLOS",
+      "isDemoBusiness": false,
+      "creativeId": "1899500230707112",
+      "creativeName": "BidCap Discovery | Discovery - Homepage - kr1 | Video DOF5",
+      "campaignId": "120245714154940459",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 75,
+      "spend28d": 123.7,
+      "spend24h": 9.54,
+      "reason": "ROAS 0.55 (28d) = 22% of target after $124 spend (28d) — loss-budget maturity reached at $71; cut underperforming creative.",
+      "gridAppearances": 4,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08",
+        "2026-06-15",
+        "2026-06-22"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 9.54,
+      "trailing7dMeanDailySpend": 17.67,
+      "baselineDailySpend": 9.54,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 6.27,
+          "effectiveStatus": "CAMPAIGN_PAUSED"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 5.26,
+          "effectiveStatus": "CAMPAIGN_PAUSED"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": "CAMPAIGN_PAUSED"
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "status_left_active",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": true,
+        "7": true
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 11.53,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+      "businessName": "EMOLOS",
+      "isDemoBusiness": false,
+      "creativeId": "2256567028449909",
+      "creativeName": "Retest | Polo Carousel - Premium Pique Polo Shirt Black | Carousel DOF5",
+      "campaignId": "120245714163440459",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 75,
+      "spend28d": 340.81,
+      "spend24h": 36.3,
+      "reason": "ROAS 0.58 (28d) = 23% of target after $341 spend (28d) — clear loser at scale.",
+      "gridAppearances": 3,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08",
+        "2026-06-15"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 36.3,
+      "trailing7dMeanDailySpend": 33.19,
+      "baselineDailySpend": 36.3,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 48.12,
+          "effectiveStatus": "CAMPAIGN_PAUSED"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 26.94,
+          "effectiveStatus": "CAMPAIGN_PAUSED"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": "CAMPAIGN_PAUSED"
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "status_left_active",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": true,
+        "7": true
+      },
+      "scaleRespondedWithin": {
+        "1": true,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 75.06,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+      "businessName": "EMOLOS",
+      "isDemoBusiness": false,
+      "creativeId": "2846119509068113",
+      "creativeName": "Chino Carousel - Slim Fit Chino Trousers Olive Grey | Carousel DOF5",
+      "campaignId": "120245366776710459",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 65,
+      "spend28d": 375.81,
+      "spend24h": null,
+      "reason": "ROAS 0.36 (28d) = 15% of target after $376 spend (28d) — clear loser at scale.",
+      "gridAppearances": 2,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+      "businessName": "EMOLOS",
+      "isDemoBusiness": false,
+      "creativeId": "854440610396270",
+      "creativeName": "Shorts Carousel - Carpenter Denim Shorts Washed - Stone Blue | Carousel DOF5",
+      "campaignId": "120245366776710459",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 65,
+      "spend28d": 346.52,
+      "spend24h": null,
+      "reason": "ROAS 0.31 (28d) = 12% of target after $347 spend (28d) — clear loser at scale.",
+      "gridAppearances": 2,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+      "businessName": "EMOLOS",
+      "isDemoBusiness": false,
+      "creativeId": "864212896711133",
+      "creativeName": "Retest HOLD | Chino Product Video - Slim Fit Chino Trousers Black | Video DOF5",
+      "campaignId": "120245714163440459",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 75,
+      "spend28d": 343.2,
+      "spend24h": 27.47,
+      "reason": "ROAS 0.00 (28d) = 0% of target after $343 spend (28d) — clear loser at scale.",
+      "gridAppearances": 4,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08",
+        "2026-06-15",
+        "2026-06-22"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 27.47,
+      "trailing7dMeanDailySpend": 26.96,
+      "baselineDailySpend": 27.47,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 32.85,
+          "effectiveStatus": "PAUSED"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 12.51,
+          "effectiveStatus": "PAUSED"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "status_left_active",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": true,
+        "7": true
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 45.36,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+      "businessName": "EMOLOS",
+      "isDemoBusiness": false,
+      "creativeId": "907464492353856",
+      "creativeName": "Polo Product Video - Premium Pique Polo Shirt White | DOF5",
+      "campaignId": "120245366776710459",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 65,
+      "spend28d": 361.71,
+      "spend24h": null,
+      "reason": "ROAS 0.12 (28d) = 5% of target after $362 spend (28d) — clear loser at scale.",
+      "gridAppearances": 2,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+      "businessName": "EMOLOS",
+      "isDemoBusiness": false,
+      "creativeId": "989873033626399",
+      "creativeName": "Polo Carousel - Premium Pique Polo Shirt Olive Khaki Extra Angles | Carousel DOF5",
+      "campaignId": "120245366776710459",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 65,
+      "spend28d": 355.34,
+      "spend24h": null,
+      "reason": "ROAS 0.17 (28d) = 7% of target after $355 spend (28d) — clear loser at scale.",
+      "gridAppearances": 2,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+      "businessName": "EMOLOS",
+      "isDemoBusiness": false,
+      "creativeId": "962418690099350",
+      "creativeName": "Retest | Polo Product Video - Premium Pique Polo Shirt Dark Grey | Video DOF5",
+      "campaignId": "120245714163440459",
+      "label": "cut",
+      "asOf": "2026-06-08",
+      "confidence": 75,
+      "spend28d": 503.42,
+      "spend24h": null,
+      "reason": "ROAS 0.55 (28d) = 22% of target after $503 spend (28d) — clear loser at scale.",
+      "gridAppearances": 3,
+      "gridDates": [
+        "2026-06-08",
+        "2026-06-15",
+        "2026-06-22"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 9.57,
+      "baselineDailySpend": 9.57,
+      "baselineSource": "trailing_7d_mean",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-09",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-10",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-11",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-12",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-13",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-14",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-15",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "spend_drop",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": true,
+        "7": true
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+      "businessName": "EMOLOS",
+      "isDemoBusiness": false,
+      "creativeId": "839861612507719",
+      "creativeName": "Retest HOLD | Outerwear - Denim Jacket R 6 | Video DOF5",
+      "campaignId": "120245714163440459",
+      "label": "cut",
+      "asOf": "2026-06-22",
+      "confidence": 65,
+      "spend28d": 338.77,
+      "spend24h": null,
+      "reason": "ROAS 0.00 (28d) = 0% of target after $339 spend (28d) — clear loser at scale.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-22"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-23",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-24",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-25",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-26",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-27",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-28",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-29",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+      "businessName": "Grandmix",
+      "isDemoBusiness": false,
+      "creativeId": "1199888448810753",
+      "creativeName": "BathroomMeta-DPA",
+      "campaignId": "120247883840690316",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 65,
+      "spend28d": 949.77,
+      "spend24h": null,
+      "reason": "ROAS 0.33 (28d) = 15% of target after $950 spend (28d) — clear loser at scale.",
+      "gridAppearances": 3,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08",
+        "2026-06-15"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+      "businessName": "Grandmix",
+      "isDemoBusiness": false,
+      "creativeId": "1479802413878502",
+      "creativeName": "R2-Deanna-PDP",
+      "campaignId": "120247623585650316",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 65,
+      "spend28d": 631.66,
+      "spend24h": null,
+      "reason": "ROAS 0.39 (28d) = 18% of target after $632 spend (28d) — sustained loser.",
+      "gridAppearances": 2,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+      "businessName": "Grandmix",
+      "isDemoBusiness": false,
+      "creativeId": "1598668524564962",
+      "creativeName": "Claude-2TS-V2-42a59e88",
+      "campaignId": "120247433863580316",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 65,
+      "spend28d": 1184.96,
+      "spend24h": null,
+      "reason": "ROAS 0.47 (28d) = 21% of target after $1,185 spend (28d) — clear loser at scale.",
+      "gridAppearances": 2,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+      "businessName": "Grandmix",
+      "isDemoBusiness": false,
+      "creativeId": "2227936340946323",
+      "creativeName": "Claude-2TS-I5-7d2dfb7e",
+      "campaignId": "120247433863580316",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 65,
+      "spend28d": 1452.26,
+      "spend24h": null,
+      "reason": "ROAS 0.54 (28d) = 25% of target after $1,452 spend (28d) — clear loser at scale.",
+      "gridAppearances": 2,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+      "businessName": "Grandmix",
+      "isDemoBusiness": false,
+      "creativeId": "26793283900312957",
+      "creativeName": "Claude-2TS-V3-6e8c9978",
+      "campaignId": "120247433863580316",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 65,
+      "spend28d": 1096.35,
+      "spend24h": null,
+      "reason": "ROAS 0.27 (28d) = 12% of target after $1,096 spend (28d) — clear loser at scale.",
+      "gridAppearances": 2,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+      "businessName": "Grandmix",
+      "isDemoBusiness": false,
+      "creativeId": "693776863669477",
+      "creativeName": "Utility",
+      "campaignId": "120241060762560316",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 75,
+      "spend28d": 387.34,
+      "spend24h": 18.56,
+      "reason": "ROAS 0.85 (28d) = 38% of target after $387 spend (28d) — loss-budget maturity reached at $265; cut underperforming creative.",
+      "gridAppearances": 2,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 18.56,
+      "trailing7dMeanDailySpend": 11.48,
+      "baselineDailySpend": 18.56,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 11.32,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 9.65,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 7.89,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 10.93,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 13.24,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 22.81,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 12.84,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 88.68,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+      "businessName": "Grandmix",
+      "isDemoBusiness": false,
+      "creativeId": "903459306039600",
+      "creativeName": "Claude-2TS-I2-1d2012fa",
+      "campaignId": "120247433863580316",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 65,
+      "spend28d": 414.24,
+      "spend24h": null,
+      "reason": "ROAS 0.82 (28d) = 37% of target after $414 spend (28d) — loss-budget maturity reached at $265; cut underperforming creative.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-01"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+      "businessName": "Grandmix",
+      "isDemoBusiness": false,
+      "creativeId": "1301214195548874",
+      "creativeName": "W9-StopMotion",
+      "campaignId": "120247883838010316",
+      "label": "scale",
+      "asOf": "2026-06-08",
+      "confidence": 75,
+      "spend28d": 285.63,
+      "spend24h": 1,
+      "reason": "ROAS 5.28 (28d) = 240% of target 2.20 with 5 purchases (28d) and recent 7d holding at 5.96 — scale the ad set budget.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-08"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 1,
+      "trailing7dMeanDailySpend": 4.08,
+      "baselineDailySpend": 1,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-09",
+          "spend": 2.88,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-10",
+          "spend": 0.67,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-11",
+          "spend": 0.1,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 4,
+          "date": "2026-06-12",
+          "spend": 2.16,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 5,
+          "date": "2026-06-13",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-14",
+          "spend": 0.57,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 7,
+          "date": "2026-06-15",
+          "spend": 0.03,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": 5,
+      "responseSignal": "spend_drop",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": false,
+        "3": false,
+        "7": true
+      },
+      "scaleRespondedWithin": {
+        "1": true,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 6.41,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "75f65b18-97e5-426c-a791-a8f693d34c84",
+      "businessName": "Halıcızade",
+      "isDemoBusiness": false,
+      "creativeId": "2266855037160102",
+      "creativeName": "08 - 33 Premium Special | ASC Core",
+      "campaignId": "120245112270730327",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 75,
+      "spend28d": 17484.82,
+      "spend24h": null,
+      "reason": "ROAS 0.00 (28d) = 0% of target after $17,485 spend (28d) — loss-budget maturity reached at $15,586; cut underperforming creative.",
+      "gridAppearances": 2,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 107.26,
+      "baselineDailySpend": 107.26,
+      "baselineSource": "trailing_7d_mean",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "spend_drop",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": true,
+        "7": true
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+      "businessName": "IwaStore",
+      "isDemoBusiness": false,
+      "creativeId": "1157254709850013",
+      "creativeName": "Hilye-i Sherif",
+      "campaignId": "120242560371390077",
+      "label": "scale",
+      "asOf": "2026-06-01",
+      "confidence": 75,
+      "spend28d": 385.2,
+      "spend24h": 0.76,
+      "reason": "ROAS 5.20 (28d) = 149% of target 3.50 with 6 purchases (28d) and recent 7d holding at 7.59 — scale the ad set budget.",
+      "gridAppearances": 2,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 0.76,
+      "trailing7dMeanDailySpend": 3.63,
+      "baselineDailySpend": 0.76,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 2.35,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 1.67,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 4.05,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 1.15,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 24.28,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 20.4,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": 3,
+      "responseSignal": "spend_drop",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": false,
+        "3": true,
+        "7": true
+      },
+      "scaleRespondedWithin": {
+        "1": true,
+        "3": true,
+        "7": true
+      },
+      "forwardOutcomeWindowSpend": 53.9,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+      "businessName": "IwaStore",
+      "isDemoBusiness": false,
+      "creativeId": "1658131231999984",
+      "creativeName": "The peace of",
+      "campaignId": "120242560371390077",
+      "label": "scale",
+      "asOf": "2026-06-01",
+      "confidence": 75,
+      "spend28d": 4127.06,
+      "spend24h": 167.7,
+      "reason": "ROAS 5.87 (28d) = 168% of target 3.50 with 123 purchases (28d) and recent 7d holding at 5.61 — scale the ad set budget.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-01"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 167.7,
+      "trailing7dMeanDailySpend": 165.05,
+      "baselineDailySpend": 167.7,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 152.03,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 148.82,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 169.66,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 175.36,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 187.46,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 173.38,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 164.92,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 1171.63,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+      "businessName": "IwaStore",
+      "isDemoBusiness": false,
+      "creativeId": "946471284944193",
+      "creativeName": "So happy with",
+      "campaignId": "120242560371390077",
+      "label": "scale",
+      "asOf": "2026-06-01",
+      "confidence": 75,
+      "spend28d": 616.57,
+      "spend24h": 17.09,
+      "reason": "ROAS 5.04 (28d) = 144% of target 3.50 with 19 purchases (28d) and recent 7d holding at 4.04 — scale the ad set budget.",
+      "gridAppearances": 3,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08",
+        "2026-06-22"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 17.09,
+      "trailing7dMeanDailySpend": 17.58,
+      "baselineDailySpend": 17.09,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 20.68,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 17.04,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 13.81,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 18.58,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 9.5,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 16.24,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 15.22,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 111.07,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+      "businessName": "IwaStore",
+      "isDemoBusiness": false,
+      "creativeId": "1597946391493220",
+      "creativeName": "WoodenWallArtCatalog",
+      "campaignId": "120241677292560077",
+      "label": "cut",
+      "asOf": "2026-06-08",
+      "confidence": 75,
+      "spend28d": 230.55,
+      "spend24h": 16.63,
+      "reason": "ROAS 1.42 (28d) = 41% of target after $231 spend (28d) — sustained loser.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-08"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 16.63,
+      "trailing7dMeanDailySpend": 6.57,
+      "baselineDailySpend": 16.63,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-09",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-10",
+          "spend": 4.67,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-11",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-12",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-13",
+          "spend": 9.28,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 6,
+          "date": "2026-06-14",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-15",
+          "spend": 12.62,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "spend_drop",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": true,
+        "7": true
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 26.57,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+      "businessName": "IwaStore",
+      "isDemoBusiness": false,
+      "creativeId": "1655577498670460",
+      "creativeName": "Since I hung",
+      "campaignId": "120242560371390077",
+      "label": "scale",
+      "asOf": "2026-06-08",
+      "confidence": 75,
+      "spend28d": 129.09,
+      "spend24h": 6.11,
+      "reason": "ROAS 6.64 (28d) = 190% of target 3.50 with 4 purchases (28d) and recent 7d holding at 7.76 — scale the ad set budget.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-08"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 6.11,
+      "trailing7dMeanDailySpend": 5.82,
+      "baselineDailySpend": 6.11,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-09",
+          "spend": 6.52,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-10",
+          "spend": 7.95,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-11",
+          "spend": 5.77,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 4,
+          "date": "2026-06-12",
+          "spend": 9.78,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 5,
+          "date": "2026-06-13",
+          "spend": 9.28,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 6,
+          "date": "2026-06-14",
+          "spend": 10.18,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 7,
+          "date": "2026-06-15",
+          "spend": 11.09,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": true
+      },
+      "forwardOutcomeWindowSpend": 60.57,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+      "businessName": "IwaStore",
+      "isDemoBusiness": false,
+      "creativeId": "931776873000095",
+      "creativeName": "Catalog New Collection",
+      "campaignId": "120241683217280077",
+      "label": "scale",
+      "asOf": "2026-06-08",
+      "confidence": 75,
+      "spend28d": 899.01,
+      "spend24h": null,
+      "reason": "ROAS 5.35 (28d) = 153% of target 3.50 with 29 purchases (28d) and recent 7d holding at 4.57 — scale the ad set budget.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-08"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 17.81,
+      "baselineDailySpend": 17.81,
+      "baselineSource": "trailing_7d_mean",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-09",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-10",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-11",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-12",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-13",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-14",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-15",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "spend_drop",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": true,
+        "7": true
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+      "businessName": "IwaStore",
+      "isDemoBusiness": false,
+      "creativeId": "1655577498670460",
+      "creativeName": "Since I hung",
+      "campaignId": "120242560371390077",
+      "label": "cut",
+      "asOf": "2026-06-22",
+      "confidence": 75,
+      "spend28d": 198.07,
+      "spend24h": 7.28,
+      "reason": "ROAS 2.16 (28d) = 62% of target after $198 spend (28d) — loss-budget maturity reached at $100; cut underperforming creative.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-22"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 7.28,
+      "trailing7dMeanDailySpend": 9.51,
+      "baselineDailySpend": 7.28,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-23",
+          "spend": 6.54,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-24",
+          "spend": 6.17,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-25",
+          "spend": 7.35,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 4,
+          "date": "2026-06-26",
+          "spend": 8.03,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 5,
+          "date": "2026-06-27",
+          "spend": 11.09,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 6,
+          "date": "2026-06-28",
+          "spend": 9.19,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 7,
+          "date": "2026-06-29",
+          "spend": 14.12,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 62.49,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+      "businessName": "IwaStore",
+      "isDemoBusiness": false,
+      "creativeId": "2195290934643087",
+      "creativeName": "Transforming a house",
+      "campaignId": "120241683217280077",
+      "label": "cut",
+      "asOf": "2026-06-22",
+      "confidence": 75,
+      "spend28d": 124.96,
+      "spend24h": 4.79,
+      "reason": "ROAS 1.54 (28d) = 44% of target after $125 spend (28d) — loss-budget maturity reached at $100; cut underperforming creative.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-22"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 4.79,
+      "trailing7dMeanDailySpend": 1.81,
+      "baselineDailySpend": 4.79,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-23",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-24",
+          "spend": 4.35,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-25",
+          "spend": 2.35,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 4,
+          "date": "2026-06-26",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-27",
+          "spend": 7.33,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 6,
+          "date": "2026-06-28",
+          "spend": 0,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 7,
+          "date": "2026-06-29",
+          "spend": 6,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "spend_drop",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": true,
+        "7": true
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 20.03,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "1278059531165819",
+      "creativeName": "Ad_Test_ProtectionHistorical",
+      "campaignId": "120246936912680042",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 75,
+      "spend28d": 903.24,
+      "spend24h": null,
+      "reason": "ROAS 0.72 (28d) = 33% of target after $903 spend (28d) — clear loser at scale.",
+      "gridAppearances": 4,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08",
+        "2026-06-15",
+        "2026-06-22"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 79.52,
+      "baselineDailySpend": 79.52,
+      "baselineSource": "trailing_7d_mean",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "spend_drop",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": true,
+        "7": true
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "1467822764491123",
+      "creativeName": "Ad_US_DPA_All_Necklaces_Value",
+      "campaignId": "120246929107520042",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 65,
+      "spend28d": 903,
+      "spend24h": null,
+      "reason": "ROAS 0.00 (28d) = 0% of target after $903 spend (28d) — clear loser at scale.",
+      "gridAppearances": 3,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08",
+        "2026-06-15"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "1475823406953354",
+      "creativeName": "Ad_Test_VitruvianDaVinciNecklace",
+      "campaignId": "120246936912680042",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 75,
+      "spend28d": 537.98,
+      "spend24h": 0,
+      "reason": "ROAS 0.41 (28d) = 19% of target after $538 spend (28d) — clear loser at scale.",
+      "gridAppearances": 4,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08",
+        "2026-06-15",
+        "2026-06-22"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 61.36,
+      "baselineDailySpend": 61.36,
+      "baselineSource": "trailing_7d_mean",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "spend_drop",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": true,
+        "7": true
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "1508640670664791",
+      "creativeName": "EMB - Mix",
+      "campaignId": "120241884546980430",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 65,
+      "spend28d": 428.13,
+      "spend24h": null,
+      "reason": "ROAS 0.86 (28d) = 39% of target after $428 spend (28d) — clear loser at scale.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-01"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "1618052170325754",
+      "creativeName": "Ad_NonUS_DPA_All_Necklaces",
+      "campaignId": "120246995093150042",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 75,
+      "spend28d": 236.02,
+      "spend24h": null,
+      "reason": "ROAS 0.00 (28d) = 0% of target after $236 spend (28d) — sustained loser.",
+      "gridAppearances": 4,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08",
+        "2026-06-15",
+        "2026-06-22"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 29.5,
+      "baselineDailySpend": 29.5,
+      "baselineSource": "trailing_7d_mean",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "spend_drop",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": true,
+        "7": true
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "1693489775122852",
+      "creativeName": "Ad_Core_AngelDevil_AlexisFlexible_AUCA",
+      "campaignId": "120246995199550042",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 75,
+      "spend28d": 308.15,
+      "spend24h": null,
+      "reason": "ROAS 0.00 (28d) = 0% of target after $308 spend (28d) — clear loser at scale.",
+      "gridAppearances": 3,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08",
+        "2026-06-15"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 12.51,
+      "baselineDailySpend": 12.51,
+      "baselineSource": "trailing_7d_mean",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "spend_drop",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": true,
+        "7": true
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "1994401467865514",
+      "creativeName": "Ad_US_DPA_Best_Sellers_Value",
+      "campaignId": "120246929107520042",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 65,
+      "spend28d": 391.1,
+      "spend24h": null,
+      "reason": "ROAS 0.38 (28d) = 17% of target after $391 spend (28d) — clear loser at scale.",
+      "gridAppearances": 3,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08",
+        "2026-06-15"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "2099681837626498",
+      "creativeName": "Ad_Test_DepthHistorical",
+      "campaignId": "120246936912680042",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 75,
+      "spend28d": 984.2,
+      "spend24h": null,
+      "reason": "ROAS 0.87 (28d) = 39% of target after $984 spend (28d) — clear loser at scale.",
+      "gridAppearances": 3,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08",
+        "2026-06-15"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 78.62,
+      "baselineDailySpend": 78.62,
+      "baselineSource": "trailing_7d_mean",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": "PAUSED"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "spend_drop",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": true,
+        "7": true
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "2467451360428576",
+      "creativeName": "EMB - AllRings",
+      "campaignId": "120241884546980430",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 65,
+      "spend28d": 1492.03,
+      "spend24h": null,
+      "reason": "ROAS 0.19 (28d) = 9% of target after $1,492 spend (28d) — clear loser at scale.",
+      "gridAppearances": 2,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "25832123469795143",
+      "creativeName": "signature",
+      "campaignId": "120245655486800042",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 65,
+      "spend28d": 1083.03,
+      "spend24h": null,
+      "reason": "ROAS 0.92 (28d) = 42% of target after $1,083 spend (28d) — clear loser at scale.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-01"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "768783149560195",
+      "creativeName": "Ad_Core_AngelDevil_AlexisFlexible_GBEU",
+      "campaignId": "120246995199550042",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 75,
+      "spend28d": 301.07,
+      "spend24h": null,
+      "reason": "ROAS 0.00 (28d) = 0% of target after $301 spend (28d) — clear loser at scale.",
+      "gridAppearances": 3,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08",
+        "2026-06-15"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 16.98,
+      "baselineDailySpend": 16.98,
+      "baselineSource": "trailing_7d_mean",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "spend_drop",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": true,
+        "7": true
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "841424642307232",
+      "creativeName": "EMB - CatalogAd",
+      "campaignId": "120241884546980430",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 65,
+      "spend28d": 348.42,
+      "spend24h": null,
+      "reason": "ROAS 0.00 (28d) = 0% of target after $348 spend (28d) — clear loser at scale.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-01"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "967102445774372",
+      "creativeName": "EMB - Mix",
+      "campaignId": "120244034187190042",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 65,
+      "spend28d": 245.87,
+      "spend24h": null,
+      "reason": "ROAS 0.00 (28d) = 0% of target after $246 spend (28d) — sustained loser.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-01"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "972915358838780",
+      "creativeName": "Ad_Test_RestraintReviseHistorical",
+      "campaignId": "120246936912680042",
+      "label": "cut",
+      "asOf": "2026-06-01",
+      "confidence": 75,
+      "spend28d": 198.93,
+      "spend24h": null,
+      "reason": "ROAS 0.00 (28d) = 0% of target after $199 spend (28d) — sustained loser.",
+      "gridAppearances": 3,
+      "gridDates": [
+        "2026-06-01",
+        "2026-06-08",
+        "2026-06-15"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 12.12,
+      "baselineDailySpend": 12.12,
+      "baselineSource": "trailing_7d_mean",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-02",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-05",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-06",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-07",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-08",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "spend_drop",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": true,
+        "7": true
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "1347969233807910",
+      "creativeName": "EMB - CatalogAd",
+      "campaignId": "120244034187190042",
+      "label": "cut",
+      "asOf": "2026-06-08",
+      "confidence": 65,
+      "spend28d": 4969.7,
+      "spend24h": null,
+      "reason": "ROAS 0.60 (28d) = 27% of target after $4,970 spend (28d) — clear loser at scale.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-08"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-09",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-10",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-11",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-12",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-13",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-14",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-15",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "1433821918546106",
+      "creativeName": "Keepunder",
+      "campaignId": "120245655486800042",
+      "label": "cut",
+      "asOf": "2026-06-08",
+      "confidence": 65,
+      "spend28d": 895.24,
+      "spend24h": null,
+      "reason": "ROAS 0.90 (28d) = 41% of target after $895 spend (28d) — clear loser at scale.",
+      "gridAppearances": 2,
+      "gridDates": [
+        "2026-06-08",
+        "2026-06-15"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-09",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-10",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-11",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-12",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-13",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-14",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-15",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "1736230237414251",
+      "creativeName": "Ad_Core_SaintMichaelCross_Static",
+      "campaignId": "120246995199550042",
+      "label": "cut",
+      "asOf": "2026-06-08",
+      "confidence": 65,
+      "spend28d": 284.46,
+      "spend24h": null,
+      "reason": "0 purchases on $284 spend (28d cumulative, age 11d) — sustained zero-conversion burn past CPA-anchored maturity threshold $189.",
+      "gridAppearances": 3,
+      "gridDates": [
+        "2026-06-08",
+        "2026-06-15",
+        "2026-06-22"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-09",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-10",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-11",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-12",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-13",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-14",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-15",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "1983341218965296",
+      "creativeName": "Ad_Core_LifeAndDeath_Static_GBEU",
+      "campaignId": "120246995199550042",
+      "label": "cut",
+      "asOf": "2026-06-08",
+      "confidence": 60,
+      "spend28d": 158.53,
+      "spend24h": null,
+      "reason": "ROAS 0.00 (28d) = 0% of target after $159 spend (28d) — loss-budget maturity reached at $142; cut underperforming creative. Secondary diagnosis: funnel evidence indicates a landing_page issue, not onl",
+      "gridAppearances": 2,
+      "gridDates": [
+        "2026-06-08",
+        "2026-06-15"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-09",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-10",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-11",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-12",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-13",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-14",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-15",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "951995590658338",
+      "creativeName": "aphrodite (added)",
+      "campaignId": "120244034388050042",
+      "label": "cut",
+      "asOf": "2026-06-08",
+      "confidence": 60,
+      "spend28d": 143.01,
+      "spend24h": null,
+      "reason": "ROAS 0.00 (28d) = 0% of target after $143 spend (28d) — loss-budget maturity reached at $142; cut underperforming creative.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-08"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-09",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-10",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-11",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-12",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-13",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-14",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-15",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "1014356057726711",
+      "creativeName": "Ad_F5K_US_CORE_VALUE_RELIGIOUS_DUALITY_01_ANGEL_DEVIL_20260614",
+      "campaignId": "120248656753610042",
+      "label": "cut",
+      "asOf": "2026-06-15",
+      "confidence": 75,
+      "spend28d": 257.28,
+      "spend24h": 48.72,
+      "reason": "ROAS 0.00 (28d) = 0% of target after $257 spend (28d) — sustained loser.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-15"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 48.72,
+      "trailing7dMeanDailySpend": 36.75,
+      "baselineDailySpend": 48.72,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-16",
+          "spend": 4.55,
+          "effectiveStatus": "PAUSED"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-17",
+          "spend": 0,
+          "effectiveStatus": "PAUSED"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-18",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-19",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-20",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-21",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-22",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "spend_drop",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": true,
+        "7": true
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 4.55,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "1592506935781034",
+      "creativeName": "Ad_F5K_US_10JUN_HERO_TEST_01_ANGEL_DEVIL_10JUN_STATIC_20260614",
+      "campaignId": "120248657047720042",
+      "label": "cut",
+      "asOf": "2026-06-15",
+      "confidence": 75,
+      "spend28d": 778.94,
+      "spend24h": 414.6,
+      "reason": "ROAS 0.71 (28d) = 32% of target after $779 spend (28d) — clear loser at scale.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-15"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 414.6,
+      "trailing7dMeanDailySpend": 111.28,
+      "baselineDailySpend": 414.6,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-16",
+          "spend": 84.46,
+          "effectiveStatus": "PAUSED"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-17",
+          "spend": 0,
+          "effectiveStatus": "PAUSED"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-18",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-19",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-20",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-21",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-22",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "status_left_active",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": true,
+        "7": true
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 84.46,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "1672191184091002",
+      "creativeName": "Ad_F5K_US_DPA_VALUE_IN_STOCK_01_DPA_US_IN_STOCK_20260614",
+      "campaignId": "120248656676830042",
+      "label": "cut",
+      "asOf": "2026-06-15",
+      "confidence": 75,
+      "spend28d": 1438.54,
+      "spend24h": 645.76,
+      "reason": "ROAS 0.40 (28d) = 18% of target after $1,439 spend (28d) — clear loser at scale.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-15"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 645.76,
+      "trailing7dMeanDailySpend": 205.51,
+      "baselineDailySpend": 645.76,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-16",
+          "spend": 520.05,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-17",
+          "spend": 549.28,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-18",
+          "spend": 527.29,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 4,
+          "date": "2026-06-19",
+          "spend": 508.55,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 5,
+          "date": "2026-06-20",
+          "spend": 484.68,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 6,
+          "date": "2026-06-21",
+          "spend": 678.75,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 7,
+          "date": "2026-06-22",
+          "spend": 553.25,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 3821.85,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "1932525757401873",
+      "creativeName": "Ad_F5K_US_365D_WINNER_RETEST_05_HIST_ALL_RINGS_20260614",
+      "campaignId": "120248657011350042",
+      "label": "cut",
+      "asOf": "2026-06-15",
+      "confidence": 75,
+      "spend28d": 231.28,
+      "spend24h": 131.35,
+      "reason": "ROAS 0.78 (28d) = 35% of target after $231 spend (28d) — loss-budget maturity reached at $141; cut underperforming creative.",
+      "gridAppearances": 2,
+      "gridDates": [
+        "2026-06-15",
+        "2026-06-22"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 131.35,
+      "trailing7dMeanDailySpend": 33.04,
+      "baselineDailySpend": 131.35,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-16",
+          "spend": 22.76,
+          "effectiveStatus": "PAUSED"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-17",
+          "spend": 0,
+          "effectiveStatus": "PAUSED"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-18",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-19",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-20",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-21",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-22",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "status_left_active",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": true,
+        "7": true
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 22.76,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "1962656064410174",
+      "creativeName": "Ad_F5K_US_CORE_VALUE_RELIGIOUS_DUALITY_02_SAINT_MICHAEL_CROSS_20260614",
+      "campaignId": "120248656753610042",
+      "label": "cut",
+      "asOf": "2026-06-15",
+      "confidence": 75,
+      "spend28d": 589.98,
+      "spend24h": 394.2,
+      "reason": "ROAS 0.78 (28d) = 36% of target after $590 spend (28d) — clear loser at scale.",
+      "gridAppearances": 2,
+      "gridDates": [
+        "2026-06-15",
+        "2026-06-22"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 394.2,
+      "trailing7dMeanDailySpend": 84.28,
+      "baselineDailySpend": 394.2,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-16",
+          "spend": 472.85,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-17",
+          "spend": 450.94,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-18",
+          "spend": 446.96,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 4,
+          "date": "2026-06-19",
+          "spend": 422.81,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 5,
+          "date": "2026-06-20",
+          "spend": 380.64,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 6,
+          "date": "2026-06-21",
+          "spend": 525.48,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 7,
+          "date": "2026-06-22",
+          "spend": 422.26,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 3121.94,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "2080314776223824",
+      "creativeName": "Ad_F5K_US_CORE_VALUE_RELIGIOUS_DUALITY_04_LIFE_AND_DEATH_20260614",
+      "campaignId": "120248656753610042",
+      "label": "cut",
+      "asOf": "2026-06-15",
+      "confidence": 75,
+      "spend28d": 319.35,
+      "spend24h": 126,
+      "reason": "ROAS 0.63 (28d) = 28% of target after $319 spend (28d) — clear loser at scale.",
+      "gridAppearances": 2,
+      "gridDates": [
+        "2026-06-15",
+        "2026-06-22"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 126,
+      "trailing7dMeanDailySpend": 45.62,
+      "baselineDailySpend": 126,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-16",
+          "spend": 18.02,
+          "effectiveStatus": "PAUSED"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-17",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-18",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-19",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-20",
+          "spend": 0,
+          "effectiveStatus": "PAUSED"
+        },
+        {
+          "day": 6,
+          "date": "2026-06-21",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-22",
+          "spend": 0,
+          "effectiveStatus": "PAUSED"
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "status_left_active",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": true,
+        "7": true
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 18.02,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "1015107537840127",
+      "creativeName": "Ad_Test_AthenaOwlNecklace",
+      "campaignId": "120246936912680042",
+      "label": "cut",
+      "asOf": "2026-06-22",
+      "confidence": 60,
+      "spend28d": 169.95,
+      "spend24h": null,
+      "reason": "ROAS 0.00 (28d) = 0% of target after $170 spend (28d) — loss-budget maturity reached at $140; cut underperforming creative.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-22"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-23",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-24",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-25",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-26",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-27",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-28",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-29",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "1337157688566977",
+      "creativeName": "Ad_F5K_US_31MAY_CONTROLLED_TEST_01_SAINT_BENEDICT_20260614",
+      "campaignId": "120248657114880042",
+      "label": "cut",
+      "asOf": "2026-06-22",
+      "confidence": 75,
+      "spend28d": 256.31,
+      "spend24h": 15.31,
+      "reason": "ROAS 0.65 (28d) = 29% of target after $256 spend (28d) — loss-budget maturity reached at $140; cut underperforming creative.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-22"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 15.31,
+      "trailing7dMeanDailySpend": 27.67,
+      "baselineDailySpend": 15.31,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-23",
+          "spend": 10.94,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-24",
+          "spend": 12.74,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-25",
+          "spend": 18.41,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 4,
+          "date": "2026-06-26",
+          "spend": 18.86,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 5,
+          "date": "2026-06-27",
+          "spend": 14.59,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 6,
+          "date": "2026-06-28",
+          "spend": 20.87,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 7,
+          "date": "2026-06-29",
+          "spend": 19.1,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 115.51,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "1546542256949523",
+      "creativeName": "Ad_F5K_US_10JUN_HERO_TEST_03_ELVEN_SWORD_20260614",
+      "campaignId": "120248657047720042",
+      "label": "cut",
+      "asOf": "2026-06-22",
+      "confidence": 75,
+      "spend28d": 811.84,
+      "spend24h": 123.04,
+      "reason": "ROAS 0.68 (28d) = 31% of target after $812 spend (28d) — clear loser at scale.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-22"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 123.04,
+      "trailing7dMeanDailySpend": 111.75,
+      "baselineDailySpend": 123.04,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-23",
+          "spend": 104.19,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-24",
+          "spend": 128.26,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-25",
+          "spend": 126.56,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 4,
+          "date": "2026-06-26",
+          "spend": 158.05,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 5,
+          "date": "2026-06-27",
+          "spend": 121.19,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 6,
+          "date": "2026-06-28",
+          "spend": 188.46,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 7,
+          "date": "2026-06-29",
+          "spend": 93.78,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 920.49,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "1631905067884325",
+      "creativeName": "Ad_F5K_US_31MAY_CONTROLLED_TEST_04_GORGON_MEDUSA_20260614",
+      "campaignId": "120248657114880042",
+      "label": "cut",
+      "asOf": "2026-06-22",
+      "confidence": 75,
+      "spend28d": 1417.16,
+      "spend24h": 151.27,
+      "reason": "ROAS 0.67 (28d) = 30% of target after $1,417 spend (28d) — clear loser at scale.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-22"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 151.27,
+      "trailing7dMeanDailySpend": 163.9,
+      "baselineDailySpend": 151.27,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-23",
+          "spend": 149.24,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-24",
+          "spend": 157.77,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-25",
+          "spend": 172.38,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 4,
+          "date": "2026-06-26",
+          "spend": 145.82,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 5,
+          "date": "2026-06-27",
+          "spend": 134.44,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 6,
+          "date": "2026-06-28",
+          "spend": 166.87,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 7,
+          "date": "2026-06-29",
+          "spend": 138.42,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 1064.94,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "2734470570262623",
+      "creativeName": "Ad_F5K_US_31MAY_CONTROLLED_TEST_03_CRUCIFIX_CROSS_20260614",
+      "campaignId": "120248657114880042",
+      "label": "cut",
+      "asOf": "2026-06-22",
+      "confidence": 75,
+      "spend28d": 144.58,
+      "spend24h": null,
+      "reason": "ROAS 0.00 (28d) = 0% of target after $145 spend (28d) — loss-budget maturity reached at $140; cut underperforming creative.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-22"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 1.15,
+      "baselineDailySpend": 1.15,
+      "baselineSource": "trailing_7d_mean",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-23",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-06-24",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-06-25",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 4,
+          "date": "2026-06-26",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 5,
+          "date": "2026-06-27",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 6,
+          "date": "2026-06-28",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 7,
+          "date": "2026-06-29",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "spend_drop",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": true,
+        "7": true
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "3041651776171249",
+      "creativeName": "Ad_F5K_GB_DIAGNOSTIC_VALUE_03_ANGEL_DEVIL_20260614",
+      "campaignId": "120248657183060042",
+      "label": "cut",
+      "asOf": "2026-06-22",
+      "confidence": 75,
+      "spend28d": 2694.62,
+      "spend24h": 441.65,
+      "reason": "ROAS 0.82 (28d) = 37% of target after $2,695 spend (28d) — clear loser at scale.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-22"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 441.65,
+      "trailing7dMeanDailySpend": 369.35,
+      "baselineDailySpend": 441.65,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-23",
+          "spend": 423.79,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-24",
+          "spend": 443.87,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-25",
+          "spend": 453.33,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 4,
+          "date": "2026-06-26",
+          "spend": 437.25,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 5,
+          "date": "2026-06-27",
+          "spend": 436.84,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 6,
+          "date": "2026-06-28",
+          "spend": 474.85,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 7,
+          "date": "2026-06-29",
+          "spend": 380.33,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 3050.26,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "826201780574762",
+      "creativeName": "Ad_F5K_US_CORE_VALUE_RELIGIOUS_DUALITY_03_JESUS_CRUCIFIXION_SIGNET_20260614",
+      "campaignId": "120248656753610042",
+      "label": "cut",
+      "asOf": "2026-06-22",
+      "confidence": 75,
+      "spend28d": 213.89,
+      "spend24h": 29.17,
+      "reason": "ROAS 0.80 (28d) = 37% of target after $214 spend (28d) — loss-budget maturity reached at $140; cut underperforming creative.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-22"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 29.17,
+      "trailing7dMeanDailySpend": 25.62,
+      "baselineDailySpend": 29.17,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-23",
+          "spend": 24.45,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-24",
+          "spend": 24.83,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-25",
+          "spend": 33.28,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 4,
+          "date": "2026-06-26",
+          "spend": 50.93,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 5,
+          "date": "2026-06-27",
+          "spend": 75.11,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 6,
+          "date": "2026-06-28",
+          "spend": 78.31,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 7,
+          "date": "2026-06-29",
+          "spend": 40.16,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": true
+      },
+      "forwardOutcomeWindowSpend": 327.07,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "isDemoBusiness": false,
+      "creativeId": "913690625083809",
+      "creativeName": "Ad_F5K_US_10JUN_HERO_TEST_02_SAINT_MICHAEL_CROSS_20260614",
+      "campaignId": "120248657047720042",
+      "label": "cut",
+      "asOf": "2026-06-22",
+      "confidence": 75,
+      "spend28d": 1863.18,
+      "spend24h": 243.36,
+      "reason": "ROAS 0.71 (28d) = 32% of target after $1,863 spend (28d) — clear loser at scale.",
+      "gridAppearances": 1,
+      "gridDates": [
+        "2026-06-22"
+      ],
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 243.36,
+      "trailing7dMeanDailySpend": 258.35,
+      "baselineDailySpend": 243.36,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 7,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-06-23",
+          "spend": 276.3,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-06-24",
+          "spend": 250.42,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-06-25",
+          "spend": 235.08,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 4,
+          "date": "2026-06-26",
+          "spend": 200.85,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 5,
+          "date": "2026-06-27",
+          "spend": 207.7,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 6,
+          "date": "2026-06-28",
+          "spend": 234.33,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 7,
+          "date": "2026-06-29",
+          "spend": 286.15,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": false
+      },
+      "forwardOutcomeWindowSpend": 1690.83,
+      "outcomeWindowTruncated": false,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    }
+  ],
+  "failedDays": [],
+  "methodLimits": [
+    "Read-only analysis: SELECT-only DB access through the read_only_observation lane; no engine tables written, no provider writes, no cron POST, no jobs executed.",
+    "NON-CAUSAL REPLAY: decisions are recomputed with the CURRENT engine code (v3-2026-07-06-decision-stability) and CURRENT configuration over historical June inputs. Target packs, decision calibration profile config, feature flags, and Meta campaign labels have NO historical versioning and are read as of the run date - an anachronistic-target caveat: these are the decisions today's engine WOULD have made in June, not decisions any system actually made (persisted snapshots only exist from 2026-07-02).",
+    "THE OPERATOR NEVER SAW THESE DECISIONS. 'Response' here is ORGANIC AGREEMENT with what the engine would have said, not compliance. Read it as bounds, not compliance: the organic cut-agreement rate approximates the no-tool baseline and is a plausible LOWER bound on compliance if the decisions had been surfaced; spend-after-unagreed-cuts is an UPPER bound on the spend the engine's cut advice could have avoided (it assumes every replayed cut was correct and would have been executed immediately).",
+    "Historical freshness normalization (mirrored from current-engine-historical-replay.ts freshnessMode=historical): warehouse freshness is computed against wall-clock now(), so June inputs read as weeks stale; data-health stale tiers are normalized to 'none' and per-creative dataFreshnessHours capped at 6h. Without this the gates would spuriously demote/block hard actions and the replay would be meaningless.",
+    "Production dedupe mirrored from jobs/decisions-job.ts compareDecisionComputations: one decision per creative per asOf, keeping the highest-priority computation (cut beats scale beats keep ...).",
+    "Grid dedupe: a creative counts once per (business, creative, label), keyed to the FIRST grid asOf where the hard label appears (gridAppearances records recurrence). The weekly grid (2026-06-01/08/15/22) undersamples decision churn between grid dates; a creative that became hard-labeled only between grid dates is missed, and the 'decision date' is the grid date, not the first date the engine would have flipped.",
+    "Baseline daily spend = decision-day spend when positive (spend24h semantics via the meta_creative_daily series), else the trailing 7-day mean daily spend; decisions with no baseline are bucketed zero_spend_at_decision and excluded from response-rate denominators (semantics copied from operator-response-report.ts).",
+    "Cut response = forward daily spend < 10% of baseline OR effective_status leaves ACTIVE. Missing forward rows inside the observable window count as zero spend (decision-outcomes COALESCE semantics). Spend-based responses cannot distinguish operator action from Meta delivery collapse; treat as operator-or-delivery response.",
+    "Scale response is a CRUDE PROXY: mean forward daily spend over the window > 125% of baseline daily spend; it does not verify budget changes or action-journal receipts.",
+    "Forward windows are truncated at min(last complete meta_creative_daily day, evaluation ceiling 2026-07-05); a raw ceiling >= the run date is an intraday partial ingest and is excluded (operator-response-report partial-day lesson). With the June grid every 7d window closes by 2026-06-29, so 1/3/7d windows are fully observable for every business whose feed reaches the ceiling.",
+    "Tiles Workshop is EXCLUDED entirely (broken feed / stale warehouse sync; user directive to exclude sync-problem businesses).",
+    "Unknown-outcome interaction mirrors the outcome-classifier rule missing_outcome_spend_or_target: zero forward spend over the full 7d outcome window => realized_outcome 'unknown'. With fully closed windows this is now a final share, not observed-so-far."
+  ]
+}

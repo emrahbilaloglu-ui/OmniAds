@@ -122,6 +122,21 @@ describe("LaunchpadCreativeSelection", () => {
     expect(html).toContain("Engine: scale candidate");
   });
 
+  it("renders creative spend and selection totals in the account currency", () => {
+    const html = renderToStaticMarkup(
+      <LaunchpadCreativeSelection
+        rows={[makeRow({ spend: 100 })]}
+        selectedCreativeIds={["creative_1"]}
+        decisionByCreativeId={new Map()}
+        currency="TRY"
+        onToggleCreative={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("TRY");
+    expect(html).not.toContain("$100.00");
+  });
+
   it("keeps paused recently duplicated ads visible in manage mode filters", () => {
     const recentRow = makeRow({
       id: "recent:ad_2",

@@ -517,6 +517,7 @@ export default function MetaLaunchpadPage() {
     () =>
       normalizeMetaLaunchPayload({
         mode: "new_campaign",
+        currencyCode: currency,
         campaign: {
           name: campaign.name,
           objective: "OUTCOME_SALES",
@@ -569,7 +570,7 @@ export default function MetaLaunchpadPage() {
               : null,
         })),
       }),
-    [adSets, budget, campaign, selectedCreatives],
+    [adSets, budget, campaign, currency, selectedCreatives],
   );
   const selectedExistingTargets = useMemo(
     () => getSelectedExistingTargets(addToExistingTarget),
@@ -1062,6 +1063,7 @@ export default function MetaLaunchpadPage() {
                 decisionByCreativeId={decisionByCreativeId}
                 loading={creativeLoading}
                 initialStatusFilter={mode === "manage_existing" ? "all" : "active"}
+                currency={currency}
                 getSelectionId={(row) =>
                   mode === "manage_existing" ? resolveLaunchpadAdActionId(row) : row.creativeId
                 }

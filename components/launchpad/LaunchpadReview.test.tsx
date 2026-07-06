@@ -124,6 +124,21 @@ const payload = normalizeMetaLaunchPayload({
 });
 
 describe("LaunchpadReview", () => {
+  it("normalizes launch payload currency codes without accepting non-ISO names", () => {
+    expect(
+      normalizeMetaLaunchPayload({
+        ...payload,
+        currencyCode: "try",
+      }).currencyCode,
+    ).toBe("TRY");
+    expect(
+      normalizeMetaLaunchPayload({
+        ...payload,
+        currencyCode: "Turkish lira",
+      }).currencyCode,
+    ).toBeNull();
+  });
+
   it("builds aggregate engine warning counts and weighted ROAS", () => {
     const aggregate = buildEngineAggregate({
       selectedCreatives: [

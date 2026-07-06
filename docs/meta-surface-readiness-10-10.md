@@ -6,50 +6,48 @@ debt that survives a redesign and must be engineered now, and (B) UI-only /
 design-shell debt that the redesign wipes — recorded so it cannot be used to
 hide backend/contract defects, and NOT worth polish time today.
 
-Scores are evidence-backed as of the cross-surface hardening pass
-(commits 06c89e2b..0b876f70). Update this ledger when a surface's contract
-changes (same-PR discipline, as with docs/meta-page-ui-contract.md).
+Scores are evidence-backed as of the cross-surface hardening pass plus the
+briefing/launchpad currency slice on 2026-07-06. Update this ledger when a
+surface's contract changes (same-PR discipline, as with
+docs/meta-page-ui-contract.md).
 
 ## Surface scores
 
 | Surface | Score | Server truth? | Payload currency | Freshness honesty |
 |---|---|---|---|---|
 | Decision Center (/platforms/meta) | 7 | yes (post-hardening: server-owned actionKind/labels/metrics) | yes (pulse) | real lastSyncAt or "sync unknown"; dataReadiness banner |
-| Creatives (/platforms/meta/creatives) | 9 | yes (CDC v3; invariant-guarded) | partial (see NON-UI #1) | snapshot health + calibration honesty copy |
-| Launchpad | 7.5 | yes (server validate + forced-PAUSED launch) | minor-units, no currency code | honest (server updatedAt) |
+| Creatives (/platforms/meta/creatives) | 9 | yes (CDC v3; invariant-guarded) | yes (briefing card contract + asset library default currency) | snapshot health + calibration honesty copy |
+| Launchpad | 8 | yes (server validate + forced-PAUSED launch) | yes (new-campaign payload currencyCode + selection rendering) | honest (server updatedAt) |
 | Copies | 6 | mostly (client fabricates seeMoreRate, zero-fills funnel/video) | yes (per-row) | no timestamp; recovery meta swallowed |
-| Creative Inbox | 5 | yes (renders briefing labels) | NO — cross-business rows rendered as USD | generatedAt unrendered |
+| Creative Inbox | 6.5 | yes (renders briefing labels) | yes (per-card account currency; null = unknown) | generatedAt unrendered |
 | Audiences | stub | n/a — honest ComingSoon placeholder | n/a | n/a |
 
 ## A. NON-UI gaps (survive any redesign — engineering backlog, priority order)
 
-1. **Creative Inbox / BriefingCreativeCard has no currency field.** The inbox
-   mixes businesses and renders every amount as USD. Fix upstream in
-   `/api/creatives/briefing` (card contract gains currency), then the inbox
-   and any redesign inherit it.
-2. **Copies API omits funnel/video metrics for copy rows**, forcing the page
+1. **Copies API omits funnel/video metrics for copy rows**, forcing the page
    to zero-fill columns indistinguishable from real zeros and to fabricate
    `seeMoreRate` (`copies/page.tsx:211`). Extend the API row contract; drop
    the client fabrication.
-3. **Anomaly rows carry no per-entity briefing status**, so the anomalies
+2. **Anomaly rows carry no per-entity briefing status**, so the anomalies
    feed cannot honor the status filter (endDate scoping shipped; the status
    gap is storage-level). Add status/entity-state at anomaly write time.
-4. **Meta v1 recommendation engine lacks the CDC disciplines** (no
+3. **Meta v1 recommendation engine lacks the CDC disciplines** (no
    hysteresis, no calibration/outcome loop, 30d fixed lookback, confidence
    thresholds untested against outcomes). This is the largest structural
    item on the Decision Center path to 10.
-5. **Launchpad payload contract has no currency code** (minor-units only)
-   and `lib/launchpad/meta.ts` (637-line payload normalizer) plus the
-   templates/drafts routes are untested.
-6. **Two-source freshness model on the Decision Center** (live pulse
+4. **Launchpad templates/drafts routes and the broad payload normalizer are
+   still under-tested.** CurrencyCode is now carried for new-campaign payloads,
+   but the persistence/replay routes need contract tests before this surface
+   can score near 10.
+5. **Two-source freshness model on the Decision Center** (live pulse
    aggregates vs persisted decision snapshot lanes) is communicated only by
    the snapshot chip; a unified as-of contract would survive any redesign.
-7. **Copies payload lacks generatedAt/as-of fields**; route-report caches
+6. **Copies payload lacks generatedAt/as-of fields**; route-report caches
    serve data with no age indication.
-8. **Present-config-over-history classes in lib/meta/serving.ts** (historical
+7. **Present-config-over-history classes in lib/meta/serving.ts** (historical
    windows classified by current status/bid config) — anachronism debt
    shared by pulse and lanes.
-9. **Stale e2e specs assert dead testids** (`reviewer-smoke.spec.ts:42`,
+8. **Stale e2e specs assert dead testids** (`reviewer-smoke.spec.ts:42`,
     `commercial-truth-smoke.spec.ts:118,443,564` target components with no
     importer); the Playwright layer needs a redesign-era rewrite — blocked
     on/coupled to the frontend redesign decision.
@@ -59,7 +57,9 @@ dropped dataReadiness; lane drop-zone [0.55,0.7); non-time-bounded
 deferrals; client-side action semantics (rec-label-mapping in UI); display
 -string compare math; card KPI display-string dependence; unscoped anomaly
 snapshot date; deferred chip cross-scope count; release-authority manifest
-citing dead components as live surfaces.
+citing dead components as live surfaces; briefing card/account currency for
+Creative Inbox; Launchpad new-campaign currencyCode and creative-selection
+money rendering.
 
 ## B. UI-only / design-shell debt (redesign wipes it — do NOT polish now)
 
@@ -68,7 +68,8 @@ citing dead components as live surfaces.
   transient bid notices; "Let cook" label is client-conditional (honest,
   but client-decided); compare drawer visuals. (Drill-drawer KPI header
   moved to structured metrics this pass - no longer debt.)
-- Launchpad: hardcoded `$` in creative selection/existing-target views;
+- Launchpad: hardcoded `$` remains in existing-target budget/pixel preview
+  labels; creative selection no longer has this debt. Also
   `window.prompt/confirm` UX; client status bucketing for display.
 - Copies: unrendered `unresolved_filtered_count`; stub export buttons.
 - Creative Inbox: unrendered `generatedAt`; utilitarian list styling.

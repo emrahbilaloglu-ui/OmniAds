@@ -267,3 +267,22 @@ Remaining to 10 - the irreducible set:
 4. Two routed investigations: Tiles Workshop feed halt (since 06-19, with
    15 stale-data cuts to audit against the staleness guards) and the
    release-authority checker false-red.
+
+
+## Closer-to-10 pass (2026-07-06 late, non-sync scope per user direction)
+
+Suite 3538 green, typecheck + lint clean. Six local commits pending push
+(fe6c5a08..decea3c9), all deploy-safe (no label-affecting change).
+
+| Component | Now | Movement | Evidence |
+|---|---|---|---|
+| Formula | 9 → 9.25 | stale-guard audit + ceiling shadow | Tiles' 40 stale hard rows: 40/40 fully stale-badged, all floor-capped at confidence 40 - guards worked as designed; the remaining design gap (weeks-stale data should demote hard actions to diagnose) ships as stale_hard_ceiling_advisory shadow badge (>7d feed age) for live prevalence measurement before the next-version flip |
+| Measurement | 9 → 9.25 | sync-broken sensitivity cut | excluding Tiles, hysteresis evidence strengthens: reversals -76.2% (vs -73.7% full), noise share 17.9% - headline results do not depend on the contaminated business |
+| Explainability | 9 → 9.5 | empirical confidence | per-confidence-decade observed positive rates in the backtest summary; every card shows its own bucket's track record (Obs. @ conf) server-supplied |
+| QA | 9 → 9.5 | real-DB seam test | ephemeral harness now runs the hysteresis DB seam check: production UPSERT -> production reader on a real migrated database (raw_label round trip, strict before-asOf, rerun upsert) - the in-memory-blind defect class is permanently covered |
+
+Irreducible remainder (unchanged): tomorrow's spend data, the 07-13 live
+outcome window, the automatic-mode flip decision (user), prod-snapshot
+test portability + staging, and the two routed investigations (Tiles sync
+root cause - explicitly out of scope per user direction; release-authority
+checker).

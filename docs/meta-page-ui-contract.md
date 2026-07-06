@@ -149,11 +149,11 @@ Hidden entirely when all three are healthy.
   (`trackingBannerVisible = trackingBlocked && !trackingDismissed`,
   `MetaPlatformPage.tsx:1330`). "Hide banner" never unlocks writes.
 - While gated, tracking-sensitive primaries (`execute_pause`,
-  `route_launchpad_rebuild` — `isTrackingSensitiveRec`,
-  `MetaPlatformPage.tsx:1527-1532`) and all resume intents are intercepted by
-  `TrackingConfirmModal` ("Pause anyway" / "Rebuild anyway" / "Resume anyway")
-  before `performPrimary`/resume runs. It is a confirm interstitial, not a
-  hard block. `execute_bid` is not tracking-intercepted (see caveats).
+  `execute_bid`, `route_launchpad_rebuild` — `isTrackingSensitiveRec`) and
+  all resume intents are intercepted by `TrackingConfirmModal` ("Pause
+  anyway" / "Rebuild anyway" / "Resume anyway") before
+  `performPrimary`/resume runs. It is a confirm interstitial, not a hard
+  block.
 
 ### Lanes (`MetaPlatformPage.tsx:1899-1909`)
 
@@ -465,8 +465,10 @@ Real, current limitations — kept explicit on purpose:
   and lane routing (`optimizationGoal`, `customEventType`, bid strategy) come
   from current config snapshots (`lib/meta/serving.ts:1440-1495`), so
   historical windows are classified by present configuration.
-- **`dataReadiness` is payload-only.** The pulse route returns it
-  (`account-pulse/route.ts:496-501`) but the page does not render it yet.
+- **`dataReadiness` is rendered as a warning banner** (`data-testid="meta-data-readiness"`)
+  when status is not `ok` or the range is partial, so not-ready ranges do
+  not present as silent zeros (regression-tested in
+  `MetaPlatformPage.test.tsx`).
 - **`MetaLanePayload.snapshotHealth` is never populated by lane-classify**
   (`types.ts:149` is optional; the route omits it). Snapshot health on this
   page comes solely from account-pulse.
@@ -483,11 +485,7 @@ Real, current limitations — kept explicit on purpose:
   to parsing evidence text for the overlay's display value
   (`meta-card-utils.ts:87-100`). Neither feeds executes or compare/bulk math;
   the invariant scans deliberately scope to math, not display.
-- **`MetaArchiveTable` is dead code.** Defined at `MetaPlatformPage.tsx:751`
-  but the archive lane renders its own inline table (lines 2200-2262).
-- **`execute_bid` is not tracking-intercepted.** Only pause/rebuild primaries
-  and resumes go through the tracking confirm modal; apply-bid relies on its
-  own confirm overlay.
+
 
 ## Update discipline
 

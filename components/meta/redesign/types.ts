@@ -157,6 +157,7 @@ export type MetaWatchingSegmentKey =
   | "recently_changed"
   | "deferred"
   | "issues"
+  | "mid_confidence"
   | "insufficient_signal"
   | "other";
 

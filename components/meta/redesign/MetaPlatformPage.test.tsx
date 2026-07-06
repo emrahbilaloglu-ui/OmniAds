@@ -8,6 +8,8 @@ import {
   metaActionFailureMessage,
   metaAdsetPauseNotice,
   metaBidApplyNotice,
+  isTrackingWriteBlocked,
+  compareItemForRec,
 } from "@/components/meta/redesign/MetaPlatformPage";
 
 const state = vi.hoisted(() => ({
@@ -85,7 +87,8 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain("Healthy");
     expect(html).toContain("Non-sales");
     expect(html).toContain("Archive");
-    expect(html).toContain("Spend · today");
+    // Fixture endDate is historical, so the honest label names the day.
+    expect(html).toContain("Spend · 2026-05-07");
     expect(html).toContain("avg $350/day");
     expect(html).toContain("+15%");
     expect(html).toContain("7d avg 2/day");
@@ -694,5 +697,71 @@ describe("MetaPlatformPage", () => {
     expect(countText(html, ">Optimization</span>")).toBe(1);
     expect(html).toContain(">Lowest Cost</span>");
     expect(html).toContain(">1 adset</div>");
+  });
+});
+
+describe("tracking write gate (regression: dismissal must not unlock writes)", () => {
+  it("blocks on server verdict and takes no dismissal input at all", () => {
+    expect(
+      isTrackingWriteBlocked({
+        trackingAnomalyActive: true,
+        trackingHealth: { status: "healthy", detail: "" },
+      }),
+    ).toBe(true);
+    expect(
+      isTrackingWriteBlocked({
+        trackingAnomalyActive: undefined as never,
+        trackingHealth: { status: "blocked", detail: "" },
+      }),
+    ).toBe(true);
+    expect(
+      isTrackingWriteBlocked({
+        trackingAnomalyActive: false,
+        trackingHealth: { status: "blocked", detail: "" },
+      }),
+    ).toBe(false);
+    expect(isTrackingWriteBlocked(null)).toBe(false);
+    // Signature-level proof: the gate accepts only the server payload -
+    // client dismissal state cannot influence it.
+    expect(isTrackingWriteBlocked.length).toBe(1);
+  });
+});
+
+describe("compare math uses structured metrics, never display strings", () => {
+  it("keeps numbers identical when formatted evidence strings change arbitrarily", () => {
+    const base = metaRec({
+      metrics: { spend: 812.5, roas: 2.4, cpa: 18, ctr: 1.3, purchases: 44, frequency: 2.1 },
+      evidence: [
+        { label: "Spend", value: "$812.50", tone: "neutral" },
+        { label: "ROAS", value: "2.40x", tone: "positive" },
+      ],
+    });
+    const reformatted = metaRec({
+      metrics: { spend: 812.5, roas: 2.4, cpa: 18, ctr: 1.3, purchases: 44, frequency: 2.1 },
+      evidence: [
+        { label: "Spend", value: "₺99.999,99 !!", tone: "neutral" },
+        { label: "ROAS", value: "banded 0.70x-0.83x", tone: "warning" },
+      ],
+    });
+    const left = compareItemForRec(base);
+    const right = compareItemForRec(reformatted);
+    expect(right.spend).toBe(left.spend);
+    expect(right.roas).toBe(left.roas);
+    expect(right.cpa).toBe(left.cpa);
+    expect(right.purchases).toBe(left.purchases);
+  });
+
+  it("excludes metric-less recs from numeric math instead of guessing zero", () => {
+    const item = compareItemForRec(
+      metaRec({
+        metrics: null,
+        evidenceTrail: undefined,
+        evidence: [{ label: "Spend", value: "$9,999.00", tone: "neutral" }],
+      }),
+    );
+    expect(item.spend).toBeUndefined();
+    // roas comes only from the TYPED evidence trail (peer comparison) or
+    // structured metrics - never from display strings.
+    expect(item.roas).toBeUndefined();
   });
 });

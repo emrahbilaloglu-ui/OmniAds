@@ -277,7 +277,7 @@ describe("GET /api/meta/account-pulse", () => {
       rows: [campaign({ currency: "TRY" })] as never,
       isPartial: false,
       notReadyReason: null,
-      evidenceSource: "warehouse",
+      evidenceSource: "snapshot",
     });
     const response = await GET(new NextRequest("http://localhost/api/meta/account-pulse?businessId=biz_1"));
     const payload = await response.json();
@@ -290,19 +290,19 @@ describe("GET /api/meta/account-pulse", () => {
       const monthStart = `${String(input.endDate).slice(0, 8)}01`;
       if (input.startDate === monthStart) {
         return {
-          status: "ok",
+          status: "ok" as const,
           rows: [campaign({ spend: 5000 })] as never,
           isPartial: false,
           notReadyReason: null,
-          evidenceSource: "warehouse",
+          evidenceSource: "snapshot" as const,
         };
       }
       return {
-        status: "ok",
+        status: "ok" as const,
         rows: [campaign({ spend: 1200 })] as never,
         isPartial: false,
         notReadyReason: null,
-        evidenceSource: "warehouse",
+        evidenceSource: "snapshot" as const,
       };
     });
     const response = await GET(

@@ -1233,4 +1233,170 @@ describe("GET /api/meta/lane-classify", () => {
     expect(payload.watching.map((rec: { id: string }) => rec.id)).toContain("rec_issue");
     expect(payload.archive).toHaveLength(0);
   });
+
+  it("routes the [0.55, 0.7) act-state confidence band into Watching as mid_confidence instead of dropping it", async () => {
+    mockSql([]);
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 1,
+      },
+      recommendations: [
+        metaRec({ id: "rec_mid", confidenceScore: 0.62, decisionState: "act" }),
+      ],
+    });
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d"));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.actionNow).toHaveLength(0);
+    expect(payload.watching.map((rec: { id: string }) => rec.id)).toEqual(["rec_mid"]);
+    expect(payload.watching[0]).toMatchObject({ id: "rec_mid", watchSegment: "mid_confidence" });
+    expect(payload.watchingSegments).toEqual([
+      expect.objectContaining({ key: "mid_confidence", count: 1, label: "Mid confidence" }),
+    ]);
+    expect(payload.counts.watching).toBe(payload.watching.length);
+  });
+
+  it("keeps the 0.7 Action Now bar and the existing sub-0.55 insufficient-signal path unchanged", async () => {
+    mockSql([]);
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 3,
+      },
+      recommendations: [
+        metaRec({ id: "rec_at_bar", confidenceScore: 0.7, decisionState: "act" }),
+        metaRec({ id: "rec_below_band", confidenceScore: 0.54, decisionState: "act" }),
+        // decisionState "watch" wins over the score band: mid-band watch-state
+        // recs stay on the existing insufficient_signal path.
+        metaRec({ id: "rec_watch_state", confidenceScore: 0.62, decisionState: "watch" }),
+      ],
+    });
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d"));
+    const payload = await response.json();
+    const watching = new Map(payload.watching.map((rec: { id: string }) => [rec.id, rec]));
+
+    expect(response.status).toBe(200);
+    expect(payload.actionNow.map((rec: { id: string }) => rec.id)).toEqual(["rec_at_bar"]);
+    expect(watching.get("rec_below_band")).toMatchObject({ watchSegment: "insufficient_signal" });
+    expect(watching.get("rec_watch_state")).toMatchObject({ watchSegment: "insufficient_signal" });
+    expect(payload.watchingSegments).toEqual([
+      expect.objectContaining({ key: "insufficient_signal", count: 2 }),
+    ]);
+  });
+
+  it("partitions every recommendation into exactly one lane across the confidence sweep (no-gap contract)", async () => {
+    mockSql([]);
+    const sweep = [
+      metaRec({ id: "rec_c040", confidenceScore: 0.4, decisionState: "watch" }),
+      metaRec({ id: "rec_c055", confidenceScore: 0.55, decisionState: "act" }),
+      metaRec({ id: "rec_c062", confidenceScore: 0.62, decisionState: "test" }),
+      metaRec({ id: "rec_c069", confidenceScore: 0.69, decisionState: "act" }),
+      metaRec({ id: "rec_c070", confidenceScore: 0.7, decisionState: "act" }),
+      metaRec({ id: "rec_c090", confidenceScore: 0.9, decisionState: "act" }),
+    ];
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: sweep.length,
+      },
+      recommendations: sweep,
+    });
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d"));
+    const payload = await response.json();
+    const laneMemberships = [
+      ...payload.actionNow.map((rec: { id: string }) => rec.id),
+      ...payload.watching.map((rec: { id: string }) => rec.id),
+      ...payload.nonSales.map((rec: { id: string }) => rec.id),
+      ...payload.archive.map((row: { id: string }) => row.id),
+    ].filter((id: string) => id.startsWith("rec_c"));
+
+    expect(response.status).toBe(200);
+    // Every rec lands in exactly one lane: total memberships === rec count, no dupes.
+    expect(laneMemberships).toHaveLength(sweep.length);
+    expect(new Set(laneMemberships).size).toBe(sweep.length);
+    expect([...laneMemberships].sort()).toEqual(sweep.map((rec) => rec.id).sort());
+    expect(payload.actionNow.map((rec: { id: string }) => rec.id).sort()).toEqual(["rec_c070", "rec_c090"]);
+    expect(payload.counts.actionNow).toBe(payload.actionNow.length);
+    expect(payload.counts.watching).toBe(payload.watching.length);
+  });
+
+  it("returns expired deferrals to their natural lane while future and legacy deferrals stay deferred", async () => {
+    const pastReappearAt = new Date(Date.now() - 60_000).toISOString();
+    const futureReappearAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    mockSql([
+      { rec_id: "rec_defer_expired", action: "deferred", action_subtype: "defer_24h", occurred_at: "2026-05-01T00:00:00.000Z", reappear_at: pastReappearAt },
+      { rec_id: "rec_defer_future", action: "deferred", action_subtype: "defer_24h", occurred_at: "2026-05-01T00:00:00.000Z", reappear_at: futureReappearAt },
+      // Legacy rows have no reappear_at: indefinite deferral semantics are preserved.
+      { rec_id: "rec_defer_legacy", action: "deferred", action_subtype: "let_cook_24h", occurred_at: "2026-05-01T00:00:00.000Z", reappear_at: null },
+    ]);
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 3,
+      },
+      recommendations: [
+        metaRec({ id: "rec_defer_expired", confidenceScore: 0.84, decisionState: "act" }),
+        metaRec({ id: "rec_defer_future", confidenceScore: 0.84, decisionState: "act" }),
+        metaRec({ id: "rec_defer_legacy", confidenceScore: 0.84, decisionState: "act" }),
+      ],
+    });
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d"));
+    const payload = await response.json();
+    const watching = new Map(payload.watching.map((rec: { id: string }) => [rec.id, rec]));
+
+    expect(response.status).toBe(200);
+    // Expired deferral returns to its naturally classified lane (Action Now here).
+    expect(payload.actionNow.map((rec: { id: string }) => rec.id)).toEqual(["rec_defer_expired"]);
+    expect(payload.actionNow[0]).not.toHaveProperty("operatorResponseState");
+    expect([...payload.deferredIds].sort()).toEqual(["rec_defer_future", "rec_defer_legacy"]);
+    expect(watching.get("rec_defer_future")).toMatchObject({
+      watchSegment: "deferred",
+      operatorResponseState: "deferred",
+    });
+    expect(watching.get("rec_defer_legacy")).toMatchObject({
+      watchSegment: "deferred",
+      operatorResponseState: "deferred",
+    });
+    expect(payload.watchingSegments).toEqual([
+      expect.objectContaining({ key: "deferred", count: 2 }),
+    ]);
+  });
 });

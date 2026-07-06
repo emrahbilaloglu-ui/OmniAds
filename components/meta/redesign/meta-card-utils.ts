@@ -1,10 +1,5 @@
 import type { DecisionLabel } from "@/components/common/briefing/types";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
-import {
-  decisionLabelForMetaRec,
-  launchModeForMetaRec,
-  primaryLabelForMetaRec,
-} from "@/lib/meta/rec-label-mapping";
 import type { MetaLaunchMode } from "@/components/meta/redesign/types";
 
 export function scopeIdForRec(rec: MetaRecommendation) {
@@ -19,20 +14,43 @@ export function scopeNameForRec(rec: MetaRecommendation) {
   return "Account";
 }
 
+// Server-owned action contract (Codex cross-review): lane-classify
+// annotates every recommendation with decisionLabel / actionKind /
+// primaryActionLabel via lib/meta/rec-presentation.ts. The UI consumes
+// them verbatim - no client derivation from types or display strings.
+// Fallbacks are static neutral values for payloads predating the contract.
 export function decisionLabelForRec(rec: MetaRecommendation): DecisionLabel {
-  return decisionLabelForMetaRec(rec);
+  return (rec.decisionLabel as DecisionLabel | undefined) ?? "diagnose";
 }
 
 export function launchModeForRec(rec: MetaRecommendation): MetaLaunchMode | null {
-  return launchModeForMetaRec(rec);
+  switch (rec.actionKind) {
+    case "route_launchpad_rebuild":
+      return "rebuild";
+    case "route_launchpad_duplicate":
+      return "duplicate";
+    case "execute_bid":
+      return "apply_bid";
+    default:
+      return null;
+  }
 }
 
 export function primaryLabelForRec(rec: MetaRecommendation) {
-  return primaryLabelForMetaRec(rec);
+  return rec.primaryActionLabel ?? "Open drilldown";
 }
 
 export function evidenceValue(rec: MetaRecommendation, label: string) {
   return rec.evidence.find((item) => item.label.toLowerCase() === label.toLowerCase())?.value ?? null;
+}
+
+/**
+ * Structured metrics for compare/bulk math. Display strings in evidence[]
+ * are presentation-only; when the server did not attach metrics the entity
+ * is excluded from numeric comparisons instead of being regex-guessed.
+ */
+export function structuredMetricsForRec(rec: MetaRecommendation) {
+  return rec.metrics ?? null;
 }
 
 export function parseFirstCurrencyAmount(text: string | null | undefined) {

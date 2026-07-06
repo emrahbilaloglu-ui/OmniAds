@@ -247,6 +247,26 @@ export interface MetaRecommendation {
   campaignRole?: MetaCampaignRole;
   bidRegime?: MetaBidRegime;
   cohort?: MetaFunnelCohort | null;
+  /** Server-owned action presentation (filled at read time by lane-classify
+   * via lib/meta/rec-presentation.ts; the UI must not derive these). */
+  actionKind?:
+    | "execute_pause"
+    | "execute_bid"
+    | "execute_resume"
+    | "route_launchpad_rebuild"
+    | "route_launchpad_duplicate"
+    | "review_drill";
+  primaryActionLabel?: string;
+  /** Structured numeric metrics for compare/bulk math; display strings in
+   * evidence[] are presentation-only and must never be parsed back. */
+  metrics?: {
+    spend?: number | null;
+    roas?: number | null;
+    cpa?: number | null;
+    ctr?: number | null;
+    purchases?: number | null;
+    frequency?: number | null;
+  } | null;
   operatorResponseState?: "acted" | "deferred" | "ignored";
   operatorResponseSubtype?: string | null;
   operatorResponseAt?: string | null;
@@ -258,6 +278,7 @@ export interface MetaRecommendation {
     | "deferred"
     | "issues"
     | "insufficient_signal"
+    | "mid_confidence"
     | "other";
 }
 

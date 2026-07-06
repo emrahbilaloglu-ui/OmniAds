@@ -4,12 +4,20 @@ import { resolveMetaCredentials } from "@/lib/api/meta";
 import { getDb } from "@/lib/db";
 import { getMetaAdSetsForRange } from "@/lib/meta/adsets-source";
 import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
+import {
+  annotateMetaRecPresentation,
+  type MetaRecEntityMetricsSource,
+} from "@/lib/meta/rec-presentation";
 import { readMetaDecisionSnapshotForRange } from "@/lib/meta/snapshot";
 import {
   META_RECOMMENDATION_ENGINE_VERSION,
   type MetaRecommendation,
 } from "@/lib/meta/recommendations";
-import type { MetaWatchingSegment, MetaWatchingSegmentKey } from "@/components/meta/redesign/types";
+import type {
+  MetaLanePayload,
+  MetaWatchingSegment,
+  MetaWatchingSegmentKey,
+} from "@/components/meta/redesign/types";
 import { resolveMetaFunnelCohort, type MetaFunnelCohort } from "@/lib/meta/funnel-cohort";
 import {
   briefingStatusForEntity,
@@ -44,6 +52,8 @@ interface OperatorRecState {
   state: OperatorResponseState;
   subtype: string | null;
   occurredAt: string | null;
+  /** Deferral expiry (deferred rows only). Null = indefinite (legacy rows). */
+  reappearAt: string | null;
 }
 
 interface LiveMetaEntityStatus {
@@ -431,6 +441,15 @@ function isInsufficientSignal(rec: MetaRecommendation) {
   return (rec.confidenceScore ?? 0) < 0.55 || rec.decisionState === "watch";
 }
 
+// The [0.55, 0.7) confidence band with an act/test decision state used to fall
+// through every lane predicate and silently disappear (Codex cross-review
+// STOP_AND_FIX). It now routes into Watching as its own segment so the
+// operator can see signal that is forming but below the Action Now bar.
+function isMidConfidence(rec: MetaRecommendation) {
+  const score = rec.confidenceScore ?? 0;
+  return score >= 0.55 && score < 0.7 && !isInsufficientSignal(rec);
+}
+
 function recScopeEntity(input: {
   rec: MetaRecommendation;
   campaignsById: Map<string, CampaignRow>;
@@ -493,6 +512,7 @@ function watchSegmentForRec(input: {
   if (isInLearning(input.rec)) return "learning";
   if (isRecentlyChanged(input.rec)) return "recently_changed";
   if (isInsufficientSignal(input.rec)) return "insufficient_signal";
+  if (isMidConfidence(input.rec)) return "mid_confidence";
   return "other";
 }
 
@@ -536,6 +556,12 @@ const WATCH_SEGMENT_META: Record<
     ctaLabel: null,
     href: null,
   },
+  mid_confidence: {
+    label: "Mid confidence",
+    description: "Signal forming - below the Action Now bar.",
+    ctaLabel: null,
+    href: null,
+  },
   insufficient_signal: {
     label: "Insufficient signal",
     description: "Spend, purchase, or confidence evidence is not strong enough yet.",
@@ -563,11 +589,26 @@ function buildWatchingSegments(watching: MetaRecommendation[]): MetaWatchingSegm
     "recently_changed",
     "deferred",
     "issues",
+    "mid_confidence",
     "insufficient_signal",
     "other",
   ] as MetaWatchingSegmentKey[])
     .map((key) => ({ key, count: counts.get(key) ?? 0, ...WATCH_SEGMENT_META[key] }))
     .filter((segment) => segment.count > 0);
+}
+
+// A deferral is active only while reappear_at is null (indefinite, the legacy
+// contract) or still in the future. Once reappear_at passes, the deferral has
+// expired: the rec returns to its naturally classified lane and must not count
+// as deferred anywhere (deferredIds, deferred watching segment, annotations).
+function isExpiredDeferral(
+  action: string,
+  reappearAt: string | null | undefined,
+  now = Date.now(),
+) {
+  if (action !== "deferred" || reappearAt == null) return false;
+  const reappearAtMs = parseTimestampMs(reappearAt);
+  return reappearAtMs != null && reappearAtMs <= now;
 }
 
 async function readOperatorRecStates(businessId: string) {
@@ -578,7 +619,8 @@ async function readOperatorRecStates(businessId: string) {
         rec_id,
         action,
         action_subtype,
-        timestamp AS occurred_at
+        timestamp AS occurred_at,
+        reappear_at
       FROM meta_decision_responses
       WHERE business_id = ${businessId}
         AND action IN ('acted', 'deferred', 'undeferred', 'ignored')
@@ -589,7 +631,8 @@ async function readOperatorRecStates(businessId: string) {
         rec_id_origin AS rec_id,
         'acted'::text AS action,
         action::text AS action_subtype,
-        COALESCE(verified_at, updated_at, requested_at, created_at) AS occurred_at
+        COALESCE(verified_at, updated_at, requested_at, created_at) AS occurred_at,
+        NULL::timestamptz AS reappear_at
       FROM meta_ads_action_log
       WHERE business_id = ${businessId}
         AND status = 'success'
@@ -602,6 +645,7 @@ async function readOperatorRecStates(businessId: string) {
         action,
         action_subtype,
         occurred_at,
+        reappear_at,
         ROW_NUMBER() OVER (PARTITION BY rec_id ORDER BY occurred_at DESC NULLS LAST) AS row_number
       FROM events
     )
@@ -609,7 +653,8 @@ async function readOperatorRecStates(businessId: string) {
       rec_id,
       action,
       action_subtype,
-      occurred_at::text AS occurred_at
+      occurred_at::text AS occurred_at,
+      reappear_at::text AS reappear_at
     FROM ranked
     WHERE row_number = 1
   `) as Array<{
@@ -617,14 +662,17 @@ async function readOperatorRecStates(businessId: string) {
     action: "acted" | "deferred" | "undeferred" | "ignored";
     action_subtype: string | null;
     occurred_at: string | null;
+    reappear_at: string | null;
   }>;
   const states = new Map<string, OperatorRecState>();
   for (const row of rows) {
     if (!row.rec_id || row.action === "undeferred") continue;
+    if (isExpiredDeferral(row.action, row.reappear_at)) continue;
     states.set(row.rec_id, {
       state: row.action,
       subtype: row.action_subtype ?? null,
       occurredAt: row.occurred_at ?? null,
+      reappearAt: row.reappear_at ?? null,
     });
   }
   return states;
@@ -1236,12 +1284,27 @@ export async function GET(request: NextRequest) {
           isInLearning(rec) ||
           isRecentlyChanged(rec) ||
           isInsufficientSignal(rec) ||
+          isMidConfidence(rec) ||
           deferredIds.has(rec.id)),
     )
     .map((rec) => ({
       ...rec,
       watchSegment: watchSegmentForRec({ rec, deferredIds, campaignsById, adsetsById }),
     }));
+  // Partition accounting (defense in depth): every purchase-scoped rec must
+  // land in exactly one lane. Anything the predicates above still miss is
+  // parked in Watching under the "other" segment instead of being dropped.
+  const classifiedRecIds = new Set([...actionNow, ...watching].map((rec) => rec.id));
+  const unclassifiedRecs = purchaseScopedRecs.filter((rec) => !classifiedRecIds.has(rec.id));
+  if (unclassifiedRecs.length > 0) {
+    console.warn("[meta-lane-classify] lane_partition_fallback", {
+      businessId,
+      recIds: unclassifiedRecs.map((rec) => rec.id),
+    });
+    watching.push(
+      ...unclassifiedRecs.map((rec) => ({ ...rec, watchSegment: "other" as const })),
+    );
+  }
   const recommendedScopeIds = new Set(
     recommendations.flatMap((rec) => [rec.campaignId, rec.adsetId]).filter(Boolean) as string[],
   );
@@ -1274,29 +1337,60 @@ export async function GET(request: NextRequest) {
     ...archiveAdsetRows({ rows: adsetRows, statusFilter, window, campaignNamesById, campaignLabelsById }),
   ].sort((left, right) => right.spend - left.spend);
 
-  return NextResponse.json(
-    {
-      businessId,
-      statusFilter,
-      startDate,
-      endDate,
-      sourceModel: snapshot?.sourceModel ?? "snapshot_persistent",
-      snapshotDate: snapshot?.endDate ?? null,
-      actionNow,
-      watching,
-      healthy,
-      nonSales,
-      archive,
-      deferredIds: [...deferredIds],
-      watchingSegments: buildWatchingSegments(watching),
-      counts: {
-        actionNow: actionNow.length,
-        watching: watching.length,
-        healthy: healthy.length,
-        nonSales: nonSales.length,
-        archive: archive.length,
-      },
+  // Server-owned action presentation + structured numeric metrics: every
+  // recommendation leaves this route with decisionLabel / actionKind /
+  // primaryActionLabel and metrics attached, so the UI renders semantics it
+  // never computes and compare/bulk math never parses display strings.
+  // Old persisted snapshots are covered because annotation happens at read
+  // time.
+  const metricsByEntityId = new Map<string, MetaRecEntityMetricsSource>();
+  for (const row of campaignRows) {
+    metricsByEntityId.set(row.id, {
+      spend: row.spend ?? null,
+      roas: row.roas ?? null,
+      cpa: row.cpa ?? null,
+      ctr: row.ctr ?? null,
+      purchases: row.purchases ?? null,
+      frequency: row.frequency ?? null,
+    });
+  }
+  for (const row of adsetRows) {
+    metricsByEntityId.set(row.id, {
+      spend: row.spend ?? null,
+      roas: row.roas ?? null,
+      cpa: row.cpa ?? null,
+      ctr: row.ctr ?? null,
+      purchases: row.purchases ?? null,
+      frequency: row.frequency ?? null,
+    });
+  }
+  const annotatedActionNow = annotateMetaRecPresentation(actionNow, metricsByEntityId);
+  const annotatedWatching = annotateMetaRecPresentation(watching, metricsByEntityId);
+  const annotatedNonSales = annotateMetaRecPresentation(nonSales, metricsByEntityId);
+
+  // Typed against the shared client contract so response drift fails typecheck.
+  const payload = {
+    businessId,
+    statusFilter,
+    startDate,
+    endDate,
+    sourceModel: snapshot?.sourceModel ?? "snapshot_persistent",
+    snapshotDate: snapshot?.endDate ?? null,
+    actionNow: annotatedActionNow,
+    watching: annotatedWatching,
+    healthy,
+    nonSales: annotatedNonSales,
+    archive,
+    deferredIds: [...deferredIds],
+    watchingSegments: buildWatchingSegments(annotatedWatching),
+    counts: {
+      actionNow: actionNow.length,
+      watching: watching.length,
+      healthy: healthy.length,
+      nonSales: nonSales.length,
+      archive: archive.length,
     },
-    { headers: { "Cache-Control": "no-store" } },
-  );
+  } satisfies MetaLanePayload;
+
+  return NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });
 }

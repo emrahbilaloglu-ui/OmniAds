@@ -336,7 +336,9 @@ export function MetaActionCard({
   const signalQuality = signalQualityText(rec);
   const automationReadiness = automationReadinessText(rec);
   const metricRows = cardMetricRows(rec, evidenceWindow);
-  const primaryActionLabel = rec.decisionState === "watch" ? "Let cook" : primaryLabelForRec(rec);
+  const watchPrimaryDefers =
+    rec.decisionState === "watch" && Boolean(onDefer) && effectiveResponseState !== "deferred";
+  const primaryActionLabel = watchPrimaryDefers ? "Let cook" : primaryLabelForRec(rec);
   const primaryCompleted = effectiveResponseState === "acted";
   const primaryCanResume = Boolean(onResume) && canResumeCompletedPrimary(rec, primaryCompleted);
   const primaryDisabledForContract =
@@ -417,7 +419,13 @@ export function MetaActionCard({
           className="btn btn--primary"
           disabled={primaryPending || primaryDisabledForContract || (primaryCompleted && !primaryCanResume)}
           title={primaryDisabledForContract ? "No executable bid value - open evidence" : undefined}
-          onClick={() => (primaryCanResume ? onResume?.(rec) : onPrimary?.(rec))}
+          onClick={() =>
+            primaryCanResume
+              ? onResume?.(rec)
+              : watchPrimaryDefers
+                ? onDefer?.(rec)
+                : onPrimary?.(rec)
+          }
         >
           {primaryCanResume ? <Play className="inline-block shrink-0" size={13} aria-hidden="true" /> : <PrimaryIcon rec={rec} />}
           {primaryPending ? "Working..." : primaryCanResume ? resumePrimaryLabel(rec) : primaryCompleted ? completedPrimaryLabel(rec) : primaryActionLabel}

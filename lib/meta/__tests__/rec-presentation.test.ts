@@ -1,0 +1,143 @@
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import {
+  annotateMetaRecPresentation,
+  serverActionKindForRec,
+  serverDecisionLabelForRec,
+  serverPrimaryActionLabelForRec,
+} from "../rec-presentation";
+import type { MetaRecommendation } from "../recommendations";
+
+function rec(overrides: Partial<MetaRecommendation> = {}): MetaRecommendation {
+  return {
+    id: "rec_1",
+    level: "adset",
+    campaignId: "cmp_1",
+    campaignName: "ASC",
+    adsetId: "as_1",
+    adsetName: "Broad",
+    type: "adset_cut_spend",
+    lens: "profitability",
+    priority: "high",
+    confidence: "high",
+    decisionState: "act",
+    decision: "cut",
+    title: "Cut spend",
+    why: "Underperforming",
+    summary: "Cut it",
+    recommendedAction: "Pause this ad set",
+    expectedImpact: "Save budget",
+    evidence: [],
+    timeframeContext: {
+      coreVerdict: "",
+      selectedRangeOverlay: "",
+      historicalSupport: "",
+      seasonalityFlag: "none",
+      note: null,
+    },
+    ...overrides,
+  } as MetaRecommendation;
+}
+
+describe("server-owned rec presentation", () => {
+  it("executes get execute verbs; drawer-only actions get review framing", () => {
+    expect(serverPrimaryActionLabelForRec(rec({ type: "adset_cut_spend" }))).toBe(
+      "Pause adset",
+    );
+    expect(
+      serverPrimaryActionLabelForRec(
+        rec({
+          type: "bid_value_guidance",
+          proposedAction: { kind: "apply_bid", bidAmountMinor: 500 },
+        }),
+      ),
+    ).toBe("Apply bid cap");
+    // Scale recs have no execute path on this page - the old UI said
+    // "Scale budget" on a button that only opened a drawer.
+    const scale = rec({ type: "adset_scale_budget", proposedAction: undefined });
+    expect(serverActionKindForRec(scale)).toBe("review_drill");
+    expect(serverPrimaryActionLabelForRec(scale)).toBe("Review scale plan");
+    const keep = rec({ type: "scenario_m2_mid_funnel_steady_keep", proposedAction: undefined });
+    expect(serverPrimaryActionLabelForRec(keep)).toBe("Review status");
+  });
+
+  it("routes launchpad handoffs explicitly", () => {
+    const rebuild = rec({ type: "rebuild_with_constraints" });
+    expect(serverActionKindForRec(rebuild)).toBe("route_launchpad_rebuild");
+    expect(serverPrimaryActionLabelForRec(rebuild)).toBe("Rebuild in Launchpad");
+    const promote = rec({ type: "winner_promotion_flow" });
+    expect(serverActionKindForRec(promote)).toBe("route_launchpad_duplicate");
+    expect(serverPrimaryActionLabelForRec(promote)).toBe("Promote in Launchpad");
+  });
+
+  it("derives decision labels server-side with engine label precedence", () => {
+    expect(serverDecisionLabelForRec(rec({ decisionLabel: "tune" }))).toBe("tune");
+    expect(serverDecisionLabelForRec(rec({ type: "adset_cut_spend" }))).toBe("cut");
+    expect(
+      serverDecisionLabelForRec(
+        rec({
+          type: "scale_for_profitability",
+          recommendedAction: "Reduce budget and tighten the cap",
+        }),
+      ),
+    ).toBe("tune");
+    expect(
+      serverDecisionLabelForRec(rec({ type: "scenario_e2_ctr_decay_refresh" })),
+    ).toBe("refresh");
+  });
+
+  it("annotates recommendations with presentation fields and structured metrics", () => {
+    const metrics = new Map([
+      ["as_1", { spend: 120.5, roas: 1.8, cpa: 22, ctr: 1.1, purchases: 6, frequency: 1.9 }],
+    ]);
+    const [annotated] = annotateMetaRecPresentation([rec()], metrics);
+    expect(annotated.actionKind).toBe("execute_pause");
+    expect(annotated.primaryActionLabel).toBe("Pause adset");
+    expect(annotated.decisionLabel).toBe("cut");
+    expect(annotated.metrics).toEqual({
+      spend: 120.5,
+      roas: 1.8,
+      cpa: 22,
+      ctr: 1.1,
+      purchases: 6,
+      frequency: 1.9,
+    });
+    const [noMetrics] = annotateMetaRecPresentation([rec({ adsetId: "unknown" })]);
+    expect(noMetrics.metrics).toBeNull();
+  });
+});
+
+describe("invariant: Meta redesign UI does not compute action semantics", () => {
+  function sourceFiles(dir: string): string[] {
+    return readdirSync(dir).flatMap((entry) => {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) return sourceFiles(full);
+      if (!/\.(ts|tsx)$/.test(entry) || /\.test\./.test(entry)) return [];
+      return [full];
+    });
+  }
+
+  it("keeps rec-label-mapping (client-side semantics) out of the redesign components", () => {
+    const offenders = sourceFiles("components/meta/redesign").filter((file) =>
+      readFileSync(file, "utf8").includes("rec-label-mapping"),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it("keeps regex/string inference over recommendedAction out of the redesign components", () => {
+    const offenders = sourceFiles("components/meta/redesign").filter((file) => {
+      const source = readFileSync(file, "utf8");
+      return /recommendedAction[^;\n]*\.(match|test|includes|search)\(/.test(source);
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  it("keeps evidence display-string parsing out of compare/bulk math", () => {
+    const offenders = sourceFiles("components/meta/redesign").filter((file) => {
+      const source = readFileSync(file, "utf8");
+      return /evidence\.find\([^)]*\)\s*\??\.\s*value\.replace\(/.test(source);
+    });
+    expect(offenders).toEqual([]);
+  });
+});

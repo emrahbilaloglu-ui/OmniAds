@@ -41,6 +41,7 @@ import {
   proposedBidMinorForExecute,
   scopeIdForRec,
   scopeNameForRec,
+  structuredMetricsForRec,
 } from "@/components/meta/redesign/meta-card-utils";
 import { formatCurrency, formatRoas, sparklinePath } from "@/lib/briefing/utils";
 import {
@@ -323,20 +324,26 @@ function launchpadHrefForRec(rec: MetaRecommendation, mode: MetaLaunchMode) {
   return `/platforms/meta/launchpad?${params.toString()}`;
 }
 
-function compareItemForRec(rec: MetaRecommendation): CompareDrawerItem {
+export function compareItemForRec(rec: MetaRecommendation): CompareDrawerItem {
   const trail = rec.evidenceTrail;
+  // Numbers come ONLY from the server's structured metrics (and the typed
+  // evidence trail); formatted evidence display strings are never parsed
+  // back into math. Missing metrics stay null and the entity is excluded
+  // from numeric ranking rather than silently becoming zero.
+  const metrics = structuredMetricsForRec(rec);
   const peerValue = trail?.peer_comparison?.this_value;
   return {
     id: rec.id,
     name: scopeNameForRec(rec),
     brand: rec.campaignName ?? "Meta",
     label: decisionLabelForRec(rec),
-    spend: Number(rec.evidence.find((item) => /spend/i.test(item.label))?.value.replace(/[^0-9.]/g, "") ?? 0),
-    roas: typeof peerValue === "number" ? peerValue : Number(rec.evidence.find((item) => /roas/i.test(item.label))?.value.replace(/[^0-9.]/g, "") ?? 0),
-    cpa: Number(rec.evidence.find((item) => /cpa/i.test(item.label))?.value.replace(/[^0-9.]/g, "") ?? 0),
-    ctr: Number(rec.evidence.find((item) => /ctr/i.test(item.label))?.value.replace(/[^0-9.]/g, "") ?? 0),
-    purchases: Number(rec.evidence.find((item) => /purchase/i.test(item.label))?.value.replace(/[^0-9.]/g, "") ?? 0),
-    frequency: Number(rec.evidence.find((item) => /frequency/i.test(item.label))?.value.replace(/[^0-9.]/g, "") ?? 0),
+    spend: metrics?.spend ?? undefined,
+    roas:
+      typeof peerValue === "number" ? peerValue : metrics?.roas ?? undefined,
+    cpa: metrics?.cpa ?? undefined,
+    ctr: metrics?.ctr ?? undefined,
+    purchases: metrics?.purchases ?? undefined,
+    frequency: metrics?.frequency ?? undefined,
     sparkline: Array.isArray(trail?.roas_history) ? trail.roas_history.map(Number) : undefined,
   };
 }
@@ -853,6 +860,21 @@ export function formatMoney(value: number | null | undefined, currency: string |
   return formatCurrency(value);
 }
 
+/**
+ * Write gate for tracking anomalies. Pure and dismissal-free BY SIGNATURE:
+ * the banner's Dismiss button only hides the banner; it can never unlock
+ * pause/rebuild/resume (Codex review: the old gate keyed on dismissal).
+ */
+export function isTrackingWriteBlocked(
+  pulse: Pick<MetaPulsePayload, "trackingAnomalyActive" | "trackingHealth"> | null | undefined,
+): boolean {
+  return Boolean(
+    pulse?.trackingAnomalyActive ??
+      (pulse?.trackingHealth.status === "blocked" ||
+        pulse?.trackingHealth.status === "degraded"),
+  );
+}
+
 function percentDelta(current: number | null | undefined, previous: number | null | undefined) {
   if (current == null || previous == null || !Number.isFinite(current) || !Number.isFinite(previous) || previous <= 0) {
     return null;
@@ -1311,13 +1333,8 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
     [allRecs, selectedIds],
   );
 
-  const trackingBlocked =
-    !trackingDismissed &&
-    Boolean(
-      pulseQuery.data?.trackingAnomalyActive ??
-        (pulseQuery.data?.trackingHealth.status === "blocked" ||
-          pulseQuery.data?.trackingHealth.status === "degraded"),
-    );
+  const trackingBlocked = isTrackingWriteBlocked(pulseQuery.data);
+  const trackingBannerVisible = trackingBlocked && !trackingDismissed;
 
   const currentUrlParams = () =>
     new URLSearchParams(
@@ -1515,12 +1532,17 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   };
 
   const isTrackingSensitiveRec = (rec: MetaRecommendation) => {
-    return rec.type === "adset_cut_spend" || launchModeForRec(rec) === "rebuild";
+    return (
+      rec.actionKind === "execute_pause" ||
+      rec.actionKind === "route_launchpad_rebuild"
+    );
   };
 
   const performPrimary = async (rec: MetaRecommendation) => {
     setPrimaryActionFeedback(null);
-    if (rec.type === "adset_cut_spend" && rec.adsetId) {
+    // Routing follows the server-owned actionKind; the UI never infers what
+    // a primary control does from the rec type or its display text.
+    if (rec.actionKind === "execute_pause" && rec.adsetId) {
       setPendingActionRecId(rec.id);
       try {
         const response = await fetch(`/api/meta/adsets/${encodeURIComponent(rec.adsetId)}/pause`, {
@@ -1555,6 +1577,10 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
       } finally {
         setPendingActionRecId(null);
       }
+      return;
+    }
+    if (rec.actionKind === "execute_resume") {
+      await resumeRecommendation(rec);
       return;
     }
     const mode = launchModeForRec(rec);
@@ -1785,11 +1811,17 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   };
 
   const selectedRecByRoas = (direction: "weakest" | "strongest") => {
+    // Only entities with server-supplied ROAS participate in destructive
+    // ranking; unknown metrics must never rank as zero (which made every
+    // metrics-less entity "the weakest").
     const ranked = selectedRecs
-      .map((rec) => ({ rec, roas: compareItemForRec(rec).roas ?? 0 }))
+      .map((rec) => ({ rec, roas: compareItemForRec(rec).roas }))
+      .filter((item): item is { rec: MetaRecommendation; roas: number } =>
+        typeof item.roas === "number" && Number.isFinite(item.roas),
+      )
       .sort((left, right) => left.roas - right.roas);
     const item = direction === "strongest" ? ranked.at(-1) : ranked[0];
-    return item?.rec ?? selectedRecs[0] ?? null;
+    return item?.rec ?? null;
   };
 
   const openLaunchpadForSelectedRecs = () => {
@@ -1852,15 +1884,15 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
         </div>
       ) : null}
 
-      {trackingBlocked ? (
+      {trackingBannerVisible ? (
         <div className="banner danger">
           <div className="icon">!</div>
           <div className="msg">
             <b>Tracking anomaly active.</b>
-            <span className="sub">{pulseQuery.data?.trackingHealth.detail ?? "Hard actions are gated until tracking is checked."}</span>
+            <span className="sub">{pulseQuery.data?.trackingHealth.detail ?? "Hard actions stay gated until tracking is checked."}</span>
           </div>
           <button type="button" className="btn btn--sm" onClick={() => setDrillItem(anomalies[0] ? { mode: "anomaly", anomaly: anomalies[0] } : null)}>View details</button>
-          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setTrackingDismissed(true)}>Dismiss</button>
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setTrackingDismissed(true)}>Hide banner</button>
         </div>
       ) : null}
 

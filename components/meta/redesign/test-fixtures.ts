@@ -1,8 +1,27 @@
 import type { MetaAnomaly } from "@/lib/meta/anomalies";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
+import { annotateMetaRecPresentation } from "@/lib/meta/rec-presentation";
 import type { MetaHealthyEntity, MetaLanePayload, MetaPulsePayload } from "@/components/meta/redesign/types";
 
 export function metaRec(overrides: Partial<MetaRecommendation> = {}): MetaRecommendation {
+  // Fixtures represent POST-ROUTE payloads: lane-classify annotates every
+  // recommendation with the server-owned presentation contract
+  // (decisionLabel / actionKind / primaryActionLabel), so fixtures pass
+  // through the same annotator to stay contract-true.
+  const [annotated] = annotateMetaRecPresentation([buildMetaRec(overrides)]);
+  return { ...annotated, ...pickExplicitPresentation(overrides) };
+}
+
+function pickExplicitPresentation(overrides: Partial<MetaRecommendation>) {
+  const explicit: Partial<MetaRecommendation> = {};
+  if (overrides.decisionLabel !== undefined) explicit.decisionLabel = overrides.decisionLabel;
+  if (overrides.actionKind !== undefined) explicit.actionKind = overrides.actionKind;
+  if (overrides.primaryActionLabel !== undefined) explicit.primaryActionLabel = overrides.primaryActionLabel;
+  if (overrides.metrics !== undefined) explicit.metrics = overrides.metrics;
+  return explicit;
+}
+
+function buildMetaRec(overrides: Partial<MetaRecommendation> = {}): MetaRecommendation {
   return {
     id: "rec_1",
     level: "campaign",

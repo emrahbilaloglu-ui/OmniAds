@@ -230,6 +230,50 @@ describe("GET /api/meta/copies", () => {
     expect(row.see_more_rate).toBeNull();
   });
 
+  it("aggregates thumbstop as an impression-weighted mean, not a plain mean", async () => {
+    vi.mocked(creativesApi.getMetaCreativesApiPayload).mockResolvedValue({
+      status: "ok",
+      rows: [
+        // 9000 impressions at 10% and 1000 at 50%: weighted = 14%, plain = 30%.
+        buildCreativeRow({ id: "ad_1", impressions: 9000, thumbstop: 10 }),
+        buildCreativeRow({ id: "ad_2", impressions: 1000, thumbstop: 50 }),
+      ],
+      snapshot_source: "persisted",
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/copies?businessId=biz&start=2026-03-01&end=2026-03-31&groupBy=copy"
+      )
+    );
+    const payload = await response.json();
+
+    expect(payload.rows).toHaveLength(1);
+    expect(payload.rows[0].thumbstop).toBeCloseTo(14, 5);
+    expect(payload.rows[0].first_frame_retention).toBeCloseTo(14, 5);
+  });
+
+  it("returns null bucket thumbstop when the bucket had no delivery", async () => {
+    vi.mocked(creativesApi.getMetaCreativesApiPayload).mockResolvedValue({
+      status: "ok",
+      rows: [
+        buildCreativeRow({ id: "ad_1", impressions: 0, thumbstop: 10 }),
+        buildCreativeRow({ id: "ad_2", impressions: 0, thumbstop: 50 }),
+      ],
+      snapshot_source: "persisted",
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/copies?businessId=biz&start=2026-03-01&end=2026-03-31&groupBy=copy"
+      )
+    );
+    const payload = await response.json();
+
+    expect(payload.rows[0].thumbstop).toBeNull();
+    expect(payload.rows[0].first_frame_retention).toBeNull();
+  });
+
   it("stamps meta.generatedAt as an ISO timestamp", async () => {
     vi.mocked(creativesApi.getMetaCreativesApiPayload).mockResolvedValue({
       status: "ok",

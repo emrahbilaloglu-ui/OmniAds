@@ -322,14 +322,21 @@ function aggregateRows(rows: MetaCopyApiRow[], groupBy: CopyGroupBy): MetaCopyAp
       ctr_all: impressions > 0 ? (linkClicks / impressions) * 100 : 0,
       click_to_purchase: linkClicks > 0 ? (purchases / linkClicks) * 100 : 0,
       see_more_rate: null,
-      thumbstop:
-        bucket.length > 0
-          ? bucket.reduce((sum, row) => sum + (row.thumbstop ?? 0), 0) / bucket.length
-          : null,
-      first_frame_retention:
-        bucket.length > 0
-          ? bucket.reduce((sum, row) => sum + (row.first_frame_retention ?? 0), 0) / bucket.length
-          : null,
+      // Rate metrics reconstruct as impression-weighted means: thumbstop is
+      // plays/impressions per row, so the bucket rate is the delivery-weighted
+      // average, not a plain mean over rows. Undefined without delivery.
+      thumbstop: impressions > 0
+        ? bucket.reduce(
+            (sum, row) => sum + (row.thumbstop ?? 0) * row.impressions,
+            0,
+          ) / impressions
+        : null,
+      first_frame_retention: impressions > 0
+        ? bucket.reduce(
+            (sum, row) => sum + (row.first_frame_retention ?? 0) * row.impressions,
+            0,
+          ) / impressions
+        : null,
       aov: purchases > 0 ? purchaseValue / purchases : null,
       click_to_atc_ratio: linkClicks > 0 ? (addToCart / linkClicks) * 100 : null,
       atc_to_purchase_ratio: addToCart > 0 ? (purchases / addToCart) * 100 : null,

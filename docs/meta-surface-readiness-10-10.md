@@ -62,11 +62,6 @@ docs/meta-page-ui-contract.md).
    shared registry and score model still do. Fix = remove the metric from
    the registry and re-derive the scores without it (Creatives-surface
    slice; noted, not done in the copies pass).
-7. **Copies aggregation averages thumbstop/first_frame_retention as plain
-   unweighted means** across bucket rows (`copies/route.ts` aggregateRows);
-   an impression-weighted mean would be honest for uneven-delivery buckets.
-   Small, server-side; kept out of the copies pass to avoid changing
-   displayed values without a domain read on the weighting.
 
 Fixed this pass (was NON-UI debt): fabricated pulse lastSyncAt; fake MTD;
 dropped dataReadiness; lane drop-zone [0.55,0.7); non-time-bounded
@@ -89,7 +84,11 @@ tests (all 5 untested persistence routes: auth-before-store ordering,
 membership-scoped ids, name/payload validation codes, 404-vs-500 mapping,
 sanitized error messages) and direct payload-normalizer coverage
 (currencyCode ISO gate, objective forcing, goal/event whitelists, creative
-dedup/merge, target dedup, copyMode whitelist, minor-unit round-trip).
+dedup/merge, target dedup, copyMode whitelist, minor-unit round-trip);
+Copies bucket thumbstop/first_frame_retention now impression-weighted
+(rate metrics reconstruct as delivery-weighted means - unambiguous from
+the metric's plays/impressions semantics; null when the bucket had no
+delivery).
 
 ## B. UI-only / design-shell debt (redesign wipes it — do NOT polish now)
 

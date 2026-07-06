@@ -35,6 +35,7 @@ export interface DecisionBacktestSummary {
   persistedCoveragePass: boolean;
   conflictFreePass: boolean;
   sampleSize: number;
+  hardActionKnownSampleSize: number;
 }
 
 export interface DecisionBacktestSegmentSummary
@@ -152,6 +153,12 @@ export function summarizeDecisionBacktest(input: {
     persistedCoveragePass: coverage !== null && coverage >= 0.95,
     conflictFreePass: input.coverage.conflictingSnapshotCount === 0,
     sampleSize: input.rows.length,
+    // Sample basis for calibration honesty: ECE/precision are hard-row
+    // metrics, so reliability copy must gate on hard rows with known
+    // outcomes, not total rows.
+    hardActionKnownSampleSize: hardRows.filter(
+      (row) => row.realizedOutcome !== "unknown",
+    ).length,
   };
 }
 

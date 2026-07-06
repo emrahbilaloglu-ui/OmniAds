@@ -1264,7 +1264,16 @@ export async function GET(request: NextRequest) {
     businessId: resolvedBusinessId,
     asOf,
     creativeIds: enrichedInputs.map((input) => input.creativeId),
-  }).catch(() => new Map());
+  }).catch((error) => {
+    // Degrading to raw labels silently would recreate the live-vs-snapshot
+    // divergence this wiring exists to prevent; keep serving but make the
+    // degradation observable.
+    console.error(
+      "[creative-decision-center] hysteresis baseline read failed; serving raw labels this request",
+      error,
+    );
+    return new Map();
+  });
   const hysteresisByCreative = new Map<
     string,
     { rawLabel: DecisionLabel; suppressed: boolean }

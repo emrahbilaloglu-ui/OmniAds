@@ -290,6 +290,7 @@ describe("creative execution safety", () => {
         persistedCoveragePass: true,
         conflictFreePass: true,
         sampleSize: 200,
+        hardActionKnownSampleSize: 200,
       },
     });
 
@@ -342,6 +343,7 @@ describe("creative execution safety", () => {
         persistedCoveragePass: true,
         conflictFreePass: true,
         sampleSize: 200,
+        hardActionKnownSampleSize: 200,
       },
     });
 

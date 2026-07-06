@@ -504,6 +504,12 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
   const ratio = ctx.ratioToTarget;
   const roas = input.roas;
   const purchases = input.purchases ?? 0;
+  // Defense-in-depth, currently shadowed: rows with ratio >=
+  // TARGET_BAND_MIN_RATIO (0.85) exit as keep before the cut-zone check, so
+  // this clamp changes no label while that band exists. It documents the
+  // invariant (an above-breakeven creative must never enter the cut zone via
+  // curve grading) and becomes load-bearing if the keep band is ever
+  // narrowed or removed.
   const workingZoneMinRatio = Math.min(
     profile.thresholds.bottomQuartileRatio ?? 0.7,
     CUT_BOUNDARY_RATIO_CLAMP,

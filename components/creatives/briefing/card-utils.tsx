@@ -661,7 +661,7 @@ function ExplainabilityBody({ card }: { card: BriefingCreativeCard }) {
         <div className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[12px] text-amber-800">
           Calibration not proven:{" "}
           {typeof proof.empiricalSampleSize === "number"
-            ? `only ${proof.empiricalSampleSize.toLocaleString("en-US")} realized outcome${proof.empiricalSampleSize === 1 ? "" : "s"}`
+            ? `only ${proof.empiricalSampleSize.toLocaleString("en-US")} hard-action outcome${proof.empiricalSampleSize === 1 ? "" : "s"}`
             : "no realized-outcome window"}{" "}
           for this engine version (needs {MIN_RELIABLE_CALIBRATION_SAMPLE}).
           Precision, recall, and ECE above are directional, not proof.

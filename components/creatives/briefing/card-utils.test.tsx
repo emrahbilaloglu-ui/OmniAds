@@ -186,7 +186,7 @@ describe("calibration honesty copy", () => {
   it("flags calibration as not proven below 30 realized outcomes", () => {
     const html = renderExplainability(baseCard(12));
     expect(html).toContain("Calibration not proven");
-    expect(html).toContain("only 12 realized outcomes");
+    expect(html).toContain("only 12 hard-action outcomes");
     expect(html).toContain("directional, not proof");
   });
 

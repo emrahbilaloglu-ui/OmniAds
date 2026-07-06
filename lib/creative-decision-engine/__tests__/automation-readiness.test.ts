@@ -64,6 +64,7 @@ describe("creativeAutomationReadiness", () => {
         persistedCoveragePass: true,
         conflictFreePass: true,
         sampleSize: 200,
+        hardActionKnownSampleSize: 200,
       },
     });
 

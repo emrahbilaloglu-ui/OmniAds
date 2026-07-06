@@ -857,11 +857,18 @@ export function cardMatchesActionFilter(
         return actionFilter === "scale";
       case "cut":
         return actionFilter === "cut";
+      case "refresh":
       case "test_more":
       case "watch_launch":
+        // refresh maps to the Fresh-test chip like the legacy
+        // "Launch fresh test" CTA did.
         return actionFilter === "fresh_test";
       default:
-        return false;
+        // Blocked cuts surface as diagnose_data rows but the server marks
+        // the blocked action; legacy showed them under the Cut chip
+        // ("Cut review"). protect / fix_* / unblocked diagnose_data had no
+        // chip under the legacy matcher either; they remain All-lane only.
+        return actionFilter === "cut" && card.blockedActionType === "cut";
     }
   }
   const kind = String(card.primary?.kind ?? card.label ?? "").toLowerCase();

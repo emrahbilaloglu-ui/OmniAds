@@ -22,6 +22,17 @@ Pass criteria:
    clean epoch (all labels publish raw, no suppression possible) — judge flip
    reduction from day 2 onward, not day 1.
 
+Expected day-1 label shifts (do NOT treat as regressions):
+- A one-off `decision_changed` wave: version-keyed reads mean hysteresis has
+  zero memory on day 1 and every label republishes raw against the previous
+  engine version's records.
+- Hierarchy-paused creatives (`CAMPAIGN_PAUSED`/`ADSET_PAUSED`) now normalize
+  to `PAUSED`: they leave the zero-conv-burner cut path (status must be
+  null-or-ACTIVE) and instead carry `confirm_kill`/`resume_candidate`
+  advisory badges. Their labels can soften on day 1 by design.
+- Guard-demoted hard labels can be republished for one extra day by
+  hysteresis (held-at-previous semantics). One-day artifact, self-heals.
+
 Escalation: any `failedOrRunning` row, or a collapse warning, blocks the
 `CAMPAIGN_CONTEXT_MODE=automatic` flip discussion; capture the JSON and stop.
 

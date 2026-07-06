@@ -215,6 +215,11 @@ persist_image_tag_env() {
   env_file=".env"
   log "Pinning ${env_file} APP_IMAGE_TAG/APP_BUILD_ID to ${DEPLOY_SHA}"
   touch "${env_file}"
+  # Guarantee a trailing newline before appending so a previously unterminated
+  # last line cannot be silently merged with the appended key.
+  if [ -s "${env_file}" ] && [ "$(tail -c 1 "${env_file}")" != "" ]; then
+    printf '\n' >> "${env_file}"
+  fi
   for key in APP_IMAGE_TAG APP_BUILD_ID; do
     if grep -q "^${key}=" "${env_file}"; then
       sed -i "s|^${key}=.*|${key}=${DEPLOY_SHA}|" "${env_file}"
@@ -222,9 +227,11 @@ persist_image_tag_env() {
       printf '%s=%s\n' "${key}" "${DEPLOY_SHA}" >> "${env_file}"
     fi
   done
-  pinned_tag="$(grep "^APP_IMAGE_TAG=" "${env_file}" | tail -1 | cut -d= -f2)"
-  echo "env_pinned_app_image_tag=${pinned_tag}"
-  test "${pinned_tag}" = "${DEPLOY_SHA}"
+  for key in APP_IMAGE_TAG APP_BUILD_ID; do
+    pinned_value="$(grep "^${key}=" "${env_file}" | tail -1 | cut -d= -f2)"
+    echo "env_pinned_${key}=${pinned_value}"
+    test "${pinned_value}" = "${DEPLOY_SHA}"
+  done
 }
 
 verify_service_image() {

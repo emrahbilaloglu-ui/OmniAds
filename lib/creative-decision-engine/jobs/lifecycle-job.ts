@@ -1427,6 +1427,11 @@ function mapLifecycleComputationRow(input: {
         : null,
     effectiveTargetRoas: targetRoas,
     breakevenRoas,
+    // Winner-memory floors from the account profile: without them the
+    // decay baseline accepted $0-spend windows and the review-flagged
+    // lucky-window defect persisted (the computeFatigue defaults are 0/1).
+    winnerMemoryMinSpend: input.profile.thresholds.winnerMemoryMinSpend,
+    winnerMemoryMinPurchases: input.profile.thresholds.winnerMemoryMinPurchases,
     historicalWindows: {
       last14: toHistoricalWindow(input.row, "last14"),
       last30: toHistoricalWindow(input.row, "last30"),

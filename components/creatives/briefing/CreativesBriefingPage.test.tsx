@@ -987,3 +987,47 @@ describe("cardMatchesActionFilter (decision-center contract)", () => {
     expect(cardMatchesActionFilter(rowCard(null), "all")).toBe(true);
   });
 });
+
+describe("cardMatchesActionFilter chip completeness (review regressions)", () => {
+  const rowCard2 = (row: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+    ({
+      id: "cr_x",
+      name: "Creative X",
+      primary: { kind: "keep", label: "Keep" },
+      label: "keep",
+      decisionCenterRow: row,
+      ...extra,
+    }) as never;
+
+  it("shows refresh rows under the fresh_test chip like the legacy CTA", () => {
+    expect(
+      cardMatchesActionFilter(
+        rowCard2(decisionCenterRow({ buyerAction: "refresh" })),
+        "fresh_test",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps blocked cuts (diagnose_data + blockedActionType cut) under the Cut chip", () => {
+    expect(
+      cardMatchesActionFilter(
+        rowCard2(decisionCenterRow({ buyerAction: "diagnose_data" }), {
+          blockedActionType: "cut",
+          label: "diagnose",
+          primary: { kind: "review", label: "Cut review" },
+        }),
+        "cut",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps protect rows out of every chip, matching legacy", () => {
+    const card = rowCard2(
+      decisionCenterRow({ buyerAction: "protect", executionAction: null }),
+    );
+    for (const chip of ["promote", "scale", "cut", "fresh_test"] as const) {
+      expect(cardMatchesActionFilter(card, chip)).toBe(false);
+    }
+    expect(cardMatchesActionFilter(card, "all")).toBe(true);
+  });
+});

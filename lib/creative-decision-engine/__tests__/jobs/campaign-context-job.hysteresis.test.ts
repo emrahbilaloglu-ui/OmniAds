@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { applyDailyHysteresis } from "../../jobs/campaign-context-job";
+import {
+  applyDailyHysteresis,
+  parseHysteresisState,
+} from "../../jobs/campaign-context-job";
 
 describe("campaign context daily hysteresis", () => {
   it("publishes the first resolved kind immediately", () => {
@@ -107,5 +110,46 @@ describe("campaign context daily hysteresis", () => {
     const day2 = applyDailyHysteresis(day1.state, null, "unknown");
     expect(day2.publishedKind).toBe("mixed");
     expect(day2.publishedClass).toBe("low");
+  });
+});
+
+describe("hysteresis state DB round-trip", () => {
+  it("parses back every field the job persists (grace and conflict rules depend on it)", () => {
+    let state = applyDailyHysteresis(null, "main", "high").state;
+    state = applyDailyHysteresis(state, null, "unknown").state; // graceDaysUsed 1
+    state = applyDailyHysteresis(state, null, "conflict").state; // pendingConflictCount 1
+    const persisted = JSON.parse(JSON.stringify(state));
+    expect(parseHysteresisState(persisted)).toEqual(state);
+    // The persisted JSON must carry the counters, not just the kinds.
+    expect(persisted.graceDaysUsed).toBeGreaterThan(0);
+    expect(persisted.pendingConflictCount).toBeGreaterThan(0);
+    expect(persisted.stableClass).toBe("high");
+  });
+
+  it("defaults legacy persisted shapes safely", () => {
+    const legacy = { stableKind: "main", pendingKind: null, pendingCount: 0 };
+    expect(parseHysteresisState(legacy)).toEqual({
+      stableKind: "main",
+      stableClass: null,
+      pendingKind: null,
+      pendingCount: 0,
+      graceDaysUsed: 0,
+      pendingConflictCount: 0,
+    });
+    expect(parseHysteresisState(null).stableKind).toBeNull();
+  });
+
+  it("survives a full grace cycle across simulated persistence", () => {
+    let state = applyDailyHysteresis(null, "main", "high").state;
+    for (let day = 0; day < 3; day += 1) {
+      state = parseHysteresisState(JSON.parse(JSON.stringify(state)));
+      const outcome = applyDailyHysteresis(state, null, "unknown");
+      expect(outcome.publishedKind).toBe("main");
+      state = outcome.state;
+    }
+    state = parseHysteresisState(JSON.parse(JSON.stringify(state)));
+    const exhausted = applyDailyHysteresis(state, null, "unknown");
+    expect(exhausted.publishedKind).toBeNull();
+    expect(exhausted.state.stableKind).toBeNull();
   });
 });

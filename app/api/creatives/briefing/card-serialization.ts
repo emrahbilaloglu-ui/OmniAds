@@ -44,6 +44,9 @@ function badgeLabels(badges: DecisionBadge[]) {
       return ["delivery_no_spend_24h"];
     if (badge.type === "policy_blocked") return ["policy_blocked"];
     if (badge.type === "launch_monitoring") return ["launch_monitoring"];
+    if (badge.type === "pending_transition") return ["pending_transition"];
+    if (badge.type === "resume_candidate") return ["resume_candidate"];
+    if (badge.type === "confirm_kill") return ["confirm_kill"];
     return [];
   });
 }
@@ -440,7 +443,10 @@ function buildBriefingDecisionExplainability(input: {
     historicalPrecision: backtest?.hardActionPrecision ?? null,
     historicalRecall: backtest?.hardActionRecall ?? null,
     expectedCalibrationError: backtest?.expectedCalibrationError ?? null,
-    empiricalSampleSize: backtest?.sampleSize ?? null,
+    // Hard rows with known outcomes: the basis of ECE/precision, so the
+    // calibration-honesty copy gates on the metric's real sample, not the
+    // total row count (which includes soft labels and unknown outcomes).
+    empiricalSampleSize: backtest?.hardActionKnownSampleSize ?? null,
     missingEvidence,
   };
 }

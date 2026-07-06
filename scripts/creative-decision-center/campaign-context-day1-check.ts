@@ -46,7 +46,9 @@ async function main() {
       c.confidence_class,
       COUNT(*)::int AS campaigns,
       COUNT(*) FILTER (
-        WHERE (c.hysteresis_state_json->>'pendingCount')::int > 0
+        WHERE COALESCE((c.hysteresis_state_json->>'pendingCount')::int, 0) > 0
+           OR COALESCE((c.hysteresis_state_json->>'graceDaysUsed')::int, 0) > 0
+           OR COALESCE((c.hysteresis_state_json->>'pendingConflictCount')::int, 0) > 0
       )::int AS suppressed_flips
     FROM engine_v3_campaign_context_daily c
     JOIN businesses b ON b.id::text = c.business_id

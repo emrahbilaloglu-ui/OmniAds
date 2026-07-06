@@ -282,17 +282,35 @@ async function readPreviousHysteresis(
   for (const row of rows) {
     const campaignId = toStringOrNull(row.campaign_id);
     if (!campaignId) continue;
-    const raw = row.hysteresis_state_json;
-    const parsed =
-      raw && typeof raw === "object" ? (raw as Partial<HysteresisState>) : {};
-    map.set(campaignId, {
-      stableKind: (parsed.stableKind as CampaignKind | null) ?? null,
-      pendingKind: (parsed.pendingKind as CampaignKind | null) ?? null,
-      pendingCount:
-        typeof parsed.pendingCount === "number" ? parsed.pendingCount : 0,
-    });
+    map.set(campaignId, parseHysteresisState(row.hysteresis_state_json));
   }
   return map;
+}
+
+/**
+ * Full round-trip of the persisted hysteresis state. Every field of
+ * HysteresisState MUST be parsed here: dropping a field silently resets its
+ * counter each day (the evidence-dip grace and conflict-confirmation rules
+ * were dead in production until this seam was covered by the round-trip
+ * test). Old rows without the newer fields default safely.
+ */
+export function parseHysteresisState(raw: unknown): HysteresisState {
+  const parsed =
+    raw && typeof raw === "object" ? (raw as Partial<HysteresisState>) : {};
+  return {
+    stableKind: (parsed.stableKind as CampaignKind | null) ?? null,
+    stableClass:
+      (parsed.stableClass as HysteresisState["stableClass"]) ?? null,
+    pendingKind: (parsed.pendingKind as CampaignKind | null) ?? null,
+    pendingCount:
+      typeof parsed.pendingCount === "number" ? parsed.pendingCount : 0,
+    graceDaysUsed:
+      typeof parsed.graceDaysUsed === "number" ? parsed.graceDaysUsed : 0,
+    pendingConflictCount:
+      typeof parsed.pendingConflictCount === "number"
+        ? parsed.pendingConflictCount
+        : 0,
+  };
 }
 
 const UPSERT_CONTEXT_QUERY = `

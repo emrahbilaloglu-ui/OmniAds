@@ -21,6 +21,10 @@ import {
   type CreativeDecisionRealizedOutcome,
 } from "@/lib/creative-decision-engine/outcome-classifier";
 import {
+  applyLabelHysteresis,
+  type PreviousPublishedLabel,
+} from "@/lib/creative-decision-engine/decision-stability";
+import {
   ENGINE_VERSION,
   type AccountDecisionProfile,
   type CreativeInput,
@@ -45,6 +49,9 @@ const DEFAULT_BUSINESS_SCOPE = "enabled";
 const DEFAULT_FIDELITY_DATES = ["2026-07-03", "2026-07-04"];
 const OUTCOME_WINDOWS = [7, 14] as const;
 const HARD_LABELS = new Set<DecisionLabel>(["cut", "scale", "refresh"]);
+// Hysteresis hard boundary (decision-stability.ts). Narrower than HARD_LABELS:
+// refresh does not require two-evaluation confirmation.
+const HYSTERESIS_HARD_LABELS = new Set<DecisionLabel>(["cut", "scale"]);
 const DEFENSIBLE_EPISODE_THRESHOLD = 30;
 const DIRECTIONAL_EPISODE_THRESHOLD = 10;
 
@@ -145,6 +152,75 @@ interface OutcomeCandidate {
 
 interface OutcomeEpisode extends OutcomeCandidate {
   episodeKey: string;
+}
+
+interface StabilityRow {
+  business: BusinessIdentity;
+  asOfDate: string;
+  creativeId: string;
+  creativeName: string | null;
+  rawLabel: DecisionLabel;
+  publishedLabel: DecisionLabel;
+  suppressed: boolean;
+  asOfDateSpend: number | null;
+}
+
+type SuppressionResolution =
+  | "confirmed"
+  | "reverted"
+  | "changed_again"
+  | "gap_return"
+  | "replay_end"
+  | "exited_universe";
+
+interface SuppressionRecord {
+  business: { id: string; name: string };
+  asOfDate: string;
+  creativeId: string;
+  creativeName: string | null;
+  heldLabel: DecisionLabel;
+  rawLabel: DecisionLabel;
+  resolution: SuppressionResolution;
+  asOfDateSpend: number | null;
+}
+
+interface StabilityBusinessSummary {
+  business: { id: string; name: string };
+  observations: number;
+  rawHardTransitions: number;
+  publishedHardTransitions: number;
+  rawHardRoundTrips: number;
+  rawHardReversalsWithin3: number;
+  publishedHardReversalsWithin3: number;
+  suppressedDays: number;
+  suppressionResolutions: CountMap;
+  cutDelaySuppressedDays: number;
+  cutDelayForwardSpend: number;
+  scaleDelaySuppressedDays: number;
+  scaleDelayForwardSpend: number;
+}
+
+interface MatchedSuppressionCell {
+  windowDays: OutcomeWindowDays;
+  suppressedDays: number;
+  scoredDays: number;
+  holdRight: number;
+  flipRight: number;
+  neutralOrUnknown: number;
+  openWindow: number;
+  pairOutcomes: CountMap;
+}
+
+interface StabilitySummary {
+  hysteresisEpoch: "clean_epoch_per_business_at_start_date";
+  perBusiness: StabilityBusinessSummary[];
+  global: Omit<StabilityBusinessSummary, "business">;
+  matchedSuppression: MatchedSuppressionCell[];
+  suppressionSamples: SuppressionRecord[];
+  rawOutcomeCells: OutcomeCell[];
+  publishedOutcomeCells: OutcomeCell[];
+  rawCalibrationCells: CalibrationCell[];
+  publishedCalibrationCells: CalibrationCell[];
 }
 
 interface DayReplayResult {
@@ -273,7 +349,7 @@ interface DetailedCalibrationCell {
 }
 
 interface ReplayReport {
-  contractVersion: "adsecute.current-engine-historical-replay.v1";
+  contractVersion: "adsecute.current-engine-historical-replay.v2";
   generatedAt: string;
   currentDate: string;
   readOnly: true;
@@ -309,6 +385,7 @@ interface ReplayReport {
     sourceModes: CountMap;
   }>;
   businessSummaries: BusinessReplaySummary[];
+  stabilitySummary: StabilitySummary;
   globalSummary: {
     decisionRows: number;
     uniqueCreatives: number;
@@ -676,16 +753,22 @@ function profileSummary(profile: AccountDecisionProfile): ProfileSummary {
   };
 }
 
+// Must mirror compareDecisionComputations in jobs/decisions-job.ts exactly:
+// left-minus-right, so the dedupe keeps the HIGHEST-priority computation
+// (cut beats keep), as production does. A prior version of this comparator
+// was inverted (kept the lowest priority) - v1 replay artifacts were
+// generated with that inverted dedupe.
 function compareDecisionOutputs(
   left: { input: CreativeInput; decision: DecisionOutput },
   right: { input: CreativeInput; decision: DecisionOutput },
 ) {
   return (
-    decisionLabelPriority(right.decision.label) -
-      decisionLabelPriority(left.decision.label) ||
-    Math.round(right.decision.confidence) - Math.round(left.decision.confidence) ||
-    right.input.spend - left.input.spend ||
-    (right.input.campaignId ?? "").localeCompare(left.input.campaignId ?? "")
+    decisionLabelPriority(left.decision.label) -
+      decisionLabelPriority(right.decision.label) ||
+    Math.round(left.decision.confidence) - Math.round(right.decision.confidence) ||
+    (Number.isFinite(left.input.spend) ? left.input.spend : 0) -
+      (Number.isFinite(right.input.spend) ? right.input.spend : 0) ||
+    (left.input.campaignId ?? "").localeCompare(right.input.campaignId ?? "")
   );
 }
 
@@ -1827,6 +1910,147 @@ function renderMarkdown(report: ReplayReport) {
     }
     lines.push("");
   }
+  lines.push("## Decision Stability (Hysteresis Simulation)");
+  lines.push("");
+  const stability = report.stabilitySummary;
+  lines.push(
+    `Epoch: ${stability.hysteresisEpoch}. Raw = engine output before stabilization; published = label after hard-boundary two-evaluation confirmation.`,
+  );
+  lines.push("");
+  lines.push("| Metric | Raw | Published | Change |");
+  lines.push("|---|---:|---:|---:|");
+  const transitionChange =
+    stability.global.rawHardTransitions > 0
+      ? `${formatPct(
+          (stability.global.publishedHardTransitions -
+            stability.global.rawHardTransitions) /
+            stability.global.rawHardTransitions,
+        )}`
+      : "n/a";
+  const reversalChange =
+    stability.global.rawHardReversalsWithin3 > 0
+      ? `${formatPct(
+          (stability.global.publishedHardReversalsWithin3 -
+            stability.global.rawHardReversalsWithin3) /
+            stability.global.rawHardReversalsWithin3,
+        )}`
+      : "n/a";
+  lines.push(
+    `| Hard-boundary transitions | ${stability.global.rawHardTransitions} | ${stability.global.publishedHardTransitions} | ${transitionChange} |`,
+  );
+  lines.push(
+    `| Hard reversals within 3 obs | ${stability.global.rawHardReversalsWithin3} | ${stability.global.publishedHardReversalsWithin3} | ${reversalChange} |`,
+  );
+  lines.push("");
+  lines.push(
+    `Raw period-2 round-trips (A->B->A): ${stability.global.rawHardRoundTrips}. Published period-2 round-trips are structurally zero by hysteresis construction and are NOT reported as evidence; the reversal metric above is period-agnostic and fair to both streams.`,
+  );
+  lines.push("");
+  lines.push(
+    `Suppressed days: ${stability.global.suppressedDays} (resolutions: ${formatCountMap(stability.global.suppressionResolutions)}). confirmed/reverted are next-calendar-day evidence only; gap_return/exited_universe/replay_end are broken out and carry no next-day claim.`,
+  );
+  lines.push(
+    `Cut delays: ${stability.global.cutDelaySuppressedDays} suppressed days, next-day exposure ${formatNumber(stability.global.cutDelayForwardSpend, 2)}. Scale delays: ${stability.global.scaleDelaySuppressedDays} suppressed days, next-day exposure ${formatNumber(stability.global.scaleDelayForwardSpend, 2)}. Exposure = next adjacent day's spend under historical operator policy; non-causal.`,
+  );
+  lines.push("");
+  lines.push("Matched suppressed-day scoring (identical forward windows, only the label differs - primary hold-vs-flip evidence):");
+  lines.push("| Window | Suppressed | Scored | Hold right | Flip right | Neutral/unknown | Open window |");
+  lines.push("|---:|---:|---:|---:|---:|---:|---:|");
+  for (const cell of stability.matchedSuppression) {
+    lines.push(
+      `| ${cell.windowDays}d | ${cell.suppressedDays} | ${cell.scoredDays} | ${cell.holdRight} | ${cell.flipRight} | ${cell.neutralOrUnknown} | ${cell.openWindow} |`,
+    );
+  }
+  lines.push("");
+  lines.push("Per business:");
+  lines.push(
+    "| Business | Obs | Raw hard transitions | Published hard transitions | Raw reversals<=3 | Published reversals<=3 | Suppressed days | Resolutions | Cut-delay next-day spend |",
+  );
+  lines.push("|---|---:|---:|---:|---:|---:|---:|---|---:|");
+  for (const row of stability.perBusiness) {
+    lines.push(
+      [
+        row.business.name,
+        row.observations,
+        row.rawHardTransitions,
+        row.publishedHardTransitions,
+        row.rawHardReversalsWithin3,
+        row.publishedHardReversalsWithin3,
+        row.suppressedDays,
+        formatCountMap(row.suppressionResolutions),
+        formatNumber(row.cutDelayForwardSpend, 2),
+      ]
+        .map(escapeCell)
+        .join(" | ")
+        .replace(/^/, "| ")
+        .replace(/$/, " |"),
+    );
+  }
+  lines.push("");
+  lines.push(
+    "Raw vs published outcome cells (SECONDARY context only: episode re-segmentation anchors confirmed transitions one day later and censors unknowns differently per stream, so these cells are not a like-for-like comparison - use the matched table above for hold-vs-flip claims):",
+  );
+  lines.push(
+    "| Window | Label | Class | Raw episodes | Raw known | Raw unknown (zero-spend) | Raw positive rate | Published episodes | Published known | Published unknown (zero-spend) | Published positive rate |",
+  );
+  lines.push("|---:|---|---|---:|---:|---|---:|---:|---:|---|---:|");
+  const publishedCellByKey = new Map(
+    stability.publishedOutcomeCells.map((cell) => [
+      `${cell.windowDays}::${cell.label}`,
+      cell,
+    ]),
+  );
+  for (const rawCell of stability.rawOutcomeCells) {
+    const published = publishedCellByKey.get(
+      `${rawCell.windowDays}::${rawCell.label}`,
+    );
+    lines.push(
+      [
+        rawCell.windowDays,
+        rawCell.label,
+        rawCell.hardClass,
+        rawCell.episodes,
+        rawCell.knownEpisodes,
+        `${rawCell.unknownEpisodes} (${rawCell.zeroForwardSpendUnknownEpisodes})`,
+        formatPct(rawCell.positiveRateKnown),
+        published?.episodes ?? 0,
+        published?.knownEpisodes ?? 0,
+        `${published?.unknownEpisodes ?? 0} (${published?.zeroForwardSpendUnknownEpisodes ?? 0})`,
+        formatPct(published?.positiveRateKnown ?? null),
+      ]
+        .map(escapeCell)
+        .join(" | ")
+        .replace(/^/, "| ")
+        .replace(/$/, " |"),
+    );
+  }
+  lines.push("");
+  if (stability.suppressionSamples.length > 0) {
+    lines.push("Suppression samples (first 40):");
+    lines.push(
+      "| Business | Date | Creative | Held | Raw | Resolution | As-of spend |",
+    );
+    lines.push("|---|---|---|---|---|---|---:|");
+    for (const sample of stability.suppressionSamples) {
+      lines.push(
+        [
+          sample.business.name,
+          sample.asOfDate,
+          sample.creativeId,
+          sample.heldLabel,
+          sample.rawLabel,
+          sample.resolution,
+          formatNumber(sample.asOfDateSpend, 2),
+        ]
+          .map(escapeCell)
+          .join(" | ")
+          .replace(/^/, "| ")
+          .replace(/$/, " |"),
+      );
+    }
+    lines.push("");
+  }
+
   lines.push("## Outcome Episode Summary");
   lines.push("");
   lines.push(
@@ -2038,6 +2262,305 @@ function writeTextFile(path: string, content: string) {
   return absolutePath;
 }
 
+function isHysteresisHard(label: DecisionLabel) {
+  return HYSTERESIS_HARD_LABELS.has(label);
+}
+
+function crossesHysteresisHardBoundary(left: DecisionLabel, right: DecisionLabel) {
+  return left !== right && (isHysteresisHard(left) || isHysteresisHard(right));
+}
+
+function countHardTransitions(labels: DecisionLabel[]) {
+  let count = 0;
+  for (let index = 1; index < labels.length; index += 1) {
+    if (crossesHysteresisHardBoundary(labels[index - 1], labels[index])) count += 1;
+  }
+  return count;
+}
+
+function countHardRoundTrips(labels: DecisionLabel[]) {
+  let count = 0;
+  for (let index = 2; index < labels.length; index += 1) {
+    if (
+      labels[index] === labels[index - 2] &&
+      crossesHysteresisHardBoundary(labels[index - 2], labels[index - 1])
+    ) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+// Period-agnostic oscillation metric that is fair to both streams: a
+// hard-boundary transition counts as a reversal when the label returns to the
+// pre-transition value within the next 3 observations. Period-2 round-trips
+// (A->B->A) are structurally impossible in published sequences (hysteresis
+// forbids them by construction), so raw-vs-published round-trip counts alone
+// would be a tautology, not evidence; this metric also catches the delayed
+// oscillation (A,A,B,B,A) hysteresis can still produce.
+function countHardReversalsWithin3(labels: DecisionLabel[]) {
+  let count = 0;
+  for (let index = 1; index < labels.length; index += 1) {
+    if (!crossesHysteresisHardBoundary(labels[index - 1], labels[index])) continue;
+    const previous = labels[index - 1];
+    const horizon = Math.min(labels.length - 1, index + 3);
+    for (let lookahead = index + 1; lookahead <= horizon; lookahead += 1) {
+      if (labels[lookahead] === previous) {
+        count += 1;
+        break;
+      }
+    }
+  }
+  return count;
+}
+
+// Matched suppressed-day judgment on IDENTICAL forward windows: was holding
+// yesterday's label right, or was the raw flip right?
+function judgeSuppressedDay(input: {
+  rawLabel: DecisionLabel;
+  publishedLabel: DecisionLabel;
+  rawOutcome: string;
+  publishedOutcome: string;
+}): "hold_right" | "flip_right" | "neutral_or_unknown" {
+  if (isHysteresisHard(input.rawLabel)) {
+    // Raw wanted to enter a hard action; positive = the hard action was
+    // supported by the forward window, so the flip was right.
+    if (input.rawOutcome === "positive") return "flip_right";
+    if (input.rawOutcome === "negative") return "hold_right";
+    return "neutral_or_unknown";
+  }
+  // Raw wanted to leave a hard action that stayed published; positive = the
+  // held hard action was still supported, so the hold was right.
+  if (input.publishedOutcome === "positive") return "hold_right";
+  if (input.publishedOutcome === "negative") return "flip_right";
+  return "neutral_or_unknown";
+}
+
+function buildStabilitySummary(input: {
+  businesses: BusinessIdentity[];
+  stabilityRows: StabilityRow[];
+  replayEndDate: string;
+  rawCandidates: OutcomeCandidate[];
+  rawEpisodes: OutcomeEpisode[];
+  publishedCandidates: OutcomeCandidate[];
+  publishedEpisodes: OutcomeEpisode[];
+}): StabilitySummary {
+  const rowsByBusiness = new Map<string, StabilityRow[]>();
+  for (const row of input.stabilityRows) {
+    const list = rowsByBusiness.get(row.business.id) ?? [];
+    list.push(row);
+    rowsByBusiness.set(row.business.id, list);
+  }
+
+  const perBusiness: StabilityBusinessSummary[] = [];
+  const suppressionSamples: SuppressionRecord[] = [];
+  for (const business of input.businesses) {
+    const rows = rowsByBusiness.get(business.id) ?? [];
+    const byCreative = new Map<string, StabilityRow[]>();
+    for (const row of rows) {
+      const list = byCreative.get(row.creativeId) ?? [];
+      list.push(row);
+      byCreative.set(row.creativeId, list);
+    }
+    const summary: StabilityBusinessSummary = {
+      business: { id: business.id, name: business.name },
+      observations: rows.length,
+      rawHardTransitions: 0,
+      publishedHardTransitions: 0,
+      rawHardRoundTrips: 0,
+      rawHardReversalsWithin3: 0,
+      publishedHardReversalsWithin3: 0,
+      suppressedDays: 0,
+      suppressionResolutions: {},
+      cutDelaySuppressedDays: 0,
+      cutDelayForwardSpend: 0,
+      scaleDelaySuppressedDays: 0,
+      scaleDelayForwardSpend: 0,
+    };
+    for (const sequence of byCreative.values()) {
+      sequence.sort((left, right) => left.asOfDate.localeCompare(right.asOfDate));
+      summary.rawHardTransitions += countHardTransitions(
+        sequence.map((row) => row.rawLabel),
+      );
+      summary.publishedHardTransitions += countHardTransitions(
+        sequence.map((row) => row.publishedLabel),
+      );
+      summary.rawHardRoundTrips += countHardRoundTrips(
+        sequence.map((row) => row.rawLabel),
+      );
+      summary.rawHardReversalsWithin3 += countHardReversalsWithin3(
+        sequence.map((row) => row.rawLabel),
+      );
+      summary.publishedHardReversalsWithin3 += countHardReversalsWithin3(
+        sequence.map((row) => row.publishedLabel),
+      );
+      sequence.forEach((row, index) => {
+        if (!row.suppressed) return;
+        summary.suppressedDays += 1;
+        const next = sequence[index + 1] ?? null;
+        const nextIsAdjacent =
+          next !== null && diffDays(next.asOfDate, row.asOfDate) === 1;
+        // confirmed/reverted claims are next-calendar-day evidence only;
+        // gap returns and universe exits are broken out so survivors do not
+        // masquerade as next-day confirmations.
+        const resolution: SuppressionResolution =
+          next === null
+            ? row.asOfDate >= input.replayEndDate
+              ? "replay_end"
+              : "exited_universe"
+            : !nextIsAdjacent
+              ? "gap_return"
+              : next.rawLabel === row.rawLabel
+                ? "confirmed"
+                : next.rawLabel === row.publishedLabel
+                  ? "reverted"
+                  : "changed_again";
+        increment(summary.suppressionResolutions, resolution);
+        // Delay exposure = the NEXT adjacent day's spend (the day that runs
+        // under the held label before the transition can confirm). Day-of
+        // spend is already sunk when the decision publishes and is not a
+        // delay cost.
+        const forwardSpend = nextIsAdjacent ? (next?.asOfDateSpend ?? 0) : 0;
+        if (row.rawLabel === "cut") {
+          summary.cutDelaySuppressedDays += 1;
+          summary.cutDelayForwardSpend += forwardSpend;
+        } else if (row.rawLabel === "scale") {
+          summary.scaleDelaySuppressedDays += 1;
+          summary.scaleDelayForwardSpend += forwardSpend;
+        }
+        if (suppressionSamples.length < 40) {
+          suppressionSamples.push({
+            business: { id: business.id, name: business.name },
+            asOfDate: row.asOfDate,
+            creativeId: row.creativeId,
+            creativeName: row.creativeName,
+            heldLabel: row.publishedLabel,
+            rawLabel: row.rawLabel,
+            resolution,
+            asOfDateSpend: row.asOfDateSpend,
+          });
+        }
+      });
+    }
+    summary.cutDelayForwardSpend = Math.round(summary.cutDelayForwardSpend * 100) / 100;
+    summary.scaleDelayForwardSpend =
+      Math.round(summary.scaleDelayForwardSpend * 100) / 100;
+    perBusiness.push(summary);
+  }
+
+  const global: Omit<StabilityBusinessSummary, "business"> = {
+    observations: 0,
+    rawHardTransitions: 0,
+    publishedHardTransitions: 0,
+    rawHardRoundTrips: 0,
+    rawHardReversalsWithin3: 0,
+    publishedHardReversalsWithin3: 0,
+    suppressedDays: 0,
+    suppressionResolutions: {},
+    cutDelaySuppressedDays: 0,
+    cutDelayForwardSpend: 0,
+    scaleDelaySuppressedDays: 0,
+    scaleDelayForwardSpend: 0,
+  };
+  for (const summary of perBusiness) {
+    global.observations += summary.observations;
+    global.rawHardTransitions += summary.rawHardTransitions;
+    global.publishedHardTransitions += summary.publishedHardTransitions;
+    global.rawHardRoundTrips += summary.rawHardRoundTrips;
+    global.rawHardReversalsWithin3 += summary.rawHardReversalsWithin3;
+    global.publishedHardReversalsWithin3 += summary.publishedHardReversalsWithin3;
+    global.suppressedDays += summary.suppressedDays;
+    mergeCountMap(global.suppressionResolutions, summary.suppressionResolutions);
+    global.cutDelaySuppressedDays += summary.cutDelaySuppressedDays;
+    global.cutDelayForwardSpend += summary.cutDelayForwardSpend;
+    global.scaleDelaySuppressedDays += summary.scaleDelaySuppressedDays;
+    global.scaleDelayForwardSpend += summary.scaleDelayForwardSpend;
+  }
+  global.cutDelayForwardSpend = Math.round(global.cutDelayForwardSpend * 100) / 100;
+  global.scaleDelayForwardSpend =
+    Math.round(global.scaleDelayForwardSpend * 100) / 100;
+
+  // Matched suppressed-day scoring: identical creative, asOf and forward
+  // window; only the label differs. This is the primary hold-vs-flip
+  // evidence - episode-level raw/published cells re-segment runs and anchor
+  // confirmed transitions one day later, so they are NOT a like-for-like
+  // comparison and are reported as secondary context only.
+  const candidateKey = (candidate: OutcomeCandidate) =>
+    [
+      candidate.business.id,
+      candidate.creativeId,
+      candidate.asOfDate,
+      candidate.windowDays,
+    ].join("::");
+  const rawByKey = new Map(input.rawCandidates.map((c) => [candidateKey(c), c]));
+  const publishedByKey = new Map(
+    input.publishedCandidates.map((c) => [candidateKey(c), c]),
+  );
+  const matchedByWindow = new Map<OutcomeWindowDays, MatchedSuppressionCell>();
+  for (const windowDays of OUTCOME_WINDOWS) {
+    matchedByWindow.set(windowDays, {
+      windowDays,
+      suppressedDays: 0,
+      scoredDays: 0,
+      holdRight: 0,
+      flipRight: 0,
+      neutralOrUnknown: 0,
+      openWindow: 0,
+      pairOutcomes: {},
+    });
+  }
+  for (const row of input.stabilityRows) {
+    if (!row.suppressed) continue;
+    for (const windowDays of OUTCOME_WINDOWS) {
+      const cell = matchedByWindow.get(windowDays);
+      if (!cell) continue;
+      cell.suppressedDays += 1;
+      const key = [row.business.id, row.creativeId, row.asOfDate, windowDays].join(
+        "::",
+      );
+      const raw = rawByKey.get(key);
+      const published = publishedByKey.get(key);
+      if (!raw || !published) continue;
+      if (raw.status === "open_window" || published.status === "open_window") {
+        cell.openWindow += 1;
+        continue;
+      }
+      cell.scoredDays += 1;
+      const judgment = judgeSuppressedDay({
+        rawLabel: row.rawLabel,
+        publishedLabel: row.publishedLabel,
+        rawOutcome: String(raw.realizedOutcome),
+        publishedOutcome: String(published.realizedOutcome),
+      });
+      if (judgment === "hold_right") cell.holdRight += 1;
+      else if (judgment === "flip_right") cell.flipRight += 1;
+      else cell.neutralOrUnknown += 1;
+      increment(
+        cell.pairOutcomes,
+        `${row.rawLabel}->${row.publishedLabel}::raw=${raw.realizedOutcome}::pub=${published.realizedOutcome}`,
+      );
+    }
+  }
+
+  return {
+    hysteresisEpoch: "clean_epoch_per_business_at_start_date",
+    perBusiness,
+    global,
+    matchedSuppression: Array.from(matchedByWindow.values()),
+    suppressionSamples,
+    rawOutcomeCells: buildOutcomeCells({
+      candidates: input.rawCandidates,
+      episodes: input.rawEpisodes,
+    }),
+    publishedOutcomeCells: buildOutcomeCells({
+      candidates: input.publishedCandidates,
+      episodes: input.publishedEpisodes,
+    }),
+    rawCalibrationCells: buildCalibrationCells(input.rawEpisodes),
+    publishedCalibrationCells: buildCalibrationCells(input.publishedEpisodes),
+  };
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   configureOperationalScriptRuntime({ lane: "read_only_observation" });
@@ -2050,6 +2573,8 @@ async function main() {
   const dayResults: DayReplayResult[] = [];
   const decisions: ReplayDecisionRow[] = [];
   const outcomeCandidates: OutcomeCandidate[] = [];
+  const publishedOutcomeCandidates: OutcomeCandidate[] = [];
+  const stabilityRows: StabilityRow[] = [];
   const fidelity: FidelitySummary[] = [];
   const decisionsByBusinessDate = new Map<string, ReplayDecisionRow[]>();
   const sourceModeByBusinessDate = new Map<string, ReplaySourceMode>();
@@ -2060,6 +2585,11 @@ async function main() {
         `[historical-replay] business_start name="${business.name}" id=${business.id}`,
       );
     }
+    // Clean hysteresis epoch per business at startDate, matching production
+    // where the ENGINE_VERSION bump starts with no prior same-version
+    // snapshots. State carries across day gaps the same way production
+    // readPreviousPublishedLabels reads the latest snapshot before asOf.
+    const hysteresisState = new Map<string, PreviousPublishedLabel>();
     for (const asOfDate of dates) {
       const dayStartedAt = Date.now();
       const result = await replayBusinessDay({
@@ -2082,6 +2612,40 @@ async function main() {
       outcomeCandidates.push(
         ...(await classifyOutcomesForDay({
           decisions: result.decisions,
+          businessId: business.id,
+          asOfDate,
+          evaluationCeiling: args.evaluationCeiling,
+        })),
+      );
+      // Hysteresis simulation: published label per decision-stability rules.
+      // Confidence/metrics stay the raw decision's values, matching
+      // production stabilizeDecisionLabel which only swaps the label.
+      const stabilizedDecisions = result.decisions.map((row) => {
+        const hysteresis = applyLabelHysteresis(
+          row.label,
+          hysteresisState.get(row.creativeId) ?? null,
+        );
+        hysteresisState.set(row.creativeId, {
+          publishedLabel: hysteresis.publishedLabel,
+          rawLabel: hysteresis.rawLabel,
+        });
+        stabilityRows.push({
+          business,
+          asOfDate,
+          creativeId: row.creativeId,
+          creativeName: row.creativeName,
+          rawLabel: row.label,
+          publishedLabel: hysteresis.publishedLabel,
+          suppressed: hysteresis.suppressed,
+          asOfDateSpend: row.asOfDateSpend,
+        });
+        return hysteresis.suppressed
+          ? { ...row, label: hysteresis.publishedLabel }
+          : row;
+      });
+      publishedOutcomeCandidates.push(
+        ...(await classifyOutcomesForDay({
+          decisions: stabilizedDecisions,
           businessId: business.id,
           asOfDate,
           evaluationCeiling: args.evaluationCeiling,
@@ -2121,6 +2685,7 @@ async function main() {
   }
 
   const episodes = collectOutcomeEpisodes(outcomeCandidates);
+  const publishedEpisodes = collectOutcomeEpisodes(publishedOutcomeCandidates);
   const businessSummaries = buildBusinessSummaries({
     businesses,
     dayResults,
@@ -2131,9 +2696,9 @@ async function main() {
     sampleSize: args.sampleSize,
   });
   const report: ReplayReport = {
-    contractVersion: "adsecute.current-engine-historical-replay.v1",
+    contractVersion: "adsecute.current-engine-historical-replay.v2",
     generatedAt: new Date().toISOString(),
-    currentDate: "2026-07-05",
+    currentDate: new Date().toISOString().slice(0, 10),
     readOnly: true,
     mutatesData: false,
     manualCronPosted: false,
@@ -2176,10 +2741,31 @@ async function main() {
       "Targets are read from current business target packs; target history is not versioned in this replay.",
       "Outcome/calibration cells use the guard-applied surfaced decision.label; blockedActionType is reported separately and is not reclassified as a surfaced hard outcome.",
       "Hard and non-hard positive polarity is never pooled.",
+      "Hysteresis is simulated with a clean per-business epoch at startDate and in-memory day-over-day chaining; production chains through persisted raw_label snapshots but applies identical rules.",
+      "Suppressed-day published decisions keep the raw decision's confidence and metrics, matching production stabilizeDecisionLabel.",
+      "Matched suppressed-day scoring is the primary hold-vs-flip evidence: identical creative/asOf/window on both sides, so censoring and anchoring are symmetric by construction.",
+      "Episode-level raw-vs-published cells are secondary context: published sequences re-segment runs, anchor confirmed hard transitions one day later (their windows exclude the trigger day and can cross the evaluation ceiling), and zero-forward-spend unknown-censoring selects different known sets per stream under the historically executed operator actions (off-policy).",
+      "Delay exposure sums the NEXT adjacent day's spend on suppressed days (cut and scale separately); it is exposure under historical operator policy, not realized savings or a bound.",
+      "Suppression resolutions: confirmed/reverted require a next-calendar-day observation; gap_return, exited_universe and replay_end carry no next-day claim. Universe exit after a suppressed raw cut often means the creative genuinely died - exits are therefore reported, not folded into reverted.",
+      "Published period-2 round-trips are structurally zero under hysteresis and are not evidence; the reversal-within-3-observations metric is the fair oscillation comparison.",
+      "Replay hard-transition counts are not directly comparable to production decision_changed telemetry (different dedupe surface and universe scoping); use them for raw-vs-published deltas within this replay only.",
+      "Raw hard transitions on a creative's final observed day cannot be suppressed-and-confirmed inside the window (right-edge censoring modestly favors the published stream; replay_end counts quantify it).",
+      "Fidelity vs persisted snapshots is vacuous for the current ENGINE_VERSION (no persisted rows exist yet); fidelity rows validate the replay pipeline against prior-version dates only.",
+      "The published stream re-executes the same outcome-aggregate queries as the raw stream; results are expected identical but mid-run warehouse drift is theoretically possible.",
+      "The dedupe comparator was corrected in v2 to match production (highest-priority computation wins); v1 replay artifacts used an inverted comparator and are not comparable.",
     ],
     dayResults,
     dateSummaries: summarizeDateResults(dayResults),
     businessSummaries,
+    stabilitySummary: buildStabilitySummary({
+      businesses,
+      stabilityRows,
+      replayEndDate: args.endDate,
+      rawCandidates: outcomeCandidates,
+      rawEpisodes: episodes,
+      publishedCandidates: publishedOutcomeCandidates,
+      publishedEpisodes,
+    }),
     globalSummary: buildGlobalSummary({
       decisions,
       dayResults,

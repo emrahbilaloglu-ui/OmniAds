@@ -158,24 +158,26 @@ describe("applyPostProcess - low CTR", () => {
     expect(result.confidenceDeltas).toEqual([]);
   });
 
-  it("adds a low_ctr badge and confidence penalty for cut", () => {
+  it("adds a low_ctr badge without a confidence penalty for cut (sign-error fix)", () => {
     const result = runPostProcess("cut", {
       input: { ctr: 0.5 },
       calibration: { lowCtrP10: 1.0 },
     });
 
     expect(badgeTypes(result)).toContain("low_ctr");
-    expect(result.confidenceDeltas).toEqual([-10]);
+    // Low CTR corroborates weakness on a cut; the old -10 pointed the wrong
+    // way and is zeroed until an outcome loop can size a positive delta.
+    expect(result.confidenceDeltas).toEqual([]);
   });
 
-  it("adds a low_ctr badge and confidence penalty for refresh", () => {
+  it("adds a low_ctr badge without a confidence penalty for refresh (sign-error fix)", () => {
     const result = runPostProcess("refresh", {
       input: { ctr: 0.5 },
       calibration: { lowCtrP10: 1.0 },
     });
 
     expect(badgeTypes(result)).toContain("low_ctr");
-    expect(result.confidenceDeltas).toEqual([-10]);
+    expect(result.confidenceDeltas).toEqual([]);
   });
 
   it("does not add a low_ctr badge when CTR is above threshold", () => {

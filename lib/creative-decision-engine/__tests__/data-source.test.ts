@@ -4,6 +4,7 @@ import {
   resolveEffectiveCreativeCohort,
   WarehouseDataSource,
 } from "..";
+import { toEffectiveStatus } from "../data-source";
 
 describe("creative-decision-engine v3 - data source", () => {
   describe("MockDataSource", () => {
@@ -146,5 +147,20 @@ describe("creative-decision-engine v3 - data source", () => {
       ).toBeNull();
       expect(resolveEffectiveCreativeCohort([])).toBeNull();
     });
+  });
+});
+
+describe("toEffectiveStatus", () => {
+  it("normalizes Meta hierarchy pauses to PAUSED so advisory badges fire", () => {
+    expect(toEffectiveStatus("CAMPAIGN_PAUSED")).toBe("PAUSED");
+    expect(toEffectiveStatus("ADSET_PAUSED")).toBe("PAUSED");
+    expect(toEffectiveStatus("campaign_paused")).toBe("PAUSED");
+  });
+
+  it("keeps canonical statuses and nulls unknown values", () => {
+    expect(toEffectiveStatus("ACTIVE")).toBe("ACTIVE");
+    expect(toEffectiveStatus("PAUSED")).toBe("PAUSED");
+    expect(toEffectiveStatus("WITH_ISSUES")).toBeNull();
+    expect(toEffectiveStatus(null)).toBeNull();
   });
 });

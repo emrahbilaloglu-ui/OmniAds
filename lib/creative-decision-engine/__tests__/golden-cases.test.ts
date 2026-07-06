@@ -1,6 +1,10 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import {
+  applyLabelHysteresis,
+  type PreviousPublishedLabel,
+} from "../decision-stability";
 import { decideCreative } from "..";
 import { applyCreativeCampaignLabelGuard } from "../campaign-label-guard";
 import { STALE_CONFIDENCE_CAP } from "../config-values";
@@ -1052,4 +1056,69 @@ describe("Pending config-surface golden cases", () => {
   it.todo(
     "GC-075: cutBoundaryMode=breakeven_floor stays account-scoped once config exists",
   );
+});
+
+describe("Hysteresis sequence golden cases (GS series)", () => {
+  interface SequenceGolden {
+    caseId: string;
+    source: string;
+    rawSequence: DecisionLabel[];
+    publishedSequence: DecisionLabel[];
+    suppressedDays: number[];
+  }
+
+  function parseSequenceGoldens(): SequenceGolden[] {
+    const markdown = readFileSync(GOLDEN_CASES_PATH, "utf8");
+    return markdown
+      .split("\n")
+      .filter((line) => line.startsWith("| GS-"))
+      .map((line) => {
+        const cells = line
+          .split("|")
+          .map((cell) => cell.trim())
+          .filter((cell) => cell.length > 0);
+        const [caseId, source, raw, published, suppressed] = cells;
+        return {
+          caseId,
+          source,
+          rawSequence: raw.split(",").map((label) => label.trim()) as DecisionLabel[],
+          publishedSequence: published
+            .split(",")
+            .map((label) => label.trim()) as DecisionLabel[],
+          suppressedDays:
+            suppressed === "none"
+              ? []
+              : suppressed.split(",").map((value) => Number(value.trim())),
+        };
+      });
+  }
+
+  const sequenceGoldens = parseSequenceGoldens();
+
+  it("keeps the GS table populated with the named live flip creatives", () => {
+    expect(sequenceGoldens.length).toBeGreaterThanOrEqual(6);
+    const sources = sequenceGoldens.map((item) => item.source).join(" ");
+    expect(sources).toContain("946471284944193");
+    expect(sources).toContain("1962656064410174");
+    expect(sources).toContain("25889037484086563");
+  });
+
+  it("executes every GS sequence through applyLabelHysteresis", () => {
+    for (const golden of sequenceGoldens) {
+      const published: DecisionLabel[] = [];
+      const suppressedDays: number[] = [];
+      let previous: PreviousPublishedLabel | null = null;
+      golden.rawSequence.forEach((raw, day) => {
+        const result = applyLabelHysteresis(raw, previous);
+        published.push(result.publishedLabel);
+        if (result.suppressed) suppressedDays.push(day);
+        previous = {
+          publishedLabel: result.publishedLabel,
+          rawLabel: result.rawLabel,
+        };
+      });
+      expect(published, golden.caseId).toEqual(golden.publishedSequence);
+      expect(suppressedDays, golden.caseId).toEqual(golden.suppressedDays);
+    }
+  });
 });

@@ -132,8 +132,20 @@ export function computeFatigue(input: FatigueInput): FatigueOutput {
       ),
   ).length;
   const winnerMemory = strongCount >= 2;
+  // Decay baseline must clear the same spend/purchase floors as winner
+  // memory: without a floor, a low-spend lucky window becomes the max-ROAS
+  // baseline and ordinary mean reversion reads as decay (math review
+  // 2026-07-02). If no window qualifies, decay is not assessable against a
+  // trustworthy baseline.
+  const baselineCandidates = eligibleWindows.filter(
+    (window) =>
+      Number.isFinite(window.spend) &&
+      window.spend >= winnerMemoryMinSpend &&
+      Number.isFinite(window.purchases) &&
+      window.purchases >= winnerMemoryMinPurchases,
+  );
   const bestWindow =
-    [...eligibleWindows].sort((a, b) => b.roas - a.roas)[0] ?? null;
+    [...baselineCandidates].sort((a, b) => b.roas - a.roas)[0] ?? null;
 
   const ctrDecay =
     bestWindow && bestWindow.ctr > 0 && input.ctr != null
@@ -221,6 +233,10 @@ export function computeFatigue(input: FatigueInput): FatigueOutput {
   const missingContext: string[] = [];
   if (eligibleWindows.length === 0) {
     missingContext.push("Historical winner window unavailable");
+  } else if (bestWindow === null) {
+    missingContext.push(
+      "No historical window clears the winner-memory spend/purchase floor; decay not assessable",
+    );
   }
   if (input.frequency == null) {
     missingContext.push("Frequency unavailable");

@@ -106,8 +106,9 @@ export function applyPostProcess(
   // Paused-delivery advisory semantics: a hard action on a paused creative is
   // advice about a non-delivering object ("resume this winner" / "confirm the
   // kill"), not a live-delivery intervention. Label is unchanged; the badge
-  // makes the semantics explicit. CAMPAIGN_PAUSED/ADSET_PAUSED currently
-  // coerce to null in CreativeInput and are a documented follow-up.
+  // makes the semantics explicit. CAMPAIGN_PAUSED/ADSET_PAUSED normalize to
+  // "PAUSED" in data-source toEffectiveStatus, so hierarchy pauses get the
+  // same advisory badges.
   if (ctx.input.effectiveStatus === "PAUSED") {
     if (label === "scale") {
       badges.push({
@@ -184,10 +185,12 @@ export function applyPostProcess(
       )}% vs account P10 ${ctrThreshold.toFixed(2)}%)`,
       severity: "info",
     });
-
-    if (label === "cut" || label === "refresh") {
-      confidenceDeltas.push(-10);
-    }
+    // No confidence delta: low CTR corroborates creative weakness on a
+    // cut/refresh decision, so the previous -10 pointed the wrong way
+    // (math review 2026-07-02 sign error). Weak-sample concerns are already
+    // handled by the funnel denominator-confidence path; per the agreed
+    // remedy the delta is zeroed rather than flipped until an outcome loop
+    // can size it.
   }
 
   if (label === "cut" || label === "refresh") {

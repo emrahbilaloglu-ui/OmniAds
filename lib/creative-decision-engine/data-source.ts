@@ -1927,9 +1927,14 @@ function toCampaignObjective(value: unknown): CampaignObjective | null {
     : null;
 }
 
-function toEffectiveStatus(value: unknown): EffectiveStatus {
+export function toEffectiveStatus(value: unknown): EffectiveStatus {
   const text = toStringOrNull(value)?.toUpperCase();
   if (text === undefined || text === null) return null;
+  // Meta hierarchy statuses: the ad itself is not delivering because a parent
+  // is paused. For decision semantics (PAUSED advisory badges) that IS paused;
+  // dropping them to null silently exempted those rows from
+  // resume_candidate/confirm_kill advisories.
+  if (text === "CAMPAIGN_PAUSED" || text === "ADSET_PAUSED") return "PAUSED";
   return EFFECTIVE_STATUSES.has(text as NonNullable<EffectiveStatus>)
     ? (text as NonNullable<EffectiveStatus>)
     : null;

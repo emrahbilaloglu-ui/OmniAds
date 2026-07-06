@@ -45,6 +45,13 @@ function terminal(input: {
   badges?: DecisionBadge[];
   confidenceBase?: number;
 }): GateResult {
+  // This gate only runs under truth=global_default, whose -25 delta is
+  // already priced into the assessment-derived confidence base; keeping it
+  // in the context deltas double-counted the same uncertainty (math review
+  // 2026-07-02, quality-only double penalty).
+  const confidenceDeltas = [...input.ctx.confidenceDeltas];
+  const truthDeltaIndex = confidenceDeltas.indexOf(-25);
+  if (truthDeltaIndex >= 0) confidenceDeltas.splice(truthDeltaIndex, 1);
   return {
     kind: "terminal",
     output: finalizeDecision(
@@ -52,6 +59,7 @@ function terminal(input: {
         ...input.ctx,
         badges: [...input.ctx.badges, qualityBadge(), ...(input.badges ?? [])],
         confidenceBase: input.confidenceBase ?? input.ctx.confidenceBase,
+        confidenceDeltas,
       },
       input.label,
       input.reason,

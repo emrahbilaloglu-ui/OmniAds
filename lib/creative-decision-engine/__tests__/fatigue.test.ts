@@ -362,3 +362,45 @@ describe("computeFatigue", () => {
     expect(output.winnerMemory).toBe(false);
   });
 });
+
+describe("decay baseline spend floor", () => {
+  it("ignores lucky low-spend windows as decay baseline when floors are set", () => {
+    const luckyLowSpend: HistoricalWindow = {
+      spend: 30,
+      ctr: 5.0,
+      roas: 9.0,
+      clickToPurchaseRate: 0.2,
+      purchases: 1,
+    };
+    const output = computeFatigue(
+      makeInput({
+        ctr: 2.0,
+        roas: 4.0,
+        winnerMemoryMinSpend: 150,
+        winnerMemoryMinPurchases: 2,
+        historicalWindows: {
+          last14: luckyLowSpend,
+          last30: strongWindow,
+        },
+      }),
+    );
+    // Baseline must be the floor-clearing window (roas 4.0), so current 4.0
+    // shows no decay - the lucky 9.0 window would have faked ~55% decay.
+    expect(output.roasDecay).toBe(0);
+    expect(output.status).toBe("none");
+  });
+
+  it("reports decay as not assessable when no window clears the floor", () => {
+    const output = computeFatigue(
+      makeInput({
+        winnerMemoryMinSpend: 1000,
+        winnerMemoryMinPurchases: 10,
+        historicalWindows: { last30: strongWindow },
+      }),
+    );
+    expect(output.roasDecay).toBeNull();
+    expect(
+      output.missingContext.some((item) => item.includes("winner-memory")),
+    ).toBe(true);
+  });
+});

@@ -18,39 +18,47 @@ docs/meta-page-ui-contract.md).
 | Decision Center (/platforms/meta) | 7 | yes (post-hardening: server-owned actionKind/labels/metrics) | yes (pulse) | real lastSyncAt or "sync unknown"; dataReadiness banner |
 | Creatives (/platforms/meta/creatives) | 9 | yes (CDC v3; invariant-guarded) | yes (briefing card contract + asset library default currency) | snapshot health + calibration honesty copy |
 | Launchpad | 8 | yes (server validate + forced-PAUSED launch) | yes (new-campaign payload currencyCode + selection rendering) | honest (server updatedAt) |
-| Copies | 6 | mostly (client fabricates seeMoreRate, zero-fills funnel/video) | yes (per-row) | no timestamp; recovery meta swallowed |
+| Copies | 8 | yes (real funnel/video fields mapped+summed; seeMoreRate fabrication removed server+client; no client re-derivation) | yes (per-row) | generatedAt stamped and rendered; unresolved-count rendered |
 | Creative Inbox | 6.5 | yes (renders briefing labels) | yes (per-card account currency; null = unknown) | generatedAt unrendered |
 | Audiences | stub | n/a — honest ComingSoon placeholder | n/a | n/a |
 
 ## A. NON-UI gaps (survive any redesign — engineering backlog, priority order)
 
-1. **Copies API omits funnel/video metrics for copy rows**, forcing the page
-   to zero-fill columns indistinguishable from real zeros and to fabricate
-   `seeMoreRate` (`copies/page.tsx:211`). Extend the API row contract; drop
-   the client fabrication.
-2. **Anomaly rows carry no per-entity briefing status**, so the anomalies
+1. **Anomaly rows carry no per-entity briefing status**, so the anomalies
    feed cannot honor the status filter (endDate scoping shipped; the status
    gap is storage-level). Add status/entity-state at anomaly write time.
-3. **Meta v1 recommendation engine lacks the CDC disciplines** (no
+2. **Meta v1 recommendation engine lacks the CDC disciplines** (no
    hysteresis, no calibration/outcome loop, 30d fixed lookback, confidence
    thresholds untested against outcomes). This is the largest structural
    item on the Decision Center path to 10.
-4. **Launchpad templates/drafts routes and the broad payload normalizer are
+3. **Launchpad templates/drafts routes and the broad payload normalizer are
    still under-tested.** CurrencyCode is now carried for new-campaign payloads,
    but the persistence/replay routes need contract tests before this surface
    can score near 10.
-5. **Two-source freshness model on the Decision Center** (live pulse
+4. **Two-source freshness model on the Decision Center** (live pulse
    aggregates vs persisted decision snapshot lanes) is communicated only by
    the snapshot chip; a unified as-of contract would survive any redesign.
-6. **Copies payload lacks generatedAt/as-of fields**; route-report caches
-   serve data with no age indication.
-7. **Present-config-over-history classes in lib/meta/serving.ts** (historical
+5. **Present-config-over-history classes in lib/meta/serving.ts** (historical
    windows classified by current status/bid config) — anachronism debt
    shared by pulse and lanes.
-8. **Stale e2e specs assert dead testids** (`reviewer-smoke.spec.ts:42`,
+6. **Stale e2e specs assert dead testids** (`reviewer-smoke.spec.ts:42`,
     `commercial-truth-smoke.spec.ts:118,443,564` target components with no
     importer); the Playwright layer needs a redesign-era rewrite — blocked
     on/coupled to the frontend redesign decision.
+7. **Creatives surface still zero-fills the phantom seeMoreRate metric**
+   (`creatives/page-support.tsx:773`): no see-more metric exists in the
+   warehouse, yet the shared metric registry offers a "See more rate" column
+   (would show 0.0% for every row) and the derived hook/see-more 0-100
+   scores (`CreativesTableSection.tsx:355,379`, `page-support.tsx:276,313`)
+   take it as an input. The copies views no longer expose the column; the
+   shared registry and score model still do. Fix = remove the metric from
+   the registry and re-derive the scores without it (Creatives-surface
+   slice; noted, not done in the copies pass).
+8. **Copies aggregation averages thumbstop/first_frame_retention as plain
+   unweighted means** across bucket rows (`copies/route.ts` aggregateRows);
+   an impression-weighted mean would be honest for uneven-delivery buckets.
+   Small, server-side; kept out of the copies pass to avoid changing
+   displayed values without a domain read on the weighting.
 
 Fixed this pass (was NON-UI debt): fabricated pulse lastSyncAt; fake MTD;
 dropped dataReadiness; lane drop-zone [0.55,0.7); non-time-bounded
@@ -59,7 +67,12 @@ deferrals; client-side action semantics (rec-label-mapping in UI); display
 snapshot date; deferred chip cross-scope count; release-authority manifest
 citing dead components as live surfaces; briefing card/account currency for
 Creative Inbox; Launchpad new-campaign currencyCode and creative-selection
-money rendering.
+money rendering; Copies API funnel/video omission (real source fields now
+mapped per-row and summed per-bucket), see_more_rate fabrication
+(ctr_all*1.5 both server- and client-side — removed; field is now always
+null and the copies default metric list/table preset dropped the column);
+Copies generatedAt (stamped in meta, rendered as-of line with the
+previously swallowed unresolved_filtered_count).
 
 ## B. UI-only / design-shell debt (redesign wipes it — do NOT polish now)
 
@@ -71,7 +84,7 @@ money rendering.
 - Launchpad: hardcoded `$` remains in existing-target budget/pixel preview
   labels; creative selection no longer has this debt. Also
   `window.prompt/confirm` UX; client status bucketing for display.
-- Copies: unrendered `unresolved_filtered_count`; stub export buttons.
+- Copies: stub export buttons.
 - Creative Inbox: unrendered `generatedAt`; utilitarian list styling.
 - Legacy `components/meta/*.tsx` cluster (11 components + 5 tests): fully
   dead (zero importers). Delete during the redesign; until then it is inert

@@ -45,12 +45,14 @@ export const DEFAULT_TOP_METRIC_IDS = [
   "purchases",
 ];
 
+// seeMoreRate is intentionally absent: no real see-more metric exists in the
+// warehouse and the old value was fabricated from ctr_all.
 export const DEFAULT_COPY_TOP_METRIC_IDS = [
   "spend",
   "roas",
   "linkCtr",
   "clickToPurchaseRatio",
-  "seeMoreRate",
+  "clickToAtcRatio",
 ];
 
 export type CreativeBenchmarkScopeMode = "account" | "campaign";

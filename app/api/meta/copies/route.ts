@@ -54,7 +54,17 @@ export interface MetaCopyApiRow {
   impressions: number;
   link_clicks: number;
   add_to_cart: number;
+  landing_page_views: number;
+  initiate_checkout: number;
+  leads: number;
+  messages: number;
+  video25: number;
+  video50: number;
+  video75: number;
+  video100: number;
   click_to_purchase: number;
+  /** Always null: there is no real "see more" expansion metric in the
+   * source; the previous value was fabricated as ctr_all * 1.5. */
   see_more_rate: number | null;
   thumbstop: number | null;
   first_frame_retention: number | null;
@@ -72,6 +82,9 @@ interface MetaCopiesApiResponse {
     unresolved_filtered_count: number;
     source_rows_count: number;
     returned_rows_count: number;
+    /** As-of stamp for this payload; the page renders it so cached
+     * route-report data carries a visible age. */
+    generatedAt: string;
     recoveryAttempted?: boolean;
     recoveryRecovered?: boolean;
     recoveryReason?: "copy_empty_source_rows" | "persisted_snapshot_empty" | null;
@@ -133,12 +146,6 @@ function uniqueText(values: Array<unknown>): string[] {
     result.push(normalized);
   }
   return result;
-}
-
-function computeSeeMoreRate(row: MetaCreativeApiRow): number | null {
-  const ctrAll = Number(row.ctr_all ?? 0);
-  if (!Number.isFinite(ctrAll)) return null;
-  return Math.max(0, Math.min(100, ctrAll * 1.5));
 }
 
 function mapCreativeRowToCopyRow(row: MetaCreativeApiRow): MetaCopyApiRow {
@@ -214,8 +221,17 @@ function mapCreativeRowToCopyRow(row: MetaCreativeApiRow): MetaCopyApiRow {
     impressions,
     link_clicks: linkClicks,
     add_to_cart: addToCart,
+    landing_page_views: Number(row.landing_page_views ?? 0),
+    initiate_checkout: Number(row.initiate_checkout ?? 0),
+    leads: Number(row.leads ?? 0),
+    messages: Number(row.messages ?? 0),
+    video25: Number(row.video25 ?? 0),
+    video50: Number(row.video50 ?? 0),
+    video75: Number(row.video75 ?? 0),
+    video100: Number(row.video100 ?? 0),
     click_to_purchase: linkClicks > 0 ? (purchases / linkClicks) * 100 : 0,
-    see_more_rate: computeSeeMoreRate(row),
+    // No real source metric exists; fabricating ctr*1.5 misled operators.
+    see_more_rate: null,
     thumbstop: Number(row.thumbstop ?? 0),
     first_frame_retention: Number(row.thumbstop ?? 0),
     aov: purchases > 0 ? purchaseValue / purchases : null,
@@ -253,6 +269,14 @@ function aggregateRows(rows: MetaCopyApiRow[], groupBy: CopyGroupBy): MetaCopyAp
     const impressions = bucket.reduce((sum, row) => sum + row.impressions, 0);
     const linkClicks = bucket.reduce((sum, row) => sum + row.link_clicks, 0);
     const addToCart = bucket.reduce((sum, row) => sum + row.add_to_cart, 0);
+    const landingPageViews = bucket.reduce((sum, row) => sum + row.landing_page_views, 0);
+    const initiateCheckout = bucket.reduce((sum, row) => sum + row.initiate_checkout, 0);
+    const leads = bucket.reduce((sum, row) => sum + row.leads, 0);
+    const messages = bucket.reduce((sum, row) => sum + row.messages, 0);
+    const video25 = bucket.reduce((sum, row) => sum + row.video25, 0);
+    const video50 = bucket.reduce((sum, row) => sum + row.video50, 0);
+    const video75 = bucket.reduce((sum, row) => sum + row.video75, 0);
+    const video100 = bucket.reduce((sum, row) => sum + row.video100, 0);
 
     const copyVariants = uniqueText(bucket.flatMap((row) => row.copy_variants));
     const headlineVariants = uniqueText(bucket.flatMap((row) => row.headline_variants));
@@ -283,16 +307,21 @@ function aggregateRows(rows: MetaCopyApiRow[], groupBy: CopyGroupBy): MetaCopyAp
       impressions,
       link_clicks: linkClicks,
       add_to_cart: addToCart,
+      landing_page_views: landingPageViews,
+      initiate_checkout: initiateCheckout,
+      leads,
+      messages,
+      video25,
+      video50,
+      video75,
+      video100,
       roas: spend > 0 ? purchaseValue / spend : 0,
       cpa: purchases > 0 ? spend / purchases : 0,
       cpc_link: linkClicks > 0 ? spend / linkClicks : 0,
       cpm: impressions > 0 ? (spend * 1000) / impressions : 0,
       ctr_all: impressions > 0 ? (linkClicks / impressions) * 100 : 0,
       click_to_purchase: linkClicks > 0 ? (purchases / linkClicks) * 100 : 0,
-      see_more_rate:
-        bucket.length > 0
-          ? bucket.reduce((sum, row) => sum + (row.see_more_rate ?? 0), 0) / bucket.length
-          : null,
+      see_more_rate: null,
       thumbstop:
         bucket.length > 0
           ? bucket.reduce((sum, row) => sum + (row.thumbstop ?? 0), 0) / bucket.length
@@ -500,6 +529,7 @@ export async function GET(request: NextRequest) {
       unresolved_filtered_count: unresolvedFilteredCount,
       source_rows_count: sourceRows.length,
       returned_rows_count: sorted.length,
+      generatedAt: new Date().toISOString(),
       recoveryAttempted,
       recoveryRecovered,
       recoveryReason,

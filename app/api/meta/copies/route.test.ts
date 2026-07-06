@@ -145,6 +145,109 @@ describe("GET /api/meta/copies", () => {
     );
   });
 
+  it("maps real funnel/video metrics from the source rows and never fabricates see_more_rate", async () => {
+    vi.mocked(creativesApi.getMetaCreativesApiPayload).mockResolvedValue({
+      status: "ok",
+      rows: [
+        buildCreativeRow({
+          landing_page_views: 40,
+          initiate_checkout: 12,
+          leads: 3,
+          messages: 2,
+          video25: 500,
+          video50: 300,
+          video75: 150,
+          video100: 80,
+          ctr_all: 1.5,
+        }),
+      ],
+      snapshot_source: "persisted",
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/copies?businessId=biz&start=2026-03-01&end=2026-03-31&groupBy=adName"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    const row = payload.rows[0];
+    expect(row.landing_page_views).toBe(40);
+    expect(row.initiate_checkout).toBe(12);
+    expect(row.leads).toBe(3);
+    expect(row.messages).toBe(2);
+    expect(row.video25).toBe(500);
+    expect(row.video50).toBe(300);
+    expect(row.video75).toBe(150);
+    expect(row.video100).toBe(80);
+    // The old implementation fabricated ctr_all * 1.5 (= 2.25 here).
+    expect(row.see_more_rate).toBeNull();
+  });
+
+  it("sums funnel/video metrics across grouped copy buckets", async () => {
+    vi.mocked(creativesApi.getMetaCreativesApiPayload).mockResolvedValue({
+      status: "ok",
+      rows: [
+        buildCreativeRow({
+          id: "ad_1",
+          landing_page_views: 40,
+          initiate_checkout: 12,
+          leads: 3,
+          messages: 2,
+          video25: 500,
+          video100: 80,
+        }),
+        buildCreativeRow({
+          id: "ad_2",
+          landing_page_views: 10,
+          initiate_checkout: 8,
+          leads: 1,
+          messages: 0,
+          video25: 100,
+          video100: 20,
+        }),
+      ],
+      snapshot_source: "persisted",
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/copies?businessId=biz&start=2026-03-01&end=2026-03-31&groupBy=copy"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows).toHaveLength(1);
+    const row = payload.rows[0];
+    expect(row.landing_page_views).toBe(50);
+    expect(row.initiate_checkout).toBe(20);
+    expect(row.leads).toBe(4);
+    expect(row.messages).toBe(2);
+    expect(row.video25).toBe(600);
+    expect(row.video100).toBe(100);
+    expect(row.see_more_rate).toBeNull();
+  });
+
+  it("stamps meta.generatedAt as an ISO timestamp", async () => {
+    vi.mocked(creativesApi.getMetaCreativesApiPayload).mockResolvedValue({
+      status: "ok",
+      rows: [buildCreativeRow()],
+      snapshot_source: "persisted",
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/copies?businessId=biz&start=2026-03-01&end=2026-03-31&groupBy=copy"
+      )
+    );
+    const payload = await response.json();
+
+    expect(typeof payload.meta.generatedAt).toBe("string");
+    expect(Number.isNaN(Date.parse(payload.meta.generatedAt))).toBe(false);
+  });
+
   it("retries with snapshot bypass when source rows have no recoverable copy", async () => {
     vi.mocked(creativesApi.getMetaCreativesApiPayload)
       .mockResolvedValueOnce({

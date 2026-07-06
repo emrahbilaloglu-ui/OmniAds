@@ -439,7 +439,6 @@ const META_COPY_PERFORMANCE_COLUMNS: TableColumnKey[] = [
   "clickToAtcRatio",
   "atcToPurchaseRatio",
   "clickToPurchaseRatio",
-  "seeMoreRate",
   "linkClicks",
   "purchaseValueShare",
 ];

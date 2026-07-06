@@ -3970,6 +3970,57 @@ export async function runMigrations(options?: {
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_account ON google_ads_raw_snapshots (provider_account_id, fetched_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_window ON google_ads_raw_snapshots (business_id, provider_account_id, start_date, end_date)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_endpoint ON google_ads_raw_snapshots (endpoint_name, fetched_at DESC)`.catch(() => {}),
+        // From-zero convergence: the two state-history tables above declare
+        // an FK to google_ads_raw_snapshots but are created earlier in this
+        // file; on a fresh database their first CREATE fails (silently, via
+        // the trailing catch). Re-issuing them here, after the referenced
+        // table exists, makes a from-zero deploy converge in one migration
+        // run. Existing databases no-op (IF NOT EXISTS). Found by
+        // test:migrations-from-zero.
+        sql`CREATE TABLE IF NOT EXISTS google_ads_campaign_state_history (
+          id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id             TEXT NOT NULL,
+          business_ref_id         UUID REFERENCES businesses(id) ON DELETE SET NULL,
+          provider_account_id     TEXT NOT NULL,
+          provider_account_ref_id UUID REFERENCES provider_accounts(id) ON DELETE SET NULL,
+          campaign_id             TEXT NOT NULL,
+          state_fingerprint       TEXT NOT NULL,
+          campaign_name           TEXT,
+          normalized_status       TEXT,
+          channel                 TEXT,
+          projection_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          source_kind             TEXT NOT NULL DEFAULT 'warehouse_daily',
+          source_snapshot_id      UUID REFERENCES google_ads_raw_snapshots(id) ON DELETE SET NULL,
+          captured_at             TIMESTAMPTZ NOT NULL,
+          effective_from          DATE,
+          effective_to            DATE,
+          created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, campaign_id, state_fingerprint, captured_at)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_campaign_state_history_lookup
+          ON google_ads_campaign_state_history (business_id, campaign_id, captured_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS google_ads_ad_group_state_history (
+          id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id             TEXT NOT NULL,
+          business_ref_id         UUID REFERENCES businesses(id) ON DELETE SET NULL,
+          provider_account_id     TEXT NOT NULL,
+          provider_account_ref_id UUID REFERENCES provider_accounts(id) ON DELETE SET NULL,
+          campaign_id             TEXT,
+          ad_group_id             TEXT NOT NULL,
+          state_fingerprint       TEXT NOT NULL,
+          ad_group_name           TEXT,
+          normalized_status       TEXT,
+          projection_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          source_kind             TEXT NOT NULL DEFAULT 'warehouse_daily',
+          source_snapshot_id      UUID REFERENCES google_ads_raw_snapshots(id) ON DELETE SET NULL,
+          captured_at             TIMESTAMPTZ NOT NULL,
+          effective_from          DATE,
+          effective_to            DATE,
+          created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, ad_group_id, state_fingerprint, captured_at)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_ad_group_state_history_lookup
+          ON google_ads_ad_group_state_history (business_id, ad_group_id, captured_at DESC)`.catch(() => {}),
         sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_google_ads_raw_snapshots_retention
           ON google_ads_raw_snapshots (fetched_at ASC, id ASC, partition_id)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_partition_endpoint

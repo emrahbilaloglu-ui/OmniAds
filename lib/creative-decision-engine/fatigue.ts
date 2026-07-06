@@ -56,6 +56,17 @@ export interface FatigueInput {
 export interface FatigueOutput {
   status: FatigueStatus;
   confidence: number;
+  /**
+   * Shadow metric (not yet status-affecting): strong-window count over
+   * DISJOINT period bands derived from the cumulative windows. The live
+   * winnerMemory counts nested cumulative windows, so one strong stretch
+   * can satisfy the >=2 requirement by itself (math review 2026-07-02).
+   * Flipping status to this basis is a label-affecting change reserved for
+   * the next ENGINE_VERSION; until then both values are emitted so live
+   * divergence can be measured.
+   */
+  disjointStrongWindows: number;
+  disjointWinnerMemory: boolean;
   ctrDecay: number | null;
   clickToPurchaseDecay: number | null;
   roasDecay: number | null;
@@ -72,6 +83,55 @@ function roundMetric(value: number | null, precision: number) {
 
 function isFinitePositive(value: number | null | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+/**
+ * Derive disjoint period bands from the cumulative windows. Only the fields
+ * strong-window counting needs (spend, purchases, roas) are derivable:
+ * band spend/purchases are cumulative differences and band revenue is
+ * roas*spend differences. ctr/clickToPurchaseRate are NOT derivable and are
+ * set to 0 - callers must not use bands for decay math.
+ */
+export function deriveDisjointWindows(windows: {
+  last14?: HistoricalWindow | null;
+  last30?: HistoricalWindow | null;
+  last90?: HistoricalWindow | null;
+  allHistory?: HistoricalWindow | null;
+}): HistoricalWindow[] {
+  const ordered = [
+    windows.last14 ?? null,
+    windows.last30 ?? null,
+    windows.last90 ?? null,
+    windows.allHistory ?? null,
+  ];
+  const bands: HistoricalWindow[] = [];
+  let previous: HistoricalWindow | null = null;
+  for (const window of ordered) {
+    if (window === null) continue;
+    if (previous === null) {
+      bands.push(window);
+      previous = window;
+      continue;
+    }
+    const spend = window.spend - previous.spend;
+    const purchases = window.purchases - previous.purchases;
+    const revenue = window.roas * window.spend - previous.roas * previous.spend;
+    // Negative diffs mean inconsistent aggregates (or identical windows);
+    // skip rather than fabricate a band.
+    if (spend <= 0 || purchases < 0) {
+      previous = window;
+      continue;
+    }
+    bands.push({
+      spend,
+      purchases,
+      roas: revenue > 0 ? revenue / spend : 0,
+      ctr: 0,
+      clickToPurchaseRate: 0,
+    });
+    previous = window;
+  }
+  return bands;
 }
 
 function isStrongHistoricalWindow(
@@ -132,6 +192,18 @@ export function computeFatigue(input: FatigueInput): FatigueOutput {
       ),
   ).length;
   const winnerMemory = strongCount >= 2;
+  const disjointStrongWindows = deriveDisjointWindows(
+    input.historicalWindows,
+  ).filter((window) =>
+    isStrongHistoricalWindow(
+      window,
+      input.effectiveTargetRoas,
+      input.breakevenRoas,
+      winnerMemoryMinSpend,
+      winnerMemoryMinPurchases,
+    ),
+  ).length;
+  const disjointWinnerMemory = disjointStrongWindows >= 2;
   // Decay baseline must clear the same spend/purchase floors as winner
   // memory: without a floor, a low-spend lucky window becomes the max-ROAS
   // baseline and ordinary mean reversion reads as decay (math review
@@ -252,6 +324,8 @@ export function computeFatigue(input: FatigueInput): FatigueOutput {
   return {
     status,
     confidence,
+    disjointStrongWindows,
+    disjointWinnerMemory,
     ctrDecay: roundMetric(ctrDecay, 4),
     clickToPurchaseDecay: roundMetric(clickToPurchaseDecay, 4),
     roasDecay: roundMetric(roasDecay, 4),

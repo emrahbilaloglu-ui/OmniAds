@@ -1015,6 +1015,33 @@ function CreativeEvidenceDrawerContent({
               </section>
             ) : null}
 
+            {(card.decisionHistory?.length ?? 0) > 0 ? (
+              <section className="creative-evidence-section">
+                <h4>Decision history (30d)</h4>
+                <ul className="creative-evidence-list">
+                  {(card.decisionHistory ?? []).map((entry) => (
+                    <li
+                      key={`${entry.date}-${entry.currentLabel}`}
+                      className="creative-evidence-list-item"
+                    >
+                      <div>
+                        <b>
+                          {entry.date}: {entry.previousLabel ?? "(first)"} {"->"}{" "}
+                          {entry.currentLabel}
+                        </b>
+                        {entry.realizedOutcome7d
+                          ? `7d realized outcome: ${entry.realizedOutcome7d}`
+                          : "7d outcome window not closed or not computed yet"}
+                        <span className="src">
+                          engine_v3_decision_events + decision_outcomes (7d)
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+
             {decisionCenterRow ? (
               <section className="creative-evidence-section">
                 <h4>Decision Center</h4>

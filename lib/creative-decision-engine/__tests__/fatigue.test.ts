@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   computeFatigue,
+  deriveDisjointWindows,
   type FatigueInput,
   type HistoricalWindow,
 } from "../fatigue";
@@ -402,5 +403,68 @@ describe("decay baseline spend floor", () => {
     expect(
       output.missingContext.some((item) => item.includes("winner-memory")),
     ).toBe(true);
+  });
+});
+
+describe("disjoint winner-memory shadow metric", () => {
+  const window = (spend: number, purchases: number, roas: number): HistoricalWindow => ({
+    spend,
+    purchases,
+    roas,
+    ctr: 1,
+    clickToPurchaseRate: 0.05,
+  });
+
+  it("derives disjoint bands from cumulative windows", () => {
+    const bands = deriveDisjointWindows({
+      last14: window(200, 2, 4.0),
+      last30: window(500, 5, 3.0),
+      last90: window(500, 5, 3.0),
+    });
+    // Band 1 = last14 itself; band 2 = 15..30 (spend 300, purchases 3,
+    // revenue 1500-800=700 -> roas ~2.33); identical last90 adds nothing.
+    expect(bands).toHaveLength(2);
+    expect(bands[1].spend).toBe(300);
+    expect(bands[1].purchases).toBe(3);
+    expect(bands[1].roas).toBeCloseTo(700 / 300, 4);
+  });
+
+  it("a single strong stretch no longer double-counts via nesting in the shadow metric", () => {
+    // One strong 14-day burst, nothing before it: cumulative windows
+    // last14/last30/last90 all look strong (nested), but disjoint bands
+    // beyond the burst have no purchases.
+    const output = computeFatigue(
+      makeInput({
+        effectiveTargetRoas: 2.0,
+        winnerMemoryMinSpend: 100,
+        winnerMemoryMinPurchases: 2,
+        historicalWindows: {
+          last14: window(400, 4, 4.0),
+          last30: window(400, 4, 4.0),
+          last90: window(400, 4, 4.0),
+        },
+      }),
+    );
+    // The LIVE metric counts all three nested windows as separate strong
+    // windows - the exact double-count defect; the shadow metric does not.
+    expect(output.winnerMemory).toBe(true);
+    expect(output.disjointStrongWindows).toBe(1);
+    expect(output.disjointWinnerMemory).toBe(false);
+  });
+
+  it("recognizes genuinely sustained strength across disjoint bands", () => {
+    const output = computeFatigue(
+      makeInput({
+        effectiveTargetRoas: 2.0,
+        winnerMemoryMinSpend: 100,
+        winnerMemoryMinPurchases: 2,
+        historicalWindows: {
+          last14: window(400, 4, 4.0),
+          last30: window(900, 9, 3.8),
+        },
+      }),
+    );
+    expect(output.disjointStrongWindows).toBe(2);
+    expect(output.disjointWinnerMemory).toBe(true);
   });
 });

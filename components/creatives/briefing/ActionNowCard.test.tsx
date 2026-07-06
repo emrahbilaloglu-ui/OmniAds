@@ -167,7 +167,7 @@ describe("execution action CTA", () => {
         })}
       />,
     );
-    expect(html).toContain("Scale budget");
+    expect(html).toContain("Review scale budget");
     expect(html).not.toContain("Legacy scale label");
   });
 

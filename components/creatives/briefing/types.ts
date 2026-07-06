@@ -150,6 +150,12 @@ export interface BriefingCreativeCard {
   truthSource?: TruthSource | string | null;
   rawLabel?: DecisionLabel | string | null;
   pendingTransition?: boolean | null;
+  decisionHistory?: Array<{
+    date: string;
+    previousLabel: string | null;
+    currentLabel: string;
+    realizedOutcome7d?: string | null;
+  }> | null;
   spendUnitSource?: SpendUnitSource | string | null;
   spendUnitConfidence?: SpendUnitConfidence | string | null;
   metaAovQuality?: MetaAovQuality | string | null;

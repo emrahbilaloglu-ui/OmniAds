@@ -339,3 +339,42 @@ describe("pending transition surface", () => {
     expect(html).not.toContain("Pending transition - held");
   });
 });
+
+describe("decision history section", () => {
+  it("renders server-supplied label changes with realized outcomes", () => {
+    const html = renderDrawer(
+      <CreativeEvidenceDrawer
+        open
+        card={card({
+          decisionHistory: [
+            {
+              date: "2026-07-04",
+              previousLabel: "keep",
+              currentLabel: "cut",
+              realizedOutcome7d: "positive",
+            },
+            {
+              date: "2026-07-02",
+              previousLabel: null,
+              currentLabel: "keep",
+              realizedOutcome7d: null,
+            },
+          ],
+        })}
+        {...noopProps}
+      />,
+    );
+    expect(html).toContain("Decision history (30d)");
+    expect(html).toContain("2026-07-04: keep");
+    expect(html).toContain("7d realized outcome: positive");
+    expect(html).toContain("(first)");
+    expect(html).toContain("window not closed or not computed");
+  });
+
+  it("omits the section without history", () => {
+    const html = renderDrawer(
+      <CreativeEvidenceDrawer open card={card({ decisionHistory: null })} {...noopProps} />,
+    );
+    expect(html).not.toContain("Decision history (30d)");
+  });
+});

@@ -220,9 +220,19 @@ persist_image_tag_env() {
   if [ -s "${env_file}" ] && [ "$(tail -c 1 "${env_file}")" != "" ]; then
     printf '\n' >> "${env_file}"
   fi
+  if [ ! -w "${env_file}" ]; then
+    echo "env pin FAILED: ${env_file} is not writable by $(id -un)"
+    return 1
+  fi
   for key in APP_IMAGE_TAG APP_BUILD_ID; do
     if grep -q "^${key}=" "${env_file}"; then
-      sed -i "s|^${key}=.*|${key}=${DEPLOY_SHA}|" "${env_file}"
+      # Portable in-place replace (BSD/GNU sed -i semantics differ): write a
+      # temp file and cat it back so the inode (and any symlink/bind mount)
+      # is preserved.
+      tmp_env="$(mktemp "${env_file}.pin.XXXXXX")"
+      sed "s|^${key}=.*|${key}=${DEPLOY_SHA}|" "${env_file}" > "${tmp_env}"
+      cat "${tmp_env}" > "${env_file}"
+      rm -f "${tmp_env}"
     else
       printf '%s=%s\n' "${key}" "${DEPLOY_SHA}" >> "${env_file}"
     fi

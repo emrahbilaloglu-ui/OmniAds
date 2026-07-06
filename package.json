@@ -18,6 +18,7 @@
     "creative:decision:campaign-context-shadow": "node --import tsx scripts/creative-decision-center/automatic-campaign-context-shadow.ts",
     "creative:engine-v3:outcomes": "node --import tsx scripts/engine-v3-decision-outcomes.ts",
     "test:local-db": "node --import tsx scripts/with-local-postgres.ts -- vitest run",
+    "test:migrations-from-zero": "node --import tsx scripts/ephemeral-postgres-migrations-check.ts",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:smoke:local": "npm run build && PLAYWRIGHT_USE_WEBSERVER=1 PLAYWRIGHT_REUSE_EXISTING_SERVER=0 PLAYWRIGHT_BASE_URL=http://127.0.0.1:3000 playwright test",

@@ -462,6 +462,7 @@ export function cardForDecision(input: {
   backtestSummary?: DecisionBacktestSummary | null;
   decisionCenterRow?: DecisionCenterRowForCard | null;
   hysteresis?: { rawLabel: DecisionLabel; suppressed: boolean } | null;
+  decisionHistory?: BriefingCreativeCard["decisionHistory"];
 }): BriefingCreativeCard {
   const { decision, creativeInput, row } = input;
   const label = decision.label as DecisionLabel;
@@ -508,6 +509,7 @@ export function cardForDecision(input: {
     // from the published label the decision is a held pending transition.
     rawLabel: input.hysteresis?.rawLabel ?? null,
     pendingTransition: input.hysteresis?.suppressed ?? false,
+    decisionHistory: input.decisionHistory ?? null,
     spendUnitSource: input.accountProfile?.spendUnitSource ?? null,
     spendUnitConfidence: input.accountProfile?.spendUnitConfidence ?? null,
     metaAovQuality: input.accountProfile?.quality.metaAovQuality ?? null,

@@ -124,8 +124,11 @@ function placementCreativeId(placement: BriefingPlacement) {
 // lives at ad set/campaign level, not on the creative card.
 export const EXECUTION_ACTION_DISPLAY: Record<string, string> = {
   promote_to_main: "Promote to main",
-  scale_budget: "Scale budget",
-  controlled_scale: "Controlled scale",
+  // Budget-type actions open the evidence drawer (budget execution lives at
+  // ad set/campaign level), so the copy is review-framed - a button must not
+  // promise an action its click does not perform.
+  scale_budget: "Review scale budget",
+  controlled_scale: "Review structure & scale",
 };
 
 export function executionActionDisplay(value: string | null | undefined) {

@@ -1274,6 +1274,64 @@ export async function GET(request: NextRequest) {
     );
     return new Map();
   });
+  // Per-creative decision history (server-supplied; last 30 days of label
+  // changes with the 7d realized outcome where the window closed). One
+  // account-level query; failures degrade to no history, never to an error.
+  const decisionHistoryByCreative = await getDb()
+    .query<Record<string, unknown>>(
+      `
+      SELECT e.creative_id,
+        e.event_date::text AS event_date,
+        e.previous_label,
+        e.current_label,
+        o.realized_outcome
+      FROM engine_v3_decision_events e
+      LEFT JOIN engine_v3_decision_outcomes_daily o
+        ON o.business_ref_id = e.business_ref_id
+       AND o.creative_id = e.creative_id
+       AND o.decision_as_of_date = e.event_date
+       AND o.outcome_window_days = 7
+      WHERE e.business_ref_id::text = $1
+        AND e.event_type = 'decision_changed'
+        AND e.event_date >= ($2::date - INTERVAL '30 days')
+      ORDER BY e.creative_id, e.event_date DESC
+      `,
+      [resolvedBusinessId, asOf],
+    )
+    .then((rows) => {
+      const map = new Map<
+        string,
+        NonNullable<BriefingCreativeCard["decisionHistory"]>
+      >();
+      for (const row of rows) {
+        const creativeId = typeof row.creative_id === "string" ? row.creative_id : null;
+        const currentLabel = typeof row.current_label === "string" ? row.current_label : null;
+        const date = typeof row.event_date === "string" ? row.event_date : null;
+        if (!creativeId || !currentLabel || !date) continue;
+        const list = map.get(creativeId) ?? [];
+        if (list.length >= 10) continue;
+        list.push({
+          date,
+          previousLabel:
+            typeof row.previous_label === "string" ? row.previous_label : null,
+          currentLabel,
+          realizedOutcome7d:
+            typeof row.realized_outcome === "string" ? row.realized_outcome : null,
+        });
+        map.set(creativeId, list);
+      }
+      return map;
+    })
+    .catch((error) => {
+      console.error(
+        "[creative-decision-center] decision history read failed; cards render without history",
+        error,
+      );
+      return new Map<
+        string,
+        NonNullable<BriefingCreativeCard["decisionHistory"]>
+      >();
+    });
   const hysteresisByCreative = new Map<
     string,
     { rawLabel: DecisionLabel; suppressed: boolean }
@@ -1330,6 +1388,7 @@ export async function GET(request: NextRequest) {
       backtestSummary,
       decisionCenterRow,
       hysteresis: hysteresisByCreative.get(decision.creativeId) ?? null,
+      decisionHistory: decisionHistoryByCreative.get(decision.creativeId) ?? null,
     });
     const deferred =
       deferredIds.has(decision.creativeId) ||

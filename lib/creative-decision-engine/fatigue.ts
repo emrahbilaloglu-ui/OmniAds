@@ -191,7 +191,7 @@ export function computeFatigue(input: FatigueInput): FatigueOutput {
         winnerMemoryMinPurchases,
       ),
   ).length;
-  const winnerMemory = strongCount >= 2;
+  const nestedWinnerMemory = strongCount >= 2;
   const disjointStrongWindows = deriveDisjointWindows(
     input.historicalWindows,
   ).filter((window) =>
@@ -204,6 +204,11 @@ export function computeFatigue(input: FatigueInput): FatigueOutput {
     ),
   ).length;
   const disjointWinnerMemory = disjointStrongWindows >= 2;
+  // v-next: status uses the disjoint count - nested cumulative windows let
+  // one strong stretch satisfy the >=2 requirement by itself (37/1602 live
+  // creatives flipped the bit, every one nested->false). The nested value
+  // stays reported for comparability.
+  const winnerMemory = disjointWinnerMemory;
   // Decay baseline must clear the same spend/purchase floors as winner
   // memory: without a floor, a low-spend lucky window becomes the max-ROAS
   // baseline and ordinary mean reversion reads as decay (math review
@@ -331,7 +336,7 @@ export function computeFatigue(input: FatigueInput): FatigueOutput {
     roasDecay: roundMetric(roasDecay, 4),
     spendConcentration: roundMetric(input.spendConcentration, 4),
     frequencyPressure: roundMetric(input.frequency, 4),
-    winnerMemory,
+    winnerMemory: nestedWinnerMemory,
     evidence: evidence.slice(0, 4),
     missingContext,
   };

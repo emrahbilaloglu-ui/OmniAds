@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { defaultBusinessConfig } from "../../config";
-import { applyPostProcess, type GateContext } from "../../gates/types";
+import {
+  applyPostProcess,
+  finalizeDecision,
+  type GateContext,
+} from "../../gates/types";
 import type {
   AccountCalibration,
   BusinessConfig,
@@ -457,20 +461,33 @@ describe("applyPostProcess - lifecycle awareness", () => {
   });
 });
 
-describe("applyPostProcess - stale hard-action ceiling (shadow)", () => {
-  it("badges hard labels computed from very stale data", () => {
-    const result = runPostProcess("cut", {
-      input: { dataFreshnessHours: 20 * 24 },
-    });
-    expect(badgeTypes(result)).toContain("stale_hard_ceiling_advisory");
+describe("finalizeDecision - stale hard-action ceiling (v-next, label-active)", () => {
+  const finalizeWith = (label: "cut" | "keep", freshnessHours: number) =>
+    finalizeDecision(
+      makeGateContext({
+        input: makeCreativeInput({ dataFreshnessHours: freshnessHours }),
+        businessConfig: defaultBusinessConfig("biz-1"),
+        calibration: makeAccountCalibration({}),
+      }),
+      label,
+      "test reason",
+    );
+
+  it("demotes hard labels computed from very stale data to diagnose", () => {
+    const decision = finalizeWith("cut", 20 * 24);
+    expect(decision.label).toBe("diagnose");
+    expect(decision.reason.startsWith("[stale ceiling")).toBe(true);
+    expect(
+      decision.badges.some((b) => b.type === "stale_hard_ceiling_advisory"),
+    ).toBe(true);
   });
 
-  it("does not badge fresh data or soft labels", () => {
-    const fresh = runPostProcess("cut", { input: { dataFreshnessHours: 24 } });
-    expect(badgeTypes(fresh)).not.toContain("stale_hard_ceiling_advisory");
-    const soft = runPostProcess("keep", {
-      input: { dataFreshnessHours: 20 * 24 },
-    });
-    expect(badgeTypes(soft)).not.toContain("stale_hard_ceiling_advisory");
+  it("leaves fresh data and soft labels untouched", () => {
+    expect(finalizeWith("cut", 24).label).toBe("cut");
+    const soft = finalizeWith("keep", 20 * 24);
+    expect(soft.label).toBe("keep");
+    expect(
+      soft.badges.some((b) => b.type === "stale_hard_ceiling_advisory"),
+    ).toBe(false);
   });
 });

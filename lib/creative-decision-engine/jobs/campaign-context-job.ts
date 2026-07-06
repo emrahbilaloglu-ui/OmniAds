@@ -313,7 +313,10 @@ export function parseHysteresisState(raw: unknown): HysteresisState {
   };
 }
 
-const UPSERT_CONTEXT_QUERY = `
+// Exported for the ephemeral-postgres seam check (see decisions-job's
+// UPSERT export note): the hysteresis_state_json write->read round trip is
+// exactly the seam that silently broke once.
+export const UPSERT_CONTEXT_QUERY = `
 INSERT INTO engine_v3_campaign_context_daily (
   business_id, campaign_id, campaign_name, as_of_date,
   inferred_kind, confidence_score, confidence_class, kind_source, kind_basis,

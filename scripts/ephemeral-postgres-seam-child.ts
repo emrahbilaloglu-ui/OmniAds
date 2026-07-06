@@ -9,6 +9,11 @@
 import { randomUUID } from "node:crypto";
 import { getDb, resetDbClientCache } from "@/lib/db";
 import { UPSERT_DECISION_SNAPSHOTS_QUERY } from "@/lib/creative-decision-engine/jobs/decisions-job";
+import {
+  applyDailyHysteresis,
+  parseHysteresisState,
+  UPSERT_CONTEXT_QUERY,
+} from "@/lib/creative-decision-engine/jobs/campaign-context-job";
 import { readPreviousPublishedLabels } from "@/lib/creative-decision-engine/decision-stability";
 import { ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 
@@ -118,6 +123,58 @@ async function main() {
 
   console.log(
     "[seam-check] PASS: snapshot write -> readPreviousPublishedLabels round-trips label, raw_label, strict-before-asOf, and rerun upsert.",
+  );
+
+  // --- Campaign-context hysteresis state seam: the exact class that broke
+  // once (fields persisted but dropped on read). Chain two days through the
+  // REAL table using the production write query and production parser.
+  let state = applyDailyHysteresis(null, "main", "high").state;
+  state = applyDailyHysteresis(state, null, "unknown").state; // grace day 1
+  state = applyDailyHysteresis(state, null, "conflict").state; // conflict day 1
+  await db.query(UPSERT_CONTEXT_QUERY, [
+    businessRefId,
+    "seam-campaign",
+    "Seam Campaign",
+    "2026-07-01",
+    "main",
+    0.8,
+    "medium",
+    "behavioral",
+    "seam-check",
+    JSON.stringify({}),
+    JSON.stringify([]),
+    JSON.stringify([]),
+    JSON.stringify(state),
+    JSON.stringify({}),
+    null,
+  ]);
+  const persisted = await db.query<{ hysteresis_state_json: unknown }>(
+    `SELECT hysteresis_state_json FROM engine_v3_campaign_context_daily
+     WHERE business_id = $1 AND campaign_id = 'seam-campaign' AND as_of_date = '2026-07-01'`,
+    [businessRefId],
+  );
+  const roundTripped = parseHysteresisState(persisted[0]?.hysteresis_state_json);
+  if (
+    roundTripped.stableKind !== state.stableKind ||
+    roundTripped.stableClass !== state.stableClass ||
+    (roundTripped.graceDaysUsed ?? 0) !== (state.graceDaysUsed ?? 0) ||
+    (roundTripped.pendingConflictCount ?? 0) !== (state.pendingConflictCount ?? 0) ||
+    roundTripped.pendingCount !== state.pendingCount
+  ) {
+    throw new Error(
+      `context state seam FAILED: wrote ${JSON.stringify(state)}, read back ${JSON.stringify(roundTripped)}`,
+    );
+  }
+  // Continuing the chain from the round-tripped state must behave as if it
+  // never left memory: a second conflict day confirms (counter was 1).
+  const nextDay = applyDailyHysteresis(roundTripped, null, "conflict");
+  if (nextDay.publishedKind !== null || nextDay.publishedClass !== "conflict") {
+    throw new Error(
+      `context state seam FAILED: second consecutive conflict did not confirm after DB round trip (got ${nextDay.publishedKind}/${nextDay.publishedClass})`,
+    );
+  }
+  console.log(
+    "[seam-check] PASS: context hysteresis state round-trips through the real table with counters intact; conflict confirmation survives persistence.",
   );
   await resetDbClientCache();
 }

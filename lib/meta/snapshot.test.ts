@@ -44,6 +44,14 @@ vi.mock("@/lib/meta/campaign-labels", () => ({
   readMetaCampaignLabels: vi.fn(async () => []),
 }));
 
+vi.mock("@/lib/meta/decision-stability", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/meta/decision-stability")>();
+  return {
+    ...actual,
+    readPreviousMetaDecisionStates: vi.fn(async () => new Map()),
+  };
+});
+
 vi.mock("@/lib/meta/anomalies", () => ({
   detectAnomaliesForBusiness: vi.fn(),
 }));
@@ -76,6 +84,7 @@ vi.mock("@/lib/meta/commercial-targets", async (importOriginal) => {
 });
 
 const db = await import("@/lib/db");
+const decisionStability = await import("@/lib/meta/decision-stability");
 const activeBusinesses = await import("@/lib/sync/active-businesses");
 const calibration = await import("@/lib/meta/calibration");
 const campaignSource = await import("@/lib/meta/campaigns-source");
@@ -246,6 +255,67 @@ describe("meta snapshot job", () => {
 
     expect(sql.calls.filter((text) => text.includes("DELETE FROM meta_decision_snapshots_daily"))).toHaveLength(2);
     expect(sql.calls.filter((text) => text.includes("INSERT INTO meta_decision_snapshots_daily"))).toHaveLength(2);
+  });
+
+  it("holds act-boundary state flips for one snapshot (hysteresis)", async () => {
+    vi.mocked(decisionStability.readPreviousMetaDecisionStates).mockResolvedValue(new Map());
+    const firstRun = makeSqlMock();
+    vi.mocked(db.getDb).mockReturnValue(firstRun.tag);
+    await runMetaSnapshotForBusiness("biz_1", "2026-05-06");
+
+    type PayloadRow = {
+      kind: string;
+      scope_type: string;
+      scope_id: string;
+      rec_type: string;
+      decision_state: "act" | "test" | "watch";
+      state_reason: string | null;
+      signal_quality: { stability?: { raw_decision_state: string; suppressed: boolean } };
+    };
+    const firstRows = (firstRun.queryPayloads.flatMap((payload) =>
+      typeof payload === "string" ? (JSON.parse(payload) as PayloadRow[]) : (payload as PayloadRow[]),
+    ) ?? []).filter((row) => row?.kind === "recommendation");
+    expect(firstRows.length).toBeGreaterThan(0);
+    // Every persisted recommendation carries stability memory.
+    for (const row of firstRows) {
+      expect(row.signal_quality.stability).toEqual({
+        raw_decision_state: row.decision_state,
+        suppressed: false,
+      });
+    }
+
+    // Second run: yesterday published the OPPOSITE state for one key, so
+    // today's (unchanged) raw state is a first flip and must be held.
+    const target = firstRows[0]!;
+    const heldState = target.decision_state === "act" ? "watch" : "act";
+    vi.mocked(decisionStability.readPreviousMetaDecisionStates).mockResolvedValue(
+      new Map([
+        [
+          `${target.scope_type}|${target.scope_id}|${target.rec_type}`,
+          { publishedState: heldState as "act" | "watch", rawState: heldState as "act" | "watch" },
+        ],
+      ]),
+    );
+    const secondRun = makeSqlMock();
+    vi.mocked(db.getDb).mockReturnValue(secondRun.tag);
+    await runMetaSnapshotForBusiness("biz_1", "2026-05-07");
+
+    const secondRows = (secondRun.queryPayloads.flatMap((payload) =>
+      typeof payload === "string" ? (JSON.parse(payload) as PayloadRow[]) : (payload as PayloadRow[]),
+    ) ?? []).filter((row) => row?.kind === "recommendation");
+    const held = secondRows.find(
+      (row) =>
+        row.scope_type === target.scope_type &&
+        row.scope_id === target.scope_id &&
+        row.rec_type === target.rec_type,
+    );
+    expect(held).toBeDefined();
+    expect(held!.decision_state).toBe(heldState);
+    expect(held!.signal_quality.stability).toEqual({
+      raw_decision_state: target.decision_state,
+      suppressed: true,
+    });
+    expect(held!.state_reason ?? "").toContain("Pending transition");
   });
 
   it("runs calibration before fetching decision inputs", async () => {

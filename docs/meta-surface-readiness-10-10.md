@@ -24,9 +24,17 @@ docs/meta-page-ui-contract.md).
 
 ## A. NON-UI gaps (survive any redesign — engineering backlog, priority order)
 
-1. **Meta v1 recommendation engine lacks the CDC disciplines** (no
-   hysteresis, no calibration/outcome loop, 30d fixed lookback, confidence
-   thresholds untested against outcomes). This is the largest structural
+1. **Meta v1 recommendation engine lacks the CDC disciplines** — partially
+   closed this pass: act-boundary state hysteresis now runs at snapshot
+   write time (`lib/meta/decision-stability.ts`, mirroring the CDC rule:
+   act<->non-act flips publish only after two consecutive snapshots; memory
+   rides in signal_quality.stability, no schema change; disappearing recs
+   are deliberately NOT republished — that would fabricate decisions).
+   Unit + pipeline-integration tested, but NOT yet replay-verified against
+   live snapshot history the way CDC was — do not claim churn reduction
+   until day-over-day evidence exists. Still open: outcome/calibration
+   loop for confidence thresholds (calibration exists, thresholds untested
+   against outcomes), 30d fixed lookback. Largest remaining structural
    item on the Decision Center path to 10.
 2. **Launchpad templates/drafts routes and the broad payload normalizer are
    still under-tested.** CurrencyCode is now carried for new-campaign payloads,

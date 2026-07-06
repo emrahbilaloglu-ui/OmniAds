@@ -15,6 +15,10 @@ import {
   type RunMetaCalibrationResult,
 } from "@/lib/meta/calibration";
 import {
+  readPreviousMetaDecisionStates,
+  stabilizeMetaRecommendations,
+} from "@/lib/meta/decision-stability";
+import {
   detectAnomaliesForBusiness,
   type MetaAnomaly,
   type MetaAnomalySeverity,
@@ -820,10 +824,40 @@ export async function runMetaSnapshotForBusiness(
     });
     return null;
   });
-  const recommendations = await buildSnapshotRecommendations({
+  const rawRecommendations = await buildSnapshotRecommendations({
     businessId,
     snapshotDate: normalizedSnapshotDate,
   });
+  // CDC discipline: act-boundary state flips must hold two consecutive
+  // snapshots before publishing. Memory-read failure degrades to
+  // no-hysteresis (publish raw) instead of failing the snapshot run.
+  const previousStates = await readPreviousMetaDecisionStates({
+    businessId,
+    asOf: normalizedSnapshotDate,
+    engineVersion: META_RECOMMENDATION_ENGINE_VERSION,
+  }).catch((error) => {
+    console.warn("[meta-snapshot] previous_state_read_failed", {
+      businessId,
+      snapshotDate: normalizedSnapshotDate,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return new Map<string, never>();
+  });
+  const { recommendations, suppressedCount } = stabilizeMetaRecommendations({
+    recommendations: rawRecommendations,
+    previousByKey: previousStates,
+    scopeFor: (recommendation) => {
+      const scope = scopeForRecommendation(recommendation, businessId);
+      return { scopeType: scope.scopeType, scopeId: scope.scopeId };
+    },
+  });
+  if (suppressedCount > 0) {
+    console.info("[meta-snapshot] state_transitions_suppressed", {
+      businessId,
+      snapshotDate: normalizedSnapshotDate,
+      suppressedCount,
+    });
+  }
   const anomalies = await detectAnomaliesForBusiness({
     businessId,
     snapshotDate: normalizedSnapshotDate,

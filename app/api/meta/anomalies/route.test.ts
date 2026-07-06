@@ -71,6 +71,7 @@ describe("GET /api/meta/anomalies", () => {
       businessId: "biz_1",
       activeOnly: true,
       endDate: null,
+      statusFilter: null,
     });
   });
 
@@ -88,6 +89,7 @@ describe("GET /api/meta/anomalies", () => {
       businessId: "biz_1",
       activeOnly: false,
       endDate: null,
+      statusFilter: null,
     });
   });
 
@@ -133,4 +135,30 @@ describe("GET /api/meta/anomalies", () => {
     );
   });
 
+  it("threads status_filter into the anomaly read", async () => {
+    await GET(
+      new NextRequest(
+        "http://localhost/api/meta/anomalies?businessId=biz_1&status_filter=active_plus_recent_paused",
+      ),
+    );
+    expect(anomalies.readMetaAnomaliesForBusiness).toHaveBeenCalledWith(
+      expect.objectContaining({ statusFilter: "active_plus_recent_paused" }),
+    );
+  });
+
+  it("passes null statusFilter when the param is absent (no filtering)", async () => {
+    await GET(new NextRequest("http://localhost/api/meta/anomalies?businessId=biz_1"));
+    expect(anomalies.readMetaAnomaliesForBusiness).toHaveBeenCalledWith(
+      expect.objectContaining({ statusFilter: null }),
+    );
+  });
+
+  it("coerces an invalid status_filter to the safe default instead of erroring", async () => {
+    await GET(
+      new NextRequest("http://localhost/api/meta/anomalies?businessId=biz_1&status_filter=bogus"),
+    );
+    expect(anomalies.readMetaAnomaliesForBusiness).toHaveBeenCalledWith(
+      expect.objectContaining({ statusFilter: "active" }),
+    );
+  });
 });

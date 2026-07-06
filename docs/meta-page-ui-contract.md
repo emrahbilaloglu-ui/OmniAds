@@ -309,13 +309,19 @@ section.
 - Accepts `endDate` to scope the anomaly snapshot to the selected range's
   end (newest anomaly snapshot at or before that date); the client threads
   it for custom ranges and keys the query on the full window/status scope.
-- NON-UI gap: anomaly rows carry no per-entity briefing status, so the
-  status filter cannot scope this feed; Action Now tab counts can therefore
-  include anomalies for entities outside the current status filter.
+- Accepts `status_filter`, applied against the entity status captured at
+  anomaly write time (`entityStatus` inside the stored anomaly). Semantics
+  live in `anomalyMatchesStatusFilter` (`lib/meta/anomalies.ts`): "active"
+  keeps ACTIVE plus unknown/legacy rows (fail-open — an anomaly never
+  disappears for lack of metadata), "active_plus_recent_paused"
+  additionally keeps PAUSED (coarse: anomaly rows store observed status at
+  day resolution, not a status-change timestamp, so the <=24h recent-paused
+  rule cannot be evaluated exactly), "all" keeps everything. Absent param =
+  no status filtering.
 
 `{ anomalies, snapshotDate, count }` from `readMetaAnomaliesForBusiness`
-(`lib/meta/anomalies.ts`). The page always fetches `activeOnly=1` and does not
-scope by window or status filter. Anomaly cards render in Action Now and add
+(`lib/meta/anomalies.ts`). The page always fetches `activeOnly=1` with the
+current `status_filter`. Anomaly cards render in Action Now and add
 to its tab count; they are `MetaAnomaly` objects, not recommendations, and are
 **not** annotated by `rec-presentation` (see caveats).
 
@@ -464,8 +470,9 @@ Real, current limitations — kept explicit on purpose:
   (live/warehouse) and lane snapshots (persisted engine output) can disagree;
   the page communicates each model's freshness but does not reconcile them.
 - **Anomalies route is not presentation-annotated.** `MetaAnomaly` objects
-  bypass `rec-presentation`; their CTA is hardcoded "Open diagnostic" and the
-  anomalies feed is not window- or status-filter-scoped.
+  bypass `rec-presentation`; their CTA is hardcoded "Open diagnostic".
+  Status filtering is coarse by design: it uses the write-time observed
+  entity status and fails open on legacy rows without one.
 - **Secondary filters are client-narrowing only.** Level/campaign/readiness/
   label filters (and the campaign picker's 12-option cap) never change server
   classification; lane tab counts reflect filtered rows.

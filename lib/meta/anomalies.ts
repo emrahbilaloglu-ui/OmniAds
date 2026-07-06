@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
+import type { BriefingStatusFilter } from "@/lib/meta/briefing-filter";
 import type { MetaCalibrationContext } from "@/lib/meta/recommendations";
 
 export const META_ANOMALY_TYPES = [
@@ -32,6 +33,11 @@ export interface MetaAnomaly {
   }>;
   detectedAt: string;
   resolvedAt?: string | null;
+  /** Briefing status of the scoped entity observed at detection time
+   * (normalized uppercase, e.g. ACTIVE/PAUSED). Null on account scope and
+   * on snapshots written before this field existed - readers must
+   * fail-open on null so anomalies never disappear for lack of metadata. */
+  entityStatus?: string | null;
 }
 
 export interface DetectAnomaliesInput {
@@ -162,6 +168,11 @@ function latestByDate<T extends { date: string }>(rows: T[]) {
   return [...rows].sort((left, right) => right.date.localeCompare(left.date))[0] ?? null;
 }
 
+function normalizeStatus(status: string | null | undefined): string | null {
+  const value = String(status ?? "").trim().toUpperCase();
+  return value || null;
+}
+
 function isActiveStatus(status: string | null | undefined) {
   return String(status ?? "").toUpperCase() === "ACTIVE";
 }
@@ -251,6 +262,7 @@ function makeAnomaly(input: Omit<MetaAnomaly, "id" | "kind"> & { snapshotDate: s
     diagnosticLadder,
     detectedAt: input.detectedAt,
     resolvedAt: input.resolvedAt ?? null,
+    entityStatus: input.entityStatus ?? null,
   };
 }
 
@@ -347,6 +359,7 @@ function detectRoasDrops(input: {
           "Bid, budget, or landing-page change in the last week.",
         ],
         detectedAt: input.detectedAt,
+        entityStatus: normalizeStatus(latest?.campaign_status),
       }),
     );
   }
@@ -387,6 +400,7 @@ function detectDeliveryStalls(input: {
           "Policy or billing review may be suppressing impressions.",
         ],
         detectedAt: input.detectedAt,
+        entityStatus: normalizeStatus(latest.adset_status),
       }),
     );
   }
@@ -408,6 +422,7 @@ function detectPolicyBlocks(input: {
   rows: AdDailyRow[];
   snapshotDate: string;
   detectedAt: string;
+  scopeStatusById: Map<string, string | null>;
 }) {
   const latestByAd = new Map<string, AdDailyRow>();
   for (const row of input.rows) {
@@ -440,6 +455,7 @@ function detectPolicyBlocks(input: {
         detail: `${rows.length} ad${rows.length === 1 ? "" : "s"} show rejected, blocked, or review statuses with delivery impact.`,
         diagnostics: rows.slice(0, 4).map((row) => `${row.ad_name ?? row.ad_id}: ${row.effective_status ?? "unknown status"}`),
         detectedAt: input.detectedAt,
+        entityStatus: input.scopeStatusById.get(scopeId) ?? null,
       }),
     );
   }
@@ -478,6 +494,7 @@ function detectPacingFailures(input: {
           "Budget or schedule settings may not match intended daily pacing.",
         ],
         detectedAt: input.detectedAt,
+        entityStatus: normalizeStatus(latest.campaign_status),
       }),
     );
   }
@@ -519,6 +536,7 @@ function detectCpmSpikes(input: {
           "Placement mix may have shifted into more expensive inventory.",
         ],
         detectedAt: input.detectedAt,
+        entityStatus: normalizeStatus(latest?.campaign_status),
       }),
     );
   }
@@ -535,10 +553,18 @@ export async function detectAnomaliesForBusiness(input: DetectAnomaliesInput): P
     snapshotDate,
   });
 
+  const scopeStatusById = new Map<string, string | null>();
+  for (const [campaignId, rows] of groupBy(campaignRows, (row) => row.campaign_id)) {
+    scopeStatusById.set(campaignId, normalizeStatus(latestByDate(rows)?.campaign_status));
+  }
+  for (const [adsetId, rows] of groupBy(adsetRows, (row) => row.adset_id)) {
+    scopeStatusById.set(adsetId, normalizeStatus(latestByDate(rows)?.adset_status));
+  }
+
   return [
     ...detectRoasDrops({ rows: campaignRows, snapshotDate, detectedAt }),
     ...detectDeliveryStalls({ rows: adsetRows, snapshotDate, detectedAt }),
-    ...detectPolicyBlocks({ rows: adRows, snapshotDate, detectedAt }),
+    ...detectPolicyBlocks({ rows: adRows, snapshotDate, detectedAt, scopeStatusById }),
     ...detectPacingFailures({
       rows: campaignRows,
       snapshotDate,
@@ -585,7 +611,29 @@ function hydrateAnomaly(row: SnapshotAnomalyRow): MetaAnomaly {
       : undefined,
     detectedAt: row.detected_at ?? stored?.detectedAt ?? row.snapshot_date,
     resolvedAt: row.resolved_at,
+    entityStatus: typeof stored?.entityStatus === "string" ? stored.entityStatus : null,
   };
+}
+
+/**
+ * Status-filter semantics for anomalies. Anomaly rows store the entity
+ * status OBSERVED at detection time (day resolution, no status-change
+ * timestamp), so "recently paused" cannot be evaluated exactly:
+ * - "active": keep ACTIVE; keep null/unknown (fail-open for pre-field
+ *   snapshots - an anomaly must never vanish for lack of metadata).
+ * - "active_plus_recent_paused": additionally keep PAUSED (coarse
+ *   superset of the <=24h recent-paused rule used elsewhere).
+ * - "all": keep everything.
+ */
+export function anomalyMatchesStatusFilter(
+  anomaly: Pick<MetaAnomaly, "entityStatus">,
+  filter: BriefingStatusFilter,
+): boolean {
+  if (filter === "all") return true;
+  const status = anomaly.entityStatus ?? null;
+  if (status === null || status === "UNKNOWN") return true;
+  if (status === "ACTIVE") return true;
+  return filter === "active_plus_recent_paused" && status === "PAUSED";
 }
 
 export async function readMetaAnomaliesForBusiness(input: {
@@ -593,9 +641,12 @@ export async function readMetaAnomaliesForBusiness(input: {
   activeOnly?: boolean;
   /** Scope the anomaly snapshot to the selected range: the newest anomaly
    * snapshot at or before this date. Without it a historical range would
-   * show today's anomalies. Status-filter scoping is NOT supported here -
-   * anomaly rows carry no per-entity briefing status (documented gap). */
+   * show today's anomalies. */
   endDate?: string | null;
+  /** Filter by the entity status captured at anomaly write time. Null
+   * applies no status filtering (legacy behavior). See
+   * anomalyMatchesStatusFilter for the exact semantics. */
+  statusFilter?: BriefingStatusFilter | null;
 }): Promise<ReadMetaAnomaliesResult> {
   const readiness = await getDbSchemaReadiness({
     tables: ["meta_decision_snapshots_daily"],
@@ -648,7 +699,10 @@ export async function readMetaAnomaliesForBusiness(input: {
       rec_type ASC
   `) as SnapshotAnomalyRow[];
 
-  const anomalies = rows.map(hydrateAnomaly);
+  const statusFilter = input.statusFilter ?? null;
+  const anomalies = rows
+    .map(hydrateAnomaly)
+    .filter((anomaly) => statusFilter === null || anomalyMatchesStatusFilter(anomaly, statusFilter));
   return {
     anomalies,
     snapshotDate,

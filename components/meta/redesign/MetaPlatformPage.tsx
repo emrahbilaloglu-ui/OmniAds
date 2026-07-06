@@ -224,14 +224,18 @@ function fetchLanes(businessId: string, window: MetaWindowKey, statusFilter: Bri
 function fetchAnomalies(
   businessId: string,
   window: MetaWindowKey,
+  statusFilter: BriefingStatusFilter,
   range?: Pick<HtmlDateRangeValue, "start" | "end">,
 ) {
-  const params = new URLSearchParams({ businessId, activeOnly: "1" });
+  const params = new URLSearchParams({
+    businessId,
+    activeOnly: "1",
+    status_filter: statusFilter,
+  });
   // Scope the anomaly snapshot to the selected range's end so historical
-  // ranges do not surface today's anomalies. Status-filter scoping is not
-  // supported by the anomaly store (no per-entity briefing status) - a
-  // documented non-UI gap; the query key still carries the full scope so
-  // the feed refetches in lockstep with the lanes.
+  // ranges do not surface today's anomalies. Status filtering runs against
+  // the entity status captured at anomaly write time; snapshots written
+  // before that field existed fail open (see anomalyMatchesStatusFilter).
   if (window === "custom" && range) {
     params.set("endDate", range.end);
   }
@@ -1182,7 +1186,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
       selectedDateRange?.end ?? null,
     ],
     enabled: Boolean(businessId),
-    queryFn: () => fetchAnomalies(businessId, selectedWindow, selectedDateRange),
+    queryFn: () => fetchAnomalies(businessId, selectedWindow, selectedStatusFilter, selectedDateRange),
   });
   const campaignDefer = useDeferState({
     businessId,

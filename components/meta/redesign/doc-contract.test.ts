@@ -56,6 +56,16 @@ describe("meta page UI contract doc stays consistent with code", () => {
     expect(doc).not.toMatch(/does not scope by window or status filter/i);
   });
 
+  it("anomaly status scoping: code supports it and the doc must not deny it", () => {
+    const anomaliesLib = readFileSync("lib/meta/anomalies.ts", "utf8");
+    expect(anomaliesLib).toContain("export function anomalyMatchesStatusFilter");
+    expect(doc).toContain("anomalyMatchesStatusFilter");
+    // Pre-fix caveat sentences are banned while the capability exists.
+    expect(doc).not.toMatch(/status filter cannot scope this feed/i);
+    expect(doc).not.toMatch(/carry no per-entity briefing status/i);
+    expect(doc).not.toMatch(/not window- or status-filter-scoped/i);
+  });
+
   it("doc references to the page's key contracts stay alive in code", () => {
     for (const symbol of [
       "isTrackingWriteBlocked",

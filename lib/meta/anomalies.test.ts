@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  anomalyMatchesStatusFilter,
   detectAnomaliesForBusiness,
   readMetaAnomaliesForBusiness,
   severityFromMagnitude,
@@ -349,5 +350,154 @@ describe("meta anomalies", () => {
       diagnostics: ["Ad 1: REJECTED"],
       diagnosticLadder: [{ step: 1, label: "Tracking", detail: "Check events." }],
     });
+  });
+
+  it("captures the entity status observed at detection time", async () => {
+    vi.mocked(db.getDb).mockReturnValue(
+      makeSqlMock({
+        campaignRows: campaignRows({
+          spendByDay: () => 100,
+          revenueByDay: (age) => (age <= 6 ? 100 : 400),
+          status: "PAUSED",
+        }),
+      }),
+    );
+
+    const anomalies = await detectAnomaliesForBusiness({
+      businessId: "biz_1",
+      snapshotDate: "2026-05-06",
+      now: new Date("2026-05-06T22:00:00.000Z"),
+    });
+
+    const drop = anomalies.find((anomaly) => anomaly.type === "roas_drop_sudden");
+    expect(drop?.entityStatus).toBe("PAUSED");
+  });
+
+  it("resolves policy-block scope status from the adset/campaign daily rows", async () => {
+    vi.mocked(db.getDb).mockReturnValue(
+      makeSqlMock({
+        adsetRows: adsetRows({
+          adsetId: "adset_9",
+          latestImpressions: 5000,
+          previousImpressions: 5000,
+          status: "PAUSED",
+        }),
+        adRows: [
+          {
+            date: "2026-05-06",
+            campaign_id: "cmp_1",
+            adset_id: "adset_9",
+            ad_id: "ad_1",
+            ad_name: "Ad 1",
+            effective_status: "REJECTED",
+            impressions: 0,
+            spend: 0,
+          },
+        ],
+      }),
+    );
+
+    const anomalies = await detectAnomaliesForBusiness({
+      businessId: "biz_1",
+      snapshotDate: "2026-05-06",
+      now: new Date("2026-05-06T22:00:00.000Z"),
+    });
+
+    const block = anomalies.find((anomaly) => anomaly.type === "policy_block");
+    expect(block?.scopeId).toBe("adset_9");
+    expect(block?.entityStatus).toBe("PAUSED");
+  });
+
+  it("filters hydrated anomalies by the write-time entity status", async () => {
+    const snapshotRow = (recId: string, entityStatus: string | null | undefined) => ({
+      snapshot_date: "2026-05-06",
+      rec_id: recId,
+      rec_type: "policy_block",
+      scope_type: "adset",
+      scope_id: recId,
+      severity: "high",
+      evidence: { anomaly: { scopeLabel: recId, entityStatus } },
+      recommended_action: "Policy delivery block",
+      reasoning: "Rejected ad.",
+      diagnostics: [],
+      detected_at: "2026-05-06T10:00:00.000Z",
+      resolved_at: null,
+    });
+    vi.mocked(db.getDb).mockReturnValue(
+      makeSqlMock({
+        snapshotRows: [
+          snapshotRow("anom_active", "ACTIVE"),
+          snapshotRow("anom_paused", "PAUSED"),
+          snapshotRow("anom_archived", "ARCHIVED"),
+          snapshotRow("anom_legacy", undefined),
+        ],
+      }),
+    );
+
+    const active = await readMetaAnomaliesForBusiness({
+      businessId: "biz_1",
+      statusFilter: "active",
+    });
+    // Legacy rows without a stored status fail open.
+    expect(active.anomalies.map((anomaly) => anomaly.id)).toEqual([
+      "anom_active",
+      "anom_legacy",
+    ]);
+    expect(active.count).toBe(2);
+
+    vi.mocked(db.getDb).mockReturnValue(
+      makeSqlMock({
+        snapshotRows: [
+          snapshotRow("anom_active", "ACTIVE"),
+          snapshotRow("anom_paused", "PAUSED"),
+          snapshotRow("anom_archived", "ARCHIVED"),
+          snapshotRow("anom_legacy", undefined),
+        ],
+      }),
+    );
+    const withPaused = await readMetaAnomaliesForBusiness({
+      businessId: "biz_1",
+      statusFilter: "active_plus_recent_paused",
+    });
+    expect(withPaused.anomalies.map((anomaly) => anomaly.id)).toEqual([
+      "anom_active",
+      "anom_paused",
+      "anom_legacy",
+    ]);
+  });
+
+  it("applies no status filtering when statusFilter is absent", async () => {
+    vi.mocked(db.getDb).mockReturnValue(
+      makeSqlMock({
+        snapshotRows: [
+          {
+            snapshot_date: "2026-05-06",
+            rec_id: "anom_archived",
+            rec_type: "policy_block",
+            scope_type: "adset",
+            scope_id: "adset_1",
+            severity: "high",
+            evidence: { anomaly: { scopeLabel: "Adset 1", entityStatus: "ARCHIVED" } },
+            recommended_action: "Policy delivery block",
+            reasoning: "Rejected ad.",
+            diagnostics: [],
+            detected_at: "2026-05-06T10:00:00.000Z",
+            resolved_at: null,
+          },
+        ],
+      }),
+    );
+
+    const result = await readMetaAnomaliesForBusiness({ businessId: "biz_1" });
+    expect(result.count).toBe(1);
+  });
+
+  it("anomalyMatchesStatusFilter is fail-open on unknown status", () => {
+    expect(anomalyMatchesStatusFilter({ entityStatus: null }, "active")).toBe(true);
+    expect(anomalyMatchesStatusFilter({ entityStatus: "UNKNOWN" }, "active")).toBe(true);
+    expect(anomalyMatchesStatusFilter({ entityStatus: "PAUSED" }, "active")).toBe(false);
+    expect(anomalyMatchesStatusFilter({ entityStatus: "PAUSED" }, "active_plus_recent_paused")).toBe(true);
+    expect(anomalyMatchesStatusFilter({ entityStatus: "ARCHIVED" }, "active_plus_recent_paused")).toBe(false);
+    expect(anomalyMatchesStatusFilter({ entityStatus: "ARCHIVED" }, "all")).toBe(true);
   });
 });

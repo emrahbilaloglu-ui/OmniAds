@@ -286,3 +286,29 @@ outcome window, the automatic-mode flip decision (user), prod-snapshot
 test portability + staging, and the two routed investigations (Tiles sync
 root cause - explicitly out of scope per user direction; release-authority
 checker).
+
+
+## Final additions (2026-07-06 night)
+
+- **Ops 8.5 → 9.** The release-authority false-red is root-caused and fixed
+  in-repo: the server resolved main via an unauthenticated GitHub API call
+  against a private repo (404 always -> currentMainSha null -> blocking
+  unknown verdict; the canonical-doc mismatch was downstream of that row).
+  The post_deploy checker now reconciles an unresolved main SHA itself
+  (env / git ls-remote / GITHUB_SHA) without ever overwriting a
+  runtime-resolved value; genuine drift stays red (simulated). Verified
+  live against the deployed SHA: before = the three observed blockers,
+  after = pass.
+- **D033 8.5 → 9.** The automatic-mode live decision diff closed the last
+  evidence gap: 22/1602 decisions change, every one an unblocked hard
+  action behind a missing manual label (top case: a 137K-spend winner at
+  162% of target held at diagnose). The flip is now purely a user decision
+  with a complete row list.
+- **UI 9 → 9.25.** Diagnose chip gives protect/fix_*/diagnose_data rows a
+  home; blocked cuts remain under Cut.
+- **QA 9.5 held**, with the context hysteresis state seam now also covered
+  on a real database (write query -> parser round trip, conflict
+  confirmation surviving persistence).
+
+An independent Codex review of this scorecard has been requested by the
+user; scores above are Claude's and stand to be audited.

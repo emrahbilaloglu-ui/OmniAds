@@ -330,6 +330,12 @@ async function main() {
       path.join("scripts", "ephemeral-postgres-seam-child.ts"),
       "hysteresis DB seam check",
     );
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join("scripts", "ephemeral-postgres-meta-store-seam-child.ts"),
+      "launchpad meta-store DB seam check",
+    );
 
     log("PASS: migrations build the schema from zero and are idempotent.");
   } catch (error) {

@@ -17,7 +17,7 @@ docs/meta-page-ui-contract.md).
 |---|---|---|---|---|
 | Decision Center (/platforms/meta) | 7.5 | yes (post-hardening: server-owned actionKind/labels/metrics; anomalies now status-filter-scoped, coarse+fail-open) | yes (pulse) | real lastSyncAt or "sync unknown"; dataReadiness banner |
 | Creatives (/platforms/meta/creatives) | 9 | yes (CDC v3; invariant-guarded) | yes (briefing card contract + asset library default currency) | snapshot health + calibration honesty copy |
-| Launchpad | 8.5 | yes (server validate + forced-PAUSED launch; templates/drafts route contracts + payload normalizer now directly tested) | yes (new-campaign payload currencyCode + selection rendering) | honest (server updatedAt) |
+| Launchpad | 9 | yes (server validate + forced-PAUSED launch; route contracts, payload normalizer, and the meta-store SQL seam all tested - the seam against real Postgres) | yes (new-campaign payload currencyCode + selection rendering) | honest (server updatedAt) |
 | Copies | 8 | yes (real funnel/video fields mapped+summed; seeMoreRate fabrication removed server+client; no client re-derivation) | yes (per-row) | generatedAt stamped and rendered; unresolved-count rendered |
 | Creative Inbox | 6.5 | yes (renders briefing labels) | yes (per-card account currency; null = unknown) | generatedAt unrendered |
 | Audiences | stub | n/a — honest ComingSoon placeholder | n/a | n/a |
@@ -36,20 +36,13 @@ docs/meta-page-ui-contract.md).
    loop for confidence thresholds (calibration exists, thresholds untested
    against outcomes), 30d fixed lookback. Largest remaining structural
    item on the Decision Center path to 10.
-2. **Launchpad meta-store SQL layer is untested.** The templates/drafts
-   route contracts and the broad payload normalizer got direct tests this
-   pass (all 5 previously untested routes + normalizeMetaLaunchPayload /
-   normalizeMetaAddToExistingPayload edge cases), but the route tests mock
-   `lib/launchpad/meta-store.ts` - its SQL (upsert scoping, business
-   isolation in DELETE, recent-template ordering) still has no coverage.
-   An ephemeral-postgres seam test (CDC pattern) is the honest closer.
-3. **Two-source freshness model on the Decision Center** (live pulse
+2. **Two-source freshness model on the Decision Center** (live pulse
    aggregates vs persisted decision snapshot lanes) is communicated only by
    the snapshot chip; a unified as-of contract would survive any redesign.
-4. **Present-config-over-history classes in lib/meta/serving.ts** (historical
+3. **Present-config-over-history classes in lib/meta/serving.ts** (historical
    windows classified by current status/bid config) — anachronism debt
    shared by pulse and lanes.
-5. **Stale e2e specs assert dead testids** (`reviewer-smoke.spec.ts:42`,
+4. **Stale e2e specs assert dead testids** (`reviewer-smoke.spec.ts:42`,
     `commercial-truth-smoke.spec.ts:118,443,564` target components with no
     importer); the Playwright layer needs a redesign-era rewrite — blocked
     on/coupled to the frontend redesign decision.
@@ -88,7 +81,16 @@ formulas drop the phantom term WITHOUT renormalizing weights (input was
 always 0 outside demo mode, so published scores are byte-identical);
 regression tests pin the field's absence under both naming conventions.
 Stale persisted metric/sort selections degrade gracefully through the
-existing sanitizers.
+existing sanitizers. Launchpad meta-store SQL seam now covered by
+`scripts/ephemeral-postgres-meta-store-seam-child.ts` (CDC ephemeral
+pattern, wired into `npm run test:migrations-from-zero`, prod-tunnel port
+guarded): template CRUD with source='manual' filter and cross-business
+isolation, draft upsert scoping (cross-business upsert-with-id throws),
+status IN (draft,failed) list filter, updated_at DESC ordering, payload
+normalization round-trips for both modes, and the recent-templates
+lateral join (top-5 by dim.updated_at, latest-config OUTCOME_SALES
+filter, adset counts) - verified green against a from-zero-migrated
+real Postgres.
 
 ## B. UI-only / design-shell debt (redesign wipes it — do NOT polish now)
 

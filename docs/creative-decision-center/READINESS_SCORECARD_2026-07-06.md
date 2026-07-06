@@ -161,3 +161,61 @@ This session's commits are local only. Push = deploy; that decision stays with
 the user/Codex flow with the standard gates: ENGINE_VERSION bump (done),
 goldens green (done), rollback = revert commit + previous engine version
 snapshots remain intact under their own version key.
+
+
+## 10/10 pass addendum (2026-07-06, final)
+
+Directive: implement every identified fix and report where the scores land.
+All work local (14 commits ahead of deployed 61ce475a), NOT pushed. Gates:
+3529 tests, typecheck, lint, 13-agent adversarial pre-deploy review (every
+critical/major independently verify-confirmed and fixed), final historical
+replay regenerated against the shipped code.
+
+| Component | Start of day | Final | Named path to 10 |
+|---|---|---|---|
+| Pipeline / data | 9 | 9.5 | isolated local-DB test env (infra debt) |
+| Formula / math | 6.5 | 8.5 | outcome-calibrated confidence after 2026-07-10; disjoint fatigue windows (data contract) |
+| Segmentation (D033) | 5.5 | 8 | live operational confirmation 07-07; automatic-mode flip decision |
+| Measurement / backtest | 4 | 8.5 | live-window confirmation; operator-response join |
+| UI / operator | 4 | 8.5 | budget-CTA executes vs reviews (product decision) |
+| Explainability | 7 | 8.5 | per-decision empirical outcome history once live windows accrue |
+| QA / golden | 7 | 8.5 | DB-integration suite on isolated env |
+| Release / ops | 6 | 8 | host-side sed/permissions hardening; staging environment |
+
+Fixes landed in this pass beyond the morning slices:
+- Three agreed math-review defects: low-CTR sign error zeroed, quality-only
+  double penalty removed, fatigue decay baseline floored (lifecycle path;
+  the runtime-SQL hydration fallback remains floor-less - documented).
+- CAMPAIGN_PAUSED/ADSET_PAUSED normalize to PAUSED (advisory badges fire;
+  hierarchy-paused rows leave the zero-conv burner path by design).
+- GS-series hysteresis sequence goldens parsed and executed from
+  GOLDEN_CASES.md (the 3 live flip creatives are permanent goldens).
+- D033: evidence-dip grace (3 days, reduced class) + conflict two-evaluation
+  confirmation; per-date persistence; daily-grid shadow evidence (final kind
+  divergence 2/71; TS_F5K churn reduced to cold-start maturation only;
+  persistent conflicts still surface from day 2).
+- CRITICAL caught by adversarial review and fixed: hysteresis state fields
+  were persisted but never parsed back (grace/conflict rules would have been
+  dead in production); now covered by a write-read round-trip test.
+- UI: chip completeness restored (refresh -> Fresh test; blocked cuts ->
+  Cut), execution CTA on card footers, rawLabel/pendingTransition surfaced,
+  calibration banner gates on hard-known sample size.
+- Ops: deploy pins host .env APP_IMAGE_TAG/APP_BUILD_ID with assertion
+  (recurring P1 drift class closed); pin hardened for newline/dual-key.
+- Pipeline: lagged_lifecycle_row_count job metadata; direction-disambiguated
+  universe-count reconciliation notes.
+- Honesty corrections recorded: the F2 clamp is defense-in-depth shadowed by
+  the 0.85 keep band (the band is the active protection); replay evidence
+  for the fatigue floor does not exist yet (fallback path floor-less).
+
+Replay evidence (final artifact): hard reversals within 3 observations
+76 -> 20 (-73.7%), transitions 272 -> 183; matched suppressed-day scoring
+46 flip-right vs 41 hold-right (single-day signals ~coin-flip, confirming
+the two-evaluation rule); published hard-bucket weighted ECE 0.14 vs raw
+0.19 - the 0.05 auto-execution gate stays closed on evidence.
+
+Why nothing is 10: the remaining points are exactly the things code cannot
+manufacture today - live operational confirmation (07-07 wave, 07-10
+outcome window), an outcome-calibrated confidence scheme that needs that
+live data, an isolated DB integration environment, and one product decision
+(budget CTA semantics). Each is named, dated, and has a runbook.

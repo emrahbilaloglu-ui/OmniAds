@@ -1,0 +1,2001 @@
+{
+  "title": "Operator Response Report (hard decisions: cut/scale) - 2026-06-01 to 2026-07-05",
+  "generatedAt": "2026-07-06T14:34:28.722Z",
+  "liveStatus": "live_db_read_only",
+  "readOnly": true,
+  "dbWrites": false,
+  "providerWrites": false,
+  "jobsExecuted": false,
+  "startDate": "2026-06-01",
+  "endDate": "2026-07-05",
+  "responseWindowsDays": [
+    1,
+    3,
+    7
+  ],
+  "outcomeWindowDays": 7,
+  "cutSpendDropFraction": 0.1,
+  "scaleSpendRiseFactor": 1.25,
+  "dormantJobResponseWindowDays": 30,
+  "cohortSources": {
+    "decisionChangedEventRows": 5,
+    "firstSeenSnapshotRows": 35,
+    "dedupedDecisions": 35,
+    "bySource": {
+      "event": 0,
+      "snapshot_first_seen": 30,
+      "both": 5
+    }
+  },
+  "businessDataCeilings": {
+    "TheSwaf": {
+      "raw": "2026-07-06",
+      "lastCompleteDay": "2026-07-05"
+    },
+    "Grandmix": {
+      "raw": "2026-07-06",
+      "lastCompleteDay": "2026-07-05"
+    },
+    "Halıcızade": {
+      "raw": "2026-07-06",
+      "lastCompleteDay": "2026-07-05"
+    },
+    "Tiles Workshop": {
+      "raw": "2026-06-19",
+      "lastCompleteDay": "2026-06-19"
+    },
+    "IwaStore": {
+      "raw": "2026-07-06",
+      "lastCompleteDay": "2026-07-05"
+    }
+  },
+  "perEngineVersion": [
+    {
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "overall": {
+        "decisions": 35,
+        "cuts": {
+          "total": 30,
+          "measurable": 9,
+          "zeroSpendAtDecision": 3,
+          "unobservableForwardWindow": 18,
+          "respondedWithinObservable": 2,
+          "lowerBoundResponseRate": 0.2222,
+          "byWindow": [
+            {
+              "windowDays": 1,
+              "evaluable": 9,
+              "responded": 2,
+              "responseRate": 0.2222,
+              "truncated": 0
+            },
+            {
+              "windowDays": 3,
+              "evaluable": 7,
+              "responded": 0,
+              "responseRate": 0,
+              "truncated": 2
+            },
+            {
+              "windowDays": 7,
+              "evaluable": 0,
+              "responded": 0,
+              "responseRate": null,
+              "truncated": 9
+            }
+          ],
+          "medianDaysToResponse": 1,
+          "spendAfterUnrespondedCuts": 3195.15,
+          "unrespondedCutCount": 7,
+          "unknownOutcomeInteraction": {
+            "respondedCuts": 2,
+            "respondedCutsWithZeroForwardSpend": 1,
+            "unknownOutcomeShareOfRespondedCuts": 0.5
+          }
+        },
+        "scales": {
+          "total": 5,
+          "measurable": 5,
+          "zeroSpendAtDecision": 0,
+          "unobservableForwardWindow": 0,
+          "byWindow": [
+            {
+              "windowDays": 1,
+              "evaluable": 5,
+              "responded": 1,
+              "responseRate": 0.2,
+              "truncated": 0
+            },
+            {
+              "windowDays": 3,
+              "evaluable": 2,
+              "responded": 1,
+              "responseRate": 0.5,
+              "truncated": 3
+            },
+            {
+              "windowDays": 7,
+              "evaluable": 0,
+              "responded": 0,
+              "responseRate": null,
+              "truncated": 5
+            }
+          ]
+        }
+      },
+      "byBusiness": [
+        {
+          "business": "Grandmix",
+          "dataCeiling": "2026-07-06",
+          "completeDataCeiling": "2026-07-05",
+          "summary": {
+            "decisions": 2,
+            "cuts": {
+              "total": 2,
+              "measurable": 1,
+              "zeroSpendAtDecision": 0,
+              "unobservableForwardWindow": 1,
+              "respondedWithinObservable": 1,
+              "lowerBoundResponseRate": 1,
+              "byWindow": [
+                {
+                  "windowDays": 1,
+                  "evaluable": 1,
+                  "responded": 1,
+                  "responseRate": 1,
+                  "truncated": 0
+                },
+                {
+                  "windowDays": 3,
+                  "evaluable": 0,
+                  "responded": 0,
+                  "responseRate": null,
+                  "truncated": 1
+                },
+                {
+                  "windowDays": 7,
+                  "evaluable": 0,
+                  "responded": 0,
+                  "responseRate": null,
+                  "truncated": 1
+                }
+              ],
+              "medianDaysToResponse": 1,
+              "spendAfterUnrespondedCuts": 0,
+              "unrespondedCutCount": 0,
+              "unknownOutcomeInteraction": {
+                "respondedCuts": 1,
+                "respondedCutsWithZeroForwardSpend": 0,
+                "unknownOutcomeShareOfRespondedCuts": 0
+              }
+            },
+            "scales": {
+              "total": 0,
+              "measurable": 0,
+              "zeroSpendAtDecision": 0,
+              "unobservableForwardWindow": 0,
+              "byWindow": [
+                {
+                  "windowDays": 1,
+                  "evaluable": 0,
+                  "responded": 0,
+                  "responseRate": null,
+                  "truncated": 0
+                },
+                {
+                  "windowDays": 3,
+                  "evaluable": 0,
+                  "responded": 0,
+                  "responseRate": null,
+                  "truncated": 0
+                },
+                {
+                  "windowDays": 7,
+                  "evaluable": 0,
+                  "responded": 0,
+                  "responseRate": null,
+                  "truncated": 0
+                }
+              ]
+            }
+          }
+        },
+        {
+          "business": "Halıcızade",
+          "dataCeiling": "2026-07-06",
+          "completeDataCeiling": "2026-07-05",
+          "summary": {
+            "decisions": 1,
+            "cuts": {
+              "total": 1,
+              "measurable": 1,
+              "zeroSpendAtDecision": 0,
+              "unobservableForwardWindow": 0,
+              "respondedWithinObservable": 1,
+              "lowerBoundResponseRate": 1,
+              "byWindow": [
+                {
+                  "windowDays": 1,
+                  "evaluable": 1,
+                  "responded": 1,
+                  "responseRate": 1,
+                  "truncated": 0
+                },
+                {
+                  "windowDays": 3,
+                  "evaluable": 0,
+                  "responded": 0,
+                  "responseRate": null,
+                  "truncated": 1
+                },
+                {
+                  "windowDays": 7,
+                  "evaluable": 0,
+                  "responded": 0,
+                  "responseRate": null,
+                  "truncated": 1
+                }
+              ],
+              "medianDaysToResponse": 1,
+              "spendAfterUnrespondedCuts": 0,
+              "unrespondedCutCount": 0,
+              "unknownOutcomeInteraction": {
+                "respondedCuts": 1,
+                "respondedCutsWithZeroForwardSpend": 1,
+                "unknownOutcomeShareOfRespondedCuts": 1
+              }
+            },
+            "scales": {
+              "total": 0,
+              "measurable": 0,
+              "zeroSpendAtDecision": 0,
+              "unobservableForwardWindow": 0,
+              "byWindow": [
+                {
+                  "windowDays": 1,
+                  "evaluable": 0,
+                  "responded": 0,
+                  "responseRate": null,
+                  "truncated": 0
+                },
+                {
+                  "windowDays": 3,
+                  "evaluable": 0,
+                  "responded": 0,
+                  "responseRate": null,
+                  "truncated": 0
+                },
+                {
+                  "windowDays": 7,
+                  "evaluable": 0,
+                  "responded": 0,
+                  "responseRate": null,
+                  "truncated": 0
+                }
+              ]
+            }
+          }
+        },
+        {
+          "business": "IwaStore",
+          "dataCeiling": "2026-07-06",
+          "completeDataCeiling": "2026-07-05",
+          "summary": {
+            "decisions": 3,
+            "cuts": {
+              "total": 1,
+              "measurable": 0,
+              "zeroSpendAtDecision": 0,
+              "unobservableForwardWindow": 1,
+              "respondedWithinObservable": 0,
+              "lowerBoundResponseRate": null,
+              "byWindow": [
+                {
+                  "windowDays": 1,
+                  "evaluable": 0,
+                  "responded": 0,
+                  "responseRate": null,
+                  "truncated": 0
+                },
+                {
+                  "windowDays": 3,
+                  "evaluable": 0,
+                  "responded": 0,
+                  "responseRate": null,
+                  "truncated": 0
+                },
+                {
+                  "windowDays": 7,
+                  "evaluable": 0,
+                  "responded": 0,
+                  "responseRate": null,
+                  "truncated": 0
+                }
+              ],
+              "medianDaysToResponse": null,
+              "spendAfterUnrespondedCuts": 0,
+              "unrespondedCutCount": 0,
+              "unknownOutcomeInteraction": {
+                "respondedCuts": 0,
+                "respondedCutsWithZeroForwardSpend": 0,
+                "unknownOutcomeShareOfRespondedCuts": null
+              }
+            },
+            "scales": {
+              "total": 2,
+              "measurable": 2,
+              "zeroSpendAtDecision": 0,
+              "unobservableForwardWindow": 0,
+              "byWindow": [
+                {
+                  "windowDays": 1,
+                  "evaluable": 2,
+                  "responded": 0,
+                  "responseRate": 0,
+                  "truncated": 0
+                },
+                {
+                  "windowDays": 3,
+                  "evaluable": 0,
+                  "responded": 0,
+                  "responseRate": null,
+                  "truncated": 2
+                },
+                {
+                  "windowDays": 7,
+                  "evaluable": 0,
+                  "responded": 0,
+                  "responseRate": null,
+                  "truncated": 2
+                }
+              ]
+            }
+          }
+        },
+        {
+          "business": "TheSwaf",
+          "dataCeiling": "2026-07-06",
+          "completeDataCeiling": "2026-07-05",
+          "summary": {
+            "decisions": 14,
+            "cuts": {
+              "total": 11,
+              "measurable": 7,
+              "zeroSpendAtDecision": 3,
+              "unobservableForwardWindow": 1,
+              "respondedWithinObservable": 0,
+              "lowerBoundResponseRate": 0,
+              "byWindow": [
+                {
+                  "windowDays": 1,
+                  "evaluable": 7,
+                  "responded": 0,
+                  "responseRate": 0,
+                  "truncated": 0
+                },
+                {
+                  "windowDays": 3,
+                  "evaluable": 7,
+                  "responded": 0,
+                  "responseRate": 0,
+                  "truncated": 0
+                },
+                {
+                  "windowDays": 7,
+                  "evaluable": 0,
+                  "responded": 0,
+                  "responseRate": null,
+                  "truncated": 7
+                }
+              ],
+              "medianDaysToResponse": null,
+              "spendAfterUnrespondedCuts": 3195.15,
+              "unrespondedCutCount": 7,
+              "unknownOutcomeInteraction": {
+                "respondedCuts": 0,
+                "respondedCutsWithZeroForwardSpend": 0,
+                "unknownOutcomeShareOfRespondedCuts": null
+              }
+            },
+            "scales": {
+              "total": 3,
+              "measurable": 3,
+              "zeroSpendAtDecision": 0,
+              "unobservableForwardWindow": 0,
+              "byWindow": [
+                {
+                  "windowDays": 1,
+                  "evaluable": 3,
+                  "responded": 1,
+                  "responseRate": 0.3333,
+                  "truncated": 0
+                },
+                {
+                  "windowDays": 3,
+                  "evaluable": 2,
+                  "responded": 1,
+                  "responseRate": 0.5,
+                  "truncated": 1
+                },
+                {
+                  "windowDays": 7,
+                  "evaluable": 0,
+                  "responded": 0,
+                  "responseRate": null,
+                  "truncated": 3
+                }
+              ]
+            }
+          }
+        },
+        {
+          "business": "Tiles Workshop",
+          "dataCeiling": "2026-06-19",
+          "completeDataCeiling": "2026-06-19",
+          "summary": {
+            "decisions": 15,
+            "cuts": {
+              "total": 15,
+              "measurable": 0,
+              "zeroSpendAtDecision": 0,
+              "unobservableForwardWindow": 15,
+              "respondedWithinObservable": 0,
+              "lowerBoundResponseRate": null,
+              "byWindow": [
+                {
+                  "windowDays": 1,
+                  "evaluable": 0,
+                  "responded": 0,
+                  "responseRate": null,
+                  "truncated": 0
+                },
+                {
+                  "windowDays": 3,
+                  "evaluable": 0,
+                  "responded": 0,
+                  "responseRate": null,
+                  "truncated": 0
+                },
+                {
+                  "windowDays": 7,
+                  "evaluable": 0,
+                  "responded": 0,
+                  "responseRate": null,
+                  "truncated": 0
+                }
+              ],
+              "medianDaysToResponse": null,
+              "spendAfterUnrespondedCuts": 0,
+              "unrespondedCutCount": 0,
+              "unknownOutcomeInteraction": {
+                "respondedCuts": 0,
+                "respondedCutsWithZeroForwardSpend": 0,
+                "unknownOutcomeShareOfRespondedCuts": null
+              }
+            },
+            "scales": {
+              "total": 0,
+              "measurable": 0,
+              "zeroSpendAtDecision": 0,
+              "unobservableForwardWindow": 0,
+              "byWindow": [
+                {
+                  "windowDays": 1,
+                  "evaluable": 0,
+                  "responded": 0,
+                  "responseRate": null,
+                  "truncated": 0
+                },
+                {
+                  "windowDays": 3,
+                  "evaluable": 0,
+                  "responded": 0,
+                  "responseRate": null,
+                  "truncated": 0
+                },
+                {
+                  "windowDays": 7,
+                  "evaluable": 0,
+                  "responded": 0,
+                  "responseRate": null,
+                  "truncated": 0
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "businessRefId": "5dbc7147-f051-4681-a4d6-20617170074f",
+      "businessName": "Grandmix",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "1003770772089284",
+      "label": "cut",
+      "decisionDate": "2026-07-03",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 20.84,
+      "trailing7dMeanDailySpend": 13.08,
+      "baselineDailySpend": 20.84,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 2,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-07-04",
+          "spend": 2.93,
+          "effectiveStatus": "CAMPAIGN_PAUSED"
+        },
+        {
+          "day": 2,
+          "date": "2026-07-05",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "status_left_active",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 2.93,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "5dbc7147-f051-4681-a4d6-20617170074f",
+      "businessName": "Grandmix",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "2257729818314797",
+      "label": "cut",
+      "decisionDate": "2026-07-05",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "unobservable_forward_window",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 53.45,
+      "baselineDailySpend": 53.45,
+      "baselineSource": "trailing_7d_mean",
+      "observableForwardDays": 0,
+      "forwardDays": [],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "75f65b18-97e5-426c-a791-a8f693d34c84",
+      "businessName": "Halıcızade",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "4486561654913204",
+      "label": "cut",
+      "decisionDate": "2026-07-03",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 384.19,
+      "baselineDailySpend": 384.19,
+      "baselineSource": "trailing_7d_mean",
+      "observableForwardDays": 2,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-07-04",
+          "spend": 0,
+          "effectiveStatus": "CAMPAIGN_PAUSED"
+        },
+        {
+          "day": 2,
+          "date": "2026-07-05",
+          "spend": 0,
+          "effectiveStatus": "CAMPAIGN_PAUSED"
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "spend_drop",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessRefId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+      "businessName": "IwaStore",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "1655577498670460",
+      "label": "scale",
+      "decisionDate": "2026-07-03",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 6.78,
+      "baselineDailySpend": 6.78,
+      "baselineSource": "trailing_7d_mean",
+      "observableForwardDays": 2,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-07-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-07-05",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "spend_drop",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessRefId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+      "businessName": "IwaStore",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "946471284944193",
+      "label": "scale",
+      "decisionDate": "2026-07-03",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 15.55,
+      "baselineDailySpend": 15.55,
+      "baselineSource": "trailing_7d_mean",
+      "observableForwardDays": 2,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-07-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-07-05",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": 1,
+      "responseSignal": "spend_drop",
+      "respondedWithinObservable": true,
+      "respondedWithin": {
+        "1": true,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessRefId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+      "businessName": "IwaStore",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "1157254709850013",
+      "label": "cut",
+      "decisionDate": "2026-07-05",
+      "source": "both",
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "unobservable_forward_window",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 1.35,
+      "baselineDailySpend": 1.35,
+      "baselineSource": "trailing_7d_mean",
+      "observableForwardDays": 0,
+      "forwardDays": [],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "1000844809459077",
+      "label": "cut",
+      "decisionDate": "2026-07-02",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 8.62,
+      "trailing7dMeanDailySpend": 18.53,
+      "baselineDailySpend": 8.62,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 3,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-07-03",
+          "spend": 12.33,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-07-04",
+          "spend": 14.46,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-07-05",
+          "spend": 14.39,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": false,
+        "3": false,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": true,
+        "3": true,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 41.18,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "1007048011875307",
+      "label": "cut",
+      "decisionDate": "2026-07-02",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 100.15,
+      "trailing7dMeanDailySpend": 67.29,
+      "baselineDailySpend": 100.15,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 3,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-07-03",
+          "spend": 54.07,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-07-04",
+          "spend": 42.99,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-07-05",
+          "spend": 32.06,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": false,
+        "3": false,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 129.12,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "1337157688566977",
+      "label": "cut",
+      "decisionDate": "2026-07-02",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 22.36,
+      "trailing7dMeanDailySpend": 19.4,
+      "baselineDailySpend": 22.36,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 3,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-07-03",
+          "spend": 33.4,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-07-04",
+          "spend": 24.78,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-07-05",
+          "spend": 35.17,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": false,
+        "3": false,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": true,
+        "3": true,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 93.35,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "1377865124404006",
+      "label": "scale",
+      "decisionDate": "2026-07-02",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 207.25,
+      "trailing7dMeanDailySpend": 153.55,
+      "baselineDailySpend": 207.25,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 3,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-07-03",
+          "spend": 283.82,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-07-04",
+          "spend": 182.29,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-07-05",
+          "spend": 235.76,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": false,
+        "3": false,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": true,
+        "3": false,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 701.87,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "1511570353840312",
+      "label": "scale",
+      "decisionDate": "2026-07-02",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 5.02,
+      "trailing7dMeanDailySpend": 29.6,
+      "baselineDailySpend": 5.02,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 3,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-07-03",
+          "spend": 3.39,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-07-04",
+          "spend": 71.49,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-07-05",
+          "spend": 70.76,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": false,
+        "3": false,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": true,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 145.64,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "1546542256949523",
+      "label": "cut",
+      "decisionDate": "2026-07-02",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 357.42,
+      "trailing7dMeanDailySpend": 190.7,
+      "baselineDailySpend": 357.42,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 3,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-07-03",
+          "spend": 229.04,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-07-04",
+          "spend": 217.97,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-07-05",
+          "spend": 261.35,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": false,
+        "3": false,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 708.36,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "1932525757401873",
+      "label": "cut",
+      "decisionDate": "2026-07-02",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 3,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-07-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-07-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-07-05",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessRefId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "1962656064410174",
+      "label": "cut",
+      "decisionDate": "2026-07-02",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 251.84,
+      "trailing7dMeanDailySpend": 287.74,
+      "baselineDailySpend": 251.84,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 3,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-07-03",
+          "spend": 161.41,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-07-04",
+          "spend": 171.46,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-07-05",
+          "spend": 270.61,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": false,
+        "3": false,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 603.48,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "2080314776223824",
+      "label": "cut",
+      "decisionDate": "2026-07-02",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 3,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-07-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-07-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-07-05",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessRefId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "2734470570262623",
+      "label": "cut",
+      "decisionDate": "2026-07-02",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "zero_spend_at_decision",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 3,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-07-03",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 2,
+          "date": "2026-07-04",
+          "spend": 0,
+          "effectiveStatus": null
+        },
+        {
+          "day": 3,
+          "date": "2026-07-05",
+          "spend": 0,
+          "effectiveStatus": null
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": true
+    },
+    {
+      "businessRefId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "3041651776171249",
+      "label": "cut",
+      "decisionDate": "2026-07-02",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 392.53,
+      "trailing7dMeanDailySpend": 417.24,
+      "baselineDailySpend": 392.53,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 3,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-07-03",
+          "spend": 361.19,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-07-04",
+          "spend": 403.87,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-07-05",
+          "spend": 426.81,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": false,
+        "3": false,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": false,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 1191.87,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "913690625083809",
+      "label": "cut",
+      "decisionDate": "2026-07-02",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 45.59,
+      "trailing7dMeanDailySpend": 193.48,
+      "baselineDailySpend": 45.59,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 3,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-07-03",
+          "spend": 140.82,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 2,
+          "date": "2026-07-04",
+          "spend": 99.98,
+          "effectiveStatus": "ACTIVE"
+        },
+        {
+          "day": 3,
+          "date": "2026-07-05",
+          "spend": 186.99,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": false,
+        "3": false,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": true,
+        "3": true,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 427.79,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "1345796717452247",
+      "label": "scale",
+      "decisionDate": "2026-07-04",
+      "source": "both",
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "measurable",
+      "decisionDaySpend": 43.52,
+      "trailing7dMeanDailySpend": 53.1,
+      "baselineDailySpend": 43.52,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 1,
+      "forwardDays": [
+        {
+          "day": 1,
+          "date": "2026-07-05",
+          "spend": 38.22,
+          "effectiveStatus": "ACTIVE"
+        }
+      ],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": false,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": false,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 38.22,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "businessName": "TheSwaf",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "826201780574762",
+      "label": "cut",
+      "decisionDate": "2026-07-05",
+      "source": "both",
+      "dataCeiling": "2026-07-06",
+      "completeDataCeiling": "2026-07-05",
+      "bucket": "unobservable_forward_window",
+      "decisionDaySpend": 29.81,
+      "trailing7dMeanDailySpend": 31.59,
+      "baselineDailySpend": 29.81,
+      "baselineSource": "decision_day_spend",
+      "observableForwardDays": 0,
+      "forwardDays": [],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "979a04f6-1ca9-41d8-be0a-5d58dd7c4bc7",
+      "businessName": "Tiles Workshop",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "1042376994660818",
+      "label": "cut",
+      "decisionDate": "2026-07-03",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-06-19",
+      "completeDataCeiling": "2026-06-19",
+      "bucket": "unobservable_forward_window",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 0,
+      "forwardDays": [],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "979a04f6-1ca9-41d8-be0a-5d58dd7c4bc7",
+      "businessName": "Tiles Workshop",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "1124168746317341",
+      "label": "cut",
+      "decisionDate": "2026-07-03",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-06-19",
+      "completeDataCeiling": "2026-06-19",
+      "bucket": "unobservable_forward_window",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 0,
+      "forwardDays": [],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "979a04f6-1ca9-41d8-be0a-5d58dd7c4bc7",
+      "businessName": "Tiles Workshop",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "1238676120520278",
+      "label": "cut",
+      "decisionDate": "2026-07-03",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-06-19",
+      "completeDataCeiling": "2026-06-19",
+      "bucket": "unobservable_forward_window",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 0,
+      "forwardDays": [],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "979a04f6-1ca9-41d8-be0a-5d58dd7c4bc7",
+      "businessName": "Tiles Workshop",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "1259131729556067",
+      "label": "cut",
+      "decisionDate": "2026-07-03",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-06-19",
+      "completeDataCeiling": "2026-06-19",
+      "bucket": "unobservable_forward_window",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 0,
+      "forwardDays": [],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "979a04f6-1ca9-41d8-be0a-5d58dd7c4bc7",
+      "businessName": "Tiles Workshop",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "1264667732121150",
+      "label": "cut",
+      "decisionDate": "2026-07-03",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-06-19",
+      "completeDataCeiling": "2026-06-19",
+      "bucket": "unobservable_forward_window",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 0,
+      "forwardDays": [],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "979a04f6-1ca9-41d8-be0a-5d58dd7c4bc7",
+      "businessName": "Tiles Workshop",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "1292494029432068",
+      "label": "cut",
+      "decisionDate": "2026-07-03",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-06-19",
+      "completeDataCeiling": "2026-06-19",
+      "bucket": "unobservable_forward_window",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 0,
+      "forwardDays": [],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "979a04f6-1ca9-41d8-be0a-5d58dd7c4bc7",
+      "businessName": "Tiles Workshop",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "1713831619786925",
+      "label": "cut",
+      "decisionDate": "2026-07-03",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-06-19",
+      "completeDataCeiling": "2026-06-19",
+      "bucket": "unobservable_forward_window",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 0,
+      "forwardDays": [],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "979a04f6-1ca9-41d8-be0a-5d58dd7c4bc7",
+      "businessName": "Tiles Workshop",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "2310316516043464",
+      "label": "cut",
+      "decisionDate": "2026-07-03",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-06-19",
+      "completeDataCeiling": "2026-06-19",
+      "bucket": "unobservable_forward_window",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 0,
+      "forwardDays": [],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "979a04f6-1ca9-41d8-be0a-5d58dd7c4bc7",
+      "businessName": "Tiles Workshop",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "2380056079073883",
+      "label": "cut",
+      "decisionDate": "2026-07-03",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-06-19",
+      "completeDataCeiling": "2026-06-19",
+      "bucket": "unobservable_forward_window",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 0,
+      "forwardDays": [],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "979a04f6-1ca9-41d8-be0a-5d58dd7c4bc7",
+      "businessName": "Tiles Workshop",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "2434481843638891",
+      "label": "cut",
+      "decisionDate": "2026-07-03",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-06-19",
+      "completeDataCeiling": "2026-06-19",
+      "bucket": "unobservable_forward_window",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 0,
+      "forwardDays": [],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "979a04f6-1ca9-41d8-be0a-5d58dd7c4bc7",
+      "businessName": "Tiles Workshop",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "4295255303953852",
+      "label": "cut",
+      "decisionDate": "2026-07-03",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-06-19",
+      "completeDataCeiling": "2026-06-19",
+      "bucket": "unobservable_forward_window",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 0,
+      "forwardDays": [],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "979a04f6-1ca9-41d8-be0a-5d58dd7c4bc7",
+      "businessName": "Tiles Workshop",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "4389333598006385",
+      "label": "cut",
+      "decisionDate": "2026-07-03",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-06-19",
+      "completeDataCeiling": "2026-06-19",
+      "bucket": "unobservable_forward_window",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 0,
+      "forwardDays": [],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "979a04f6-1ca9-41d8-be0a-5d58dd7c4bc7",
+      "businessName": "Tiles Workshop",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "672236422177292",
+      "label": "cut",
+      "decisionDate": "2026-07-03",
+      "source": "snapshot_first_seen",
+      "dataCeiling": "2026-06-19",
+      "completeDataCeiling": "2026-06-19",
+      "bucket": "unobservable_forward_window",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 0,
+      "forwardDays": [],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "979a04f6-1ca9-41d8-be0a-5d58dd7c4bc7",
+      "businessName": "Tiles Workshop",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "747209084691729",
+      "label": "cut",
+      "decisionDate": "2026-07-04",
+      "source": "both",
+      "dataCeiling": "2026-06-19",
+      "completeDataCeiling": "2026-06-19",
+      "bucket": "unobservable_forward_window",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 0,
+      "forwardDays": [],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    },
+    {
+      "businessRefId": "979a04f6-1ca9-41d8-be0a-5d58dd7c4bc7",
+      "businessName": "Tiles Workshop",
+      "engineVersion": "v3-2026-07-02-math-guardrails",
+      "creativeId": "25889037484086563",
+      "label": "cut",
+      "decisionDate": "2026-07-05",
+      "source": "both",
+      "dataCeiling": "2026-06-19",
+      "completeDataCeiling": "2026-06-19",
+      "bucket": "unobservable_forward_window",
+      "decisionDaySpend": 0,
+      "trailing7dMeanDailySpend": 0,
+      "baselineDailySpend": null,
+      "baselineSource": null,
+      "observableForwardDays": 0,
+      "forwardDays": [],
+      "firstResponseDay": null,
+      "responseSignal": null,
+      "respondedWithinObservable": false,
+      "respondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "scaleRespondedWithin": {
+        "1": null,
+        "3": null,
+        "7": null
+      },
+      "forwardOutcomeWindowSpend": 0,
+      "outcomeWindowTruncated": true,
+      "wouldBeUnknownViaZeroForwardSpend": false
+    }
+  ],
+  "evidenceLimits": [
+    "Read-only analysis: SELECT-only DB access; the dormant engine_v3_operator_response_job was NOT executed and no engine_v3 rows were written.",
+    "Cohort = decision_changed events flipping to cut/scale UNION first-seen cut/scale decision snapshots in the window, deduped per (business, creative, label) keeping the earliest date. Events alone severely undercount (5 event rows vs the snapshot universe), so first-seen snapshots are included as stated in the task; 'first-seen' means the first as_of_date in the analysis window carrying the label, which overcounts genuinely new decisions if a label was already active before the window (snapshots only exist from 2026-07-02, so within this window every first-seen date is also the first snapshot ever).",
+    "engine_v3_decision_events has no engine_version column; event engine_version is resolved via the linked decision snapshot and falls back to 'unknown'.",
+    "Baseline daily spend = decision-day spend when positive, else the trailing 7-day mean daily spend (fallback needed because several decisions have zero decision-day spend); decisions with no baseline are bucketed as zero_spend_at_decision and excluded from response-rate denominators.",
+    "Cut response = forward daily spend < 10% of baseline OR effective_status leaves ACTIVE (PAUSED / CAMPAIGN_PAUSED / DELETED / missing-ACTIVE). Missing forward rows inside the observable window count as zero spend, mirroring the decision-outcomes job COALESCE semantics. Spend-based responses cannot distinguish operator action from Meta delivery collapse; treat as operator-or-delivery response.",
+    "Scale response is a CRUDE PROXY: mean forward daily spend over the window > 125% of baseline daily spend. It does not verify budget changes or action-journal receipts (the dormant job's richer detector needs scale/refresh recommendations plus budget history; not re-run here).",
+    "Forward windows are truncated at each business's LAST COMPLETE meta_creative_daily day. A raw ceiling equal to the run date is an intraday partial ingest (verified: ceiling-day business spend runs at ~10-25% of typical complete days) and is excluded, because partial-day spend mechanically fakes cut 'responses'; before this exclusion, five TheSwaf 2026-07-02 cuts all 'responded' on the partial day. All qualifying decisions fall on 2026-07-02..05 with 2026-07-05 as the last complete day, so NO 7d window is fully observable, 3d windows are only fully observable for 2026-07-02 decisions, and 2026-07-05 decisions have zero observable forward days (bucketed unobservable). Per-window rates use only fully observable windows; the lower-bound rate uses any observable forward day.",
+    "Tiles Workshop's meta_creative_daily ceiling is 2026-06-19 while its decisions are dated 2026-07-03..05: its entire cohort is unobservable_forward_window (the engine decided on stale warehouse data); its cuts appear in counts but in no response-rate denominator.",
+    "Unknown-outcome interaction mirrors the outcome-classifier rule missing_outcome_spend_or_target: zero forward spend over the (truncated) 7d outcome window => realized_outcome 'unknown'. With truncated windows this is the observed-so-far share; a creative could still spend after the ceiling.",
+    "The dormant job's RESPONSE_WINDOW_DAYS=30 is a lookback for scale/refresh recommendation detection and is reported for context only; this report's response windows are 1/3/7 days per the task spec."
+  ]
+}

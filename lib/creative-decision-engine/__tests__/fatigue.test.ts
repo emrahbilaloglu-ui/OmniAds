@@ -60,6 +60,8 @@ describe("computeFatigue", () => {
           last30: strongWindow,
           last90: {
             ...strongWindow,
+            spend: strongWindow.spend * 2,
+            purchases: strongWindow.purchases * 2,
             roas: 3.5,
             ctr: 1.8,
             clickToPurchaseRate: 0.07,
@@ -83,6 +85,8 @@ describe("computeFatigue", () => {
           last30: strongWindow,
           last90: {
             ...strongWindow,
+            spend: strongWindow.spend * 2,
+            purchases: strongWindow.purchases * 2,
             roas: 3.6,
           },
         },
@@ -229,6 +233,8 @@ describe("computeFatigue", () => {
           last30: strongWindow,
           last90: {
             ...strongWindow,
+            spend: strongWindow.spend * 2,
+            purchases: strongWindow.purchases * 2,
             roas: 3.5,
           },
         },
@@ -302,6 +308,8 @@ describe("computeFatigue", () => {
           last30: strongWindow,
           last90: {
             ...strongWindow,
+            spend: strongWindow.spend * 2,
+            purchases: strongWindow.purchases * 2,
             roas: 3.5,
           },
         },
@@ -318,6 +326,8 @@ describe("computeFatigue", () => {
           last30: strongWindow,
           last90: {
             ...strongWindow,
+            spend: strongWindow.spend * 2,
+            purchases: strongWindow.purchases * 2,
             roas: 3.5,
           },
         },

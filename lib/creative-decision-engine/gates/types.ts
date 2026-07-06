@@ -128,22 +128,6 @@ export function applyPostProcess(
     }
   }
 
-  // Shadow: flags hard labels that the stale hard-action ceiling would
-  // demote to diagnose in the next engine version. Badge-only today so live
-  // prevalence is measurable before the label flip. Independent of
-  // dataHealth: the input's own feed age is the signal.
-  if (
-    (label === "cut" || label === "scale") &&
-    typeof ctx.input.dataFreshnessHours === "number" &&
-    ctx.input.dataFreshnessHours > STALE_HARD_ACTION_CEILING_HOURS
-  ) {
-    badges.push({
-      type: "stale_hard_ceiling_advisory",
-      label: `Data ${Math.round(ctx.input.dataFreshnessHours / 24)}d stale - next version demotes this hard action to diagnose`,
-      severity: "warning",
-    });
-  }
-
   if (ctx.dataHealth) {
     if (ctx.dataHealth.calibration.staleTier === "warning") {
       badges.push({
@@ -440,20 +424,46 @@ export function finalizeDecision(
     badges: ctx.badges,
     profile: ctx.profile,
   });
+  // v-next: a hard action computed from a feed older than the stale ceiling
+  // is advice about a data outage, not about the creative - the correct
+  // label is diagnose. Shadow badge in v3-2026-07-06 (live impact: 11
+  // published cuts, all on a dead feed); label-active from this version.
+  const staleCeilingDemoted =
+    (softOnly.label === "cut" || softOnly.label === "scale") &&
+    typeof ctx.input.dataFreshnessHours === "number" &&
+    ctx.input.dataFreshnessHours > STALE_HARD_ACTION_CEILING_HOURS;
+  const finalLabel: DecisionLabel = staleCeilingDemoted
+    ? "diagnose"
+    : softOnly.label;
+  const finalReason = staleCeilingDemoted
+    ? `[stale ceiling - hard action demoted] Data ${Math.round(
+        (ctx.input.dataFreshnessHours ?? 0) / 24,
+      )}d stale; fix the data feed before acting on this creative. ${softOnly.reason}`
+    : softOnly.reason;
+
   const nextCtx = { ...ctx, badges: softOnly.badges };
-  const { badges, confidenceDeltas } = applyPostProcess(
-    nextCtx,
-    softOnly.label,
-  );
+  const { badges, confidenceDeltas } = applyPostProcess(nextCtx, finalLabel);
+  const finalBadges = staleCeilingDemoted
+    ? [
+        ...badges,
+        {
+          type: "stale_hard_ceiling_advisory" as const,
+          label: `Data ${Math.round(
+            (ctx.input.dataFreshnessHours ?? 0) / 24,
+          )}d stale - hard action demoted to diagnose`,
+          severity: "warning" as const,
+        },
+      ]
+    : badges;
 
   return buildDecisionOutput(nextCtx, {
-    label: softOnly.label,
-    reason: softOnly.reason,
+    label: finalLabel,
+    reason: finalReason,
     confidence: capConfidence(
       clampConfidence(ctx.confidenceBase, confidenceDeltas),
-      confidenceCapForBadges(badges),
+      confidenceCapForBadges(finalBadges),
     ),
-    badges,
+    badges: finalBadges,
     labelTransform: transformed.labelTransform,
   });
 }

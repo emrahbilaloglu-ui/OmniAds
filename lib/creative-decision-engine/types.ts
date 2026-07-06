@@ -13,7 +13,7 @@ import type {
 import type { EngineV3Flags } from "./feature-flags";
 import type { OperatorResponseResult } from "./operator-response-detection";
 
-export const ENGINE_VERSION = "v3-2026-07-06-decision-stability";
+export const ENGINE_VERSION = "v3-2026-07-07-vnext-stale-fatigue";
 
 /** Final decision label. */
 export type DecisionLabel =

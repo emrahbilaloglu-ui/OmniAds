@@ -1,0 +1,342 @@
+{
+  "title": "Automatic-mode decision diff - live inputs of 2026-07-06",
+  "generatedAt": "2026-07-06T15:24:22.603Z",
+  "engineVersion": "v3-2026-07-06-decision-stability",
+  "readOnly": true,
+  "dbWrites": false,
+  "providerWrites": false,
+  "modeCompared": "legacy_labels (production today) vs automatic (resolver-published kinds + user overrides)",
+  "totals": {
+    "businesses": 14,
+    "decisions": 1602,
+    "changed": 22,
+    "changedShare": 0.01373283395755306,
+    "hardToSofter": 0,
+    "softerToHard": 22
+  },
+  "transitionCounts": {
+    "diagnose->cut": 15,
+    "diagnose->scale": 7
+  },
+  "perBusiness": [
+    {
+      "business": "IwaStore",
+      "decisions": 156,
+      "changed": 0
+    },
+    {
+      "business": "Grandmix",
+      "decisions": 210,
+      "changed": 0
+    },
+    {
+      "business": "Tiles Workshop",
+      "decisions": 141,
+      "changed": 4
+    },
+    {
+      "business": "Adsecute Demo",
+      "decisions": 0,
+      "changed": 0
+    },
+    {
+      "business": "Bilsem Zeka",
+      "decisions": 90,
+      "changed": 6
+    },
+    {
+      "business": "Silveristic",
+      "decisions": 48,
+      "changed": 0
+    },
+    {
+      "business": "TheSwaf",
+      "decisions": 279,
+      "changed": 8
+    },
+    {
+      "business": "IwaTR",
+      "decisions": 100,
+      "changed": 0
+    },
+    {
+      "business": "ColorFullWorldsTR",
+      "decisions": 50,
+      "changed": 2
+    },
+    {
+      "business": "Vornom",
+      "decisions": 49,
+      "changed": 0
+    },
+    {
+      "business": "BskTR",
+      "decisions": 37,
+      "changed": 0
+    },
+    {
+      "business": "Halıcızade",
+      "decisions": 165,
+      "changed": 0
+    },
+    {
+      "business": "EMOLOS",
+      "decisions": 277,
+      "changed": 2
+    },
+    {
+      "business": "Enise",
+      "decisions": 0,
+      "changed": 0
+    }
+  ],
+  "changedSamples": [
+    {
+      "business": "Tiles Workshop",
+      "creativeId": "917337130721916",
+      "campaignId": "120232275498920268",
+      "spend": 521.1,
+      "legacyLabel": "diagnose",
+      "automaticLabel": "cut",
+      "legacyKind": null,
+      "automaticKind": null,
+      "automaticReason": "ROAS 1.29 (28d) = 37% of target after $521 spend (28d) — clear loser at scale."
+    },
+    {
+      "business": "Tiles Workshop",
+      "creativeId": "1679023030168957",
+      "campaignId": "120236137799510268",
+      "spend": 518.04,
+      "legacyLabel": "diagnose",
+      "automaticLabel": "cut",
+      "legacyKind": null,
+      "automaticKind": null,
+      "automaticReason": "ROAS 0.77 (28d) = 22% of target after $518 spend (28d) — clear loser at scale."
+    },
+    {
+      "business": "Tiles Workshop",
+      "creativeId": "1298042219173172",
+      "campaignId": "120234975731760268",
+      "spend": 383.26,
+      "legacyLabel": "diagnose",
+      "automaticLabel": "cut",
+      "legacyKind": null,
+      "automaticKind": null,
+      "automaticReason": "ROAS 0.67 (28d) = 19% of target after $383 spend (28d) — clear loser at scale."
+    },
+    {
+      "business": "Tiles Workshop",
+      "creativeId": "2318152935677047",
+      "campaignId": "120245747894810268",
+      "spend": 360.34000000000003,
+      "legacyLabel": "diagnose",
+      "automaticLabel": "cut",
+      "legacyKind": null,
+      "automaticKind": null,
+      "automaticReason": "ROAS 2.12 (28d) = 60% of target after $360 spend (28d) — clear loser at scale."
+    },
+    {
+      "business": "Bilsem Zeka",
+      "creativeId": "2418076021999784",
+      "campaignId": "120248074741060626",
+      "spend": 137858.22,
+      "legacyLabel": "diagnose",
+      "automaticLabel": "scale",
+      "legacyKind": null,
+      "automaticKind": "main",
+      "automaticReason": "ROAS 4.87 (28d) = 162% of target 3.00 with 51 purchases (28d) and recent 7d holding at 5.82 — scale the ad set budget."
+    },
+    {
+      "business": "Bilsem Zeka",
+      "creativeId": "27469336322660929",
+      "campaignId": "120248074741060626",
+      "spend": 34994.28,
+      "legacyLabel": "diagnose",
+      "automaticLabel": "scale",
+      "legacyKind": null,
+      "automaticKind": "main",
+      "automaticReason": "ROAS 6.40 (28d) = 213% of target 3.00 with 18 purchases (28d) and recent 7d holding at 11.54 — scale the ad set budget."
+    },
+    {
+      "business": "Bilsem Zeka",
+      "creativeId": "26631051459855631",
+      "campaignId": "120248078458340626",
+      "spend": 32507.670000000002,
+      "legacyLabel": "diagnose",
+      "automaticLabel": "scale",
+      "legacyKind": null,
+      "automaticKind": "mixed",
+      "automaticReason": "ROAS 4.12 (28d) = 137% of target 3.00 with 10 purchases (28d) and recent 7d holding at 3.14 — scale the ad set budget."
+    },
+    {
+      "business": "Bilsem Zeka",
+      "creativeId": "1212323447586489",
+      "campaignId": "120248078458340626",
+      "spend": 31271.16,
+      "legacyLabel": "diagnose",
+      "automaticLabel": "scale",
+      "legacyKind": null,
+      "automaticKind": "mixed",
+      "automaticReason": "ROAS 4.66 (28d) = 155% of target 3.00 with 12 purchases (28d) and recent 7d holding at 17.26 — scale the ad set budget."
+    },
+    {
+      "business": "Bilsem Zeka",
+      "creativeId": "1506725574174946",
+      "campaignId": "120248074741060626",
+      "spend": 17207.22,
+      "legacyLabel": "diagnose",
+      "automaticLabel": "scale",
+      "legacyKind": null,
+      "automaticKind": "main",
+      "automaticReason": "ROAS 7.28 (28d) = 243% of target 3.00 with 10 purchases (28d) and recent 7d holding at 11.78 — scale the ad set budget."
+    },
+    {
+      "business": "Bilsem Zeka",
+      "creativeId": "1283627957316758",
+      "campaignId": "120248074741060626",
+      "spend": 13503.19,
+      "legacyLabel": "diagnose",
+      "automaticLabel": "scale",
+      "legacyKind": null,
+      "automaticKind": "main",
+      "automaticReason": "ROAS 8.09 (28d) = 270% of target 3.00 with 8 purchases (28d) and recent 7d holding at 3.48 — scale the ad set budget."
+    },
+    {
+      "business": "TheSwaf",
+      "creativeId": "2137306993785197",
+      "campaignId": "120248656663390042",
+      "spend": 2193.58,
+      "legacyLabel": "diagnose",
+      "automaticLabel": "cut",
+      "legacyKind": null,
+      "automaticKind": null,
+      "automaticReason": "ROAS 0.37 (28d) = 17% of target after $2,194 spend (28d) — clear loser at scale."
+    },
+    {
+      "business": "TheSwaf",
+      "creativeId": "3103906646481931",
+      "campaignId": "120248657135390042",
+      "spend": 896.4300000000001,
+      "legacyLabel": "diagnose",
+      "automaticLabel": "cut",
+      "legacyKind": null,
+      "automaticKind": null,
+      "automaticReason": "ROAS 0.78 (28d) = 35% of target after $896 spend (28d) — clear loser at scale."
+    },
+    {
+      "business": "TheSwaf",
+      "creativeId": "1352333426830989",
+      "campaignId": "120248656874340042",
+      "spend": 589.51,
+      "legacyLabel": "diagnose",
+      "automaticLabel": "cut",
+      "legacyKind": null,
+      "automaticKind": null,
+      "automaticReason": "ROAS 0.28 (28d) = 13% of target after $590 spend (28d) — clear loser at scale."
+    },
+    {
+      "business": "TheSwaf",
+      "creativeId": "858606703984668",
+      "campaignId": "120248657079690042",
+      "spend": 429.25,
+      "legacyLabel": "diagnose",
+      "automaticLabel": "cut",
+      "legacyKind": null,
+      "automaticKind": null,
+      "automaticReason": "ROAS 0.52 (28d) = 24% of target after $429 spend (28d) — clear loser at scale."
+    },
+    {
+      "business": "TheSwaf",
+      "creativeId": "1031796332841133",
+      "campaignId": "120248657146870042",
+      "spend": 312,
+      "legacyLabel": "diagnose",
+      "automaticLabel": "cut",
+      "legacyKind": null,
+      "automaticKind": null,
+      "automaticReason": "ROAS 0.48 (28d) = 22% of target after $312 spend (28d) — clear loser at scale."
+    },
+    {
+      "business": "TheSwaf",
+      "creativeId": "1645400659891636",
+      "campaignId": "120248656874340042",
+      "spend": 222.62,
+      "legacyLabel": "diagnose",
+      "automaticLabel": "cut",
+      "legacyKind": null,
+      "automaticKind": null,
+      "automaticReason": "ROAS 0.00 (28d) = 0% of target after $223 spend (28d) — sustained loser."
+    },
+    {
+      "business": "TheSwaf",
+      "creativeId": "1338488024880172",
+      "campaignId": "120248657135390042",
+      "spend": 221.53,
+      "legacyLabel": "diagnose",
+      "automaticLabel": "cut",
+      "legacyKind": null,
+      "automaticKind": null,
+      "automaticReason": "ROAS 0.00 (28d) = 0% of target after $222 spend (28d) — sustained loser."
+    },
+    {
+      "business": "TheSwaf",
+      "creativeId": "990150640484263",
+      "campaignId": "120248657146870042",
+      "spend": 147.56,
+      "legacyLabel": "diagnose",
+      "automaticLabel": "cut",
+      "legacyKind": null,
+      "automaticKind": null,
+      "automaticReason": "ROAS 0.00 (28d) = 0% of target after $148 spend (28d) — loss-budget maturity reached at $139; cut underperforming creative."
+    },
+    {
+      "business": "ColorFullWorldsTR",
+      "creativeId": "1030453132762286",
+      "campaignId": "120243489401800340",
+      "spend": 711.2200000000001,
+      "legacyLabel": "diagnose",
+      "automaticLabel": "cut",
+      "legacyKind": null,
+      "automaticKind": "mixed",
+      "automaticReason": "ROAS 2.27 (28d) = 57% of target after $711 spend (28d) — clear loser at scale."
+    },
+    {
+      "business": "ColorFullWorldsTR",
+      "creativeId": "3425701000931272",
+      "campaignId": "120243489401800340",
+      "spend": 65.37,
+      "legacyLabel": "diagnose",
+      "automaticLabel": "scale",
+      "legacyKind": null,
+      "automaticKind": "mixed",
+      "automaticReason": "ROAS 5.55 (28d) = 139% of target 4.00 with 3 purchases (28d) and recent 7d holding at 6.23 — scale the ad set budget."
+    },
+    {
+      "business": "EMOLOS",
+      "creativeId": "3325839554275052",
+      "campaignId": "120246844311280459",
+      "spend": 95.98,
+      "legacyLabel": "diagnose",
+      "automaticLabel": "cut",
+      "legacyKind": null,
+      "automaticKind": null,
+      "automaticReason": "ROAS 0.00 (28d) = 0% of target after $96 spend (28d) — loss-budget maturity reached at $69; cut underperforming creative."
+    },
+    {
+      "business": "EMOLOS",
+      "creativeId": "2055930891688956",
+      "campaignId": "120246844311280459",
+      "spend": 75.62,
+      "legacyLabel": "diagnose",
+      "automaticLabel": "cut",
+      "legacyKind": null,
+      "automaticKind": null,
+      "automaticReason": "ROAS 0.00 (28d) = 0% of target after $76 spend (28d) — loss-budget maturity reached at $69; cut underperforming creative."
+    }
+  ],
+  "evidenceLimits": [
+    "Read-only projection over today's live inputs through the production decide+guard path; no rows written.",
+    "hardToSofter changes are the conservative direction (guard demotes on weaker context); softerToHard changes deserve individual review before the flip.",
+    "The diff reflects the context table as of asOf; user overrides present in manual labels win in automatic mode by design."
+  ]
+}

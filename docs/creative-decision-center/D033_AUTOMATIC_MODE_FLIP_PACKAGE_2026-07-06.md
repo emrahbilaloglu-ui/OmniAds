@@ -16,6 +16,26 @@ pre-computed so the decision is a checklist, not an investigation.
 | Operational proof (job in chain) | 14/14 success, non-gating | MET - live 2026-07-06 wave: 14/14 context success, no collapse, downstream unaffected |
 | Guard direction in weak classes | conservative only | MET - low/unknown/conflict -> unresolved handling (cut-visible only); no hard action rides on unstable classes |
 
+## Live decision diff (the final missing evidence - added same day)
+
+`automatic-mode-decision-diff.ts` computed today's 1602 live decisions
+under both modes through the production decide+guard path:
+
+- **22 decisions change (1.4%); every one is an unblocked hard action**
+  (diagnose -> cut x15, diagnose -> scale x7). Zero hard actions soften,
+  zero labels flip between hard actions.
+- The marquee case: Bilsem Zeka's proven winners (top: 137K spend at ROAS
+  4.87 = 162% of target, recent 7d 5.82) were stuck at diagnose behind
+  unlabeled campaigns; automatic mode classifies them main/high and the
+  scale advice publishes. This is D033's designed value, quantified.
+- TheSwaf/ColorFullWorlds cut unblocks are clear losers (e.g. ROAS 0.37 at
+  2.2K spend) whose cut advice was label-blocked.
+- Tiles Workshop's 4 cut unblocks ride on its stale feed - in the next
+  engine version the stale hard-action ceiling re-demotes those to
+  diagnose (defense stack noted; they are also fully stale-badged and
+  confidence-floored today).
+- Full row list: docs/creative-decision-center/generated/automatic-mode-decision-diff-2026-07-06.json
+
 ## Remaining gates before flipping (dated)
 
 1. **7 consecutive live shadow days** under production semantics

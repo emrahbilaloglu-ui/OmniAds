@@ -17,7 +17,7 @@ docs/meta-page-ui-contract.md).
 |---|---|---|---|---|
 | Decision Center (/platforms/meta) | 7.5 | yes (post-hardening: server-owned actionKind/labels/metrics; anomalies now status-filter-scoped, coarse+fail-open) | yes (pulse) | real lastSyncAt or "sync unknown"; dataReadiness banner |
 | Creatives (/platforms/meta/creatives) | 9 | yes (CDC v3; invariant-guarded) | yes (briefing card contract + asset library default currency) | snapshot health + calibration honesty copy |
-| Launchpad | 8 | yes (server validate + forced-PAUSED launch) | yes (new-campaign payload currencyCode + selection rendering) | honest (server updatedAt) |
+| Launchpad | 8.5 | yes (server validate + forced-PAUSED launch; templates/drafts route contracts + payload normalizer now directly tested) | yes (new-campaign payload currencyCode + selection rendering) | honest (server updatedAt) |
 | Copies | 8 | yes (real funnel/video fields mapped+summed; seeMoreRate fabrication removed server+client; no client re-derivation) | yes (per-row) | generatedAt stamped and rendered; unresolved-count rendered |
 | Creative Inbox | 6.5 | yes (renders briefing labels) | yes (per-card account currency; null = unknown) | generatedAt unrendered |
 | Audiences | stub | n/a — honest ComingSoon placeholder | n/a | n/a |
@@ -36,10 +36,13 @@ docs/meta-page-ui-contract.md).
    loop for confidence thresholds (calibration exists, thresholds untested
    against outcomes), 30d fixed lookback. Largest remaining structural
    item on the Decision Center path to 10.
-2. **Launchpad templates/drafts routes and the broad payload normalizer are
-   still under-tested.** CurrencyCode is now carried for new-campaign payloads,
-   but the persistence/replay routes need contract tests before this surface
-   can score near 10.
+2. **Launchpad meta-store SQL layer is untested.** The templates/drafts
+   route contracts and the broad payload normalizer got direct tests this
+   pass (all 5 previously untested routes + normalizeMetaLaunchPayload /
+   normalizeMetaAddToExistingPayload edge cases), but the route tests mock
+   `lib/launchpad/meta-store.ts` - its SQL (upsert scoping, business
+   isolation in DELETE, recent-template ordering) still has no coverage.
+   An ephemeral-postgres seam test (CDC pattern) is the honest closer.
 3. **Two-source freshness model on the Decision Center** (live pulse
    aggregates vs persisted decision snapshot lanes) is communicated only by
    the snapshot chip; a unified as-of contract would survive any redesign.
@@ -81,7 +84,12 @@ previously swallowed unresolved_filtered_count); anomaly per-entity status
 (entityStatus captured at write time inside the stored anomaly JSON — no
 schema change — with status_filter threaded route→read and coarse,
 fail-open filter semantics in anomalyMatchesStatusFilter; legacy rows
-without the field always pass).
+without the field always pass); Launchpad templates/drafts route contract
+tests (all 5 untested persistence routes: auth-before-store ordering,
+membership-scoped ids, name/payload validation codes, 404-vs-500 mapping,
+sanitized error messages) and direct payload-normalizer coverage
+(currencyCode ISO gate, objective forcing, goal/event whitelists, creative
+dedup/merge, target dedup, copyMode whitelist, minor-unit round-trip).
 
 ## B. UI-only / design-shell debt (redesign wipes it — do NOT polish now)
 

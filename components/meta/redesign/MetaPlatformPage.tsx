@@ -5,11 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ChevronDown, Info, Play, Plus, RefreshCw, RotateCcw, Rocket, SlidersHorizontal, Tags, Target, TrendingUp } from "lucide-react";
 import {
-  BulkToolbar,
   CompareDrawer,
-  LaneHeader,
   TrackingConfirmModal,
-  TrackingBlockerBanner,
   useDeferState,
   type CompareDrawerItem,
 } from "@/components/common/briefing";
@@ -23,17 +20,13 @@ import {
 import type { MetaAnomaly } from "@/lib/meta/anomalies";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import { cn } from "@/lib/utils";
-import { CrossAdsetRollupCard } from "@/components/meta/redesign/CrossAdsetRollupCard";
 import { MetaActionCard } from "@/components/meta/redesign/MetaActionCard";
-import { MetaAlertsStrip } from "@/components/meta/redesign/MetaAlertsStrip";
 import { MetaCampaignLabelsSection } from "@/components/meta/redesign/MetaCampaignLabelsSection";
 import { MetaDrillDrawer } from "@/components/meta/redesign/MetaDrillDrawer";
 import { MetaHealthyRow } from "@/components/meta/redesign/MetaHealthyRow";
 import { MetaLaunchpadOverlay } from "@/components/meta/redesign/MetaLaunchpadOverlay";
-import { MetaPulse } from "@/components/meta/redesign/MetaPulse";
 import { MetaScopeChip } from "@/components/meta/redesign/MetaScopeChip";
 import { MetaUpperFunnelInformationalCard } from "@/components/meta/redesign/MetaUpperFunnelInformationalCard";
-import { MetaWatchingCard } from "@/components/meta/redesign/MetaWatchingCard";
 import {
   decisionLabelForRec,
   launchModeForRec,
@@ -1875,6 +1868,13 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
         window={selectedWindow}
         onManageLabels={() => setLabelModalOpen(true)}
         moneyCurrency={moneyCurrency}
+      />
+
+      <ReadinessNotice
+        pulse={pulseQuery.data ?? null}
+        onManageLabels={() => setLabelModalOpen(true)}
+        onRefresh={refreshSnapshotNow}
+        refreshing={refreshingSnapshot}
       />
 
       {notice ? (

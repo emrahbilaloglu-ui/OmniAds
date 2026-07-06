@@ -188,6 +188,9 @@ export function MetaCampaignLabelsSection({ businessId }: MetaCampaignLabelsSect
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["meta-campaign-labels", businessId] }),
         queryClient.invalidateQueries({ queryKey: ["meta-lanes", businessId] }),
+        // Label coverage renders in the pulse strip; it went stale after
+        // label saves because the pulse query was never invalidated.
+        queryClient.invalidateQueries({ queryKey: ["meta-account-pulse", businessId] }),
       ]);
       setNotice(labels.length === 1 ? "Campaign label saved." : `${labels.length} campaign labels saved.`);
     } finally {

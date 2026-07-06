@@ -96,8 +96,11 @@ export function nextDeferredIds(
   return next;
 }
 
-async function fetchTriageState(businessId: string) {
+async function fetchTriageState(businessId: string, scopeType?: string) {
   const params = new URLSearchParams({ businessId });
+  // Without the scope the API returns the cross-scope global state and its
+  // deferredCount double-counts across creative/campaign/adset chips.
+  if (scopeType) params.set("scopeType", scopeType);
   const response = await fetch(`/api/triage/state?${params.toString()}`, {
     headers: { Accept: "application/json" },
     cache: "no-store",
@@ -138,7 +141,7 @@ export function useDeferState(options: UseDeferStateOptions = {}) {
     queryKey: ["triage-state", businessId, scopeType],
     enabled: Boolean(businessId),
     staleTime: 30 * 1000,
-    queryFn: () => fetchTriageState(businessId),
+    queryFn: () => fetchTriageState(businessId, scopeType),
   });
 
   useEffect(() => {

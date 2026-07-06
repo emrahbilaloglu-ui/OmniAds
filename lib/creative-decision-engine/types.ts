@@ -467,6 +467,9 @@ export interface DecisionBadge {
     | "scale_readiness_blocked"
     | "scale_calibration_thin"
     | "unlabeled_campaign_context"
+    | "campaign_context_unresolved"
+    | "campaign_context_low_confidence"
+    | "campaign_context_conflict"
     | "stop_loss_review";
   label: string;
   severity: "info" | "warning";
@@ -507,6 +510,18 @@ export const DECISION_BADGE_DISPLAY: Record<
   },
   unknown_freshness: {
     label: "Unknown freshness",
+    severity: "warning",
+  },
+  campaign_context_unresolved: {
+    label: "Campaign context unresolved",
+    severity: "warning",
+  },
+  campaign_context_low_confidence: {
+    label: "Campaign context low confidence",
+    severity: "warning",
+  },
+  campaign_context_conflict: {
+    label: "Campaign context conflict",
     severity: "warning",
   },
   lifecycle_unavailable: {

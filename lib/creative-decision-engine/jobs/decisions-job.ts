@@ -1,5 +1,5 @@
 import { getDb, runDbTransaction } from "@/lib/db";
-import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
+import { readCampaignContextLabelMap } from "../campaign-context/source";
 import { resolveAccountDecisionProfile } from "../account-decision-profile";
 import {
   applyCreativeCampaignLabelGuard,
@@ -461,6 +461,7 @@ export async function runDecisionsJob(
         });
         const campaignLabelsById = await readCreativeCampaignLabelsById({
           businessId: input.businessId,
+          asOf: input.asOf,
           creativeInputs,
         });
         const rawDecisions: DecisionComputation[] = creativeInputs.map(
@@ -952,6 +953,7 @@ export function dedupeDecisionComputations(
 
 async function readCreativeCampaignLabelsById(input: {
   businessId: string;
+  asOf: string;
   creativeInputs: CreativeInput[];
 }) {
   const campaignIds = Array.from(
@@ -963,12 +965,11 @@ async function readCreativeCampaignLabelsById(input: {
   );
   if (campaignIds.length === 0) return buildCreativeCampaignLabelMap([]);
 
-  return buildCreativeCampaignLabelMap(
-    await readMetaCampaignLabels({
-      businessId: input.businessId,
-      campaignIds,
-    }),
-  );
+  return readCampaignContextLabelMap({
+    businessId: input.businessId,
+    campaignIds,
+    asOf: input.asOf,
+  });
 }
 
 function isHardDecisionLabel(label: DecisionLabel) {

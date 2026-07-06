@@ -20,6 +20,9 @@ import {
   TONE_CLASS,
 } from "@/components/creatives/decision-label-display";
 
+export const SOURCE_FRESHNESS_CONFIDENCE_COPY =
+  "Confidence is capped because source freshness is stale or unknown. Refresh evidence before applying this action.";
+
 interface CreativeDecisionEngineV3SurfaceProps {
   businessId: string | null;
   asOf?: string;
@@ -382,6 +385,7 @@ function ProfileRow({
 function DecisionRow({ decision }: { decision: DecisionOutput }) {
   const display = LABEL_DISPLAY[decision.label];
   const creativeName = decision.creativeName?.trim() || null;
+  const confidenceCopy = confidenceCopyForDecision(decision);
 
   return (
     <div className="flex flex-wrap items-center gap-2 rounded border border-border/60 bg-background/60 px-2 py-1.5 text-xs">
@@ -427,11 +431,31 @@ function DecisionRow({ decision }: { decision: DecisionOutput }) {
       <span className="shrink-0 text-muted-foreground">
         conf {Math.round(decision.confidence)}
       </span>
+      {confidenceCopy && (
+        <span
+          className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400"
+          data-confidence-copy="source_freshness_cap"
+          title={confidenceCopy}
+        >
+          confidence capped
+        </span>
+      )}
       <span className="shrink-0 text-muted-foreground">
         {decision.truthSource}
       </span>
     </div>
   );
+}
+
+function confidenceCopyForDecision(decision: DecisionOutput): string | null {
+  const badgeTypes = new Set(decision.badges.map((badge) => badge.type));
+  if (
+    badgeTypes.has("stale_evidence") ||
+    badgeTypes.has("unknown_freshness")
+  ) {
+    return SOURCE_FRESHNESS_CONFIDENCE_COPY;
+  }
+  return null;
 }
 
 function formatTimestamp(value: string): string {

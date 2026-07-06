@@ -8,6 +8,10 @@ import {
   type CalibrationJobResult,
 } from "./calibration-job";
 import {
+  runCampaignContextJob,
+  type CampaignContextJobResult,
+} from "./campaign-context-job";
+import {
   JOB_NAME as DECISIONS_JOB_NAME,
   runDecisionsJob,
   type DecisionsJobResult,
@@ -28,6 +32,7 @@ interface EnabledBusiness {
 
 export interface EngineV3ProducerBusinessResult {
   businessId: string;
+  campaignContext?: CampaignContextJobResult;
   businessName: string | null;
   calibration: CalibrationJobResult;
   lifecycle: LifecycleJobResult;
@@ -151,6 +156,23 @@ async function runProducerChainForBusiness(input: {
   business: EnabledBusiness;
   asOf: string;
 }): Promise<EngineV3ProducerBusinessResult> {
+  // Campaign context (D033) runs first and is deliberately non-gating: a
+  // context failure must not block calibration/lifecycle/decisions, because
+  // consumption falls back to unresolved/conservative when context is
+  // missing or stale.
+  const campaignContext = await runCampaignContextJob({
+    businessId: input.business.id,
+    asOf: input.asOf,
+  }).catch(
+    (error): CampaignContextJobResult => ({
+      jobRunId: "",
+      status: "failed",
+      rowsWritten: 0,
+      durationMs: 0,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    }),
+  );
+
   const calibration = await runCalibrationJob({
     businessId: input.business.id,
     asOf: input.asOf,
@@ -168,6 +190,7 @@ async function runProducerChainForBusiness(input: {
     return {
       businessId: input.business.id,
       businessName: input.business.name,
+      campaignContext,
       calibration,
       lifecycle: skippedLifecycleResult({
         dependencyRunId: calibration.jobRunId || null,
@@ -194,6 +217,7 @@ async function runProducerChainForBusiness(input: {
     return {
       businessId: input.business.id,
       businessName: input.business.name,
+      campaignContext,
       calibration,
       lifecycle,
       decisions: skippedDecisionsResult("upstream_lifecycle_not_success"),
@@ -208,6 +232,7 @@ async function runProducerChainForBusiness(input: {
   return {
     businessId: input.business.id,
     businessName: input.business.name,
+    campaignContext,
     calibration,
     lifecycle,
     decisions,

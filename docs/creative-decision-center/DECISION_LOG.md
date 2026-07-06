@@ -1044,3 +1044,117 @@ Rejected alternatives:
 - Use a manual refresh button as the primary fix. The button may help operators
   during incidents, but the decision contract must stay correct even when a
   source row is stale.
+
+## D033 — Replace Manual Campaign Labeling With Automatic Campaign Context
+
+Decision: manual Campaign Labeling must stop being an operator-required
+workflow. The engine still needs campaign context, but that context must be
+produced server-side by an automatic, deterministic, provenance-carrying
+Campaign Context Resolver before it can drive kind-aware baselines, test
+semantics, or buyer-facing execution CTAs. The backend should assign campaign
+context automatically by default; an explicit user correction may override that
+automatic assignment when the user chooses to fix it.
+
+Reason: the existing Main/Test/Mixed campaign label is not cosmetic. It drives
+three separate safety contracts: calibration cohort selection, test-specific
+semantic transforms, and hard-action blocking when campaign role is unknown.
+Deleting the concept outright would reopen unsafe behavior that the current
+label guard intentionally blocks. The correct product interpretation is:
+operators should not be asked to label campaigns manually; the server must
+infer campaign role and expose confidence, evidence, and blockers. User
+correction is an exception path, not the primary source of truth and not a
+required queue.
+
+Scope for the next slice is documentation and shadow design only:
+
+- Add an explicit specification for an Automatic Campaign Context Resolver in
+  `AUTOMATIC_CAMPAIGN_CONTEXT_SPEC_2026-07-06.md`.
+- Keep active resolver behavior unchanged until golden cases, historical
+  replay, live shadow, and user approval gates pass.
+- Treat existing `meta_campaign_labels` rows as compatibility, evaluation,
+  backfill evidence, and possible migration storage for explicit user
+  overrides. The buyer-facing product must not ask the operator to label
+  campaigns before decisions can work.
+- Introduce additive provenance concepts such as `campaignKindSource`,
+  `campaignContextConfidenceClass`, resolver version, and evidence JSON before
+  UI or adapter consumption.
+- Replace the current label-missing operator language with automatic-context
+  blockers such as `campaign_context_unresolved`,
+  `campaign_context_low_confidence`, and `campaign_context_conflict`.
+
+Constraints:
+
+- UI must not compute `buyerAction`, `campaignKind`, campaign-context
+  confidence, or fallback action semantics.
+- The resolver must be deterministic, config-as-data, and explainable. The
+  first version must be rule/score based, not ML/LLM based.
+- Kind-aware calibration may use only high-confidence inferred campaign
+  context, and only after existing kind-slice sample floors pass.
+- Test classification requires stricter evidence than Main classification
+  because false Test context can trigger more destructive semantics such as
+  refresh-to-cut or promote-to-main misrouting.
+- Context class changes require hysteresis; a single-day signal swing must not
+  flip Test/Main/Mixed semantics.
+- Old snapshots and current V1/operator/V2/V3 compatibility must remain
+  readable through additive fields and fallbacks.
+
+Rejected alternatives:
+
+- Delete campaign context and remove the guard. That violates the invariant
+  against high-confidence hard actions when required context is missing.
+- Keep the current manual labeling modal as the primary fix. Operational
+  evidence showed the manual workflow is not reliable enough to unblock the
+  engine.
+- Use campaign/adset names as the main classifier. Naming is high-precision
+  but low-coverage and account-specific; it must be one signal among several.
+- Let UI derive context from campaign names or card data. That would create a
+  second decision layer outside the tested server pipeline.
+
+Risk and approval gates:
+
+- If the user wants to remove Main/Test/Mixed semantics themselves, not just
+  manual labeling, that is a separate product decision.
+- Allowing medium-confidence context to leave mature stop-loss cuts visible is
+  looser than the current unlabeled guard and requires explicit user approval
+  before implementation.
+- User overrides must be explicit, auditable, and visible as a source. They must
+  not hide resolver quality problems or recreate the old required labeling
+  workflow under another name.
+- The inferred resolver must not be consumed by production decisions unless
+  high-confidence rows pass a labeled evaluation bar, recommended at least 90%
+  accuracy, and live shadow shows acceptable divergence.
+
+### D033 Implementation Status Addendum (2026-07-06)
+
+Implementation landed behind the kill switch with zero default behavior change:
+
+- Resolver: `lib/creative-decision-engine/campaign-context/resolver.ts`
+  (deterministic, config-as-data, family-prefix inheritance for cold start,
+  age-normalized turnover, single-creative catalog floor override; version
+  `campaign-context-resolver.v1-shadow-2026-07-06`).
+- Producer: `lib/creative-decision-engine/jobs/campaign-context-job.ts`, first
+  and non-gating step of the scheduled producer chain; persists
+  `engine_v3_campaign_context_daily` with daily two-consecutive-day hysteresis.
+  The table populates in every mode, so live shadow starts on deploy.
+- Consumption: all four decision surfaces read
+  `readCampaignContextLabelMap` (`campaign-context/source.ts`). Under the
+  default `CAMPAIGN_CONTEXT_MODE=legacy_labels` this is byte-identical to the
+  previous meta_campaign_labels path (full suite green, 3477 tests). Under
+  `automatic`: user_override -> system_inferred -> unknown; guard trust
+  classes: override/high = labeled semantics; medium = canonical baselines,
+  no Test transforms, hard scale/refresh demoted, mature cut visible with
+  `campaign_context_low_confidence` (user approved 2026-07-06); low/unknown =
+  unresolved demotion; conflict = unresolved with conflict badge. `unknown`
+  mode is the emergency circuit breaker.
+- Historical evaluation (read-only, live DB): pooled active-labeled agreement
+  13/16, high-confidence 7/7, false-Test 0/38 any class; artifacts in
+  `AUTOMATIC_CAMPAIGN_CONTEXT_SHADOW_2026-06-01_TO_2026-07-05.md`.
+- Codex deploy-gate review fixes (2026-07-06): V3 and evidence routes now
+  pass request `asOf` into automatic context reads; campaign meta feature IO
+  matches the warehouse dual-identity pattern
+  (`business_ref_id::text = $1 OR business_id = $1`); unresolved automatic
+  context entries carry `kind: null` rather than a placeholder kind.
+- The consumption flip to `automatic` remains a separate deploy decision:
+  bump `ENGINE_VERSION`, promote guard-level context tests into canonical
+  golden cases, run >=7 days of live shadow, and keep rollback via
+  `CAMPAIGN_CONTEXT_MODE=legacy_labels`.

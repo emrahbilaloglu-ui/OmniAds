@@ -5328,6 +5328,41 @@ export async function runMigrations(options?: {
           (decision_snapshot_id, outcome_window_days)`,
       ]);
 
+      // ── Automatic campaign context (D033): daily inferred campaign role ──
+      await runMigrationBatchSequentially([
+        sql`CREATE TABLE IF NOT EXISTS engine_v3_campaign_context_daily (
+          id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id           TEXT NOT NULL,
+          provider_account_id   TEXT,
+          campaign_id           TEXT NOT NULL,
+          campaign_name         TEXT,
+          as_of_date            DATE NOT NULL,
+          inferred_kind         TEXT NULL CHECK (
+            inferred_kind IS NULL OR inferred_kind IN ('main', 'test', 'mixed')
+          ),
+          confidence_score      DOUBLE PRECISION NOT NULL DEFAULT 0,
+          confidence_class      TEXT NOT NULL CHECK (confidence_class IN (
+            'high', 'medium', 'low', 'unknown', 'conflict'
+          )),
+          kind_source           TEXT NOT NULL DEFAULT 'system_inferred',
+          kind_basis            TEXT NOT NULL DEFAULT 'behavioral',
+          resolver_version      TEXT NOT NULL,
+          signal_scores_json    JSONB NOT NULL DEFAULT '{}'::jsonb,
+          evidence_json         JSONB NOT NULL DEFAULT '[]'::jsonb,
+          conflict_reasons_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+          hysteresis_state_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+          input_freshness_json  JSONB NOT NULL DEFAULT '{}'::jsonb,
+          job_run_id            UUID REFERENCES engine_v3_job_runs(id) ON DELETE SET NULL,
+          created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, campaign_id, as_of_date)
+        )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_campaign_context_business_date
+          ON engine_v3_campaign_context_daily (business_id, as_of_date DESC)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_campaign_context_campaign
+          ON engine_v3_campaign_context_daily (business_id, campaign_id, as_of_date DESC)`,
+      ]);
+
       // ── Engine v3 rollout feature flags (NULL = inherit env default) ─────
       await runMigrationBatchSequentially([
         sql`CREATE TABLE IF NOT EXISTS business_engine_v3_flags (

@@ -35,10 +35,14 @@ type PurchaseFloorMode = null | "fixed_2" | "fixed_3" | "fixed_5" | "half_winner
 
 interface ParsedArgs {
   asOf: string;
+  startDate: string | null;
+  endDate: string | null;
   lookbackDays: number;
+  primaryForwardWindowDays: 14 | 28;
   businessIdentifiers: string[];
   jsonOut: string;
   mdOut: string;
+  reportTitle: string;
   writeFiles: boolean;
   queryTimeoutMs: number;
   sampleSize: number;
@@ -114,6 +118,9 @@ interface ThresholdContext {
   spendUnit: number | null;
   spendUnitSource: string;
   spendUnitConfidence: string;
+  lossBudgetMultiplier: number;
+  hardCutMultiplier: number;
+  lossBudgetGeHardCut: boolean;
   recentSampleMinSpend: number | null;
   zeroConvBurnerSpend: number | null;
   commercialMaturitySpend: number;
@@ -124,6 +131,7 @@ interface ThresholdContext {
   purchaseFloor: number | null;
   purchaseFloorUsedFallback: boolean;
   breakevenRatio: number | null;
+  boundaryFallbackReason: string | null;
 }
 
 interface VariantSpec {
@@ -131,6 +139,7 @@ interface VariantSpec {
   label: string;
   purchaseFloor: PurchaseFloorMode;
   boundaryMode: BoundaryMode;
+  lossBudgetMultiplierOverride: number | null;
   isBaseline: boolean;
 }
 
@@ -161,9 +170,13 @@ interface Episode {
   forward28Spend: number;
   forward28Roas: number | null;
   spendUnit: number | null;
+  lossBudgetMultiplier: number;
+  hardCutMultiplier: number;
   boundary: number;
   purchaseFloor: number | null;
   purchaseFloorUsedFallback: boolean;
+  lossBudgetGeHardCut: boolean;
+  boundaryFallbackReason: string | null;
 }
 
 interface VariantBusinessSummary {
@@ -173,12 +186,15 @@ interface VariantBusinessSummary {
   defensible: boolean;
   dailyCutRows: number;
   affectedDailyRowsVsBaseline: number;
+  flipRateVsBaseline: number | null;
   baselineEpisodesMatched: number;
   baselineEpisodesSuppressed: number;
   additionalEpisodesVsBaseline: number;
   medianDelayDaysVsBaseline: number | null;
   sourceCounts: CountMap;
   purchaseFloorFallbackEpisodes: number;
+  lossBudgetGeHardCutEpisodes: number;
+  boundaryFallbackEpisodes: number;
   window14: WindowSummary;
   window28: WindowSummary;
 }
@@ -202,7 +218,7 @@ interface BusinessReview {
     startDate: string | null;
     endDate: string | null;
     lookbackDays: number;
-    forwardWindowDays: 28;
+    forwardWindowDays: 14 | 28;
   };
   rowsEvaluated: number;
   candidateRowsWithTarget: number;
@@ -216,6 +232,7 @@ interface PooledSummary {
   episodes: number;
   defensible: boolean;
   affectedDailyRowsVsBaseline: number;
+  flipRateVsBaseline: number | null;
   medianDelayDaysVsBaseline: number | null;
   window14: WindowSummary;
   window28: WindowSummary;
@@ -223,12 +240,13 @@ interface PooledSummary {
 
 interface SweepReport {
   contractVersion: "adsecute.f1-f2-cut-threshold-sweep.v1";
-  revision: 2;
+  revision: 3;
   revisionNotes: string[];
   generatedAt: string;
   readOnly: true;
   mutatesData: false;
   asOf: string;
+  title: string;
   engineVersion: string;
   methodology: {
     unitOfAnalysis: string;
@@ -237,6 +255,7 @@ interface SweepReport {
     guardrailScope: string;
     nonMutationStatement: string;
     queryCostBound: string;
+    primaryForwardWindowDays: 14 | 28;
     defensibleEpisodeThreshold: number;
   };
   variants: VariantSpec[];
@@ -261,6 +280,7 @@ const VARIANTS: VariantSpec[] = [
     label: "Current formula baseline; recovery guard already live",
     purchaseFloor: null,
     boundaryMode: "current",
+    lossBudgetMultiplierOverride: null,
     isBaseline: true,
   },
   {
@@ -268,6 +288,7 @@ const VARIANTS: VariantSpec[] = [
     label: "F1 sensitivity: purchase floor 2 or sustained-loser spend",
     purchaseFloor: "fixed_2",
     boundaryMode: "current",
+    lossBudgetMultiplierOverride: null,
     isBaseline: false,
   },
   {
@@ -275,6 +296,7 @@ const VARIANTS: VariantSpec[] = [
     label: "F1 sensitivity: purchase floor 3 or sustained-loser spend",
     purchaseFloor: "fixed_3",
     boundaryMode: "current",
+    lossBudgetMultiplierOverride: null,
     isBaseline: false,
   },
   {
@@ -282,6 +304,7 @@ const VARIANTS: VariantSpec[] = [
     label: "F1 sensitivity: fixed purchase floor 5 or sustained-loser spend",
     purchaseFloor: "fixed_5",
     boundaryMode: "current",
+    lossBudgetMultiplierOverride: null,
     isBaseline: false,
   },
   {
@@ -289,6 +312,7 @@ const VARIANTS: VariantSpec[] = [
     label: "F1 account-relative: max(2, ceil(0.5 * winnerPurchaseP50)) or sustained-loser spend",
     purchaseFloor: "half_winner",
     boundaryMode: "current",
+    lossBudgetMultiplierOverride: null,
     isBaseline: false,
   },
   {
@@ -296,6 +320,7 @@ const VARIANTS: VariantSpec[] = [
     label: "F2 sensitivity: cut boundary min(P25, 1.0)",
     purchaseFloor: null,
     boundaryMode: "upper_1",
+    lossBudgetMultiplierOverride: null,
     isBaseline: false,
   },
   {
@@ -303,6 +328,7 @@ const VARIANTS: VariantSpec[] = [
     label: "F2 sensitivity: cut boundary clamped to [breakevenRatio, 1.0]",
     purchaseFloor: null,
     boundaryMode: "breakeven_floor",
+    lossBudgetMultiplierOverride: null,
     isBaseline: false,
   },
   {
@@ -310,22 +336,85 @@ const VARIANTS: VariantSpec[] = [
     label: "F1+F2 combined: account-relative purchase floor and [breakevenRatio, 1.0] boundary",
     purchaseFloor: "half_winner",
     boundaryMode: "breakeven_floor",
+    lossBudgetMultiplierOverride: null,
+    isBaseline: false,
+  },
+  {
+    id: "LB1_0_loss_budget",
+    label: "3.1 sensitivity: lossBudgetMultiplier absolute override 1.0",
+    purchaseFloor: null,
+    boundaryMode: "current",
+    lossBudgetMultiplierOverride: 1.0,
+    isBaseline: false,
+  },
+  {
+    id: "LB1_5_loss_budget",
+    label: "3.1 sensitivity: lossBudgetMultiplier absolute override 1.5",
+    purchaseFloor: null,
+    boundaryMode: "current",
+    lossBudgetMultiplierOverride: 1.5,
+    isBaseline: false,
+  },
+  {
+    id: "LB2_0_loss_budget",
+    label: "3.1 sensitivity: lossBudgetMultiplier absolute override 2.0",
+    purchaseFloor: null,
+    boundaryMode: "current",
+    lossBudgetMultiplierOverride: 2.0,
+    isBaseline: false,
+  },
+  {
+    id: "LB2_5_loss_budget",
+    label: "3.1 sensitivity: lossBudgetMultiplier absolute override 2.5",
+    purchaseFloor: null,
+    boundaryMode: "current",
+    lossBudgetMultiplierOverride: 2.5,
+    isBaseline: false,
+  },
+  {
+    id: "LB3_0_loss_budget",
+    label: "3.1 sensitivity: lossBudgetMultiplier absolute override 3.0",
+    purchaseFloor: null,
+    boundaryMode: "current",
+    lossBudgetMultiplierOverride: 3.0,
+    isBaseline: false,
+  },
+  {
+    id: "LB4_0_loss_budget",
+    label: "3.1 sensitivity: lossBudgetMultiplier absolute override 4.0",
+    purchaseFloor: null,
+    boundaryMode: "current",
+    lossBudgetMultiplierOverride: 4.0,
     isBaseline: false,
   },
 ];
+
+const LOSS_BUDGET_VARIANT_IDS = VARIANTS.filter(
+  (variant) => variant.lossBudgetMultiplierOverride !== null,
+).map((variant) => variant.id);
 
 function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
+  const primaryForwardWindowDays =
+    arg(argv, "primaryForwardWindowDays", "28") === "14" ? 14 : 28;
   return {
     asOf: arg(argv, "asOf", todayIsoDate()),
+    startDate: arg(argv, "startDate", "") || null,
+    endDate: arg(argv, "endDate", "") || null,
     lookbackDays: Math.max(30, Number(arg(argv, "lookbackDays", "180")) || 180),
+    primaryForwardWindowDays,
     businessIdentifiers:
       csvArg(argv, "businesses") ?? [...DEFAULT_BUSINESS_IDENTIFIERS],
     jsonOut: arg(argv, "jsonOut", DEFAULT_JSON_OUT),
     mdOut: arg(argv, "mdOut", DEFAULT_MD_OUT),
+    reportTitle: arg(
+      argv,
+      "reportTitle",
+      "F1/F2 Cut Threshold Sweep - 2026-07-02",
+    ),
     writeFiles: arg(argv, "write", "1") !== "0",
     queryTimeoutMs: Math.max(8_000, Number(arg(argv, "queryTimeoutMs", "120000")) || 120_000),
     sampleSize: Math.max(1, Number(arg(argv, "sampleSize", "12")) || 12),
@@ -373,6 +462,10 @@ function toNullableNumber(value: unknown) {
 function rounded(value: number | null, digits = 4) {
   if (value === null || !Number.isFinite(value)) return null;
   return Number(value.toFixed(digits));
+}
+
+function ratio(numerator: number, denominator: number) {
+  return denominator > 0 ? rounded(numerator / denominator) : null;
 }
 
 function positiveFinite(value: number | null | undefined): value is number {
@@ -803,19 +896,30 @@ function resolveBoundary(row: DailyCandidateRow, mode: BoundaryMode) {
     positiveFinite(row.breakEvenRoas) && positiveFinite(row.targetRoas)
       ? row.breakEvenRoas / row.targetRoas
       : null;
-  if (mode === "current") return { boundary: current, breakevenRatio };
-  if (mode === "upper_1") return { boundary: upperClamped, breakevenRatio };
+  if (mode === "current") {
+    return { boundary: current, breakevenRatio, fallbackReason: null };
+  }
+  if (mode === "upper_1") {
+    return { boundary: upperClamped, breakevenRatio, fallbackReason: null };
+  }
   if (!positiveFinite(breakevenRatio)) {
-    return { boundary: upperClamped, breakevenRatio };
+    return {
+      boundary: current,
+      breakevenRatio,
+      fallbackReason: "breakeven_or_target_missing_current_p25",
+    };
   }
   return {
     boundary: Math.min(1.0, Math.max(upperClamped, breakevenRatio)),
     breakevenRatio,
+    fallbackReason: null,
   };
 }
 
 function resolveThresholds(row: DailyCandidateRow, variant: VariantSpec): ThresholdContext {
   const multipliers = ENGINE_PRESET_MULTIPLIERS[row.preset];
+  const lossBudgetMultiplier =
+    variant.lossBudgetMultiplierOverride ?? multipliers.lossBudget;
   const spendUnit = resolveSpendUnit({
     targetCpa: row.targetCpa,
     operatorAovAssumption: row.operatorAovAssumption,
@@ -834,7 +938,7 @@ function resolveThresholds(row: DailyCandidateRow, variant: VariantSpec): Thresh
   );
   const configuredCommercial = spendThreshold(
     spendUnit.spendUnit,
-    multipliers.lossBudget,
+    lossBudgetMultiplier,
   );
   const sustainedLoserSpend = spendThreshold(
     spendUnit.spendUnit,
@@ -844,17 +948,23 @@ function resolveThresholds(row: DailyCandidateRow, variant: VariantSpec): Thresh
     recentSampleMinSpend,
     configuredCommercial,
     accountCpaP50: row.accountCpaP50,
-    lossBudgetMultiplier: multipliers.lossBudget,
+    lossBudgetMultiplier,
     sustainedLoserSpend,
     matureSpendP50: row.matureSpendP50,
   });
   const { floor, usedFallback } = resolvePurchaseFloor(row, variant.purchaseFloor);
-  const { boundary, breakevenRatio } = resolveBoundary(row, variant.boundaryMode);
+  const { boundary, breakevenRatio, fallbackReason } = resolveBoundary(
+    row,
+    variant.boundaryMode,
+  );
 
   return {
     spendUnit: spendUnit.spendUnit,
     spendUnitSource: spendUnit.source,
     spendUnitConfidence: spendUnit.confidence,
+    lossBudgetMultiplier,
+    hardCutMultiplier: multipliers.hardCut,
+    lossBudgetGeHardCut: lossBudgetMultiplier >= multipliers.hardCut,
     recentSampleMinSpend,
     zeroConvBurnerSpend: spendThreshold(
       spendUnit.spendUnit,
@@ -868,6 +978,7 @@ function resolveThresholds(row: DailyCandidateRow, variant: VariantSpec): Thresh
     purchaseFloor: floor,
     purchaseFloorUsedFallback: usedFallback,
     breakevenRatio,
+    boundaryFallbackReason: fallbackReason,
   };
 }
 
@@ -1092,9 +1203,13 @@ function collectEpisodes(input: {
         forward28Spend: row.forward28Spend,
         forward28Roas: row.forward28Roas,
         spendUnit: evaluation.threshold.spendUnit,
+        lossBudgetMultiplier: evaluation.threshold.lossBudgetMultiplier,
+        hardCutMultiplier: evaluation.threshold.hardCutMultiplier,
         boundary: evaluation.threshold.boundary,
         purchaseFloor: evaluation.threshold.purchaseFloor,
         purchaseFloorUsedFallback: evaluation.threshold.purchaseFloorUsedFallback,
+        lossBudgetGeHardCut: evaluation.threshold.lossBudgetGeHardCut,
+        boundaryFallbackReason: evaluation.threshold.boundaryFallbackReason,
       });
       previous.lastEpisodeDate = row.asOfDate;
       previous.hasSpendAfterLastEpisode = false;
@@ -1171,14 +1286,22 @@ function summarizeVariant(input: {
 }) {
   const sourceCounts: CountMap = {};
   let purchaseFloorFallbackEpisodes = 0;
+  let lossBudgetGeHardCutEpisodes = 0;
+  let boundaryFallbackEpisodes = 0;
   for (const episode of input.episodes) {
     increment(sourceCounts, episode.source);
     if (episode.purchaseFloorUsedFallback) purchaseFloorFallbackEpisodes += 1;
+    if (episode.lossBudgetGeHardCut) lossBudgetGeHardCutEpisodes += 1;
+    if (episode.boundaryFallbackReason) boundaryFallbackEpisodes += 1;
   }
 
   const affectedDailyRowsVsBaseline = countAffectedDailyRows(
     input.dailyCutRows,
     input.baselineDailyCutRows,
+  );
+  const flipRateVsBaseline = ratio(
+    affectedDailyRowsVsBaseline,
+    input.baselineDailyCutRows.size,
   );
   const baselineMatch = summarizeBaselineMatch({
     variantEpisodes: input.episodes,
@@ -1194,12 +1317,15 @@ function summarizeVariant(input: {
       (evaluation) => evaluation.cuts,
     ).length,
     affectedDailyRowsVsBaseline,
+    flipRateVsBaseline,
     baselineEpisodesMatched: baselineMatch.matched,
     baselineEpisodesSuppressed: baselineMatch.suppressed,
     additionalEpisodesVsBaseline: baselineMatch.additional,
     medianDelayDaysVsBaseline: median(baselineMatch.delays),
     sourceCounts,
     purchaseFloorFallbackEpisodes,
+    lossBudgetGeHardCutEpisodes,
+    boundaryFallbackEpisodes,
     window14: summarizeWindow(input.episodes, 14),
     window28: summarizeWindow(input.episodes, 28),
   } satisfies VariantBusinessSummary;
@@ -1266,6 +1392,11 @@ function summarizePooled(reviews: BusinessReview[]): PooledSummary[] {
     const summaries = reviews.flatMap((review) =>
       review.variants.filter((summary) => summary.variantId === variant.id),
     );
+    const denominatorRows = reviews
+      .filter((review) =>
+        review.variants.some((summary) => summary.variantId === variant.id),
+      )
+      .reduce((sum, review) => sum + review.rowsEvaluated, 0);
     const episodes = summaries.reduce((sum, summary) => sum + summary.episodes, 0);
     const affectedDailyRowsVsBaseline = summaries.reduce(
       (sum, summary) => sum + summary.affectedDailyRowsVsBaseline,
@@ -1282,6 +1413,7 @@ function summarizePooled(reviews: BusinessReview[]): PooledSummary[] {
       episodes,
       defensible: episodes >= MIN_DEFENSIBLE_EPISODES,
       affectedDailyRowsVsBaseline,
+      flipRateVsBaseline: ratio(affectedDailyRowsVsBaseline, denominatorRows),
       medianDelayDaysVsBaseline: median(delayValues),
       window14: poolWindows(summaries.map((summary) => summary.window14)),
       window28: poolWindows(summaries.map((summary) => summary.window28)),
@@ -1335,7 +1467,7 @@ async function reviewBusiness(input: {
         startDate: null,
         endDate: null,
         lookbackDays: input.args.lookbackDays,
-        forwardWindowDays: 28,
+        forwardWindowDays: input.args.primaryForwardWindowDays,
       },
       rowsEvaluated: 0,
       candidateRowsWithTarget: 0,
@@ -1354,7 +1486,7 @@ async function reviewBusiness(input: {
         startDate: null,
         endDate: null,
         lookbackDays: input.args.lookbackDays,
-        forwardWindowDays: 28,
+        forwardWindowDays: input.args.primaryForwardWindowDays,
       },
       rowsEvaluated: 0,
       candidateRowsWithTarget: 0,
@@ -1364,11 +1496,17 @@ async function reviewBusiness(input: {
     };
   }
 
-  const latestEligibleDate = addDays(minDate(input.args.asOf, sourceStats.latestDataDate), -28);
+  const latestEligibleDate = addDays(
+    minDate(input.args.asOf, sourceStats.latestDataDate),
+    -input.args.primaryForwardWindowDays,
+  );
   const earliestPossibleStart = addDays(sourceStats.earliestDataDate, 117);
   const requestedStart = addDays(latestEligibleDate, -(input.args.lookbackDays - 1));
-  const startDate = maxDate(earliestPossibleStart, requestedStart);
-  if (startDate > latestEligibleDate) {
+  const requestedOrExplicitStart = input.args.startDate ?? requestedStart;
+  const requestedOrExplicitEnd = input.args.endDate ?? latestEligibleDate;
+  const startDate = maxDate(earliestPossibleStart, requestedOrExplicitStart);
+  const endDate = minDate(requestedOrExplicitEnd, latestEligibleDate);
+  if (startDate > endDate) {
     return {
       business: input.business,
       status: "skipped",
@@ -1376,9 +1514,9 @@ async function reviewBusiness(input: {
       targetConfig,
       evaluatedWindow: {
         startDate,
-        endDate: latestEligibleDate,
+        endDate,
         lookbackDays: input.args.lookbackDays,
-        forwardWindowDays: 28,
+        forwardWindowDays: input.args.primaryForwardWindowDays,
       },
       rowsEvaluated: 0,
       candidateRowsWithTarget: 0,
@@ -1392,7 +1530,7 @@ async function reviewBusiness(input: {
     business: input.business,
     targetConfig,
     startDate,
-    endDate: latestEligibleDate,
+    endDate,
     queryTimeoutMs: input.args.queryTimeoutMs,
   });
   const candidateRowsWithTarget = rows.filter((row) => positiveFinite(row.targetRoas)).length;
@@ -1440,15 +1578,22 @@ async function reviewBusiness(input: {
     targetConfig,
     evaluatedWindow: {
       startDate,
-      endDate: latestEligibleDate,
+      endDate,
       lookbackDays: input.args.lookbackDays,
-      forwardWindowDays: 28,
+      forwardWindowDays: input.args.primaryForwardWindowDays,
     },
     rowsEvaluated: rows.length,
     candidateRowsWithTarget,
     variants: summaries,
     samples,
   };
+}
+
+function primaryWindow(
+  summary: Pick<VariantBusinessSummary | PooledSummary, "window14" | "window28">,
+  windowDays: 14 | 28,
+) {
+  return windowDays === 14 ? summary.window14 : summary.window28;
 }
 
 function buildRecommendation(report: Omit<SweepReport, "recommendation">): SweepReport["recommendation"] {
@@ -1465,13 +1610,19 @@ function buildRecommendation(report: Omit<SweepReport, "recommendation">): Sweep
       accountLevelSignals,
     };
   }
-  const baselineEarly = baseline.window28.earlyCutRate;
-  const comboEarly = combo.window28.earlyCutRate;
+  const baselineEarly = primaryWindow(
+    baseline,
+    report.methodology.primaryForwardWindowDays,
+  ).earlyCutRate;
+  const comboEarly = primaryWindow(
+    combo,
+    report.methodology.primaryForwardWindowDays,
+  ).earlyCutRate;
   if (baselineEarly === null || comboEarly === null) {
     return {
       status: "insufficient_evidence",
       text:
-        "No parameter change should be proposed yet: forward 28d outcome coverage is insufficient.",
+        `No parameter change should be proposed yet: forward ${report.methodology.primaryForwardWindowDays}d outcome coverage is insufficient.`,
       accountLevelSignals,
     };
   }
@@ -1493,11 +1644,13 @@ function buildRecommendation(report: Omit<SweepReport, "recommendation">): Sweep
 
 function buildAccountLevelSignals(report: Omit<SweepReport, "recommendation">) {
   const signals: string[] = [];
+  const windowDays = report.methodology.primaryForwardWindowDays;
   const iwaBaseline = findBusinessVariant(report, "IwaStore", "V0_current");
-  if (iwaBaseline?.window28.earlyCutRate !== null && iwaBaseline !== undefined) {
+  const iwaWindow = iwaBaseline ? primaryWindow(iwaBaseline, windowDays) : null;
+  if (iwaWindow?.earlyCutRate !== null && iwaWindow !== null) {
     signals.push(
-      `IwaStore V0 28d early-cut rate is ${formatPercent(
-        iwaBaseline.window28.earlyCutRate,
+      `IwaStore V0 ${windowDays}d early-cut rate is ${formatPercent(
+        iwaWindow.earlyCutRate,
       )}; this is an account-level alarm, not a global-rule proof.`,
     );
   }
@@ -1508,41 +1661,55 @@ function buildAccountLevelSignals(report: Omit<SweepReport, "recommendation">) {
     "Grandmix",
     "V1d_purchase_floor_half_winner",
   );
+  const grandmixBaselineWindow = grandmixBaseline
+    ? primaryWindow(grandmixBaseline, windowDays)
+    : null;
+  const grandmixHalfWinnerWindow = grandmixHalfWinner
+    ? primaryWindow(grandmixHalfWinner, windowDays)
+    : null;
   if (
-    grandmixBaseline?.window28.earlyCutRate !== null &&
-    grandmixHalfWinner?.window28.earlyCutRate !== null &&
-    grandmixBaseline !== undefined &&
-    grandmixHalfWinner !== undefined
+    grandmixBaselineWindow?.earlyCutRate !== null &&
+    grandmixHalfWinnerWindow?.earlyCutRate !== null &&
+    grandmixBaselineWindow !== null &&
+    grandmixHalfWinnerWindow !== null
   ) {
     signals.push(
-      `Grandmix V1d moves 28d early-cut rate ${formatPercent(
-        grandmixBaseline.window28.earlyCutRate,
-      )} -> ${formatPercent(grandmixHalfWinner.window28.earlyCutRate)} (${formatPointDelta(
-        grandmixHalfWinner.window28.earlyCutRate - grandmixBaseline.window28.earlyCutRate,
+      `Grandmix V1d moves ${windowDays}d early-cut rate ${formatPercent(
+        grandmixBaselineWindow.earlyCutRate,
+      )} -> ${formatPercent(grandmixHalfWinnerWindow.earlyCutRate)} (${formatPointDelta(
+        grandmixHalfWinnerWindow.earlyCutRate -
+          grandmixBaselineWindow.earlyCutRate,
       )}).`,
     );
   }
 
   const swafBaseline = findBusinessVariant(report, "TheSwaf", "V0_current");
   const swafBreakeven = findBusinessVariant(report, "TheSwaf", "V2b_p25_breakeven_floor");
+  const swafBaselineWindow = swafBaseline
+    ? primaryWindow(swafBaseline, windowDays)
+    : null;
+  const swafBreakevenWindow = swafBreakeven
+    ? primaryWindow(swafBreakeven, windowDays)
+    : null;
   if (
-    swafBaseline?.window28.savedSpendUnits !== null &&
-    swafBreakeven?.window28.savedSpendUnits !== null &&
-    swafBaseline !== undefined &&
-    swafBreakeven !== undefined
+    swafBaselineWindow?.savedSpendUnits !== null &&
+    swafBreakevenWindow?.savedSpendUnits !== null &&
+    swafBaselineWindow !== null &&
+    swafBreakevenWindow !== null
   ) {
     const ratio =
-      positiveFinite(swafBaseline.window28.savedSpendUnits) &&
-      positiveFinite(swafBreakeven.window28.savedSpendUnits)
-        ? swafBreakeven.window28.savedSpendUnits / swafBaseline.window28.savedSpendUnits
+      positiveFinite(swafBaselineWindow.savedSpendUnits) &&
+      positiveFinite(swafBreakevenWindow.savedSpendUnits)
+        ? swafBreakevenWindow.savedSpendUnits /
+          swafBaselineWindow.savedSpendUnits
         : null;
     signals.push(
       `TheSwaf V2b saved spend units ${formatNumber(
-        swafBaseline.window28.savedSpendUnits,
-      )} -> ${formatNumber(swafBreakeven.window28.savedSpendUnits)}${
+        swafBaselineWindow.savedSpendUnits,
+      )} -> ${formatNumber(swafBreakevenWindow.savedSpendUnits)}${
         ratio === null ? "" : ` (${ratio.toFixed(1)}x)`
-      } while 28d early-cut rate remains ${formatPercent(
-        swafBreakeven.window28.earlyCutRate,
+      } while ${windowDays}d early-cut rate remains ${formatPercent(
+        swafBreakevenWindow.earlyCutRate,
       )}.`,
     );
   }
@@ -1555,7 +1722,63 @@ function buildAccountLevelSignals(report: Omit<SweepReport, "recommendation">) {
       `V2a upper-clamp-only effect is scarce in this replay: ${upperClamp.affectedDailyRowsVsBaseline} affected daily rows vs V0.`,
     );
   }
+  signals.push(...buildLossBudgetAccountSignals(report));
 
+  return signals;
+}
+
+function buildLossBudgetAccountSignals(report: Omit<SweepReport, "recommendation">) {
+  const signals: string[] = [];
+  const windowDays = report.methodology.primaryForwardWindowDays;
+  for (const review of report.reviews) {
+    if (review.status !== "ok") continue;
+    const baseline = review.variants.find(
+      (summary) => summary.variantId === "V0_current",
+    );
+    if (!baseline) continue;
+    const baselineWindow = primaryWindow(baseline, windowDays);
+    const candidates = review.variants
+      .filter((summary) => LOSS_BUDGET_VARIANT_IDS.includes(summary.variantId))
+      .filter((summary) => primaryWindow(summary, windowDays).savedSpendUnits !== null);
+    if (candidates.length === 0) continue;
+    const bestSavedSpend = [...candidates].sort((left, right) => {
+      const leftWindow = primaryWindow(left, windowDays);
+      const rightWindow = primaryWindow(right, windowDays);
+      const savedDelta =
+        (rightWindow.savedSpendUnits ?? -Infinity) -
+        (leftWindow.savedSpendUnits ?? -Infinity);
+      if (savedDelta !== 0) return savedDelta;
+      return (
+        (leftWindow.earlyCutRate ?? Infinity) -
+        (rightWindow.earlyCutRate ?? Infinity)
+      );
+    })[0];
+    const bestWindow = primaryWindow(bestSavedSpend, windowDays);
+    const variant = VARIANTS.find((item) => item.id === bestSavedSpend.variantId);
+    const savedDelta =
+      bestWindow.savedSpendUnits !== null && baselineWindow.savedSpendUnits !== null
+        ? rounded(bestWindow.savedSpendUnits - baselineWindow.savedSpendUnits, 2)
+        : null;
+    const earlyDelta =
+      bestWindow.earlyCutRate !== null && baselineWindow.earlyCutRate !== null
+        ? rounded(bestWindow.earlyCutRate - baselineWindow.earlyCutRate, 4)
+        : null;
+    signals.push(
+      `${review.business.name} lossBudget sweep best saved-spend variant is ${
+        bestSavedSpend.variantId
+      } (lossBudget=${formatNumber(variant?.lossBudgetMultiplierOverride ?? null)}): saved units ${formatNumber(
+        baselineWindow.savedSpendUnits,
+      )} -> ${formatNumber(bestWindow.savedSpendUnits)}${
+        savedDelta === null ? "" : ` (${savedDelta >= 0 ? "+" : ""}${savedDelta})`
+      }, ${windowDays}d early-cut ${formatPercent(
+        baselineWindow.earlyCutRate,
+      )} -> ${formatPercent(bestWindow.earlyCutRate)}${
+        earlyDelta === null ? "" : ` (${formatPointDelta(earlyDelta)})`
+      }, defensible=${bestSavedSpend.defensible ? "yes" : "no"}, flip=${formatPercent(
+        bestSavedSpend.flipRateVsBaseline,
+      )}.`,
+    );
+  }
   return signals;
 }
 
@@ -1581,16 +1804,18 @@ function buildReport(input: {
 }): SweepReport {
   const base = {
     contractVersion: "adsecute.f1-f2-cut-threshold-sweep.v1" as const,
-    revision: 2 as const,
+    revision: 3 as const,
     revisionNotes: [
       "Episode dedup now requires at least one post-trigger daily spend > 0 before the same creative can open a new cut episode.",
       "Evidence limits now describe attribution lag in both directions.",
       "Recommendation is reframed from no-change-supported to no-uniform-change-supported with account-level signals.",
+      "Adds 3.1 lossBudgetMultiplier absolute-override variants from 1.0 to 4.0; these are univariate shadow-only sensitivity rows and do not imply production adoption.",
     ],
     generatedAt: new Date().toISOString(),
     readOnly: true as const,
     mutatesData: false as const,
     asOf: input.args.asOf,
+    title: input.args.reportTitle,
     engineVersion: ENGINE_VERSION,
     methodology: {
       unitOfAnalysis:
@@ -1603,7 +1828,12 @@ function buildReport(input: {
         "formula-level threshold sweep; campaign-label guard, provider writes, DB writes, migrations, and resolver threshold changes are not applied",
       nonMutationStatement:
         "This report only reads meta_creative_daily, businesses, target/config/flag tables and writes local JSON/MD artifacts.",
-      queryCostBound: `per-business generated daily replay bounded to ${input.args.lookbackDays} lookback days, 90d trailing calibration, and 28d forward windows`,
+      queryCostBound: `per-business generated daily replay bounded to ${
+        input.args.startDate && input.args.endDate
+          ? `${input.args.startDate}..${input.args.endDate}`
+          : `${input.args.lookbackDays} lookback days`
+      }, 90d trailing calibration, and ${input.args.primaryForwardWindowDays}d primary forward windows`,
+      primaryForwardWindowDays: input.args.primaryForwardWindowDays,
       defensibleEpisodeThreshold: MIN_DEFENSIBLE_EPISODES,
     },
     variants: VARIANTS,
@@ -1617,6 +1847,7 @@ function buildReport(input: {
       "Target history is not versioned in business_target_packs; target and breakeven are held constant across the replay.",
       "The sweep uses raw forward ROAS and does not depend on v1/v2 outcome classifiers.",
       "Pooled saved-spend uses spendUnit-normalized units; raw currency is not pooled across businesses.",
+      "LossBudgetMultiplier rows are univariate shadow sensitivity tests: purchase floor and boundary mode stay at current behavior unless the variant label says otherwise.",
       "This report does not change thresholds; any parameter adoption requires user approval, new golden cases, and an ENGINE_VERSION bump.",
     ],
   };
@@ -1626,9 +1857,36 @@ function buildReport(input: {
   };
 }
 
+function tradeoffText(
+  summary: Pick<VariantBusinessSummary | PooledSummary, "window14" | "window28">,
+  baseline: Pick<VariantBusinessSummary | PooledSummary, "window14" | "window28"> | null,
+  windowDays: 14 | 28,
+) {
+  if (!baseline) return "n/a";
+  const summaryWindow = primaryWindow(summary, windowDays);
+  const baselineWindow = primaryWindow(baseline, windowDays);
+  const savedDelta =
+    summaryWindow.savedSpendUnits !== null && baselineWindow.savedSpendUnits !== null
+      ? rounded(summaryWindow.savedSpendUnits - baselineWindow.savedSpendUnits, 2)
+      : null;
+  const earlyDelta =
+    summaryWindow.earlyCutRate !== null && baselineWindow.earlyCutRate !== null
+      ? rounded(summaryWindow.earlyCutRate - baselineWindow.earlyCutRate, 4)
+      : null;
+  if (savedDelta === null && earlyDelta === null) return "n/a";
+  const savedText =
+    savedDelta === null ? "saved n/a" : `${savedDelta >= 0 ? "+" : ""}${savedDelta} units`;
+  const earlyText =
+    earlyDelta === null
+      ? "early n/a"
+      : `${earlyDelta >= 0 ? "+" : ""}${(earlyDelta * 100).toFixed(1)} pp early`;
+  return `${savedText}; ${earlyText}`;
+}
+
 function renderMarkdown(report: SweepReport) {
   const lines: string[] = [];
-  lines.push("# F1/F2 Cut Threshold Sweep - 2026-07-02");
+  const windowDays = report.methodology.primaryForwardWindowDays;
+  lines.push(`# ${report.title}`);
   lines.push("");
   lines.push(
     "This is a read-only parameter-evaluation report. It does not change resolver thresholds, formulas, database state, provider state, migrations, or operator behavior.",
@@ -1658,6 +1916,7 @@ function renderMarkdown(report: SweepReport) {
   lines.push(`- Target history: ${report.methodology.targetHistoryAssumption}`);
   lines.push(`- Scope: ${report.methodology.guardrailScope}`);
   lines.push(`- Query bound: ${report.methodology.queryCostBound}`);
+  lines.push(`- Primary forward window: ${windowDays}d`);
   lines.push(`- Defensible threshold: n >= ${report.methodology.defensibleEpisodeThreshold} episodes`);
   lines.push("");
   lines.push("## Variants");
@@ -1671,19 +1930,24 @@ function renderMarkdown(report: SweepReport) {
   lines.push("## Pooled View");
   lines.push("");
   lines.push(
-    "| Variant | Episodes | Defensible | Affected rows vs V0 | 28d early-cut rate | 28d true-loser episodes | Saved spend units | Median delay vs V0 |",
+    `| Variant | Episodes | Defensible | Affected rows vs V0 | Flip rate vs V0 | ${windowDays}d early-cut rate | ${windowDays}d true-loser episodes | Saved spend units | Trade-off vs V0 | Median delay vs V0 |`,
   );
-  lines.push("| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |");
+  lines.push("| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: |");
+  const pooledBaseline =
+    report.pooled.find((summary) => summary.variantId === "V0_current") ?? null;
   for (const summary of report.pooled) {
+    const window = primaryWindow(summary, windowDays);
     lines.push(
       [
         `| ${summary.variantId}`,
         summary.episodes,
         summary.defensible ? "yes" : "no",
         summary.affectedDailyRowsVsBaseline,
-        formatPercent(summary.window28.earlyCutRate),
-        summary.window28.trueLoserEpisodes,
-        formatNumber(summary.window28.savedSpendUnits),
+        formatPercent(summary.flipRateVsBaseline),
+        formatPercent(window.earlyCutRate),
+        window.trueLoserEpisodes,
+        formatNumber(window.savedSpendUnits),
+        tradeoffText(summary, pooledBaseline, windowDays),
         formatNumber(summary.medianDelayDaysVsBaseline),
       ].join(" | ") + " |",
     );
@@ -1706,10 +1970,27 @@ function renderMarkdown(report: SweepReport) {
     );
     lines.push("");
     lines.push(
-      "| Variant | Episodes | Defensible | Daily cut rows | Affected rows vs V0 | 28d early-cut rate | Saved spend | Saved spend units | Delay vs V0 | Source mix |",
+      `| Variant | Episodes | Defensible | Daily cut rows | Affected rows vs V0 | Flip rate vs V0 | ${windowDays}d early-cut rate | Saved spend | Saved spend units | Trade-off vs V0 | Delay vs V0 | Source mix | Safety flags |`,
     );
-    lines.push("| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |");
+    lines.push("| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- | --- |");
+    const baseline =
+      review.variants.find((summary) => summary.variantId === "V0_current") ??
+      null;
     for (const summary of review.variants) {
+      const window = primaryWindow(summary, windowDays);
+      const safetyFlags = [
+        summary.lossBudgetGeHardCutEpisodes > 0
+          ? `lossBudget>=hardCut:${summary.lossBudgetGeHardCutEpisodes}`
+          : null,
+        summary.boundaryFallbackEpisodes > 0
+          ? `boundaryFallback:${summary.boundaryFallbackEpisodes}`
+          : null,
+        summary.purchaseFloorFallbackEpisodes > 0
+          ? `purchaseFloorFallback:${summary.purchaseFloorFallbackEpisodes}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(", ");
       lines.push(
         [
           `| ${summary.variantId}`,
@@ -1717,11 +1998,14 @@ function renderMarkdown(report: SweepReport) {
           summary.defensible ? "yes" : "no",
           summary.dailyCutRows,
           summary.affectedDailyRowsVsBaseline,
-          formatPercent(summary.window28.earlyCutRate),
-          formatNumber(summary.window28.savedSpend),
-          formatNumber(summary.window28.savedSpendUnits),
+          formatPercent(summary.flipRateVsBaseline),
+          formatPercent(window.earlyCutRate),
+          formatNumber(window.savedSpend),
+          formatNumber(window.savedSpendUnits),
+          tradeoffText(summary, baseline, windowDays),
           formatNumber(summary.medianDelayDaysVsBaseline),
           formatCounts(summary.sourceCounts),
+          safetyFlags || "none",
         ].join(" | ") + " |",
       );
     }
@@ -1825,7 +2109,7 @@ async function main() {
           startDate: null,
           endDate: null,
           lookbackDays: args.lookbackDays,
-          forwardWindowDays: 28,
+          forwardWindowDays: args.primaryForwardWindowDays,
         },
         rowsEvaluated: 0,
         candidateRowsWithTarget: 0,

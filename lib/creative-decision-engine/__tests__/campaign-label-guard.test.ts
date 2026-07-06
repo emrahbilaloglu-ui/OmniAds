@@ -195,3 +195,147 @@ describe("applyCreativeCampaignLabelGuard", () => {
     expect(twice.blockedActionType).toBe("scale");
   });
 });
+
+describe("automatic campaign context trust classes (D033)", () => {
+  function contextMap(
+    trust: "override" | "high" | "medium" | "low" | "unknown" | "conflict",
+    kind: "main" | "test" | "mixed" = "main",
+  ) {
+    return new Map([
+      ["campaign-9", { kind, testDimension: null, contextTrust: trust }],
+    ]);
+  }
+
+  it("treats override and high trust exactly like a manual label", () => {
+    for (const trust of ["override", "high"] as const) {
+      const guarded = applyCreativeCampaignLabelGuard({
+        decision: makeDecision({ label: "scale" }),
+        input: makeInput("campaign-9"),
+        campaignLabelsById: contextMap(trust, "test"),
+      });
+      expect(guarded.label).toBe("scale");
+      expect(guarded.campaignLabelStatus).toBe("labeled");
+      expect(guarded.campaignKind).toBe("test");
+      expect(guarded.blockedActionType).toBeNull();
+    }
+  });
+
+  it("does not trust kind semantics when an automatic context row has no inferred kind", () => {
+    const guarded = applyCreativeCampaignLabelGuard({
+      decision: makeDecision({ label: "scale" }),
+      input: makeInput("campaign-9"),
+      campaignLabelsById: new Map([
+        [
+          "campaign-9",
+          { kind: null, testDimension: null, contextTrust: "high" },
+        ],
+      ]),
+    });
+
+    expect(guarded.label).toBe("diagnose");
+    expect(guarded.campaignLabelStatus).toBe("unlabeled");
+    expect(guarded.campaignKind).toBeNull();
+    expect(guarded.blockedActionType).toBe("scale");
+    expect(
+      guarded.badges.some(
+        (badge) => badge.type === "unlabeled_campaign_context",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps mature cut visible at medium trust with a low-confidence badge", () => {
+    const guarded = applyCreativeCampaignLabelGuard({
+      decision: makeDecision({ label: "cut", confidence: 78 }),
+      input: makeInput("campaign-9"),
+      campaignLabelsById: contextMap("medium"),
+    });
+    expect(guarded.label).toBe("cut");
+    expect(guarded.confidence).toBe(78);
+    expect(guarded.campaignLabelStatus).toBe("labeled");
+    expect(guarded.campaignKind).toBeNull();
+    expect(
+      guarded.badges.some(
+        (badge) => badge.type === "campaign_context_low_confidence",
+      ),
+    ).toBe(true);
+  });
+
+  it("demotes hard scale at medium trust with blockedActionType preserved", () => {
+    const guarded = applyCreativeCampaignLabelGuard({
+      decision: makeDecision({ label: "scale", confidence: 82 }),
+      input: makeInput("campaign-9"),
+      campaignLabelsById: contextMap("medium"),
+    });
+    expect(guarded.label).toBe("diagnose");
+    expect(guarded.blockedActionType).toBe("scale");
+    expect(guarded.confidence).toBeLessThanOrEqual(
+      CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP,
+    );
+    expect(
+      guarded.badges.some(
+        (badge) => badge.type === "campaign_context_low_confidence",
+      ),
+    ).toBe(true);
+  });
+
+  it("suppresses kind semantics at medium trust", () => {
+    const guarded = applyCreativeCampaignLabelGuard({
+      decision: makeDecision({ label: "keep" }),
+      input: makeInput("campaign-9"),
+      campaignLabelsById: contextMap("medium", "test"),
+    });
+    expect(guarded.campaignKind).toBeNull();
+    expect(guarded.campaignLabelStatus).toBe("labeled");
+  });
+
+  it("demotes hard actions at unknown trust with the unresolved badge", () => {
+    const guarded = applyCreativeCampaignLabelGuard({
+      decision: makeDecision({ label: "cut", confidence: 80 }),
+      input: makeInput("campaign-9"),
+      campaignLabelsById: contextMap("unknown"),
+    });
+    expect(guarded.label).toBe("diagnose");
+    expect(guarded.blockedActionType).toBe("cut");
+    expect(guarded.confidence).toBeLessThanOrEqual(
+      CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP,
+    );
+    expect(
+      guarded.badges.some(
+        (badge) => badge.type === "campaign_context_unresolved",
+      ),
+    ).toBe(true);
+    expect(
+      guarded.badges.some((badge) => badge.type === "stop_loss_review"),
+    ).toBe(true);
+  });
+
+  it("marks conflict trust with the conflict badge and demotes hard actions", () => {
+    const guarded = applyCreativeCampaignLabelGuard({
+      decision: makeDecision({ label: "refresh", confidence: 75 }),
+      input: makeInput("campaign-9"),
+      campaignLabelsById: contextMap("conflict"),
+    });
+    expect(guarded.label).toBe("diagnose");
+    expect(guarded.blockedActionType).toBe("refresh");
+    expect(
+      guarded.badges.some(
+        (badge) => badge.type === "campaign_context_conflict",
+      ),
+    ).toBe(true);
+  });
+
+  it("passes soft decisions at low trust with only the unresolved badge", () => {
+    const guarded = applyCreativeCampaignLabelGuard({
+      decision: makeDecision({ label: "keep" }),
+      input: makeInput("campaign-9"),
+      campaignLabelsById: contextMap("low"),
+    });
+    expect(guarded.label).toBe("keep");
+    expect(guarded.campaignLabelStatus).toBe("unlabeled");
+    expect(
+      guarded.badges.some(
+        (badge) => badge.type === "campaign_context_unresolved",
+      ),
+    ).toBe(true);
+  });
+});

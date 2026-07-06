@@ -66,6 +66,16 @@ These cases must become executable fixtures before resolver behavior changes. Do
 | GC-059  | cut-zone creative has enough recent spend and recent 7d ROAS above target                                               | Keep                    | review              | review_only           | performance          | high                 | high                   | recovery_hold                          | mature           | diagnose_data                     |
 | GC-060  | scale-ready winner has unknown source freshness                                                                        | Keep                    | review              | review_only           | data_quality         | high                 | medium                 | unknown_freshness_scale_block           | mature           | diagnose_data                     |
 | GC-061  | funnel-step issue has unknown source freshness, so fresh proof is unavailable                                           | Keep                    | review              | review_only           | data_quality         | medium               | medium                 | unknown_freshness_funnel_proof_required | mature           | diagnose_data                     |
+| GC-062  | active creative has verified 0 spend and 0 impressions at 35h source freshness                                          | Diagnose                | fix_delivery        | diagnose              | delivery             | high                 | medium                 | active_no_spend_24h_fresh_boundary      | learning         | diagnose_data                     |
+| GC-063  | 40h source freshness blocks no-delivery proof but mature severe loser math is present                                  | Cut                     | cut                 | review_only           | performance          | high                 | high                   | freshness_boundary_severe_cut           | mature           | diagnose_data                     |
+| GC-064  | 49h source freshness with a mature severe loser                                                                        | Cut                     | cut                 | review_only           | performance          | high                 | medium                 | stale_severe_cut_confidence_cap         | mature           | diagnose_data                     |
+| GC-065  | unknown source freshness with a mature severe loser                                                                    | Cut                     | cut                 | review_only           | performance          | high                 | medium                 | unknown_freshness_severe_cut_cap        | mature           | diagnose_data                     |
+| GC-066  | scale-ready winner has stale source freshness                                                                          | Keep                    | review              | review_only           | data_quality         | high                 | medium                 | stale_freshness_scale_block             | mature           | diagnose_data                     |
+| GC-067  | scale-ready winner has unknown source freshness as canonical scale blocker                                             | Keep                    | review              | review_only           | data_quality         | high                 | medium                 | unknown_freshness_scale_block           | mature           | diagnose_data                     |
+| GC-068  | funnel-step issue has unknown source freshness as canonical funnel blocker                                             | Keep                    | review              | review_only           | data_quality         | medium               | medium                 | unknown_freshness_funnel_proof_required | mature           | diagnose_data                     |
+| GC-069  | cut-zone creative has enough recent spend and recent 7d ROAS above target as canonical recovery hold                   | Keep                    | review              | review_only           | performance          | high                 | high                   | recovery_hold                          | mature           | diagnose_data                     |
+| GC-070  | cut-zone creative has recent 7d ROAS above target but recent spend below the recovery sample threshold                 | Cut                     | cut                 | review_only           | performance          | high                 | medium                 | recovery_hold_spend_boundary            | mature           | diagnose_data                     |
+| GC-071  | cut-zone creative has enough recent spend but recent 7d ROAS equals target exactly                                     | Cut                     | cut                 | review_only           | performance          | high                 | medium                 | recovery_hold_strict_roas_boundary      | mature           | diagnose_data                     |
 
 ## Case Notes
 
@@ -154,6 +164,32 @@ These cases must become executable fixtures before resolver behavior changes. Do
   while preserving the scale-readiness evidence for review.
 - GC-061 proves funnel-step diagnosis requires fresh source proof; unknown
   freshness must not emit a high-confidence landing/checkout diagnosis.
+- GC-062 proves verified no-delivery proof remains valid at the fresh side of
+  the 36h boundary.
+- GC-063 proves the 36-48h freshness band is not fresh enough for delivery
+  proof and not stale enough for a stale-evidence cap; mature severe loser math
+  can still surface `Cut`.
+- GC-064 proves source freshness above 48h caps mature severe-cut confidence.
+- GC-065 proves unknown freshness caps but does not hide mature severe-cut risk.
+- GC-066 proves stale source freshness blocks hard scale and exposes the
+  scale-readiness blocker for review.
+- GC-067 preserves the canonical unknown-freshness scale blocker as an
+  executable boundary case.
+- GC-068 preserves the canonical unknown-freshness funnel blocker as an
+  executable boundary case.
+- GC-069 preserves the canonical recovery hold case as an executable boundary
+  case.
+- GC-070 proves recovery hold requires recent spend at the sample threshold,
+  not only above-target recent ROAS.
+- GC-071 proves recovery hold uses strict `recent7dRoas > targetRoas`; exact
+  equality must not silently hold the cut unless a separate formula decision
+  changes the operator.
+- GC-072 through GC-075 are reserved for future config-surface todos covering
+  `lossBudgetMultiplier` and `cutBoundaryMode`; they are not executable until
+  those fields exist.
+- GC-076 is reserved for report/harness policy coverage proving anachronistic
+  target-history replay cannot justify production hard-action adoption; it is
+  not a `decideCreative` fixture.
 - P1b kind-segmented calibration was data-only. P1c consumes those
   baselines only through a strict profile selector: sufficient labeled kind
   data may change decisions; sparse, mixed-empty, or unlabeled rows must match

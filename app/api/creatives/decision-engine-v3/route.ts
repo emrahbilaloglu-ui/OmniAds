@@ -10,7 +10,7 @@ import {
   withCreativeCampaignLabelContext,
 } from "@/lib/creative-decision-engine/campaign-label-guard";
 import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
-import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
+import { readCampaignContextLabelMap } from "@/lib/creative-decision-engine/campaign-context/source";
 import { resolveDataSource } from "./data-source";
 
 export const dynamic = "force-dynamic";
@@ -75,14 +75,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         .filter(Boolean),
     ),
   );
-  const campaignLabelsById = buildCreativeCampaignLabelMap(
+  const campaignLabelsById =
     campaignIds.length > 0
-      ? await readMetaCampaignLabels({
+      ? await readCampaignContextLabelMap({
           businessId: resolvedBusinessId,
           campaignIds,
+          asOf,
         })
-      : [],
-  );
+      : buildCreativeCampaignLabelMap([]);
   const decisions = scopedInputs.map((input) => {
     const inputWithCampaignKind = withCreativeCampaignLabelContext(
       input,

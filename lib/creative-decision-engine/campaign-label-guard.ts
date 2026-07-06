@@ -13,11 +13,39 @@ import { CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP } from "./config-values";
 
 export const CREATIVE_CAMPAIGN_LABEL_GUARD_PREFIX =
   "[Unlabeled campaign - label to enable action]";
+export const CAMPAIGN_CONTEXT_UNRESOLVED_GUARD_PREFIX =
+  "[Campaign context unresolved - review before hard action]";
+export const CAMPAIGN_CONTEXT_LOW_CONFIDENCE_GUARD_PREFIX =
+  "[Campaign context low confidence - hard action restricted]";
 export { CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP } from "./config-values";
+
+/**
+ * Trust class of a campaign context entry (D033).
+ *
+ * Absent trust (legacy meta_campaign_labels rows) and "override"/"high" are
+ * fully trusted: current labeled behavior. "medium" restricts kind semantics
+ * (no kind-aware calibration or Test transforms; hard scale/refresh demote;
+ * mature cut stays visible with a low-confidence badge). "low"/"unknown"
+ * behave like today's unlabeled guard with automatic-context badges.
+ * "conflict" is unresolved with conflict evidence.
+ */
+export type CreativeCampaignContextTrust =
+  | "override"
+  | "high"
+  | "medium"
+  | "low"
+  | "unknown"
+  | "conflict";
+
+export interface CreativeCampaignContextEntry
+  extends Pick<MetaCampaignLabel, "testDimension"> {
+  kind: MetaCampaignKind | null;
+  contextTrust?: CreativeCampaignContextTrust;
+}
 
 export type CreativeCampaignLabelMap = ReadonlyMap<
   string,
-  Pick<MetaCampaignLabel, "kind" | "testDimension">
+  CreativeCampaignContextEntry
 >;
 
 interface CreativeCampaignLabelGuardInput {
@@ -99,6 +127,65 @@ function isAlreadyGuarded(decision: DecisionOutput) {
   );
 }
 
+type ContextGuardBadgeType =
+  | "campaign_context_unresolved"
+  | "campaign_context_low_confidence"
+  | "campaign_context_conflict";
+
+const CONTEXT_BADGE_LABELS: Record<ContextGuardBadgeType, string> = {
+  campaign_context_unresolved:
+    "Campaign context unresolved - automatic role could not be determined; review structure before hard action",
+  campaign_context_low_confidence:
+    "Campaign context low confidence - kind-specific semantics disabled",
+  campaign_context_conflict:
+    "Campaign context conflict - signals disagree; review structure before hard action",
+};
+
+function withContextBadge(
+  badges: readonly DecisionBadge[],
+  type: ContextGuardBadgeType,
+): DecisionBadge[] {
+  if (badges.some((badge) => badge.type === type)) return [...badges];
+  return [
+    ...badges,
+    { type, label: CONTEXT_BADGE_LABELS[type], severity: "warning" },
+  ];
+}
+
+function guardHardDecisionWithContext(
+  decision: DecisionOutput,
+  options: {
+    status: DecisionOutput["campaignLabelStatus"];
+    badgeType: ContextGuardBadgeType;
+    prefix: string;
+  },
+): DecisionOutput {
+  const originalLabel = decision.label;
+  const badges = withContextBadge(decision.badges, options.badgeType);
+  const guardedBadges =
+    originalLabel === "cut" ? withStopLossReviewBadge(badges) : badges;
+
+  return withCampaignContext(
+    {
+      ...decision,
+      label: "diagnose",
+      confidence: Math.min(
+        decision.confidence,
+        CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP,
+      ),
+      reason: `${options.prefix} ${decision.reason}`,
+      badges: guardedBadges,
+    },
+    {
+      status: options.status,
+      kind: null,
+      testDimension: null,
+      blockedActionType: originalLabel,
+      badges: guardedBadges,
+    },
+  );
+}
+
 function guardHardDecisionWithoutCampaignLabel(
   decision: DecisionOutput,
   status: DecisionOutput["campaignLabelStatus"],
@@ -147,16 +234,26 @@ export function buildCreativeCampaignLabelMap(
   );
 }
 
+function isTrustedForKindSemantics(
+  entry: CreativeCampaignContextEntry | null | undefined,
+): entry is CreativeCampaignContextEntry & { kind: MetaCampaignKind } {
+  if (!entry) return false;
+  if (entry.kind === null) return false;
+  const trust = entry.contextTrust;
+  return trust === undefined || trust === "override" || trust === "high";
+}
+
 export function withCreativeCampaignLabelContext<T extends Pick<CreativeInput, "campaignId">>(
   input: T,
   campaignLabelsById: CreativeCampaignLabelMap | null | undefined,
 ): T & Pick<CreativeInput, "campaignKind"> {
   const campaignId = input.campaignId?.trim() || null;
+  const entry = campaignId ? (campaignLabelsById?.get(campaignId) ?? null) : null;
   return {
     ...input,
-    campaignKind: campaignId
-      ? (campaignLabelsById?.get(campaignId)?.kind ?? null)
-      : null,
+    // Kind semantics (kind-aware calibration, Test transforms) require full
+    // trust; medium/low/unknown/conflict automatic context stays canonical.
+    campaignKind: isTrustedForKindSemantics(entry) ? entry!.kind : null,
   };
 }
 
@@ -189,12 +286,75 @@ export function applyCreativeCampaignLabelGuard({
   }
 
   const label = campaignLabelsById?.get(campaignId) ?? null;
-  if (label) {
+  if (label && isTrustedForKindSemantics(label)) {
     return withCampaignContext(decision, {
       status: "labeled",
       kind: label.kind,
       testDimension: label.testDimension,
       blockedActionType: null,
+    });
+  }
+
+  if (label?.contextTrust === "medium") {
+    // Medium-confidence automatic context: canonical baselines, no kind
+    // semantics. Mature stop-loss cut stays visible with a low-confidence
+    // badge (user-approved medium-cut policy); hard scale/refresh demote.
+    if (decision.label === "cut") {
+      return withCampaignContext(decision, {
+        status: "labeled",
+        kind: null,
+        testDimension: null,
+        blockedActionType: null,
+        badges: withContextBadge(decision.badges, "campaign_context_low_confidence"),
+      });
+    }
+    if (isHardDecision(decision.label)) {
+      return guardHardDecisionWithContext(decision, {
+        status: "labeled",
+        badgeType: "campaign_context_low_confidence",
+        prefix: CAMPAIGN_CONTEXT_LOW_CONFIDENCE_GUARD_PREFIX,
+      });
+    }
+    return withCampaignContext(decision, {
+      status: "labeled",
+      kind: null,
+      testDimension: null,
+      blockedActionType: null,
+      badges: decision.badges.slice(),
+    });
+  }
+
+  if (
+    label?.contextTrust === "low" ||
+    label?.contextTrust === "unknown" ||
+    label?.contextTrust === "conflict"
+  ) {
+    const badgeType =
+      label.contextTrust === "conflict"
+        ? "campaign_context_conflict"
+        : "campaign_context_unresolved";
+    const badges = withContextBadge(decision.badges, badgeType);
+    if (isAlreadyGuarded(decision)) {
+      return withCampaignContext(decision, {
+        status: "unlabeled",
+        kind: null,
+        testDimension: null,
+        badges,
+      });
+    }
+    if (!isHardDecision(decision.label)) {
+      return withCampaignContext(decision, {
+        status: "unlabeled",
+        kind: null,
+        testDimension: null,
+        blockedActionType: null,
+        badges,
+      });
+    }
+    return guardHardDecisionWithContext(decision, {
+      status: "unlabeled",
+      badgeType,
+      prefix: CAMPAIGN_CONTEXT_UNRESOLVED_GUARD_PREFIX,
     });
   }
 

@@ -17,6 +17,11 @@ vi.mock("../../jobs/calibration-job", () => ({
   runCalibrationJob: vi.fn(),
 }));
 
+vi.mock("../../jobs/campaign-context-job", () => ({
+  JOB_NAME: "engine_v3_campaign_context_job",
+  runCampaignContextJob: vi.fn(),
+}));
+
 vi.mock("../../jobs/lifecycle-job", () => ({
   JOB_NAME: "engine_v3_lifecycle_job",
   runLifecycleJob: vi.fn(),
@@ -31,6 +36,7 @@ const db = await import("@/lib/db");
 const readiness = await import("@/lib/db-schema-readiness");
 const featureFlags = await import("../../feature-flags");
 const calibrationJob = await import("../../jobs/calibration-job");
+const campaignContextJob = await import("../../jobs/campaign-context-job");
 const lifecycleJob = await import("../../jobs/lifecycle-job");
 const decisionsJob = await import("../../jobs/decisions-job");
 const {
@@ -43,6 +49,13 @@ function makeDbRows(rows: Array<{ business_ref_id: string }>) {
     query: vi.fn().mockResolvedValue(rows),
   };
 }
+
+const successCampaignContext = {
+  jobRunId: "campaign-context-run",
+  status: "success",
+  rowsWritten: 1,
+  durationMs: 1,
+};
 
 const successCalibration = {
   jobRunId: "calibration-run",
@@ -82,6 +95,9 @@ describe("runEngineV3ProducerChainForActiveBusinessesIfDue", () => {
       "biz_2",
     ]);
     vi.mocked(db.getDb).mockReturnValue(makeDbRows([]) as never);
+    vi.mocked(campaignContextJob.runCampaignContextJob).mockResolvedValue(
+      successCampaignContext as never,
+    );
     vi.mocked(calibrationJob.runCalibrationJob).mockResolvedValue(
       successCalibration as never,
     );
@@ -374,5 +390,48 @@ describe("runEngineV3ProducerChainForActiveBusinessesIfDue", () => {
     expect(result.results).toHaveLength(2);
     expect(result.results?.[0]?.decisions.status).toBe("failed");
     expect(result.results?.[1]?.decisions.status).toBe("success");
+  });
+
+  it("runs campaign context first and does not gate the chain on its failure", async () => {
+    const order: string[] = [];
+    vi.mocked(campaignContextJob.runCampaignContextJob).mockImplementation(
+      async () => {
+        order.push("campaign_context");
+        return {
+          jobRunId: "",
+          status: "failed",
+          rowsWritten: 0,
+          durationMs: 1,
+          errorMessage: "context boom",
+        } as never;
+      },
+    );
+    vi.mocked(calibrationJob.runCalibrationJob).mockImplementation(async () => {
+      order.push("calibration");
+      return successCalibration as never;
+    });
+    vi.mocked(lifecycleJob.runLifecycleJob).mockImplementation(async () => {
+      order.push("lifecycle");
+      return successLifecycle as never;
+    });
+    vi.mocked(decisionsJob.runDecisionsJob).mockImplementation(async () => {
+      order.push("decisions");
+      return successDecisions as never;
+    });
+
+    const result = await runEngineV3ProducerChainForActiveBusinessesIfDue(
+      new Date("2026-05-08T03:10:00.000Z"),
+    );
+
+    expect(result.skipped).toBe(false);
+    expect(order.slice(0, 4)).toEqual([
+      "campaign_context",
+      "calibration",
+      "lifecycle",
+      "decisions",
+    ]);
+    const first = result.results?.[0];
+    expect(first?.campaignContext?.status).toBe("failed");
+    expect(first?.decisions.status).toBe("success");
   });
 });

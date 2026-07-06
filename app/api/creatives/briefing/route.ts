@@ -19,7 +19,7 @@ import {
 } from "@/lib/creative-decision-engine/campaign-label-guard";
 import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
 import { resolveDataSource } from "@/app/api/creatives/decision-engine-v3/data-source";
-import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
+import { readCampaignContextLabelMap } from "@/lib/creative-decision-engine/campaign-context/source";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
 import {
   isInBriefing,
@@ -1223,14 +1223,14 @@ export async function GET(request: NextRequest) {
         .filter(Boolean),
     ),
   );
-  const campaignLabelsById = buildCreativeCampaignLabelMap(
+  const campaignLabelsById =
     campaignIds.length > 0
-      ? await readMetaCampaignLabels({
+      ? await readCampaignContextLabelMap({
           businessId: resolvedBusinessId,
           campaignIds,
+          asOf,
         })
-      : [],
-  );
+      : buildCreativeCampaignLabelMap([]);
 
   const lanes: Record<BriefingLane, BriefingCreativeCard[]> = {
     action: [],

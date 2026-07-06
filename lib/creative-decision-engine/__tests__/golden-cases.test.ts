@@ -114,6 +114,16 @@ const EXECUTABLE_PRIMARY_CASE_IDS = new Set([
   "GC-059",
   "GC-060",
   "GC-061",
+  "GC-062",
+  "GC-063",
+  "GC-064",
+  "GC-065",
+  "GC-066",
+  "GC-067",
+  "GC-068",
+  "GC-069",
+  "GC-070",
+  "GC-071",
 ]);
 
 function parseCanonicalGoldenCases(): GoldenCase[] {
@@ -269,6 +279,43 @@ function unknownFunnelIssueInput(
     initiateCheckout: 5,
     ctr: 1.5,
     thumbstop: 30,
+    ...overrides,
+  });
+}
+
+function severeLoserInput(overrides: Partial<CreativeInput> = {}): CreativeInput {
+  return makeCreativeInput({
+    targetRoas: 2.5,
+    spend: 620,
+    purchases: 1,
+    roas: 0.27,
+    recent7dRoas: 0.4,
+    linkClicks: 600,
+    landingPageViews: 480,
+    addToCart: 80,
+    initiateCheckout: 40,
+    ...overrides,
+  });
+}
+
+function severeStopLossProfile(): AccountDecisionProfile {
+  return makeAccountDecisionProfile({
+    spendUnit: 36,
+    thresholds: {
+      commercialMaturitySpend: 72,
+      hardCutSpend: 360,
+      sustainedLoserSpend: 108,
+      severeLoserRatio: 0.4,
+    },
+  });
+}
+
+function scaleReadyInput(overrides: Partial<CreativeInput> = {}): CreativeInput {
+  return makeCreativeInput({
+    spend: 1000,
+    purchases: 15,
+    roas: 3.5,
+    recent7dRoas: 3,
     ...overrides,
   });
 }
@@ -570,6 +617,85 @@ function decideGoldenPrimary(caseId: string): DecisionOutput {
       );
     case "GC-061":
       return decideCreative(unknownFunnelIssueInput(), baseProfile);
+    case "GC-062":
+      return decideCreative(
+        makeCreativeInput({
+          dataFreshnessHours: 35,
+          spend24h: 0,
+          impressions24h: 0,
+        }),
+        baseProfile,
+      );
+    case "GC-063":
+      return decideCreative(
+        severeLoserInput({
+          dataFreshnessHours: 40,
+          spend24h: 0,
+          impressions24h: 0,
+        }),
+        severeStopLossProfile(),
+      );
+    case "GC-064":
+      return decideCreative(
+        severeLoserInput({ dataFreshnessHours: 49 }),
+        severeStopLossProfile(),
+      );
+    case "GC-065":
+      return decideCreative(
+        severeLoserInput({ dataFreshnessHours: null }),
+        severeStopLossProfile(),
+      );
+    case "GC-066":
+      return decideCreative(
+        scaleReadyInput({ dataFreshnessHours: 49 }),
+        makeAccountDecisionProfile({ thresholds: { scaleMinPurchases: 4 } }),
+      );
+    case "GC-067":
+      return decideCreative(
+        scaleReadyInput({ dataFreshnessHours: null }),
+        makeAccountDecisionProfile({ thresholds: { scaleMinPurchases: 4 } }),
+      );
+    case "GC-068":
+      return decideCreative(unknownFunnelIssueInput(), baseProfile);
+    case "GC-069":
+      return decideCreative(
+        makeCreativeInput({
+          spend: 300,
+          purchases: 1,
+          roas: 1.1,
+          recent7dRoas: 2.4,
+          recent7dSpend: 80,
+          ctr: 0.5,
+          thumbstop: 10,
+        }),
+        baseProfile,
+      );
+    case "GC-070":
+      return decideCreative(
+        makeCreativeInput({
+          spend: 300,
+          purchases: 1,
+          roas: 1.1,
+          recent7dRoas: 2.4,
+          recent7dSpend: 40,
+          ctr: 0.5,
+          thumbstop: 10,
+        }),
+        baseProfile,
+      );
+    case "GC-071":
+      return decideCreative(
+        makeCreativeInput({
+          spend: 300,
+          purchases: 1,
+          roas: 1.1,
+          recent7dRoas: 2.2,
+          recent7dSpend: 80,
+          ctr: 0.5,
+          thumbstop: 10,
+        }),
+        baseProfile,
+      );
     default:
       throw new Error(`Golden case ${caseId} is not executable in active V3.`);
   }
@@ -627,7 +753,7 @@ const pendingCases = fixtureCases.filter(
 describe("Creative Decision Center golden cases", () => {
   it("keeps the executable fixture in lockstep with GOLDEN_CASES.md", () => {
     expect(fixtureCases).toEqual(parseCanonicalGoldenCases());
-    expect(fixtureCases).toHaveLength(62);
+    expect(fixtureCases).toHaveLength(72);
   });
 
   it("asserts the full contract surface for every canonical case", () => {
@@ -679,6 +805,16 @@ describe("Creative Decision Center golden cases", () => {
       "GC-059",
       "GC-060",
       "GC-061",
+      "GC-062",
+      "GC-063",
+      "GC-064",
+      "GC-065",
+      "GC-066",
+      "GC-067",
+      "GC-068",
+      "GC-069",
+      "GC-070",
+      "GC-071",
     ]);
 
     expect(pendingCases).toHaveLength(37);
@@ -745,6 +881,73 @@ describe("Creative Decision Center golden cases", () => {
     expect(freshFunnel.badges.map((badge) => badge.type)).toContain(
       "landing_page_issue",
     );
+
+    const freshBoundaryNoDelivery = decideGoldenPrimary("GC-062");
+    expect(freshBoundaryNoDelivery.label).toBe("diagnose");
+    expect(freshBoundaryNoDelivery.badges.map((badge) => badge.type)).toContain(
+      "delivery_no_spend_24h",
+    );
+
+    const midFreshnessSevereCut = decideGoldenPrimary("GC-063");
+    expect(midFreshnessSevereCut.label).toBe("cut");
+    expect(midFreshnessSevereCut.confidence).toBeGreaterThan(
+      STALE_CONFIDENCE_CAP,
+    );
+    expect(midFreshnessSevereCut.badges.map((badge) => badge.type)).not.toEqual(
+      expect.arrayContaining([
+        "delivery_no_spend_24h",
+        "stale_evidence",
+        "unknown_freshness",
+      ]),
+    );
+
+    const staleSevereCut = decideGoldenPrimary("GC-064");
+    expect(staleSevereCut.label).toBe("cut");
+    expect(staleSevereCut.confidence).toBeLessThanOrEqual(
+      STALE_CONFIDENCE_CAP,
+    );
+    expect(staleSevereCut.badges.map((badge) => badge.type)).toContain(
+      "stale_evidence",
+    );
+
+    const unknownFreshnessSevereCut = decideGoldenPrimary("GC-065");
+    expect(unknownFreshnessSevereCut.label).toBe("cut");
+    expect(unknownFreshnessSevereCut.confidence).toBeLessThanOrEqual(
+      STALE_CONFIDENCE_CAP,
+    );
+    expect(unknownFreshnessSevereCut.badges.map((badge) => badge.type)).toContain(
+      "unknown_freshness",
+    );
+
+    const staleScale = decideGoldenPrimary("GC-066");
+    expect(staleScale.label).toBe("keep");
+    expect(staleScale.confidence).toBeLessThanOrEqual(STALE_CONFIDENCE_CAP);
+    expect(staleScale.badges.map((badge) => badge.type)).toEqual(
+      expect.arrayContaining(["stale_evidence", "scale_readiness_blocked"]),
+    );
+
+    const canonicalUnknownScale = decideGoldenPrimary("GC-067");
+    expect(semanticDecision(canonicalUnknownScale)).toEqual(
+      semanticDecision(unknownScale),
+    );
+
+    const canonicalUnknownFunnel = decideGoldenPrimary("GC-068");
+    expect(semanticDecision(canonicalUnknownFunnel)).toEqual(
+      semanticDecision(unknownFunnel),
+    );
+
+    const canonicalRecovery = decideGoldenPrimary("GC-069");
+    expect(semanticDecision(canonicalRecovery)).toEqual(
+      semanticDecision(recovery),
+    );
+
+    const belowSpendRecoveryBoundary = decideGoldenPrimary("GC-070");
+    expect(belowSpendRecoveryBoundary.label).toBe("cut");
+    expect(belowSpendRecoveryBoundary.reason).not.toContain("[recovery hold]");
+
+    const exactTargetRecoveryBoundary = decideGoldenPrimary("GC-071");
+    expect(exactTargetRecoveryBoundary.label).toBe("cut");
+    expect(exactTargetRecoveryBoundary.reason).not.toContain("[recovery hold]");
   });
 
   it("keeps canonical fallback cases equal to canonical all-account behavior", () => {
@@ -795,10 +998,58 @@ describe("Creative Decision Center golden cases", () => {
 
     expect(offenders).toEqual([]);
   });
+
+  it("keeps anachronistic target-history replay out of decideCreative fixtures", () => {
+    const spec = readFileSync(
+      "docs/creative-decision-center/GOLDEN_CASE_SPEC_PACKAGE_2026-07-06.md",
+      "utf8",
+    );
+
+    expect(fixtureCases.some((item) => item.caseId === "GC-076")).toBe(false);
+    expect(EXECUTABLE_PRIMARY_CASE_IDS.has("GC-076")).toBe(false);
+    expect(spec).toContain("Harness/policy rule");
+    expect(spec).toContain("not the `decideCreative` golden fixture table");
+  });
+
+  it("keeps confidence copy contracts explicit in the spec package", () => {
+    const spec = readFileSync(
+      "docs/creative-decision-center/GOLDEN_CASE_SPEC_PACKAGE_2026-07-06.md",
+      "utf8",
+    );
+    const normalizedSpec = spec.replace(/\s+/g, " ");
+
+    expect(normalizedSpec).toContain(
+      "Calibration not proven: fewer than 30 comparable outcomes for this action/account/source mode.",
+    );
+    expect(normalizedSpec).toContain(
+      "Confidence is capped because source freshness is stale or unknown. Refresh evidence before applying this action.",
+    );
+    expect(normalizedSpec).toContain(
+      "Observed positive is a missed-hard-action proxy, not hard-action precision.",
+    );
+    expect(normalizedSpec).toContain(
+      "Historical replay isolates formula behavior and does not equal lifecycle-informed production behavior.",
+    );
+  });
 });
 
 describe("Pending V2.1 golden cases", () => {
   for (const item of pendingCases) {
     it.todo(`${item.caseId}: ${pendingReason(item)}`);
   }
+});
+
+describe("Pending config-surface golden cases", () => {
+  it.todo(
+    "GC-072: lossBudgetMultiplier < hardCutMultiplier accepted once account override config exists",
+  );
+  it.todo(
+    "GC-073: lossBudgetMultiplier >= hardCutMultiplier rejected or explicitly golden-tested before runtime",
+  );
+  it.todo(
+    "GC-074: cutBoundaryMode=account_p25_current preserves current boundary once config exists",
+  );
+  it.todo(
+    "GC-075: cutBoundaryMode=breakeven_floor stays account-scoped once config exists",
+  );
 });

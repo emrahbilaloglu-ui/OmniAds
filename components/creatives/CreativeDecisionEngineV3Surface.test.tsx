@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   CreativeDecisionEngineV3Surface,
+  SOURCE_FRESHNESS_CONFIDENCE_COPY,
   updateEngineV3PresetOverride,
 } from "@/components/creatives/CreativeDecisionEngineV3Surface";
 import type {
@@ -355,6 +356,53 @@ describe("CreativeDecisionEngineV3Surface", () => {
     expect(html).toContain('data-badge-severity="warning"');
     expect(html).toContain("bg-amber-500/15");
     expect(html).toContain('title="Recent 7d data missing"');
+  });
+
+  it("renders confidence freshness copy only from server-provided badges", () => {
+    const staleHtml = renderSurface({
+      decisions: [
+        {
+          ...decision,
+          label: "cut",
+          confidence: 65,
+          badges: [
+            {
+              type: "stale_evidence",
+              label: "Stale evidence: last sync 49h ago",
+              severity: "warning",
+            },
+          ],
+          metrics: {
+            spend: 1000,
+            purchases: 15,
+            roas: 3.5,
+            recent7dRoas: 3,
+          },
+        },
+      ],
+    });
+    const noBadgeHtml = renderSurface({
+      decisions: [
+        {
+          ...decision,
+          label: "cut",
+          confidence: 65,
+          badges: [],
+          metrics: {
+            spend: 1000,
+            purchases: 15,
+            roas: 3.5,
+            recent7dRoas: 3,
+          },
+        },
+      ],
+    });
+
+    expect(staleHtml).toContain('data-confidence-copy="source_freshness_cap"');
+    expect(staleHtml).toContain(SOURCE_FRESHNESS_CONFIDENCE_COPY);
+    expect(staleHtml).toContain("confidence capped");
+    expect(noBadgeHtml).not.toContain("source_freshness_cap");
+    expect(noBadgeHtml).not.toContain(SOURCE_FRESHNESS_CONFIDENCE_COPY);
   });
 
   it("renders loading, error, and empty states", () => {

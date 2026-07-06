@@ -312,3 +312,43 @@ checker).
 
 An independent Codex review of this scorecard has been requested by the
 user; scores above are Claude's and stand to be audited.
+
+
+## Codex independent review reconciliation (2026-07-06, late night)
+
+Codex audited this scorecard from evidence (gates re-run independently:
+3543 tests, typecheck, lint, migrations-from-zero all pass; live DB
+verified read-only). Its scores land 0.5-1.25 below Claude's on most
+components; the joint reading treats Codex's numbers as the conservative
+bound and Claude's as conditional on the named time-gated confirmations.
+
+| Component | Claude | Codex | Joint note |
+|---|---|---|---|
+| Pipeline/data | 9.5 | 9.0 | delta = single-day current-version evidence; closes with live days |
+| Formula/math | 9.25 | 8.5 | delta = shadow-only flips + ECE 0.14; structural until v-next + calibration |
+| D033 | 9 | 8.0 | delta = flip not executed; user decision by design |
+| Measurement | 9.25 | 8.0 | Codex's hardest push-back: non-causal replay, runtime_sql_fallback inputs, truncated operator windows - accepted as the honest bound; live windows close part of it 07-13 |
+| UI/operator | 9.25 | 8.5 | delta = no browser-level verification (Playwright absent) |
+| Explainability | 9.5 | 8.5 | thin-bucket criticism accepted and FIXED same night (n<30 marked "thin") |
+| QA/golden | 9.5 | 9.0 | delta = prod-snapshot/staging integration, infra item |
+| Release/ops | 9 | 8.5 | Codex demanded a pre-push label-diff proof - BUILT AND PASSED same night |
+
+Actions taken immediately from the review:
+1. **HEAD-vs-deployed decision gate (Codex's #1 item): PASSED.** Same
+   serialized live inputs (1602 decisions) evaluated under HEAD and under a
+   worktree of deployed 459c80b3: 0 label diffs, 0 confidence diffs, 0
+   badge violations, 16 allowed diffs (the intentional stale-ceiling
+   advisory). The pending commits are proven deploy-safe.
+   (scripts/creative-decision-center/head-vs-deployed-decision-diff.ts;
+   Codex's phrasing "no production behavior change is false" is accepted -
+   the correct claim, now proven, is "no label/confidence change; additive
+   payload/badge/ops changes only".)
+2. **Thin-bucket caveat** in the observed-rate display.
+3. **cdc-daily-integrity-check.ts**: raw_label coverage + producer health +
+   no-two-day-suppression assertions; passing live for 2026-07-06.
+
+Accepted into the backlog from Codex's recommendations: replay the shadow
+flips as actual labels before the next ENGINE_VERSION; golden-promote the
+automatic-mode diff rows; Playwright UI verification; operator action
+journal; versioned target history; staging lane; post-deploy re-check of
+the release-authority fix (its live before/after was verified pre-push).

@@ -16,9 +16,9 @@ export function Topbar({ userName }: TopbarProps) {
   const t = getTranslations(language).layout;
 
   return (
-    <header className="h-12 border-b border-neutral-200 bg-white flex items-center px-4 gap-2 sticky top-0 z-50">
+    <header className="sticky top-0 z-50 flex h-12 items-center gap-1.5 border-b border-neutral-200 bg-white px-3 sm:gap-2 sm:px-4">
       <BusinessSelector />
-      <span className="text-neutral-300">/</span>
+      <span className="hidden text-neutral-300 sm:inline">/</span>
       <PlatformSwitcher />
 
       <div className="ml-auto flex items-center gap-2">

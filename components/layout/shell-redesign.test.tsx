@@ -1,6 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import { DesktopSidebar } from "@/components/layout/sidebar";
 import { SidebarContent } from "@/components/layout/sidebar-content";
 import { PlatformSwitcher } from "@/components/layout/PlatformSwitcher";
 
@@ -67,6 +68,13 @@ describe("phase shell redesign", () => {
     expect(html).toContain("Meta");
     expect(html).toContain("/platforms/meta/creatives");
     expect(html).not.toContain("v3.4.1");
+  });
+
+  it("keeps the sidebar desktop-only so mobile Meta pages retain usable width", () => {
+    const html = renderToStaticMarkup(<DesktopSidebar />);
+
+    expect(html).toContain("hidden w-60 shrink-0 md:block");
+    expect(html).toContain("data-shell-sidebar");
   });
 
   it("dims Layer 2 and keeps the last-viewed platform on Layer 1 routes", () => {

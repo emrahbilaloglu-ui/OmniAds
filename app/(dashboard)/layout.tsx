@@ -27,9 +27,9 @@ export default async function DashboardLayout({
       <DesktopSidebar />
 
       {/* Main content */}
-      <div className="flex flex-col flex-1 overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Topbar userName={session.user.name} />
-        <main className="flex-1 overflow-y-auto bg-neutral-50 p-6">
+        <main className="flex-1 overflow-y-auto bg-neutral-50 p-3 sm:p-4 md:p-6">
           <BusinessGuard>{children}</BusinessGuard>
         </main>
       </div>

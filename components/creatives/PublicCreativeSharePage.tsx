@@ -151,7 +151,7 @@ function AnalysisPill({ label }: { label: string | null | undefined }) {
   const normalized = compactLabel(label);
   if (!normalized) return null;
   return (
-    <span className="rounded-full border border-[#E5E7EB] bg-[#F9FAFB] px-2 py-0.5 text-[10px] font-medium text-[#4B5563]">
+    <span className="rounded-full border border-neutral-200 bg-neutral-50 px-2 py-0.5 text-[10px] font-medium text-neutral-700">
       {normalized}
     </span>
   );
@@ -165,16 +165,16 @@ function CreativeAnalysisCard({
   analysis: SharedCreativeAnalysis;
 }) {
   return (
-    <article className="rounded-lg border border-[#E5E7EB] bg-white p-3">
+    <article className="rounded-lg border border-neutral-200 bg-white p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="line-clamp-1 text-[13px] font-semibold text-[#111827]">
+          <p className="line-clamp-1 text-[13px] font-semibold text-neutral-950">
             {analysis.headline || creative.name}
           </p>
           {analysis.headline && analysis.headline !== creative.name ? (
-            <p className="mt-0.5 line-clamp-1 text-[10px] font-medium text-[#6B7280]">{creative.name}</p>
+            <p className="mt-0.5 line-clamp-1 text-[10px] font-medium text-neutral-500">{creative.name}</p>
           ) : null}
-          <p className="mt-1 text-[11px] leading-relaxed text-[#6B7280]">{analysis.summary}</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-neutral-500">{analysis.summary}</p>
         </div>
         <span
           className={[
@@ -187,13 +187,13 @@ function CreativeAnalysisCard({
       </div>
 
       <div className="mt-3 grid gap-2 md:grid-cols-2">
-        <div className="rounded-md border border-[#E5E7EB] bg-[#FAFAFA] px-3 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-[#6B7280]">What to do</p>
-          <p className="mt-1 text-[12px] font-semibold leading-snug text-[#111827]">{analysis.whatToDo}</p>
+        <div className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">What to do</p>
+          <p className="mt-1 text-[12px] font-semibold leading-snug text-neutral-950">{analysis.whatToDo}</p>
         </div>
-        <div className="rounded-md border border-[#E5E7EB] bg-[#FAFAFA] px-3 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-[#6B7280]">Why</p>
-          <p className="mt-1 text-[12px] leading-snug text-[#374151]">{analysis.why}</p>
+        <div className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Why</p>
+          <p className="mt-1 text-[12px] leading-snug text-neutral-700">{analysis.why}</p>
         </div>
       </div>
 
@@ -211,12 +211,12 @@ function CreativeAnalysisCard({
       {analysis.factors.length > 0 ? (
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           {analysis.factors.slice(0, 4).map((factor) => (
-            <div key={`${analysis.creativeId}_${factor.label}`} className="rounded-md border border-[#EEF0F3] px-2.5 py-2">
+            <div key={`${analysis.creativeId}_${factor.label}`} className="rounded-md border border-neutral-200 px-2.5 py-2">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-[#6B7280]">{factor.label}</p>
-                <span className="text-[11px] font-semibold tabular-nums text-[#111827]">{factor.value}</span>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">{factor.label}</p>
+                <span className="text-[11px] font-semibold tabular-nums text-neutral-950">{factor.value}</span>
               </div>
-              <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-[#6B7280]">{factor.reason}</p>
+              <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-neutral-500">{factor.reason}</p>
             </div>
           ))}
         </div>
@@ -225,9 +225,9 @@ function CreativeAnalysisCard({
       {analysis.nextObservation.length > 0 || analysis.invalidActions.length > 0 || analysis.businessValidationNote ? (
         <div className="mt-3 grid gap-2 md:grid-cols-2">
           {analysis.nextObservation.length > 0 ? (
-            <div className="rounded-md border border-[#E5E7EB] px-3 py-2">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-[#6B7280]">Watch next</p>
-              <ul className="mt-1 space-y-1 text-[11px] leading-snug text-[#4B5563]">
+            <div className="rounded-md border border-neutral-200 px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Watch next</p>
+              <ul className="mt-1 space-y-1 text-[11px] leading-snug text-neutral-700">
                 {analysis.nextObservation.map((item) => (
                   <li key={item}>- {item}</li>
                 ))}
@@ -235,9 +235,9 @@ function CreativeAnalysisCard({
             </div>
           ) : null}
           {analysis.invalidActions.length > 0 || analysis.businessValidationNote ? (
-            <div className="rounded-md border border-[#F3D4D4] bg-[#FFF7F7] px-3 py-2">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-[#9F1239]">Do not</p>
-              <ul className="mt-1 space-y-1 text-[11px] leading-snug text-[#7F1D1D]">
+            <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-rose-700">Do not</p>
+              <ul className="mt-1 space-y-1 text-[11px] leading-snug text-rose-900">
                 {analysis.businessValidationNote ? <li>- {analysis.businessValidationNote}</li> : null}
                 {analysis.invalidActions.map((item) => (
                   <li key={item}>- {item}</li>
@@ -360,13 +360,13 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
   };
 
   return (
-    <div className="min-h-screen bg-[#F3F4F6] px-3 py-4 sm:px-5 sm:py-5">
-      <main className="mx-auto w-full max-w-[1320px] rounded-xl border border-[#E5E7EB] bg-white p-3 sm:p-4">
-        <header className="mb-3 border-b border-[#ECEFF3] pb-3">
+    <div className="min-h-screen bg-neutral-100 px-3 py-4 sm:px-5 sm:py-5">
+      <main className="mx-auto w-full max-w-[1320px] rounded-xl border border-neutral-200 bg-white p-3 sm:p-4">
+        <header className="mb-3 border-b border-neutral-200 pb-3">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
-              <h1 className="text-lg font-semibold tracking-tight text-[#111827]">{title || "Top Creatives"}</h1>
-              <p className="mt-0.5 inline-flex items-center gap-1.5 text-xs text-[#6B7280]">
+              <h1 className="text-lg font-semibold tracking-tight text-neutral-950">{title || "Top Creatives"}</h1>
+              <p className="mt-0.5 inline-flex items-center gap-1.5 text-xs text-neutral-500">
                 <CalendarRange className="h-3.5 w-3.5" />
                 {dateRange}
               </p>
@@ -376,7 +376,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                 <button
                   type="button"
                   onClick={downloadCsv}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-[#D1D5DB] px-2.5 py-1.5 text-xs text-[#374151] hover:bg-[#F9FAFB]"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 px-2.5 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50"
                 >
                   Download CSV
                 </button>
@@ -384,7 +384,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
               <button
                 type="button"
                 onClick={copyLink}
-                className="inline-flex items-center gap-1.5 rounded-md border border-[#D1D5DB] px-2.5 py-1.5 text-xs text-[#374151] hover:bg-[#F9FAFB]"
+                className="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 px-2.5 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50"
               >
                 <Copy className="h-3.5 w-3.5" />
                 Copy link
@@ -392,7 +392,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
             </div>
           </div>
 
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-[#6B7280]">
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-neutral-500">
             <span className="inline-flex items-center gap-1">
               <Rows3 className="h-3.5 w-3.5" />
               {displayRows.length} creatives
@@ -411,7 +411,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
               {filters.map((item) => (
                 <span
                   key={item}
-                  className="rounded-full border border-[#E5E7EB] bg-[#F9FAFB] px-2 py-0.5 text-[11px] text-[#6B7280]"
+                  className="rounded-full border border-neutral-200 bg-neutral-50 px-2 py-0.5 text-[11px] text-neutral-500"
                 >
                   {item}
                 </span>
@@ -426,7 +426,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
               {displayRows.map((creative) => (
                 <article
                   key={creative.id}
-                  className="w-[190px] shrink-0 overflow-hidden rounded-lg border border-[#E5E7EB] bg-white"
+                  className="w-[190px] shrink-0 overflow-hidden rounded-lg border border-neutral-200 bg-white"
                 >
                   <CreativeRenderSurface
                     id={creative.id}
@@ -447,23 +447,23 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                   />
                   <div className="space-y-1 px-2.5 py-2">
                     <div className="flex items-center justify-between gap-2">
-                      <p className="line-clamp-1 text-[12px] font-medium text-[#111827]">{creative.name}</p>
-                      <span className="rounded border border-[#E5E7EB] bg-[#F9FAFB] px-1.5 py-0.5 text-[10px] text-[#6B7280]">
+                      <p className="line-clamp-1 text-[12px] font-medium text-neutral-950">{creative.name}</p>
+                      <span className="rounded border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[10px] text-neutral-500">
                         {creative.format === "video" ? "Video" : creative.format === "catalog" ? "Catalog" : "Image"}
                       </span>
                     </div>
                     <div className="grid grid-cols-2 gap-x-2 gap-y-1">
                       {metrics.slice(0, 4).map((metric) => (
                         <div key={`${creative.id}_${metric}`}>
-                          <p className="text-[10px] text-[#9CA3AF]">{TOP_METRIC_LABELS[metric]}</p>
-                          <p className="text-[11px] font-semibold tabular-nums text-[#111827]">
+                          <p className="text-[10px] text-neutral-400">{TOP_METRIC_LABELS[metric]}</p>
+                          <p className="text-[11px] font-semibold tabular-nums text-neutral-950">
                             {formatTopMetric(metric, topMetricValue(creative, metric))}
                           </p>
                         </div>
                       ))}
                     </div>
                     {creative.creativeScoreGap?.label ? (
-                      <span className="inline-flex rounded-full border border-[#E5E7EB] bg-[#F9FAFB] px-2 py-0.5 text-[10px] font-medium text-[#4B5563]">
+                      <span className="inline-flex rounded-full border border-neutral-200 bg-neutral-50 px-2 py-0.5 text-[10px] font-medium text-neutral-700">
                         {creative.creativeScoreGap.label}
                       </span>
                     ) : null}
@@ -474,11 +474,11 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
           </div>
 
           {analysisRows.length > 0 ? (
-            <section className="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-2.5">
+            <section className="rounded-lg border border-neutral-200 bg-neutral-50 p-2.5">
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1">
                 <div>
-                  <h2 className="text-[13px] font-semibold text-[#111827]">Creative action plan</h2>
-                  <p className="mt-0.5 text-[11px] text-[#6B7280]">
+                  <h2 className="text-[13px] font-semibold text-neutral-950">Creative action plan</h2>
+                  <p className="mt-0.5 text-[11px] text-neutral-500">
                     {analysisRows.length} selected creative{analysisRows.length === 1 ? "" : "s"} with export analysis
                   </p>
                 </div>
@@ -495,13 +495,13 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
             </section>
           ) : null}
 
-          <div className="overflow-x-auto rounded-lg border border-[#E5E7EB]">
+          <div className="overflow-x-auto rounded-lg border border-neutral-200">
             <table className="text-[12px]" style={{ minWidth: tableMinWidth }}>
-              <thead className="bg-[#F9FAFB]">
-                <tr className="border-b border-[#E5E7EB]">
-                  <th className="px-3 py-2 text-left font-medium text-[#6B7280]">Creative</th>
+              <thead className="bg-neutral-50">
+                <tr className="border-b border-neutral-200">
+                  <th className="px-3 py-2 text-left font-medium text-neutral-500">Creative</th>
                   {visibleTableColumns.map((column) => (
-                    <th key={column.key} className="whitespace-nowrap px-3 py-2 text-right font-medium text-[#6B7280]">
+                    <th key={column.key} className="whitespace-nowrap px-3 py-2 text-right font-medium text-neutral-500">
                       {column.label}
                     </th>
                   ))}
@@ -509,7 +509,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
               </thead>
               <tbody>
                 {displayRows.map((creative) => (
-                  <tr key={`table_${creative.id}`} className="border-b border-[#F0F2F5]">
+                  <tr key={`table_${creative.id}`} className="border-b border-neutral-100">
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-2">
                         <CreativeRenderSurface
@@ -530,7 +530,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                             creative.previewUrl,
                           ]}
                         />
-                        <span className="line-clamp-2 text-[11px] text-[#111827]">
+                        <span className="line-clamp-2 text-[11px] text-neutral-950">
                           {showCampaignNames ? creative.name : "Creative asset"}
                         </span>
                       </div>
@@ -544,7 +544,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                         return (
                           <td
                             key={`cell_${creative.id}_${column.key}`}
-                            className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-[#111827]"
+                            className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-neutral-950"
                           >
                             {column.format(value, creative)}
                           </td>
@@ -563,7 +563,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                       return (
                         <td
                           key={`cell_${creative.id}_${column.key}`}
-                          className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-[#111827]"
+                          className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-neutral-950"
                           style={{
                             backgroundColor: evaluation.applicable
                               ? toShareHeatColor(evaluation.tone, evaluation.intensity)
@@ -574,7 +574,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                           {isShareMetricApplicable(column.key, creative) ? (
                             column.format(value, creative)
                           ) : (
-                            <span className="text-[#9CA3AF]">—</span>
+                            <span className="text-neutral-400">—</span>
                           )}
                         </td>
                       );
@@ -587,12 +587,12 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
         </section>
 
         {includeNotes && note ? (
-          <section className="mt-2 rounded-lg border border-[#E5E7EB] bg-[#FAFAFA] px-3 py-2 text-[12px] text-[#4B5563]">
+          <section className="mt-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-[12px] text-neutral-700">
             {note}
           </section>
         ) : null}
 
-        <footer className="mt-3 border-t border-[#ECEFF3] pt-2 text-[11px] text-[#9CA3AF]">
+        <footer className="mt-3 border-t border-neutral-200 pt-2 text-[11px] text-neutral-400">
           Read-only shared report.
         </footer>
       </main>

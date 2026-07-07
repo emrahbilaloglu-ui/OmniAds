@@ -1475,7 +1475,7 @@ export function CreativesTableSection({
                 />
                 Below baseline
               </span>
-              <span className="text-[#7A8794]">Stronger tint = larger gap</span>
+              <span className="text-neutral-500">Stronger tint = larger gap</span>
             </div>
           </div>
         ) : null}
@@ -1501,10 +1501,10 @@ export function CreativesTableSection({
         }}
       >
         <table className="table-fixed text-[10px]" style={{ width: totalTableWidth }}>
-          <thead className="sticky top-0 z-20 bg-[#F9FAFB]">
-            <tr className="border-b border-[#E5E7EB]">
+          <thead className="sticky top-0 z-20 bg-neutral-50">
+            <tr className="border-b border-neutral-200">
               <th
-                className="sticky left-0 z-30 border-r border-[#E5E7EB] bg-[#F9FAFB] px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-[#6B7280]"
+                className="sticky left-0 z-30 border-r border-neutral-200 bg-neutral-50 px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-neutral-500"
                 style={{
                   minWidth: STATIC_COLUMN_SPECS.creativeName.minWidth,
                   width: getColumnWidth(
@@ -1523,7 +1523,7 @@ export function CreativesTableSection({
                       className="inline-flex items-center gap-1 text-left"
                     >
                       <span>Creative / Ad Name</span>
-                      <span className="text-[10px] text-[#9CA3AF]">{sortIndicator("name")}</span>
+                      <span className="text-[10px] text-neutral-400">{sortIndicator("name")}</span>
                     </button>
                   </label>
                   <button
@@ -1539,14 +1539,14 @@ export function CreativesTableSection({
                       )
                     }
                   >
-                    <span className="mx-auto block h-full w-px bg-[#D1D5DB]" />
+                    <span className="mx-auto block h-full w-px bg-neutral-300" />
                   </button>
                 </div>
               </th>
 
               {tablePreset.showLaunchDate && (
                 <th
-                  className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-[#6B7280]"
+                  className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-neutral-500"
                   style={{
                     minWidth: STATIC_COLUMN_SPECS.launchDate.minWidth,
                     width: getColumnWidth(
@@ -1558,7 +1558,7 @@ export function CreativesTableSection({
                 >
                   <button type="button" className="inline-flex items-center gap-1" onClick={() => cycleSort("launchDate")}>
                     <span>Launch date</span>
-                    <span className="text-[10px] text-[#9CA3AF]">{sortIndicator("launchDate")}</span>
+                    <span className="text-[10px] text-neutral-400">{sortIndicator("launchDate")}</span>
                   </button>
                   <button
                     type="button"
@@ -1573,14 +1573,14 @@ export function CreativesTableSection({
                       )
                     }
                   >
-                    <span className="mx-auto block h-full w-px bg-[#D1D5DB]" />
+                    <span className="mx-auto block h-full w-px bg-neutral-300" />
                   </button>
                 </th>
               )}
 
               {tablePreset.showActiveStatus && (
                 <th
-                  className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-[#6B7280]"
+                  className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-neutral-500"
                   style={{
                     minWidth: STATIC_COLUMN_SPECS.activeStatus.minWidth,
                     width: getColumnWidth(
@@ -1604,14 +1604,14 @@ export function CreativesTableSection({
                       )
                     }
                   >
-                    <span className="mx-auto block h-full w-px bg-[#D1D5DB]" />
+                    <span className="mx-auto block h-full w-px bg-neutral-300" />
                   </button>
                 </th>
               )}
 
               {tablePreset.showAdLength && (
                 <th
-                  className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-[#6B7280]"
+                  className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-neutral-500"
                   style={{
                     minWidth: STATIC_COLUMN_SPECS.adLength.minWidth,
                     width: getColumnWidth(
@@ -1635,7 +1635,7 @@ export function CreativesTableSection({
                       )
                     }
                   >
-                    <span className="mx-auto block h-full w-px bg-[#D1D5DB]" />
+                    <span className="mx-auto block h-full w-px bg-neutral-300" />
                   </button>
                 </th>
               )}
@@ -1648,7 +1648,7 @@ export function CreativesTableSection({
                 return (
                   <th
                     key={`ai_tag_header_${tagKey}`}
-                    className="group relative px-2.5 py-1.5 text-left text-[9px] font-medium leading-tight tracking-[0.01em] text-[#6B7280]"
+                    className="group relative px-2.5 py-1.5 text-left text-[9px] font-medium leading-tight tracking-[0.01em] text-neutral-500"
                     style={{
                       minWidth: widthSpec.minWidth,
                       width: getColumnWidth(
@@ -1663,9 +1663,9 @@ export function CreativesTableSection({
                       className="inline-flex items-center gap-1.5 align-middle"
                       onClick={() => cycleSort(sortKey)}
                     >
-                      <Icon className="h-3.5 w-3.5 text-[#9CA3AF]" />
+                      <Icon className="h-3.5 w-3.5 text-neutral-400" />
                       <span className="truncate">{label}</span>
-                      <span className="text-[10px] text-[#9CA3AF]">{sortIndicator(sortKey)}</span>
+                      <span className="text-[10px] text-neutral-400">{sortIndicator(sortKey)}</span>
                     </button>
                     <button
                       type="button"
@@ -1680,7 +1680,7 @@ export function CreativesTableSection({
                         )
                       }
                     >
-                      <span className="mx-auto block h-full w-px bg-[#D1D5DB]" />
+                      <span className="mx-auto block h-full w-px bg-neutral-300" />
                     </button>
                   </th>
                 );
@@ -1689,7 +1689,7 @@ export function CreativesTableSection({
               {selectedColumns.map((column) => (
                 <th
                   key={column.key}
-                  className="group relative px-2.5 py-1 text-left text-[9px] font-medium leading-tight tracking-[0.01em] text-[#6B7280]"
+                  className="group relative px-2.5 py-1 text-left text-[9px] font-medium leading-tight tracking-[0.01em] text-neutral-500"
                   style={{
                     minWidth: column.minWidth,
                     width: getColumnWidth(column.key, column.minWidth, column.preferredWidth),
@@ -1710,7 +1710,7 @@ export function CreativesTableSection({
                             "mt-[1px] inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border transition-colors",
                             isSelected
                               ? "border-emerald-500 bg-emerald-500/20"
-                              : "border-[#D1D5DB] bg-white hover:border-[#9CA3AF]",
+                              : "border-neutral-300 bg-white hover:border-neutral-400",
                             topMetricId ? "cursor-pointer" : "cursor-default"
                           )}
                           disabled={!topMetricId}
@@ -1733,7 +1733,7 @@ export function CreativesTableSection({
                           className="inline-flex min-w-0 items-start gap-1 text-left"
                         >
                           <span className="line-clamp-2">{column.label}</span>
-                          <span className="mt-px text-[10px] text-[#9CA3AF]">{sortIndicator(column.key)}</span>
+                          <span className="mt-px text-[10px] text-neutral-400">{sortIndicator(column.key)}</span>
                         </button>
                       </div>
                     );
@@ -1744,7 +1744,7 @@ export function CreativesTableSection({
                     className="absolute right-0 top-0 h-full w-2 cursor-col-resize opacity-0 transition-opacity group-hover:opacity-100"
                     onMouseDown={(event) => startColumnResize(event, column.key, column.minWidth, column.preferredWidth)}
                   >
-                    <span className="mx-auto block h-full w-px bg-[#D1D5DB]" />
+                    <span className="mx-auto block h-full w-px bg-neutral-300" />
                   </button>
                 </th>
               ))}
@@ -1785,10 +1785,10 @@ export function CreativesTableSection({
               </tr>
             )}
           </tbody>
-          <tfoot className="sticky bottom-0 z-10 bg-[#FAFAFA]/95 backdrop-blur">
-            <tr className="border-t border-[#E5E7EB]">
+          <tfoot className="sticky bottom-0 z-10 bg-neutral-50/95 backdrop-blur">
+            <tr className="border-t border-neutral-200">
               <td
-                className="sticky left-0 z-20 border-r bg-[#FAFAFA] px-2.5 py-1.5 text-[9px] font-semibold text-[#6B7280]"
+                className="sticky left-0 z-20 border-r bg-neutral-50 px-2.5 py-1.5 text-[9px] font-semibold text-neutral-500"
                 style={{
                   minWidth: STATIC_COLUMN_SPECS.creativeName.minWidth,
                   width: getColumnWidth(

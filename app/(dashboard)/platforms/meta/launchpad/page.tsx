@@ -21,8 +21,6 @@ import {
   Trash2,
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { useAppStore } from "@/store/app-store";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import {
@@ -239,6 +237,16 @@ function summarizeDraft(draft: LaunchDraft) {
       ? `${payload.targets?.length ?? 1} target${(payload.targets?.length ?? 1) === 1 ? "" : "s"}`
       : payload.campaign?.name || "campaign";
   return `${mode} · ${creativeCount} creative${creativeCount === 1 ? "" : "s"} · ${target}`;
+}
+
+function draftStoredError(draft: LaunchDraft): string | null {
+  const error = draft.lastError;
+  if (!error || typeof error !== "object") return null;
+  const record = error as Record<string, unknown>;
+  const message = typeof record.message === "string" ? record.message.trim() : "";
+  const code = typeof record.code === "string" ? record.code.trim() : "";
+  if (message && code && message !== code) return `${code} — ${message}`;
+  return message || code || null;
 }
 
 function formatRelativeTime(value: string | undefined) {
@@ -968,7 +976,8 @@ export default function MetaLaunchpadPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-5 text-slate-950" data-testid="meta-launchpad-page">
+    <div className="ad-final" data-testid="meta-launchpad-page">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 py-1">
       {surface === "index" ? (
         <LaunchpadIndex
           drafts={drafts}
@@ -984,28 +993,28 @@ export default function MetaLaunchpadPage() {
           onDeleteTemplate={deleteTemplate}
         />
       ) : (
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-          <div className="border-b border-slate-200 bg-white px-5 py-3">
+        <div className="overflow-hidden rounded-[12px] border border-[var(--border)] bg-[var(--surface)]">
+          <div className="border-b border-[var(--border)] bg-[var(--surface)] px-5 py-3">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex min-w-0 items-center gap-3">
                 <button
                   type="button"
                   onClick={returnToIndex}
-                  className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-950"
+                  className="inline-flex items-center gap-1 text-[12px] font-medium text-[var(--muted)] hover:text-[var(--ink)]"
                 >
                   <ArrowLeft className="h-3.5 w-3.5" />
                   Mode
                 </button>
-                <div className="hidden h-4 w-px bg-slate-200 sm:block" />
+                <div className="hidden h-4 w-px bg-[var(--border-2)] sm:block" />
                 <button
                   type="button"
                   onClick={returnToIndex}
-                  className="text-xs text-slate-500 hover:text-slate-950"
+                  className="text-[12px] text-[var(--muted)] hover:text-[var(--ink)]"
                 >
                   Launchpad
                 </button>
-                <ChevronRight className="h-3.5 w-3.5 text-slate-300" />
-                <span className="truncate text-xs font-semibold text-slate-950">
+                <ChevronRight className="h-3.5 w-3.5 text-[var(--muted-2)]" />
+                <span className="truncate text-[12px] font-semibold text-[var(--ink)]">
                   {mode === "new_campaign"
                     ? "New campaign"
                     : mode === "add_to_existing"
@@ -1015,14 +1024,14 @@ export default function MetaLaunchpadPage() {
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 {templateMessage ? (
-                  <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
-                    <Cloud className="h-3.5 w-3.5 text-emerald-600" />
+                  <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--muted)]">
+                    <Cloud className="h-3.5 w-3.5 text-[var(--ok)]" />
                     {templateMessage}
                     {appliedTemplateMessageActive ? (
                       <button
                         type="button"
                         onClick={clearAppliedTemplate}
-                        className="ml-1 rounded border border-slate-200 bg-white px-1.5 py-0.5 font-medium text-slate-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                        className="ml-1 rounded-[6px] border border-[var(--border-2)] bg-[var(--surface)] px-1.5 py-0.5 font-medium text-[var(--ink-3)] hover:border-[var(--danger-bd)] hover:bg-[var(--danger-bg)] hover:text-[var(--danger)]"
                       >
                         Clear
                       </button>
@@ -1031,10 +1040,10 @@ export default function MetaLaunchpadPage() {
                 ) : null}
                 <PausedBadge verbose />
                 {mode === "new_campaign" ? (
-                  <Button type="button" variant="ghost" size="sm" onClick={saveTemplate}>
+                  <button type="button" className="btn btn--ghost btn--sm" onClick={saveTemplate}>
                     <Bookmark className="h-3.5 w-3.5" />
                     Save as template
-                  </Button>
+                  </button>
                 ) : null}
               </div>
             </div>
@@ -1049,9 +1058,9 @@ export default function MetaLaunchpadPage() {
             ) : null}
           </div>
 
-          <main className="bg-slate-50/70 px-5 py-5">
+          <main className="bg-[var(--bg)] px-5 py-5">
             {creativeError ? (
-              <div className="mb-4 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+              <div className="mb-4 rounded-[8px] border border-[var(--danger-bd)] bg-[var(--danger-bg)] p-3 text-[13px] text-[var(--danger)]">
                 {creativeError}
               </div>
             ) : null}
@@ -1142,57 +1151,58 @@ export default function MetaLaunchpadPage() {
           </main>
 
           {step !== "progress" && step !== "review" ? (
-            <div className="sticky bottom-0 z-10 border-t border-slate-200 bg-white px-5 py-3 shadow-[0_-8px_16px_-12px_rgba(15,23,42,0.18)]">
+            <div className="sticky bottom-0 z-10 border-t border-[var(--border)] bg-[var(--surface)] px-5 py-3">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
-                  <span className="font-mono tabular">
-                    <strong className="text-slate-950">{selectedCreativeIds.length}</strong> creatives
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12px] text-[var(--muted)]">
+                  <span className="tabular-nums">
+                    <strong className="text-[16px] font-[650] text-[var(--ink)]">{selectedCreativeIds.length}</strong> creatives
                   </span>
                   {mode === "new_campaign" ? (
                     <>
-                      <span className="text-slate-300">·</span>
-                      <span className="font-mono tabular">
-                        <strong className="text-slate-950">{adSets.length}</strong> ad set{adSets.length === 1 ? "" : "s"}
+                      <span className="text-[var(--muted-2)]">·</span>
+                      <span className="tabular-nums">
+                        <strong className="text-[16px] font-[650] text-[var(--ink)]">{adSets.length}</strong> ad set{adSets.length === 1 ? "" : "s"}
                       </span>
-                      <span className="text-slate-300">·</span>
-                      <span className="font-mono tabular">
-                        <strong className="text-slate-950">{adSets.length * selectedCreativeIds.length}</strong> ads
+                      <span className="text-[var(--muted-2)]">·</span>
+                      <span className="tabular-nums">
+                        <strong className="text-[16px] font-[650] text-[var(--ink)]">{adSets.length * selectedCreativeIds.length}</strong> ads
                       </span>
                     </>
                   ) : null}
                   {mode === "add_to_existing" ? (
                     <>
-                      <span className="text-slate-300">·</span>
-                      <span className="font-mono tabular">
-                        <strong className="text-slate-950">{selectedExistingTargets.length}</strong> target{selectedExistingTargets.length === 1 ? "" : "s"}
+                      <span className="text-[var(--muted-2)]">·</span>
+                      <span className="tabular-nums">
+                        <strong className="text-[16px] font-[650] text-[var(--ink)]">{selectedExistingTargets.length}</strong> target{selectedExistingTargets.length === 1 ? "" : "s"}
                       </span>
-                      <span className="text-slate-300">·</span>
-                      <span className="font-mono tabular">
-                        <strong className="text-slate-950">{selectedExistingTargets.length * selectedCreativeIds.length}</strong> ads
+                      <span className="text-[var(--muted-2)]">·</span>
+                      <span className="tabular-nums">
+                        <strong className="text-[16px] font-[650] text-[var(--ink)]">{selectedExistingTargets.length * selectedCreativeIds.length}</strong> ads
                       </span>
                     </>
                   ) : null}
                 </div>
                 <div className="flex items-center justify-end gap-2">
-                  <Button
+                  <button
                     type="button"
-                    variant="outline"
+                    className="btn"
                     disabled={currentStepIndex === 0}
                     onClick={goBack}
                   >
                     <ArrowLeft className="h-4 w-4" />
                     Back
-                  </Button>
-                  <Button type="button" disabled={!canGoNext} onClick={goNext}>
+                  </button>
+                  <button type="button" className="btn btn--primary" disabled={!canGoNext} onClick={goNext}>
                     Continue
                     <ArrowRight className="h-4 w-4" />
-                  </Button>
+                  </button>
                 </div>
               </div>
             </div>
           ) : null}
         </div>
       )}
+      </div>
     </div>
   );
 }
@@ -1226,8 +1236,11 @@ function LaunchpadIndex({
     <>
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-950">Launchpad · Meta</h1>
-          <p className="mt-1 max-w-3xl text-sm text-slate-500">
+          <div className="text-[11.5px] text-[var(--muted)]">
+            Platforms · <b className="font-semibold text-[var(--ink-3)]">Meta</b> · Launchpad
+          </div>
+          <h1 className="mt-0.5 text-[20px] font-bold tracking-[-0.02em] text-[var(--ink)]">Launchpad · Meta</h1>
+          <p className="mt-1 max-w-3xl text-[13px] text-[var(--muted)]">
             Spin up campaigns or scale existing winners. All launches are created PAUSED and must be activated manually in Meta.
           </p>
         </div>
@@ -1239,69 +1252,68 @@ function LaunchpadIndex({
           icon={<Rocket className="h-5 w-5" />}
           title="Launch new campaign"
           description="Pick creatives, set budget, configure ad sets, and write a paused campaign to Meta."
-          meta="5 steps · uses templates"
-          tone="blue"
+          meta="Creatives → Campaign → Budget → Ad sets → Review"
           onClick={() => onStartMode("new_campaign")}
         />
         <ModeCard
           icon={<PlusCircle className="h-5 w-5" />}
           title="Add ads to existing"
           description="Push selected creatives into an ad set you already run while inheriting targeting and budget."
-          meta="3 steps · inherits ad set settings"
-          tone="slate"
+          meta="Creatives → Target → Review · one ad set per campaign"
           onClick={() => onStartMode("add_to_existing")}
         />
         <ModeCard
           icon={<Settings className="h-5 w-5" />}
           title="Manage existing ads"
           description="Pause selected active ads or resume selected paused ads in bulk."
-          meta="2 steps · status actions"
-          tone="slate"
+          meta="Creatives → Review · bulk status change"
           onClick={() => onStartMode("manage_existing")}
         />
       </div>
 
       {message ? (
-        <div className="flex flex-col gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-2 rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[12px] text-[var(--ink-3)] sm:flex-row sm:items-center sm:justify-between">
           <span>{message}</span>
           {appliedTemplateName ? (
-            <Button
+            <button
               type="button"
-              variant="outline"
-              size="sm"
               onClick={onClearAppliedTemplate}
-              className="h-7 w-fit text-xs"
+              className="btn btn--sm w-fit"
             >
               Clear applied template
-            </Button>
+            </button>
           ) : null}
         </div>
       ) : null}
 
       <LaunchpadLibrarySection
-        icon={<FileEdit className="h-4 w-4 text-slate-500" />}
+        icon={<FileEdit className="h-4 w-4 text-[var(--muted)]" />}
         title="Drafts"
         count={drafts.length}
       >
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+        <div className="overflow-hidden rounded-[10px] border border-[var(--border)] bg-[var(--surface)]">
           {loading && drafts.length === 0 ? (
-            <p className="px-4 py-3 text-sm text-slate-500">Loading drafts...</p>
+            <p className="px-4 py-3 text-[13px] text-[var(--muted)]">Loading drafts...</p>
           ) : null}
           {!loading && drafts.length === 0 ? (
-            <p className="px-4 py-3 text-sm text-slate-500">No drafts yet.</p>
+            <p className="px-4 py-3 text-[13px] text-[var(--muted)]">No drafts yet.</p>
           ) : null}
-          <div className="divide-y divide-slate-100">
-            {drafts.map((draft) => (
+          <div className="divide-y divide-[var(--border)]">
+            {drafts.map((draft) => {
+              const failed = draft.status === "failed";
+              const storedError = draftStoredError(draft);
+              return (
               <div
                 key={draft.id}
-                className="group flex w-full items-center gap-3 px-4 py-3 transition hover:bg-slate-50"
+                className="group flex w-full flex-col gap-2 px-4 py-3 transition hover:bg-[var(--hover)]"
               >
+                <div className="flex w-full items-center gap-3">
                 <button
                   type="button"
                   onClick={() => onApplyDraft(draft)}
                   className="flex min-w-0 flex-1 items-center gap-3 text-left"
                 >
-                  <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-600">
+                  <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-[var(--surface-3)] text-[var(--ink-3)]">
                     {draft.payload.mode === "add_to_existing" ? (
                       <PlusCircle className="h-4 w-4" />
                     ) : (
@@ -1309,13 +1321,14 @@ function LaunchpadIndex({
                     )}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-slate-950">{draft.name}</span>
-                    <span className="mt-0.5 block truncate text-[11px] text-slate-500">{summarizeDraft(draft)}</span>
+                    <span className="block truncate text-[13px] font-medium text-[var(--ink)]">{draft.name}</span>
+                    <span className="mt-0.5 block truncate text-[11px] text-[var(--muted)]">{summarizeDraft(draft)}</span>
                   </span>
-                  <span className="hidden text-right text-[11px] text-slate-500 sm:block">
+                  <span className="hidden shrink-0 items-center gap-2 text-right text-[11px] text-[var(--muted)] sm:flex">
                     {formatRelativeTime(draft.updatedAt)}
-                    {draft.status === "failed" ? (
-                      <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                    {failed ? (
+                      <span className="chip chip--action">
+                        <span className="dot" />
                         Failed
                       </span>
                     ) : null}
@@ -1326,29 +1339,39 @@ function LaunchpadIndex({
                   onClick={() => {
                     void onDeleteDraft(draft.id);
                   }}
-                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 opacity-80 transition hover:bg-rose-50 hover:text-rose-600 group-hover:opacity-100"
+                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] text-[var(--muted-2)] opacity-80 transition hover:bg-[var(--danger-bg)] hover:text-[var(--danger)] group-hover:opacity-100"
                   aria-label={`Delete draft ${draft.name}`}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
+                </div>
+                {failed && storedError ? (
+                  <div className="rounded-[8px] border border-[var(--danger-bd)] bg-[var(--danger-bg)] px-3 py-2">
+                    <div className="mono text-[11px] text-[var(--danger)]">stored error: {storedError}</div>
+                    <div className="mt-0.5 text-[11px] text-[var(--muted)]">
+                      The error is the server&apos;s, rendered verbatim. Fix it, then resume.
+                    </div>
+                  </div>
+                ) : null}
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </LaunchpadLibrarySection>
 
       <LaunchpadLibrarySection
-        icon={<LayoutTemplate className="h-4 w-4 text-slate-500" />}
+        icon={<LayoutTemplate className="h-4 w-4 text-[var(--muted)]" />}
         title="Templates"
         count={templates.length}
       >
         {loading && templates.length === 0 ? (
-          <p className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
+          <p className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[13px] text-[var(--muted)]">
             Loading templates...
           </p>
         ) : null}
         {!loading && templates.length === 0 ? (
-          <p className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
+          <p className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[13px] text-[var(--muted)]">
             No templates yet.
           </p>
         ) : null}
@@ -1356,7 +1379,7 @@ function LaunchpadIndex({
           {templates.map((template) => (
             <div
               key={`${template.source}-${template.id}`}
-              className="group rounded-lg border border-slate-200 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:border-blue-400 hover:bg-slate-50"
+              className="group rounded-[10px] border border-[var(--border)] bg-[var(--surface)] p-3 transition hover:border-[var(--border-3)] hover:bg-[var(--hover)]"
             >
               <button
                 type="button"
@@ -1365,20 +1388,20 @@ function LaunchpadIndex({
               >
                 <span className="flex items-start justify-between gap-2">
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium text-slate-950">{template.name}</span>
-                    <span className="mt-1 block text-[11px] leading-relaxed text-slate-500">
+                    <span className="block truncate text-[13px] font-medium text-[var(--ink)]">{template.name}</span>
+                    <span className="mt-1 block text-[11px] leading-relaxed text-[var(--muted)]">
                       {template.description ?? summarizeTemplate(template)}
                     </span>
                   </span>
                   {template.source === "auto_recent" ? (
-                    <Badge className="border-blue-200 bg-blue-50 text-blue-700" variant="outline">
+                    <span className="chip chip--auto">
                       <Sparkles className="h-3 w-3" />
                       Auto
-                    </Badge>
+                    </span>
                   ) : null}
                 </span>
               </button>
-              <div className="mt-3 flex items-center justify-between gap-2 text-[11px] text-slate-400">
+              <div className="mt-3 flex items-center justify-between gap-2 text-[11px] text-[var(--muted-2)]">
                 <span>{summarizeTemplate(template)}</span>
                 {template.source === "manual" ? (
                   <button
@@ -1386,7 +1409,7 @@ function LaunchpadIndex({
                     onClick={() => {
                       void onDeleteTemplate(template);
                     }}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-[6px] text-[var(--muted-2)] transition hover:bg-[var(--danger-bg)] hover:text-[var(--danger)]"
                     aria-label={`Delete template ${template.name}`}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -1423,13 +1446,13 @@ function LaunchpadManageExistingReview({
   return (
     <section className="space-y-5" data-testid="launchpad-manage-existing-review">
       <div>
-        <h2 className="text-lg font-semibold">Manage existing ads</h2>
-        <p className="text-sm text-muted-foreground">
+        <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-[var(--ink)]">Manage existing ads</h2>
+        <p className="text-[13px] text-[var(--muted)]">
           Use the same Meta ad status path as Creative Detail, applied to the selected rows.
         </p>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <SummaryTile label="Selected" value={`${selectedCreatives.length}`} />
         <SummaryTile label="Active" value={`${activeRows.length}`} />
         <SummaryTile label="Paused" value={`${pausedRows.length}`} />
@@ -1437,73 +1460,79 @@ function LaunchpadManageExistingReview({
       </div>
 
       {missingActionIds.length > 0 ? (
-        <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+        <div className="rounded-[8px] border border-[var(--danger-bd)] bg-[var(--danger-bg)] p-3 text-[13px] text-[var(--danger)]">
           {missingActionIds.length} selected row cannot be mapped to a Meta ad id.
         </div>
       ) : null}
 
       <div className="grid gap-3 md:grid-cols-2">
-        <div className="rounded-lg border bg-white p-4">
+        <div className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] p-4">
           <div className="flex items-start gap-3">
-            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-amber-50 text-amber-700">
+            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] bg-[var(--warn-bg)] text-[var(--warn)]">
               <PauseCircle className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="font-semibold">Pause selected active ads</p>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <p className="text-[14px] font-semibold text-[var(--ink)]">Pause selected active ads</p>
+              <p className="mt-1 text-[13px] text-[var(--muted)]">
                 {activeRows.length} active ad{activeRows.length === 1 ? "" : "s"} will be set to PAUSED.
               </p>
-              <Button
+              <button
                 type="button"
-                className="mt-4"
+                className="btn btn--primary mt-4"
                 disabled={activeRows.length === 0 || missingActionIds.length > 0}
                 onClick={() => onRun("pause", activeRows)}
               >
                 <PauseCircle className="h-4 w-4" />
                 Pause selected ({activeRows.length})
-              </Button>
+              </button>
             </div>
           </div>
         </div>
 
-        <div className="rounded-lg border bg-white p-4">
+        <div className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] p-4">
           <div className="flex items-start gap-3">
-            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700">
+            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] bg-[var(--ok-bg)] text-[var(--ok)]">
               <PlayCircle className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="font-semibold">Resume selected paused ads</p>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <p className="text-[14px] font-semibold text-[var(--ink)]">Resume selected paused ads</p>
+              <p className="mt-1 text-[13px] text-[var(--muted)]">
                 {pausedRows.length} paused ad{pausedRows.length === 1 ? "" : "s"} will be set to ACTIVE.
               </p>
-              <Button
+              <div className="mt-3 rounded-[8px] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-2 text-[12px] text-[var(--warn)]">
+                Resume is an activation write — that ad starts spending immediately. It is never paused-by-default.
+              </div>
+              <button
                 type="button"
-                className="mt-4"
+                className="btn btn--primary mt-3"
                 disabled={pausedRows.length === 0 || missingActionIds.length > 0}
                 onClick={() => onRun("resume", pausedRows)}
               >
                 <PlayCircle className="h-4 w-4" />
                 Resume selected ({pausedRows.length})
-              </Button>
+              </button>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-lg border bg-white">
-        <div className="border-b px-4 py-3 text-sm font-semibold">Selected ads</div>
-        <div className="max-h-[360px] divide-y overflow-auto">
+      <div className="overflow-hidden rounded-[10px] border border-[var(--border)] bg-[var(--surface)]">
+        <div className="border-b border-[var(--border)] px-4 py-3 text-[13px] font-semibold text-[var(--ink)]">Selected ads</div>
+        <div className="max-h-[360px] divide-y divide-[var(--border)] overflow-auto">
           {selectedCreatives.map((creative) => (
             <div key={creative.creativeId} className="flex items-center justify-between gap-3 px-4 py-3">
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{creative.name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {resolveLaunchpadAdActionId(creative)} / {creative.campaignName ?? "No campaign"}
+                <p className="truncate text-[13px] font-medium text-[var(--ink)]">{creative.name}</p>
+                <p className="mono text-[11px] text-[var(--muted)]">
+                  {resolveLaunchpadAdActionId(creative)} · {creative.campaignName ?? "No campaign"}
                 </p>
               </div>
-              <Badge variant="outline">{normalizeMetaAdStatus(creative.effectiveStatus)}</Badge>
+              <span className="chip">{normalizeMetaAdStatus(creative.effectiveStatus)}</span>
             </div>
           ))}
+          {selectedCreatives.length === 0 ? (
+            <p className="px-4 py-3 text-[13px] text-[var(--muted)]">No ads selected.</p>
+          ) : null}
         </div>
       </div>
     </section>
@@ -1512,9 +1541,9 @@ function LaunchpadManageExistingReview({
 
 function SummaryTile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border bg-white px-3 py-2">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 font-mono text-lg font-semibold tabular-nums">{value}</p>
+    <div className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
+      <p className="text-[11.5px] text-[var(--muted)]">{label}</p>
+      <p className="mt-1 text-[26px] font-[650] leading-none tracking-[-0.02em] tabular-nums text-[var(--ink)]">{value}</p>
     </div>
   );
 }
@@ -1524,38 +1553,29 @@ function ModeCard({
   title,
   description,
   meta,
-  tone,
   onClick,
 }: {
   icon: ReactNode;
   title: string;
   description: string;
   meta: string;
-  tone: "blue" | "slate";
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="group rounded-lg border border-slate-200 bg-white p-5 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:border-blue-500 hover:shadow-[0_10px_24px_rgba(15,23,42,0.07)]"
+      className="group flex flex-col rounded-[10px] border border-[var(--border)] bg-[var(--surface)] p-5 text-left transition hover:border-[var(--border-3)]"
     >
       <span className="flex items-start justify-between">
-        <span
-          className={cn(
-            "inline-flex h-10 w-10 items-center justify-center rounded-lg transition",
-            tone === "blue"
-              ? "bg-blue-50 text-blue-600 group-hover:bg-blue-100"
-              : "bg-slate-100 text-slate-700 group-hover:bg-slate-200",
-          )}
-        >
+        <span className="inline-flex h-10 w-10 items-center justify-center rounded-[8px] bg-[var(--surface-3)] text-[var(--ink-3)] transition group-hover:bg-[var(--hover)]">
           {icon}
         </span>
-        <ArrowRight className="h-4 w-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-blue-600" />
+        <ArrowRight className="h-4 w-4 text-[var(--muted-2)] transition group-hover:translate-x-0.5 group-hover:text-[var(--brand)]" />
       </span>
-      <span className="mt-4 block text-base font-semibold text-slate-950">{title}</span>
-      <span className="mt-1 block text-xs leading-relaxed text-slate-500">{description}</span>
-      <span className="mt-3 block text-[11px] text-slate-500">{meta}</span>
+      <span className="mt-4 block text-[15px] font-semibold tracking-[-0.01em] text-[var(--ink)]">{title}</span>
+      <span className="mt-1 block text-[12px] leading-relaxed text-[var(--muted)]">{description}</span>
+      <span className="mono mt-3 block text-[10.5px] text-[var(--muted-2)]">{meta}</span>
     </button>
   );
 }
@@ -1574,10 +1594,10 @@ function LaunchpadLibrarySection({
   return (
     <section className="space-y-2">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-950">
+        <h2 className="flex items-center gap-2 text-[13px] font-semibold text-[var(--ink)]">
           {icon}
           {title}
-          <span className="font-mono text-xs font-normal text-slate-500">{count}</span>
+          <span className="mono text-[11px] font-normal text-[var(--muted)]">{count}</span>
         </h2>
       </div>
       {children}
@@ -1600,34 +1620,41 @@ function LaunchpadStepper({
       {steps.map((item, index) => {
         const active = item.id === currentStep;
         const done = currentIndex >= 0 && index < currentIndex;
+        const gated = currentIndex >= 0 && index > currentIndex;
         return (
           <li key={item.id} className="flex min-w-0 flex-1 items-center gap-2">
             <button
               type="button"
               onClick={() => onSelectStep(item.id)}
-              className="flex shrink-0 items-center gap-2 rounded-md px-1 py-1 text-left"
+              disabled={gated}
+              className={cn(
+                "flex shrink-0 items-center gap-2 rounded-[6px] px-1 py-1 text-left",
+                gated ? "cursor-default" : "cursor-pointer",
+              )}
             >
               <span
                 className={cn(
-                  "inline-flex h-6 w-6 items-center justify-center rounded-full border text-xs font-semibold",
-                  active || done
-                    ? "border-blue-600 bg-blue-600 text-white"
-                    : "border-slate-300 bg-white text-slate-500",
+                  "inline-flex h-6 w-6 items-center justify-center rounded-full border text-[11px] font-semibold tabular-nums",
+                  done
+                    ? "border-[var(--ink)] bg-[var(--ink)] text-white"
+                    : active
+                      ? "border-[var(--ink)] bg-[var(--surface-3)] text-[var(--ink)]"
+                      : "border-[var(--border-2)] bg-[var(--surface)] text-[var(--muted)]",
                 )}
               >
                 {done ? <Check className="h-3.5 w-3.5" /> : index + 1}
               </span>
               <span
                 className={cn(
-                  "hidden whitespace-nowrap text-xs sm:inline",
-                  active ? "font-semibold text-slate-950" : "text-slate-500",
+                  "hidden whitespace-nowrap text-[12px] sm:inline",
+                  active ? "font-semibold text-[var(--ink)]" : done ? "text-[var(--ink-3)]" : "text-[var(--muted)]",
                 )}
               >
                 {item.label}
               </span>
             </button>
             {index < steps.length - 1 ? (
-              <span className={cn("h-px min-w-6 flex-1", done ? "bg-blue-600" : "bg-slate-200")} />
+              <span className={cn("h-px min-w-6 flex-1", done ? "bg-[var(--ink)]" : "bg-[var(--border)]")} />
             ) : null}
           </li>
         );
@@ -1638,9 +1665,9 @@ function LaunchpadStepper({
 
 function PausedBadge({ verbose = false }: { verbose?: boolean }) {
   return (
-    <span className="inline-flex w-fit items-center gap-1.5 rounded-md border border-dashed border-slate-400 bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-700">
+    <span className="chip chip--warn w-fit">
       <Pause className="h-3 w-3" />
-      Will launch as PAUSED{verbose ? " - activate manually in Meta" : ""}
+      Will launch as PAUSED{verbose ? " — activate manually in Meta" : ""}
     </span>
   );
 }

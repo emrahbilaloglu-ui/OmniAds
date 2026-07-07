@@ -2,8 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Copy, Plus, Trash2 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import type { LaunchpadBudgetState } from "@/components/launchpad/LaunchpadBudget";
 import type { MetaBidStrategy } from "@/lib/meta/launch-write";
 import {
@@ -221,38 +219,38 @@ export function LaunchpadAdSets({
     <section className="space-y-5" data-testid="launchpad-adsets">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold">Ad sets</h2>
-          <p className="text-sm text-muted-foreground">
+          <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-[var(--ink)]">Ad sets</h2>
+          <p className="text-[13px] text-[var(--muted)]">
             Each ad set inherits all selected creatives
           </p>
         </div>
-        <Button type="button" size="sm" onClick={addAdSet}>
+        <button type="button" className="btn btn--primary btn--sm" onClick={addAdSet}>
           <Plus className="h-4 w-4" />
           Add ad set
-        </Button>
+        </button>
       </div>
 
       <div className="space-y-4">
         {value.map((adSet, index) => (
-          <div key={adSet.clientId} className="rounded-md border p-4">
+          <div key={adSet.clientId} className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] p-4">
             <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold">Ad set {index + 1}</p>
-                <Badge variant="outline">7d click immutable</Badge>
+              <div className="flex items-center gap-2">
+                <p className="text-[13px] font-semibold text-[var(--ink)]">Ad set {index + 1}</p>
+                <span className="chip">7d click immutable</span>
               </div>
               <div className="flex gap-2">
-                <Button type="button" variant="outline" size="icon-sm" onClick={() => duplicateAdSet(index)}>
+                <button type="button" className="btn btn--sm px-2" aria-label="Duplicate ad set" onClick={() => duplicateAdSet(index)}>
                   <Copy className="h-4 w-4" />
-                </Button>
-                <Button
+                </button>
+                <button
                   type="button"
-                  variant="outline"
-                  size="icon-sm"
+                  className="btn btn--sm px-2"
+                  aria-label="Remove ad set"
                   disabled={value.length <= 1}
                   onClick={() => removeAdSet(index)}
                 >
                   <Trash2 className="h-4 w-4" />
-                </Button>
+                </button>
               </div>
             </div>
 
@@ -418,9 +416,9 @@ function AttributionField({
     adSet.attributionSpec.map((item) => `${item.event_type}:${item.window_days}`),
   );
   return (
-    <div className="rounded-md border p-3" data-testid="launchpad-attribution-field">
+    <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-3" data-testid="launchpad-attribution-field">
       <label className="block space-y-1.5">
-        <span className="text-sm font-medium">Attribution preset</span>
+        <span className="text-[12px] font-medium text-[var(--ink-2)]">Attribution preset</span>
         <select
           value={adSet.attributionPresetId}
           onChange={(event) => {
@@ -432,7 +430,7 @@ function AttributionField({
               attributionSpec: preset.attributionSpec,
             });
           }}
-          className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:border-primary"
+          className="h-10 w-full rounded-[6px] border border-[var(--border-2)] bg-[var(--surface)] px-3 text-[13px] text-[var(--ink)] outline-none focus:border-[var(--brand)]"
         >
           {ATTRIBUTION_PRESETS.map((preset) => (
             <option key={preset.id} value={preset.id}>
@@ -447,10 +445,11 @@ function AttributionField({
             const key = `${dimension.event_type}:${dimension.window_days}`;
             const checked = activeSpec.has(key);
             return (
-              <label key={key} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+              <label key={key} className="flex items-center gap-2 rounded-[6px] border border-[var(--border-2)] bg-[var(--surface)] px-3 py-2 text-[12.5px] text-[var(--ink-2)]">
                 <input
                   type="checkbox"
                   checked={checked}
+                  className="accent-[var(--ink)]"
                   onChange={(event) => {
                     const next = event.target.checked
                       ? [...adSet.attributionSpec, dimension]
@@ -479,16 +478,17 @@ function AttributionField({
           })}
         </div>
       ) : null}
-      <div className="mt-3 rounded-md bg-muted/30 p-2 text-xs">
+      <div className="mt-3 rounded-[6px] bg-[var(--surface-2)] p-2 text-[11.5px] text-[var(--ink-2)]">
         <span className="font-medium">attribution_spec preview: </span>
-        <code>{JSON.stringify(adSet.attributionSpec)}</code>
+        <code className="mono text-[var(--muted)]">{JSON.stringify(adSet.attributionSpec)}</code>
       </div>
       {!hasClick ? (
-        <Badge className="mt-2 border-rose-200 bg-rose-50 text-rose-800" variant="outline">
+        <span className="chip chip--action mt-2">
+          <span className="dot" />
           At least one click window is required
-        </Badge>
+        </span>
       ) : (
-        <p className="mt-2 text-xs text-muted-foreground">
+        <p className="mt-2 text-[11.5px] text-[var(--muted)]">
           {summarizeAttributionSpec(adSet.attributionSpec)}
         </p>
       )}
@@ -517,8 +517,8 @@ function PixelField({
   if (loading) {
     return (
       <div className="space-y-1.5">
-        <span className="text-sm font-medium">Pixel</span>
-        <div className="flex h-10 items-center rounded-md border px-3 text-sm text-muted-foreground">
+        <span className="text-[12px] font-medium text-[var(--ink-2)]">Pixel</span>
+        <div className="flex h-10 items-center rounded-[6px] border border-[var(--border-2)] px-3 text-[13px] text-[var(--muted)]">
           Loading pixels...
         </div>
       </div>
@@ -527,10 +527,11 @@ function PixelField({
   if (pixels.length === 0) {
     return (
       <div className="space-y-1.5">
-        <span className="text-sm font-medium">Pixel</span>
-        <Badge className="border-rose-200 bg-rose-50 text-rose-800" variant="outline">
+        <span className="text-[12px] font-medium text-[var(--ink-2)]">Pixel</span>
+        <span className="chip chip--action w-fit">
+          <span className="dot" />
           No active pixel found for this business
-        </Badge>
+        </span>
       </div>
     );
   }
@@ -538,8 +539,8 @@ function PixelField({
     const pixel = pixels[0];
     return (
       <div className="space-y-1.5">
-        <span className="text-sm font-medium">Pixel</span>
-        <div className="flex h-10 items-center rounded-md border bg-muted/20 px-3 text-sm">
+        <span className="text-[12px] font-medium text-[var(--ink-2)]">Pixel</span>
+        <div className="flex h-10 items-center rounded-[6px] border border-[var(--border)] bg-[var(--surface-2)] px-3 text-[13px] text-[var(--ink)]">
           {pixel ? formatPixelLabel(pixel) : value}
         </div>
       </div>
@@ -547,11 +548,11 @@ function PixelField({
   }
   return (
     <label className="block space-y-1.5">
-      <span className="text-sm font-medium">Pixel</span>
+      <span className="text-[12px] font-medium text-[var(--ink-2)]">Pixel</span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:border-primary"
+        className="h-10 w-full rounded-[6px] border border-[var(--border-2)] bg-[var(--surface)] px-3 text-[13px] text-[var(--ink)] outline-none focus:border-[var(--brand)]"
       >
         <option value="">Choose pixel</option>
         {pixels.map((pixel) => (
@@ -580,13 +581,13 @@ function TextField({
 }) {
   return (
     <label className="block space-y-1.5">
-      <span className="text-sm font-medium">{label}</span>
+      <span className="text-[12px] font-medium text-[var(--ink-2)]">{label}</span>
       <input
         type={type}
         value={value}
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
-        className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:border-primary"
+        className="h-10 w-full rounded-[6px] border border-[var(--border-2)] bg-[var(--surface)] px-3 text-[13px] text-[var(--ink)] outline-none focus:border-[var(--brand)]"
       />
     </label>
   );
@@ -605,11 +606,11 @@ function SelectField({
 }) {
   return (
     <label className="block space-y-1.5">
-      <span className="text-sm font-medium">{label}</span>
+      <span className="text-[12px] font-medium text-[var(--ink-2)]">{label}</span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:border-primary"
+        className="h-10 w-full rounded-[6px] border border-[var(--border-2)] bg-[var(--surface)] px-3 text-[13px] text-[var(--ink)] outline-none focus:border-[var(--brand)]"
       >
         {options.map((option) => (
           <option key={option} value={option}>
@@ -631,12 +632,13 @@ function CheckboxRow({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+    <label className="flex cursor-pointer items-center justify-between rounded-[6px] border border-[var(--border-2)] bg-[var(--surface)] px-3 py-2 text-[13px] text-[var(--ink)]">
       <span>{label}</span>
       <input
         type="checkbox"
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
+        className="accent-[var(--ink)]"
       />
     </label>
   );
@@ -655,14 +657,15 @@ function MultiCheck({
 }) {
   const selected = new Set(value);
   return (
-    <div className="rounded-md border p-3">
-      <p className="mb-2 text-sm font-medium">{label}</p>
+    <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-3">
+      <p className="mb-2 text-[12px] font-medium text-[var(--ink-2)]">{label}</p>
       <div className="space-y-2">
         {options.map((option) => (
-          <label key={option} className="flex items-center gap-2 text-sm text-muted-foreground">
+          <label key={option} className="flex items-center gap-2 text-[12.5px] text-[var(--ink-3)]">
             <input
               type="checkbox"
               checked={selected.has(option)}
+              className="accent-[var(--ink)]"
               onChange={(event) => {
                 const next = new Set(selected);
                 if (event.target.checked) next.add(option);

@@ -1,7 +1,6 @@
 "use client";
 
 import { CheckCircle2, ExternalLink, Loader2, XCircle } from "lucide-react";
-import { Button } from "@/components/ui/button";
 
 export interface LaunchpadProgressResult {
   ok: boolean;
@@ -49,13 +48,13 @@ export function LaunchpadProgress({
   return (
     <section className="space-y-5" data-testid="launchpad-progress">
       <div>
-        <h2 className="text-lg font-semibold">Launch progress</h2>
-        <p className="text-sm text-muted-foreground">Meta entities start paused</p>
+        <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-[var(--ink)]">Launch progress</h2>
+        <p className="text-[13px] text-[var(--muted)]">Meta entities start paused</p>
       </div>
 
       {loading ? (
-        <div className="flex items-center gap-3 rounded-md border p-4 text-sm">
-          <Loader2 className="h-4 w-4 animate-spin" />
+        <div className="flex items-center gap-3 rounded-[10px] border border-[var(--border)] bg-[var(--surface)] p-4 text-[13px] text-[var(--ink-2)]">
+          <Loader2 className="h-4 w-4 animate-spin text-[var(--muted)]" />
           {mode === "manage_existing"
             ? "Updating selected Meta ads..."
             : mode === "add_to_existing"
@@ -65,14 +64,14 @@ export function LaunchpadProgress({
       ) : null}
 
       {result ? (
-        <div className="rounded-md border">
-          <div className="border-b px-4 py-3">
+        <div className="overflow-hidden rounded-[10px] border border-[var(--border)] bg-[var(--surface)]">
+          <div className="border-b border-[var(--border)] px-4 py-3">
             {result.ok ? (
-              <p className="font-semibold text-emerald-700">
+              <p className="text-[14px] font-semibold text-[var(--ok)]">
                 {mode === "manage_existing" ? "Ads updated" : "Launch created"}
               </p>
             ) : (
-              <p className="font-semibold text-rose-700">
+              <p className="text-[14px] font-semibold text-[var(--danger)]">
                 {mode === "manage_existing"
                   ? "Bulk ad update completed with failures"
                   : mode === "add_to_existing"
@@ -80,31 +79,45 @@ export function LaunchpadProgress({
                   : `Partial launch stopped at ${result.failedAt ?? "unknown step"}`}
               </p>
             )}
-            <p className="text-sm text-muted-foreground">
-              {mode === "manage_existing"
-                ? `${result.successCount ?? 0} ads updated / ${result.failedCount ?? 0} failed`
-                : mode === "add_to_existing"
-                ? `${result.successCount ?? result.adIds?.length ?? 0} ads created / ${result.failedCount ?? 0} failed`
-                : `${result.adsetIds?.length ?? 0} ad sets / ${result.adIds?.length ?? 0} ads`}
+            <p className="mt-1 flex flex-wrap items-baseline gap-x-2 text-[12px] text-[var(--muted)] tabular-nums">
+              {mode === "manage_existing" ? (
+                <>
+                  <strong className="text-[16px] font-[650] text-[var(--ink)]">{result.successCount ?? 0}</strong> updated
+                  <span className="text-[var(--muted-2)]">·</span>
+                  <strong className="text-[16px] font-[650] text-[var(--ink)]">{result.failedCount ?? 0}</strong> failed
+                </>
+              ) : mode === "add_to_existing" ? (
+                <>
+                  <strong className="text-[16px] font-[650] text-[var(--ink)]">{result.successCount ?? result.adIds?.length ?? 0}</strong> ads created
+                  <span className="text-[var(--muted-2)]">·</span>
+                  <strong className="text-[16px] font-[650] text-[var(--ink)]">{result.failedCount ?? 0}</strong> failed
+                </>
+              ) : (
+                <>
+                  <strong className="text-[16px] font-[650] text-[var(--ink)]">{result.adsetIds?.length ?? 0}</strong> ad sets
+                  <span className="text-[var(--muted-2)]">·</span>
+                  <strong className="text-[16px] font-[650] text-[var(--ink)]">{result.adIds?.length ?? 0}</strong> ads
+                </>
+              )}
             </p>
           </div>
-          <div className="divide-y">
+          <div className="divide-y divide-[var(--border)]">
             {steps.map((step) => (
               <div key={`${step.kind}-${step.index}-${step.id ?? step.name}`} className="flex items-center justify-between gap-3 px-4 py-3">
                 <div className="flex min-w-0 items-center gap-3">
                   {step.status === "success" ? (
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-[var(--ok)]" />
                   ) : (
-                    <XCircle className="h-4 w-4 text-rose-600" />
+                    <XCircle className="h-4 w-4 shrink-0 text-[var(--danger)]" />
                   )}
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">
-                      {step.kind} - {step.name}
+                    <p className="truncate text-[13px] font-medium text-[var(--ink)]">
+                      {step.kind} · {step.name}
                     </p>
                     {step.error ? (
-                      <p className="text-xs text-rose-700">{step.error.message}</p>
+                      <p className="mono text-[11px] text-[var(--danger)]">{step.error.code} — {step.error.message}</p>
                     ) : (
-                      <p className="text-xs text-muted-foreground">{step.id ?? "pending"}</p>
+                      <p className="mono text-[11px] text-[var(--muted)]">{step.id ?? "pending"}</p>
                     )}
                   </div>
                 </div>
@@ -113,9 +126,9 @@ export function LaunchpadProgress({
                     href={step.adsManagerUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-xs text-primary"
+                    className="inline-flex shrink-0 items-center gap-1 text-[11px] text-[var(--brand)] hover:underline"
                   >
-                    Meta
+                    Ads Manager
                     <ExternalLink className="h-3 w-3" />
                   </a>
                 ) : null}
@@ -125,16 +138,26 @@ export function LaunchpadProgress({
         </div>
       ) : null}
 
-      {!loading && result && !result.ok && mode !== "manage_existing" ? (
-        <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          Delete partial is deferred. Review or remove the created items in Meta Ads Manager.
+      {!loading && result && !result.ok && result.error ? (
+        <div className="rounded-[8px] border border-[var(--danger-bd)] bg-[var(--danger-bg)] p-3 text-[12px] text-[var(--danger)]">
+          <span className="mono font-semibold">{result.error.code}</span> — {result.error.message}
         </div>
       ) : null}
 
+      {!loading && result && !result.ok && mode !== "manage_existing" ? (
+        <div className="rounded-[8px] border border-[var(--warn-bd)] bg-[var(--warn-bg)] p-3 text-[13px] text-[var(--warn)]">
+          Delete partial is deferred — review or remove the created items in Meta Ads Manager. No auto-retry, no auto-rollback.
+        </div>
+      ) : null}
+
+      <p className="text-[11.5px] text-[var(--muted)]">
+        Everything created above is PAUSED. Activate deliberately in Meta Ads Manager.
+      </p>
+
       <div className="flex justify-end">
-        <Button type="button" onClick={onDone} disabled={loading}>
+        <button type="button" className="btn btn--primary" onClick={onDone} disabled={loading}>
           Done
-        </Button>
+        </button>
       </div>
     </section>
   );

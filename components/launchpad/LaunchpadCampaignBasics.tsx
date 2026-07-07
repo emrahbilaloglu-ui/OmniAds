@@ -1,7 +1,5 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
-
 export interface LaunchpadCampaignBasicsState {
   name: string;
   smartPromotion: boolean;
@@ -27,31 +25,31 @@ export function LaunchpadCampaignBasics({
   return (
     <section className="space-y-5" data-testid="launchpad-campaign-basics">
       <div>
-        <h2 className="text-lg font-semibold">Campaign basics</h2>
-        <p className="text-sm text-muted-foreground">Status will start paused</p>
+        <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-[var(--ink)]">Campaign basics</h2>
+        <p className="text-[13px] text-[var(--muted)]">Status will start paused</p>
       </div>
 
       <label className="block space-y-1.5">
-        <span className="text-sm font-medium">Campaign name</span>
+        <span className="text-[12px] font-medium text-[var(--ink-2)]">Campaign name</span>
         <input
           value={value.name}
           onChange={(event) => onChange({ ...value, name: event.target.value })}
-          className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:border-primary"
+          className="h-10 w-full rounded-[6px] border border-[var(--border-2)] bg-[var(--surface)] px-3 text-[13px] text-[var(--ink)] outline-none focus:border-[var(--brand)]"
         />
       </label>
 
       <div className="grid gap-3 md:grid-cols-2">
-        <div className="rounded-md border p-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Objective</p>
+        <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.04em] text-[var(--muted)]">Objective</p>
           <div className="mt-2 flex items-center gap-2">
-            <Badge variant="secondary">Sales</Badge>
-            <span className="text-sm text-muted-foreground">OUTCOME_SALES</span>
+            <span className="chip chip--info">Sales</span>
+            <span className="mono text-[12px] text-[var(--muted)]">OUTCOME_SALES</span>
           </div>
         </div>
-        <label className="flex items-center justify-between rounded-md border p-3">
+        <label className="flex cursor-pointer items-center justify-between rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-3">
           <span>
-            <span className="block text-sm font-medium">Advantage+ shopping</span>
-            <span className="block text-xs text-muted-foreground">GUIDED_CREATION</span>
+            <span className="block text-[13px] font-medium text-[var(--ink)]">Advantage+ shopping</span>
+            <span className="mono block text-[11px] text-[var(--muted)]">GUIDED_CREATION</span>
           </span>
           <input
             type="checkbox"
@@ -59,22 +57,23 @@ export function LaunchpadCampaignBasics({
             onChange={(event) =>
               onChange({ ...value, smartPromotion: event.target.checked })
             }
+            className="accent-[var(--ink)]"
           />
         </label>
       </div>
 
       <div className="space-y-2">
-        <p className="text-sm font-medium">Special ad categories</p>
+        <p className="text-[13px] font-medium text-[var(--ink)]">Special ad categories</p>
         <div className="flex flex-wrap gap-2">
           {SPECIAL_AD_CATEGORIES.map((category) => (
             <button
               key={category}
               type="button"
               onClick={() => toggleCategory(category)}
-              className={`rounded-md border px-3 py-2 text-sm ${
+              className={`rounded-[6px] border px-3 py-2 text-[12.5px] transition-colors ${
                 value.specialAdCategories.includes(category)
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border bg-background text-muted-foreground"
+                  ? "border-[var(--ink)] bg-[var(--ink)] text-white"
+                  : "border-[var(--border-2)] bg-[var(--surface)] text-[var(--ink-3)] hover:bg-[var(--hover)]"
               }`}
             >
               {category.replaceAll("_", " ")}

@@ -6,8 +6,6 @@ import { AlertTriangle, Check, CheckSquare, LayoutGrid, List, Search, XSquare } 
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import { CreativeDecisionLabelBadge } from "@/components/creatives/CreativeDecisionLabelBadge";
 import { buildPlacementTooltip } from "@/components/creatives/CreativesTopGrid";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import type { DecisionLabel, DecisionOutput } from "@/lib/creative-decision-engine";
 import { formatMoney } from "@/components/meta/redesign/meta-card-utils";
@@ -196,10 +194,10 @@ export function getCreativeAdvisoryNotes(decision: DecisionOutput | null | undef
 }
 
 function noteClass(tone: "success" | "warning" | "danger" | "muted") {
-  if (tone === "success") return "border-emerald-200 bg-emerald-50 text-emerald-800";
-  if (tone === "danger") return "border-rose-200 bg-rose-50 text-rose-800";
-  if (tone === "warning") return "border-amber-200 bg-amber-50 text-amber-900";
-  return "border-border bg-muted text-muted-foreground";
+  if (tone === "success") return "border-[var(--ok-bd)] bg-[var(--ok-bg)] text-[var(--ok)]";
+  if (tone === "danger") return "border-[var(--danger-bd)] bg-[var(--danger-bg)] text-[var(--danger)]";
+  if (tone === "warning") return "border-[var(--warn-bd)] bg-[var(--warn-bg)] text-[var(--warn)]";
+  return "border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted)]";
 }
 
 export function LaunchpadCreativeSelection({
@@ -342,21 +340,21 @@ export function LaunchpadCreativeSelection({
   }
 
   return (
-    <section className="space-y-4 text-slate-950" data-testid="launchpad-creative-selection">
+    <section className="space-y-4" data-testid="launchpad-creative-selection">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="text-base font-semibold">Select creatives</h2>
-          <p className="mt-0.5 text-xs text-slate-500">
+          <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-[var(--ink)]">Select creatives</h2>
+          <p className="mt-0.5 text-[12px] text-[var(--muted)]">
             From active or recently closed ads. Engine v3 advisory is shown per row.
           </p>
         </div>
-        <div className="inline-flex w-fit rounded-md border border-slate-200 bg-slate-100 p-1">
+        <div className="inline-flex w-fit rounded-[6px] border border-[var(--border-2)] bg-[var(--surface-3)] p-1">
           <button
             type="button"
             onClick={() => setView("list")}
             className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded px-3 text-sm transition",
-              view === "list" ? "bg-white font-medium text-slate-950 shadow-sm" : "text-slate-500 hover:text-slate-950",
+              "inline-flex h-8 items-center gap-1.5 rounded-[5px] px-3 text-[13px] transition",
+              view === "list" ? "bg-[var(--surface)] font-medium text-[var(--ink)] shadow-[var(--shadow-sm)]" : "text-[var(--muted)] hover:text-[var(--ink)]",
             )}
           >
             <List className="h-3.5 w-3.5" />
@@ -366,8 +364,8 @@ export function LaunchpadCreativeSelection({
             type="button"
             onClick={() => setView("grid")}
             className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded px-3 text-sm transition",
-              view === "grid" ? "bg-white font-medium text-slate-950 shadow-sm" : "text-slate-500 hover:text-slate-950",
+              "inline-flex h-8 items-center gap-1.5 rounded-[5px] px-3 text-[13px] transition",
+              view === "grid" ? "bg-[var(--surface)] font-medium text-[var(--ink)] shadow-[var(--shadow-sm)]" : "text-[var(--muted)] hover:text-[var(--ink)]",
             )}
           >
             <LayoutGrid className="h-3.5 w-3.5" />
@@ -378,12 +376,12 @@ export function LaunchpadCreativeSelection({
 
       <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
         <div className="relative w-full lg:max-w-md xl:max-w-lg">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted-2)]" />
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search creative name or ID..."
-            className="h-10 w-full rounded-md border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            className="h-10 w-full rounded-[6px] border border-[var(--border-2)] bg-[var(--surface)] pl-9 pr-3 text-[13px] text-[var(--ink)] outline-none transition focus:border-[var(--brand)]"
           />
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -392,7 +390,7 @@ export function LaunchpadCreativeSelection({
             <select
               value={campaignFilter}
               onChange={(event) => setCampaignFilter(event.target.value)}
-              className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 sm:w-[230px]"
+              className="h-10 w-full rounded-[6px] border border-[var(--border-2)] bg-[var(--surface)] px-3 text-[13px] text-[var(--ink-2)] outline-none transition focus:border-[var(--brand)] sm:w-[230px]"
             >
               <option value="all">All campaigns</option>
               {campaignOptions.map((campaign) => (
@@ -407,7 +405,7 @@ export function LaunchpadCreativeSelection({
             <select
               value={sort}
               onChange={(event) => setSort(event.target.value as SortKey)}
-              className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 sm:w-[210px]"
+              className="h-10 w-full rounded-[6px] border border-[var(--border-2)] bg-[var(--surface)] px-3 text-[13px] text-[var(--ink-2)] outline-none transition focus:border-[var(--brand)] sm:w-[210px]"
             >
               <option value="spend_desc">Spend, high to low</option>
               <option value="roas_desc">ROAS, high to low</option>
@@ -464,32 +462,32 @@ export function LaunchpadCreativeSelection({
       </div>
 
       {loading ? (
-        <div className="rounded-md border border-slate-200 bg-white p-4 text-sm text-slate-500">
+        <div className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] p-4 text-[13px] text-[var(--muted)]">
           Loading creatives...
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-3">
-        <div className="text-xs text-slate-500">
-          <span className="font-mono font-medium tabular-nums text-slate-950">{filteredRows.length}</span> match
-          <span className="mx-2 text-slate-300">·</span>
-          <span className="font-mono font-medium tabular-nums text-slate-950">{selectedCreativeIds.length}</span> selected
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-3">
+        <div className="text-[12px] text-[var(--muted)]">
+          <span className="font-medium tabular-nums text-[var(--ink)]">{filteredRows.length}</span> match
+          <span className="mx-2 text-[var(--muted-2)]">·</span>
+          <span className="font-medium tabular-nums text-[var(--ink)]">{selectedCreativeIds.length}</span> selected
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={selectAllMatching}>
+          <button type="button" className="btn btn--sm" onClick={selectAllMatching}>
             <CheckSquare className="h-3.5 w-3.5" />
             Select all matching ({filteredRows.length})
-          </Button>
-          <Button type="button" variant="link" size="sm" onClick={clearSelection}>
+          </button>
+          <button type="button" className="btn btn--ghost btn--sm" onClick={clearSelection}>
             <XSquare className="h-3.5 w-3.5" />
             Clear ({selectedCreativeIds.length})
-          </Button>
+          </button>
         </div>
       </div>
 
       {view === "list" ? (
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-          <div className="grid grid-cols-[44px_56px_1fr_220px] border-b border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+        <div className="overflow-hidden rounded-[10px] border border-[var(--border)] bg-[var(--surface)]">
+          <div className="grid grid-cols-[44px_56px_1fr_220px] border-b border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[10.5px] font-semibold uppercase tracking-[0.04em] text-[var(--muted)]">
             <span />
             <span>Asset</span>
             <span>Creative</span>
@@ -512,15 +510,15 @@ export function LaunchpadCreativeSelection({
                     if (event.key === "Enter" || event.key === " ") onToggleCreative(row);
                   }}
                   className={cn(
-                    "grid cursor-pointer grid-cols-[44px_56px_1fr_220px] gap-2 border-b border-slate-100 px-3 py-3 transition-colors last:border-b-0 hover:bg-slate-50",
-                    selected ? "bg-blue-50/50" : "bg-white",
+                    "grid cursor-pointer grid-cols-[44px_56px_1fr_220px] gap-2 border-b border-[var(--border)] px-3 py-3 transition-colors last:border-b-0 hover:bg-[var(--hover)]",
+                    selected ? "bg-[var(--surface-3)]" : "bg-[var(--surface)]",
                   )}
                 >
                   <div className="pt-2">
                     <span
                       className={cn(
-                        "inline-flex h-4 w-4 items-center justify-center rounded border",
-                        selected ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 bg-white",
+                        "inline-flex h-4 w-4 items-center justify-center rounded-[4px] border",
+                        selected ? "border-[var(--ink)] bg-[var(--ink)] text-white" : "border-[var(--border-3)] bg-[var(--surface)]",
                       )}
                     >
                       {selected ? <Check className="h-3 w-3" /> : null}
@@ -550,21 +548,17 @@ export function LaunchpadCreativeSelection({
                   />
                   <div className="min-w-0 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="truncate text-sm font-medium text-slate-950">{row.name}</p>
+                      <p className="truncate text-[13px] font-medium text-[var(--ink)]">{row.name}</p>
                       {decision ? <CreativeDecisionLabelBadge label={decision.label} /> : null}
                       {hasBelowBreakeven(decision) ? (
-                        <Badge className="border-amber-200 bg-amber-50 text-amber-900" variant="outline">
-                          Below breakeven
-                        </Badge>
+                        <span className="chip chip--warn">Below breakeven</span>
                       ) : null}
                       {recentlyDuplicated ? (
-                        <Badge className="border-indigo-200 bg-indigo-50 text-indigo-700" variant="outline">
-                          Recently duplicated
-                        </Badge>
+                        <span className="chip chip--info">Recently duplicated</span>
                       ) : null}
                     </div>
-                    <p className="truncate text-xs text-slate-500" title={placementTooltip}>
-                      {row.campaignName ?? row.campaignId ?? "No campaign"} / {row.adSetName ?? row.adSetId ?? "No ad set"}
+                    <p className="truncate text-[11px] text-[var(--muted)]" title={placementTooltip}>
+                      {row.campaignName ?? row.campaignId ?? "No campaign"} · {row.adSetName ?? row.adSetId ?? "No ad set"}
                     </p>
                     {notes.length > 0 ? (
                       <div className="flex flex-wrap gap-1.5">
@@ -572,7 +566,7 @@ export function LaunchpadCreativeSelection({
                           <span
                             key={note.text}
                             className={cn(
-                              "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs",
+                              "inline-flex items-center gap-1 rounded-[6px] border px-2 py-1 text-[11px]",
                               noteClass(note.tone),
                             )}
                           >
@@ -583,19 +577,19 @@ export function LaunchpadCreativeSelection({
                       </div>
                     ) : null}
                   </div>
-                  <div className="pt-1 text-right text-sm tabular-nums">
-                    <span className="font-semibold text-slate-950">{formatMoney(row.spend, currency)}</span>
-                    <span className="text-slate-400"> · ROAS </span>
-                    <span className={cn("font-semibold", row.roas >= 2 ? "text-emerald-700" : row.roas < 1 ? "text-rose-700" : "text-slate-950")}>{row.roas.toFixed(2)}x</span>
-                    <span className="text-slate-400"> · </span>
-                    <span className="font-semibold text-slate-700">{row.purchases.toLocaleString()}</span>
-                    <span className="text-slate-400"> purchases</span>
+                  <div className="pt-1 text-right text-[13px] tabular-nums">
+                    <span className="font-semibold text-[var(--ink)]">{formatMoney(row.spend, currency)}</span>
+                    <span className="text-[var(--muted-2)]"> · ROAS </span>
+                    <span className={cn("font-semibold", row.roas >= 2 ? "text-[var(--ok)]" : row.roas < 1 ? "text-[var(--danger)]" : "text-[var(--ink)]")}>{row.roas.toFixed(2)}x</span>
+                    <span className="text-[var(--muted-2)]"> · </span>
+                    <span className="font-semibold text-[var(--ink-3)]">{row.purchases.toLocaleString()}</span>
+                    <span className="text-[var(--muted-2)]"> purchases</span>
                   </div>
                 </div>
               );
             })}
             {filteredRows.length === 0 ? (
-              <div className="p-4 text-sm text-slate-500">No creatives found.</div>
+              <div className="p-4 text-[13px] text-[var(--muted)]">No creatives found.</div>
             ) : null}
           </div>
         </div>
@@ -611,8 +605,8 @@ export function LaunchpadCreativeSelection({
                 type="button"
                 onClick={() => onToggleCreative(row)}
                 className={cn(
-                  "relative rounded-lg border bg-white p-3 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:border-slate-300 hover:bg-slate-50",
-                  selected ? "border-blue-500 ring-2 ring-blue-100" : "border-slate-200",
+                  "relative rounded-[10px] border bg-[var(--surface)] p-3 text-left transition hover:bg-[var(--hover)]",
+                  selected ? "border-[var(--ink)]" : "border-[var(--border)] hover:border-[var(--border-3)]",
                 )}
               >
                 <div className="flex items-start gap-3">
@@ -632,35 +626,31 @@ export function LaunchpadCreativeSelection({
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-2">
-                      <p className="line-clamp-2 pr-8 text-sm font-medium text-slate-950">{row.name}</p>
+                      <p className="line-clamp-2 pr-8 text-[13px] font-medium text-[var(--ink)]">{row.name}</p>
                       <span
                         className={cn(
-                          "absolute right-3 top-3 inline-flex h-5 w-5 items-center justify-center rounded border",
-                          selected ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 bg-white",
+                          "absolute right-3 top-3 inline-flex h-5 w-5 items-center justify-center rounded-[4px] border",
+                          selected ? "border-[var(--ink)] bg-[var(--ink)] text-white" : "border-[var(--border-3)] bg-[var(--surface)]",
                         )}
                       >
                         {selected ? <Check className="h-3.5 w-3.5" /> : null}
                       </span>
                     </div>
-                    <p className="mt-1 truncate text-[11px] text-slate-500">
+                    <p className="mt-1 truncate text-[11px] text-[var(--muted)]">
                       {row.campaignName ?? row.campaignId ?? "No campaign"}
                     </p>
                     <div className="mt-2 flex flex-wrap gap-1">
                       {decision ? <CreativeDecisionLabelBadge label={decision.label} /> : null}
                       {hasBelowBreakeven(decision) ? (
-                        <Badge className="border-amber-200 bg-amber-50 text-amber-900" variant="outline">
-                          Below breakeven
-                        </Badge>
+                        <span className="chip chip--warn">Below breakeven</span>
                       ) : null}
                       {recentlyDuplicated ? (
-                        <Badge className="border-indigo-200 bg-indigo-50 text-indigo-700" variant="outline">
-                          Recently duplicated
-                        </Badge>
+                        <span className="chip chip--info">Recently duplicated</span>
                       ) : null}
                     </div>
                   </div>
                 </div>
-                <div className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-100 pt-3 text-xs">
+                <div className="mt-3 grid grid-cols-3 gap-2 border-t border-[var(--border)] pt-3 text-[11px]">
                   <Metric label="Spend" value={formatMoney(row.spend, currency)} />
                   <Metric label="ROAS" value={`${row.roas.toFixed(2)}x`} tone={row.roas >= 2 ? "good" : row.roas < 1 ? "bad" : "neutral"} />
                   <Metric label="Purch." value={row.purchases.toLocaleString()} />
@@ -669,7 +659,7 @@ export function LaunchpadCreativeSelection({
             );
           })}
           {filteredRows.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500 sm:col-span-2 xl:col-span-3">
+            <div className="rounded-[10px] border border-dashed border-[var(--border-2)] bg-[var(--surface)] p-8 text-center text-[13px] text-[var(--muted)] sm:col-span-2 xl:col-span-3">
               No creatives found.
             </div>
           ) : null}
@@ -678,27 +668,36 @@ export function LaunchpadCreativeSelection({
 
       {rows.length > 50 && visibleRows.length < filteredRows.length ? (
         <div className="flex justify-center">
-          <Button type="button" variant="outline" size="sm" onClick={() => setVisibleCount((current) => current + 25)}>
+          <button type="button" className="btn btn--sm" onClick={() => setVisibleCount((current) => current + 25)}>
             Load more
-          </Button>
+          </button>
         </div>
       ) : null}
 
-      <div className="rounded-lg border border-slate-200 bg-white/95 p-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]" data-testid="launchpad-selection-summary">
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-          <span className="font-mono tabular-nums">
-            <strong className="text-base text-slate-950">{summary.count}</strong>{" "}
-            <span className="text-slate-500">selected</span>
-          </span>
-          <span className="font-mono tabular-nums text-slate-600">
-            Spend <strong className="text-slate-950">{formatMoney(summary.totalSpend, currency)}</strong>
-          </span>
-          <span className="font-mono tabular-nums text-slate-600">
-            Avg ROAS <strong className={summary.averageRoas != null && summary.averageRoas >= 2 ? "text-emerald-700" : "text-slate-950"}>
+      <div className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] p-4" data-testid="launchpad-selection-summary">
+        <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+          <div>
+            <div className="text-[11.5px] text-[var(--muted)]">Selected</div>
+            <div className="text-[26px] font-[650] leading-none tracking-[-0.02em] tabular-nums text-[var(--ink)]">
+              {summary.count}
+            </div>
+          </div>
+          <div>
+            <div className="text-[11.5px] text-[var(--muted)]">Spend</div>
+            <div className="text-[18px] font-[650] leading-none tabular-nums text-[var(--ink)]">
+              {formatMoney(summary.totalSpend, currency)}
+            </div>
+          </div>
+          <div>
+            <div className="text-[11.5px] text-[var(--muted)]">Avg ROAS</div>
+            <div className={cn(
+              "text-[18px] font-[650] leading-none tabular-nums",
+              summary.averageRoas != null && summary.averageRoas >= 2 ? "text-[var(--ok)]" : "text-[var(--ink)]",
+            )}>
               {summary.averageRoas == null ? "n/a" : `${summary.averageRoas.toFixed(1)}x`}
-            </strong>
-          </span>
-          <span className="text-xs text-slate-500">
+            </div>
+          </div>
+          <span className="text-[11.5px] text-[var(--muted)]">
             {summary.scale} scale · {summary.cut} cut · {summary.belowBreakeven} below breakeven
           </span>
         </div>
@@ -710,7 +709,7 @@ export function LaunchpadCreativeSelection({
 function FilterGroup({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="w-14 shrink-0 text-[10px] font-semibold uppercase tracking-[0.075em] text-slate-400">
+      <span className="w-14 shrink-0 text-[10px] font-semibold uppercase tracking-[0.06em] text-[var(--muted-2)]">
         {label}
       </span>
       {children}
@@ -732,8 +731,10 @@ function FilterChip({
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded-md border px-2.5 py-1 text-xs capitalize transition-colors",
-        active ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
+        "rounded-[6px] border px-2.5 py-1 text-[11.5px] capitalize transition-colors",
+        active
+          ? "border-[var(--ink)] bg-[var(--ink)] text-white"
+          : "border-[var(--border-2)] bg-[var(--surface)] text-[var(--ink-3)] hover:bg-[var(--hover)]",
       )}
     >
       {children}
@@ -752,11 +753,11 @@ function Metric({
 }) {
   return (
     <div>
-      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.03em] text-[var(--muted)]">{label}</div>
       <div
         className={cn(
-          "font-mono font-semibold tabular-nums",
-          tone === "good" ? "text-emerald-700" : tone === "bad" ? "text-rose-700" : "text-slate-950",
+          "font-semibold tabular-nums",
+          tone === "good" ? "text-[var(--ok)]" : tone === "bad" ? "text-[var(--danger)]" : "text-[var(--ink)]",
         )}
       >
         {value}

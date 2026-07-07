@@ -2,8 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import { summarizeAttributionSpec, type MetaAttributionSpecItem } from "@/lib/launchpad/attribution-presets";
@@ -365,26 +363,25 @@ export function LaunchpadAddToExistingTarget({
   return (
     <section className="space-y-5" data-testid="launchpad-add-to-existing-target">
       <div>
-        <h2 className="text-lg font-semibold">Existing target</h2>
-        <p className="text-sm text-muted-foreground">
-          Pick one or more ACTIVE campaigns and choose the ad set under each campaign.
+        <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-[var(--ink)]">Existing target</h2>
+        <p className="text-[13px] text-[var(--muted)]">
+          Pick one or more ACTIVE campaigns and choose the ad set under each campaign — exactly one ad set per campaign.
         </p>
       </div>
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="relative w-full lg:max-w-sm">
-          <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-[var(--muted-2)]" />
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search campaigns"
-            className="h-9 w-full rounded-md border bg-background pl-8 pr-3 text-sm outline-none focus:border-primary"
+            className="h-9 w-full rounded-[6px] border border-[var(--border-2)] bg-[var(--surface)] pl-8 pr-3 text-[13px] text-[var(--ink)] outline-none focus:border-[var(--brand)]"
           />
         </div>
-        <Button
+        <button
           type="button"
-          variant={showAllObjectives ? "default" : "outline"}
-          size="sm"
+          className={showAllObjectives ? "btn btn--primary btn--sm" : "btn btn--sm"}
           onClick={() => {
             setShowAllObjectives((current) => !current);
             onChange(
@@ -398,57 +395,57 @@ export function LaunchpadAddToExistingTarget({
           }}
         >
           All objectives
-        </Button>
+        </button>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-        <div className="rounded-md border">
-          <div className="flex items-center justify-between border-b px-4 py-3">
-            <p className="text-sm font-semibold">Campaigns</p>
-            <Badge variant="outline">{selectedCampaigns.length} selected</Badge>
+        <div className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)]">
+          <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
+            <p className="text-[13px] font-semibold text-[var(--ink)]">Campaigns</p>
+            <span className="chip">{selectedCampaigns.length} selected</span>
           </div>
-          <div className="max-h-[360px] divide-y overflow-auto">
+          <div className="max-h-[360px] divide-y divide-[var(--border)] overflow-auto">
             {filteredCampaigns.map((campaign) => {
               const checked = selectedCampaignIds.includes(campaign.id);
               return (
                 <label
                   key={campaign.id}
-                  className="flex cursor-pointer items-start gap-3 px-4 py-3 hover:bg-muted/30"
+                  className="flex cursor-pointer items-start gap-3 px-4 py-3 hover:bg-[var(--hover)]"
                 >
                   <input
                     type="checkbox"
                     checked={checked}
                     disabled={campaignLoading}
                     onChange={(event) => setCampaignSelected(campaign, event.target.checked)}
-                    className="mt-1 h-4 w-4"
+                    className="mt-1 h-4 w-4 accent-[var(--ink)]"
                   />
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium">{campaign.name}</span>
-                    <span className="mt-1 block text-xs text-muted-foreground">
-                      {campaign.objective ?? "unknown"} /{" "}
-                      {campaign.isAdsetBudgetSharingEnabled ? "CBO" : "ABO"} /{" "}
-                      {campaign.adsetCount} ad sets / {formatMoney(campaign.lastSpend28d)} 28d
+                    <span className="block truncate text-[13px] font-medium text-[var(--ink)]">{campaign.name}</span>
+                    <span className="mono mt-1 block text-[11px] text-[var(--muted)]">
+                      {campaign.objective ?? "unknown"} ·{" "}
+                      {campaign.isAdsetBudgetSharingEnabled ? "CBO" : "ABO"} ·{" "}
+                      {campaign.adsetCount} ad sets · {formatMoney(campaign.lastSpend28d)} 28d
                     </span>
                   </span>
                 </label>
               );
             })}
             {filteredCampaigns.length === 0 ? (
-              <p className="px-4 py-3 text-sm text-muted-foreground">
+              <p className="px-4 py-3 text-[13px] text-[var(--muted)]">
                 {campaignLoading ? "Loading campaigns..." : "No campaigns found."}
               </p>
             ) : null}
           </div>
         </div>
 
-        <div className="rounded-md border">
-          <div className="flex items-center justify-between border-b px-4 py-3">
-            <p className="text-sm font-semibold">Ad sets</p>
-            <Badge variant="outline">{selectedTargets.length} ready</Badge>
+        <div className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)]">
+          <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
+            <p className="text-[13px] font-semibold text-[var(--ink)]">Ad sets</p>
+            <span className="chip">{selectedTargets.length} ready</span>
           </div>
-          <div className="divide-y">
+          <div className="divide-y divide-[var(--border)]">
             {!hasSelectedCampaigns ? (
-              <p className="px-4 py-3 text-sm text-muted-foreground">Select campaigns first.</p>
+              <p className="px-4 py-3 text-[13px] text-[var(--muted)]">Select campaigns first.</p>
             ) : null}
             {selectedCampaigns.map((campaign) => {
               const campaignAdsets = adsetsByCampaignId[campaign.id] ?? [];
@@ -460,8 +457,8 @@ export function LaunchpadAddToExistingTarget({
               return (
                 <div key={campaign.id} className="space-y-2 px-4 py-3">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{campaign.name}</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="truncate text-[13px] font-medium text-[var(--ink)]">{campaign.name}</p>
+                    <p className="text-[11px] text-[var(--muted)]">
                       {campaignAdsetsLoading
                         ? "Loading ad sets..."
                         : campaignAdsetsFailed
@@ -470,12 +467,12 @@ export function LaunchpadAddToExistingTarget({
                     </p>
                   </div>
                   {campaignAdsetsFailed ? (
-                    <div className="flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    <div className="flex items-center justify-between gap-3 rounded-[8px] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-2 text-[11.5px] text-[var(--warn)]">
                       <span>Ad sets could not be loaded. Retry without changing the campaign selection.</span>
                       <button
                         type="button"
                         onClick={() => setAdsetReloadNonce((current) => current + 1)}
-                        className="shrink-0 rounded border border-amber-300 bg-white px-2 py-1 font-medium text-amber-900 hover:bg-amber-100"
+                        className="shrink-0 rounded-[5px] border border-[var(--warn-bd)] bg-[var(--surface)] px-2 py-1 font-medium text-[var(--warn)] hover:bg-[var(--warn-bg)]"
                       >
                         Retry
                       </button>
@@ -489,7 +486,7 @@ export function LaunchpadAddToExistingTarget({
                         campaignAdsets.find((item) => item.id === event.target.value) ?? null;
                       setCampaignAdset(campaign, targetAdset);
                     }}
-                    className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:border-primary disabled:opacity-60"
+                    className="h-10 w-full rounded-[6px] border border-[var(--border-2)] bg-[var(--surface)] px-3 text-[13px] text-[var(--ink)] outline-none focus:border-[var(--brand)] disabled:opacity-60"
                   >
                     <option value="">
                       {campaignAdsetsLoading
@@ -516,31 +513,31 @@ export function LaunchpadAddToExistingTarget({
       </div>
 
       {selectedTargets.length > 0 ? (
-        <div className="rounded-md border p-4" data-testid="launchpad-existing-adset-preview">
+        <div className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] p-4" data-testid="launchpad-existing-adset-preview">
           <div className="mb-3 flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold">
+            <p className="text-[13px] font-semibold text-[var(--ink)]">
               {selectedTargets.length} target ad set{selectedTargets.length === 1 ? "" : "s"}
             </p>
-            <Badge variant="outline">{selectedCampaigns.length} campaigns</Badge>
+            <span className="chip">{selectedCampaigns.length} campaigns</span>
           </div>
-          <div className="grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <Summary label="Targeting" value="Inherited per ad set" />
             <Summary label="Pixel + event" value="Inherited per ad set" />
             <Summary label="Attribution" value="Inherited per ad set" />
-            <Summary label="Current ads" value={`${currentAdCount}`} />
+            <Summary label="Current ads" value={`${currentAdCount}`} numeric />
             <Summary label="After launch" value={`${selectedCount} creatives -> ${afterCount} ads`} />
             <Summary label="Targets" value={`${selectedTargets.length} ad sets`} />
           </div>
-          <div className="mt-4 divide-y rounded-md border">
+          <div className="mt-4 divide-y divide-[var(--border)] overflow-hidden rounded-[8px] border border-[var(--border)]">
             {selectedTargets.map(({ campaign, adset }) => (
               <div key={`${campaign.id}:${adset.id}`} className="px-3 py-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <p className="min-w-0 truncate text-sm font-medium">{adset.name}</p>
-                  <Badge variant="outline">{adset.status ?? "unknown"}</Badge>
-                  <Badge variant="outline">{adset.optimizationGoal ?? "unknown"}</Badge>
+                  <p className="min-w-0 truncate text-[13px] font-medium text-[var(--ink)]">{adset.name}</p>
+                  <span className="chip">{adset.status ?? "unknown"}</span>
+                  <span className="chip">{adset.optimizationGoal ?? "unknown"}</span>
                 </div>
-                <p className="mt-1 truncate text-xs text-muted-foreground">
-                  {campaign.name} / {adset.pixelId ?? "n/a"} /{" "}
+                <p className="mono mt-1 truncate text-[11px] text-[var(--muted)]">
+                  {campaign.name} · {adset.pixelId ?? "n/a"} ·{" "}
                   {adset.attributionSummary ?? summarizeAttributionSpec(adset.attributionSpec)}
                 </p>
               </div>
@@ -549,48 +546,48 @@ export function LaunchpadAddToExistingTarget({
         </div>
       ) : null}
 
-      <div className="rounded-md border p-4" data-testid="launchpad-copy-mode">
+      <div className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] p-4" data-testid="launchpad-copy-mode">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm font-semibold">Creative copy mode</p>
-          <Badge variant="outline">
+          <p className="text-[13px] font-semibold text-[var(--ink)]">Creative copy mode</p>
+          <span className="chip">
             {activeCopyMode === "reuse_creative" ? "Duplicate" : "Recreate"}
-          </Badge>
+          </span>
         </div>
         <div className="grid gap-2 md:grid-cols-2">
           <button
             type="button"
             onClick={() => setCopyMode("reuse_creative")}
-            className={`rounded-md border px-3 py-3 text-left text-sm transition ${
+            className={`rounded-[8px] border px-3 py-3 text-left text-[13px] transition ${
               activeCopyMode === "reuse_creative"
-                ? "border-blue-500 bg-blue-50 text-slate-950"
-                : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                ? "border-[var(--ink)] bg-[var(--surface-3)] text-[var(--ink)]"
+                : "border-[var(--border-2)] bg-[var(--surface)] text-[var(--ink-3)] hover:bg-[var(--hover)]"
             }`}
           >
             <span className="block font-medium">Duplicate</span>
-            <span className="mt-1 block text-xs text-muted-foreground">
+            <span className="mt-1 block text-[11.5px] text-[var(--muted)]">
               Use the existing Meta creative object.
             </span>
           </button>
           <button
             type="button"
             onClick={() => setCopyMode("rebuild_creative")}
-            className={`rounded-md border px-3 py-3 text-left text-sm transition ${
+            className={`rounded-[8px] border px-3 py-3 text-left text-[13px] transition ${
               activeCopyMode === "rebuild_creative"
-                ? "border-blue-500 bg-blue-50 text-slate-950"
-                : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                ? "border-[var(--ink)] bg-[var(--surface-3)] text-[var(--ink)]"
+                : "border-[var(--border-2)] bg-[var(--surface)] text-[var(--ink-3)] hover:bg-[var(--hover)]"
             }`}
           >
             <span className="block font-medium">Recreate exact ad</span>
-            <span className="mt-1 block text-xs text-muted-foreground">
+            <span className="mt-1 block text-[11.5px] text-[var(--muted)]">
               Create a new target-account creative from the same assets and copy.
             </span>
           </button>
         </div>
       </div>
 
-      <div className="rounded-md border">
-        <div className="border-b px-4 py-3 text-sm font-semibold">Ad names</div>
-        <div className="divide-y">
+      <div className="overflow-hidden rounded-[10px] border border-[var(--border)] bg-[var(--surface)]">
+        <div className="border-b border-[var(--border)] px-4 py-3 text-[13px] font-semibold text-[var(--ink)]">Ad names</div>
+        <div className="divide-y divide-[var(--border)]">
           {selectedCreatives.map((creative) => {
             const name = value.nameOverrides[creative.creativeId] ?? defaultCreativeAddName(creative);
             return (
@@ -610,8 +607,8 @@ export function LaunchpadAddToExistingTarget({
                   ]}
                 />
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{creative.name}</p>
-                  <p className="text-xs text-muted-foreground">{creative.creativeId}</p>
+                  <p className="truncate text-[13px] font-medium text-[var(--ink)]">{creative.name}</p>
+                  <p className="mono text-[11px] text-[var(--muted)]">{creative.creativeId}</p>
                 </div>
                 <input
                   value={name}
@@ -624,14 +621,14 @@ export function LaunchpadAddToExistingTarget({
                       },
                     })
                   }
-                  className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:border-primary"
+                  className="h-10 w-full rounded-[6px] border border-[var(--border-2)] bg-[var(--surface)] px-3 text-[13px] text-[var(--ink)] outline-none focus:border-[var(--brand)]"
                   aria-label={`Ad name for ${creative.name}`}
                 />
               </div>
             );
           })}
           {selectedCreatives.length === 0 ? (
-            <p className="px-4 py-3 text-sm text-muted-foreground">Select creatives first.</p>
+            <p className="px-4 py-3 text-[13px] text-[var(--muted)]">Select creatives first.</p>
           ) : null}
         </div>
       </div>
@@ -639,11 +636,19 @@ export function LaunchpadAddToExistingTarget({
   );
 }
 
-function Summary({ label, value }: { label: string; value: string }) {
+function Summary({ label, value, numeric = false }: { label: string; value: string; numeric?: boolean }) {
   return (
-    <div className="min-w-0 rounded-md border bg-muted/20 px-3 py-2">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="truncate font-medium">{value}</p>
+    <div className="min-w-0 rounded-[8px] border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2">
+      <p className="text-[11px] text-[var(--muted)]">{label}</p>
+      <p
+        className={
+          numeric
+            ? "mt-0.5 text-[22px] font-[650] leading-none tracking-[-0.02em] tabular-nums text-[var(--ink)]"
+            : "truncate text-[13px] font-medium text-[var(--ink)]"
+        }
+      >
+        {value}
+      </p>
     </div>
   );
 }

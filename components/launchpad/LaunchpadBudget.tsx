@@ -1,6 +1,5 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
 import type { MetaBidStrategy } from "@/lib/meta/launch-write";
 
 export interface LaunchpadBudgetState {
@@ -60,8 +59,8 @@ export function LaunchpadBudget({
   return (
     <section className="space-y-5" data-testid="launchpad-budget">
       <div>
-        <h2 className="text-lg font-semibold">Budget</h2>
-        <p className="text-sm text-muted-foreground">{currency}</p>
+        <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-[var(--ink)]">Budget</h2>
+        <p className="mono text-[12px] text-[var(--muted)]">account currency {currency}</p>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
@@ -95,18 +94,18 @@ export function LaunchpadBudget({
       {value.mode === "CBO" ? (
         <div className="grid gap-3 md:grid-cols-[1fr_220px]">
           <label className="block space-y-1.5">
-            <span className="text-sm font-medium">Campaign amount</span>
+            <span className="text-[12px] font-medium text-[var(--ink-2)]">Campaign amount</span>
             <input
               type="number"
               min="0"
               step="0.01"
               value={value.amount ?? ""}
               onChange={(event) => onChange({ ...value, amount: event.target.value })}
-              className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:border-primary"
+              className="h-10 w-full rounded-[6px] border border-[var(--border-2)] bg-[var(--surface)] px-3 text-[15px] font-medium tabular-nums text-[var(--ink)] outline-none focus:border-[var(--brand)]"
             />
           </label>
           <label className="block space-y-1.5">
-            <span className="text-sm font-medium">Campaign bid strategy</span>
+            <span className="text-[12px] font-medium text-[var(--ink-2)]">Campaign bid strategy</span>
             <select
               value={value.bidStrategy ?? "LOWEST_COST_WITHOUT_CAP"}
               onChange={(event) =>
@@ -115,7 +114,7 @@ export function LaunchpadBudget({
                   bidStrategy: event.target.value as MetaBidStrategy,
                 })
               }
-              className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:border-primary"
+              className="h-10 w-full rounded-[6px] border border-[var(--border-2)] bg-[var(--surface)] px-3 text-[13px] text-[var(--ink)] outline-none focus:border-[var(--brand)]"
             >
               {BID_STRATEGIES.map((strategy) => (
                 <option key={strategy.value} value={strategy.value}>
@@ -126,29 +125,30 @@ export function LaunchpadBudget({
           </label>
         </div>
       ) : (
-        <p className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
+        <p className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-2)] p-3 text-[13px] text-[var(--muted)]">
           ABO uses budgets on each ad set. Campaign-level amount and bid fields are omitted.
         </p>
       )}
 
       {value.mode === "CBO" && value.bidStrategy !== "LOWEST_COST_WITHOUT_CAP" ? (
         <label className="block max-w-sm space-y-1.5">
-          <span className="text-sm font-medium">Campaign bid amount</span>
+          <span className="text-[12px] font-medium text-[var(--ink-2)]">Campaign bid amount</span>
           <input
             type="number"
             min="0"
             step="0.01"
             value={value.bidAmount ?? ""}
             onChange={(event) => onChange({ ...value, bidAmount: event.target.value })}
-            className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:border-primary"
+            className="h-10 w-full rounded-[6px] border border-[var(--border-2)] bg-[var(--surface)] px-3 text-[13px] tabular-nums text-[var(--ink)] outline-none focus:border-[var(--brand)]"
           />
         </label>
       ) : null}
 
       {dailyLow ? (
-        <Badge className="border-amber-200 bg-amber-50 text-amber-900" variant="outline">
+        <span className="chip chip--warn w-fit">
+          <span className="dot" />
           Daily budget is below 0.5x expected CPA
-        </Badge>
+        </span>
       ) : null}
     </section>
   );
@@ -167,17 +167,17 @@ function Segmented({
 }) {
   return (
     <div className="space-y-1.5">
-      <p className="text-sm font-medium">{label}</p>
-      <div className="inline-flex rounded-md border bg-muted p-1">
+      <p className="text-[12px] font-medium text-[var(--ink-2)]">{label}</p>
+      <div className="inline-flex rounded-[6px] border border-[var(--border-2)] bg-[var(--surface-3)] p-1">
         {options.map(([optionValue, optionLabel]) => (
           <button
             key={optionValue}
             type="button"
             onClick={() => onChange(optionValue)}
-            className={`rounded px-3 py-1.5 text-sm ${
+            className={`rounded-[5px] px-3 py-1.5 text-[13px] transition-colors ${
               value === optionValue
-                ? "bg-background font-medium shadow-sm"
-                : "text-muted-foreground"
+                ? "bg-[var(--surface)] font-medium text-[var(--ink)] shadow-[var(--shadow-sm)]"
+                : "text-[var(--muted)] hover:text-[var(--ink-2)]"
             }`}
           >
             {optionLabel}

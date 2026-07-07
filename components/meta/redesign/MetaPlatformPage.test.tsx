@@ -11,6 +11,8 @@ import {
   isTrackingWriteBlocked,
   compareItemForRec,
   trackingConfirmLabelForRec,
+  metaRecSearchMatch,
+  sortMetaRecs,
 } from "@/components/meta/redesign/MetaPlatformPage";
 
 const state = vi.hoisted(() => ({
@@ -698,6 +700,46 @@ describe("MetaPlatformPage", () => {
     expect(countText(html, ">Optimization</span>")).toBe(1);
     expect(html).toContain(">Lowest Cost</span>");
     expect(html).toContain(">1 adset</div>");
+  });
+});
+
+describe("decision row sort and search", () => {
+  it("renders the sort control and free-text search over the lanes", () => {
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+    expect(html).toContain('data-testid="meta-row-sort"');
+    expect(html).toContain('data-testid="meta-row-search"');
+    expect(html).toContain("Money at stake");
+  });
+
+  it("sorts by money at stake and keeps missing-metric rows last", () => {
+    const rows = [
+      metaRec({ id: "a", metrics: { spend: 100 } }),
+      metaRec({ id: "b", metrics: null }),
+      metaRec({ id: "c", metrics: { spend: 900 } }),
+      metaRec({ id: "d", metrics: { spend: 400 } }),
+    ];
+    const ids = sortMetaRecs(rows, "money").map((rec) => rec.id);
+    expect(ids).toEqual(["c", "d", "a", "b"]);
+  });
+
+  it("sorts by priority with unknown priority last and stable ties", () => {
+    const rows = [
+      metaRec({ id: "lo", priority: "low" }),
+      metaRec({ id: "hi1", priority: "high" }),
+      metaRec({ id: "mid", priority: "medium" }),
+      metaRec({ id: "hi2", priority: "high" }),
+    ];
+    expect(sortMetaRecs(rows, "priority").map((rec) => rec.id)).toEqual(["hi1", "hi2", "mid", "lo"]);
+  });
+
+  it("matches search across entity name, campaign, and decision label", () => {
+    const rec = metaRec({ campaignName: "Prospecting ASC", adsetName: "Broad EU", decisionLabel: "cut" });
+    expect(metaRecSearchMatch(rec, "")).toBe(true);
+    expect(metaRecSearchMatch(rec, "broad")).toBe(true);
+    expect(metaRecSearchMatch(rec, "CUT")).toBe(true);
+    expect(metaRecSearchMatch(rec, "nonsense-token")).toBe(false);
   });
 });
 

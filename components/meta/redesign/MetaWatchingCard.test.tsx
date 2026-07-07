@@ -14,7 +14,10 @@ describe("MetaWatchingCard", () => {
     // control cannot perform (Codex review: CTA copy must match the click).
     expect(html).toContain("Rebuild in Launchpad");
     expect(html).not.toContain("Let cook");
-    expect(html).toContain("44%");
+    // Confidence renders as the server score inside one band pill (0.44),
+    // not a client-derived percentage.
+    expect(html).toContain('data-confidence-band');
+    expect(html).toContain("0.44");
   });
 
   it("labels the primary Let cook only when it actually defers", () => {

@@ -64,6 +64,64 @@ describe("MetaDrillDrawer", () => {
   });
 });
 
+describe("MetaDrillDrawer push inspector", () => {
+  it("renders in-flow (no fixed overlay backdrop) in push variant", () => {
+    const html = renderToStaticMarkup(
+      <MetaDrillDrawer
+        variant="push"
+        item={{ mode: "decision", rec: metaRec() }}
+        window="28d"
+        onWindowChange={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(html).toContain('data-inspector-variant="push"');
+    expect(html).not.toContain("fixed inset-0");
+    expect(html).toContain("Engine reasoning");
+  });
+
+  it("renders decision sections in spec order", () => {
+    const html = renderToStaticMarkup(
+      <MetaDrillDrawer item={{ mode: "decision", rec: metaRec() }} window="28d" onWindowChange={vi.fn()} onClose={vi.fn()} />,
+    );
+    const contract = html.indexOf("Decision contract");
+    const why = html.indexOf("Engine reasoning");
+    const money = html.indexOf("data-meta-drill-kpis");
+    const provenance = html.indexOf("Provenance");
+    expect(contract).toBeGreaterThan(-1);
+    expect(contract).toBeLessThan(why);
+    expect(why).toBeLessThan(money);
+    expect(money).toBeLessThan(provenance);
+  });
+
+  it("draws a gradient ROAS trend spark when a real series exists", () => {
+    const html = renderToStaticMarkup(
+      <MetaDrillDrawer
+        targetRoas={2}
+        item={{
+          mode: "decision",
+          rec: metaRec({
+            metrics: { spend: 400, roas: 0.6 },
+            evidenceTrail: {
+              roas_history: [1.6, 1.2, 0.9, 0.7, 0.6],
+              peer_comparison: { p10: 1, p50: 2, p90: 4, this_value: 0.6 },
+              regime_stability: 0.8,
+              age_days: 20,
+              recent_changes: [],
+            },
+          }),
+        }}
+        window="28d"
+        onWindowChange={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(html).toContain("<polyline");
+    expect(html).toContain("linearGradient");
+    expect(html).toContain("ROAS trend");
+  });
+});
+
 describe("drill KPIs prefer structured metrics", () => {
   it("renders server metrics with account currency, not evidence strings", () => {
     const html = renderToStaticMarkup(

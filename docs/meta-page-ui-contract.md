@@ -40,7 +40,15 @@ Page shell:
 
 Components (all under `components/meta/redesign/`):
 
-- `MetaActionCard.tsx` — recommendation + anomaly cards.
+- `MetaActionCard.tsx` — the lean decision **row** (and anomaly row). A calm
+  horizontal row: entity name + level, up to three descriptor chips (capped,
+  `+N` overflow), the server decision label, a money-at-stake line (spend +
+  ROAS vs the pulse `targetRoas`, from structured `rec.metrics` only — never a
+  projection, missing renders as an em dash), one confidence band pill carrying
+  the server score, one honest primary (server `actionKind` verb), and an
+  overflow menu (Let cook 24h, Compare, Copy entity ID, and Ads Manager only
+  when a real permalink is supplied). Secondary metrics and the full evidence
+  live in the inspector, not the row. Clicking the row opens the inspector.
 - `MetaDrillDrawer.tsx` — decision/informational/anomaly drilldown drawer.
 - `MetaLaunchpadOverlay.tsx` — confirm overlay for rebuild/duplicate/apply_bid,
   wraps the shared `LaunchpadOverlay`.
@@ -96,8 +104,8 @@ Top-to-bottom order in `MetaPlatformPage.tsx`:
 - "+ New campaign" link → `/platforms/meta/launchpad?fromMetaBriefing=true&mode=duplicate`.
 
 URL state: `window`, `startDate`/`endDate` (custom only), `status_filter`,
-`lane` are all URL params; defaults (`28d`, `active`, `action`) are omitted
-from the URL.
+`lane`, and `entity` (the open inspector's rec id) are all URL params; defaults
+(`28d`, `active`, `action`) are omitted from the URL.
 
 ### FinalMetaPulse — 5-cell strip (`MetaPlatformPage.tsx:1002`)
 
@@ -190,14 +198,34 @@ narrow server-provided lanes. They do not recompute recommendation lanes in
 the UI." Controls: level (Campaigns/Ad sets), campaign picker (max 12 options
 derived from lane rows), readiness (All / Auto-ready / Manual only, keyed off
 `automationReadiness.tier`), labels (All / Main / Test / Mixed, keyed off
-server `campaignKind`), plus Reset.
+server `campaignKind`), plus Reset. It also carries a **sort** control
+(`meta-row-sort`: Money at stake (default) / Priority / Age — `sortMetaRecs`,
+over structured server truth, missing-metric rows always sorted last) and a
+**free-text search** (`meta-row-search` — `metaRecSearchMatch` over entity
+name, campaign, adset, and decision label). Sort/search narrow the rendered
+rows in the rec lanes; lane tab counts stay lane totals.
 
-### Drill drawer (`MetaDrillDrawer.tsx`)
+### Evidence inspector (`MetaDrillDrawer.tsx`)
 
-Three modes (`MetaDrillItem`, `types.ts:173-176`): `decision` (rec + related
-adset recs, KPI header, adset-depth table, evidence accordion, optional launch
-CTA), `informational` (upper-funnel KPI grid), `anomaly` (diagnostic ladder).
-Window switcher inside the drawer writes back to the page URL.
+Three modes (`MetaDrillItem`, `types.ts:173-176`): `decision`, `informational`
+(upper-funnel KPI grid), `anomaly` (diagnostic ladder). The `decision` mode
+renders spec-ordered sections: decision contract → engine reasoning → money
+impact & metrics-vs-target (with a blue→emerald gradient ROAS spark and a
+dashed target baseline when a `roas_history` series exists) → confidence + cap
+· automation readiness → blockers → ad set depth → evidence accordion →
+provenance + collapsed raw decision JSON. KPI numbers prefer structured
+`rec.metrics` (currency-aware) and fall back to evidence strings only for
+payloads predating the metrics contract.
+
+Presentation: at ≥1440px the inspector is an **in-flow right push panel**
+(`variant="push"`, docked beside the queue column); below 1440px it is a fixed
+overlay drawer with a scrim. Both share focus management: focus moves into the
+panel on open, Tab is trapped within it, Escape closes, and focus is restored to
+the previously focused row on close. Drawer-local controls (raw-JSON toggle)
+never mutate the page URL. The window switcher was removed — the window is a
+page-level control (topbar `HtmlDateRangePicker`) and the inspector no longer
+re-scopes it. The open entity is deep-linked via the `entity` URL param
+(`?entity=<recId>`), restored on load and cleared on close.
 
 ### Compare drawer
 

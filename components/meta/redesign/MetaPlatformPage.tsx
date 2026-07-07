@@ -358,6 +358,75 @@ export function compareItemForRec(rec: MetaRecommendation): CompareDrawerItem {
   };
 }
 
+export type MetaRowSort = "money" | "priority" | "age";
+
+/** Free-text row search over entity/label truth. Empty query keeps every row. */
+export function metaRecSearchMatch(rec: MetaRecommendation, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return [scopeNameForRec(rec), rec.campaignName ?? "", rec.adsetName ?? "", rec.decisionLabel ?? "", rec.title ?? ""]
+    .join(" ")
+    .toLowerCase()
+    .includes(q);
+}
+
+const META_PRIORITY_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
+
+function stableSortMetaRecs(
+  recs: MetaRecommendation[],
+  key: (rec: MetaRecommendation) => number | null,
+): MetaRecommendation[] {
+  // Higher key first; rows whose key is missing are kept LAST (never coerced
+  // to zero). Ties preserve the incoming server priority order (stable).
+  return recs
+    .map((rec, index) => ({ rec, index, k: key(rec) }))
+    .sort((a, b) => {
+      if (a.k == null && b.k == null) return a.index - b.index;
+      if (a.k == null) return 1;
+      if (b.k == null) return -1;
+      if (a.k === b.k) return a.index - b.index;
+      return b.k - a.k;
+    })
+    .map((item) => item.rec);
+}
+
+/**
+ * Client sort over server-structured truth only. Money = spend at stake,
+ * Priority = server priority, Age = evidence age in days. Missing-metric rows
+ * always sort last so an absent number never masquerades as the top row.
+ */
+export function sortMetaRecs(recs: MetaRecommendation[], sort: MetaRowSort): MetaRecommendation[] {
+  if (sort === "priority") {
+    return stableSortMetaRecs(recs, (rec) => {
+      const rank = META_PRIORITY_RANK[rec.priority];
+      return rank == null ? null : -rank;
+    });
+  }
+  if (sort === "age") {
+    return stableSortMetaRecs(recs, (rec) => {
+      const age = rec.evidenceTrail?.age_days;
+      return typeof age === "number" && Number.isFinite(age) ? age : null;
+    });
+  }
+  return stableSortMetaRecs(recs, (rec) => {
+    const spend = rec.metrics?.spend;
+    return typeof spend === "number" && Number.isFinite(spend) ? spend : null;
+  });
+}
+
+function useMinWidth(px: number) {
+  const [matches, setMatches] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia(`(min-width: ${px}px)`);
+    const update = () => setMatches(mq.matches);
+    update();
+    mq.addEventListener?.("change", update);
+    return () => mq.removeEventListener?.("change", update);
+  }, [px]);
+  return matches;
+}
+
 function groupAdsetRollups(recs: MetaRecommendation[]) {
   const groups = new Map<string, MetaRecommendation[]>();
   for (const rec of recs) {
@@ -1141,6 +1210,9 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   const [labelFilter, setLabelFilter] = useState<MetaLabelFilter>("all");
   const [labelModalOpen, setLabelModalOpen] = useState(false);
   const [openSecondaryMenu, setOpenSecondaryMenu] = useState<MetaSecondaryMenu | null>(null);
+  const [rowSort, setRowSort] = useState<MetaRowSort>("money");
+  const [rowSearch, setRowSearch] = useState("");
+  const pushInspector = useMinWidth(1440);
   const latestSearchParamsRef = useRef(searchParams.toString());
   const secondaryControlsRef = useRef<HTMLDivElement | null>(null);
 
@@ -1186,6 +1258,8 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
     queryFn: () => fetchPulse(businessId, selectedWindow, selectedStatusFilter, selectedDateRange),
   });
   const moneyCurrency = pulseQuery.data?.currency ?? currency ?? null;
+  const targetRoas = pulseQuery.data?.roas.target ?? null;
+  const entityParam = searchParams.get("entity");
 
   const laneQuery = useQuery({
     queryKey: ["meta-lanes", businessId, selectedWindow, selectedStatusFilter, selectedDateRange.start, selectedDateRange.end],
@@ -1305,6 +1379,21 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
     () => filteredActionNow.filter((rec) => !rollupRecIds.has(rec.id)),
     [filteredActionNow, rollupRecIds],
   );
+  // Row search + sort over structured server truth; missing-metric rows kept
+  // last. Applied to the rendered rec lists only (tab counts stay lane totals).
+  const visibleActionRecs = useMemo(
+    () => sortMetaRecs(individualActionNow.filter((rec) => metaRecSearchMatch(rec, rowSearch)), rowSort),
+    [individualActionNow, rowSearch, rowSort],
+  );
+  const visibleWatchingRecs = useMemo(
+    () => sortMetaRecs(filteredWatching.filter((rec) => metaRecSearchMatch(rec, rowSearch)), rowSort),
+    [filteredWatching, rowSearch, rowSort],
+  );
+  const visibleNonSalesRecs = useMemo(
+    () => sortMetaRecs(filteredNonSales.filter((rec) => metaRecSearchMatch(rec, rowSearch)), rowSort),
+    [filteredNonSales, rowSearch, rowSort],
+  );
+  const rowSearchActive = rowSearch.trim().length > 0;
   const allRecs = useMemo(() => [...filteredActionNow, ...filteredWatching], [filteredActionNow, filteredWatching]);
   const adsetRecsByCampaign = useMemo(() => {
     const next = new Map<string, MetaRecommendation[]>();
@@ -1332,18 +1421,6 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
     const query = params.toString();
     latestSearchParamsRef.current = query;
     router.replace(`/platforms/meta${query ? `?${query}` : ""}`);
-  };
-
-  const setWindow = (next: MetaWindowKey) => {
-    const params = currentUrlParams();
-    if (next === "28d") {
-      params.delete("window");
-    } else {
-      params.set("window", next);
-    }
-    params.delete("startDate");
-    params.delete("endDate");
-    replaceMetaParams(params);
   };
 
   const setDateRange = (next: HtmlDateRangeValue) => {
@@ -1509,13 +1586,49 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
     setOverlay({ open: true, mode, rec });
   };
 
+  const setEntityParam = (entityId: string | null) => {
+    const params = currentUrlParams();
+    if (entityId) {
+      params.set("entity", entityId);
+    } else {
+      params.delete("entity");
+    }
+    replaceMetaParams(params);
+  };
+
   const openDrillForRec = (rec: MetaRecommendation) => {
     setDrillItem({
       mode: "decision",
       rec,
       relatedRecs: rec.campaignId ? (adsetRecsByCampaign.get(rec.campaignId) ?? []) : [],
     });
+    // Deep-link the open entity (a selection, not a drawer-local control).
+    setEntityParam(rec.id);
   };
+
+  const closeDrill = () => {
+    setDrillItem(null);
+    if (entityParam) setEntityParam(null);
+  };
+
+  const compareRec = (rec: MetaRecommendation) => {
+    setSelectedIds((current) => new Set(current).add(rec.id));
+    setCompareOpen(true);
+  };
+
+  // Deep-link restore: open the drawer for ?entity=<id> once lanes are loaded.
+  useEffect(() => {
+    if (!entityParam || drillItem) return;
+    const rec = [...actionNow, ...watching, ...nonSales].find((candidate) => candidate.id === entityParam);
+    if (rec) {
+      setDrillItem({
+        mode: "decision",
+        rec,
+        relatedRecs: rec.campaignId ? (adsetRecsByCampaign.get(rec.campaignId) ?? []) : [],
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entityParam, laneQuery.data]);
 
   const isTrackingSensitiveRec = (rec: MetaRecommendation) => {
     return (
@@ -2065,6 +2178,48 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
           </button>
         ) : null}
         <div className="spacer" />
+        <label
+          className="meta-row-sort"
+          style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: "var(--muted)" }}
+        >
+          Sort
+          <select
+            data-testid="meta-row-sort"
+            value={rowSort}
+            onChange={(event) => setRowSort(event.currentTarget.value as MetaRowSort)}
+            aria-label="Sort decision rows"
+            style={{
+              fontFamily: "inherit",
+              fontSize: 12,
+              color: "var(--ink)",
+              background: "var(--surface)",
+              border: "1px solid var(--border-2)",
+              borderRadius: "var(--r-sm)",
+              padding: "3px 6px",
+            }}
+          >
+            <option value="money">Money at stake</option>
+            <option value="priority">Priority</option>
+            <option value="age">Age</option>
+          </select>
+        </label>
+        <input
+          data-testid="meta-row-search"
+          value={rowSearch}
+          onChange={(event) => setRowSearch(event.currentTarget.value)}
+          placeholder="Search entities"
+          aria-label="Search decision rows"
+          style={{
+            fontFamily: "inherit",
+            fontSize: 12,
+            color: "var(--ink)",
+            background: "var(--surface-2)",
+            border: "1px solid var(--border-2)",
+            borderRadius: "var(--r-sm)",
+            padding: "4px 9px",
+            width: 150,
+          }}
+        />
         <span
           className="filter-info-chip"
           title="These controls narrow server-provided lanes. They do not recompute recommendation lanes in the UI."
@@ -2074,7 +2229,11 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
         </span>
       </div>
 
-      <div className="workspace workspace-rel">
+      <div
+        className="workspace workspace-rel"
+        style={pushInspector && drillItem ? { display: "flex", alignItems: "stretch", gap: 16 } : undefined}
+      >
+        <div style={pushInspector && drillItem ? { flex: "1 1 0%", minWidth: 0 } : undefined}>
         {loading ? (
           <div className="lane-stack">
             {Array.from({ length: 3 }).map((_, index) => (
@@ -2132,10 +2291,11 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                     </div>
                   </article>
                 ))}
-                {individualActionNow.map((rec) => (
+                {visibleActionRecs.map((rec) => (
                   <MetaActionCard
                     key={rec.id}
                     moneyCurrency={moneyCurrency}
+                    targetRoas={targetRoas}
                     rec={rec}
                     selected={selectedIds.has(rec.id)}
                     deferred={isDeferred(rec)}
@@ -2149,8 +2309,12 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                     onOpenDrill={(item) => openDrillForRec(item as MetaRecommendation)}
                     onDefer={deferRec}
                     onUndoDefer={undeferRec}
+                    onCompare={compareRec}
                   />
                 ))}
+                {rowSearchActive && visibleActionRecs.length === 0 && rollups.length === 0 && anomalies.length === 0 && filteredActionNow.length > 0 ? (
+                  <div className="lane-empty">No Action Now rows match “{rowSearch.trim()}”.</div>
+                ) : null}
                 {filteredActionNow.length === 0 && anomalies.length === 0 ? (
                   <EmptyActionState
                     anomaliesCount={0}
@@ -2165,10 +2329,11 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                   segments={laneQuery.data?.watchingSegments}
                   onManageLabels={() => setLabelModalOpen(true)}
                 />
-                {filteredWatching.map((rec) => (
+                {visibleWatchingRecs.map((rec) => (
                   <MetaActionCard
                     key={rec.id}
                     moneyCurrency={moneyCurrency}
+                    targetRoas={targetRoas}
                     rec={rec}
                     selected={selectedIds.has(rec.id)}
                     deferred={isDeferred(rec)}
@@ -2182,9 +2347,18 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                     onOpenDrill={(item) => openDrillForRec(item as MetaRecommendation)}
                     onDefer={deferRec}
                     onUndoDefer={undeferRec}
+                    onCompare={compareRec}
                   />
                 ))}
-                {filteredWatching.length === 0 ? <div className="lane-empty">{metaFiltersActive ? "No watchlist items match the current filters." : "No watchlist items in the latest snapshot."}</div> : null}
+                {visibleWatchingRecs.length === 0 ? (
+                  <div className="lane-empty">
+                    {rowSearchActive && filteredWatching.length > 0
+                      ? `No watchlist items match “${rowSearch.trim()}”.`
+                      : metaFiltersActive
+                        ? "No watchlist items match the current filters."
+                        : "No watchlist items in the latest snapshot."}
+                  </div>
+                ) : null}
               </>
             ) : activeLane === "healthy" ? (
               healthyGroups.length > 0 ? (
@@ -2194,7 +2368,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
               )
             ) : activeLane === "nonSales" ? (
               <>
-                {filteredNonSales.map((rec) => (
+                {visibleNonSalesRecs.map((rec) => (
                   rec.cohort === "upper_funnel" ? (
                     <MetaUpperFunnelInformationalCard
                       key={rec.id}
@@ -2205,6 +2379,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                     <MetaActionCard
                       key={rec.id}
                       moneyCurrency={moneyCurrency}
+                      targetRoas={targetRoas}
                       rec={rec}
                       selected={selectedIds.has(rec.id)}
                       deferred={isDeferred(rec)}
@@ -2217,10 +2392,19 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                       onOpenDrill={(item) => openDrillForRec(item as MetaRecommendation)}
                       onDefer={deferRec}
                       onUndoDefer={undeferRec}
+                      onCompare={compareRec}
                     />
                   )
                 ))}
-                {filteredNonSales.length === 0 ? <div className="lane-empty">{metaFiltersActive ? "No non-purchase entities match the current filters." : "No non-purchase entities in the current window."}</div> : null}
+                {visibleNonSalesRecs.length === 0 ? (
+                  <div className="lane-empty">
+                    {rowSearchActive && filteredNonSales.length > 0
+                      ? `No non-purchase entities match “${rowSearch.trim()}”.`
+                      : metaFiltersActive
+                        ? "No non-purchase entities match the current filters."
+                        : "No non-purchase entities in the current window."}
+                  </div>
+                ) : null}
               </>
             ) : filteredArchive.length > 0 ? (
               <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white" data-meta-archive>
@@ -2302,7 +2486,33 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
             ) : null}
           </div>
         )}
-
+        </div>
+        {pushInspector && drillItem ? (
+          <div
+            className="meta-inspector-dock"
+            style={{
+              width: "min(480px, 40vw)",
+              flex: "none",
+              alignSelf: "flex-start",
+              position: "sticky",
+              top: 12,
+              height: "calc(100vh - 120px)",
+            }}
+          >
+            <MetaDrillDrawer
+              moneyCurrency={moneyCurrency}
+              targetRoas={targetRoas}
+              item={drillItem}
+              variant="push"
+              onClose={closeDrill}
+              onLaunch={
+                drillItem?.mode === "decision" && launchModeForRec(drillItem.rec)
+                  ? () => openOverlayForRec(drillItem.rec, launchModeForRec(drillItem.rec)!)
+                  : undefined
+              }
+            />
+          </div>
+        ) : null}
       </div>
 
       {labelModalOpen ? (
@@ -2339,18 +2549,20 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
         </div>
       ) : null}
 
-      <MetaDrillDrawer
-        moneyCurrency={moneyCurrency}
-        item={drillItem}
-        window={selectedWindow}
-        onWindowChange={setWindow}
-        onClose={() => setDrillItem(null)}
-        onLaunch={
-          drillItem?.mode === "decision" && launchModeForRec(drillItem.rec)
-            ? () => openOverlayForRec(drillItem.rec, launchModeForRec(drillItem.rec)!)
-            : undefined
-        }
-      />
+      {pushInspector ? null : (
+        <MetaDrillDrawer
+          moneyCurrency={moneyCurrency}
+          targetRoas={targetRoas}
+          item={drillItem}
+          variant="overlay"
+          onClose={closeDrill}
+          onLaunch={
+            drillItem?.mode === "decision" && launchModeForRec(drillItem.rec)
+              ? () => openOverlayForRec(drillItem.rec, launchModeForRec(drillItem.rec)!)
+              : undefined
+          }
+        />
+      )}
 
       <MetaLaunchpadOverlay
         open={overlay.open}

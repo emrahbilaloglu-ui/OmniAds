@@ -142,7 +142,7 @@ export function CreativeAdBreakdownDrawer({
       <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={() => onOpenChange(false)} />
 
       <aside
-        className="absolute right-0 top-0 h-full border-l border-slate-200 bg-slate-50 shadow-2xl"
+        className="absolute right-0 top-0 h-full border-l border-neutral-200 bg-neutral-50 shadow-[0_1px_2px_rgba(16,21,28,0.08)]"
         style={{ width }}
       >
         <button
@@ -188,20 +188,20 @@ export function CreativeAdBreakdownDrawer({
                 defaultCurrency={defaultCurrency}
               />
 
-              <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+              <section className="rounded-xl border border-neutral-200 bg-white">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-200 px-4 py-3">
                   <div>
-                    <h4 className="text-sm font-semibold text-slate-950">Placements</h4>
-                    <p className="text-xs text-slate-500">
+                    <h4 className="text-sm font-semibold text-neutral-950">Placements</h4>
+                    <p className="text-xs text-neutral-500">
                       {loading ? "Loading placements" : `${sortedRows.length} ad placements in this range`}
                     </p>
                   </div>
-                  <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
+                  <label className="flex items-center gap-2 text-xs font-medium text-neutral-600">
                     Sort by
                     <select
                       value={sortKey}
                       onChange={(event) => setSortKey(event.target.value as PlacementSortKey)}
-                      className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-900 shadow-sm outline-none focus:border-slate-400"
+                      className="rounded-lg border border-neutral-200 bg-white px-2 py-1 text-xs font-medium text-neutral-900 outline-none focus:border-neutral-400"
                     >
                       {SORT_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>
@@ -285,11 +285,11 @@ function PlacementCard({
           openPlacement();
         }
       }}
-      className="group rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-sm outline-none transition hover:border-slate-300 hover:shadow-md focus:border-slate-400"
+      className="group rounded-xl border border-neutral-200 bg-white p-3 text-left outline-none transition hover:border-neutral-300 focus:border-neutral-400"
       data-placement-row-id={row.id}
     >
       <div className="flex gap-3">
-        <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
+        <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-neutral-200 bg-neutral-100">
           <CreativeRenderSurface
             id={row.id}
             name={row.name}
@@ -305,10 +305,10 @@ function PlacementCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
-              <p className="break-words text-sm font-semibold leading-snug text-slate-950">
+              <p className="break-words text-sm font-semibold leading-snug text-neutral-950">
                 {campaignName}
               </p>
-              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
+              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-neutral-500">
                 <span className="break-words">{adSetName}</span>
                 {row.effectiveStatus ? <StatusBadge status={row.effectiveStatus} /> : null}
               </div>
@@ -317,7 +317,7 @@ function PlacementCard({
             <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
               {decision ? <CreativeDecisionLabelBadge label={decision.label} className="shadow-none" /> : null}
               {belowBreakeven ? <BelowBreakevenBadge label={belowBreakeven.label} /> : null}
-              <ChevronRight className="mt-0.5 h-4 w-4 text-slate-400 transition group-hover:text-slate-700" />
+              <ChevronRight className="mt-0.5 h-4 w-4 text-neutral-400 transition group-hover:text-neutral-700" />
             </div>
           </div>
 
@@ -332,11 +332,11 @@ function PlacementCard({
             />
           </div>
 
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-            <span className="font-mono text-[11px] text-slate-600">{copyValue}</span>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
+            <span className="font-mono text-[11px] text-neutral-600">{copyValue}</span>
             <button
               type="button"
-              className="inline-flex min-w-[4.5rem] items-center justify-center gap-1 rounded-md border border-slate-200 px-1.5 py-0.5 text-[11px] font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+              className="inline-flex min-w-[4.5rem] items-center justify-center gap-1 rounded-md border border-neutral-200 px-1.5 py-0.5 text-[11px] font-medium text-neutral-600 transition hover:border-neutral-300 hover:text-neutral-900"
               onClick={(event) => {
                 event.stopPropagation();
                 onCopy(copyValue);
@@ -350,7 +350,7 @@ function PlacementCard({
                 href={metaUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-1.5 py-0.5 text-[11px] font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+                className="inline-flex items-center gap-1 rounded-md border border-neutral-200 px-1.5 py-0.5 text-[11px] font-medium text-neutral-600 transition hover:border-neutral-300 hover:text-neutral-900"
                 onClick={(event) => event.stopPropagation()}
               >
                 <ExternalLink className="h-3 w-3" />
@@ -358,7 +358,7 @@ function PlacementCard({
               </a>
             ) : null}
             {daysActive !== null ? (
-              <span className="ml-auto font-mono text-[11px] text-slate-500">
+              <span className="ml-auto font-mono text-[11px] text-neutral-500">
                 {daysActive}d active
               </span>
             ) : null}
@@ -371,9 +371,9 @@ function PlacementCard({
 
 function MetricPill({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-slate-100 bg-slate-50 px-2 py-1.5">
-      <p className="text-[10px] font-semibold uppercase text-slate-500">{label}</p>
-      <p className="mt-0.5 font-mono text-xs font-semibold tabular-nums text-slate-950">{value}</p>
+    <div className="rounded-lg border border-neutral-100 bg-neutral-50 px-2 py-1.5">
+      <p className="text-[10px] font-semibold uppercase text-neutral-500">{label}</p>
+      <p className="mt-0.5 font-mono text-xs font-semibold tabular-nums text-neutral-950">{value}</p>
     </div>
   );
 }
@@ -387,7 +387,7 @@ function StatusBadge({ status }: { status: string }) {
         "inline-flex rounded-full border px-1.5 py-0.5 font-mono text-[10px] font-semibold",
         active
           ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-          : "border-slate-200 bg-slate-100 text-slate-600",
+          : "border-neutral-200 bg-neutral-100 text-neutral-600",
       )}
     >
       {normalized}
@@ -411,18 +411,18 @@ function SinglePlacementState({
   onOpenPlacement?: (row: MetaCreativeRow) => void;
 }) {
   return (
-    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center">
-      <MousePointer2 className="mx-auto h-5 w-5 text-slate-400" />
-      <p className="mt-3 text-sm font-semibold text-slate-900">
+    <div className="rounded-xl border border-dashed border-neutral-200 bg-neutral-50 px-4 py-8 text-center">
+      <MousePointer2 className="mx-auto h-5 w-5 text-neutral-400" />
+      <p className="mt-3 text-sm font-semibold text-neutral-900">
         This creative runs in a single ad placement.
       </p>
-      <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
+      <p className="mx-auto mt-1 max-w-md text-sm text-neutral-500">
         Open the creative detail drawer for full evidence.
       </p>
       {row ? (
         <button
           type="button"
-          className="mt-4 rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800"
+          className="mt-4 rounded-lg bg-neutral-950 px-3 py-2 text-xs font-semibold text-white transition hover:bg-neutral-800"
           onClick={() => onOpenPlacement?.(row)}
         >
           Open creative detail
@@ -436,15 +436,15 @@ function LoadingPlacements() {
   return (
     <div className="space-y-3">
       {Array.from({ length: 3 }).map((_, index) => (
-        <div key={index} className="rounded-2xl border border-slate-200 bg-white p-3">
+        <div key={index} className="rounded-xl border border-neutral-200 bg-white p-3">
           <div className="flex gap-3">
-            <div className="h-16 w-16 animate-pulse rounded-xl bg-slate-100" />
+            <div className="h-16 w-16 animate-pulse rounded-xl bg-neutral-100" />
             <div className="flex-1 space-y-2">
-              <div className="h-4 w-2/3 animate-pulse rounded bg-slate-100" />
-              <div className="h-3 w-1/2 animate-pulse rounded bg-slate-100" />
+              <div className="h-4 w-2/3 animate-pulse rounded bg-neutral-100" />
+              <div className="h-3 w-1/2 animate-pulse rounded bg-neutral-100" />
               <div className="grid grid-cols-5 gap-2 pt-2">
                 {Array.from({ length: 5 }).map((__, metricIndex) => (
-                  <div key={metricIndex} className="h-10 animate-pulse rounded-lg bg-slate-100" />
+                  <div key={metricIndex} className="h-10 animate-pulse rounded-lg bg-neutral-100" />
                 ))}
               </div>
             </div>

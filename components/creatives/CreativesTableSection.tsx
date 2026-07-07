@@ -1228,7 +1228,7 @@ export function CreativesTableSection({
   }, [tooltip]);
 
   return (
-    <section className="space-y-2 rounded-2xl border bg-card p-3">
+    <section className="space-y-2 rounded-xl border border-neutral-200 bg-white p-3">
       {/* A) controls row */}
       <div className="flex flex-wrap items-center gap-2">
         <div ref={presetWrapRef} className="relative">
@@ -1236,14 +1236,14 @@ export function CreativesTableSection({
             ref={presetTriggerRef}
             type="button"
             onClick={() => setShowPresetMenu((prev) => !prev)}
-            className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-xs"
+            className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50"
           >
             {tablePreset.presetName}
             <ChevronDown className="h-3.5 w-3.5" />
           </button>
 
           {showPresetMenu && (
-            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-80 rounded-xl border bg-background p-3 shadow-lg duration-150">
+            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-80 rounded-xl border border-neutral-200 bg-white p-3 shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)] duration-150">
               <div className="mb-2 flex items-center gap-2 rounded-md border px-2 py-1.5">
                 <Search className="h-3.5 w-3.5 text-muted-foreground" />
                 <input
@@ -1281,7 +1281,7 @@ export function CreativesTableSection({
             ref={settingsTriggerRef}
             type="button"
             onClick={() => setShowSettings((prev) => !prev)}
-            className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-xs"
+            className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50"
           >
             <Settings2 className="h-3.5 w-3.5" />
             Table settings
@@ -1289,7 +1289,7 @@ export function CreativesTableSection({
           </button>
 
           {showSettings && (
-            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-[360px] rounded-xl border bg-background p-3 shadow-lg duration-150">
+            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-[360px] rounded-xl border border-neutral-200 bg-white p-3 shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)] duration-150">
               <div className="space-y-2 border-b pb-3">
                 <label className="flex items-center justify-between text-xs">
                   <span>Color formatting</span>
@@ -1392,14 +1392,14 @@ export function CreativesTableSection({
             ref={tagsTriggerRef}
             type="button"
             onClick={() => setShowTagsMenu((prev) => !prev)}
-            className="inline-flex items-center gap-1 rounded-full border bg-background px-3 py-1.5 text-xs"
+            className="inline-flex items-center gap-1 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50"
           >
             <Tag className="h-3.5 w-3.5" />
             + AI tags
           </button>
 
           {showTagsMenu && (
-            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-[300px] rounded-xl border bg-background p-3 shadow-lg duration-150">
+            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-[300px] rounded-xl border border-neutral-200 bg-white p-3 shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)] duration-150">
               <div className="mb-2 flex items-center gap-2 rounded-md border px-2 py-1.5">
                 <Search className="h-3.5 w-3.5 text-muted-foreground" />
                 <input
@@ -1443,7 +1443,7 @@ export function CreativesTableSection({
         <button
           type="button"
           onClick={openMetricModal}
-          className="rounded-full border bg-background px-3 py-1.5 text-xs"
+          className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50"
         >
           + Add metric
         </button>
@@ -1451,7 +1451,7 @@ export function CreativesTableSection({
         {tablePreset.colorFormatting === "heatmap" ? (
           <div className="flex flex-wrap items-center gap-2">
             <div
-              className="inline-flex flex-wrap items-center gap-3 rounded-full border border-[#DDE7E1] bg-[#FBFDFC] px-3 py-1.5 text-[11px] text-[#5B6B7B]"
+              className="inline-flex flex-wrap items-center gap-3 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-[11px] text-neutral-600"
               title={heatmapGuideTitle}
             >
               <span className="inline-flex items-center gap-1.5">
@@ -2078,7 +2078,7 @@ function MetricHeaderTooltip({ tooltip }: { tooltip: MetricTooltipState | null }
     <div
       id={`metric-tooltip-${tooltip.key}`}
       role="tooltip"
-      className="pointer-events-none fixed z-[90] w-[260px] -translate-y-full rounded-lg bg-[#111111] px-3 py-2 shadow-xl"
+      className="pointer-events-none fixed z-[90] w-[260px] -translate-y-full rounded-lg bg-[#111111] px-3 py-2 shadow-[0_8px_20px_-10px_rgba(0,0,0,0.45)]"
       style={{ left, top }}
     >
       <p className="text-[15px] font-semibold text-white">{content.label}</p>
@@ -2143,8 +2143,8 @@ function MetricModal({
   const hoveredDef = hoveredMetric ? TABLE_COLUMN_MAP[hoveredMetric] : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
-      <div className="flex h-[78vh] w-[min(1240px,96vw)] flex-col overflow-hidden rounded-2xl border bg-background shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 p-4">
+      <div className="flex h-[78vh] w-[min(1240px,96vw)] flex-col overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)]">
         <div className="flex items-center justify-between border-b px-4 py-3">
           <div className="flex items-center gap-2 rounded-md border px-2 py-1.5">
             <Search className="h-3.5 w-3.5 text-muted-foreground" />

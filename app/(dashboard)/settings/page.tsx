@@ -558,7 +558,7 @@ export default function SettingsPage() {
   if (!selectedBusinessId || !activeBusiness) {
     return (
       <div className="space-y-6">
-        <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
+        <h1 className="text-[24px] font-semibold tracking-tight text-neutral-950">Settings</h1>
         <p className="text-sm text-muted-foreground">
           Select a workspace to manage settings.
         </p>
@@ -570,7 +570,7 @@ export default function SettingsPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-2">
-          <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
+          <h1 className="text-[24px] font-semibold tracking-tight text-neutral-950">Settings</h1>
           <p className="max-w-2xl text-sm text-muted-foreground">
             Manage your account, workspace operations, integrations, preferences, and security from one place.
           </p>
@@ -619,7 +619,7 @@ export default function SettingsPage() {
         ) : (
           <div className="space-y-5">
             {/* Current plan summary */}
-            <div className="rounded-xl border bg-background p-4">
+            <div className="rounded-xl border border-neutral-200 bg-white p-4">
               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-sm font-semibold">
@@ -662,11 +662,11 @@ export default function SettingsPage() {
             {billing?.managedPricingUrl ? (
               <div>
                 {isDemoWorkspace ? (
-                  <div className="mb-3 rounded-xl border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+                  <div className="mb-3 rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-muted-foreground">
                     Demo workspace billing is fixture-backed. Plan changes are disabled here so the review flow stays stable.
                   </div>
                 ) : (
-                  <div className="mb-3 rounded-xl border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+                  <div className="mb-3 rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-muted-foreground">
                     Plan changes are handled on Shopify&apos;s hosted pricing page. The buttons below open Shopify so the merchant can choose and approve the final plan there.
                   </div>
                 )}
@@ -679,7 +679,7 @@ export default function SettingsPage() {
                     return (
                       <div
                         key={planId}
-                        className={`rounded-xl border p-3 ${isCurrent ? "border-blue-400 bg-blue-50" : "border-border bg-background"}`}
+                        className={`rounded-xl border p-3 ${isCurrent ? "border-blue-200 bg-blue-50" : "border-neutral-200 bg-white"}`}
                       >
                         <p className="text-sm font-semibold">{plan.name}</p>
                         <p className="mt-0.5 text-sm text-muted-foreground">{displayPrice}</p>
@@ -738,7 +738,7 @@ export default function SettingsPage() {
             />
           </SettingsField>
           <SettingsField label="Default timezone">
-            <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+            <div className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm">
               <div className="font-medium">{workspaceTimezoneLabel}</div>
               <div className="mt-1 text-xs text-muted-foreground">
                 Source: {workspaceTimezoneSourceLabel}. Managed automatically from Shopify first, then GA4.
@@ -758,7 +758,7 @@ export default function SettingsPage() {
               ))}
             </SettingsSelect>
           </SettingsField>
-          <div className="rounded-xl border bg-background px-4 py-3">
+          <div className="rounded-xl border border-neutral-200 bg-white px-4 py-3">
             <p className="text-sm font-medium">Access level</p>
             <p className="mt-1 text-sm text-muted-foreground">
               {workspaceRole === "admin" ? "Admin" : workspaceRole === "collaborator" ? "Member" : "Viewer"}
@@ -784,11 +784,11 @@ export default function SettingsPage() {
           <SettingsField label="Email" hint="Email changes will be supported in a future update.">
             <SettingsInput value={accountEmail} readOnly disabled />
           </SettingsField>
-          <div className="rounded-xl border bg-background px-4 py-3">
+          <div className="rounded-xl border border-neutral-200 bg-white px-4 py-3">
             <p className="text-sm font-medium">Profile picture</p>
             <p className="mt-1 text-sm text-muted-foreground">Coming soon</p>
           </div>
-          <div className="rounded-xl border bg-background px-4 py-3">
+          <div className="rounded-xl border border-neutral-200 bg-white px-4 py-3">
             <p className="text-sm font-medium">Member since</p>
             <p className="mt-1 text-sm text-muted-foreground">
               {accountCreatedAt ? new Date(accountCreatedAt).toLocaleDateString() : "Unknown"}
@@ -887,7 +887,7 @@ export default function SettingsPage() {
               )}
             </div>
 
-            <div className="rounded-xl border bg-background p-4">
+            <div className="rounded-xl border border-neutral-200 bg-white p-4">
               <h3 className="text-sm font-semibold">Pending invites</h3>
               <div className="mt-3 space-y-3">
                 {inviteRows.length === 0 ? (
@@ -919,7 +919,7 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <div className="rounded-xl border bg-background p-4">
+          <div className="rounded-xl border border-neutral-200 bg-white p-4">
             <h3 className="text-sm font-semibold">Invite team member</h3>
             <div className="mt-4 space-y-4">
               <SettingsField label="Email address">
@@ -959,7 +959,7 @@ export default function SettingsPage() {
         <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
           <div className="grid gap-3 md:grid-cols-2">
             {["meta", "google"].map((provider) => (
-              <div key={provider} className="rounded-xl border bg-background p-4">
+              <div key={provider} className="rounded-xl border border-neutral-200 bg-white p-4">
                 <p className="text-sm font-medium capitalize">{provider}</p>
                 <p className="mt-2 text-sm text-muted-foreground">
                   {providerHealth[provider]?.label ?? "Checking health..."}
@@ -969,7 +969,7 @@ export default function SettingsPage() {
                 </p>
               </div>
             ))}
-            <div className="rounded-xl border bg-background p-4">
+            <div className="rounded-xl border border-neutral-200 bg-white p-4">
               <p className="text-sm font-medium">Last sync status</p>
               <p className="mt-2 text-sm text-muted-foreground">
                 {connectedIntegrations.length > 0 ? "Connected providers available" : "No connected integrations"}
@@ -981,7 +981,7 @@ export default function SettingsPage() {
                   .join(", ") || "Connect a provider to begin syncing"}
               </p>
             </div>
-            <div className="rounded-xl border bg-background p-4">
+            <div className="rounded-xl border border-neutral-200 bg-white p-4">
               <p className="text-sm font-medium">Provider snapshot health</p>
               <p className="mt-2 text-sm text-muted-foreground">
                 {Object.keys(providerHealth).length > 0 ? "Observed" : "Not available yet"}
@@ -992,7 +992,7 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <div className="rounded-xl border bg-background p-4">
+          <div className="rounded-xl border border-neutral-200 bg-white p-4">
             <h3 className="text-sm font-semibold">Maintenance actions</h3>
             <div className="mt-4 space-y-3">
               <Button className="w-full justify-between" onClick={handleResyncIntegrations}>
@@ -1019,14 +1019,14 @@ export default function SettingsPage() {
       >
         <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
           <div className="grid gap-3 md:grid-cols-2">
-            <div className="rounded-xl border bg-background p-4">
+            <div className="rounded-xl border border-neutral-200 bg-white p-4">
               <p className="text-sm font-medium">Two-factor authentication</p>
               <p className="mt-2 text-sm text-muted-foreground">Coming soon</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Add an extra verification step when signing in.
               </p>
             </div>
-            <div className="rounded-xl border bg-background p-4">
+            <div className="rounded-xl border border-neutral-200 bg-white p-4">
               <p className="text-sm font-medium">API token management</p>
               <p className="mt-2 text-sm text-muted-foreground">Coming soon</p>
               <p className="mt-1 text-xs text-muted-foreground">
@@ -1034,7 +1034,7 @@ export default function SettingsPage() {
               </p>
             </div>
           </div>
-          <div className="rounded-xl border bg-background p-4">
+          <div className="rounded-xl border border-neutral-200 bg-white p-4">
             <h3 className="text-sm font-semibold">Session controls</h3>
             <p className="mt-2 text-sm text-muted-foreground">
               Manage active sessions and security-sensitive access across devices.
@@ -1094,7 +1094,7 @@ export default function SettingsPage() {
               <option value="compact">Compact</option>
             </SettingsSelect>
           </SettingsField>
-          <div className="rounded-xl border bg-background px-4 py-3">
+          <div className="rounded-xl border border-neutral-200 bg-white px-4 py-3">
             <p className="text-sm font-medium">Heatmap visualizations</p>
             <p className="mt-1 text-xs text-muted-foreground">
               Toggle denser visual heatmap treatments where available.
@@ -1122,7 +1122,7 @@ export default function SettingsPage() {
         danger
       >
         <div className="grid gap-4 md:grid-cols-2">
-          <div className="rounded-xl border border-destructive/20 bg-background p-4">
+          <div className="rounded-xl border border-rose-200 bg-white p-4">
             <p className="text-sm font-medium">Disconnect all integrations</p>
             <p className="mt-2 text-sm text-muted-foreground">
               Removes active provider connections for this workspace without deleting the workspace itself.
@@ -1133,7 +1133,7 @@ export default function SettingsPage() {
               </Button>
             </div>
           </div>
-          <div className="rounded-xl border border-destructive/20 bg-background p-4">
+          <div className="rounded-xl border border-rose-200 bg-white p-4">
             <p className="text-sm font-medium">Delete workspace</p>
             <p className="mt-2 text-sm text-muted-foreground">
               Permanently removes this workspace and its assignments. This action cannot be undone.

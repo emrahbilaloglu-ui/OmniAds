@@ -168,7 +168,7 @@ function IntegrationCallbackPageClient() {
           ? `${providerLabel} connected successfully.`
           : `${providerLabel} connection failed${errorParam ? `: ${errorParam}` : "."}`}
       </div>
-      <div className="w-full max-w-md rounded-xl border bg-card p-5 text-center shadow-sm">
+      <div className="w-full max-w-md rounded-xl border border-neutral-200 bg-white p-5 text-center">
         <h1 className="text-lg font-semibold">OAuth Callback</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           Processing {providerLabel} authorization result...
@@ -181,7 +181,7 @@ function IntegrationCallbackPageClient() {
 function IntegrationCallbackFallback() {
   return (
     <div className="relative flex min-h-[60vh] items-center justify-center">
-      <div className="w-full max-w-md rounded-xl border bg-card p-5 text-center shadow-sm">
+      <div className="w-full max-w-md rounded-xl border border-neutral-200 bg-white p-5 text-center">
         <h1 className="text-lg font-semibold">OAuth Callback</h1>
         <p className="mt-2 text-sm text-muted-foreground">Preparing authorization context...</p>
       </div>

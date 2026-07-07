@@ -789,21 +789,21 @@ export function CreativesTableShell() {
   return (
     <div className="rounded-xl border bg-white">
       <div className="border-b px-4 py-3">
-        <div className="h-4 w-48 animate-pulse rounded bg-slate-200" />
+        <div className="h-4 w-48 animate-pulse rounded bg-neutral-200" />
       </div>
       <div className="divide-y">
         {Array.from({ length: 8 }).map((_, index) => (
           <div key={index} className="flex items-center gap-3 px-4 py-3">
-            <div className="h-4 w-4 animate-pulse rounded bg-slate-200" />
-            <div className="h-10 w-10 animate-pulse rounded-md bg-slate-200" />
+            <div className="h-4 w-4 animate-pulse rounded bg-neutral-200" />
+            <div className="h-10 w-10 animate-pulse rounded-md bg-neutral-200" />
             <div className="min-w-0 flex-1 space-y-2">
-              <div className="h-4 w-56 animate-pulse rounded bg-slate-200" />
-              <div className="h-3 w-32 animate-pulse rounded bg-slate-100" />
+              <div className="h-4 w-56 animate-pulse rounded bg-neutral-200" />
+              <div className="h-3 w-32 animate-pulse rounded bg-neutral-100" />
             </div>
             <div className="hidden gap-3 md:flex">
-              <div className="h-4 w-16 animate-pulse rounded bg-slate-100" />
-              <div className="h-4 w-14 animate-pulse rounded bg-slate-100" />
-              <div className="h-4 w-12 animate-pulse rounded bg-slate-100" />
+              <div className="h-4 w-16 animate-pulse rounded bg-neutral-100" />
+              <div className="h-4 w-14 animate-pulse rounded bg-neutral-100" />
+              <div className="h-4 w-12 animate-pulse rounded bg-neutral-100" />
             </div>
           </div>
         ))}

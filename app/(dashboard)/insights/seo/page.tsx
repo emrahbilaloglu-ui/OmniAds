@@ -188,8 +188,11 @@ export default function SeoIntelligencePage() {
       <div className="space-y-5">
         <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1">
-            <h1 className="text-3xl font-semibold tracking-tight">SEO Intelligence</h1>
-            <p className="max-w-2xl text-sm text-muted-foreground">
+            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-neutral-500">
+              Insights
+            </p>
+            <h1 className="text-[24px] font-semibold tracking-tight text-neutral-950">SEO Intelligence</h1>
+            <p className="max-w-2xl text-sm leading-5 text-neutral-500">
               Monitor organic search volatility, isolate likely causes, and prioritize technical or
               content fixes using Search Console-backed intelligence.
             </p>
@@ -204,8 +207,11 @@ export default function SeoIntelligencePage() {
     <div className="space-y-5">
       <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
-          <h1 className="text-3xl font-semibold tracking-tight">SEO Intelligence</h1>
-          <p className="max-w-2xl text-sm text-muted-foreground">
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-neutral-500">
+            Insights
+          </p>
+          <h1 className="text-[24px] font-semibold tracking-tight text-neutral-950">SEO Intelligence</h1>
+          <p className="max-w-2xl text-sm leading-5 text-neutral-500">
             Monitor organic search volatility, isolate likely causes, and prioritize technical or
             content fixes using Search Console-backed intelligence.
           </p>
@@ -223,7 +229,7 @@ export default function SeoIntelligencePage() {
 
       {searchConsoleConnected && (
         <>
-          <section className="rounded-2xl border bg-card p-4 shadow-sm">
+          <section className="rounded-xl border border-neutral-200 bg-white p-3">
             <div className="flex flex-wrap items-center gap-3">
               <DateRangePicker value={dateRange} onChange={setDateRange} />
             </div>
@@ -276,17 +282,17 @@ export default function SeoIntelligencePage() {
                 />
               </div>
 
-              <div className="flex gap-1 overflow-x-auto rounded-xl border bg-card p-1 shadow-sm">
+              <div className="flex gap-1 overflow-x-auto border-b border-neutral-200">
                 {SEO_TABS.map((tab) => (
                   <button
                     key={tab.id}
                     type="button"
                     onClick={() => setActiveTab(tab.id)}
                     className={cn(
-                      "rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors whitespace-nowrap",
+                      "-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-[13px] font-medium transition-colors",
                       activeTab === tab.id
-                        ? "bg-foreground text-background"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                        ? "border-neutral-950 text-neutral-950"
+                        : "border-transparent text-neutral-500 hover:text-neutral-900",
                     )}
                   >
                     {tab.label}
@@ -294,7 +300,7 @@ export default function SeoIntelligencePage() {
                 ))}
               </div>
 
-              <section className="space-y-4 rounded-2xl border bg-card p-5 shadow-sm">
+              <section className="space-y-4 rounded-xl border border-neutral-200 bg-white p-5">
                 {activeTab === "overview" && (
                   <>
                     <SectionIntro
@@ -438,7 +444,7 @@ export default function SeoIntelligencePage() {
                       title="Technical findings"
                       description="Targeted audits on Search Console-backed or inspection-confirmed pages to surface crawl, indexation, metadata, canonical, and structured-data risks."
                     />
-                    <div className="rounded-xl border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+                    <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm leading-5 text-neutral-500">
                       Pages can still appear here even when current impressions are `0`.
                       That usually means the URL was previously visible in Search Console, is now losing discovery,
                       or was directly confirmed as excluded/not indexed via URL Inspection. Querystring URLs and feed/service paths are excluded from this view.

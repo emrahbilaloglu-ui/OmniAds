@@ -180,7 +180,7 @@ export function GeoOpportunitiesSection({
         return (
           <div
             key={i}
-            className={`rounded-xl border p-4 shadow-sm ${cfg.border} ${cfg.bg}`}
+            className={`rounded-xl border p-4 ${cfg.border} ${cfg.bg}`}
           >
             <div className="flex items-start gap-3">
               <div className={`mt-0.5 shrink-0 ${cfg.color}`}>{cfg.icon}</div>

@@ -171,7 +171,7 @@ export default function SelectBusinessPage() {
               <div
                 key={business.id}
                 className={cn(
-                  "flex items-center gap-4 rounded-xl border bg-card p-4 transition-colors",
+                  "flex items-center gap-4 rounded-xl border border-neutral-200 bg-white p-4 transition-colors",
                   isSelected
                     ? "border-primary bg-primary/5"
                     : "hover:border-border hover:bg-accent"
@@ -249,7 +249,7 @@ export default function SelectBusinessPage() {
           })}
         </div>
       ) : (
-        <div className="rounded-xl border border-dashed bg-card p-6 text-center">
+        <div className="rounded-xl border border-dashed border-neutral-300 bg-white p-6 text-center">
           <h3 className="text-base font-semibold">No businesses yet</h3>
           <p className="mt-1 text-sm text-muted-foreground">
             Create your first business to start integrations.
@@ -270,7 +270,7 @@ export default function SelectBusinessPage() {
 
       {confirmBusiness ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-md rounded-2xl border bg-background p-5 shadow-2xl">
+          <div className="w-full max-w-md rounded-xl border border-neutral-200 bg-white p-5 shadow-lg">
             <h3 className="text-base font-semibold">Delete business?</h3>
             <p className="mt-2 text-sm text-muted-foreground">
               This will remove <span className="font-medium text-foreground">{confirmBusiness.name}</span> and its linked workspace context.

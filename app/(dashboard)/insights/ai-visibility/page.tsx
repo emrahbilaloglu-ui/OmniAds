@@ -151,8 +151,11 @@ export default function AiVisibilityPage() {
       <div className="space-y-5">
         <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1">
-            <h1 className="text-3xl font-semibold tracking-tight">AI Visibility</h1>
-            <p className="text-sm text-muted-foreground max-w-xl">
+            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-neutral-500">
+              Insights
+            </p>
+            <h1 className="text-[24px] font-semibold tracking-tight text-neutral-950">AI Visibility</h1>
+            <p className="max-w-xl text-sm leading-5 text-neutral-500">
               Generative Engine · how your brand surfaces in AI tools.
             </p>
           </div>
@@ -167,8 +170,11 @@ export default function AiVisibilityPage() {
       {/* Page header */}
       <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
-          <h1 className="text-3xl font-semibold tracking-tight">AI Visibility</h1>
-          <p className="text-sm text-muted-foreground max-w-xl">
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-neutral-500">
+            Insights
+          </p>
+          <h1 className="text-[24px] font-semibold tracking-tight text-neutral-950">AI Visibility</h1>
+          <p className="max-w-xl text-sm leading-5 text-neutral-500">
             Generative Engine · how your brand surfaces in AI tools.
           </p>
         </div>
@@ -180,10 +186,10 @@ export default function AiVisibilityPage() {
       </header>
 
       {/* AI Visibility explainer band */}
-      <div className="rounded-xl border bg-gradient-to-r from-violet-50 to-blue-50 px-5 py-3.5 dark:from-violet-950/30 dark:to-blue-950/30 dark:border-violet-900/40">
+      <div className="rounded-xl border border-neutral-200 bg-white px-5 py-3.5">
         <p className="text-sm">
-          <span className="font-semibold text-violet-700 dark:text-violet-300">What is AI Visibility?</span>
-          <span className="text-muted-foreground ml-2">
+          <span className="font-semibold text-neutral-950">What is AI Visibility?</span>
+          <span className="ml-2 text-neutral-500">
             Understand how AI-driven surfaces like
             ChatGPT, Perplexity, Gemini, and Copilot expose your brand and content, and what to
             improve next to win more AI-sourced discovery.
@@ -193,12 +199,9 @@ export default function AiVisibilityPage() {
 
       {/* No connections state */}
       {!anyConnected && (
-        <div className="rounded-xl border border-dashed p-12 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-            <span className="text-2xl">🧠</span>
-          </div>
+        <div className="rounded-xl border border-dashed border-neutral-300 bg-white p-8 text-center">
           <h3 className="text-base font-semibold">Unlock AI Visibility</h3>
-          <p className="mt-2 max-w-sm text-sm text-muted-foreground mx-auto">
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-5 text-neutral-500">
             Connect <strong>GA4</strong> to detect AI-source traffic and measure commercial
             impact. Connect <strong>Search Console</strong> to surface query and topic
             authority signals.
@@ -214,7 +217,7 @@ export default function AiVisibilityPage() {
 
       {/* Controls */}
       {anyConnected && (
-        <section className="rounded-2xl border bg-card p-4 shadow-sm">
+        <section className="rounded-xl border border-neutral-200 bg-white p-3">
           <div className="flex flex-wrap items-center gap-3">
             <DateRangePicker value={dateRange} onChange={setDateRange} />
           </div>
@@ -247,16 +250,16 @@ export default function AiVisibilityPage() {
 
       {/* Tab bar */}
       {anyConnected && (
-        <div className="flex gap-1 overflow-x-auto rounded-xl border bg-card p-1 shadow-sm">
+        <div className="flex gap-1 overflow-x-auto border-b border-neutral-200">
           {TABS.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                "rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors whitespace-nowrap",
+                "-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-[13px] font-medium transition-colors",
                 activeTab === tab.id
-                  ? "bg-foreground text-background"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  ? "border-neutral-950 text-neutral-950"
+                  : "border-transparent text-neutral-500 hover:text-neutral-900"
               )}
             >
               {tab.label}
@@ -267,7 +270,7 @@ export default function AiVisibilityPage() {
 
       {/* Tab content */}
       {anyConnected && (
-        <section className="rounded-2xl border bg-card p-5 shadow-sm">
+        <section className="rounded-xl border border-neutral-200 bg-white p-5">
           {activeTab === "overview" && (
             <>
               <SectionHeader
@@ -396,11 +399,11 @@ export default function AiVisibilityPage() {
 
       {/* Methodology footnote */}
       {anyConnected && (
-        <details className="rounded-xl border bg-card px-4 py-3 shadow-sm">
-          <summary className="cursor-pointer text-xs font-medium text-muted-foreground select-none">
+        <details className="rounded-xl border border-neutral-200 bg-white px-4 py-3">
+          <summary className="cursor-pointer select-none text-xs font-medium text-neutral-500">
             Methodology & data assumptions
           </summary>
-          <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+          <div className="mt-3 space-y-2 text-xs leading-5 text-neutral-500">
             <p>
               <strong>AI referral traffic</strong> is detected by matching GA4 session sources
               against known AI engine domains (chat.openai.com, perplexity.ai, gemini.google.com,
@@ -443,9 +446,12 @@ export default function AiVisibilityPage() {
 
 function ConnectedChip({ label, connected }: { label: string; connected: boolean }) {
   return (
-    <div className="inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs">
+    <div className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs">
       <span className="font-medium">{label}</span>
-      <Badge variant={connected ? "default" : "secondary"}>
+      <Badge
+        variant="secondary"
+        className={connected ? "border border-emerald-200 bg-emerald-50 text-emerald-700" : "border border-neutral-200 bg-neutral-100 text-neutral-600"}
+      >
         {connected ? "connected" : "not connected"}
       </Badge>
     </div>
@@ -455,26 +461,26 @@ function ConnectedChip({ label, connected }: { label: string; connected: boolean
 function SectionHeader({ title, description }: { title: string; description: string }) {
   return (
     <div className="mb-5">
-      <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
-      <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
+      <h2 className="text-[16px] font-semibold tracking-tight text-neutral-950">{title}</h2>
+      <p className="mt-0.5 text-sm leading-5 text-neutral-500">{description}</p>
     </div>
   );
 }
 
 function PartialDataNotice({ text }: { text: string }) {
   return (
-    <div className="flex items-center gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 dark:border-amber-900/40 dark:bg-amber-950/20">
-      <span className="text-amber-600 text-sm shrink-0">⚠</span>
-      <p className="text-xs text-amber-700 dark:text-amber-300">{text}</p>
+    <div className="flex items-center gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5">
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+      <p className="text-xs text-amber-800">{text}</p>
     </div>
   );
 }
 
 function RequiresIntegration({ name, reason }: { name: string; reason: string }) {
   return (
-    <div className="rounded-xl border border-dashed py-8 text-center">
+    <div className="rounded-xl border border-dashed border-neutral-300 bg-white py-8 text-center">
       <p className="text-sm font-medium">Requires {name}</p>
-      <p className="mt-1 text-xs text-muted-foreground">
+      <p className="mt-1 text-xs text-neutral-500">
         Connect {name} {reason}.
       </p>
       <a

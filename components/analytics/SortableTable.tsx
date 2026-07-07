@@ -89,7 +89,7 @@ export function SortableTable<T extends object>({
                 className={cn(
                   "py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-muted-foreground",
                   col.align === "right" ? "text-right" : "text-left",
-                  col.sticky && "sticky left-0 bg-card z-10",
+                  col.sticky && "sticky left-0 bg-white z-10",
                   col.sortable !== false && "cursor-pointer select-none hover:text-foreground"
                 )}
                 onClick={() => col.sortable !== false && handleSort(String(col.key))}
@@ -143,7 +143,7 @@ export function SortableTable<T extends object>({
                     className={cn(
                       "py-2.5 pr-4",
                       col.align === "right" ? "text-right tabular-nums" : "",
-                      col.sticky && "sticky left-0 bg-card z-10",
+                      col.sticky && "sticky left-0 bg-white z-10",
                       heatClass
                     )}
                   >

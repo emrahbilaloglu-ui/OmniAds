@@ -19,7 +19,7 @@ export default function NewBusinessPage() {
         </p>
       </div>
 
-      <div className="rounded-2xl border bg-card p-5 shadow-sm">
+      <div className="rounded-xl border border-neutral-200 bg-white p-5">
         <BusinessForm
           onSubmit={async ({ name, currency }) => {
             setError(null);

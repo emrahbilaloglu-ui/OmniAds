@@ -52,12 +52,12 @@ export function LandingPagesTableSection({
   const language = usePreferencesStore((state) => state.language);
   const columns = getColumns(language);
   return (
-    <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-      <div className="border-b border-slate-200 bg-[linear-gradient(180deg,#fbfdff_0%,#f5f9ff_100%)] px-5 py-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+    <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white ">
+      <div className="border-b border-neutral-200 bg-white px-5 py-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-neutral-500">
           {language === "tr" ? "Funnel Tablosu" : "Funnel Table"}
         </p>
-        <p className="mt-1 text-sm text-slate-600">
+        <p className="mt-1 text-sm text-neutral-600">
           {language === "tr"
             ? "Düşüşü, conversion oranlarını ve AI yorumlarını incelemek için bir landing page seçin."
             : "Click any landing page to inspect drop-offs, conversion rates, and AI commentary."}
@@ -66,9 +66,9 @@ export function LandingPagesTableSection({
 
       <div className="overflow-x-auto">
         <table className="min-w-[1500px] w-full text-sm">
-          <thead className="bg-slate-50/90 text-slate-600">
+          <thead className="bg-neutral-50/90 text-neutral-600">
             <tr>
-              <th className="sticky left-0 z-[1] min-w-[320px] border-r border-slate-200 bg-slate-50 px-5 py-3 text-left font-semibold">
+              <th className="sticky left-0 z-[1] min-w-[320px] border-r border-neutral-200 bg-neutral-50 px-5 py-3 text-left font-semibold">
                 Landing Page
               </th>
               {columns.map((column) => {
@@ -84,7 +84,7 @@ export function LandingPagesTableSection({
                             active && sort.direction === "desc" ? "asc" : "desc",
                         })
                       }
-                      className="inline-flex items-center gap-1 text-slate-600 transition hover:text-slate-900"
+                      className="inline-flex items-center gap-1 text-neutral-600 transition hover:text-neutral-900"
                     >
                       {column.label}
                       {active ? (
@@ -107,17 +107,17 @@ export function LandingPagesTableSection({
                 <tr
                   key={row.path}
                   className={cn(
-                    "cursor-pointer border-t border-slate-100 transition-colors hover:bg-sky-50/50",
-                    selected && "bg-sky-50/70"
+                    "cursor-pointer border-t border-neutral-100 transition-colors hover:bg-neutral-50",
+                    selected && "bg-neutral-100"
                   )}
                   onClick={() => onRowClick(row)}
                 >
-                  <td className="sticky left-0 z-[1] border-r border-slate-100 bg-inherit px-5 py-4 align-top">
+                  <td className="sticky left-0 z-[1] border-r border-neutral-100 bg-inherit px-5 py-4 align-top">
                     <div className="space-y-1">
-                      <p className="font-semibold text-slate-900">{row.title}</p>
-                      <p className="font-mono text-xs text-slate-500">{row.path}</p>
+                      <p className="font-semibold text-neutral-900">{row.title}</p>
+                      <p className="font-mono text-xs text-neutral-500">{row.path}</p>
                       <div className="flex flex-wrap gap-2 pt-1">
-                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700">
+                        <span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[11px] font-medium text-neutral-700">
                           Session CVR {formatPercent(row.sessionToPurchaseRate)}
                         </span>
                         <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700">
@@ -127,7 +127,7 @@ export function LandingPagesTableSection({
                     </div>
                   </td>
                   {columns.map((column) => (
-                    <td key={column.key} className="px-3 py-4 text-right text-slate-700">
+                    <td key={column.key} className="px-3 py-4 text-right text-neutral-700">
                       {column.render(row, currency)}
                     </td>
                   ))}

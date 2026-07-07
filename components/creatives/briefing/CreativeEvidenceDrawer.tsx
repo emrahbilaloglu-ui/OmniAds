@@ -9,7 +9,7 @@ import {
   cardCampaign,
   cardId,
   cardName,
-  confidenceValue,
+  formatOptionalFixed,
   numberOrZero,
 } from "@/components/creatives/briefing/card-utils";
 import {
@@ -206,7 +206,7 @@ function buildEvidenceItems(card: BriefingCreativeCard): EvidenceItem[] {
     const cpaText = hasNumeric(card.cpa) ? formatCurrency(card.cpa) : "—";
     items.push({
       title: `ROAS ${roasText} - spend ${spendText}`,
-      body: `Purchases ${formatCount(card.purchases)}; CPA ${cpaText}; confidence ${confidenceValue(card)}%.`,
+      body: `Purchases ${formatCount(card.purchases)}; CPA ${cpaText}; confidence ${formatOptionalFixed(card.confidence, 0, "%")}.`,
       source: `${source} - mature metrics`,
       tone: numberOrZero(card.roas) >= 2 ? "positive" : numberOrZero(card.roas) < 1 ? "warn" : "default",
     });

@@ -104,19 +104,19 @@ export default function ReportsPage() {
 
   return (
     <PlanGate requiredPlan="pro">
-    <div className="space-y-6">
-      <section className="rounded-xl border border-neutral-200 bg-white p-6">
+    <div className="space-y-5">
+      <header>
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="max-w-2xl space-y-2">
             <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-neutral-500">
-              {language === "tr" ? "Ozel Raporlama" : "Custom Reporting"}
+              {language === "tr" ? "Ozel Raporlama" : "Reports"}
             </p>
-            <h1 className="text-2xl font-semibold tracking-tight text-neutral-900">
+            <h1 className="text-[24px] font-semibold tracking-tight text-neutral-950">
               {language === "tr"
                 ? `${business?.name ?? "bu iş"} için tek tıkla raporlar oluşturun`
                 : `Build one-click reports for ${business?.name ?? "this business"}`}
             </h1>
-            <p className="text-sm leading-6 text-neutral-500">
+            <p className="text-sm leading-5 text-neutral-500">
               {language === "tr"
                 ? "Her iş altında tekrar kullanılabilir rapor formatları kaydedin, bir template ile başlayın, sonra çıktıyı public link olarak paylaşın veya tablo widget'larını CSV olarak dışa aktarın."
                 : "Save reusable report formats under each business, start from a template, then share the final output as a public link or export table widgets as CSV."}
@@ -128,14 +128,14 @@ export default function ReportsPage() {
             </Button>
           </div>
         </div>
-      </section>
+      </header>
 
-      <section className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)]">
+      <section className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)]">
         <div className="rounded-xl border border-neutral-200 bg-white p-6">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <h2 className="text-xl font-semibold">{language === "tr" ? "Kayitli Raporlar" : "Saved Reports"}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <h2 className="text-[17px] font-semibold tracking-tight text-neutral-950">{language === "tr" ? "Kayitli Raporlar" : "Saved Reports"}</h2>
+              <p className="mt-1 text-sm text-neutral-500">
                 {language === "tr" ? "Kayitli her rapor aktif ise aittir." : "Every saved report belongs to the active business."}
               </p>
             </div>
@@ -146,12 +146,12 @@ export default function ReportsPage() {
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder={language === "tr" ? "Raporlarda ara..." : "Search reports..."}
-              className="min-w-[220px] rounded-xl border px-3 py-2 text-sm"
+              className="min-w-[220px] rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:border-neutral-400"
             />
             <select
               value={sortMode}
               onChange={(event) => setSortMode(event.target.value as "recent" | "name")}
-              className="rounded-xl border px-3 py-2 text-sm"
+              className="rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:border-neutral-400"
             >
               <option value="recent">{language === "tr" ? "Sirala: Son güncellenen" : "Sort: Recently updated"}</option>
               <option value="name">{language === "tr" ? "Sirala: Ad" : "Sort: Name"}</option>
@@ -159,19 +159,19 @@ export default function ReportsPage() {
           </div>
 
           {reportsQuery.isLoading ? (
-            <div className="mt-6 rounded-2xl border border-dashed p-10 text-sm text-muted-foreground">
+            <div className="mt-6 rounded-xl border border-dashed border-neutral-300 bg-neutral-50/60 p-8 text-sm text-neutral-500">
               {language === "tr" ? "Kayitli raporlar yükleniyor..." : "Loading saved reports..."}
             </div>
           ) : reportsQuery.error ? (
-            <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
+            <div className="mt-6 rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">
               {reportsQuery.error instanceof Error ? reportsQuery.error.message : language === "tr" ? "Raporlar yüklenemedi." : "Failed to load reports."}
             </div>
           ) : reports.length === 0 ? (
-            <div className="mt-6 rounded-2xl border border-dashed p-10 text-sm text-muted-foreground">
+            <div className="mt-6 rounded-xl border border-dashed border-neutral-300 bg-neutral-50/60 p-8 text-sm text-neutral-500">
               {language === "tr" ? "Henüz kayıtlı rapor yok. Bir template ile başlayın veya boş bir rapor oluşturun." : "No saved reports yet. Start from a template or create a blank report."}
             </div>
           ) : filteredReports.length === 0 ? (
-            <div className="mt-6 rounded-2xl border border-dashed p-10 text-sm text-muted-foreground">
+            <div className="mt-6 rounded-xl border border-dashed border-neutral-300 bg-neutral-50/60 p-8 text-sm text-neutral-500">
               {language === "tr" ? "Bu aramaya uyan rapor bulunamadi." : "No reports match this search yet."}
             </div>
           ) : (
@@ -196,7 +196,7 @@ export default function ReportsPage() {
                     </Link>
                   </div>
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                    <span className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-medium text-neutral-600">
+                    <span className="rounded-md border border-neutral-200 bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600">
                       {report.definition?.widgets?.length ?? 0} {language === "tr" ? "widget" : "widgets"}
                     </span>
                     <div className="flex flex-wrap gap-2">
@@ -229,8 +229,8 @@ export default function ReportsPage() {
 
         <div className="rounded-xl border border-neutral-200 bg-white p-6">
           <div>
-            <h2 className="text-xl font-semibold">{language === "tr" ? "Template Galerisi" : "Template Gallery"}</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <h2 className="text-[17px] font-semibold tracking-tight text-neutral-950">{language === "tr" ? "Template Galerisi" : "Template Gallery"}</h2>
+            <p className="mt-1 text-sm text-neutral-500">
               {language === "tr" ? "Tek tıkla bir yapıyla başlayın, sonra her widget ve slot'u özelleştirin." : "Start with a one-click structure, then customize every widget and slot."}
             </p>
           </div>
@@ -242,7 +242,7 @@ export default function ReportsPage() {
                 className="rounded-xl border border-neutral-200 bg-white p-5 transition hover:border-neutral-300 hover:bg-neutral-50"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <span className="rounded-full bg-neutral-100 px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-[0.08em] text-neutral-500">
+                  <span className="rounded-md border border-neutral-200 bg-neutral-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-neutral-500">
                     {template.category}
                   </span>
                   <TemplateProviders template={template} />

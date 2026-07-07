@@ -58,7 +58,7 @@ export function CreativeEngineV3EvidenceSection({
   if (evidenceQuery.isLoading || evidenceQuery.isFetching) {
     return (
       <EvidenceShell>
-        <p className="text-sm text-slate-500">Loading Engine v3 evidence...</p>
+        <p className="text-sm text-neutral-500">Loading Engine v3 evidence...</p>
       </EvidenceShell>
     );
   }
@@ -79,7 +79,7 @@ export function CreativeEngineV3EvidenceSection({
   if (isDisabledEvidence(payload)) {
     return (
       <EvidenceShell>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-neutral-500">
           Engine v3 not enabled for this business
         </p>
       </EvidenceShell>
@@ -154,10 +154,10 @@ async function fetchEngineV3Evidence(input: {
 function EvidenceShell({ children }: { children: ReactNode }) {
   return (
     <section
-      className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+      className="rounded-xl border border-neutral-200 bg-white p-4"
       data-testid="engine-v3-evidence"
     >
-      <h4 className="text-sm font-semibold text-slate-900">Engine v3 evidence</h4>
+      <h4 className="text-sm font-semibold text-neutral-900">Engine v3 evidence</h4>
       <div className="mt-3 space-y-2">{children}</div>
     </section>
   );
@@ -167,7 +167,7 @@ function DecisionEvidence({ payload }: { payload: DecisionEvidenceResponse }) {
   const display = LABEL_DISPLAY[payload.decision.label];
 
   return (
-    <div className="space-y-3 text-sm text-slate-700">
+    <div className="space-y-3 text-sm text-neutral-700">
       <div className="flex flex-wrap items-center gap-2">
         <DecisionLabelChip
           label={payload.decision.label}
@@ -185,7 +185,7 @@ function DecisionEvidence({ payload }: { payload: DecisionEvidenceResponse }) {
         />
         <MetricPill label="truth" value={payload.decision.truthSource} />
       </div>
-      <p className="leading-relaxed text-slate-800">{payload.decision.reason}</p>
+      <p className="leading-relaxed text-neutral-800">{payload.decision.reason}</p>
       <KeyValueGrid
         rows={[
           ["effectiveTargetRoas", payload.decision.effectiveTargetRoas],
@@ -282,7 +282,7 @@ function InputEvidence({ input }: { input: CreativeInput }) {
     <div className="space-y-3">
       {groups.map((group) => (
         <div key={group.title}>
-          <p className="mb-1 text-xs font-semibold text-slate-500">
+          <p className="mb-1 text-xs font-semibold text-neutral-500">
             {group.title}
           </p>
           <KeyValueGrid rows={group.rows} />
@@ -299,14 +299,14 @@ function FunnelEvidence({
 }) {
   if (!diagnosis) {
     return (
-      <p className="text-sm text-slate-500">
+      <p className="text-sm text-neutral-500">
         Funnel diagnosis not available for this creative.
       </p>
     );
   }
 
   return (
-    <div className="space-y-3 text-sm text-slate-700">
+    <div className="space-y-3 text-sm text-neutral-700">
       <KeyValueGrid
         rows={[
           ["primaryWeakStage", diagnosis.primaryWeakStage],
@@ -317,9 +317,9 @@ function FunnelEvidence({
       <table className="w-full border-collapse text-xs">
         <tbody>
           {Object.entries(diagnosis.rates).map(([key, value]) => (
-            <tr key={key} className="border-b border-slate-100 last:border-b-0">
-              <td className="py-1 pr-2 text-slate-500">{key}</td>
-              <td className="py-1 text-right font-mono text-slate-900">
+            <tr key={key} className="border-b border-neutral-100 last:border-b-0">
+              <td className="py-1 pr-2 text-neutral-500">{key}</td>
+              <td className="py-1 text-right font-mono text-neutral-900">
                 {formatValue(value)}
               </td>
             </tr>
@@ -339,7 +339,7 @@ function EngineTrailEvidence({
   payload: DecisionEvidenceResponse;
 }) {
   return (
-    <div className="space-y-3 text-sm text-slate-700">
+    <div className="space-y-3 text-sm text-neutral-700">
       {payload.decision.badges.length > 0 ? (
         <div className="flex flex-wrap gap-1.5">
           {payload.decision.badges.map((badge) => (
@@ -349,7 +349,7 @@ function EngineTrailEvidence({
                 "rounded px-1.5 py-0.5 text-[11px] font-medium",
                 badge.severity === "warning"
                   ? "bg-amber-500/15 text-amber-800"
-                  : "bg-slate-100 text-slate-600",
+                  : "bg-neutral-100 text-neutral-600",
               )}
             >
               {badge.type} / {badge.label} / {badge.severity}
@@ -357,7 +357,7 @@ function EngineTrailEvidence({
           ))}
         </div>
       ) : (
-        <p className="text-slate-500">No badges.</p>
+        <p className="text-neutral-500">No badges.</p>
       )}
       <KeyValueGrid
         rows={[
@@ -384,14 +384,14 @@ function OperatorResponseEvidence({
 }) {
   if (!operatorResponse) {
     return (
-      <p className="text-sm text-slate-500">
+      <p className="text-sm text-neutral-500">
         No operator response detected in the recent window.
       </p>
     );
   }
 
   return (
-    <div className="space-y-3 text-sm text-slate-700">
+    <div className="space-y-3 text-sm text-neutral-700">
       <KeyValueGrid
         rows={[
           ["responseType", operatorResponse.responseType],
@@ -405,7 +405,7 @@ function OperatorResponseEvidence({
         ]}
       />
       <div>
-        <p className="mb-1 text-xs font-semibold text-slate-500">
+        <p className="mb-1 text-xs font-semibold text-neutral-500">
           Trigger signals
         </p>
         <KeyValueGrid
@@ -430,7 +430,7 @@ function OperatorResponseEvidence({
 function ProvenanceEvidence({ payload }: { payload: DecisionEvidenceResponse }) {
   const health = payload.dataHealth;
   return (
-    <div className="space-y-3 text-sm text-slate-700">
+    <div className="space-y-3 text-sm text-neutral-700">
       <KeyValueGrid
         rows={[
           ["engineVersion", payload.engineVersion],
@@ -455,22 +455,22 @@ function ProvenanceEvidence({ payload }: { payload: DecisionEvidenceResponse }) 
 
 function MetricPill({ label, value }: { label: string; value: string }) {
   return (
-    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">
-      {label}: <span className="font-mono text-slate-900">{value}</span>
+    <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs text-neutral-600">
+      {label}: <span className="font-mono text-neutral-900">{value}</span>
     </span>
   );
 }
 
 function KeyValueGrid({ rows }: { rows: Array<[string, unknown]> }) {
   return (
-    <div className="grid grid-cols-1 overflow-hidden rounded-lg border border-slate-200 text-xs sm:grid-cols-2">
+    <div className="grid grid-cols-1 overflow-hidden rounded-lg border border-neutral-200 text-xs sm:grid-cols-2">
       {rows.map(([label, value]) => (
         <div
           key={label}
-          className="border-b border-slate-100 px-2.5 py-2 last:border-b-0"
+          className="border-b border-neutral-100 px-2.5 py-2 last:border-b-0"
         >
-          <div className="text-slate-500">{label}</div>
-          <div className="mt-0.5 break-words font-mono text-slate-900">
+          <div className="text-neutral-500">{label}</div>
+          <div className="mt-0.5 break-words font-mono text-neutral-900">
             {formatValue(value)}
           </div>
         </div>
@@ -486,9 +486,9 @@ function EvidenceList({
   items: string[];
   emptyText: string;
 }) {
-  if (items.length === 0) return <p className="text-sm text-slate-500">{emptyText}</p>;
+  if (items.length === 0) return <p className="text-sm text-neutral-500">{emptyText}</p>;
   return (
-    <ul className="list-disc space-y-1 pl-4 text-sm text-slate-700">
+    <ul className="list-disc space-y-1 pl-4 text-sm text-neutral-700">
       {items.map((item) => (
         <li key={item}>{item}</li>
       ))}

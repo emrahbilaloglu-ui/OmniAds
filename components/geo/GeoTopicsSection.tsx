@@ -142,7 +142,7 @@ export function GeoTopicsSection({ topics, isLoading }: GeoTopicsSectionProps) {
           const cfg = STRENGTH_CONFIG[topic.coverageStrength];
           const barWidth = Math.min(100, (topic.impressions / maxImpressions) * 100);
           return (
-            <div key={topic.topic} className="rounded-xl border bg-card p-4 shadow-sm">
+            <div key={topic.topic} className="rounded-xl border border-neutral-200 bg-white p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   {/* Topic name + badges */}

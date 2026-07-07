@@ -426,10 +426,10 @@ export default function TeamPage() {
       {/* Invite Modal */}
       {inviteOpen ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/35 p-4"
           onClick={(e) => { if (e.target === e.currentTarget) { setInviteOpen(false); } }}
         >
-          <div className="w-full max-w-xl rounded-2xl border bg-background p-5 shadow-2xl">
+          <div className="w-full max-w-xl rounded-xl border border-neutral-200 bg-white p-5 shadow-lg">
             <h2 className="text-base font-semibold">Invite people</h2>
             {inviteStep === "form" ? (
               <>
@@ -539,10 +539,10 @@ export default function TeamPage() {
       {/* Workspace Access Modal */}
       {wsModalMember ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/35 p-4"
           onClick={(e) => { if (e.target === e.currentTarget) setWsModalMember(null); }}
         >
-          <div className="w-full max-w-md rounded-2xl border bg-background p-5 shadow-2xl">
+          <div className="w-full max-w-md rounded-xl border border-neutral-200 bg-white p-5 shadow-lg">
             <h2 className="text-base font-semibold">Workspace access</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               Configure which workspaces <span className="font-medium text-foreground">{wsModalMember.name}</span> can access.

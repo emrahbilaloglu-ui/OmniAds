@@ -354,7 +354,7 @@ export function LaunchpadCreativeSelection({
             onClick={() => setView("list")}
             className={cn(
               "inline-flex h-8 items-center gap-1.5 rounded-[5px] px-3 text-[13px] transition",
-              view === "list" ? "bg-[var(--surface)] font-medium text-[var(--ink)] shadow-[var(--shadow-sm)]" : "text-[var(--muted)] hover:text-[var(--ink)]",
+              view === "list" ? "bg-[var(--surface)] font-medium text-[var(--ink)]" : "text-[var(--muted)] hover:text-[var(--ink)]",
             )}
           >
             <List className="h-3.5 w-3.5" />
@@ -365,7 +365,7 @@ export function LaunchpadCreativeSelection({
             onClick={() => setView("grid")}
             className={cn(
               "inline-flex h-8 items-center gap-1.5 rounded-[5px] px-3 text-[13px] transition",
-              view === "grid" ? "bg-[var(--surface)] font-medium text-[var(--ink)] shadow-[var(--shadow-sm)]" : "text-[var(--muted)] hover:text-[var(--ink)]",
+              view === "grid" ? "bg-[var(--surface)] font-medium text-[var(--ink)]" : "text-[var(--muted)] hover:text-[var(--ink)]",
             )}
           >
             <LayoutGrid className="h-3.5 w-3.5" />

@@ -215,7 +215,7 @@ function PreviewStripMediaSurface({
       onAssetSettled={onAdvance}
     />
   ) : (
-    <div className="h-full w-full animate-pulse bg-gradient-to-br from-neutral-100 to-neutral-200" />
+    <div className="h-full w-full animate-pulse bg-neutral-100" />
   );
 }
 
@@ -461,7 +461,7 @@ export function CreativesTopSection({
       )}
 
       {/* B — Filters */}
-      <div className={cn(showHeader ? "mt-6" : "mt-0", "rounded-xl border bg-card px-3 py-2")}>
+      <div className={cn(showHeader ? "mt-6" : "mt-0", "rounded-xl border border-neutral-200 bg-white px-3 py-2")}>
         <div className="flex flex-wrap items-center gap-2">
           <CreativeDateRangePicker value={dateRange} onChange={onDateRangeChange} />
 
@@ -508,7 +508,7 @@ export function CreativesTopSection({
 	      {belowToolbar ? <div className="mt-4">{belowToolbar}</div> : null}
 
 	      {/* D — Selected creatives workspace */}
-      <div className="mt-4 rounded-2xl border bg-card p-3">
+      <div className="mt-4 rounded-xl border border-neutral-200 bg-white p-3">
         <div className="relative z-20 mb-3 flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <MetricSelectorBar selectedMetricIds={selectedMetricIds} onChange={onSelectedMetricIdsChange} />
@@ -720,14 +720,14 @@ function AddFilterDropdown({
               return next;
             });
           }}
-          className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-2 text-xs"
+            className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-700 hover:bg-neutral-50"
         >
           <SlidersHorizontal className="h-3.5 w-3.5" />
           Add filter
         </button>
 
         {open && (
-          <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-11 z-50 w-[min(520px,calc(100vw-32px))] max-w-[calc(100vw-32px)] rounded-[28px] border bg-background p-3 shadow-lg duration-150">
+          <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-11 z-50 w-[min(520px,calc(100vw-32px))] max-w-[calc(100vw-32px)] rounded-xl border border-neutral-200 bg-white p-3 shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)] duration-150">
             <div className="grid gap-2 md:grid-cols-[1.15fr_0.9fr_1.15fr_auto]">
               <label className="space-y-1">
                 <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
@@ -741,7 +741,7 @@ function AddFilterDropdown({
                     setOperator(nextField === "launchDate" ? "equals" : "contains");
                     setQuery("");
                   }}
-                  className="h-10 w-full rounded-2xl border bg-background px-3 text-sm outline-none"
+                  className="h-10 w-full rounded-lg border border-neutral-200 bg-white px-3 text-sm outline-none focus:border-neutral-400"
                 >
                   {FILTER_TREE.map((group) => (
                     <optgroup key={group.label} label={group.label}>
@@ -762,7 +762,7 @@ function AddFilterDropdown({
                 <select
                   value={operator}
                   onChange={(event) => setOperator(event.target.value as CreativeFilterOperator)}
-                  className="h-10 w-full rounded-2xl border bg-background px-3 text-sm outline-none"
+                  className="h-10 w-full rounded-lg border border-neutral-200 bg-white px-3 text-sm outline-none focus:border-neutral-400"
                 >
                   {operatorOptions.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -776,7 +776,7 @@ function AddFilterDropdown({
                 <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                   Query
                 </span>
-                <div className="flex items-center gap-2 rounded-2xl border px-3 py-2">
+                <div className="flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2">
                   <Search className="h-4 w-4 text-muted-foreground" />
                   <input
                     ref={queryRef}
@@ -792,7 +792,7 @@ function AddFilterDropdown({
                 <button
                   type="button"
                   onClick={addRule}
-                  className="inline-flex h-10 items-center justify-center rounded-2xl border border-neutral-900 bg-neutral-900 px-4 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-60"
+                  className="inline-flex h-10 items-center justify-center rounded-lg border border-neutral-900 bg-neutral-900 px-4 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-60"
                   disabled={!query.trim()}
                 >
                   Add
@@ -801,7 +801,7 @@ function AddFilterDropdown({
             </div>
 
             {filteredSuggestions.length > 0 ? (
-              <div className="mt-2 rounded-2xl border bg-muted/10 p-2">
+              <div className="mt-2 rounded-lg border border-neutral-200 bg-neutral-50 p-2">
                 <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                   Suggestions
                 </p>
@@ -820,7 +820,7 @@ function AddFilterDropdown({
               </div>
             ) : null}
 
-	            <div className="mt-2 rounded-2xl border bg-neutral-50/80 px-3 py-2 text-[11px] text-neutral-600">
+            <div className="mt-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-[11px] text-neutral-600">
 	              AI tag filters use tag values only and do not rewrite taxonomy.
 	            </div>
           </div>
@@ -828,7 +828,7 @@ function AddFilterDropdown({
       </div>
 
       {filters.map((rule) => (
-        <span key={rule.id} className="inline-flex items-center gap-1 rounded-full border bg-muted/20 px-3 py-2 text-xs">
+        <span key={rule.id} className="inline-flex items-center gap-1 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-700">
           {prettyFieldLabel(rule.field)} {prettyOperatorLabel(rule.operator ?? "contains")} {rule.query}
           <button type="button" onClick={() => removeRule(rule.id)}>
             <X className="h-3.5 w-3.5" />
@@ -886,14 +886,14 @@ function TopExportDropdown({
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-2 text-xs"
+        className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-700 hover:bg-neutral-50"
       >
         Export
         <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
       </button>
 
       {open && (
-        <div className="animate-in fade-in-0 slide-in-from-top-1 absolute right-0 top-11 z-50 w-[290px] rounded-xl border bg-background p-3 shadow-lg duration-150">
+        <div className="animate-in fade-in-0 slide-in-from-top-1 absolute right-0 top-11 z-50 w-[290px] rounded-xl border border-neutral-200 bg-white p-3 shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)] duration-150">
           <button
             type="button"
             onClick={onShareExport}
@@ -1034,7 +1034,7 @@ function MetricSelectorBar({ selectedMetricIds, onChange }: { selectedMetricIds:
           {open && typeof document !== "undefined" && createPortal(
             <div
               ref={popoverRef}
-              className="animate-in fade-in-0 slide-in-from-top-1 fixed z-[180] w-[290px] rounded-lg border bg-background p-2.5 shadow-lg duration-150"
+              className="animate-in fade-in-0 slide-in-from-top-1 fixed z-[180] w-[290px] rounded-lg border border-neutral-200 bg-white p-2.5 shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)] duration-150"
               style={{ top: panelPosition.top, left: panelPosition.left }}
             >
               <div className="mb-2 flex items-center gap-2 rounded-md border px-2 py-1.5">
@@ -1242,7 +1242,7 @@ function PreviewStrip({
               key={`creative-preview-skeleton-${index}`}
               className="overflow-hidden rounded-xl border bg-background"
             >
-              <div className="aspect-square w-full animate-pulse bg-gradient-to-br from-neutral-100 to-neutral-200" />
+              <div className="aspect-square w-full animate-pulse bg-neutral-100" />
               <div className="space-y-2 px-3 pb-3 pt-2.5">
                 <div className="h-4 w-3/4 animate-pulse rounded bg-neutral-100" />
                 <div className="h-3 w-1/2 animate-pulse rounded bg-neutral-100" />

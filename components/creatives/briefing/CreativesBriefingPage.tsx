@@ -225,7 +225,7 @@ class SectionErrorBoundary extends Component<
   render() {
     if (!this.state.hasError) return this.props.children;
     return (
-      <section className="mt-8 rounded-2xl border border-amber-200 bg-amber-50/70 px-5 py-4 text-[12.5px] text-amber-950">
+      <section className="mt-8 rounded-xl border border-amber-200 bg-amber-50/70 px-5 py-4 text-[12.5px] text-amber-950">
         <div className="font-semibold">{this.props.title}</div>
         <div className="mt-1 text-amber-900/80">
           This section received an unexpected creative data shape. The rest of
@@ -2604,7 +2604,7 @@ function BriefingToastViewport({ toast }: { toast: BriefingToast | null }) {
 
   return (
     <div
-      className={`fixed bottom-5 right-5 z-[120] max-w-md rounded-xl border px-4 py-3 text-sm shadow-xl ${
+      className={`fixed bottom-5 right-5 z-[120] max-w-md rounded-xl border px-4 py-3 text-sm shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)] ${
         toast.type === "success"
           ? "border-emerald-200 bg-emerald-50 text-emerald-900"
           : toast.type === "error"
@@ -2853,7 +2853,7 @@ function JumpLink({
 
 function LaneSkeleton() {
   return (
-    <div className="rounded-2xl bg-white p-4 border border-neutral-200 shadow-[0_1px_2px_rgba(16,21,28,0.04)]">
+    <div className="rounded-xl border border-neutral-200 bg-white p-4">
       <div className="flex items-start gap-3">
         <div className="w-4 h-4 rounded border border-neutral-200 bg-neutral-100" />
         <div className="w-[72px] h-[72px] rounded-xl bg-neutral-100" />

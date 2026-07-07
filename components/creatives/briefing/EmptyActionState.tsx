@@ -25,7 +25,7 @@ export function EmptyActionState({
   onBrowseAssetLibrary,
 }: EmptyActionStateProps) {
   return (
-    <div className="rounded-2xl border border-dashed border-emerald-300 bg-emerald-50/50 px-5 py-5 shadow-[0_1px_2px_rgba(16,21,28,0.04)]" data-empty-action-state>
+    <div className="rounded-xl border border-dashed border-emerald-300 bg-emerald-50/50 px-5 py-5" data-empty-action-state>
       <div className="flex items-start gap-3">
         <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-700 grid place-items-center shrink-0">
           <CheckCircle2 className="inline-block shrink-0" size={20} aria-hidden="true" />

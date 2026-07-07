@@ -94,7 +94,7 @@ export function CreativeInsightsDrawer({
         </SheetHeader>
 
         <div className="shrink-0 border-b bg-muted/20 px-5 pb-4 pt-5">
-          <div className="mx-auto max-w-md overflow-hidden rounded-xl border bg-background shadow-sm">
+          <div className="mx-auto max-w-md overflow-hidden rounded-xl border border-neutral-200 bg-white">
             <CreativeRenderSurface
               id={safeRow.id}
               name={safeRow.name}

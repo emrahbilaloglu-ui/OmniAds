@@ -30,6 +30,11 @@ import {
   cardId,
   cardName,
   confidenceValue,
+  formatOptionalCurrency,
+  formatOptionalFixed,
+  formatOptionalInteger,
+  formatOptionalRoas,
+  hasMetricValue,
   numberOrZero,
 } from "@/components/creatives/briefing/card-utils";
 import {
@@ -47,7 +52,6 @@ import type {
   BriefingCreativeCard,
   CardSelectionProps,
 } from "@/components/creatives/briefing/types";
-import { formatCurrency, formatRoas } from "@/lib/briefing/utils";
 
 interface ActionNowCardProps extends CardSelectionProps {
   card: BriefingCreativeCard;
@@ -186,7 +190,7 @@ export function ActionNowCard({
         <div className="tile-chips">
           <span className={`chip ${creativeChipClass(label)}`}><span className="dot" />{creativeChipLabel(label)}</span>
           {kindLabel ? <span className={`chip ${campaignKindClass(kindLabel)}`}><span className="dot" />{kindLabel}</span> : null}
-          {card.fatigue ? <span className="chip chip--warn"><span className="dot" />Fatigue {numberOrZero(card.frequency).toFixed(1)}</span> : null}
+          {card.fatigue ? <span className="chip chip--warn"><span className="dot" />Fatigue {formatOptionalFixed(card.frequency, 1)}</span> : null}
           {badges.slice(0, 1).map((badge) => (
             <span key={String(badge)} className="chip chip--ghost"><span className="dot" />{String(badge).replace(/_/g, " ")}</span>
           ))}
@@ -200,16 +204,16 @@ export function ActionNowCard({
           {name}
         </button>
         <div className="tile-meta">
-          {cardCampaign(card)} / {cardAdset(card)} · {numberOrZero(card.ageDays)}d · {card.bestPlacement ?? card.status ?? "active"}
+          {cardCampaign(card)} / {cardAdset(card)} · {hasMetricValue(card.ageDays) ? `${numberOrZero(card.ageDays)}d` : "—"} · {card.bestPlacement ?? card.status ?? "active"}
         </div>
         <div className="tile-why">
           <b>{card.reason ? card.reason.split("·")[0] : "Engine reason"}</b>
           {card.reason?.includes("·") ? ` · ${card.reason.split("·").slice(1).join("·").trim()}` : card.reason ? "" : " · No engine reason supplied."}
         </div>
         <div className="tile-metrics">
-          <div className="m"><span className="k">ROAS</span><span className={`v ${numberOrZero(card.roas) < 1 ? "warn" : numberOrZero(card.roas) >= 2 ? "good" : ""}`}>{formatRoas(card.roas)}</span></div>
-          <div className="m"><span className="k">Spend</span><span className="v">{formatCurrency(card.spend)}</span></div>
-          <div className="m"><span className="k">{card.fatigue ? "Freq" : "Purch"}</span><span className={`v ${card.fatigue ? "warn" : ""}`}>{card.fatigue ? numberOrZero(card.frequency).toFixed(1) : numberOrZero(card.purchases)}</span></div>
+          <div className="m"><span className="k">ROAS</span><span className={`v ${hasMetricValue(card.roas) && numberOrZero(card.roas) < 1 ? "warn" : hasMetricValue(card.roas) && numberOrZero(card.roas) >= 2 ? "good" : ""}`}>{formatOptionalRoas(card.roas)}</span></div>
+          <div className="m"><span className="k">Spend</span><span className="v">{formatOptionalCurrency(card.spend)}</span></div>
+          <div className="m"><span className="k">{card.fatigue ? "Freq" : "Purch"}</span><span className={`v ${card.fatigue ? "warn" : ""}`}>{card.fatigue ? formatOptionalFixed(card.frequency, 1) : formatOptionalInteger(card.purchases)}</span></div>
         </div>
         <div className="tile-foot">
           <button

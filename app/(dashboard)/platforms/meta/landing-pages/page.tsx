@@ -174,16 +174,16 @@ export default function LandingPagesPage() {
       <div className="space-y-5">
         <LandingPageHeader propertyName={query.data?.meta.propertyName} />
 
-        <section className="rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_#ffffff_0%,_#f6fbff_48%,_#edf5ff_100%)] p-5 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+        <section className="rounded-xl border border-neutral-200 bg-white p-5 ">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="max-w-2xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.26em] text-sky-700">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-neutral-500">
                 {language === "tr" ? "Landing Page Performance" : "Landing Page Performance"}
               </p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-neutral-950">
                 {language === "tr" ? "GA4 funnel diagnostigi: oturum girişinden tamamlanan purchase'a" : "GA4 funnel diagnostics from session entry to completed purchase"}
               </h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
+              <p className="mt-2 text-sm leading-6 text-neutral-600">
                 {language === "tr" ? "Creatives sayfa yapısı üzerine yeniden kuruldu: özet kartları, sıralanabilir funnel tablo ve her landing page için AI analizli detay drawer." : "Rebuilt on top of the creatives page structure: summary cards, sortable funnel table, and a detailed drawer with AI analysis for each landing page."}
               </p>
             </div>
@@ -191,12 +191,12 @@ export default function LandingPagesPage() {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <DateRangePicker value={dateRange} onChange={setDateRange} />
               <label className="relative block min-w-[260px]">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
                 <input
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
                   placeholder={language === "tr" ? "Sayfa yolunda ara" : "Search page path"}
-                  className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-sky-300"
+                  className="h-10 w-full rounded-md border border-neutral-200 bg-white pl-9 pr-3 text-sm text-neutral-900 outline-none transition focus:border-neutral-400"
                 />
               </label>
             </div>

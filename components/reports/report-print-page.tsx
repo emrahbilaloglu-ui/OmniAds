@@ -46,7 +46,7 @@ export function ReportPrintPage({ reportId }: { reportId: string }) {
               Print Again
             </button>
           </div>
-          <div className="rounded-xl border bg-white px-6 py-6 shadow-sm print:border-0 print:shadow-none">
+          <div className="rounded-xl border border-neutral-200 bg-white px-6 py-6 print:border-0 print:shadow-none">
             <p className="text-xs uppercase tracking-[0.2em] text-neutral-400">Printable Report</p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight text-neutral-950">
               {reportQuery.data.name}

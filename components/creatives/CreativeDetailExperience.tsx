@@ -394,13 +394,13 @@ export function CreativeDetailExperience({
 
   return (
     <div className="fixed inset-0 z-[90]">
-      <div className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]" onClick={() => onOpenChange(false)} />
+      <div className="absolute inset-0 bg-neutral-950/55 backdrop-blur-[2px]" onClick={() => onOpenChange(false)} />
 
-      <div className="absolute inset-2 overflow-hidden rounded-2xl border border-white/20 bg-[#f3f6fa] shadow-2xl md:inset-4">
-        <header className="flex h-16 items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur md:px-6">
+      <div className="absolute inset-2 overflow-hidden rounded-xl border border-neutral-200 bg-neutral-50 shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)] md:inset-4">
+        <header className="flex h-16 items-center justify-between border-b border-neutral-200 bg-white/95 px-4 backdrop-blur md:px-6">
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-slate-900">{row.name}</p>
-            <p className="truncate text-xs text-slate-500">{formatCreativeDateLabel(dateRange)}</p>
+            <p className="truncate text-sm font-semibold text-neutral-900">{row.name}</p>
+            <p className="truncate text-xs text-neutral-500">{formatCreativeDateLabel(dateRange)}</p>
           </div>
 
           <div className="flex items-center gap-2">
@@ -415,7 +415,7 @@ export function CreativeDetailExperience({
             <button
               type="button"
               onClick={() => onOpenChange(false)}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-200 text-neutral-700 hover:bg-neutral-50"
               aria-label="Close"
             >
               <X className="h-4 w-4" />
@@ -428,8 +428,8 @@ export function CreativeDetailExperience({
         >
           <section className="min-h-0 overflow-hidden px-3 py-3 md:px-4 md:py-4">
             <div className="mx-auto flex h-full w-full max-w-[1320px] flex-col">
-              <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-slate-200 bg-white shadow-[0_12px_30px_rgba(15,23,42,0.08)]">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+              <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-neutral-200 bg-white">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-100 px-4 py-3">
                   <div className="flex flex-wrap gap-1.5">
                     {taxonomyPills.primaryLabel ? <Pill value={taxonomyPills.primaryLabel} /> : null}
                     {taxonomyPills.secondaryLabel ? <Pill value={taxonomyPills.secondaryLabel} /> : null}
@@ -437,7 +437,7 @@ export function CreativeDetailExperience({
                   </div>
 	                </div>
 
-                <div className="min-h-0 flex-1 bg-[radial-gradient(circle_at_top,_#ffffff_0%,_#eef3f8_72%,_#e7edf5_100%)] px-2 py-2 md:px-3 md:py-3">
+                <div className="min-h-0 flex-1 bg-[radial-gradient(circle_at_top,_#ffffff_0%,_#f5f5f5_72%,_#eeeeee_100%)] px-2 py-2 md:px-3 md:py-3">
                   <div className="flex h-full min-h-[560px] items-center justify-center px-2 py-4 md:min-h-[640px] md:px-4">
                     <div
                       ref={livePreviewStageRef}
@@ -465,8 +465,8 @@ export function CreativeDetailExperience({
                         />
                       </div>
 	                    ) : canRequestHtml && detailPreviewLoading ? (
-	                      <div className="flex flex-col items-center justify-center gap-3 text-slate-500">
-	                        <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" aria-hidden="true" />
+	                      <div className="flex flex-col items-center justify-center gap-3 text-neutral-500">
+	                        <div className="h-8 w-8 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-600" aria-hidden="true" />
 	                        <p className="text-sm font-medium">Attempting live preview...</p>
 	                      </div>
 	                    ) : imageUrl ? (
@@ -476,9 +476,9 @@ export function CreativeDetailExperience({
 	                        </div>
 	                      </div>
 	                    ) : canRequestHtml ? (
-	                      <p className="text-sm text-slate-600">Live preview is unavailable.</p>
+	                      <p className="text-sm text-neutral-600">Live preview is unavailable.</p>
 	                    ) : (
-                      <p className="text-sm text-slate-600">No renderable preview is available for this creative.</p>
+                      <p className="text-sm text-neutral-600">No renderable preview is available for this creative.</p>
                     )}
                     </div>
                   </div>
@@ -487,24 +487,24 @@ export function CreativeDetailExperience({
             </div>
           </section>
 
-          <aside className="min-h-0 overflow-y-auto border-l border-slate-200 bg-[#f8fafc] p-4 md:p-4">
+          <aside className="min-h-0 overflow-y-auto border-l border-neutral-200 bg-[#fafafa] p-4 md:p-4">
             <div className="flex flex-col gap-3">
 
 	              <div
-	                className="rounded-2xl border border-slate-200 bg-white p-4 flex flex-col gap-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+	                className="flex flex-col gap-2.5 rounded-xl border border-neutral-200 bg-white p-4"
 	                data-testid="creative-detail-performance"
               >
-                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Performance</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-500">Performance</p>
                 <div
-                  className="grid grid-cols-2 overflow-hidden rounded-xl border border-slate-200"
-                  style={{ gap: 1, background: "#e2e8f0" }}
+                  className="grid grid-cols-2 overflow-hidden rounded-xl border border-neutral-200"
+                  style={{ gap: 1, background: "#e5e5e5" }}
 	                >
 	                  <PrimaryMetricTile label="Spend" value={formatMoney(row.spend, currency, defaultCurrency)} />
 	                  <PrimaryMetricTile label="ROAS" value={`${row.roas.toFixed(2)}x`} />
 	                  <PrimaryMetricTile label="Purchases" value={formatInteger(row.purchases)} />
 	                  <PrimaryMetricTile label="CTR" value={`${row.ctrAll.toFixed(2)}%`} />
                 </div>
-                <div className="h-px bg-slate-100" />
+                <div className="h-px bg-neutral-100" />
                 <div className="grid grid-cols-2 gap-x-3.5 gap-y-1.5 text-[12px] tabular-nums">
                   <SecondaryMetricRow label="Purchase value" value={formatMoney(row.purchaseValue, currency, defaultCurrency)} />
                   <SecondaryMetricRow label="CPA" value={formatMoney(row.cpa, currency, defaultCurrency)} />
@@ -514,13 +514,13 @@ export function CreativeDetailExperience({
 	              </div>
 
               {/* Notes */}
-              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-                <h4 className="text-sm font-semibold text-slate-900">Notes</h4>
+              <section className="rounded-xl border border-neutral-200 bg-white p-4">
+                <h4 className="text-sm font-semibold text-neutral-900">Notes</h4>
                 <textarea
                   value={notes}
                   onChange={(event) => onNotesChange(event.target.value)}
                   placeholder="Write hypotheses and test notes..."
-                  className="mt-2 min-h-[100px] w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm outline-none focus:border-slate-400"
+                  className="mt-2 min-h-[100px] w-full rounded-xl border border-neutral-200 bg-neutral-50/50 px-3 py-2 text-sm outline-none focus:border-neutral-400"
                 />
               </section>
 
@@ -551,7 +551,7 @@ export function CreativeDetailExperience({
 }
 
 function Pill({ value }: { value: string }) {
-  return <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-medium text-slate-600">{value}</span>;
+  return <span className="rounded-full border border-neutral-200 bg-white px-2.5 py-1 text-[10px] font-medium text-neutral-600">{value}</span>;
 }
 
 function formatInteger(value: number): string {
@@ -580,8 +580,8 @@ function resolveDetailImageUrl(row: MetaCreativeRow): string | null {
 function PrimaryMetricTile({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-1 bg-white px-3 py-2.5">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</span>
-      <span className="text-[18px] font-semibold leading-none tracking-tight text-slate-900">{value}</span>
+      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-500">{label}</span>
+      <span className="text-[18px] font-semibold leading-none tracking-tight text-neutral-900">{value}</span>
     </div>
   );
 }
@@ -589,8 +589,8 @@ function PrimaryMetricTile({ label, value }: { label: string; value: string }) {
 function SecondaryMetricRow({ label, value }: { label: string; value: string }) {
   return (
     <>
-      <span className="text-slate-500">{label}</span>
-      <span className="text-right font-medium text-slate-800">{value}</span>
+      <span className="text-neutral-500">{label}</span>
+      <span className="text-right font-medium text-neutral-800">{value}</span>
     </>
   );
 }

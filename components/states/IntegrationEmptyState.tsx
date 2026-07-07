@@ -33,13 +33,13 @@ export function IntegrationEmptyState({
       : `View campaigns, ad sets, ads, and creative insights once your ${providerLabel} account is connected.`);
 
   return (
-    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed p-12 text-center">
-      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-        <Plug className="h-6 w-6 text-muted-foreground" />
+    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-neutral-300 bg-white p-8 text-center">
+      <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg border border-neutral-200 bg-neutral-50">
+        <Plug className="h-5 w-5 text-neutral-500" />
       </div>
-      <h3 className="text-base font-semibold">{resolvedTitle}</h3>
-      <p className="mt-2 max-w-sm text-sm text-muted-foreground">{resolvedDescription}</p>
-      <Button className="mt-6" onClick={() => router.push("/integrations")}>
+      <h3 className="text-base font-semibold tracking-tight text-neutral-950">{resolvedTitle}</h3>
+      <p className="mt-2 max-w-sm text-sm leading-5 text-neutral-500">{resolvedDescription}</p>
+      <Button className="mt-5 rounded-md" onClick={() => router.push("/integrations")}>
         Open Integrations
       </Button>
     </div>

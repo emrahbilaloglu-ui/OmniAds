@@ -23,14 +23,14 @@ export function SettingsSection({
     <section
       id={id}
       className={cn(
-        "scroll-mt-20 rounded-2xl border bg-card p-5 shadow-sm",
-        danger && "border-destructive/30 bg-destructive/5"
+        "scroll-mt-20 rounded-xl border border-neutral-200 bg-white p-5",
+        danger && "border-rose-200 bg-rose-50/60"
       )}
     >
-      <div className="flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-3 border-b border-neutral-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
-          <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
-          <p className="max-w-2xl text-sm text-muted-foreground">{description}</p>
+          <h2 className="text-[16px] font-semibold tracking-tight text-neutral-950">{title}</h2>
+          <p className="max-w-2xl text-sm leading-5 text-neutral-500">{description}</p>
         </div>
         {actions ? <div className="flex shrink-0 gap-2">{actions}</div> : null}
       </div>
@@ -70,7 +70,7 @@ export function SettingsInput(
     <input
       {...props}
       className={cn(
-        "h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring",
+        "h-10 w-full rounded-md border border-neutral-200 bg-white px-3 text-sm text-neutral-900 outline-none focus:border-neutral-400 disabled:bg-neutral-100 disabled:text-neutral-500",
         props.className
       )}
     />
@@ -84,7 +84,7 @@ export function SettingsSelect(
     <select
       {...props}
       className={cn(
-        "h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring",
+        "h-10 w-full rounded-md border border-neutral-200 bg-white px-3 text-sm text-neutral-900 outline-none focus:border-neutral-400 disabled:bg-neutral-100 disabled:text-neutral-500",
         props.className
       )}
     />
@@ -114,13 +114,13 @@ export function SettingsStat({
         "rounded-xl border px-4 py-3",
         tone === "positive" && "border-emerald-200 bg-emerald-50/70",
         tone === "warning" && "border-amber-200 bg-amber-50/70",
-        tone === "default" && "border-border bg-background"
+        tone === "default" && "border-neutral-200 bg-white"
       )}
     >
-      <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+      <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-neutral-500">
         {label}
       </p>
-      <p className="mt-1.5 text-lg font-semibold tracking-tight tabular-nums text-foreground">{value}</p>
+      <p className="mt-1.5 text-lg font-semibold tracking-tight tabular-nums text-neutral-950">{value}</p>
     </div>
   );
 }
@@ -147,11 +147,11 @@ export function ConfirmOverlay({
   const language = usePreferencesStore((state) => state.language);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-2xl border bg-background p-5 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/35 p-4">
+      <div className="w-full max-w-md rounded-xl border border-neutral-200 bg-white p-5 shadow-lg">
         <div className="space-y-2">
-          <h3 className="text-lg font-semibold">{title}</h3>
-          <p className="text-sm text-muted-foreground">{description}</p>
+          <h3 className="text-lg font-semibold tracking-tight text-neutral-950">{title}</h3>
+          <p className="text-sm leading-5 text-neutral-500">{description}</p>
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="outline" onClick={onCancel} disabled={busy}>

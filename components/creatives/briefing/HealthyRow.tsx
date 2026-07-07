@@ -14,13 +14,15 @@ import {
   cardCampaign,
   cardId,
   cardName,
-  numberOrZero,
+  formatOptionalCurrency,
+  formatOptionalInteger,
+  formatOptionalRoas,
+  hasMetricValue,
 } from "@/components/creatives/briefing/card-utils";
 import type {
   BriefingCreativeCard,
   CardSelectionProps,
 } from "@/components/creatives/briefing/types";
-import { formatCurrency, formatRoas } from "@/lib/briefing/utils";
 
 interface HealthyRowProps extends CardSelectionProps {
   card: BriefingCreativeCard;
@@ -38,12 +40,12 @@ export function HealthyRow({
   const format = deriveTileFormat(card);
 
   const metrics: TileMetric[] = [
-    { key: "roas", label: "ROAS", value: formatRoas(card.roas), tone: "good" },
-    { key: "spend", label: "Spend", value: formatCurrency(card.spend) },
+    { key: "roas", label: "ROAS", value: formatOptionalRoas(card.roas), tone: hasMetricValue(card.roas) ? "good" : undefined },
+    { key: "spend", label: "Spend", value: formatOptionalCurrency(card.spend) },
     {
       key: "purch",
       label: "Purch",
-      value: String(numberOrZero(card.purchases)),
+      value: formatOptionalInteger(card.purchases),
     },
   ];
 

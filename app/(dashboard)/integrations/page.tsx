@@ -627,10 +627,10 @@ export default function IntegrationsPage() {
 
   return (
     <div className="space-y-5">
-      <div className="rounded-xl border border-border bg-card p-4">
+      <div className="rounded-xl border border-neutral-200 bg-white p-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl space-y-2">
-            <div className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/80 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+            <div className="inline-flex items-center gap-2 rounded-full border border-neutral-200/70 bg-white/80 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
               <Sparkles className="h-3.5 w-3.5" />
               Active business
               <span className="text-foreground">{activeBusiness?.name ?? "Unknown"}</span>
@@ -833,7 +833,7 @@ export default function IntegrationsPage() {
 
       {isPropertySelectorOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-xl rounded-xl border bg-background p-5 shadow-xl">
+          <div className="w-full max-w-xl rounded-xl border bg-white p-5 shadow-lg">
             <div className="mb-4">
               <h3 className="text-lg font-semibold">
                 Select Search Console Property
@@ -903,7 +903,7 @@ export default function IntegrationsPage() {
 function IntegrationsPageSkeleton() {
   return (
     <div className="space-y-5">
-      <div className="rounded-xl border border-border bg-card p-4">
+      <div className="rounded-xl border border-neutral-200 bg-white p-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl space-y-2">
             <Skeleton className="h-7 w-40 rounded-full" />
@@ -918,7 +918,7 @@ function IntegrationsPageSkeleton() {
             {Array.from({ length: 3 }).map((_, index) => (
               <div
                 key={index}
-                className="rounded-xl border border-border bg-background p-4"
+                className="rounded-xl border border-neutral-200 bg-white p-4"
               >
                 <Skeleton className="h-3 w-16" />
                 <Skeleton className="mt-4 h-8 w-12" />
@@ -939,7 +939,7 @@ function IntegrationsPageSkeleton() {
             {Array.from({ length: sectionIndex === 2 ? 1 : 2 }).map((__, cardIndex) => (
               <div
                 key={`${sectionIndex}-${cardIndex}`}
-                className="rounded-xl border border-border bg-card p-4"
+                className="rounded-xl border border-neutral-200 bg-white p-4"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-2">
@@ -983,7 +983,7 @@ function SummaryTile({
       className={cn(
         "rounded-xl border px-4 py-4",
         tone === "positive" && "border-emerald-200 bg-emerald-50/70",
-        tone === "neutral" && "border-border bg-background",
+        tone === "neutral" && "border-neutral-200 bg-white",
         tone === "accent" && "border-blue-200 bg-blue-50/70",
       )}
     >

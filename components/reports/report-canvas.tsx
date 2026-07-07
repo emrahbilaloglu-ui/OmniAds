@@ -78,7 +78,7 @@ function ChartTooltip({
   const flipX = pixelX > 260;
   return (
     <div
-      className="pointer-events-none absolute z-20 rounded-xl border border-neutral-200 bg-white/95 px-3 py-2 shadow-lg text-xs backdrop-blur-sm"
+      className="pointer-events-none absolute z-20 rounded-xl border border-neutral-200 bg-white/95 px-3 py-2 text-xs shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)] backdrop-blur-sm"
       style={{
         left: flipX ? undefined : pixelX + 12,
         right: flipX ? `calc(100% - ${pixelX - 12}px)` : undefined,
@@ -472,7 +472,7 @@ function MiniChart({
 export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportWidget; embedded?: boolean }) {
   if (widget.type === "section") {
     return (
-      <article className={embedded ? "p-4 h-full" : "rounded-xl border border-neutral-200 bg-white p-6 shadow-sm"}>
+      <article className={embedded ? "p-4 h-full" : "rounded-xl border border-neutral-200 bg-white p-6"}>
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-neutral-400">
@@ -491,7 +491,7 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
   }
 
   return (
-    <article className={embedded ? "p-4 h-full flex flex-col overflow-hidden" : "rounded-xl border border-neutral-200 bg-white p-4 shadow-sm h-full flex flex-col"}>
+    <article className={embedded ? "p-4 h-full flex flex-col overflow-hidden" : "rounded-xl border border-neutral-200 bg-white p-4 h-full flex flex-col"}>
       <div className="flex items-start justify-between gap-3 shrink-0">
         <div>
           <h3 className="text-sm font-semibold text-neutral-900">{widget.title}</h3>
@@ -529,7 +529,7 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
       ) : null}
 
       {widget.type === "table" ? (
-        <div className="mt-5 overflow-hidden rounded-2xl border flex flex-col min-h-0 flex-1">
+        <div className="mt-5 overflow-hidden rounded-xl border flex flex-col min-h-0 flex-1">
           <div className="overflow-auto flex-1">
             <table className="min-w-full text-sm">
               <thead className="bg-neutral-50 sticky top-0 z-10">

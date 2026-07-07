@@ -111,7 +111,7 @@ export function BusinessSelector() {
     return (
       <Button
         variant="outline"
-        className="h-9 gap-2 rounded-lg border-neutral-200 bg-white px-3 text-sm shadow-sm transition-colors hover:bg-neutral-50"
+        className="h-9 gap-2 rounded-lg border-neutral-200 bg-white px-3 text-sm transition-colors hover:bg-neutral-50"
         onClick={() => router.push("/businesses/new")}
         >
         <Plus className="h-4 w-4" />
@@ -124,7 +124,7 @@ export function BusinessSelector() {
     return (
       <Button
         variant="outline"
-        className="h-9 max-w-[220px] gap-2 rounded-lg border-neutral-200 bg-white px-3 text-sm shadow-sm"
+        className="h-9 max-w-[220px] gap-2 rounded-lg border-neutral-200 bg-white px-3 text-sm"
         disabled
       >
         <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary/10 text-[10px] font-bold text-primary">
@@ -145,7 +145,7 @@ export function BusinessSelector() {
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
-          className="h-9 max-w-[220px] gap-2 rounded-lg border-neutral-200 bg-white px-3 text-sm shadow-sm transition-colors hover:bg-neutral-50"
+          className="h-9 max-w-[220px] gap-2 rounded-lg border-neutral-200 bg-white px-3 text-sm transition-colors hover:bg-neutral-50"
         >
           <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary/10 text-[10px] font-bold text-primary">
             {selectedBusiness ? getInitials(selectedBusiness.name) : "SB"}

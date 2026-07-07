@@ -306,7 +306,7 @@ export default function AnalyticsPage() {
       />
 
       {/* Controls bar */}
-      <section className="rounded-2xl border bg-card p-4 shadow-sm">
+      <section className="rounded-xl border border-neutral-200 bg-white p-3">
         <div className="flex flex-wrap items-center gap-3">
           <DateRangePicker value={dateRange} onChange={setDateRange} />
         </div>
@@ -324,16 +324,16 @@ export default function AnalyticsPage() {
       )}
 
       {/* Tab bar */}
-      <div className="flex gap-1 overflow-x-auto rounded-xl border bg-card p-1 shadow-sm">
+      <div className="flex gap-1 overflow-x-auto border-b border-neutral-200">
         {TABS.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             className={cn(
-              "rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors whitespace-nowrap",
+              "-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-[13px] font-medium transition-colors",
               activeTab === tab.id
-                ? "bg-foreground text-background"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                ? "border-neutral-950 text-neutral-950"
+                : "border-transparent text-neutral-500 hover:text-neutral-900"
             )}
           >
             {tab.label}
@@ -342,7 +342,7 @@ export default function AnalyticsPage() {
       </div>
 
       {/* Tab content */}
-      <section className="rounded-2xl border bg-card p-5 shadow-sm">
+      <section className="rounded-xl border border-neutral-200 bg-white p-5">
         {activeTab === "overview" && (
           <>
             <SectionHeader
@@ -514,20 +514,23 @@ function AnalyticsHeader({
   return (
     <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
       <div className="space-y-1">
-        <h1 className="text-3xl font-semibold tracking-tight">Analytics</h1>
-        <p className="text-sm text-muted-foreground max-w-xl">
+        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-neutral-500">
+          Insights
+        </p>
+        <h1 className="text-[24px] font-semibold tracking-tight text-neutral-950">Analytics</h1>
+        <p className="max-w-xl text-sm leading-5 text-neutral-500">
           Understand product funnels, audience quality, landing page performance,
           and customer behavior from your site analytics data.
         </p>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <div className="inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs">
+        <div className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs">
           <span className="font-medium">GA4</span>
-          <Badge variant={ga4Connected ? "default" : "secondary"}>
+          <Badge variant="secondary" className={ga4Connected ? "border border-emerald-200 bg-emerald-50 text-emerald-700" : "border border-neutral-200 bg-neutral-100 text-neutral-600"}>
             {ga4Connected ? "connected" : "not connected"}
           </Badge>
           {propertyName && (
-            <span className="text-muted-foreground max-w-[140px] truncate">
+            <span className="max-w-[140px] truncate text-neutral-500">
               {propertyName}
             </span>
           )}
@@ -546,8 +549,8 @@ function SectionHeader({
 }) {
   return (
     <div className="mb-5">
-      <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
-      <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
+      <h2 className="text-[16px] font-semibold tracking-tight text-neutral-950">{title}</h2>
+      <p className="mt-0.5 text-sm leading-5 text-neutral-500">{description}</p>
     </div>
   );
 }

@@ -26,7 +26,7 @@ export function CreativeFiltersBar({
   onComingSoon,
 }: CreativeFiltersBarProps) {
   return (
-    <div className="space-y-3 rounded-2xl border bg-card p-4">
+    <div className="space-y-3 rounded-xl border border-neutral-200 bg-white p-4">
       <div className="flex flex-wrap items-center gap-2">
         <CreativeFilterSelect
           value={value.platform}
@@ -63,7 +63,7 @@ export function CreativeFiltersBar({
           <button
             type="button"
             onClick={onComingSoon}
-            className="ml-auto rounded-full border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            className="ml-auto rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs text-neutral-600 transition-colors hover:bg-neutral-50 hover:text-neutral-900"
           >
             Analyze this report
           </button>

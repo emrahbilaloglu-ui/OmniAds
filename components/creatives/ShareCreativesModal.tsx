@@ -104,7 +104,7 @@ export function ShareCreativesModal({ selectedCount, onClose }: ShareCreativesMo
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="relative w-full max-w-lg rounded-2xl border bg-background shadow-2xl">
+      <div className="relative w-full max-w-lg rounded-xl border border-neutral-200 bg-white shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)]">
         <div className="flex items-center justify-between border-b px-6 py-4">
           <div>
             <h2 className="text-base font-semibold">Share selected creatives</h2>

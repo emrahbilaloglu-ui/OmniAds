@@ -92,7 +92,7 @@ export function OverviewSection({
       {/* New vs Returning Comparison */}
       {!isLoading && newVsReturning && (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="rounded-xl border bg-card p-4 shadow-sm">
+          <div className="rounded-xl border border-neutral-200 bg-white p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-3">
               New Visitors
             </p>
@@ -111,7 +111,7 @@ export function OverviewSection({
               </div>
             </div>
           </div>
-          <div className="rounded-xl border bg-card p-4 shadow-sm">
+          <div className="rounded-xl border border-neutral-200 bg-white p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-3">
               Returning Visitors
               {multiplier >= 1.5 && (

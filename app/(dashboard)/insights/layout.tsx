@@ -32,7 +32,7 @@ export default function InsightsLayout({ children }: { children: React.ReactNode
   return (
     <PlanGate requiredPlan="pro">
       <div className="space-y-5">
-        <div className="border-b border-slate-200">
+        <div className="border-b border-neutral-200">
           <div className="flex items-center gap-1" role="tablist" aria-label="Insights">
             {INSIGHTS_TABS.map((tab) => {
               const active = pathname === tab.href || pathname.startsWith(`${tab.href}/`);
@@ -41,10 +41,10 @@ export default function InsightsLayout({ children }: { children: React.ReactNode
                   key={tab.id}
                   href={tab.href}
                   className={cn(
-                    "px-3 py-2 text-[12.5px] border-b-2 -mb-px",
+                    "-mb-px border-b-2 px-3 py-2 text-[12.5px]",
                     active
-                      ? "border-blue-600 text-slate-900 font-medium"
-                      : "border-transparent text-slate-500 hover:text-slate-900"
+                      ? "border-neutral-950 font-medium text-neutral-950"
+                      : "border-transparent text-neutral-500 hover:text-neutral-900"
                   )}
                   title={tab.desc}
                 >

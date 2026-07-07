@@ -251,19 +251,19 @@ export function CreativeAdActionsSection({
 
   return (
     <section
-      className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+      className="rounded-xl border border-neutral-200 bg-white p-4"
       data-testid="creative-ad-actions"
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h4 className="text-sm font-semibold text-slate-900">Actions</h4>
+          <h4 className="text-sm font-semibold text-neutral-900">Actions</h4>
           <div className="mt-2 flex items-center gap-2">
             <span className={statusClassName(localStatus)}>{localStatus}</span>
-            <span className="text-xs text-slate-500">Meta ad status</span>
+            <span className="text-xs text-neutral-500">Meta ad status</span>
           </div>
         </div>
         {pendingAction ? (
-          <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600">
+          <span className="inline-flex items-center gap-1 rounded-full border border-neutral-200 px-2 py-1 text-[11px] font-medium text-neutral-600">
             <Loader2 className="h-3 w-3 animate-spin" />
             Updating
           </span>
@@ -275,7 +275,7 @@ export function CreativeAdActionsSection({
           type="button"
           disabled={!canPause}
           onClick={() => setConfirmAction("pause")}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45"
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-neutral-200 px-3 text-sm font-semibold text-neutral-800 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-45"
         >
           <PauseCircle className="h-4 w-4" />
           Pause ad
@@ -284,7 +284,7 @@ export function CreativeAdActionsSection({
           type="button"
           disabled={!canResume}
           onClick={() => setConfirmAction("resume")}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45"
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-neutral-200 px-3 text-sm font-semibold text-neutral-800 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-45"
         >
           <PlayCircle className="h-4 w-4" />
           Resume ad
@@ -292,31 +292,31 @@ export function CreativeAdActionsSection({
         <button
           type="button"
           onClick={() => setDuplicateOpen(true)}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-900 bg-slate-900 px-3 text-sm font-semibold text-white hover:bg-slate-800"
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-neutral-900 bg-neutral-900 px-3 text-sm font-semibold text-white hover:bg-neutral-800"
         >
           <Copy className="h-4 w-4" />
           Duplicate to campaign...
         </button>
       </div>
 
-      <details className="mt-4 rounded-xl border border-slate-200 bg-white">
-        <summary className="flex cursor-pointer select-none items-center gap-2 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+      <details className="mt-4 rounded-xl border border-neutral-200 bg-white">
+        <summary className="flex cursor-pointer select-none items-center gap-2 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-neutral-500">
           <History className="h-3.5 w-3.5" />
           Recent actions on this ad
         </summary>
-        <div className="border-t border-slate-100 px-3 py-3">
+        <div className="border-t border-neutral-100 px-3 py-3">
           {historyQuery.isLoading ? (
-            <p className="text-sm text-slate-500">Loading actions...</p>
+            <p className="text-sm text-neutral-500">Loading actions...</p>
           ) : historyQuery.isError ? (
             <p className="text-sm text-rose-600">Action history unavailable.</p>
           ) : (historyQuery.data ?? []).length === 0 ? (
-            <p className="text-sm text-slate-500">No actions yet.</p>
+            <p className="text-sm text-neutral-500">No actions yet.</p>
           ) : (
             <div className="space-y-2">
               {(historyQuery.data ?? []).map((item) => (
                 <div
                   key={item.id}
-                  className="grid grid-cols-[minmax(88px,1fr)_80px_90px] gap-2 text-xs text-slate-700"
+                  className="grid grid-cols-[minmax(88px,1fr)_80px_90px] gap-2 text-xs text-neutral-700"
                 >
                   <span>{formatTimestamp(item.requestedAt)}</span>
                   <span className="font-medium capitalize">{item.action}</span>
@@ -337,15 +337,15 @@ export function CreativeAdActionsSection({
       </details>
 
       {confirmAction ? (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 px-4">
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-neutral-950/50 px-4">
+          <div className="w-full max-w-md rounded-xl border border-neutral-200 bg-white p-5 shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)]">
             <div className="flex items-start gap-3">
               <AlertTriangle className="mt-0.5 h-5 w-5 text-amber-600" />
               <div>
-                <h5 className="text-sm font-semibold text-slate-900">
+                <h5 className="text-sm font-semibold text-neutral-900">
                   Confirm {confirmAction === "pause" ? "pause" : "resume"}
                 </h5>
-                <p className="mt-2 text-sm leading-6 text-slate-600">
+                <p className="mt-2 text-sm leading-6 text-neutral-600">
                   This will {confirmAction} this ad on Meta. Confirm?
                 </p>
               </div>
@@ -354,14 +354,14 @@ export function CreativeAdActionsSection({
               <button
                 type="button"
                 onClick={() => setConfirmAction(null)}
-                className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="h-9 rounded-lg border border-neutral-200 px-3 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={() => void runStatusAction(confirmAction)}
-                className="h-9 rounded-lg bg-slate-900 px-3 text-sm font-semibold text-white hover:bg-slate-800"
+                className="h-9 rounded-lg bg-neutral-900 px-3 text-sm font-semibold text-white hover:bg-neutral-800"
               >
                 Confirm
               </button>
@@ -371,19 +371,19 @@ export function CreativeAdActionsSection({
       ) : null}
 
       {duplicateOpen ? (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 px-4">
-          <div className="max-h-[88vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-neutral-950/50 px-4">
+          <div className="max-h-[88vh] w-full max-w-xl overflow-y-auto rounded-xl border border-neutral-200 bg-white p-5 shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)]">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h5 className="text-sm font-semibold text-slate-900">
+                <h5 className="text-sm font-semibold text-neutral-900">
                   Duplicate to campaign
                 </h5>
-                <p className="mt-1 text-sm text-slate-500">{row.name}</p>
+                <p className="mt-1 text-sm text-neutral-500">{row.name}</p>
               </div>
               <button
                 type="button"
                 onClick={() => setDuplicateOpen(false)}
-                className="h-8 rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="h-8 rounded-lg border border-neutral-200 px-3 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
               >
                 Close
               </button>
@@ -391,7 +391,7 @@ export function CreativeAdActionsSection({
 
             <div className="mt-5 space-y-4">
               <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-500">
                   Target campaign
                 </span>
                 <select
@@ -400,7 +400,7 @@ export function CreativeAdActionsSection({
                     setSelectedCampaignId(event.target.value);
                     setSelectedAdsetId("");
                   }}
-                  className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+                  className="mt-1 h-10 w-full rounded-lg border border-neutral-200 bg-white px-3 text-sm outline-none focus:border-neutral-400"
                 >
                   <option value="">Select active campaign</option>
                   {activeCampaigns.map((campaign) => (
@@ -412,14 +412,14 @@ export function CreativeAdActionsSection({
               </label>
 
               <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-500">
                   Target ad set
                 </span>
                 <select
                   value={selectedAdsetId}
                   disabled={!selectedCampaignId}
                   onChange={(event) => setSelectedAdsetId(event.target.value)}
-                  className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+                  className="mt-1 h-10 w-full rounded-lg border border-neutral-200 bg-white px-3 text-sm outline-none focus:border-neutral-400 disabled:cursor-not-allowed disabled:bg-neutral-50 disabled:text-neutral-400"
                 >
                   <option value="">
                     {selectedCampaignId ? "Select active ad set" : "Select campaign first"}
@@ -433,14 +433,14 @@ export function CreativeAdActionsSection({
               </label>
 
               <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-500">
                   Name override
                 </span>
                 <input
                   type="text"
                   value={nameOverride}
                   onChange={(event) => setNameOverride(event.target.value)}
-                  className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+                  className="mt-1 h-10 w-full rounded-lg border border-neutral-200 bg-white px-3 text-sm outline-none focus:border-neutral-400"
                 />
               </label>
 
@@ -449,9 +449,9 @@ export function CreativeAdActionsSection({
                   type="checkbox"
                   checked={activateAfterCreate}
                   onChange={(event) => setActivateAfterCreate(event.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300"
+                  className="h-4 w-4 rounded border-neutral-300"
                 />
-                <span className="text-sm font-medium text-slate-700">
+                <span className="text-sm font-medium text-neutral-700">
                   Activate immediately
                 </span>
               </label>
@@ -475,7 +475,7 @@ export function CreativeAdActionsSection({
                             href={duplicateResult.adsManagerUrl}
                             target="_blank"
                             rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-xs font-semibold text-slate-900 underline"
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-neutral-900 underline"
                           >
                             Meta Ads Manager
                             <ExternalLink className="h-3 w-3" />
@@ -492,7 +492,7 @@ export function CreativeAdActionsSection({
               <button
                 type="button"
                 onClick={() => setDuplicateOpen(false)}
-                className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="h-9 rounded-lg border border-neutral-200 px-3 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
               >
                 Cancel
               </button>
@@ -500,7 +500,7 @@ export function CreativeAdActionsSection({
                 type="button"
                 disabled={duplicateConfirmDisabled}
                 onClick={() => void runDuplicate()}
-                className="inline-flex h-9 items-center gap-2 rounded-lg bg-slate-900 px-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45"
+                className="inline-flex h-9 items-center gap-2 rounded-lg bg-neutral-900 px-3 text-sm font-semibold text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-45"
               >
                 {duplicateProgress === "submitting" || duplicateProgress === "verifying" ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -516,7 +516,7 @@ export function CreativeAdActionsSection({
 
       {toast ? (
         <div
-          className={`fixed bottom-5 right-5 z-[120] max-w-md rounded-xl border px-4 py-3 text-sm shadow-xl ${
+          className={`fixed bottom-5 right-5 z-[120] max-w-md rounded-xl border px-4 py-3 text-sm shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)] ${
             toast.type === "success"
               ? "border-emerald-200 bg-emerald-50 text-emerald-900"
               : "border-rose-200 bg-rose-50 text-rose-900"
@@ -574,7 +574,7 @@ function statusClassName(status: string) {
   const base = "rounded border px-2 py-0.5 text-xs font-semibold";
   if (status === "ACTIVE") return `${base} border-emerald-200 bg-emerald-50 text-emerald-700`;
   if (status === "PAUSED") return `${base} border-amber-200 bg-amber-50 text-amber-700`;
-  return `${base} border-slate-200 bg-slate-50 text-slate-600`;
+  return `${base} border-neutral-200 bg-neutral-50 text-neutral-600`;
 }
 
 function historyStatusClassName(status: ActionHistoryRow["status"]) {
@@ -582,14 +582,14 @@ function historyStatusClassName(status: ActionHistoryRow["status"]) {
   if (status === "success") return `${base} border-emerald-200 bg-emerald-50 text-emerald-700`;
   if (status === "silent_failure") return `${base} border-amber-200 bg-amber-50 text-amber-700`;
   if (status === "failure") return `${base} border-rose-200 bg-rose-50 text-rose-700`;
-  return `${base} border-slate-200 bg-slate-50 text-slate-600`;
+  return `${base} border-neutral-200 bg-neutral-50 text-neutral-600`;
 }
 
 function duplicateProgressClassName(progress: DuplicateProgress) {
   const base = "flex items-start gap-2 rounded-xl border px-3 py-2 text-sm";
   if (progress === "success") return `${base} border-emerald-200 bg-emerald-50 text-emerald-900`;
   if (progress === "error") return `${base} border-rose-200 bg-rose-50 text-rose-900`;
-  return `${base} border-slate-200 bg-slate-50 text-slate-700`;
+  return `${base} border-neutral-200 bg-neutral-50 text-neutral-700`;
 }
 
 function formatTimestamp(value: string) {

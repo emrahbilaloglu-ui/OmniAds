@@ -50,7 +50,7 @@ export function ConnectModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-xl border bg-background p-5 shadow-xl">
+      <div className="w-full max-w-md rounded-xl border border-neutral-200 bg-white p-5 shadow-lg">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h3 className="text-lg font-semibold">Connect {providerLabel}</h3>

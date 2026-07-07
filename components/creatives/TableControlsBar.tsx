@@ -71,7 +71,7 @@ export function TableControlsBar({ value, onChange }: TableControlsBarProps) {
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card px-3 py-2">
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2">
       <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1">
         <span className="text-xs">All tags</span>
         <Badge className="h-5 rounded-full px-2 text-[10px]">New</Badge>

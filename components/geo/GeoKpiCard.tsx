@@ -17,7 +17,7 @@ export function GeoKpiCard({
 }: GeoKpiCardProps) {
   if (isLoading) {
     return (
-      <div className="rounded-xl border bg-card p-4 shadow-sm">
+      <div className="rounded-xl border border-neutral-200 bg-white p-4">
         <div className="h-3 w-24 rounded bg-muted animate-pulse mb-3" />
         <div className="h-7 w-20 rounded bg-muted animate-pulse" />
       </div>
@@ -25,7 +25,7 @@ export function GeoKpiCard({
   }
   return (
     <div
-      className={`rounded-xl border bg-card p-4 shadow-sm ${
+      className={`rounded-xl border border-neutral-200 bg-white p-4 ${
         highlight ? "border-violet-300 dark:border-violet-800" : ""
       }`}
     >

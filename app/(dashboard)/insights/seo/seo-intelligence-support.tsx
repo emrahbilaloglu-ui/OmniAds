@@ -81,7 +81,7 @@ export function SeoKpiCard(props: {
   const deltaTone = getDeltaTone(props.deltaPercent, props.invertDelta);
 
   return (
-    <div className="rounded-2xl border bg-card p-4 shadow-sm">
+    <div className="rounded-xl border bg-white p-4">
       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
         {props.label}
       </p>
@@ -150,7 +150,7 @@ export function SeoMonthlyAiPanel(props: {
   if (monthly.status === "available" && monthly.analysis && monthly.overviewData) {
     return (
       <div className="space-y-5">
-        <div className="rounded-2xl border bg-gradient-to-r from-amber-50 via-orange-50 to-rose-50 p-5 shadow-sm">
+        <div className="rounded-xl border bg-white p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
@@ -198,7 +198,7 @@ export function SeoMonthlyAiPanel(props: {
 
   return (
     <div className="space-y-5">
-      <div className="rounded-2xl border bg-card p-6 shadow-sm">
+      <div className="rounded-xl border bg-white p-6">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -217,7 +217,7 @@ export function SeoMonthlyAiPanel(props: {
               </div>
             )}
           </div>
-          <div className="w-full max-w-sm space-y-3 rounded-2xl border bg-muted/20 p-4">
+          <div className="w-full max-w-sm space-y-3 rounded-xl border bg-muted/20 p-4">
             <StatusMeta label="Month" value={monthly.monthLabel} />
             <StatusMeta label="Coverage period" value={periodLabel ?? "Current selection"} />
             <StatusMeta
@@ -256,7 +256,7 @@ export function SeoMonthlyAiActionsPanel(props: {
   if (props.monthly.status === "available" && props.monthly.analysis) {
     return (
       <div className="space-y-5">
-        <div className="rounded-2xl border bg-card p-5 shadow-sm">
+        <div className="rounded-xl border bg-white p-5">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary">AI Priorities</Badge>
             <Badge variant="outline">{props.monthly.monthLabel}</Badge>
@@ -275,7 +275,7 @@ export function SeoMonthlyAiActionsPanel(props: {
   }
 
   return (
-    <div className="rounded-2xl border bg-card p-6 shadow-sm">
+    <div className="rounded-xl border bg-white p-6">
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant="secondary">AI Priorities</Badge>
         <Badge variant="outline">{props.monthly.monthLabel}</Badge>
@@ -335,7 +335,7 @@ export function SeoAiWorkspaceOverview(props: {
 
 function AiUnavailableState({ analysis }: { analysis: SeoAiAnalysis }) {
   return (
-    <div className="rounded-2xl border bg-card p-6 shadow-sm">
+    <div className="rounded-xl border bg-white p-6">
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
         AI Overview
       </p>
@@ -348,7 +348,7 @@ function AiUnavailableState({ analysis }: { analysis: SeoAiAnalysis }) {
           {analysis.unavailableReason}
         </div>
       )}
-      <div className="mt-5 rounded-xl border bg-slate-950 px-4 py-4 text-sm text-slate-100">
+      <div className="mt-5 rounded-xl border bg-neutral-950 px-4 py-4 text-sm text-neutral-100">
         <span className="font-medium">Commerce context:</span> {analysis.ecommerceContext}
       </div>
     </div>
@@ -358,7 +358,7 @@ function AiUnavailableState({ analysis }: { analysis: SeoAiAnalysis }) {
 function AiAnalysisSummary({ analysis }: { analysis: SeoAiAnalysis }) {
   return (
     <div className="grid gap-4 xl:grid-cols-[1.25fr_1fr]">
-      <div className="rounded-2xl border bg-card p-5 shadow-sm">
+      <div className="rounded-xl border bg-white p-5">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
@@ -372,7 +372,7 @@ function AiAnalysisSummary({ analysis }: { analysis: SeoAiAnalysis }) {
         </div>
         <p className="mt-4 text-sm leading-7">{analysis.summary}</p>
       </div>
-      <div className="rounded-2xl border bg-card p-5 shadow-sm">
+      <div className="rounded-xl border bg-white p-5">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
           Commerce Context
         </p>
@@ -391,7 +391,7 @@ function AiRootCauseGrid({ causes }: { causes: SeoAiRootCause[] }) {
       />
       <div className="grid gap-3 md:grid-cols-2">
         {causes.map((cause) => (
-          <div key={cause.title} className="rounded-2xl border bg-card p-4 shadow-sm">
+          <div key={cause.title} className="rounded-xl border bg-white p-4">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline">Confidence: {cause.confidence}</Badge>
               <Badge variant="outline">Area: {cause.affectedArea}</Badge>
@@ -439,10 +439,10 @@ function PriorityQuadrant(props: {
         ? "border-sky-300/60 bg-sky-50"
         : props.tone === "supporting"
           ? "border-amber-300/60 bg-amber-50"
-          : "border-slate-300/60 bg-slate-50";
+          : "border-neutral-200 bg-neutral-50";
 
   return (
-    <div className={cn("rounded-2xl border p-4 shadow-sm", className)}>
+    <div className={cn("rounded-xl border p-4", className)}>
       <p className="text-sm font-semibold">{props.title}</p>
       <div className="mt-4 space-y-3">
         {props.items.length ? (
@@ -476,7 +476,7 @@ function AiActionPlanTimeline({ steps }: { steps: SeoAiActionStep[] }) {
       />
       <div className="grid gap-4 xl:grid-cols-4">
         {steps.map((step) => (
-          <div key={step.window} className="rounded-2xl border bg-card p-4 shadow-sm">
+          <div key={step.window} className="rounded-xl border bg-white p-4">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
               {step.window}
             </p>
@@ -488,7 +488,7 @@ function AiActionPlanTimeline({ steps }: { steps: SeoAiActionStep[] }) {
                 </div>
               ))}
             </div>
-            <div className="mt-4 rounded-xl border bg-slate-950 px-3 py-3 text-sm text-slate-100">
+            <div className="mt-4 rounded-xl border bg-neutral-950 px-3 py-3 text-sm text-neutral-100">
               <span className="font-medium">Success metric:</span> {step.successMetric}
             </div>
           </div>
@@ -500,7 +500,7 @@ function AiActionPlanTimeline({ steps }: { steps: SeoAiActionStep[] }) {
 
 export function AiBriefCard({ brief }: { brief: SeoAiBrief }) {
   return (
-    <div className="rounded-2xl border bg-gradient-to-r from-sky-50 to-indigo-50 p-5 shadow-sm dark:from-sky-950/20 dark:to-indigo-950/20">
+    <div className="rounded-xl border bg-white p-5">
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-300">
@@ -534,7 +534,7 @@ export function CauseCards({ causes }: { causes: SeoCauseCandidate[] }) {
   return (
     <div className="grid gap-3 md:grid-cols-2">
       {causes.map((cause) => (
-        <div key={cause.key} className="rounded-2xl border bg-card p-4 shadow-sm">
+        <div key={cause.key} className="rounded-xl border bg-white p-4">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-sm font-semibold">{cause.title}</h3>
             <div className="flex items-center gap-2">
@@ -567,7 +567,7 @@ export function RecommendationsList({
   return (
     <div className="space-y-3">
       {recommendations.map((item) => (
-        <div key={item.title} className="rounded-2xl border bg-card p-4 shadow-sm">
+        <div key={item.title} className="rounded-xl border bg-white p-4">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="text-sm font-semibold">{item.title}</h3>
             <Badge variant="outline">Effort: {item.effort}</Badge>
@@ -604,14 +604,14 @@ export function EntityTable(props: {
 
   if (!props.rows.length) {
     return (
-      <div className="rounded-2xl border bg-card p-6 text-sm text-muted-foreground shadow-sm">
+      <div className="rounded-xl border bg-white p-6 text-sm text-muted-foreground">
         {props.emptyLabel}
       </div>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+    <div className="overflow-hidden rounded-xl border bg-white">
       <div className="border-b px-4 py-3">
         <h3 className="text-sm font-semibold">{props.title}</h3>
       </div>
@@ -765,7 +765,7 @@ function ClassificationBadge(props: {
         : props.tone === "transactional"
           ? "bg-emerald-100 text-emerald-700"
           : props.tone === "navigational"
-            ? "bg-slate-100 text-slate-700"
+            ? "bg-neutral-100 text-neutral-700"
             : props.tone === "comparative"
               ? "bg-amber-100 text-amber-700"
               : props.tone === "inspirational"
@@ -777,7 +777,7 @@ function ClassificationBadge(props: {
                     : props.tone === "editorial"
                       ? "bg-sky-100 text-sky-700"
                       : props.tone === "utility"
-                        ? "bg-slate-100 text-slate-700"
+                        ? "bg-neutral-100 text-neutral-700"
                         : props.tone === "home"
                           ? "bg-indigo-100 text-indigo-700"
                           : "bg-muted text-muted-foreground";
@@ -816,7 +816,7 @@ function FindingSummaryCard(props: {
         : "text-sky-700 bg-sky-50";
 
   return (
-    <div className="rounded-2xl border bg-card p-4 shadow-sm">
+    <div className="rounded-xl border bg-white p-4">
       <div className={cn("inline-flex rounded-full px-2 py-0.5 text-xs font-medium", toneClass)}>
         {props.label}
       </div>
@@ -828,7 +828,7 @@ function FindingSummaryCard(props: {
 export function TechnicalFindingsList({ findings }: { findings: SeoFindingsResponse["findings"] }) {
   if (!findings.length) {
     return (
-      <div className="rounded-2xl border bg-card p-6 text-sm text-muted-foreground shadow-sm">
+      <div className="rounded-xl border bg-white p-6 text-sm text-muted-foreground">
         No technical findings were detected on the audited pages.
       </div>
     );
@@ -837,7 +837,7 @@ export function TechnicalFindingsList({ findings }: { findings: SeoFindingsRespo
   return (
     <div className="space-y-3">
       {findings.map((finding) => (
-        <div key={finding.id} className="rounded-2xl border bg-card p-4 shadow-sm">
+        <div key={finding.id} className="rounded-xl border bg-white p-4">
           <div className="flex flex-wrap items-center gap-2">
             <SeverityBadge severity={finding.severity} />
             <Badge variant="outline">{finding.category}</Badge>
@@ -889,7 +889,7 @@ export function ConfirmedExcludedPagesList({
   if (!pages.length) return null;
 
   return (
-    <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+    <div className="overflow-hidden rounded-xl border bg-white">
       <div className="border-b px-4 py-3">
         <h3 className="text-sm font-semibold">Confirmed excluded important pages</h3>
         <p className="mt-1 text-xs text-muted-foreground">

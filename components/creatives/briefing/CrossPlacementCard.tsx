@@ -31,7 +31,10 @@ import {
   cardId,
   cardName,
   confidenceValue,
-  numberOrZero,
+  formatOptionalCurrency,
+  formatOptionalInteger,
+  formatOptionalRoas,
+  hasMetricValue,
 } from "@/components/creatives/briefing/card-utils";
 import { getCreativeScopeId } from "@/components/creatives/briefing/action-handlers";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
@@ -45,7 +48,6 @@ import type {
   BriefingRollupItem,
   CardSelectionProps,
 } from "@/components/creatives/briefing/types";
-import { formatCurrency, formatRoas } from "@/lib/briefing/utils";
 
 interface CrossPlacementCardProps extends CardSelectionProps {
   rollup: BriefingRollupItem;
@@ -113,7 +115,7 @@ export function CrossPlacementCard({
   };
 
   const cardClasses = [
-    "rounded-2xl bg-white p-4 transition-all relative",
+    "relative rounded-xl bg-white p-4 transition-all",
     conf.border,
     selected ? "ring-2 ring-blue-500 ring-offset-1" : "",
     deferred ? "opacity-60" : "",
@@ -226,14 +228,14 @@ export function CrossPlacementCard({
                 height={18}
               />
               <span className="font-mono tabular-nums text-[11px] font-medium text-neutral-900">
-                {formatRoas(card.roas)}
+                {formatOptionalRoas(card.roas)}
               </span>
             </div>
             <MetricDivider />
             <FatigueDot active={card.fatigue} />
             <MetricDivider />
             <span className="font-mono tabular-nums text-[11px] text-neutral-500">
-              {formatCurrency(card.spend)} spend · {numberOrZero(card.purchases)} purch.
+              {formatOptionalCurrency(card.spend)} spend · {formatOptionalInteger(card.purchases)} purch.
             </span>
           </div>
         </div>
@@ -306,7 +308,7 @@ function PlacementStrip({ placements }: { placements: BriefingPlacement[] }) {
       <div className="rounded-lg border border-neutral-200 bg-neutral-50/50 divide-y divide-neutral-100">
         {placements.map((placement, index) => {
           const label = placement.label ? asDecisionLabel(placement.label) : null;
-          const roas = numberOrZero(placement.roas);
+          const roas = hasMetricValue(placement.roas) ? placement.roas : null;
           const key = placement.id || `${placement.campaign ?? "campaign"}-${placement.adset ?? index}`;
 
           return (
@@ -326,14 +328,20 @@ function PlacementStrip({ placements }: { placements: BriefingPlacement[] }) {
                 {placement.campaign || placement.campaignName || "Campaign"}
               </span>
               <span className="font-mono tabular-nums text-neutral-500">
-                {formatCurrency(placement.spend)}
+                {formatOptionalCurrency(placement.spend)}
               </span>
               <span
                 className={`font-mono tabular-nums font-medium ${
-                  roas >= 2 ? "text-emerald-700" : roas >= 1 ? "text-neutral-700" : "text-rose-700"
+                  roas !== null
+                    ? roas >= 2
+                      ? "text-emerald-700"
+                      : roas >= 1
+                        ? "text-neutral-700"
+                        : "text-rose-700"
+                    : "text-neutral-500"
                 }`}
               >
-                {formatRoas(roas)}
+                {formatOptionalRoas(placement.roas)}
               </span>
               {label ? <DecisionLabelChip label={label} size="sm" /> : null}
               {placement.confidence != null ? <ConfidencePill confidence={placement.confidence} size="sm" /> : null}

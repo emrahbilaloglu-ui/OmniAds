@@ -18,7 +18,7 @@ const ReportBuilder = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="rounded-xl border bg-white p-8 text-sm text-muted-foreground">
+      <div className="rounded-xl border border-neutral-200 bg-white p-8 text-sm text-muted-foreground">
         Loading builder...
       </div>
     ),
@@ -99,7 +99,7 @@ export function ReportBuilderPage({
   if (mode === "view") {
     if (renderedQuery.isLoading) {
       return (
-        <div className="rounded-xl border bg-white p-8 text-sm text-muted-foreground animate-pulse">
+        <div className="rounded-xl border border-neutral-200 bg-white p-8 text-sm text-muted-foreground animate-pulse">
           {language === "tr" ? "Rapor yükleniyor..." : "Loading report..."}
         </div>
       );
@@ -183,13 +183,13 @@ export function ReportBuilderPage({
                 <button
                   type="button"
                   onClick={() => setExportOpen((o) => !o)}
-                  className="inline-flex items-center gap-1.5 rounded-full border bg-white px-3 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50 transition"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50 transition"
                 >
                   {language === "tr" ? "Disa Aktar" : "Export"}
                   <ChevronDown className="h-3.5 w-3.5 text-neutral-400" />
                 </button>
                 {exportOpen && (
-                  <div className="absolute right-0 top-10 z-50 w-[280px] rounded-xl border bg-white p-3 shadow-lg">
+                  <div className="absolute right-0 top-10 z-50 w-[280px] rounded-xl border border-neutral-200 bg-white p-3 shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)]">
                     <button
                       type="button"
                       onClick={handleShareLink}
@@ -215,7 +215,7 @@ export function ReportBuilderPage({
                           <input
                             readOnly
                             value={`${typeof window !== "undefined" ? window.location.origin : ""}${shareUrl}`}
-                            className="h-7 flex-1 rounded border bg-white px-2 text-[11px] text-neutral-600 min-w-0"
+                            className="h-7 flex-1 rounded border border-neutral-200 bg-white px-2 text-[11px] text-neutral-600 min-w-0"
                           />
                           <button
                             type="button"
@@ -256,7 +256,7 @@ export function ReportBuilderPage({
   // ── Edit mode ──────────────────────────────────────────────────────────────
   if (mode === "edit" && reportQuery.isLoading) {
     return (
-      <div className="rounded-xl border bg-white p-8 text-sm text-muted-foreground">
+      <div className="rounded-xl border border-neutral-200 bg-white p-8 text-sm text-muted-foreground">
         {language === "tr" ? "Rapor yükleniyor..." : "Loading report..."}
       </div>
     );

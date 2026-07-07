@@ -21,13 +21,16 @@ export default function CommercialTruthPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-2">
-          <h1 className="text-3xl font-semibold tracking-tight">
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-neutral-500">
+            Targets & Economics
+          </p>
+          <h1 className="text-[24px] font-semibold tracking-tight text-neutral-950">
             {navigationTranslations.commercialTruth}
           </h1>
-          <p className="max-w-2xl text-sm text-muted-foreground">
+          <p className="max-w-2xl text-sm leading-5 text-neutral-500">
             Manage the shared business context that Meta and Creative decision surfaces use as
             deterministic commercial truth for the active workspace.
           </p>

@@ -361,7 +361,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
 
   return (
     <div className="min-h-screen bg-[#F3F4F6] px-3 py-4 sm:px-5 sm:py-5">
-      <main className="mx-auto w-full max-w-[1320px] rounded-2xl border border-[#E5E7EB] bg-white p-3 shadow-sm sm:p-4">
+      <main className="mx-auto w-full max-w-[1320px] rounded-xl border border-[#E5E7EB] bg-white p-3 sm:p-4">
         <header className="mb-3 border-b border-[#ECEFF3] pb-3">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>

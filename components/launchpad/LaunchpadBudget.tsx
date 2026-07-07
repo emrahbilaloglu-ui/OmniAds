@@ -176,7 +176,7 @@ function Segmented({
             onClick={() => onChange(optionValue)}
             className={`rounded-[5px] px-3 py-1.5 text-[13px] transition-colors ${
               value === optionValue
-                ? "bg-[var(--surface)] font-medium text-[var(--ink)] shadow-[var(--shadow-sm)]"
+                ? "bg-[var(--surface)] font-medium text-[var(--ink)]"
                 : "text-[var(--muted)] hover:text-[var(--ink-2)]"
             }`}
           >

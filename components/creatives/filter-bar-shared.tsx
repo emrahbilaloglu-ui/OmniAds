@@ -32,7 +32,7 @@ interface CreativeTagActionsRowProps {
 }
 
 const FILTER_SELECT_CLASSNAME =
-  "h-8 rounded-full border bg-background px-3 text-xs text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30";
+  "h-8 rounded-lg border border-neutral-200 bg-white px-3 text-xs text-neutral-700 outline-none transition-colors hover:bg-neutral-50 focus-visible:border-neutral-400";
 
 export const CREATIVE_PLATFORM_OPTIONS: Array<{ value: PlatformOption; label: string }> = [
   { value: "meta", label: "Meta" },
@@ -146,13 +146,13 @@ export function CreativeTagActionsRow({
           ref={tagTriggerRef}
           type="button"
           onClick={() => setShowTagPicker((prev) => !prev)}
-          className="rounded-full border px-3 py-1.5 text-xs"
+          className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50"
         >
           Tags {value.selectedTags.length > 0 ? `(${value.selectedTags.length})` : ""}
         </button>
 
         {showTagPicker && (
-          <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-64 rounded-lg border bg-background p-3 shadow-md duration-150">
+          <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-64 rounded-lg border border-neutral-200 bg-white p-3 shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)] duration-150">
             <div className="mb-2 flex items-center justify-between">
               <p className="text-xs text-muted-foreground">Select tags</p>
               {value.selectedTags.length > 0 && (
@@ -193,13 +193,13 @@ export function CreativeTagActionsRow({
           ref={filterTriggerRef}
           type="button"
           onClick={() => setShowAddFilter((prev) => !prev)}
-          className="rounded-full border px-3 py-1.5 text-xs"
+          className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50"
         >
           + Add filter
         </button>
 
         {showAddFilter && (
-          <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-56 rounded-lg border bg-background p-3 shadow-md duration-150">
+          <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-56 rounded-lg border border-neutral-200 bg-white p-3 shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)] duration-150">
             <p className="text-xs text-muted-foreground">Advanced filter builder is coming soon.</p>
           </div>
         )}

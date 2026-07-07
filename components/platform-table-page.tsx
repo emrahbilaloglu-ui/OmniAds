@@ -180,22 +180,31 @@ export function PlatformTablePage({
 
   return (
     <div className="space-y-5">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-        <p className="text-sm text-muted-foreground">{description}</p>
-      </div>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="space-y-1">
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-neutral-500">
+            Platform workspace
+          </p>
+          <h1 className="text-[22px] font-semibold tracking-tight text-neutral-950">{title}</h1>
+          <p className="max-w-2xl text-sm leading-5 text-neutral-500">{description}</p>
+        </div>
+        <div className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-500">
+          <span className="h-1.5 w-1.5 rounded-full bg-neutral-400" />
+          Server-backed table
+        </div>
+      </header>
 
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-2">
+      <div className="flex gap-1 overflow-x-auto border-b border-neutral-200">
         {tabs.map((tab) => (
           <button
             key={tab.key}
             type="button"
             onClick={() => setActiveTab(tab.key)}
             className={cn(
-              "rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+              "-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-[13px] font-medium transition-colors",
               activeTab === tab.key
-                ? "bg-background shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
+                ? "border-neutral-950 text-neutral-950"
+                : "border-transparent text-neutral-500 hover:text-neutral-900"
             )}
           >
             {tab.label}
@@ -203,67 +212,75 @@ export function PlatformTablePage({
         ))}
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Account
-        </label>
-        <select
-          value={selectedAccountId}
-          onChange={(event) => setSelectedAccountId(event.target.value)}
-          className="h-9 rounded-md border bg-background px-3 text-sm"
-        >
-          <option value="all">All enabled accounts</option>
-          {enabledAccounts.map((account) => (
-            <option key={account.accountId} value={account.accountId}>
-              {account.name}
-            </option>
-          ))}
-        </select>
+      <div className="rounded-xl border border-neutral-200 bg-white px-3 py-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-xs font-medium text-neutral-500">
+            <span className="uppercase tracking-[0.12em]">Account</span>
+            <select
+              value={selectedAccountId}
+              onChange={(event) => setSelectedAccountId(event.target.value)}
+              className="h-8 rounded-md border border-neutral-200 bg-white px-2.5 text-sm text-neutral-900 outline-none focus:border-neutral-400"
+            >
+              <option value="all">All enabled accounts</option>
+              {enabledAccounts.map((account) => (
+                <option key={account.accountId} value={account.accountId}>
+                  {account.name}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <label className="ml-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Status
-        </label>
-        <select
-          value={statusFilter}
-          onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
-          className="h-9 rounded-md border bg-background px-3 text-sm"
-        >
-          <option value="all">All</option>
-          <option value="active">Active</option>
-          <option value="paused">Paused</option>
-        </select>
+          <label className="flex items-center gap-2 text-xs font-medium text-neutral-500">
+            <span className="uppercase tracking-[0.12em]">Status</span>
+            <select
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
+              className="h-8 rounded-md border border-neutral-200 bg-white px-2.5 text-sm text-neutral-900 outline-none focus:border-neutral-400"
+            >
+              <option value="all">All</option>
+              <option value="active">Active</option>
+              <option value="paused">Paused</option>
+            </select>
+          </label>
 
-        <label className="ml-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Sort
-        </label>
-        <select
-          value={sortColumn}
-          onChange={(event) => setSortColumn(event.target.value as SortColumn)}
-          className="h-9 rounded-md border bg-background px-3 text-sm"
-        >
-          <option value="name">Name</option>
-          <option value="status">Status</option>
-          {ALL_METRIC_OPTIONS.map((option) => (
-            <option key={option.key} value={option.key}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          <label className="flex items-center gap-2 text-xs font-medium text-neutral-500">
+            <span className="uppercase tracking-[0.12em]">Sort</span>
+            <select
+              value={sortColumn}
+              onChange={(event) => setSortColumn(event.target.value as SortColumn)}
+              className="h-8 rounded-md border border-neutral-200 bg-white px-2.5 text-sm text-neutral-900 outline-none focus:border-neutral-400"
+            >
+              <option value="name">Name</option>
+              <option value="status">Status</option>
+              {ALL_METRIC_OPTIONS.map((option) => (
+                <option key={option.key} value={option.key}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() =>
-            setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"))
-          }
-        >
-          {sortDirection === "asc" ? "Asc" : "Desc"}
-        </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 rounded-md border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50"
+            onClick={() =>
+              setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"))
+            }
+          >
+            {sortDirection === "asc" ? "Asc" : "Desc"}
+          </Button>
 
-        <Button variant="outline" size="sm" onClick={openMetricsModal}>
-          <Plus className="h-4 w-4" />
-          Add metrics
-        </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 rounded-md border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50"
+            onClick={openMetricsModal}
+          >
+            <Plus className="h-4 w-4" />
+            Add metrics
+          </Button>
+        </div>
       </div>
 
       {isLoading && <LoadingSkeleton rows={3} />}
@@ -276,14 +293,14 @@ export function PlatformTablePage({
       )}
 
       {!isLoading && !isError && filteredRows.length > 0 && (
-        <div className="overflow-x-auto rounded-xl border">
+        <div className="overflow-x-auto rounded-xl border border-neutral-200 bg-white">
           <table className="min-w-full text-sm">
-            <thead className="bg-muted/45 text-left">
+            <thead className="bg-neutral-50 text-left text-[11px] uppercase tracking-[0.12em] text-neutral-500">
               <tr>
                 <th className="px-4 py-3 font-medium">Name</th>
                 <th className="px-4 py-3 font-medium">Status</th>
                 {visibleColumns.map((column) => (
-                  <th key={column} className="px-4 py-3 font-medium uppercase">
+                  <th key={column} className="px-4 py-3 text-right font-medium">
                     {column}
                   </th>
                 ))}
@@ -291,15 +308,23 @@ export function PlatformTablePage({
             </thead>
             <tbody>
               {filteredRows.map((row) => (
-                <tr key={row.id} className="border-t">
-                  <td className="px-4 py-3">{row.name}</td>
+                <tr key={row.id} className="border-t border-neutral-100">
+                  <td className="px-4 py-3 font-medium text-neutral-950">{row.name}</td>
                   <td className="px-4 py-3">
-                    <Badge variant={row.status === "active" ? "default" : "secondary"}>
+                    <Badge
+                      variant="secondary"
+                      className={cn(
+                        "rounded-md border px-2 py-0 text-[11px] font-medium capitalize",
+                        row.status === "active"
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : "border-neutral-200 bg-neutral-100 text-neutral-600"
+                      )}
+                    >
                       {row.status}
                     </Badge>
                   </td>
                   {visibleColumns.map((column) => (
-                    <td key={column} className="px-4 py-3">
+                    <td key={column} className="px-4 py-3 text-right font-medium tabular-nums text-neutral-700">
                       {formatMetricCell(column, row)}
                     </td>
                   ))}
@@ -311,13 +336,13 @@ export function PlatformTablePage({
       )}
 
       {isMetricsModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-md rounded-xl border bg-background p-5 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/35 p-4">
+          <div className="w-full max-w-md rounded-xl border border-neutral-200 bg-white p-5 shadow-lg">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-base font-semibold">Manage metric columns</h3>
+              <h3 className="text-base font-semibold tracking-tight text-neutral-950">Manage metric columns</h3>
               <button
                 type="button"
-                className="rounded-md p-1 text-muted-foreground hover:bg-muted"
+                className="rounded-md p-1 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
                 onClick={() => setIsMetricsModalOpen(false)}
                 aria-label="Close metrics modal"
               >
@@ -329,7 +354,7 @@ export function PlatformTablePage({
               {ALL_METRIC_OPTIONS.map((option) => (
                 <label
                   key={option.key}
-                  className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
+                  className="flex items-center justify-between rounded-md border border-neutral-200 px-3 py-2 text-sm text-neutral-800"
                 >
                   <span>{option.label}</span>
                   <input
@@ -341,7 +366,7 @@ export function PlatformTablePage({
               ))}
             </div>
 
-            <p className="mt-3 text-xs text-muted-foreground">
+            <p className="mt-3 text-xs text-neutral-500">
               At least one metric column must remain selected.
             </p>
 

@@ -112,7 +112,7 @@ export function TemplateMiniPreview({
         <div
           key={widget.id}
           style={getWidgetStyle(widget)}
-          className={`overflow-hidden rounded-2xl border border-white/70 p-2 ${getWidgetTone(widget)}`}
+          className={`overflow-hidden rounded-xl border border-white/70 p-2 ${getWidgetTone(widget)}`}
         >
           {renderWidgetGlyph(widget)}
         </div>

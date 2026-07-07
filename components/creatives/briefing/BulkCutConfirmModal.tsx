@@ -6,10 +6,12 @@ import { TrackingConfirmModal } from "@/components/common/briefing/TrackingConfi
 import {
   Thumb,
   cardName,
+  formatOptionalCurrency,
+  formatOptionalRoas,
+  hasMetricValue,
   numberOrZero,
 } from "@/components/creatives/briefing/card-utils";
 import type { BriefingCreativeCard } from "@/components/creatives/briefing/types";
-import { formatCurrency, formatRoas } from "@/lib/briefing/utils";
 
 interface BulkCutConfirmModalProps {
   open: boolean;
@@ -20,12 +22,16 @@ interface BulkCutConfirmModalProps {
 }
 
 export function getBulkCutTotals(cards: BriefingCreativeCard[]) {
-  const spend = cards.reduce((total, card) => total + numberOrZero(card.spend), 0);
-  const roasValues = cards.map((card) => numberOrZero(card.roas));
+  const spendValues = cards.map((card) => card.spend).filter(hasMetricValue);
+  const spend =
+    spendValues.length > 0
+      ? spendValues.reduce((total, value) => total + numberOrZero(value), 0)
+      : null;
+  const roasValues = cards.map((card) => card.roas).filter(hasMetricValue);
   const avgRoas =
     roasValues.length > 0
       ? roasValues.reduce((total, roas) => total + roas, 0) / roasValues.length
-      : 0;
+      : null;
   return { spend, avgRoas };
 }
 
@@ -63,7 +69,7 @@ export function BulkCutConfirmModal({
         aria-modal="true"
         aria-labelledby="bulk-cut-title"
       >
-        <div className="w-full max-w-[520px] rounded-2xl bg-white shadow-[0_8px_32px_rgba(16,21,28,0.18)] overflow-hidden">
+        <div className="w-full max-w-[520px] overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)]">
           <div className="px-5 py-4 border-b border-neutral-200 flex items-start gap-3">
             <div className="w-9 h-9 rounded-full bg-rose-100 grid place-items-center text-rose-600 shrink-0">
               <AlertTriangle className="inline-block shrink-0" size={18} aria-hidden="true" />
@@ -102,10 +108,10 @@ export function BulkCutConfirmModal({
                     </div>
                   </div>
                   <span className="font-mono tabular-nums text-[11.5px] text-neutral-600">
-                    {formatCurrency(card.spend)}
+                    {formatOptionalCurrency(card.spend)}
                   </span>
                   <span className="font-mono tabular-nums text-[11.5px] font-medium text-neutral-900">
-                    {formatRoas(card.roas)}
+                    {formatOptionalRoas(card.roas)}
                   </span>
                 </div>
               );
@@ -116,13 +122,13 @@ export function BulkCutConfirmModal({
             <div className="text-[11.5px] text-neutral-500">
               Total spend{" "}
               <span className="font-mono tabular-nums font-semibold text-neutral-900">
-                {formatCurrency(totals.spend)}
+                {formatOptionalCurrency(totals.spend)}
               </span>
             </div>
             <div className="text-[11.5px] text-neutral-500">
               Avg ROAS{" "}
               <span className="font-mono tabular-nums font-semibold text-neutral-900">
-                {formatRoas(totals.avgRoas)}
+                {formatOptionalRoas(totals.avgRoas)}
               </span>
             </div>
             <div className="ml-auto flex items-center gap-2">

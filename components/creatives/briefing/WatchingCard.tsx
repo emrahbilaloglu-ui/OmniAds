@@ -24,6 +24,10 @@ import {
   cardId,
   cardName,
   confidenceValue,
+  formatOptionalCurrency,
+  formatOptionalFixed,
+  formatOptionalInteger,
+  formatOptionalRoas,
   numberOrZero,
   Sparkline,
   Thumb,
@@ -34,7 +38,6 @@ import type {
   BriefingCreativeCard,
   CardSelectionProps,
 } from "@/components/creatives/briefing/types";
-import { formatCurrency, formatRoas } from "@/lib/briefing/utils";
 
 interface WatchingCardProps extends CardSelectionProps {
   card: BriefingCreativeCard;
@@ -79,12 +82,12 @@ export function WatchingCard({
   const durationLabel = card.placements && card.placements > 1 ? `${card.placements} cards` : undefined;
 
   const metrics: TileMetric[] = [
-    { key: "roas", label: "ROAS", value: formatRoas(card.roas) },
-    { key: "spend", label: "Spend", value: formatCurrency(card.spend) },
+    { key: "roas", label: "ROAS", value: formatOptionalRoas(card.roas) },
+    { key: "spend", label: "Spend", value: formatOptionalCurrency(card.spend) },
     {
       key: "purch",
       label: "Purch",
-      value: String(numberOrZero(card.purchases)),
+      value: formatOptionalInteger(card.purchases),
     },
   ];
 
@@ -217,13 +220,13 @@ export function WatchingCard({
             {card.reason || "No engine reason supplied."}
           </div>
           <div className="flex items-center gap-3 mt-1.5 text-[10.5px] text-neutral-500">
-            <span className="font-mono tabular-nums">{formatCurrency(card.spend)}</span>
+            <span className="font-mono tabular-nums">{formatOptionalCurrency(card.spend)}</span>
             <span className="text-neutral-300">·</span>
-            <span className="font-mono tabular-nums">{formatRoas(card.roas)}</span>
+            <span className="font-mono tabular-nums">{formatOptionalRoas(card.roas)}</span>
             <span className="text-neutral-300">·</span>
-            <span className="font-mono tabular-nums">CTR {numberOrZero(card.ctr).toFixed(2)}%</span>
+            <span className="font-mono tabular-nums">CTR {formatOptionalFixed(card.ctr, 2, "%")}</span>
             <span className="text-neutral-300">·</span>
-            <span className="font-mono tabular-nums">Freq {numberOrZero(card.frequency).toFixed(1)}</span>
+            <span className="font-mono tabular-nums">Freq {formatOptionalFixed(card.frequency, 1)}</span>
             <Sparkline values={card.sparkline} tone="text-neutral-400" width={50} height={14} />
           </div>
         </div>

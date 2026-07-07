@@ -95,6 +95,30 @@ export function numberOrZero(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+export function hasMetricValue(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+export function formatOptionalFixed(
+  value: number | null | undefined,
+  digits: number,
+  suffix = "",
+) {
+  return hasMetricValue(value) ? `${value.toFixed(digits)}${suffix}` : "—";
+}
+
+export function formatOptionalInteger(value: number | null | undefined) {
+  return hasMetricValue(value) ? Math.round(value).toLocaleString("en-US") : "—";
+}
+
+export function formatOptionalCurrency(value: number | null | undefined) {
+  return hasMetricValue(value) ? formatCurrency(value) : "—";
+}
+
+export function formatOptionalRoas(value: number | null | undefined) {
+  return hasMetricValue(value) ? formatRoas(value) : "—";
+}
+
 function mediaUrl(value: unknown) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -155,7 +179,9 @@ export function briefingMediaFallbacks(card: BriefingCreativeCard, mode: "card" 
 export function confidenceValue(
   card: Pick<BriefingCreativeCard, "confidence">,
 ) {
-  return Math.max(0, Math.min(100, Math.round(numberOrZero(card.confidence))));
+  return hasMetricValue(card.confidence)
+    ? Math.max(0, Math.min(100, Math.round(card.confidence)))
+    : null;
 }
 
 export function Thumb({
@@ -363,18 +389,22 @@ export function CtrBar({
   value?: number | null;
   p50?: number | null;
 }) {
-  const ctr = numberOrZero(value);
-  const midpoint = p50 && p50 > 0 ? p50 : 1.1;
+  const hasCtr = hasMetricValue(value);
+  const hasP50 = hasMetricValue(p50) && p50 > 0;
+  const ctr = hasCtr ? value : 0;
+  const midpoint = hasP50 ? p50 : 1.1;
   const pct = Math.min(100, (ctr / (midpoint * 2)) * 100);
-  const isAbove = ctr >= midpoint;
+  const isAbove = hasCtr && ctr >= midpoint;
 
   return (
     <div className="flex items-center gap-1.5">
       <span className="text-[10.5px] text-neutral-500">CTR</span>
       <div className="relative w-20 h-1.5 bg-neutral-100 rounded-full overflow-hidden">
         <div
-          className={`absolute inset-y-0 left-0 ${isAbove ? "bg-emerald-500" : "bg-rose-500"}`}
-          style={{ width: `${pct}%` }}
+          className={`absolute inset-y-0 left-0 ${
+            hasCtr ? (isAbove ? "bg-emerald-500" : "bg-rose-500") : "bg-neutral-300"
+          }`}
+          style={{ width: hasCtr ? `${pct}%` : "0%" }}
         />
         <div
           className="absolute inset-y-0 w-px bg-neutral-400"
@@ -383,13 +413,13 @@ export function CtrBar({
       </div>
       <span
         className={`font-mono tabular-nums text-[10.5px] font-medium ${
-          isAbove ? "text-emerald-700" : "text-rose-700"
+          hasCtr ? (isAbove ? "text-emerald-700" : "text-rose-700") : "text-neutral-500"
         }`}
       >
-        {ctr.toFixed(2)}%
+        {hasCtr ? `${ctr.toFixed(2)}%` : "—"}
       </span>
       <span className="font-mono tabular-nums text-[10px] text-neutral-400">
-        P50 {midpoint.toFixed(2)}%
+        P50 {hasP50 ? `${midpoint.toFixed(2)}%` : "—"}
       </span>
     </div>
   );
@@ -957,13 +987,13 @@ export function buildEvidenceSections(
       ),
       content: (
         <div className="grid grid-cols-4 gap-3 text-[12px]">
-          <Kv label="28d Spend">{formatCurrency(card.spend)}</Kv>
-          <Kv label="28d ROAS">{formatRoas(card.roas)}</Kv>
-          <Kv label="Purchases">{numberOrZero(card.purchases) || "—"}</Kv>
-          <Kv label="CPA">${numberOrZero(card.cpa).toFixed(2)}</Kv>
-          <Kv label="CTR">{numberOrZero(card.ctr).toFixed(2)}%</Kv>
-          <Kv label="Frequency">{numberOrZero(card.frequency).toFixed(1)}</Kv>
-          <Kv label="Age">{numberOrZero(card.ageDays)}d</Kv>
+          <Kv label="28d Spend">{formatOptionalCurrency(card.spend)}</Kv>
+          <Kv label="28d ROAS">{formatOptionalRoas(card.roas)}</Kv>
+          <Kv label="Purchases">{formatOptionalInteger(card.purchases)}</Kv>
+          <Kv label="CPA">{formatOptionalCurrency(card.cpa)}</Kv>
+          <Kv label="CTR">{formatOptionalFixed(card.ctr, 2, "%")}</Kv>
+          <Kv label="Frequency">{formatOptionalFixed(card.frequency, 1)}</Kv>
+          <Kv label="Age">{hasMetricValue(card.ageDays) ? `${numberOrZero(card.ageDays)}d` : "—"}</Kv>
           <Kv label="Status">{card.status || "ACTIVE"}</Kv>
           <Kv label="24h Spend">
             {typeof card.spend24h === "number" ? formatCurrency(card.spend24h) : "—"}
@@ -1006,7 +1036,7 @@ export function buildEvidenceSections(
             version={engineVersion}
             date={sourceAsOf}
             label={`Current label: ${label}`}
-            why={`Confidence ${confidence}%`}
+            why={`Confidence ${formatOptionalFixed(card.confidence, 0, "%")}`}
           />
         </ol>
       ),

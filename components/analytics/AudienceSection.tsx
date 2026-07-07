@@ -174,7 +174,7 @@ function SegmentCard({
 }) {
   const isBetter = multiplier !== undefined && multiplierVs !== undefined && multiplier >= 1.3;
   return (
-    <div className="rounded-xl border bg-card p-4 shadow-sm">
+    <div className="rounded-xl border border-neutral-200 bg-white p-4">
       <div className="flex items-center justify-between mb-3">
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           {label}

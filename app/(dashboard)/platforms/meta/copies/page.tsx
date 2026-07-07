@@ -638,7 +638,7 @@ function CopyDetailDrawer({
           width: "min(380px, 92vw)",
           background: "var(--surface)",
           borderLeft: "1px solid var(--border-2)",
-          boxShadow: "var(--shadow-xl)",
+          boxShadow: "0 1px 2px rgba(16,21,28,0.08)",
           display: "flex",
           flexDirection: "column",
         }}
@@ -869,7 +869,7 @@ function CopyCompareOverlay({
           background: "var(--surface)",
           border: "1px solid var(--border-2)",
           borderRadius: "var(--r-lg)",
-          boxShadow: "var(--shadow-xl)",
+          boxShadow: "0 8px 24px -12px rgba(16,21,28,0.18)",
           width: 900,
           maxWidth: "94vw",
           maxHeight: "88vh",

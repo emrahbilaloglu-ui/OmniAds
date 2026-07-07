@@ -120,10 +120,10 @@ function PreviewFallback({ frameClass, name }: { frameClass: string; name: strin
     <div
       className={cn(
         frameClass,
-        "flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-slate-100 to-slate-200 p-2 text-slate-600"
+        "flex flex-col items-center justify-center gap-2 bg-neutral-100 p-2 text-neutral-600"
       )}
     >
-      <div className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-semibold">
+      <div className="flex h-9 w-9 items-center justify-center rounded-full border border-neutral-300 bg-white text-xs font-semibold">
         {initials || "NA"}
       </div>
       <div className="line-clamp-2 px-1 text-center text-[10px] font-medium">
@@ -135,7 +135,7 @@ function PreviewFallback({ frameClass, name }: { frameClass: string; name: strin
 
 function PreviewLoadingPlaceholder({ frameClass }: { frameClass: string }) {
   return (
-    <div className={cn(frameClass, "animate-pulse bg-gradient-to-br from-slate-100 to-slate-200")} aria-hidden="true" />
+    <div className={cn(frameClass, "animate-pulse bg-neutral-100")} aria-hidden="true" />
   );
 }
 
@@ -150,10 +150,10 @@ function PreviewPendingState({
     <div
       className={cn(
         frameClass,
-        "flex flex-col items-center justify-center gap-3 bg-gradient-to-br from-slate-100 to-slate-200 p-3 text-slate-600"
+        "flex flex-col items-center justify-center gap-3 bg-neutral-100 p-3 text-neutral-600"
       )}
     >
-      <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-slate-500" aria-hidden="true" />
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-500" aria-hidden="true" />
       <div className="text-center text-[11px] font-medium">{label}</div>
     </div>
   );

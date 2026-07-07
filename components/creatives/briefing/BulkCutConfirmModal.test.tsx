@@ -56,6 +56,10 @@ describe("BulkCutConfirmModal", () => {
       ),
     ).toBe("");
     expect(getBulkCutTotals([card(1), card(3)])).toEqual({ spend: 400, avgRoas: 2 });
+    expect(getBulkCutTotals([card(1, { spend: null, roas: null })])).toEqual({
+      spend: null,
+      avgRoas: null,
+    });
   });
 
   it("uses tracking-confirm copy for degraded bulk cuts", () => {

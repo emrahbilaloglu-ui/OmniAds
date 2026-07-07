@@ -70,7 +70,7 @@ const WIDGET_ICONS: Record<CustomReportWidgetType, React.ReactNode> = {
 function WidgetLibraryPreview({ type }: { type: CustomReportWidgetType }) {
   if (type === "metric") {
     return (
-      <div className="rounded-[18px] border border-neutral-200 bg-white px-3 py-3 shadow-sm">
+      <div className="rounded-xl border border-neutral-200 bg-white px-3 py-3">
         <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-400">KPI</div>
         <div className="mt-2 text-lg font-semibold leading-none text-neutral-950">$12.4K</div>
         <div className="mt-2 inline-flex rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700">
@@ -82,7 +82,7 @@ function WidgetLibraryPreview({ type }: { type: CustomReportWidgetType }) {
 
   if (type === "trend") {
     return (
-      <div className="rounded-[18px] border border-neutral-200 bg-white px-3 py-3 shadow-sm">
+      <div className="rounded-xl border border-neutral-200 bg-white px-3 py-3">
         <div className="flex h-12 items-end gap-1">
           {[20, 28, 24, 36, 30, 41].map((point, index) => (
             <div key={index} className="relative flex-1">
@@ -110,7 +110,7 @@ function WidgetLibraryPreview({ type }: { type: CustomReportWidgetType }) {
 
   if (type === "bar") {
     return (
-      <div className="rounded-[18px] border border-neutral-200 bg-white px-3 py-3 shadow-sm">
+      <div className="rounded-xl border border-neutral-200 bg-white px-3 py-3">
         <div className="flex h-12 items-end gap-2">
           {[38, 26, 44, 31].map((height, index) => (
             <div key={index} className="flex-1 rounded-t-xl bg-[linear-gradient(180deg,#60a5fa,#2563eb)]" style={{ height }} />
@@ -126,7 +126,7 @@ function WidgetLibraryPreview({ type }: { type: CustomReportWidgetType }) {
 
   if (type === "table") {
     return (
-      <div className="rounded-[18px] border border-neutral-200 bg-white px-3 py-3 shadow-sm">
+      <div className="rounded-xl border border-neutral-200 bg-white px-3 py-3">
         <div className="grid grid-cols-3 gap-1">
           {Array.from({ length: 9 }).map((_, index) => (
             <div
@@ -145,7 +145,7 @@ function WidgetLibraryPreview({ type }: { type: CustomReportWidgetType }) {
 
   if (type === "text") {
     return (
-      <div className="rounded-[18px] border border-neutral-200 bg-white px-3 py-3 shadow-sm">
+      <div className="rounded-xl border border-neutral-200 bg-white px-3 py-3">
         <div className="space-y-2">
           <div className="h-2 rounded-full bg-neutral-200" />
           <div className="h-2 w-5/6 rounded-full bg-neutral-200" />
@@ -160,8 +160,8 @@ function WidgetLibraryPreview({ type }: { type: CustomReportWidgetType }) {
   }
 
   return (
-    <div className="rounded-[18px] border border-neutral-200 bg-white px-3 py-3 shadow-sm">
-      <div className="rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 px-3 py-4 text-center">
+    <div className="rounded-xl border border-neutral-200 bg-white px-3 py-3">
+      <div className="rounded-xl border border-dashed border-neutral-300 bg-neutral-50 px-3 py-4 text-center">
         <LayoutPanelTop className="mx-auto h-5 w-5 text-neutral-500" />
         <div className="mt-2 text-[10px] font-medium text-neutral-500">Section divider</div>
       </div>
@@ -972,7 +972,7 @@ export function ReportBuilder({
                 <ChevronDown className="h-3.5 w-3.5" />
               </Button>
               {actionsMenuOpen ? (
-                <div className="absolute right-0 top-full z-30 mt-1.5 w-52 rounded-2xl border bg-white py-1.5 shadow-lg">
+                <div className="absolute right-0 top-full z-30 mt-1.5 w-52 rounded-xl border border-neutral-200 bg-white py-1.5 shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)]">
                   <button
                     type="button"
                     onClick={() => { handleExport(); setActionsMenuOpen(false); }}
@@ -1038,7 +1038,7 @@ export function ReportBuilder({
 
           {/* Widgets — always visible, compact icon grid */}
           {!selectedWidget ? (
-            <section className="rounded-xl border bg-white p-4 shadow-sm">
+            <section className="rounded-xl border border-neutral-200 bg-white p-4">
               <h2 className="text-sm font-semibold text-neutral-900">Widgets</h2>
               <p className="mt-1 text-xs text-muted-foreground">
                 Drag and drop onto the canvas.
@@ -1065,12 +1065,12 @@ export function ReportBuilder({
                         addWidget(widget.type, selectedSlot ?? 0);
                       }
                     }}
-                    className="group relative flex flex-col items-center gap-1.5 rounded-2xl border border-neutral-200 bg-neutral-50 px-2 py-3 text-neutral-600 transition hover:border-neutral-400 hover:bg-white hover:shadow-sm cursor-grab active:cursor-grabbing"
+                    className="group relative flex flex-col items-center gap-1.5 rounded-xl border border-neutral-200 bg-neutral-50 px-2 py-3 text-neutral-600 transition hover:border-neutral-400 hover:bg-white cursor-grab active:cursor-grabbing"
                   >
                     {WIDGET_ICONS[widget.type]}
                     <span className="text-[10px] font-medium text-neutral-500">{widget.label}</span>
                     {/* Tooltip */}
-                    <div className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 hidden w-36 -translate-x-1/2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-center shadow-lg group-hover:block">
+                    <div className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 hidden w-36 -translate-x-1/2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-center shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)] group-hover:block">
                       <div className="text-xs font-semibold text-neutral-900">{widget.label}</div>
                       <div className="mt-0.5 text-[10px] leading-4 text-neutral-500">{widget.detail}</div>
                       <div className="absolute bottom-0 left-1/2 h-2.5 w-2.5 -translate-x-1/2 translate-y-1/2 rotate-45 border-b border-r border-neutral-200 bg-white" />
@@ -1097,7 +1097,7 @@ export function ReportBuilder({
           ) : null}
 
           {selectedWidget ? (
-            <section className="rounded-xl border bg-white shadow-sm overflow-hidden" style={{ position: "relative", zIndex: 11 }}>
+            <section className="rounded-xl border border-neutral-200 bg-white overflow-hidden" style={{ position: "relative", zIndex: 11 }}>
               {/* Header */}
               <div className="flex items-center gap-2 border-b px-4 py-3">
                 <button
@@ -1650,7 +1650,7 @@ export function ReportBuilder({
           ) : null}
 
           {true ? (
-            <section className="rounded-xl border bg-white p-4 shadow-sm">
+            <section className="rounded-xl border border-neutral-200 bg-white p-4">
               <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                 {tr("Templates", "Template'ler")}
               </h2>
@@ -1694,7 +1694,7 @@ export function ReportBuilder({
         </aside>
 
         <section className="space-y-5">
-          <div className="rounded-xl border bg-white p-4 shadow-sm">
+          <div className="rounded-xl border border-neutral-200 bg-white p-4">
             <div className="mb-4 flex items-start justify-between gap-4">
               <div className="flex-1">
                 <h2 className="text-lg font-semibold">{tr("Canvas", "Tuval")}</h2>
@@ -1722,7 +1722,7 @@ export function ReportBuilder({
                       click the widget to configure its source, account, and content.
                     </p>
                   </div>
-                    <div className="rounded-2xl border border-blue-200 bg-white px-4 py-3 text-xs font-medium text-blue-700 shadow-sm">
+                    <div className="rounded-xl border border-neutral-200 bg-white px-4 py-3 text-xs font-medium text-neutral-700">
                       {tr("Drag from left", "Soldan sürükleyin")}
                     </div>
                 </div>
@@ -1846,7 +1846,7 @@ export function ReportBuilder({
                           setSelectedSlot(widget.slot);
                         }}
                         style={getCanvasWidgetStyle(widget)}
-                        className={`pointer-events-auto group relative ${widget.type === "table" ? "overflow-auto" : "overflow-hidden"} rounded-xl border-2 bg-white text-left shadow-sm transition ${
+                        className={`pointer-events-auto group relative ${widget.type === "table" ? "overflow-auto" : "overflow-hidden"} rounded-xl border-2 border-neutral-200 bg-white text-left transition ${
                           selectedWidgetId === widget.id
                             ? "border-blue-500 shadow-blue-100"
                             : "border-neutral-200 hover:border-neutral-300"
@@ -1867,7 +1867,7 @@ export function ReportBuilder({
                           )}
                         </div>
                         <div
-                          className={`absolute right-3 top-3 flex items-center gap-1 rounded-full border bg-white/95 px-1.5 py-1 shadow-sm transition ${
+                          className={`absolute right-3 top-3 flex items-center gap-1 rounded-full border border-neutral-200 bg-white/95 px-1.5 py-1 transition ${
                             selectedWidgetId === widget.id
                               ? "opacity-100"
                               : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"

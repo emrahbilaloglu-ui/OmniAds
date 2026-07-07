@@ -54,7 +54,7 @@ export function CreativeDrawerHeader({
       : `${windowAdsCount || lifetimeAdsCount} ${(windowAdsCount || lifetimeAdsCount) === 1 ? "ad" : "ads"}`;
 
   return (
-    <header className="shrink-0 border-b border-slate-200 bg-white">
+    <header className="shrink-0 border-b border-neutral-200 bg-white">
       <div className="flex items-center justify-between px-5 pb-2 pt-4">
         <div className="flex items-center gap-2">
           <div className="flex h-6 items-center rounded-md bg-primary/10 px-2">
@@ -75,7 +75,7 @@ export function CreativeDrawerHeader({
       </div>
 
       <div className="flex gap-4 px-5 pb-4">
-        <div className="shrink-0 overflow-hidden rounded-xl border bg-background shadow-sm" style={{ width: 96, height: 96 }}>
+        <div className="shrink-0 overflow-hidden rounded-xl border border-neutral-200 bg-white" style={{ width: 96, height: 96 }}>
           {creative ? (
             <CreativeRenderSurface
               id={creative.id}
@@ -95,7 +95,7 @@ export function CreativeDrawerHeader({
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col justify-center">
-          <h3 className="truncate text-base font-semibold leading-tight tracking-tight text-slate-950">
+          <h3 className="truncate text-base font-semibold leading-tight tracking-tight text-neutral-950">
             {creative?.name ?? "Creative"}
           </h3>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -112,22 +112,22 @@ export function CreativeDrawerHeader({
             </span>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            <span className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+            <span className="rounded-lg border border-neutral-200 bg-neutral-50 px-2 py-1 text-[11px] text-neutral-600">
               Placements{" "}
-              <strong className="font-mono text-slate-950">{windowAdsCount || lifetimeAdsCount}</strong>
+              <strong className="font-mono text-neutral-950">{windowAdsCount || lifetimeAdsCount}</strong>
               {lifetimeAdsCount > 0 && windowAdsCount > 0 && windowAdsCount !== lifetimeAdsCount ? (
-                <span className="ml-1 text-slate-500">/ {lifetimeAdsCount} lifetime</span>
+                <span className="ml-1 text-neutral-500">/ {lifetimeAdsCount} lifetime</span>
               ) : null}
             </span>
-            <span className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+            <span className="rounded-lg border border-neutral-200 bg-neutral-50 px-2 py-1 text-[11px] text-neutral-600">
               Spend{" "}
-              <strong className="font-mono text-slate-950">
+              <strong className="font-mono text-neutral-950">
                 {formatMoney(totalSpend, currency, defaultCurrency)}
               </strong>
             </span>
-            <span className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+            <span className="rounded-lg border border-neutral-200 bg-neutral-50 px-2 py-1 text-[11px] text-neutral-600">
               Weighted ROAS{" "}
-              <strong className="font-mono text-slate-950">{weightedRoas.toFixed(2)}x</strong>
+              <strong className="font-mono text-neutral-950">{weightedRoas.toFixed(2)}x</strong>
             </span>
           </div>
           {creative?.launchDate && (
@@ -191,7 +191,7 @@ export function CreativeSummaryCards({
 
 function SummaryCard({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+    <div className="rounded-xl border border-neutral-200 bg-white p-3">
       <div className="flex items-center gap-1.5">
         <div className="flex h-5 w-5 items-center justify-center rounded-md bg-muted/60">{icon}</div>
         <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
@@ -228,8 +228,8 @@ export function CreativePerformanceChart({
   }, [rows, metric]);
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+    <div className="rounded-xl border border-neutral-200 bg-white">
+      <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-3">
         <div className="flex items-center gap-2">
           <BarChart3 className="h-4 w-4 text-muted-foreground" />
           <h4 className="text-[13px] font-semibold">
@@ -250,7 +250,7 @@ export function CreativePerformanceChart({
               className={cn(
                 "rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors",
                 metric === metricOption.key
-                  ? "bg-primary text-primary-foreground shadow-sm"
+                  ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
               )}
             >

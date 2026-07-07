@@ -76,32 +76,32 @@ export function LandingPageDetailDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full max-w-[1140px] overflow-y-auto border-l border-slate-200 bg-[#f7fafc] p-0 sm:max-w-[1140px]">
+      <SheetContent side="right" className="w-full max-w-[1140px] overflow-y-auto border-l border-neutral-200 bg-neutral-50 p-0 sm:max-w-[1140px]">
         {row ? (
           <>
-            <SheetHeader className="border-b border-slate-200 bg-white px-6 py-5">
-              <SheetTitle className="text-xl text-slate-900">{row.title}</SheetTitle>
-              <SheetDescription className="font-mono text-xs text-slate-500">
+            <SheetHeader className="border-b border-neutral-200 bg-white px-6 py-5">
+              <SheetTitle className="text-xl text-neutral-900">{row.title}</SheetTitle>
+              <SheetDescription className="font-mono text-xs text-neutral-500">
                 {row.path}
               </SheetDescription>
             </SheetHeader>
 
             <div className="space-y-5 p-6">
               {ruleReport ? (
-                <section className={`rounded-3xl border p-4 shadow-sm ${getDecisionTheme(ruleReport.action)}`}>
+                <section className={`rounded-xl border p-4 ${getDecisionTheme(ruleReport.action)}`}>
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-neutral-500">
                         {t.aiInsight}
                       </p>
-                      <h3 className="mt-1 text-[17px] font-semibold text-slate-950">
+                      <h3 className="mt-1 text-[17px] font-semibold text-neutral-950">
                         {ruleHeadline(ruleReport.action, language)}
                       </h3>
                     </div>
                     <DecisionBadge action={ruleReport.action} language={language} />
                   </div>
 
-                  <p className="mt-2.5 text-sm leading-6 text-slate-700">{ruleReport.summary}</p>
+                  <p className="mt-2.5 text-sm leading-6 text-neutral-700">{ruleReport.summary}</p>
 
                   <div className="mt-3 grid grid-cols-2 gap-2 xl:grid-cols-4">
                     <CompactMetricCell label={t.decisionScore} value={`${ruleReport.score}/100`} />
@@ -159,14 +159,14 @@ export function LandingPageDetailDrawer({
                 </section>
               ) : null}
 
-              <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <section className="rounded-xl border border-neutral-200 bg-white p-5 ">
                 <div className="mb-4 flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-sky-600" />
+                  <Sparkles className="h-4 w-4 text-neutral-500" />
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-neutral-500">
                       {t.uxAudit}
                     </p>
-                    <p className="mt-1 text-sm text-slate-600">
+                    <p className="mt-1 text-sm text-neutral-600">
                       {t.uxAuditDescription}
                     </p>
                   </div>
@@ -174,7 +174,7 @@ export function LandingPageDetailDrawer({
 
                 {!aiAnalysisRequested ? (
                   <div className="space-y-3">
-                    <p className="text-sm text-slate-600">
+                    <p className="text-sm text-neutral-600">
                       {t.runAuditPrompt}
                     </p>
                     <Button
@@ -184,20 +184,20 @@ export function LandingPageDetailDrawer({
                         setAiAnalysisRequested(true);
                         commentaryQuery.refetch();
                       }}
-                      className="border-sky-300 bg-sky-50 text-sky-700 hover:bg-sky-100 hover:text-sky-800"
+                      className="border-neutral-200 bg-white text-neutral-800 hover:bg-neutral-50"
                     >
                       {t.runAudit}
                     </Button>
                   </div>
                 ) : commentaryQuery.isLoading || commentaryQuery.isFetching ? (
                   <div className="space-y-2">
-                    <div className="h-4 w-2/3 animate-pulse rounded bg-slate-200" />
-                    <div className="h-4 w-full animate-pulse rounded bg-slate-200" />
-                    <div className="h-4 w-5/6 animate-pulse rounded bg-slate-200" />
+                    <div className="h-4 w-2/3 animate-pulse rounded bg-neutral-200" />
+                    <div className="h-4 w-full animate-pulse rounded bg-neutral-200" />
+                    <div className="h-4 w-5/6 animate-pulse rounded bg-neutral-200" />
                   </div>
                 ) : commentaryQuery.isError ? (
                   <div className="space-y-3">
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                       {t.auditLoadError}
                     </div>
                     <Button type="button" variant="outline" onClick={() => commentaryQuery.refetch()}>
@@ -206,7 +206,7 @@ export function LandingPageDetailDrawer({
                   </div>
                 ) : commentaryQuery.data ? (
                   <div className="space-y-4">
-                    <p className="text-sm leading-6 text-slate-700">
+                    <p className="text-sm leading-6 text-neutral-700">
                       {commentaryQuery.data.commentary.summary}
                     </p>
 
@@ -240,20 +240,20 @@ function ListBlock({
 }) {
   return (
     <div>
-      <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{title}</p>
+      <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-neutral-500">{title}</p>
       {items.length > 0 ? (
-        <ul className="space-y-2 text-sm text-slate-700">
+        <ul className="space-y-2 text-sm text-neutral-700">
           {items.map((item, index) => (
             <li
               key={`${title}-${item}`}
-              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5"
+              className="rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-2.5"
             >
               {ordered ? `${index + 1}. ` : ""}{item}
             </li>
           ))}
         </ul>
       ) : (
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-500">
+        <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-2.5 text-sm text-neutral-500">
           {emptyText ?? "No items."}
         </div>
       )}
@@ -267,9 +267,9 @@ function AiList({ title, items }: { title: string; items: string[] }) {
 
 function CompactMetricCell({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white/85 px-3 py-1.5">
-      <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">{label}</p>
-      <p className="mt-0.5 text-sm font-semibold text-slate-900">{value}</p>
+    <div className="rounded-xl border border-neutral-200 bg-white/85 px-3 py-1.5">
+      <p className="text-[10px] uppercase tracking-[0.16em] text-neutral-500">{label}</p>
+      <p className="mt-0.5 text-sm font-semibold text-neutral-900">{value}</p>
     </div>
   );
 }
@@ -288,24 +288,24 @@ function ScorePill({
   const tone = scoreTone(rounded, language);
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white/90 p-3.5">
+    <div className="rounded-xl border border-neutral-200 bg-white/90 p-3.5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
-          <p className="mt-1 text-lg font-semibold text-slate-950">{tone.label}</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">{label}</p>
+          <p className="mt-1 text-lg font-semibold text-neutral-950">{tone.label}</p>
         </div>
         <div className="text-right">
-          <p className="text-2xl font-semibold text-slate-950">{rounded}</p>
-          <p className="text-[11px] text-slate-500">{language === "tr" ? "100 üzerinden" : "out of 100"}</p>
+          <p className="text-2xl font-semibold text-neutral-950">{rounded}</p>
+          <p className="text-[11px] text-neutral-500">{language === "tr" ? "100 üzerinden" : "out of 100"}</p>
         </div>
       </div>
-      <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-neutral-100">
         <div
           className={`h-full rounded-full ${tone.barClass}`}
           style={{ width: `${rounded}%` }}
         />
       </div>
-      <p className="mt-2.5 text-sm leading-5 text-slate-600">{description}</p>
+      <p className="mt-2.5 text-sm leading-5 text-neutral-600">{description}</p>
     </div>
   );
 }
@@ -338,22 +338,22 @@ function ruleHeadline(action: ReturnType<typeof buildLandingPageRuleReport>["act
 }
 
 function getDecisionTheme(action: ReturnType<typeof buildLandingPageRuleReport>["action"]): string {
-  if (action === "scale") return "border-emerald-200 bg-[linear-gradient(180deg,rgba(236,253,245,0.95)_0%,rgba(255,255,255,0.98)_100%)]";
-  if (action === "tracking_audit") return "border-amber-300 bg-[linear-gradient(180deg,rgba(255,251,235,0.96)_0%,rgba(255,255,255,0.98)_100%)]";
-  if (action === "watch") return "border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.95)_0%,rgba(255,255,255,0.98)_100%)]";
-  return "border-orange-200 bg-[linear-gradient(180deg,rgba(255,247,237,0.96)_0%,rgba(255,255,255,0.98)_100%)]";
+  if (action === "scale") return "border-emerald-200 bg-white";
+  if (action === "tracking_audit") return "border-amber-300 bg-white";
+  if (action === "watch") return "border-neutral-200 bg-white";
+  return "border-orange-200 bg-white";
 }
 
 function getDecisionBadgeClass(action: ReturnType<typeof buildLandingPageRuleReport>["action"]): string {
   if (action === "scale") return "bg-emerald-600 text-white";
   if (action === "tracking_audit") return "bg-amber-500 text-white";
-  if (action === "watch") return "bg-slate-700 text-white";
+  if (action === "watch") return "bg-neutral-900 text-white";
   return "bg-orange-500 text-white";
 }
 
 function scoreTone(value: number, language: "en" | "tr"): { label: string; barClass: string } {
   if (value >= 80) return { label: language === "tr" ? "Güçlü" : "Strong", barClass: "bg-emerald-500" };
-  if (value >= 60) return { label: language === "tr" ? "Saglikli" : "Healthy", barClass: "bg-sky-500" };
+  if (value >= 60) return { label: language === "tr" ? "Saglikli" : "Healthy", barClass: "bg-blue-500" };
   if (value >= 40) return { label: language === "tr" ? "Karışık" : "Mixed", barClass: "bg-amber-500" };
   return { label: language === "tr" ? "Zayıf" : "Weak", barClass: "bg-orange-500" };
 }

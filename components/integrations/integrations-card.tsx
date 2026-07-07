@@ -99,7 +99,7 @@ export function IntegrationsCard({
   return (
     <div
       className={cn(
-        "group flex h-full flex-col rounded-xl border bg-card p-3 transition-colors duration-200",
+        "group flex h-full flex-col rounded-xl border bg-white p-3 transition-colors duration-200",
         syncActionRequired
           ? "border-amber-200"
           : isReady || isDegraded

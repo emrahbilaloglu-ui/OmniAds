@@ -38,7 +38,7 @@ export function CreativesToolbar({
   onShareSelected,
 }: CreativesToolbarProps) {
   return (
-    <div className="space-y-3 rounded-2xl border bg-card p-4">
+    <div className="space-y-3 rounded-xl border border-neutral-200 bg-white p-4">
       <div className="flex flex-wrap items-center gap-2">
         <DateRangePicker value={dateRangeValue} onChange={onDateRangeChange} />
 
@@ -75,7 +75,7 @@ export function CreativesToolbar({
             <button
               type="button"
               onClick={onShareSelected}
-              className="inline-flex h-8 items-center gap-1.5 rounded-full bg-foreground px-3.5 text-xs font-medium text-background transition-opacity hover:opacity-80"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-neutral-900 px-3.5 text-xs font-medium text-white transition-colors hover:bg-neutral-800"
             >
               <Share2 className="h-3.5 w-3.5" />
               Share ({selectedCount})
@@ -84,7 +84,7 @@ export function CreativesToolbar({
             <button
               type="button"
               onClick={onComingSoon}
-              className="inline-flex h-8 items-center gap-1.5 rounded-full border px-3.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3.5 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-50 hover:text-neutral-900"
             >
               <Download className="h-3.5 w-3.5" />
               Export
@@ -103,7 +103,7 @@ export function CreativesToolbar({
           <button
             type="button"
             onClick={onComingSoon}
-            className="ml-auto rounded-full border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            className="ml-auto rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs text-neutral-600 transition-colors hover:bg-neutral-50 hover:text-neutral-900"
           >
             Analyze this report
           </button>

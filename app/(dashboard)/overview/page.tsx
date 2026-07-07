@@ -515,7 +515,7 @@ function renderPlatformSectionTitle(
 
   return (
     <span className="inline-flex items-center gap-2">
-      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white ring-1 ring-slate-200">
+      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white ring-1 ring-neutral-200">
         <img
           src={configured.logo}
           alt={configured.label}
@@ -549,7 +549,7 @@ function MetricGrid({
         {Array.from({ length: 6 }).map((_, index) => (
           <div
             key={index}
-            className="h-40 animate-pulse rounded-xl border border-slate-200 bg-white"
+            className="h-40 animate-pulse rounded-xl border border-neutral-200 bg-white"
           />
         ))}
       </div>
@@ -572,14 +572,14 @@ function MetricGrid({
 }
 
 function LoadingTablePlaceholder() {
-  return <div className="h-72 animate-pulse rounded-2xl border border-slate-200 bg-white" />;
+  return <div className="h-72 animate-pulse rounded-2xl border border-neutral-200 bg-white" />;
 }
 
 function LoadingInsightPlaceholder() {
   return (
     <div className="grid gap-4 xl:grid-cols-2">
       {Array.from({ length: 4 }).map((_, index) => (
-        <div key={index} className="h-32 animate-pulse rounded-2xl border border-slate-200 bg-white" />
+        <div key={index} className="h-32 animate-pulse rounded-2xl border border-neutral-200 bg-white" />
       ))}
     </div>
   );
@@ -617,18 +617,18 @@ function DataStatusRow({
     .map((provider) => PLATFORM_TITLE_META[provider])
     .filter((provider): provider is { label: string; logo: string } => Boolean(provider));
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/60">
+    <section className="rounded-xl border border-neutral-200 bg-white p-3.5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap items-center gap-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+          <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-neutral-500">
             Live Status
           </p>
           {providerChips.map((provider) => (
             <div
               key={provider.label}
-              className="inline-flex items-center rounded-xl border border-slate-200 px-1.5 py-1 text-xs"
+              className="inline-flex items-center rounded-xl border border-neutral-200 px-1.5 py-1 text-xs"
             >
-              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white ring-1 ring-slate-200">
+              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white ring-1 ring-neutral-200">
                 <img
                   src={provider.logo}
                   alt={provider.label}
@@ -639,8 +639,8 @@ function DataStatusRow({
             </div>
           ))}
           {shopifyServing && shopifyBadge ? (
-            <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs">
-              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white ring-1 ring-slate-200">
+            <div className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 px-2.5 py-1.5 text-xs">
+              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white ring-1 ring-neutral-200">
                 <img
                   src="/platform-logos/shopify_glyph.svg"
                   alt="Shopify"

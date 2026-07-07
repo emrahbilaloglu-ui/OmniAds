@@ -70,9 +70,9 @@ const WIDGET_ICONS: Record<CustomReportWidgetType, React.ReactNode> = {
 function WidgetLibraryPreview({ type }: { type: CustomReportWidgetType }) {
   if (type === "metric") {
     return (
-      <div className="rounded-[18px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff,#f8fafc)] px-3 py-3 shadow-sm">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">KPI</div>
-        <div className="mt-2 text-lg font-semibold leading-none text-slate-950">$12.4K</div>
+      <div className="rounded-[18px] border border-neutral-200 bg-white px-3 py-3 shadow-sm">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-400">KPI</div>
+        <div className="mt-2 text-lg font-semibold leading-none text-neutral-950">$12.4K</div>
         <div className="mt-2 inline-flex rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700">
           +12.4%
         </div>
@@ -82,7 +82,7 @@ function WidgetLibraryPreview({ type }: { type: CustomReportWidgetType }) {
 
   if (type === "trend") {
     return (
-      <div className="rounded-[18px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff,#f8fafc)] px-3 py-3 shadow-sm">
+      <div className="rounded-[18px] border border-neutral-200 bg-white px-3 py-3 shadow-sm">
         <div className="flex h-12 items-end gap-1">
           {[20, 28, 24, 36, 30, 41].map((point, index) => (
             <div key={index} className="relative flex-1">
@@ -99,7 +99,7 @@ function WidgetLibraryPreview({ type }: { type: CustomReportWidgetType }) {
             </div>
           ))}
         </div>
-        <div className="mt-3 flex justify-between text-[9px] text-slate-400">
+        <div className="mt-3 flex justify-between text-[9px] text-neutral-400">
           <span>Mar</span>
           <span>Apr</span>
           <span>May</span>
@@ -110,13 +110,13 @@ function WidgetLibraryPreview({ type }: { type: CustomReportWidgetType }) {
 
   if (type === "bar") {
     return (
-      <div className="rounded-[18px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff,#f8fafc)] px-3 py-3 shadow-sm">
+      <div className="rounded-[18px] border border-neutral-200 bg-white px-3 py-3 shadow-sm">
         <div className="flex h-12 items-end gap-2">
           {[38, 26, 44, 31].map((height, index) => (
             <div key={index} className="flex-1 rounded-t-xl bg-[linear-gradient(180deg,#60a5fa,#2563eb)]" style={{ height }} />
           ))}
         </div>
-        <div className="mt-3 flex items-center gap-2 text-[10px] text-slate-400">
+        <div className="mt-3 flex items-center gap-2 text-[10px] text-neutral-400">
           <BarChart3 className="h-3.5 w-3.5" />
           <span>Ranked comparison</span>
         </div>
@@ -126,16 +126,16 @@ function WidgetLibraryPreview({ type }: { type: CustomReportWidgetType }) {
 
   if (type === "table") {
     return (
-      <div className="rounded-[18px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff,#f8fafc)] px-3 py-3 shadow-sm">
+      <div className="rounded-[18px] border border-neutral-200 bg-white px-3 py-3 shadow-sm">
         <div className="grid grid-cols-3 gap-1">
           {Array.from({ length: 9 }).map((_, index) => (
             <div
               key={index}
-              className={`h-3 rounded-md ${index < 3 ? "bg-slate-200" : "bg-slate-100"}`}
+              className={`h-3 rounded-md ${index < 3 ? "bg-neutral-200" : "bg-neutral-100"}`}
             />
           ))}
         </div>
-        <div className="mt-3 flex items-center gap-2 text-[10px] text-slate-400">
+        <div className="mt-3 flex items-center gap-2 text-[10px] text-neutral-400">
           <Table2 className="h-3.5 w-3.5" />
           <span>Detailed rows</span>
         </div>
@@ -145,13 +145,13 @@ function WidgetLibraryPreview({ type }: { type: CustomReportWidgetType }) {
 
   if (type === "text") {
     return (
-      <div className="rounded-[18px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff,#f8fafc)] px-3 py-3 shadow-sm">
+      <div className="rounded-[18px] border border-neutral-200 bg-white px-3 py-3 shadow-sm">
         <div className="space-y-2">
-          <div className="h-2 rounded-full bg-slate-200" />
-          <div className="h-2 w-5/6 rounded-full bg-slate-200" />
-          <div className="h-2 w-2/3 rounded-full bg-slate-100" />
+          <div className="h-2 rounded-full bg-neutral-200" />
+          <div className="h-2 w-5/6 rounded-full bg-neutral-200" />
+          <div className="h-2 w-2/3 rounded-full bg-neutral-100" />
         </div>
-        <div className="mt-3 flex items-center gap-2 text-[10px] text-slate-400">
+        <div className="mt-3 flex items-center gap-2 text-[10px] text-neutral-400">
           <TextCursorInput className="h-3.5 w-3.5" />
           <span>Narrative block</span>
         </div>
@@ -160,10 +160,10 @@ function WidgetLibraryPreview({ type }: { type: CustomReportWidgetType }) {
   }
 
   return (
-    <div className="rounded-[18px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff,#f8fafc)] px-3 py-3 shadow-sm">
-      <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-3 py-4 text-center">
-        <LayoutPanelTop className="mx-auto h-5 w-5 text-slate-500" />
-        <div className="mt-2 text-[10px] font-medium text-slate-500">Section divider</div>
+    <div className="rounded-[18px] border border-neutral-200 bg-white px-3 py-3 shadow-sm">
+      <div className="rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 px-3 py-4 text-center">
+        <LayoutPanelTop className="mx-auto h-5 w-5 text-neutral-500" />
+        <div className="mt-2 text-[10px] font-medium text-neutral-500">Section divider</div>
       </div>
     </div>
   );
@@ -976,22 +976,22 @@ export function ReportBuilder({
                   <button
                     type="button"
                     onClick={() => { handleExport(); setActionsMenuOpen(false); }}
-                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50"
+                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-neutral-700 hover:bg-neutral-50"
                   >
-                    <Download className="h-4 w-4 text-slate-400" />
+                    <Download className="h-4 w-4 text-neutral-400" />
                     Export CSV
                   </button>
                   <button
                     type="button"
                     onClick={() => { handlePrint(); setActionsMenuOpen(false); }}
-                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50"
+                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-neutral-700 hover:bg-neutral-50"
                   >
-                    <Download className="h-4 w-4 text-slate-400" />
+                    <Download className="h-4 w-4 text-neutral-400" />
                     Export PDF
                   </button>
                   <div className="my-1 border-t" />
                   <div className="px-4 py-2">
-                    <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">Share expiry</div>
+                    <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-neutral-400">Share expiry</div>
                     <select
                       value={String(shareExpiryDays)}
                       onChange={(event) => setShareExpiryDays(Number(event.target.value))}
@@ -1005,9 +1005,9 @@ export function ReportBuilder({
                   <button
                     type="button"
                     onClick={() => { void handleShare(); setActionsMenuOpen(false); }}
-                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50"
+                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-neutral-700 hover:bg-neutral-50"
                   >
-                    <Share2 className="h-4 w-4 text-slate-400" />
+                    <Share2 className="h-4 w-4 text-neutral-400" />
                     Copy share link
                   </button>
                 </div>
@@ -1038,8 +1038,8 @@ export function ReportBuilder({
 
           {/* Widgets — always visible, compact icon grid */}
           {!selectedWidget ? (
-            <section className="rounded-3xl border bg-white p-4 shadow-sm">
-              <h2 className="text-sm font-semibold text-slate-900">Widgets</h2>
+            <section className="rounded-xl border bg-white p-4 shadow-sm">
+              <h2 className="text-sm font-semibold text-neutral-900">Widgets</h2>
               <p className="mt-1 text-xs text-muted-foreground">
                 Drag and drop onto the canvas.
               </p>
@@ -1065,15 +1065,15 @@ export function ReportBuilder({
                         addWidget(widget.type, selectedSlot ?? 0);
                       }
                     }}
-                    className="group relative flex flex-col items-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-3 text-slate-600 transition hover:border-slate-400 hover:bg-white hover:shadow-sm cursor-grab active:cursor-grabbing"
+                    className="group relative flex flex-col items-center gap-1.5 rounded-2xl border border-neutral-200 bg-neutral-50 px-2 py-3 text-neutral-600 transition hover:border-neutral-400 hover:bg-white hover:shadow-sm cursor-grab active:cursor-grabbing"
                   >
                     {WIDGET_ICONS[widget.type]}
-                    <span className="text-[10px] font-medium text-slate-500">{widget.label}</span>
+                    <span className="text-[10px] font-medium text-neutral-500">{widget.label}</span>
                     {/* Tooltip */}
-                    <div className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 hidden w-36 -translate-x-1/2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-center shadow-lg group-hover:block">
-                      <div className="text-xs font-semibold text-slate-900">{widget.label}</div>
-                      <div className="mt-0.5 text-[10px] leading-4 text-slate-500">{widget.detail}</div>
-                      <div className="absolute bottom-0 left-1/2 h-2.5 w-2.5 -translate-x-1/2 translate-y-1/2 rotate-45 border-b border-r border-slate-200 bg-white" />
+                    <div className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 hidden w-36 -translate-x-1/2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-center shadow-lg group-hover:block">
+                      <div className="text-xs font-semibold text-neutral-900">{widget.label}</div>
+                      <div className="mt-0.5 text-[10px] leading-4 text-neutral-500">{widget.detail}</div>
+                      <div className="absolute bottom-0 left-1/2 h-2.5 w-2.5 -translate-x-1/2 translate-y-1/2 rotate-45 border-b border-r border-neutral-200 bg-white" />
                     </div>
                   </div>
                 ))}
@@ -1097,7 +1097,7 @@ export function ReportBuilder({
           ) : null}
 
           {selectedWidget ? (
-            <section className="rounded-3xl border bg-white shadow-sm overflow-hidden" style={{ position: "relative", zIndex: 11 }}>
+            <section className="rounded-xl border bg-white shadow-sm overflow-hidden" style={{ position: "relative", zIndex: 11 }}>
               {/* Header */}
               <div className="flex items-center gap-2 border-b px-4 py-3">
                 <button
@@ -1111,11 +1111,11 @@ export function ReportBuilder({
                     setOpenMetricRowIndex(null);
                     setBreakdownMenuOpen(false);
                   }}
-                  className="shrink-0 text-xs font-medium text-slate-500 hover:text-slate-900"
+                  className="shrink-0 text-xs font-medium text-neutral-500 hover:text-neutral-900"
                 >
                   ← Back
                 </button>
-                <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-900">
+                <span className="min-w-0 flex-1 truncate text-sm font-semibold text-neutral-900">
                   {selectedWidget.title}
                 </span>
               </div>
@@ -1127,7 +1127,7 @@ export function ReportBuilder({
                     key={w.type}
                     type="button"
                     onClick={() => addWidget(w.type, selectedSlot ?? 0)}
-                    className="rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:border-slate-300 hover:bg-white transition"
+                    className="rounded-xl border border-neutral-200 bg-neutral-50 px-2.5 py-1 text-[11px] font-medium text-neutral-600 hover:border-neutral-300 hover:bg-white transition"
                   >
                     + {w.label}
                   </button>
@@ -1152,7 +1152,7 @@ export function ReportBuilder({
                   return (
                     <div className="px-4 py-3">
                       <div className="mb-3 flex items-center justify-between">
-                        <p className="font-semibold text-slate-900">Metrics</p>
+                        <p className="font-semibold text-neutral-900">Metrics</p>
                       </div>
 
                       {/* Channel logo strip */}
@@ -1183,7 +1183,7 @@ export function ReportBuilder({
                               className={`flex h-8 w-8 items-center justify-center rounded-lg border transition ${
                                 isActive
                                   ? "border-blue-400 bg-blue-50 ring-1 ring-blue-300"
-                                  : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                                  : "border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50"
                               }`}
                             >
                               {ch.id === "all" ? (
@@ -1206,7 +1206,7 @@ export function ReportBuilder({
                               ) : logo ? (
                                 <Image src={logo} alt={ch.label} width={16} height={16} className="h-4 w-4 object-contain" />
                               ) : (
-                                <span className="text-[9px] font-bold text-slate-500">{ch.label.slice(0, 2)}</span>
+                                <span className="text-[9px] font-bold text-neutral-500">{ch.label.slice(0, 2)}</span>
                               )}
                             </button>
                           );
@@ -1228,7 +1228,7 @@ export function ReportBuilder({
                             : [];
 
                           return (
-                            <div key={rowIndex} className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                            <div key={rowIndex} className="rounded-xl border border-neutral-200 bg-white overflow-hidden">
                               <div className="flex items-center">
                                 <button
                                   type="button"
@@ -1236,10 +1236,10 @@ export function ReportBuilder({
                                     setOpenMetricRowIndex(rowOpen ? null : rowIndex);
                                     setMetricSearch("");
                                   }}
-                                  className="flex min-w-0 flex-1 items-center justify-between px-3 py-2.5 text-left text-sm hover:bg-slate-50 transition"
+                                  className="flex min-w-0 flex-1 items-center justify-between px-3 py-2.5 text-left text-sm hover:bg-neutral-50 transition"
                                 >
-                                  <span className="truncate text-slate-900">{metricLabel || tr("Select metric", "Metrik sec")}</span>
-                                  <ChevronDown className={`ml-2 h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform ${rowOpen ? "rotate-180" : ""}`} />
+                                  <span className="truncate text-neutral-900">{metricLabel || tr("Select metric", "Metrik sec")}</span>
+                                  <ChevronDown className={`ml-2 h-3.5 w-3.5 shrink-0 text-neutral-400 transition-transform ${rowOpen ? "rotate-180" : ""}`} />
                                 </button>
                                 {canAddMore && metricKeys.length > 1 ? (
                                   <button
@@ -1252,7 +1252,7 @@ export function ReportBuilder({
                                       });
                                       setOpenMetricRowIndex(null);
                                     }}
-                                    className="flex h-full items-center border-l border-slate-100 px-2.5 text-slate-300 hover:text-red-400 transition"
+                                    className="flex h-full items-center border-l border-neutral-100 px-2.5 text-neutral-300 hover:text-red-400 transition"
                                     title={tr("Remove metric", "Metrigi kaldir")}
                                   >
                                     <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
@@ -1262,15 +1262,15 @@ export function ReportBuilder({
 
                               {/* Metric dropdown */}
                               {rowOpen ? (
-                                <div className="border-t border-slate-100">
-                                  <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
-                                    <svg className="h-3.5 w-3.5 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                                <div className="border-t border-neutral-100">
+                                  <div className="flex items-center gap-2 border-b border-neutral-100 px-3 py-2">
+                                    <svg className="h-3.5 w-3.5 shrink-0 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                                     <input
                                       autoFocus
                                       value={metricSearch}
                                       onChange={(e) => setMetricSearch(e.target.value)}
                                       placeholder={tr("Search", "Ara")}
-                                      className="w-full bg-transparent text-sm outline-none text-slate-900 placeholder:text-slate-400"
+                                      className="w-full bg-transparent text-sm outline-none text-neutral-900 placeholder:text-neutral-400"
                                     />
                                   </div>
                                   <div className="max-h-52 overflow-y-auto">
@@ -1295,7 +1295,7 @@ export function ReportBuilder({
                                         className={`flex w-full items-center px-3 py-2.5 text-left text-sm transition ${
                                           metric.value === metricKey
                                             ? "bg-blue-50 text-blue-700 font-medium"
-                                            : "text-slate-800 hover:bg-slate-50"
+                                            : "text-neutral-800 hover:bg-neutral-50"
                                         }`}
                                       >
                                         {metric.label}
@@ -1320,7 +1320,7 @@ export function ReportBuilder({
                               metricKey: updated[0],
                             });
                           }}
-                          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-300 py-2.5 text-sm font-medium text-slate-500 hover:border-slate-400 hover:text-slate-700 transition"
+                          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-neutral-300 py-2.5 text-sm font-medium text-neutral-500 hover:border-neutral-400 hover:text-neutral-700 transition"
                         >
                           {tr("+ Metric", "+ Metrik")}
                         </button>
@@ -1373,7 +1373,7 @@ export function ReportBuilder({
                               className={`flex h-8 w-8 items-center justify-center rounded-lg border transition ${
                                 isActive
                                   ? "border-blue-400 bg-blue-50 ring-1 ring-blue-300"
-                                  : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                                  : "border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50"
                               }`}
                             >
                               {ch.id === "all" ? (
@@ -1396,7 +1396,7 @@ export function ReportBuilder({
                               ) : logo ? (
                                 <Image src={logo} alt={ch.label} width={16} height={16} className="h-4 w-4 object-contain" />
                               ) : (
-                                <span className="text-[9px] font-bold text-slate-500">{ch.label.slice(0, 2)}</span>
+                                <span className="text-[9px] font-bold text-neutral-500">{ch.label.slice(0, 2)}</span>
                               )}
                             </button>
                           );
@@ -1406,11 +1406,11 @@ export function ReportBuilder({
                       {/* Dimension picker */}
                       {dimensionOptions.length > 0 && (
                         <div>
-                          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{tr("Dimension", "Boyut")}</p>
+                          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">{tr("Dimension", "Boyut")}</p>
                           <select
                             value={tableDimension}
                             onChange={(e) => updateWidget(selectedWidget.id, { tableDimension: e.target.value, columns: [] })}
-                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                            className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-800 focus:outline-none focus:ring-2 focus:ring-blue-300"
                           >
                             {(() => {
                               const groups = Array.from(new Set(dimensionOptions.map((d) => d.group ?? "")));
@@ -1432,11 +1432,11 @@ export function ReportBuilder({
                       {/* Metrics section */}
                       <div>
                         <div className="mb-2 flex items-center justify-between">
-                          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{tr("Metrics", "Metrikler")}</p>
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">{tr("Metrics", "Metrikler")}</p>
                           <select
                             value={selectedWidget.limit ?? 8}
                             onChange={(e) => updateWidget(selectedWidget.id, { limit: Number(e.target.value) })}
-                            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
+                            className="rounded-lg border border-neutral-200 bg-white px-2 py-1 text-xs text-neutral-700"
                           >
                             <option value="5">5 rows</option>
                             <option value="8">8 rows</option>
@@ -1474,28 +1474,28 @@ export function ReportBuilder({
                         )}
 
                         {/* Add metric dropdown */}
-                        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                        <div className="rounded-xl border border-neutral-200 bg-white overflow-hidden">
                           <button
                             type="button"
                             onClick={() => {
                               setColumnMenuOpen((o) => !o);
                               setColumnSearch("");
                             }}
-                            className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm hover:bg-slate-50 transition"
+                            className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm hover:bg-neutral-50 transition"
                           >
-                            <span className="text-slate-500">{tr("+ Add metric", "+ Metrik ekle")}</span>
-                            <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform ${columnMenuOpen ? "rotate-180" : ""}`} />
+                            <span className="text-neutral-500">{tr("+ Add metric", "+ Metrik ekle")}</span>
+                            <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-neutral-400 transition-transform ${columnMenuOpen ? "rotate-180" : ""}`} />
                           </button>
                           {columnMenuOpen && (
-                            <div className="border-t border-slate-100">
-                              <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
-                                <svg className="h-3.5 w-3.5 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                            <div className="border-t border-neutral-100">
+                              <div className="flex items-center gap-2 border-b border-neutral-100 px-3 py-2">
+                                <svg className="h-3.5 w-3.5 shrink-0 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                                 <input
                                   autoFocus
                                   value={columnSearch}
                                   onChange={(e) => setColumnSearch(e.target.value)}
                                   placeholder={tr("Search metrics", "Metrik ara")}
-                                  className="w-full bg-transparent text-sm outline-none text-slate-900 placeholder:text-slate-400"
+                                  className="w-full bg-transparent text-sm outline-none text-neutral-900 placeholder:text-neutral-400"
                                 />
                               </div>
                               <div className="max-h-52 overflow-y-auto">
@@ -1512,7 +1512,7 @@ export function ReportBuilder({
                                         updateWidget(selectedWidget.id, { columns: next });
                                       }}
                                       className={`flex w-full items-center justify-between px-3 py-2.5 text-left text-sm transition ${
-                                        active ? "bg-blue-50 text-blue-700 font-medium" : "text-slate-800 hover:bg-slate-50"
+                                        active ? "bg-blue-50 text-blue-700 font-medium" : "text-neutral-800 hover:bg-neutral-50"
                                       }`}
                                     >
                                       <span>{metric.label}</span>
@@ -1533,7 +1533,7 @@ export function ReportBuilder({
                 {(selectedWidget.type === "trend" || selectedWidget.type === "bar") ? (
                   <div className="px-4 py-3">
                     <div className="mb-3 flex items-center justify-between">
-                      <p className="font-semibold text-slate-900">{tr("Breakdown", "Kirilim")}</p>
+                      <p className="font-semibold text-neutral-900">{tr("Breakdown", "Kirilim")}</p>
                     </div>
                     {(() => {
                       const breakdownOptions = getBreakdownOptionsForPlatform(selectedWidgetChannel, selectedWidget.type);
@@ -1546,28 +1546,28 @@ export function ReportBuilder({
                           )
                         : [];
                       return (
-                        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                        <div className="rounded-xl border border-neutral-200 bg-white overflow-hidden">
                           <button
                             type="button"
                             onClick={() => {
                               setBreakdownMenuOpen((o) => !o);
                               setBreakdownSearch("");
                             }}
-                            className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm hover:bg-slate-50 transition"
+                            className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm hover:bg-neutral-50 transition"
                           >
-                            <span className="text-slate-900">{currentLabel}</span>
-                            <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform ${breakdownMenuOpen ? "rotate-180" : ""}`} />
+                            <span className="text-neutral-900">{currentLabel}</span>
+                            <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-neutral-400 transition-transform ${breakdownMenuOpen ? "rotate-180" : ""}`} />
                           </button>
                           {breakdownMenuOpen ? (
-                            <div className="border-t border-slate-100">
-                              <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
-                                <svg className="h-3.5 w-3.5 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                            <div className="border-t border-neutral-100">
+                              <div className="flex items-center gap-2 border-b border-neutral-100 px-3 py-2">
+                                <svg className="h-3.5 w-3.5 shrink-0 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                                 <input
                                   autoFocus
                                   value={breakdownSearch}
                                   onChange={(e) => setBreakdownSearch(e.target.value)}
                                   placeholder={tr("Search", "Ara")}
-                                  className="w-full bg-transparent text-sm outline-none text-slate-900 placeholder:text-slate-400"
+                                  className="w-full bg-transparent text-sm outline-none text-neutral-900 placeholder:text-neutral-400"
                                 />
                               </div>
                               <div className="max-h-48 overflow-y-auto">
@@ -1583,7 +1583,7 @@ export function ReportBuilder({
                                     return (
                                       <div key={opt.value}>
                                         {showGroupHeader && (
-                                          <p className="px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                                          <p className="px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
                                             {opt.group}
                                           </p>
                                         )}
@@ -1597,7 +1597,7 @@ export function ReportBuilder({
                                           className={`flex w-full items-center px-3 py-2.5 text-left text-sm transition ${
                                             opt.value === currentBreakdown
                                               ? "bg-blue-50 text-blue-700 font-medium"
-                                              : "text-slate-800 hover:bg-slate-50"
+                                              : "text-neutral-800 hover:bg-neutral-50"
                                           }`}
                                         >
                                           {opt.label}
@@ -1618,30 +1618,30 @@ export function ReportBuilder({
                 {/* Body (text / section) */}
                 {(selectedWidget.type === "text" || selectedWidget.type === "section") ? (
                   <div className="px-4 py-3 space-y-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{tr("Body", "İçerik")}</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-neutral-400">{tr("Body", "İçerik")}</p>
                     <textarea
                       value={selectedWidget.text ?? ""}
                       onChange={(e) => updateWidget(selectedWidget.id, { text: e.target.value })}
                       rows={5}
-                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                      className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900"
                     />
                   </div>
                 ) : null}
 
                 {/* Copy */}
                 <div className="px-4 py-3 space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{tr("Copy", "Metin")}</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-neutral-400">{tr("Copy", "Metin")}</p>
                   <input
                     value={selectedWidget.title}
                     onChange={(e) => updateWidget(selectedWidget.id, { title: e.target.value })}
                     placeholder={tr("Title", "Başlık")}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                    className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900"
                   />
                   <input
                     value={selectedWidget.subtitle ?? ""}
                     onChange={(e) => updateWidget(selectedWidget.id, { subtitle: e.target.value || undefined })}
                     placeholder={tr("Subtitle (optional)", "Alt başlık (opsiyonel)")}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                    className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900"
                   />
                 </div>
 
@@ -1650,7 +1650,7 @@ export function ReportBuilder({
           ) : null}
 
           {true ? (
-            <section className="rounded-3xl border bg-white p-4 shadow-sm">
+            <section className="rounded-xl border bg-white p-4 shadow-sm">
               <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                 {tr("Templates", "Template'ler")}
               </h2>
@@ -1662,8 +1662,8 @@ export function ReportBuilder({
                     onClick={() => setTemplateFilter(category)}
                     className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
                       templateFilter === category
-                        ? "bg-slate-900 text-white"
-                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                        ? "bg-neutral-900 text-white"
+                        : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
                     }`}
                   >
                     {category}
@@ -1676,11 +1676,11 @@ export function ReportBuilder({
                     key={template.id}
                     type="button"
                     onClick={() => applyTemplate(template)}
-                    className={`w-full rounded-[24px] border bg-gradient-to-br ${template.accent} px-3 py-3 text-left transition hover:-translate-y-0.5 hover:shadow-sm`}
+                    className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-3 text-left transition hover:border-neutral-300 hover:bg-neutral-50"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="text-sm font-semibold">{template.name}</div>
-                      <span className="rounded-full bg-white/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600">
+                      <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-neutral-500">
                         {template.category}
                       </span>
                     </div>
@@ -1694,7 +1694,7 @@ export function ReportBuilder({
         </aside>
 
         <section className="space-y-5">
-          <div className="rounded-3xl border bg-white p-4 shadow-sm">
+          <div className="rounded-xl border bg-white p-4 shadow-sm">
             <div className="mb-4 flex items-start justify-between gap-4">
               <div className="flex-1">
                 <h2 className="text-lg font-semibold">{tr("Canvas", "Tuval")}</h2>
@@ -1702,22 +1702,22 @@ export function ReportBuilder({
                   value={description}
                   onChange={(event) => setDescription(event.target.value)}
                   rows={1}
-                  className="mt-1 w-full resize-none rounded-xl border-0 bg-transparent px-0 text-sm text-muted-foreground placeholder:text-slate-400 focus:outline-none focus:ring-0"
+                  className="mt-1 w-full resize-none rounded-xl border-0 bg-transparent px-0 text-sm text-muted-foreground placeholder:text-neutral-400 focus:outline-none focus:ring-0"
                   placeholder={tr("Add a description for this report...", "Bu rapor için bir açıklama ekleyin...")}
                 />
               </div>
               {templateId ? (
-                <span className="shrink-0 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                <span className="shrink-0 rounded-full bg-neutral-100 px-3 py-1 text-xs font-medium text-neutral-600">
                   Template: {templateId}
                 </span>
               ) : null}
             </div>
             {canvasWidgets.length === 0 ? (
-              <div className="mb-4 rounded-[28px] border border-dashed border-blue-200 bg-[linear-gradient(135deg,#eff6ff,#ffffff)] px-5 py-5">
+              <div className="mb-4 rounded-xl border border-dashed border-blue-200 bg-blue-50 px-5 py-5">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
-                    <div className="text-sm font-semibold text-slate-950">{tr("Start with your first widget", "İlk widget'inizle başlayın")}</div>
-                    <p className="mt-1 max-w-2xl text-sm text-slate-600">
+                    <div className="text-sm font-semibold text-neutral-950">{tr("Start with your first widget", "İlk widget'inizle başlayın")}</div>
+                    <p className="mt-1 max-w-2xl text-sm text-neutral-600">
                       Drag a metric, chart, table, or section from the left palette into the canvas. Once it lands,
                       click the widget to configure its source, account, and content.
                     </p>
@@ -1726,10 +1726,10 @@ export function ReportBuilder({
                       {tr("Drag from left", "Soldan sürükleyin")}
                     </div>
                 </div>
-                <div className="mt-3 text-xs text-slate-500">
-                  Tip: select a widget and use <span className="font-semibold text-slate-700">Delete</span> to remove
-                  , <span className="font-semibold text-slate-700">Cmd/Ctrl + D</span> to duplicate it, or{" "}
-                  <span className="font-semibold text-slate-700">Shift + Arrow</span> to move it around the grid.
+                <div className="mt-3 text-xs text-neutral-500">
+                  Tip: select a widget and use <span className="font-semibold text-neutral-700">Delete</span> to remove
+                  , <span className="font-semibold text-neutral-700">Cmd/Ctrl + D</span> to duplicate it, or{" "}
+                  <span className="font-semibold text-neutral-700">Shift + Arrow</span> to move it around the grid.
                 </div>
               </div>
             ) : null}
@@ -1774,13 +1774,13 @@ export function ReportBuilder({
                         setDraggedWidgetType(null);
                         setHoveredSlot(null);
                       }}
-                      className={`relative rounded-3xl p-4 text-left transition ${
+                      className={`relative rounded-xl p-4 text-left transition ${
                         slotCovered
                           ? "border border-transparent bg-transparent"
                           : hoveredSlot === slot
                             ? "border-2 border-emerald-400 border-dashed bg-emerald-50/70 shadow-[0_0_0_4px_rgba(16,185,129,0.08)]"
                             : (draggedWidgetType || draggedWidgetId)
-                              ? "border-2 border-dashed border-slate-200 bg-slate-50/40"
+                              ? "border-2 border-dashed border-neutral-200 bg-neutral-50/40"
                               : selected
                                 ? "border-2 border-blue-400 border-dashed bg-blue-50/40"
                                 : "border border-transparent bg-transparent"
@@ -1794,7 +1794,7 @@ export function ReportBuilder({
                               setSelectedSlot(slot);
                               setSelectedWidgetId(widget?.id ?? null);
                             }}
-                            className="absolute inset-0 rounded-3xl"
+                            className="absolute inset-0 rounded-xl"
                             aria-label={`Target slot ${slot + 1}`}
                           />
                           {hoveredSlot === slot ? (
@@ -1846,10 +1846,10 @@ export function ReportBuilder({
                           setSelectedSlot(widget.slot);
                         }}
                         style={getCanvasWidgetStyle(widget)}
-                        className={`pointer-events-auto group relative ${widget.type === "table" ? "overflow-auto" : "overflow-hidden"} rounded-[28px] border-2 bg-white text-left shadow-sm transition ${
+                        className={`pointer-events-auto group relative ${widget.type === "table" ? "overflow-auto" : "overflow-hidden"} rounded-xl border-2 bg-white text-left shadow-sm transition ${
                           selectedWidgetId === widget.id
                             ? "border-blue-500 shadow-blue-100"
-                            : "border-slate-200 hover:border-slate-300"
+                            : "border-neutral-200 hover:border-neutral-300"
                         }`}
                       >
                         {/* Rendered widget content fills the card */}
@@ -1859,9 +1859,9 @@ export function ReportBuilder({
                           ) : (
                             <div className="flex h-full items-center justify-center p-4">
                               <div className="text-center">
-                                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{widget.type}</div>
-                                <div className="mt-2 text-sm font-medium text-slate-600">{widget.title}</div>
-                                <div className="mt-2 h-1 w-16 animate-pulse rounded-full bg-slate-200 mx-auto" />
+                                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-neutral-400">{widget.type}</div>
+                                <div className="mt-2 text-sm font-medium text-neutral-600">{widget.title}</div>
+                                <div className="mt-2 h-1 w-16 animate-pulse rounded-full bg-neutral-200 mx-auto" />
                               </div>
                             </div>
                           )}
@@ -1880,7 +1880,7 @@ export function ReportBuilder({
                               setSelectedWidgetId(widget.id);
                               setSelectedSlot(widget.slot);
                         }}
-                            className="rounded-full px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-100"
+                            className="rounded-full px-2 py-1 text-[10px] font-semibold text-neutral-600 hover:bg-neutral-100"
                             title={tr("Edit widget", "Widget'i düzenle")}
                           >
                             {tr("Edit", "Düzenle")}
@@ -1891,7 +1891,7 @@ export function ReportBuilder({
                               event.stopPropagation();
                               duplicateWidget(widget.id);
                             }}
-                            className="rounded-full px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-100"
+                            className="rounded-full px-2 py-1 text-[10px] font-semibold text-neutral-600 hover:bg-neutral-100"
                             title={tr("Duplicate widget", "Widget'i kopyala")}
                           >
                             {tr("Copy", "Kopyala")}
@@ -1975,7 +1975,7 @@ export function ReportBuilder({
                 {dragPreview ? (
                   <div
                     style={getCanvasWidgetStyle(dragPreview)}
-                    className="rounded-[28px] border-2 border-dashed border-emerald-500 bg-emerald-100/70 p-4"
+                    className="rounded-xl border-2 border-dashed border-emerald-500 bg-emerald-100/70 p-4"
                   >
                     <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
                       {dragPreview.mode === "create"
@@ -2001,7 +2001,7 @@ export function ReportBuilder({
           </div>
 
           {previewQuery.error ? (
-            <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
               {previewQuery.error instanceof Error ? previewQuery.error.message : tr("Preview failed.", "Onizleme başarısız oldu.")}
             </div>
           ) : null}

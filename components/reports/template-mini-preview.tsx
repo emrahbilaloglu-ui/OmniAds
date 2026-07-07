@@ -17,10 +17,10 @@ function getWidgetStyle(widget: Pick<CustomReportWidgetDefinition, "slot" | "col
 }
 
 function getWidgetTone(widget: CustomReportWidgetDefinition) {
-  if (widget.type === "section") return "bg-slate-900/8";
+  if (widget.type === "section") return "bg-neutral-900/8";
   if (widget.type === "metric") return "bg-white/90";
   if (widget.type === "trend") return "bg-sky-100/90";
-  if (widget.type === "bar") return "bg-violet-100/90";
+  if (widget.type === "bar") return "bg-blue-100/90";
   if (widget.type === "table") return "bg-white/80";
   return "bg-emerald-100/90";
 }
@@ -29,16 +29,16 @@ function renderWidgetGlyph(widget: CustomReportWidgetDefinition) {
   if (widget.type === "metric") {
     return (
       <div className="space-y-1">
-        <div className="h-2 w-8 rounded-full bg-slate-900/10" />
-        <div className="h-4 w-10 rounded-full bg-slate-900/15" />
+        <div className="h-2 w-8 rounded-full bg-neutral-900/10" />
+        <div className="h-4 w-10 rounded-full bg-neutral-900/15" />
       </div>
     );
   }
   if (widget.type === "section") {
     return (
       <div className="space-y-1.5">
-        <div className="h-2 w-10 rounded-full bg-slate-900/15" />
-        <div className="h-2 w-24 rounded-full bg-slate-900/12" />
+        <div className="h-2 w-10 rounded-full bg-neutral-900/15" />
+        <div className="h-2 w-24 rounded-full bg-neutral-900/12" />
       </div>
     );
   }
@@ -61,7 +61,7 @@ function renderWidgetGlyph(widget: CustomReportWidgetDefinition) {
         {[28, 48, 36, 54, 30].map((height, index) => (
           <div
             key={index}
-            className="flex-1 rounded-t-md bg-violet-500/60"
+            className="flex-1 rounded-t-md bg-blue-500/55"
             style={{ height: `${height}%` }}
           />
         ))}
@@ -73,13 +73,13 @@ function renderWidgetGlyph(widget: CustomReportWidgetDefinition) {
       <div className="space-y-1.5">
         <div className="grid grid-cols-4 gap-1">
           {Array.from({ length: 4 }).map((_, index) => (
-            <div key={index} className="h-2 rounded-full bg-slate-900/12" />
+            <div key={index} className="h-2 rounded-full bg-neutral-900/12" />
           ))}
         </div>
         {Array.from({ length: 3 }).map((_, rowIndex) => (
           <div key={rowIndex} className="grid grid-cols-4 gap-1">
             {Array.from({ length: 4 }).map((_, index) => (
-              <div key={index} className="h-2 rounded-full bg-slate-900/8" />
+              <div key={index} className="h-2 rounded-full bg-neutral-900/8" />
             ))}
           </div>
         ))}
@@ -88,9 +88,9 @@ function renderWidgetGlyph(widget: CustomReportWidgetDefinition) {
   }
   return (
     <div className="space-y-1.5">
-      <div className="h-2 w-16 rounded-full bg-slate-900/12" />
-      <div className="h-2 w-12 rounded-full bg-slate-900/8" />
-      <div className="h-2 w-20 rounded-full bg-slate-900/8" />
+      <div className="h-2 w-16 rounded-full bg-neutral-900/12" />
+      <div className="h-2 w-12 rounded-full bg-neutral-900/8" />
+      <div className="h-2 w-20 rounded-full bg-neutral-900/8" />
     </div>
   );
 }
@@ -122,5 +122,5 @@ export function TemplateMiniPreview({
 }
 
 export function TemplateProviders({ template }: { template: CustomReportTemplate }) {
-  return <span className="text-xs text-slate-500">{template.providers.join(" • ")}</span>;
+  return <span className="text-xs text-neutral-500">{template.providers.join(" • ")}</span>;
 }

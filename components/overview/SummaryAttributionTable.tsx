@@ -80,7 +80,7 @@ export function SummaryAttributionTable({
             value={filterText}
             onChange={(event) => setFilterText(event.target.value)}
             placeholder={tr(language, "Filter channels", "Kanallari filtrele")}
-            className="h-10 w-56 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-0 placeholder:text-slate-400"
+            className="h-10 w-56 rounded-xl border border-neutral-200 bg-white px-3 text-sm outline-none ring-0 placeholder:text-neutral-400"
           />
         </div>
         <DropdownMenu>
@@ -110,9 +110,9 @@ export function SummaryAttributionTable({
         </DropdownMenu>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm shadow-slate-200/30">
-        <table className="min-w-full divide-y divide-slate-200 text-sm">
-          <thead className="bg-slate-50/80">
+      <div className="overflow-x-auto rounded-xl border border-neutral-200 bg-white">
+        <table className="min-w-full divide-y divide-neutral-200 text-sm tabular-nums">
+          <thead className="bg-neutral-50">
             <tr>
               {[...DEFAULT_COLUMNS, ...OPTIONAL_COLUMNS]
                 .filter((column) => visibleColumns.includes(column.key))
@@ -121,8 +121,8 @@ export function SummaryAttributionTable({
                   key={column.key}
                   className={
                     column.key === "channel"
-                      ? "px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500"
-                      : "px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500"
+                      ? "px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500"
+                      : "px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500"
                   }
                 >
                   <button
@@ -150,21 +150,21 @@ export function SummaryAttributionTable({
                         <ArrowDown className="h-3.5 w-3.5" />
                       )
                     ) : (
-                      <ArrowUpDown className="h-3.5 w-3.5 text-slate-400" />
+                      <ArrowUpDown className="h-3.5 w-3.5 text-neutral-400" />
                     )}
                   </button>
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-200">
+          <tbody className="divide-y divide-neutral-200">
             {filteredRows.map((row) => (
               <tr
                 key={row.channel}
-                className="transition-colors hover:bg-slate-50/70"
+                className="transition-colors hover:bg-neutral-50/70"
               >
                 {visibleColumns.includes("channel") ? (
-                  <td className="px-3 py-2.5 text-sm font-medium text-slate-900">
+                  <td className="px-3 py-2.5 text-sm font-medium text-neutral-900">
                     <div className="flex items-center gap-2">
                       <ChannelBadge channel={row.channel} />
                       <span>{row.channel}</span>
@@ -172,42 +172,42 @@ export function SummaryAttributionTable({
                   </td>
                 ) : null}
                 {visibleColumns.includes("spend") ? (
-                  <td className="px-3 py-2.5 text-right text-sm font-medium text-slate-900">
+                  <td className="px-3 py-2.5 text-right text-sm font-medium text-neutral-900">
                     {formatCurrency(row.spend, currencySymbol)}
                   </td>
                 ) : null}
                 {visibleColumns.includes("revenue") ? (
-                  <td className="px-3 py-2.5 text-right text-sm font-medium text-slate-900">
+                  <td className="px-3 py-2.5 text-right text-sm font-medium text-neutral-900">
                     {formatCurrency(row.revenue, currencySymbol)}
                   </td>
                 ) : null}
                 {visibleColumns.includes("roas") ? (
-                  <td className="px-3 py-2.5 text-right text-sm font-medium text-slate-900">
+                  <td className="px-3 py-2.5 text-right text-sm font-medium text-neutral-900">
                     {formatRatio(row.roas)}
                   </td>
                 ) : null}
                 {visibleColumns.includes("conversions") ? (
-                  <td className="px-3 py-2.5 text-right text-sm font-medium text-slate-900">
+                  <td className="px-3 py-2.5 text-right text-sm font-medium text-neutral-900">
                     {formatCount(row.conversions)}
                   </td>
                 ) : null}
                 {visibleColumns.includes("clicks") ? (
-                  <td className="px-3 py-2.5 text-right text-sm font-medium text-slate-900">
+                  <td className="px-3 py-2.5 text-right text-sm font-medium text-neutral-900">
                     {formatCount(row.clicks)}
                   </td>
                 ) : null}
                 {visibleColumns.includes("ctr") ? (
-                  <td className="px-3 py-2.5 text-right text-sm font-medium text-slate-900">
+                  <td className="px-3 py-2.5 text-right text-sm font-medium text-neutral-900">
                     {formatPercent(row.ctr)}
                   </td>
                 ) : null}
                 {visibleColumns.includes("cpa") ? (
-                  <td className="px-3 py-2.5 text-right text-sm font-medium text-slate-900">
+                  <td className="px-3 py-2.5 text-right text-sm font-medium text-neutral-900">
                     {formatCurrency(row.cpa, currencySymbol)}
                   </td>
                 ) : null}
                 {visibleColumns.includes("aov") ? (
-                  <td className="px-3 py-2.5 text-right text-sm font-medium text-slate-900">
+                  <td className="px-3 py-2.5 text-right text-sm font-medium text-neutral-900">
                     {formatCurrency(row.aov, currencySymbol)}
                   </td>
                 ) : null}
@@ -257,7 +257,7 @@ function ChannelBadge({ channel }: { channel: string }) {
       ? "bg-[#ECFDF3] text-[#15803D]"
       : normalized.includes("klaviyo")
       ? "bg-[#F2FDE8] text-[#3F6212]"
-      : "bg-slate-100 text-slate-600";
+      : "bg-neutral-100 text-neutral-600";
 
   return (
     <span

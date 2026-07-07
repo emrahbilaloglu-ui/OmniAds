@@ -67,7 +67,7 @@ const BRAND_META: Record<
   cost_model: {
     label: "Manual cost model",
     shortLabel: "CM",
-    className: "bg-slate-100 text-slate-700 ring-slate-200",
+    className: "bg-neutral-100 text-neutral-700 ring-neutral-200",
   },
 };
 
@@ -150,7 +150,7 @@ export function MetricSourceLogos({
       })}
       {overflow.length > 0 ? (
         <span
-          className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full border border-slate-200 bg-white px-1.5 text-[10px] font-semibold text-slate-500"
+          className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full border border-neutral-200 bg-white px-1.5 text-[10px] font-semibold text-neutral-500"
           title={overflow.map((source) => BRAND_META[source].label).join(", ")}
           aria-label={`Additional sources: ${overflow
             .map((source) => BRAND_META[source].label)

@@ -627,7 +627,7 @@ export default function IntegrationsPage() {
 
   return (
     <div className="space-y-5">
-      <div className="rounded-2xl border border-border/70 bg-gradient-to-br from-card via-card to-muted/30 p-4 shadow-sm">
+      <div className="rounded-xl border border-border bg-card p-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl space-y-2">
             <div className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/80 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
@@ -903,7 +903,7 @@ export default function IntegrationsPage() {
 function IntegrationsPageSkeleton() {
   return (
     <div className="space-y-5">
-      <div className="rounded-2xl border border-border/70 bg-gradient-to-br from-card via-card to-muted/30 p-4 shadow-sm">
+      <div className="rounded-xl border border-border bg-card p-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl space-y-2">
             <Skeleton className="h-7 w-40 rounded-full" />
@@ -918,7 +918,7 @@ function IntegrationsPageSkeleton() {
             {Array.from({ length: 3 }).map((_, index) => (
               <div
                 key={index}
-                className="rounded-3xl border border-border/60 bg-background/80 p-4"
+                className="rounded-xl border border-border bg-background p-4"
               >
                 <Skeleton className="h-3 w-16" />
                 <Skeleton className="mt-4 h-8 w-12" />
@@ -939,7 +939,7 @@ function IntegrationsPageSkeleton() {
             {Array.from({ length: sectionIndex === 2 ? 1 : 2 }).map((__, cardIndex) => (
               <div
                 key={`${sectionIndex}-${cardIndex}`}
-                className="rounded-3xl border border-border/70 bg-card p-4 shadow-sm"
+                className="rounded-xl border border-border bg-card p-4"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-2">
@@ -981,17 +981,17 @@ function SummaryTile({
   return (
     <div
       className={cn(
-        "rounded-2xl border px-4 py-4 shadow-sm",
+        "rounded-xl border px-4 py-4",
         tone === "positive" && "border-emerald-200 bg-emerald-50/70",
-        tone === "neutral" && "border-border bg-background/80",
-        tone === "accent" && "border-sky-200 bg-sky-50/70",
+        tone === "neutral" && "border-border bg-background",
+        tone === "accent" && "border-blue-200 bg-blue-50/70",
       )}
     >
-      <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+      <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
         {label}
       </p>
       <div className="mt-2 flex items-end gap-2">
-        <span className="text-3xl font-semibold tracking-tight text-foreground">
+        <span className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">
           {value}
         </span>
         <ArrowRight className="mb-1 h-4 w-4 text-muted-foreground" />

@@ -59,7 +59,7 @@ export function LanguageSwitcher() {
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
-          className="h-9 gap-2 rounded-lg border-slate-200 bg-white px-3 text-sm shadow-sm transition-colors hover:bg-slate-50"
+          className="h-9 gap-2 rounded-lg border-neutral-200 bg-white px-3 text-sm shadow-sm transition-colors hover:bg-neutral-50"
           aria-label={t.settings.languageLabel}
         >
           <span className="flex h-5 min-w-8 items-center justify-center rounded bg-primary/10 px-1.5 text-xs">

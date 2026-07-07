@@ -140,7 +140,7 @@ export function MiniTrendAreaChart({
   );
 
   if (loading) {
-    return <div className={`animate-pulse rounded-lg bg-slate-100 ${className}`} />;
+    return <div className={`animate-pulse rounded-lg bg-neutral-100 ${className}`} />;
   }
 
   if (!data || data.length < 2 || points.length < 2) {
@@ -161,7 +161,6 @@ export function MiniTrendAreaChart({
   const activeCmpPoint = activeCmpIndex !== null ? comparisonPoints[activeCmpIndex] : null;
 
   const linePath = createSmoothPath(points);
-  const areaPath = `${linePath} L ${points[points.length - 1].x} ${CHART_HEIGHT - PLOT_BOTTOM} L ${points[0].x} ${CHART_HEIGHT - PLOT_BOTTOM} Z`;
   const compLinePath = comparisonPoints.length >= 2 ? createSmoothPath(comparisonPoints) : null;
 
   const activeLabel = formatPointLabel(activePoint.date, dateLabelMode);
@@ -193,19 +192,19 @@ export function MiniTrendAreaChart({
         ? { left: 0 }
         : { left: `${xPercent}%`, transform: "translateX(-50%)" };
 
-  const gradientId = `area-grad-${unit}`;
+  const gradientId = `spark-line-${unit}`;
 
   return (
     <div className="relative overflow-visible">
       {hoverIndex !== null ? (
         <div
-          className="pointer-events-none absolute bottom-full z-20 mb-1.5 min-w-[7rem] rounded-md border border-slate-200 bg-white/95 px-2.5 py-1.5 text-[11px] shadow-md shadow-slate-200/70 backdrop-blur-sm"
+          className="pointer-events-none absolute bottom-full z-20 mb-1.5 min-w-[7rem] rounded-md border border-neutral-200 bg-white/95 px-2.5 py-1.5 text-[11px] shadow-md shadow-neutral-200/70 backdrop-blur-sm"
           style={tooltipStyle}
         >
-          <p className="font-medium text-slate-500">{activeLabel}</p>
-          <p className="mt-0.5 font-semibold text-slate-950">{formattedValue}</p>
+          <p className="font-medium text-neutral-500">{activeLabel}</p>
+          <p className="mt-0.5 font-semibold text-neutral-950">{formattedValue}</p>
           {formattedCmpValue ? (
-            <p className="mt-0.5 text-slate-400">
+            <p className="mt-0.5 text-neutral-400">
               <span className="mr-1">vs</span>
               {formattedCmpValue}
             </p>
@@ -222,44 +221,43 @@ export function MiniTrendAreaChart({
         onPointerLeave={() => setHoverIndex(null)}
       >
         <defs>
-          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#13acf0" stopOpacity="0.10" />
-            <stop offset="100%" stopColor="#13acf0" stopOpacity="0" />
+          {/* Triple-Whale-calm sparkline: a thin horizontal blue->emerald
+              gradient line carries the trend; no area fill, muted baseline. */}
+          <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#2F6BFF" />
+            <stop offset="100%" stopColor="#0E9F6E" />
           </linearGradient>
         </defs>
 
-        {/* Alt referans çizgisi */}
+        {/* Muted baseline */}
         <line
           x1={PLOT_LEFT}
           x2={CHART_WIDTH - PLOT_RIGHT}
           y1={CHART_HEIGHT - PLOT_BOTTOM}
           y2={CHART_HEIGHT - PLOT_BOTTOM}
-          stroke="#f1f5f9"
+          stroke="#ECEDEF"
           strokeWidth="1"
         />
 
-        {/* Önceki dönem — kesikli çizgi */}
+        {/* Previous period — dashed, muted neutral */}
         {compLinePath ? (
           <path
             d={compLinePath}
             fill="none"
-            stroke="#94a3b8"
+            stroke="#9AA1AC"
             strokeWidth="1.5"
             strokeDasharray="3 4"
             strokeLinecap="round"
-            opacity="0.65"
+            opacity="0.6"
           />
         ) : null}
 
-        {/* Alan dolgusu */}
-        <path d={areaPath} fill={`url(#${gradientId})`} />
-
-        {/* Ana çizgi */}
+        {/* Trend line */}
         <path
           d={linePath}
           fill="none"
-          stroke="#13acf0"
-          strokeWidth="1.25"
+          stroke={`url(#${gradientId})`}
+          strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
         />
@@ -272,7 +270,7 @@ export function MiniTrendAreaChart({
               x2={activePoint.x}
               y1={PLOT_TOP}
               y2={CHART_HEIGHT - PLOT_BOTTOM}
-              stroke="#cbd5e1"
+              stroke="#D4D7DD"
               strokeDasharray="2 4"
               strokeWidth="1"
             />
@@ -281,7 +279,7 @@ export function MiniTrendAreaChart({
               cy={activePoint.y}
               r="3"
               fill="#ffffff"
-              stroke="#13acf0"
+              stroke="#2F6BFF"
               strokeWidth="2"
             />
             {activeCmpPoint ? (

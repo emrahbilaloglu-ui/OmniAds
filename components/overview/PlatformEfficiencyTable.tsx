@@ -91,7 +91,7 @@ export function PlatformEfficiencyTable({
                     <div className="w-28">
                       <div className="h-2 rounded-full bg-muted">
                         <div
-                          className="h-full rounded-full bg-slate-700/70"
+                          className="h-full rounded-full bg-neutral-700/70"
                           style={{ width: `${Math.max(6, Math.min(spendShare, 100))}%` }}
                         />
                       </div>

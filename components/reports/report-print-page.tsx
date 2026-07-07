@@ -30,9 +30,9 @@ export function ReportPrintPage({ reportId }: { reportId: string }) {
   return (
     <div className="min-h-screen bg-white p-8 print:p-0">
       {reportQuery.isLoading ? (
-        <div className="rounded-3xl border p-10 text-sm text-slate-500">Preparing printable report...</div>
+        <div className="rounded-xl border p-10 text-sm text-neutral-500">Preparing printable report...</div>
       ) : reportQuery.error ? (
-        <div className="rounded-3xl border border-red-200 bg-red-50 p-8 text-sm text-red-700">
+        <div className="rounded-xl border border-red-200 bg-red-50 p-8 text-sm text-red-700">
           {reportQuery.error instanceof Error ? reportQuery.error.message : "Printable report failed."}
         </div>
       ) : reportQuery.data ? (
@@ -41,22 +41,22 @@ export function ReportPrintPage({ reportId }: { reportId: string }) {
             <button
               type="button"
               onClick={() => window.print()}
-              className="rounded-xl border px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              className="rounded-xl border px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
             >
               Print Again
             </button>
           </div>
-          <div className="rounded-[32px] border bg-white px-6 py-6 shadow-sm print:border-0 print:shadow-none">
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Printable Report</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
+          <div className="rounded-xl border bg-white px-6 py-6 shadow-sm print:border-0 print:shadow-none">
+            <p className="text-xs uppercase tracking-[0.2em] text-neutral-400">Printable Report</p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-neutral-950">
               {reportQuery.data.name}
             </h1>
             {reportQuery.data.description ? (
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-600">
                 {reportQuery.data.description}
               </p>
             ) : null}
-            <div className="mt-3 flex flex-wrap gap-4 text-sm text-slate-500">
+            <div className="mt-3 flex flex-wrap gap-4 text-sm text-neutral-500">
               <span>{reportQuery.data.dateRangeLabel}</span>
               <span>Generated {new Date(reportQuery.data.generatedAt).toLocaleString()}</span>
             </div>

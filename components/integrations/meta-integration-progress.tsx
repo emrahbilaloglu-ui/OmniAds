@@ -42,7 +42,7 @@ export function MetaIntegrationProgress({
   return (
     <div
       className={cn(
-        "mt-2 rounded-lg border border-slate-200/70 bg-white/70 px-2.5 py-2",
+        "mt-2 rounded-lg border border-neutral-200/70 bg-white/70 px-2.5 py-2",
         className
       )}
       data-testid="meta-integration-progress"
@@ -53,7 +53,7 @@ export function MetaIntegrationProgress({
             key={stage.key}
             className={cn(
               "space-y-1.5",
-              index > 0 && "border-t border-slate-200/70 pt-2"
+              index > 0 && "border-t border-neutral-200/70 pt-2"
             )}
           >
             <div className="flex items-start justify-between gap-2">
@@ -79,7 +79,7 @@ export function MetaIntegrationProgress({
                     stage.state === "working" &&
                       "border-sky-200 bg-sky-50 text-sky-700",
                     stage.state === "waiting" &&
-                      "border-slate-200 bg-slate-50 text-slate-700",
+                      "border-neutral-200 bg-neutral-50 text-neutral-700",
                     stage.state === "blocked" &&
                       "border-amber-200 bg-amber-50 text-amber-800"
                   )}
@@ -101,7 +101,7 @@ export function MetaIntegrationProgress({
             className={cn(
               "space-y-1.5",
               (progress.stages.length > 0 || index > 0) &&
-                "border-t border-slate-200/70 pt-2"
+                "border-t border-neutral-200/70 pt-2"
             )}
           >
             <div className="flex items-start justify-between gap-2">

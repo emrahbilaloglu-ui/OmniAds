@@ -56,20 +56,20 @@ function CtSection({
   children: React.ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+    <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+      <div className="flex items-start justify-between gap-4 border-b border-neutral-200 px-6 py-5">
         <div className="flex min-w-0 flex-col gap-1">
           {eyebrow && (
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-400">
               {eyebrow}
             </p>
           )}
           <div className="flex items-center gap-2">
-            <h2 className="text-[17px] font-semibold tracking-[-0.01em] text-slate-900">{title}</h2>
+            <h2 className="text-[17px] font-semibold tracking-[-0.01em] text-neutral-900">{title}</h2>
             {tooltip ? <CtTooltip content={tooltip} /> : null}
           </div>
           {subtitle && (
-            <p className="text-[12.5px] leading-snug text-slate-500">{subtitle}</p>
+            <p className="text-[12.5px] leading-snug text-neutral-500">{subtitle}</p>
           )}
         </div>
         {action}
@@ -85,13 +85,13 @@ function CtTooltip({ content }: { content: string }) {
       <span
         tabIndex={0}
         aria-label={content}
-        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 outline-none hover:border-slate-300 hover:text-slate-700 focus:border-slate-400 focus:text-slate-700"
+        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-400 outline-none hover:border-neutral-300 hover:text-neutral-700 focus:border-neutral-400 focus:text-neutral-700"
       >
         <Info size={12} strokeWidth={2.2} aria-hidden="true" />
       </span>
       <span
         role="tooltip"
-        className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 hidden w-72 -translate-x-1/2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11.5px] font-medium leading-snug text-slate-600 shadow-lg group-hover:block group-focus-within:block"
+        className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 hidden w-72 -translate-x-1/2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-[11.5px] font-medium leading-snug text-neutral-600 shadow-lg group-hover:block group-focus-within:block"
       >
         {content}
       </span>
@@ -113,12 +113,12 @@ function CtField({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
-        <label className="text-[12.5px] font-semibold text-slate-900">{label}</label>
+        <label className="text-[12.5px] font-semibold text-neutral-900">{label}</label>
         {tooltip ? <CtTooltip content={tooltip} /> : null}
       </div>
       {children}
       {helper && (
-        <p className="text-[11.5px] leading-snug text-slate-500">{helper}</p>
+        <p className="text-[11.5px] leading-snug text-neutral-500">{helper}</p>
       )}
     </div>
   );
@@ -140,8 +140,8 @@ function CtNumberInput({
   testId?: string;
 }) {
   return (
-    <div className="flex h-10 items-center gap-1.5 rounded-[10px] border border-slate-200 bg-white px-3">
-      {prefix && <span className="text-[13px] text-slate-400">{prefix}</span>}
+    <div className="flex h-10 items-center gap-1.5 rounded-[10px] border border-neutral-200 bg-white px-3">
+      {prefix && <span className="text-[13px] text-neutral-400">{prefix}</span>}
       <input
         type="number"
         step="0.01"
@@ -151,9 +151,9 @@ function CtNumberInput({
         onChange={(e) =>
           onChange(e.target.value === "" ? null : Number(e.target.value))
         }
-        className="min-w-0 flex-1 bg-transparent text-[14px] font-medium text-slate-900 tabular-nums outline-none disabled:cursor-not-allowed disabled:opacity-60"
+        className="min-w-0 flex-1 bg-transparent text-[14px] font-medium text-neutral-900 tabular-nums outline-none disabled:cursor-not-allowed disabled:opacity-60"
       />
-      {suffix && <span className="text-[13px] text-slate-500">{suffix}</span>}
+      {suffix && <span className="text-[13px] text-neutral-500">{suffix}</span>}
     </div>
   );
 }
@@ -178,7 +178,7 @@ function CtSelect({
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
         data-testid={testId}
-        className="h-10 w-full appearance-none rounded-[10px] border border-slate-200 bg-white pl-3 pr-9 text-[13px] font-medium text-slate-900 outline-none disabled:cursor-not-allowed disabled:opacity-60"
+        className="h-10 w-full appearance-none rounded-[10px] border border-neutral-200 bg-white pl-3 pr-9 text-[13px] font-medium text-neutral-900 outline-none disabled:cursor-not-allowed disabled:opacity-60"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>
@@ -191,7 +191,7 @@ function CtSelect({
         height="10"
         viewBox="0 0 10 10"
         fill="none"
-        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400"
       >
         <path
           d="M2.5 4l2.5 2.5L7.5 4"
@@ -221,7 +221,7 @@ function CtTextInput({
   testId?: string;
 }) {
   const baseClass =
-    "w-full rounded-[10px] border border-slate-200 bg-white px-3 py-2.5 text-[13px] font-medium text-slate-900 outline-none disabled:cursor-not-allowed disabled:opacity-60";
+    "w-full rounded-[10px] border border-neutral-200 bg-white px-3 py-2.5 text-[13px] font-medium text-neutral-900 outline-none disabled:cursor-not-allowed disabled:opacity-60";
   return multiline ? (
     <textarea
       value={value}
@@ -260,27 +260,27 @@ function CtStatCard({
     <div
       className={`flex flex-col gap-1.5 rounded-2xl p-[18px] ${
         dominant
-          ? "bg-slate-900 text-white"
-          : "border border-slate-200 bg-slate-50 text-slate-900"
+          ? "bg-neutral-900 text-white"
+          : "border border-neutral-200 bg-neutral-50 text-neutral-900"
       }`}
     >
       <p
         className={`text-[10.5px] font-semibold uppercase tracking-[0.14em] ${
-          dominant ? "text-white/70" : "text-slate-500"
+          dominant ? "text-white/70" : "text-neutral-500"
         }`}
       >
         {label}
       </p>
       <p
         className={`tabular-nums leading-none tracking-[-0.025em] ${
-          dominant ? "text-[38px] font-bold text-white" : "text-[26px] font-bold text-slate-900"
+          dominant ? "text-[38px] font-bold text-white" : "text-[26px] font-bold text-neutral-900"
         }`}
       >
         {value}
       </p>
       <p
         className={`text-[11.5px] leading-snug ${
-          dominant ? "text-white/65" : "text-slate-500"
+          dominant ? "text-white/65" : "text-neutral-500"
         }`}
       >
         {helper}
@@ -306,7 +306,7 @@ function CtGhostBtn({
       onClick={onClick}
       disabled={disabled}
       data-testid={testId}
-      className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-[12.5px] font-semibold text-slate-900 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+      className="h-8 rounded-lg border border-neutral-200 bg-white px-3 text-[12.5px] font-semibold text-neutral-900 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
     >
       {children}
     </button>
@@ -330,7 +330,7 @@ function CtIconCircleBtn({
       onClick={onClick}
       disabled={disabled}
       data-testid={testId}
-      className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+      className="flex h-7 w-7 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-400 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
     >
       {children}
     </button>
@@ -339,7 +339,7 @@ function CtIconCircleBtn({
 
 function CtEmptyState({ message }: { message: string }) {
   return (
-    <div className="rounded-[10px] border border-dashed border-slate-300 bg-slate-50 px-4 py-3.5 text-[12.5px] leading-snug text-slate-500">
+    <div className="rounded-[10px] border border-dashed border-neutral-300 bg-neutral-50 px-4 py-3.5 text-[12.5px] leading-snug text-neutral-500">
       {message}
     </div>
   );
@@ -351,7 +351,7 @@ function CtEmptyState({ message }: { message: string }) {
 
 const COVERAGE_TONE = {
   complete: { dot: "bg-emerald-500", ring: "shadow-[0_0_0_3px_rgb(16,185,129,0.13)]", badge: "bg-emerald-50 text-emerald-700", label: "Complete" },
-  optional: { dot: "bg-slate-400", ring: "shadow-[0_0_0_3px_rgb(148,163,184,0.13)]", badge: "bg-slate-100 text-slate-600", label: "Optional" },
+  optional: { dot: "bg-neutral-400", ring: "shadow-[0_0_0_3px_rgb(148,163,184,0.13)]", badge: "bg-neutral-100 text-neutral-600", label: "Optional" },
   missing:  { dot: "bg-amber-400", ring: "shadow-[0_0_0_3px_rgb(245,158,11,0.13)]", badge: "bg-amber-50 text-amber-700", label: "Missing" },
   blocking: { dot: "bg-rose-500",  ring: "shadow-[0_0_0_3px_rgb(244,63,94,0.13)]",  badge: "bg-rose-50 text-rose-700",   label: "Blocking" },
 };
@@ -440,7 +440,7 @@ function DecisionCoverageSection({ snapshot }: { snapshot: BusinessCommercialTru
         </div>
       )}
       <div
-        className="grid overflow-hidden rounded-xl border border-slate-200"
+        className="grid overflow-hidden rounded-xl border border-neutral-200"
         style={{ gridTemplateColumns: "1fr 1fr" }}
         data-testid="commercial-coverage-summary"
       >
@@ -451,13 +451,13 @@ function DecisionCoverageSection({ snapshot }: { snapshot: BusinessCommercialTru
           return (
             <div
               key={r.id}
-              className={`grid items-center gap-2.5 bg-white px-3.5 py-2.5 ${row > 0 ? "border-t border-slate-100" : ""} ${col === 1 ? "border-l border-slate-100" : ""}`}
+              className={`grid items-center gap-2.5 bg-white px-3.5 py-2.5 ${row > 0 ? "border-t border-neutral-100" : ""} ${col === 1 ? "border-l border-neutral-100" : ""}`}
               style={{ gridTemplateColumns: "12px 1fr auto" }}
             >
               <div className={`h-2 w-2 shrink-0 rounded-full ${tone.dot} ${tone.ring}`} />
               <div className="flex min-w-0 flex-col gap-0.5">
-                <p className="truncate text-[12.5px] font-semibold text-slate-900">{r.label}</p>
-                <p className="truncate text-[11.5px] text-slate-500">{r.detail}</p>
+                <p className="truncate text-[12.5px] font-semibold text-neutral-900">{r.label}</p>
+                <p className="truncate text-[11.5px] text-neutral-500">{r.detail}</p>
               </div>
               <span className={`inline-flex h-5 shrink-0 items-center rounded-full px-2 text-[10.5px] font-semibold ${tone.badge}`}>
                 {tone.label}
@@ -658,10 +658,10 @@ function RoasScenarioSection({
       subtitle="Compare how spend × ROAS combinations stack up. Edit spend levels in the header and ROAS per column — the table recalculates live."
       action={<CtGhostBtn onClick={resetRoas}>Reset ROAS to {targetRoas.toFixed(2)}x</CtGhostBtn>}
     >
-      <div className="overflow-hidden rounded-xl border border-slate-200">
+      <div className="overflow-hidden rounded-xl border border-neutral-200">
         {/* Header row: spend inputs */}
         <div
-          className="grid bg-slate-900 text-white"
+          className="grid bg-neutral-900 text-white"
           style={{ gridTemplateColumns: `200px repeat(${cols.length}, minmax(0, 1fr))` }}
         >
           <div className="px-4 py-3 text-[11px] font-bold uppercase tracking-[0.14em] text-white/70">
@@ -693,7 +693,7 @@ function RoasScenarioSection({
 
         {/* ROAS row: editable per column */}
         <div
-          className="grid border-b border-slate-200 bg-amber-50"
+          className="grid border-b border-neutral-200 bg-amber-50"
           style={{ gridTemplateColumns: `200px repeat(${cols.length}, minmax(0, 1fr))` }}
         >
           <div className="flex flex-col justify-center px-4 py-2.5">
@@ -736,11 +736,11 @@ function RoasScenarioSection({
         {rows.map((r, ri) => (
           <div
             key={ri}
-            className={`grid border-t border-slate-100 ${r.highlight ? "bg-slate-900" : ri % 2 === 0 ? "bg-white" : "bg-slate-50/60"}`}
+            className={`grid border-t border-neutral-100 ${r.highlight ? "bg-neutral-900" : ri % 2 === 0 ? "bg-white" : "bg-neutral-50/60"}`}
             style={{ gridTemplateColumns: `200px repeat(${cols.length}, minmax(0, 1fr))` }}
           >
             <div
-              className={`px-4 py-3 text-[12.5px] ${r.highlight ? "font-bold text-white" : r.muted ? "text-slate-500" : "font-medium text-slate-900"}`}
+              className={`px-4 py-3 text-[12.5px] ${r.highlight ? "font-bold text-white" : r.muted ? "text-neutral-500" : "font-medium text-neutral-900"}`}
             >
               {r.label}
             </div>
@@ -753,7 +753,7 @@ function RoasScenarioSection({
                   className={`border-l px-3.5 py-3 text-right text-[13px] tabular-nums ${
                     r.highlight
                       ? `border-white/10 font-bold ${isNeg ? "text-rose-300" : "text-white"} ${isBest ? "bg-emerald-500/18" : ""}`
-                      : `border-slate-100 ${isNeg ? "bg-rose-50 text-rose-700 font-medium" : isBest && !r.muted ? "bg-emerald-50 font-semibold text-slate-900" : r.muted ? "text-slate-500" : "text-slate-900"}`
+                      : `border-neutral-100 ${isNeg ? "bg-rose-50 text-rose-700 font-medium" : isBest && !r.muted ? "bg-emerald-50 font-semibold text-neutral-900" : r.muted ? "text-neutral-500" : "text-neutral-900"}`
                   }`}
                 >
                   {v}
@@ -793,7 +793,7 @@ function TargetRoasSection({
 
   let statusBg: string, statusBorder: string, statusDot: string, statusText: string, statusMsg: string;
   if (!val || val <= 0) {
-    statusBg = "bg-slate-50"; statusBorder = "border-slate-200"; statusDot = "bg-slate-400"; statusText = "text-slate-500";
+    statusBg = "bg-neutral-50"; statusBorder = "border-neutral-200"; statusDot = "bg-neutral-400"; statusText = "text-neutral-500";
     statusMsg = "Set a target above zero.";
   } else if (isFinite(breakEven) && val < breakEven) {
     statusBg = "bg-rose-50"; statusBorder = "border-rose-200"; statusDot = "bg-rose-500"; statusText = "text-rose-700";
@@ -816,7 +816,7 @@ function TargetRoasSection({
     >
       <div className="grid items-center gap-6" style={{ gridTemplateColumns: "minmax(240px, 360px) 1fr" }}>
         <div className="flex flex-col gap-3">
-          <div className="flex h-14 items-center gap-1.5 rounded-[10px] border border-slate-200 bg-white px-4">
+          <div className="flex h-14 items-center gap-1.5 rounded-[10px] border border-neutral-200 bg-white px-4">
             <input
               type="number"
               step={0.1}
@@ -825,9 +825,9 @@ function TargetRoasSection({
               disabled={disabled}
               onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
               data-testid="commercial-target-roas"
-              className="min-w-0 flex-1 bg-transparent text-[28px] font-bold tabular-nums tracking-[-0.02em] text-slate-900 outline-none disabled:opacity-60"
+              className="min-w-0 flex-1 bg-transparent text-[28px] font-bold tabular-nums tracking-[-0.02em] text-neutral-900 outline-none disabled:opacity-60"
             />
-            <span className="text-[18px] text-slate-500">x</span>
+            <span className="text-[18px] text-neutral-500">x</span>
           </div>
           <div className={`flex items-center gap-2 rounded-[10px] border px-3 py-2.5 ${statusBg} ${statusBorder}`}>
             <span className={`h-2 w-2 shrink-0 rounded-full ${statusDot}`} />
@@ -836,16 +836,16 @@ function TargetRoasSection({
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1 rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-slate-500">Break-even ROAS</p>
-            <p className="text-[22px] font-bold tabular-nums tracking-[-0.02em] text-slate-900">
+          <div className="flex flex-col gap-1 rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+            <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-neutral-500">Break-even ROAS</p>
+            <p className="text-[22px] font-bold tabular-nums tracking-[-0.02em] text-neutral-900">
               {isFinite(breakEven) && breakEven > 0 ? `${breakEven.toFixed(2)}x` : "—"}
             </p>
-            <p className="text-[11.5px] text-slate-500">Derived from your cost structure</p>
+            <p className="text-[11.5px] text-neutral-500">Derived from your cost structure</p>
           </div>
-          <div className="flex flex-col gap-1 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex flex-col gap-1 rounded-xl border border-neutral-200 bg-neutral-50 p-4">
             <div className="flex items-center gap-2">
-              <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-slate-500">Break-even ROAS (manual)</p>
+              <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-neutral-500">Break-even ROAS (manual)</p>
               <CtTooltip content="Use this only when cost structure is unavailable. Once cost structure is filled, derived break-even ROAS becomes the source of truth." />
             </div>
             <CtNumberInput
@@ -855,7 +855,7 @@ function TargetRoasSection({
               disabled={disabled || costStructureActive}
               testId="commercial-break-even-roas"
             />
-            <p className="text-[11.5px] text-slate-500">
+            <p className="text-[11.5px] text-neutral-500">
               {costStructureActive
                 ? "Cost structure is filled, so derived break-even will be saved."
                 : "Override if cost inputs are unavailable."}
@@ -911,7 +911,7 @@ function CountryEconomicsSection({
       ) : (
         <div className="flex flex-col gap-2">
           <div
-            className="grid px-1 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-slate-400"
+            className="grid px-1 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-neutral-400"
             style={{ gridTemplateColumns: "1.4fr 1fr 1fr 1.6fr 36px" }}
           >
             <span>Country</span>
@@ -1000,7 +1000,7 @@ function PromoCalendarSection({
       ) : (
         <div className="flex flex-col gap-2">
           <div
-            className="grid px-1 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-slate-400"
+            className="grid px-1 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-neutral-400"
             style={{ gridTemplateColumns: "1.6fr 1fr 1fr 1fr 36px" }}
           >
             <span>Name</span>
@@ -1026,14 +1026,14 @@ function PromoCalendarSection({
                 value={r.startDate}
                 onChange={(e) => onUpdate(i, "startDate", e.target.value)}
                 disabled={disabled}
-                className="h-10 w-full rounded-[10px] border border-slate-200 bg-white px-3 text-[13px] font-medium text-slate-900 outline-none disabled:opacity-60"
+                className="h-10 w-full rounded-[10px] border border-neutral-200 bg-white px-3 text-[13px] font-medium text-neutral-900 outline-none disabled:opacity-60"
               />
               <input
                 type="date"
                 value={r.endDate}
                 onChange={(e) => onUpdate(i, "endDate", e.target.value)}
                 disabled={disabled}
-                className="h-10 w-full rounded-[10px] border border-slate-200 bg-white px-3 text-[13px] font-medium text-slate-900 outline-none disabled:opacity-60"
+                className="h-10 w-full rounded-[10px] border border-neutral-200 bg-white px-3 text-[13px] font-medium text-neutral-900 outline-none disabled:opacity-60"
               />
               <CtSelect
                 value={r.severity}
@@ -1171,8 +1171,8 @@ function CalibrationSection({
               aria-pressed={active}
               className={`flex flex-col gap-1.5 rounded-xl border p-4 text-left transition-colors ${
                 active
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-200 bg-white text-slate-900 hover:bg-slate-50"
+                  ? "border-neutral-900 bg-neutral-900 text-white"
+                  : "border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-50"
               } disabled:cursor-not-allowed disabled:opacity-60`}
             >
               <div className="flex items-center justify-between">
@@ -1183,7 +1183,7 @@ function CalibrationSection({
                   </svg>
                 )}
               </div>
-              <span className={`text-[12px] leading-snug ${active ? "text-white/70" : "text-slate-500"}`}>
+              <span className={`text-[12px] leading-snug ${active ? "text-white/70" : "text-neutral-500"}`}>
                 {o.desc}
               </span>
             </button>
@@ -1191,13 +1191,13 @@ function CalibrationSection({
         })}
       </div>
 
-      <div className="mt-5 flex items-center justify-between gap-4 border-t border-slate-100 pt-5">
+      <div className="mt-5 flex items-center justify-between gap-4 border-t border-neutral-100 pt-5">
         <div className="flex min-w-0 flex-col gap-1">
           <div className="flex items-center gap-2">
-            <p className="text-[13px] font-bold text-slate-900">Calibration profiles</p>
+            <p className="text-[13px] font-bold text-neutral-900">Calibration profiles</p>
             <CtTooltip content="Use profiles to tune ROAS/CPA thresholds and confidence/action ceilings for a specific channel, objective family, bid regime, and decision archetype." />
           </div>
-          <p className="text-[12px] text-slate-500">
+          <p className="text-[12px] text-neutral-500">
             Optional. Profiles are matched by channel + objective + bid regime + archetype.
           </p>
         </div>
@@ -1213,7 +1213,7 @@ function CalibrationSection({
       ) : (
         <div className="mt-3 flex flex-col gap-3">
           {profiles.map((profile, index) => (
-            <div key={`${profile.channel}-${profile.objectiveFamily}-${profile.bidRegime}-${profile.archetype}-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div key={`${profile.channel}-${profile.objectiveFamily}-${profile.bidRegime}-${profile.archetype}-${index}`} className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
               <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr 36px" }}>
                 <CtField label="Channel" tooltip="The decision surface this calibration applies to. Creative profiles affect creative decision hints; Meta profiles affect Meta decision hints.">
                   <CtSelect
@@ -1322,10 +1322,10 @@ function StickySaveBar({
   disabled?: boolean;
 }) {
   return (
-    <div className="sticky bottom-0 z-10 mt-7 flex items-center justify-between gap-4 border-t border-slate-200 bg-white/92 px-6 py-3.5 backdrop-blur-sm">
+    <div className="sticky bottom-0 z-10 mt-7 flex items-center justify-between gap-4 border-t border-neutral-200 bg-white/92 px-6 py-3.5 backdrop-blur-sm">
       <div className="flex items-center gap-2.5">
         <span className={`h-2 w-2 rounded-full ${dirty ? "bg-amber-400" : "bg-emerald-500"}`} />
-        <span className="text-[12.5px] text-slate-500">
+        <span className="text-[12.5px] text-neutral-500">
           {dirty ? "Unsaved changes" : "All changes saved"}
         </span>
       </div>
@@ -1334,7 +1334,7 @@ function StickySaveBar({
           type="button"
           onClick={onDiscard}
           disabled={!dirty || disabled}
-          className="h-9 rounded-[10px] border border-slate-200 bg-white px-3.5 text-[13px] font-medium text-slate-900 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+          className="h-9 rounded-[10px] border border-neutral-200 bg-white px-3.5 text-[13px] font-medium text-neutral-900 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:text-neutral-400"
         >
           Discard
         </button>
@@ -1343,7 +1343,7 @@ function StickySaveBar({
           onClick={onSave}
           disabled={disabled || saving}
           data-testid="commercial-settings-save"
-          className="h-9 rounded-[10px] border border-slate-900 bg-slate-900 px-4 text-[13px] font-semibold text-white shadow-sm hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          className="h-9 rounded-[10px] border border-neutral-900 bg-neutral-900 px-4 text-[13px] font-semibold text-white shadow-sm hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {saving ? "Saving..." : "Save Commercial Truth"}
         </button>
@@ -1583,9 +1583,9 @@ export function CommercialTruthSettingsSection({ businessId }: { businessId: str
         </div>
       ) : null}
       {loading ? (
-        <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-6">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700" />
-          <p className="text-[13px] text-slate-500">Loading commercial truth settings…</p>
+        <div className="flex items-center gap-3 rounded-2xl border border-neutral-200 bg-white p-6">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-700" />
+          <p className="text-[13px] text-neutral-500">Loading commercial truth settings…</p>
         </div>
       ) : null}
 

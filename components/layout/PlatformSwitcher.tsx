@@ -15,7 +15,7 @@ import { usePlatformContext } from "@/lib/navigation/platform-context";
 const STATUS_BADGE_CLASSES: Record<PlatformStatus, string> = {
   live: "bg-emerald-50 text-emerald-700 border-emerald-200",
   beta: "bg-amber-50 text-amber-800 border-amber-200",
-  soon: "bg-slate-100 text-slate-500 border-slate-200",
+  soon: "bg-neutral-100 text-neutral-500 border-neutral-200",
 };
 
 const STATUS_LABELS: Record<PlatformStatus, string> = {
@@ -91,29 +91,29 @@ export function PlatformSwitcher() {
       <button
         type="button"
         className={cn(
-          "inline-flex items-center gap-1.5 px-2 py-1.5 rounded-md border hover:bg-slate-50 text-[12.5px] text-slate-700",
-          open ? "border-blue-300 bg-blue-50/50" : "border-slate-200 bg-white"
+          "inline-flex items-center gap-1.5 px-2 py-1.5 rounded-md border hover:bg-neutral-50 text-[12.5px] text-neutral-700",
+          open ? "border-blue-300 bg-blue-50/50" : "border-neutral-200 bg-white"
         )}
         onClick={() => setOpen((value) => !value)}
         aria-haspopup="menu"
         aria-expanded={open}
       >
         <PlatformLogo platformId={activePlatformId} size={16} />
-        <span className="font-medium text-slate-900">{activePlatform.name}</span>
+        <span className="font-medium text-neutral-900">{activePlatform.name}</span>
         {activePlatform.status !== "live" ? <StatusBadge status={activePlatform.status} /> : null}
-        <ChevronDown className="h-[13px] w-[13px] text-slate-400" />
+        <ChevronDown className="h-[13px] w-[13px] text-neutral-400" />
       </button>
 
       {open ? (
         <div
-          className="absolute left-0 top-full mt-1 w-72 rounded-2xl border border-slate-200 bg-white shadow-[0_8px_32px_rgba(15,23,42,0.12)] overflow-hidden z-40"
+          className="absolute left-0 top-full mt-1 w-72 rounded-2xl border border-neutral-200 bg-white shadow-[0_8px_32px_rgba(15,23,42,0.12)] overflow-hidden z-40"
           role="menu"
         >
-          <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+          <div className="px-3 py-2 border-b border-neutral-100 flex items-center justify-between">
+            <span className="text-[10px] uppercase tracking-wider text-neutral-400 font-semibold">
               Switch platform
             </span>
-            <span className="text-[10.5px] text-slate-400 font-mono">⌘K</span>
+            <span className="text-[10.5px] text-neutral-400 font-mono">⌘K</span>
           </div>
           <div className="py-1">
             {platformOrder.map((platformId) => {
@@ -126,7 +126,7 @@ export function PlatformSwitcher() {
                   type="button"
                   className={cn(
                     "w-full flex items-center gap-2 px-3 py-2 text-left text-[12.5px]",
-                    clickable ? "hover:bg-slate-50" : "cursor-default",
+                    clickable ? "hover:bg-neutral-50" : "cursor-default",
                     active ? "bg-blue-50/40" : ""
                   )}
                   data-platform-pick={platformId}
@@ -137,13 +137,13 @@ export function PlatformSwitcher() {
                   <span
                     className={cn(
                       "w-4 h-4 grid place-items-center",
-                      active ? "text-blue-600" : "text-slate-300"
+                      active ? "text-blue-600" : "text-neutral-300"
                     )}
                   >
                     {active ? <CheckCircle2 className="h-3.5 w-3.5" /> : <CircleDot className="h-3.5 w-3.5" />}
                   </span>
                   <PlatformLogo platformId={platformId} size={16} />
-                  <span className={active ? "font-semibold text-slate-900" : "text-slate-700"}>
+                  <span className={active ? "font-semibold text-neutral-900" : "text-neutral-700"}>
                     {platform.name}
                   </span>
                   <StatusBadge status={platform.status} />
@@ -162,7 +162,7 @@ export function PlatformSwitcher() {
               );
             })}
           </div>
-          <div className="px-3 py-2 border-t border-slate-100 text-[10.5px] text-slate-500 flex items-center gap-1">
+          <div className="px-3 py-2 border-t border-neutral-100 text-[10.5px] text-neutral-500 flex items-center gap-1">
             <Info className="h-[11px] w-[11px]" />
             <span>Last viewed platform per business is remembered.</span>
           </div>

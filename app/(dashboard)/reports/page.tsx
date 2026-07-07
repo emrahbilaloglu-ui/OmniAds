@@ -104,19 +104,19 @@ export default function ReportsPage() {
 
   return (
     <PlanGate requiredPlan="pro">
-    <div className="space-y-8">
-      <section className="rounded-[32px] border bg-[radial-gradient(circle_at_top_left,_rgba(125,211,252,0.35),_transparent_35%),linear-gradient(135deg,#ffffff,#f7fafc)] p-8 shadow-sm">
+    <div className="space-y-6">
+      <section className="rounded-xl border border-neutral-200 bg-white p-6">
         <div className="flex flex-wrap items-end justify-between gap-4">
-          <div className="max-w-2xl space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+          <div className="max-w-2xl space-y-2">
+            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-neutral-500">
               {language === "tr" ? "Ozel Raporlama" : "Custom Reporting"}
             </p>
-            <h1 className="text-4xl font-semibold tracking-tight text-slate-950">
+            <h1 className="text-2xl font-semibold tracking-tight text-neutral-900">
               {language === "tr"
                 ? `${business?.name ?? "bu iş"} için tek tıkla raporlar oluşturun`
                 : `Build one-click reports for ${business?.name ?? "this business"}`}
             </h1>
-            <p className="text-sm leading-6 text-slate-600">
+            <p className="text-sm leading-6 text-neutral-500">
               {language === "tr"
                 ? "Her iş altında tekrar kullanılabilir rapor formatları kaydedin, bir template ile başlayın, sonra çıktıyı public link olarak paylaşın veya tablo widget'larını CSV olarak dışa aktarın."
                 : "Save reusable report formats under each business, start from a template, then share the final output as a public link or export table widgets as CSV."}
@@ -131,7 +131,7 @@ export default function ReportsPage() {
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)]">
-        <div className="rounded-[28px] border bg-white p-6 shadow-sm">
+        <div className="rounded-xl border border-neutral-200 bg-white p-6">
           <div className="flex items-center justify-between gap-4">
             <div>
               <h2 className="text-xl font-semibold">{language === "tr" ? "Kayitli Raporlar" : "Saved Reports"}</h2>
@@ -139,7 +139,7 @@ export default function ReportsPage() {
                 {language === "tr" ? "Kayitli her rapor aktif ise aittir." : "Every saved report belongs to the active business."}
               </p>
             </div>
-            {actionMessage ? <p className="text-sm text-slate-500">{actionMessage}</p> : null}
+            {actionMessage ? <p className="text-sm text-neutral-500">{actionMessage}</p> : null}
           </div>
           <div className="mt-4 flex flex-wrap gap-3">
             <input
@@ -179,15 +179,15 @@ export default function ReportsPage() {
               {filteredReports.map((report) => (
                 <div
                   key={report.id}
-                  className="rounded-[28px] border px-4 py-4 transition hover:border-slate-400 hover:bg-slate-50"
+                  className="rounded-xl border border-neutral-200 px-4 py-4 transition hover:border-neutral-300 hover:bg-neutral-50"
                 >
                   <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px]">
                     <Link href={`/reports/${report.id}`} className="block">
-                      <h3 className="text-base font-semibold text-slate-950">{report.name}</h3>
-                      <p className="mt-1 text-sm text-slate-500">
+                      <h3 className="text-base font-semibold text-neutral-950">{report.name}</h3>
+                      <p className="mt-1 text-sm text-neutral-500">
                         {report.description || (language === "tr" ? "Henüz açıklama yok." : "No description yet.")}
                       </p>
-                      <p className="mt-3 text-xs text-slate-400">
+                      <p className="mt-3 text-xs text-neutral-400">
                         {language === "tr" ? "Güncellendi" : "Updated"} {new Date(report.updatedAt).toLocaleString()}
                       </p>
                     </Link>
@@ -196,7 +196,7 @@ export default function ReportsPage() {
                     </Link>
                   </div>
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                    <span className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-medium text-neutral-600">
                       {report.definition?.widgets?.length ?? 0} {language === "tr" ? "widget" : "widgets"}
                     </span>
                     <div className="flex flex-wrap gap-2">
@@ -227,7 +227,7 @@ export default function ReportsPage() {
           )}
         </div>
 
-        <div className="rounded-[28px] border bg-white p-6 shadow-sm">
+        <div className="rounded-xl border border-neutral-200 bg-white p-6">
           <div>
             <h2 className="text-xl font-semibold">{language === "tr" ? "Template Galerisi" : "Template Gallery"}</h2>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -239,17 +239,17 @@ export default function ReportsPage() {
               <Link
                 key={template.id}
                 href={`/reports/new?template=${template.id}`}
-                className={`rounded-[28px] border bg-gradient-to-br ${template.accent} p-5 transition hover:-translate-y-0.5 hover:shadow-md`}
+                className="rounded-xl border border-neutral-200 bg-white p-5 transition hover:border-neutral-300 hover:bg-neutral-50"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <span className="rounded-full bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-600">
+                  <span className="rounded-full bg-neutral-100 px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-[0.08em] text-neutral-500">
                     {template.category}
                   </span>
                   <TemplateProviders template={template} />
                 </div>
                 <TemplateMiniPreview definition={template.definition} className="mt-8" />
-                <h3 className="mt-5 text-lg font-semibold text-slate-950">{template.name}</h3>
-                <p className="mt-2 text-sm leading-6 text-slate-600">{template.description}</p>
+                <h3 className="mt-5 text-lg font-semibold text-neutral-900">{template.name}</h3>
+                <p className="mt-2 text-sm leading-6 text-neutral-500">{template.description}</p>
               </Link>
             ))}
           </div>

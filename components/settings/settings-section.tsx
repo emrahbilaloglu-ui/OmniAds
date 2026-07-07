@@ -114,10 +114,10 @@ export function SettingsStat({
         tone === "default" && "border-border bg-background"
       )}
     >
-      <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+      <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
         {label}
       </p>
-      <p className="mt-2 text-lg font-semibold tracking-tight text-foreground">{value}</p>
+      <p className="mt-1.5 text-lg font-semibold tracking-tight tabular-nums text-foreground">{value}</p>
     </div>
   );
 }

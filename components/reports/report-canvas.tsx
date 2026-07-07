@@ -78,7 +78,7 @@ function ChartTooltip({
   const flipX = pixelX > 260;
   return (
     <div
-      className="pointer-events-none absolute z-20 rounded-xl border border-slate-200 bg-white/95 px-3 py-2 shadow-lg text-xs backdrop-blur-sm"
+      className="pointer-events-none absolute z-20 rounded-xl border border-neutral-200 bg-white/95 px-3 py-2 shadow-lg text-xs backdrop-blur-sm"
       style={{
         left: flipX ? undefined : pixelX + 12,
         right: flipX ? `calc(100% - ${pixelX - 12}px)` : undefined,
@@ -86,14 +86,14 @@ function ChartTooltip({
         minWidth: 160,
       }}
     >
-      <p className="mb-1.5 font-semibold text-slate-500">{label}</p>
+      <p className="mb-1.5 font-semibold text-neutral-500">{label}</p>
       {entries.map((e, i) => (
         <div key={i} className="flex items-center justify-between gap-4">
-          <span className="flex items-center gap-1.5 text-slate-600 truncate">
+          <span className="flex items-center gap-1.5 text-neutral-600 truncate">
             <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: e.color }} />
             {e.name || "Value"}
           </span>
-          <span className="font-semibold text-slate-900 tabular-nums">{formatTooltipValue(e.value)}</span>
+          <span className="font-semibold text-neutral-900 tabular-nums">{formatTooltipValue(e.value)}</span>
         </div>
       ))}
     </div>
@@ -257,7 +257,7 @@ function MiniChart({
         ) : null}
         <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
           {activeSeries.map((item) => (
-            <span key={item.key} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1">
+            <span key={item.key} className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-1">
               <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
               {item.label}
             </span>
@@ -455,7 +455,7 @@ function MiniChart({
       {activeSeries.length > 1 && (
         <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted-foreground shrink-0">
           {activeSeries.map((item) => (
-            <span key={item.key} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1">
+            <span key={item.key} className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-1">
               <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
               {item.label}
               {dualAxis && rightSeries.includes(item) && (
@@ -472,17 +472,17 @@ function MiniChart({
 export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportWidget; embedded?: boolean }) {
   if (widget.type === "section") {
     return (
-      <article className={embedded ? "p-4 h-full" : "rounded-[28px] border border-slate-200 bg-[linear-gradient(135deg,#ffffff,#f8fafc)] p-6 shadow-sm"}>
+      <article className={embedded ? "p-4 h-full" : "rounded-xl border border-neutral-200 bg-white p-6 shadow-sm"}>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-neutral-400">
               Section
             </p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-neutral-950">
               {widget.title}
             </h2>
             {widget.subtitle ? (
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{widget.subtitle}</p>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-600">{widget.subtitle}</p>
             ) : null}
           </div>
         </div>
@@ -491,12 +491,12 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
   }
 
   return (
-    <article className={embedded ? "p-4 h-full flex flex-col overflow-hidden" : "rounded-3xl border border-slate-200 bg-white p-4 shadow-sm h-full flex flex-col"}>
+    <article className={embedded ? "p-4 h-full flex flex-col overflow-hidden" : "rounded-xl border border-neutral-200 bg-white p-4 shadow-sm h-full flex flex-col"}>
       <div className="flex items-start justify-between gap-3 shrink-0">
         <div>
-          <h3 className="text-sm font-semibold text-slate-900">{widget.title}</h3>
+          <h3 className="text-sm font-semibold text-neutral-900">{widget.title}</h3>
           {widget.subtitle ? (
-            <p className="mt-1 text-xs text-slate-500">{widget.subtitle}</p>
+            <p className="mt-1 text-xs text-neutral-500">{widget.subtitle}</p>
           ) : null}
         </div>
         {widget.warning ? (
@@ -508,11 +508,11 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
 
       {widget.type === "metric" ? (
         <div className="mt-6 shrink-0">
-          <div className="text-3xl font-semibold tracking-tight text-slate-950">
+          <div className="text-3xl font-semibold tracking-tight text-neutral-950">
             {widget.value ?? "-"}
           </div>
           {widget.deltaLabel ? (
-            <div className="mt-2 text-xs text-slate-500">{widget.deltaLabel}</div>
+            <div className="mt-2 text-xs text-neutral-500">{widget.deltaLabel}</div>
           ) : null}
         </div>
       ) : null}
@@ -532,12 +532,12 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
         <div className="mt-5 overflow-hidden rounded-2xl border flex flex-col min-h-0 flex-1">
           <div className="overflow-auto flex-1">
             <table className="min-w-full text-sm">
-              <thead className="bg-slate-50 sticky top-0 z-10">
+              <thead className="bg-neutral-50 sticky top-0 z-10">
                 <tr>
                   {(widget.columns ?? []).map((column) => (
                     <th
                       key={column}
-                      className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500"
+                      className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-neutral-500"
                     >
                       {getColumnLabel(column)}
                     </th>
@@ -548,7 +548,7 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
                 {(widget.rows ?? []).map((row, index) => (
                   <tr key={index} className="border-t">
                     {(widget.columns ?? []).map((column) => (
-                      <td key={column} className="px-3 py-2 text-slate-700">
+                      <td key={column} className="px-3 py-2 text-neutral-700">
                         {String(row[column] ?? "-")}
                       </td>
                     ))}
@@ -561,13 +561,13 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
       ) : null}
 
       {widget.type === "text" ? (
-        <div className="mt-5 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+        <div className="mt-5 whitespace-pre-wrap text-sm leading-6 text-neutral-700">
           {widget.text || "Add commentary, summary, or next steps here."}
         </div>
       ) : null}
 
       {widget.emptyMessage && !widget.rows?.length && !widget.points?.length && !widget.value ? (
-        <p className="mt-4 text-xs text-slate-400">{widget.emptyMessage}</p>
+        <p className="mt-4 text-xs text-neutral-400">{widget.emptyMessage}</p>
       ) : null}
       {widget.warning ? <p className="mt-4 text-xs text-amber-700">{widget.warning}</p> : null}
     </article>

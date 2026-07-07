@@ -99,17 +99,16 @@ export function IntegrationsCard({
   return (
     <div
       className={cn(
-        "group flex h-full flex-col rounded-xl border bg-card/95 p-3 shadow-sm transition-all duration-200",
-        "hover:-translate-y-0.5 hover:shadow-md",
+        "group flex h-full flex-col rounded-xl border bg-card p-3 transition-colors duration-200",
         syncActionRequired
-          ? "border-amber-200/80 bg-gradient-to-br from-card via-card to-amber-50/50"
+          ? "border-amber-200"
           : isReady || isDegraded
-          ? "border-emerald-200/70 bg-gradient-to-br from-card via-card to-emerald-50/50"
+          ? "border-emerald-200"
           : isLoading || isNeedsAssignment
-            ? "border-sky-200/80 bg-gradient-to-br from-card via-card to-sky-50/50"
+            ? "border-blue-200"
             : isActionRequired
-              ? "border-amber-200/80 bg-gradient-to-br from-card via-card to-amber-50/50"
-              : "border-border/70 bg-gradient-to-br from-card via-card to-muted/25",
+              ? "border-amber-200"
+              : "border-border",
       )}
     >
       <div className="flex items-start justify-between gap-3">
@@ -139,7 +138,7 @@ export function IntegrationsCard({
       </div>
 
       {view.notice ? (
-        <p className="mt-2 rounded-lg border border-sky-300/30 bg-sky-50 px-2.5 py-2 text-[11px] leading-4 text-sky-800">
+        <p className="mt-2 rounded-lg border border-blue-300/30 bg-blue-50 px-2.5 py-2 text-[11px] leading-4 text-blue-800">
           {view.notice}
         </p>
       ) : null}
@@ -173,7 +172,7 @@ export function IntegrationsCard({
       ) : null}
 
       {isNeedsAssignment ? (
-        <p className="mt-2 rounded-lg border border-sky-300/30 bg-sky-50 px-2.5 py-2 text-[11px] leading-4 text-sky-800">
+        <p className="mt-2 rounded-lg border border-blue-300/30 bg-blue-50 px-2.5 py-2 text-[11px] leading-4 text-blue-800">
           {view.assignedSummary}
         </p>
       ) : null}
@@ -271,10 +270,10 @@ function StatusBadge({ status }: { status: ProviderViewState["status"] }) {
     return <Badge className="border border-emerald-200 bg-emerald-50 text-[10px] text-emerald-700">Degraded</Badge>;
   }
   if (status === "loading_data") {
-    return <Badge className="border border-sky-200 bg-sky-50 text-[10px] text-sky-700">Loading</Badge>;
+    return <Badge className="border border-blue-200 bg-blue-50 text-[10px] text-blue-700">Loading</Badge>;
   }
   if (status === "needs_assignment") {
-    return <Badge className="border border-sky-200 bg-sky-50 text-[10px] text-sky-700">Needs setup</Badge>;
+    return <Badge className="border border-blue-200 bg-blue-50 text-[10px] text-blue-700">Needs setup</Badge>;
   }
   if (status === "action_required") {
     return <Badge className="border border-amber-200 bg-amber-50 text-[10px] text-amber-800">Action required</Badge>;
@@ -353,7 +352,7 @@ function resolveShopifyStatusSummary(status: ShopifyStatusResponse) {
   if (status.state === "partial") {
     return {
       label: "Backfilling",
-      badgeClass: "border-sky-200 bg-sky-50 text-sky-700",
+      badgeClass: "border-blue-200 bg-blue-50 text-blue-700",
       message:
         "Recent Shopify commerce data is usable while historical coverage continues in the background.",
     };
@@ -361,7 +360,7 @@ function resolveShopifyStatusSummary(status: ShopifyStatusResponse) {
   if (status.state === "syncing") {
     return {
       label: "Syncing",
-      badgeClass: "border-sky-200 bg-sky-50 text-sky-700",
+      badgeClass: "border-blue-200 bg-blue-50 text-blue-700",
       message: "Shopify commerce data is syncing.",
     };
   }

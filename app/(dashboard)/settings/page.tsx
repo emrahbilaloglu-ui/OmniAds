@@ -650,17 +650,17 @@ export default function SettingsPage() {
                     return (
                       <div
                         key={planId}
-                        className={`rounded-xl border p-3 ${isCurrent ? "border-indigo-400 bg-indigo-50" : "border-border bg-background"}`}
+                        className={`rounded-xl border p-3 ${isCurrent ? "border-blue-400 bg-blue-50" : "border-border bg-background"}`}
                       >
                         <p className="text-sm font-semibold">{plan.name}</p>
                         <p className="mt-0.5 text-sm text-muted-foreground">{displayPrice}</p>
-                        {subPrice && <p className="text-xs text-indigo-600">{subPrice}</p>}
+                        {subPrice && <p className="text-xs text-blue-600">{subPrice}</p>}
                         {plan.trialDays > 0 && (
                           <p className="text-xs text-emerald-600">{plan.trialDays}-day trial</p>
                         )}
                         <div className="mt-3">
                           {isCurrent ? (
-                            <span className="text-xs text-indigo-600 font-medium">Current plan</span>
+                            <span className="text-xs text-blue-600 font-medium">Current plan</span>
                           ) : (
                             <Button
                               size="sm"
@@ -685,7 +685,7 @@ export default function SettingsPage() {
             ) : (
               <p className="text-sm text-muted-foreground">
                 Connect a Shopify store from the{" "}
-                <a href="/integrations" className="text-indigo-600 hover:underline">
+                <a href="/integrations" className="text-blue-600 hover:underline">
                   Integrations
                 </a>{" "}
                 page to manage your subscription.

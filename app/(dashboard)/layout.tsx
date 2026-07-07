@@ -29,7 +29,7 @@ export default async function DashboardLayout({
       {/* Main content */}
       <div className="flex flex-col flex-1 overflow-hidden">
         <Topbar userName={session.user.name} />
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="flex-1 overflow-y-auto bg-neutral-50 p-6">
           <BusinessGuard>{children}</BusinessGuard>
         </main>
       </div>

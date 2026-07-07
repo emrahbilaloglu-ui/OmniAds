@@ -129,8 +129,8 @@ function Field({
 }) {
   return (
     <label className="block space-y-2">
-      <span className="text-sm font-medium text-slate-800">{label}</span>
-      <div className="flex items-center rounded-xl border border-slate-200 bg-white px-3">
+      <span className="text-sm font-medium text-neutral-800">{label}</span>
+      <div className="flex items-center rounded-xl border border-neutral-200 bg-white px-3">
         <input
           type="number"
           step="0.01"
@@ -139,7 +139,7 @@ function Field({
           onChange={(event) => onChange(event.target.value)}
           className="h-11 w-full bg-transparent text-sm outline-none"
         />
-        <span className="text-sm text-slate-500">{suffix}</span>
+        <span className="text-sm text-neutral-500">{suffix}</span>
       </div>
     </label>
   );

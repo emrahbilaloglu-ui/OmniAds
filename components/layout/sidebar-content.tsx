@@ -30,17 +30,21 @@ const PLAN_LABELS: Record<PlanId, string> = {
   scale: "Scale",
 };
 
+// Triple-Whale-calm: a single blue primary carries the active state across
+// every platform — no per-platform accent theming, so the chrome stays quiet
+// and the numbers do the talking. Keyed by accent to preserve the type surface.
+const L2_ACTIVE_ACCENT: string =
+  "bg-blue-50 text-blue-700 font-semibold border-l-[3px] border-l-blue-600 pl-[7px]";
 const L2_ACTIVE_ACCENT_CLASSES: Record<PlatformAccent, string> = {
-  blue: "bg-blue-50 text-blue-700 font-semibold border-l-[3px] border-l-blue-600 pl-[7px]",
-  violet: "bg-violet-50 text-violet-700 font-semibold border-l-[3px] border-l-violet-600 pl-[7px]",
-  emerald:
-    "bg-emerald-50 text-emerald-700 font-semibold border-l-[3px] border-l-emerald-600 pl-[7px]",
-  slate: "bg-slate-100 text-slate-700 font-semibold border-l-[3px] border-l-slate-400 pl-[7px]",
+  blue: L2_ACTIVE_ACCENT,
+  violet: L2_ACTIVE_ACCENT,
+  emerald: L2_ACTIVE_ACCENT,
+  slate: L2_ACTIVE_ACCENT,
 };
 
 const L2_SUB_STATUS_CLASSES = {
   coming: "bg-amber-50 text-amber-800 border-amber-200",
-  soon: "bg-slate-100 text-slate-500 border-slate-200",
+  soon: "bg-neutral-100 text-neutral-500 border-neutral-200",
 } as const;
 
 function isItemActive(item: ShellNavItem, pathname: string) {
@@ -73,7 +77,7 @@ function SubStatusBadge({ status }: { status: NonNullable<ShellNavItem["subStatu
 
 function LockTrail({ requiredPlan }: { requiredPlan: PlanId }) {
   return (
-    <span className="ml-auto inline-flex items-center gap-0.5 text-[10px] text-slate-400">
+    <span className="ml-auto inline-flex items-center gap-0.5 text-[10px] text-neutral-400">
       <Lock className="h-[11px] w-[11px]" />
       <span className="font-medium uppercase tracking-wider">{PLAN_LABELS[requiredPlan]}</span>
     </span>
@@ -100,11 +104,13 @@ function L1NavItem({
   const Icon = item.icon;
   const className = cn(
     "flex items-center gap-2 pl-2.5 pr-2 py-1.5 rounded-md text-[13px] cursor-pointer",
-    active ? "bg-slate-100 text-slate-900 font-medium" : "text-slate-600 hover:bg-slate-50"
+    active
+      ? "bg-blue-50 text-blue-700 font-semibold"
+      : "text-neutral-600 hover:bg-neutral-50"
   );
   const content = (
     <>
-      <span className="w-4 h-4 grid place-items-center text-slate-500">
+      <span className={cn("w-4 h-4 grid place-items-center", active ? "text-blue-600" : "text-neutral-500")}>
         <Icon className="h-[15px] w-[15px]" />
       </span>
       <span>{item.label}</span>
@@ -153,12 +159,12 @@ function L2NavItem({
     "flex items-center gap-2 pr-2 py-1.5 rounded-r-md text-[13px] cursor-pointer",
     active
       ? L2_ACTIVE_ACCENT_CLASSES[accent]
-      : "text-slate-700 hover:bg-slate-50 border-l-[3px] border-l-transparent pl-[7px]",
+      : "text-neutral-700 hover:bg-neutral-50 border-l-[3px] border-l-transparent pl-[7px]",
     dimmed ? "opacity-50" : ""
   );
   const content = (
     <>
-      <span className={cn("w-4 h-4 grid place-items-center", active ? "" : "text-slate-500")}>
+      <span className={cn("w-4 h-4 grid place-items-center", active ? "" : "text-neutral-500")}>
         <Icon className="h-[15px] w-[15px]" />
       </span>
       <span>{item.label}</span>
@@ -167,11 +173,11 @@ function L2NavItem({
           <SubStatusBadge status={item.subStatus} />
         </span>
       ) : locked ? (
-        <span className="ml-auto inline-flex items-center text-slate-400">
+        <span className="ml-auto inline-flex items-center text-neutral-400">
           <Lock className="h-3 w-3" />
         </span>
       ) : item.badge != null ? (
-        <span className="ml-auto text-[11px] font-mono tabular-nums text-slate-500 px-1.5 py-0.5 bg-white border border-slate-200 rounded-md">
+        <span className="ml-auto text-[11px] font-mono tabular-nums text-neutral-500 px-1.5 py-0.5 bg-white border border-neutral-200 rounded-md">
           {item.badge}
         </span>
       ) : null}
@@ -201,14 +207,14 @@ function L2NavItem({
 function SoonPlatformEmpty({ platformId }: { platformId: keyof typeof platformsRegistry }) {
   const platform = platformsRegistry[platformId];
   return (
-    <div className="mx-2 my-1 rounded-lg border border-dashed border-slate-300 bg-slate-50/50 p-3 text-center">
+    <div className="mx-2 my-1 rounded-lg border border-dashed border-neutral-300 bg-neutral-50/50 p-3 text-center">
       <div className="flex justify-center mb-1.5">
         <PlatformLogo platformId={platformId} size={22} />
       </div>
-      <div className="text-[11.5px] font-medium text-slate-700">
+      <div className="text-[11.5px] font-medium text-neutral-700">
         {platform.name} not live yet
       </div>
-      <div className="text-[10.5px] text-slate-500 mt-0.5">
+      <div className="text-[10.5px] text-neutral-500 mt-0.5">
         No tools to show. Switch platform from the topbar.
       </div>
     </div>
@@ -234,18 +240,18 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const dimLayer2 = activeLayer === "L1";
 
   return (
-    <div className="w-60 shrink-0 border-r border-slate-200 bg-white h-full flex flex-col" data-shell-sidebar>
-      <div className="px-3 py-2.5 border-b border-slate-200 flex items-center gap-2">
+    <div className="w-60 shrink-0 border-r border-neutral-200 bg-white h-full flex flex-col" data-shell-sidebar>
+      <div className="px-3 py-2.5 border-b border-neutral-200 flex items-center gap-2">
         <BrandLogo
           className="gap-2"
           markClassName="h-7 w-7"
-          textClassName="text-[13px] font-semibold text-slate-900 leading-tight"
+          textClassName="text-[13px] font-semibold text-neutral-900 leading-tight"
           size={28}
         />
       </div>
 
       <nav className="flex-1 overflow-y-auto py-2 space-y-0.5">
-        <div className="px-2 pt-1 pb-1 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+        <div className="px-2 pt-1 pb-1 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold">
           {t.navigation.workspace}
         </div>
         <div className="px-2 space-y-0.5">
@@ -260,17 +266,17 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           ))}
         </div>
 
-        <div className="my-2 mx-3 border-t border-slate-200" />
+        <div className="my-2 mx-3 border-t border-neutral-200" />
 
         <div className="px-0">
           <div className={cn("px-2 pt-1 pb-1 flex items-center gap-1.5", dimLayer2 ? "opacity-60" : "")}>
-            <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+            <span className="text-[10px] uppercase tracking-wider text-neutral-400 font-semibold">
               Platform
             </span>
-            <span className="text-slate-300">·</span>
+            <span className="text-neutral-300">·</span>
             <PlatformLogo platformId={activePlatformId} size={14} />
-            <span className="text-[10.5px] font-semibold text-slate-700">{platform.name}</span>
-            {dimLayer2 ? <span className="ml-auto text-[10px] text-slate-400 italic">last viewed</span> : null}
+            <span className="text-[10.5px] font-semibold text-neutral-700">{platform.name}</span>
+            {dimLayer2 ? <span className="ml-auto text-[10px] text-neutral-400 italic">last viewed</span> : null}
           </div>
           <div className="space-y-0.5">
             {platform.status === "soon" || layer2Items.length === 0 ? (
@@ -291,9 +297,9 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           </div>
         </div>
 
-        <div className="my-2 mx-3 border-t border-slate-200" />
+        <div className="my-2 mx-3 border-t border-neutral-200" />
 
-        <div className="px-2 pt-1 pb-1 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+        <div className="px-2 pt-1 pb-1 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold">
           {t.navigation.manage}
         </div>
         <div className="px-2 space-y-0.5">

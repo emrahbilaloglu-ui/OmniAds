@@ -377,4 +377,26 @@ describe("decision history section", () => {
     );
     expect(html).not.toContain("Decision history (30d)");
   });
+
+  it("renders the key-metrics hero strip with tabular numerals when metrics exist", () => {
+    const html = renderDrawer(
+      <CreativeEvidenceDrawer open card={card()} {...noopProps} />,
+    );
+    expect(html).toContain("creative-evidence-keymetrics");
+    expect(html).toContain("2.74×");
+    expect(html).toContain("tabular-nums");
+  });
+
+  it("shows an em dash, never a fabricated zero, for missing key metrics", () => {
+    const html = renderDrawer(
+      <CreativeEvidenceDrawer
+        open
+        card={card({ roas: null, cpa: null, spend: 1240, purchases: 11 })}
+        {...noopProps}
+      />,
+    );
+    expect(html).toContain("creative-evidence-keymetrics");
+    expect(html).toContain("—");
+    expect(html).not.toContain("0.00×");
+  });
 });

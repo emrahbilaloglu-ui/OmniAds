@@ -215,7 +215,7 @@ function PreviewStripMediaSurface({
       onAssetSettled={onAdvance}
     />
   ) : (
-    <div className="h-full w-full animate-pulse bg-gradient-to-br from-slate-100 to-slate-200" />
+    <div className="h-full w-full animate-pulse bg-gradient-to-br from-neutral-100 to-neutral-200" />
   );
 }
 
@@ -792,7 +792,7 @@ function AddFilterDropdown({
                 <button
                   type="button"
                   onClick={addRule}
-                  className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-900 bg-slate-900 px-4 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
+                  className="inline-flex h-10 items-center justify-center rounded-2xl border border-neutral-900 bg-neutral-900 px-4 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-60"
                   disabled={!query.trim()}
                 >
                   Add
@@ -811,7 +811,7 @@ function AddFilterDropdown({
                       key={`${field}-${suggestion}`}
                       type="button"
                       onClick={() => addRuleWith(field, operator, suggestion)}
-                      className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
+                      className="rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50"
                     >
                       {suggestion}
                     </button>
@@ -820,7 +820,7 @@ function AddFilterDropdown({
               </div>
             ) : null}
 
-	            <div className="mt-2 rounded-2xl border bg-slate-50/80 px-3 py-2 text-[11px] text-slate-600">
+	            <div className="mt-2 rounded-2xl border bg-neutral-50/80 px-3 py-2 text-[11px] text-neutral-600">
 	              AI tag filters use tag values only and do not rewrite taxonomy.
 	            </div>
           </div>
@@ -1242,11 +1242,11 @@ function PreviewStrip({
               key={`creative-preview-skeleton-${index}`}
               className="overflow-hidden rounded-xl border bg-background"
             >
-              <div className="aspect-square w-full animate-pulse bg-gradient-to-br from-slate-100 to-slate-200" />
+              <div className="aspect-square w-full animate-pulse bg-gradient-to-br from-neutral-100 to-neutral-200" />
               <div className="space-y-2 px-3 pb-3 pt-2.5">
-                <div className="h-4 w-3/4 animate-pulse rounded bg-slate-100" />
-                <div className="h-3 w-1/2 animate-pulse rounded bg-slate-100" />
-                <div className="h-3 w-2/3 animate-pulse rounded bg-slate-100" />
+                <div className="h-4 w-3/4 animate-pulse rounded bg-neutral-100" />
+                <div className="h-3 w-1/2 animate-pulse rounded bg-neutral-100" />
+                <div className="h-3 w-2/3 animate-pulse rounded bg-neutral-100" />
               </div>
             </div>
           ))}

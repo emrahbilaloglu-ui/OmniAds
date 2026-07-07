@@ -25,16 +25,16 @@ export function EmptyActionState({
   onBrowseAssetLibrary,
 }: EmptyActionStateProps) {
   return (
-    <div className="rounded-2xl border border-dashed border-emerald-300 bg-emerald-50/50 px-5 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]" data-empty-action-state>
+    <div className="rounded-2xl border border-dashed border-emerald-300 bg-emerald-50/50 px-5 py-5 shadow-[0_1px_2px_rgba(16,21,28,0.04)]" data-empty-action-state>
       <div className="flex items-start gap-3">
         <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-700 grid place-items-center shrink-0">
           <CheckCircle2 className="inline-block shrink-0" size={20} aria-hidden="true" />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-[15px] font-semibold text-slate-900">
+          <div className="text-[15px] font-semibold text-neutral-900">
             Nothing for you to do right now.
           </div>
-          <div className="text-[12.5px] text-slate-600 mt-1">
+          <div className="text-[12.5px] text-neutral-600 mt-1">
             {matureCount} mature creatives · {watchingCount} watching · Data is loaded in the lanes below
           </div>
           <div className="flex items-center gap-2 flex-wrap mt-3">
@@ -42,11 +42,11 @@ export function EmptyActionState({
               <ShieldCheck className="inline-block shrink-0" size={12} aria-hidden="true" />
               Triage clear
             </span>
-            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-200 bg-white text-slate-600 text-[11.5px]">
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-neutral-200 bg-white text-neutral-600 text-[11.5px]">
               <Eye className="inline-block shrink-0" size={12} aria-hidden="true" />
               {watchingCount > 0 ? "Expand Watching below" : "No watching cases"}
             </span>
-            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-200 bg-white text-slate-600 text-[11.5px]">
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-neutral-200 bg-white text-neutral-600 text-[11.5px]">
               <Clock className="inline-block shrink-0" size={12} aria-hidden="true" />
               Next engine pass: ~2h
             </span>
@@ -54,7 +54,7 @@ export function EmptyActionState({
               {onBrowseAssetLibrary ? (
                 <button
                   type="button"
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-[12px] font-medium"
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50 text-[12px] font-medium"
                   data-empty-action="browse-asset-library"
                   onClick={onBrowseAssetLibrary}
                 >

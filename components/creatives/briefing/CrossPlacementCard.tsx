@@ -118,15 +118,15 @@ export function CrossPlacementCard({
     selected ? "ring-2 ring-blue-500 ring-offset-1" : "",
     deferred ? "opacity-60" : "",
     cutting ? "opacity-0 -translate-x-4 pointer-events-none" : "",
-    "shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
+    "shadow-[0_1px_2px_rgba(16,21,28,0.04)]",
   ]
     .filter(Boolean)
     .join(" ");
 
   return (
     <div className={cardClasses} data-card={actionCardId} data-lane="action" data-rollup="cross-placement">
-      <div className="absolute -bottom-1 left-3 right-3 h-2 rounded-b-2xl bg-white border-x border-b border-slate-200" />
-      <div className="absolute -bottom-2 left-5 right-5 h-2 rounded-b-2xl bg-white border-x border-b border-slate-200" />
+      <div className="absolute -bottom-1 left-3 right-3 h-2 rounded-b-2xl bg-white border-x border-b border-neutral-200" />
+      <div className="absolute -bottom-2 left-5 right-5 h-2 rounded-b-2xl bg-white border-x border-b border-neutral-200" />
 
       <div className="flex items-start gap-3">
         <label className="flex items-start pt-1">
@@ -136,7 +136,7 @@ export function CrossPlacementCard({
             data-lane="action"
             checked={selected}
             onChange={(event) => onSelectChange?.(actionCardId, event.currentTarget.checked)}
-            className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+            className="w-4 h-4 rounded border-neutral-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
           />
         </label>
         <button
@@ -159,7 +159,7 @@ export function CrossPlacementCard({
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h3 className={`${conf.textWeight} text-slate-900 text-[14px] truncate`}>
+                <h3 className={`${conf.textWeight} text-neutral-900 text-[14px] truncate`}>
                   <button
                     type="button"
                     className="creative-evidence-trigger creative-evidence-trigger--inline-name"
@@ -169,22 +169,22 @@ export function CrossPlacementCard({
                     {name}
                   </button>
                 </h3>
-                <span className="text-[10.5px] uppercase tracking-wider text-slate-400 font-medium">
+                <span className="text-[10.5px] uppercase tracking-wider text-neutral-400 font-medium">
                   {card.brand || "Brand"}
                 </span>
               </div>
-              <div className="text-[11.5px] text-slate-500 truncate mt-0.5">
+              <div className="text-[11.5px] text-neutral-500 truncate mt-0.5">
                 In {placementList.length} placements · best in{" "}
-                <span className="font-medium text-slate-700">{bestPlacement}</span>
+                <span className="font-medium text-neutral-700">{bestPlacement}</span>
               </div>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-slate-200 bg-slate-50 text-slate-600 text-[10.5px] font-medium">
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-neutral-200 bg-neutral-50 text-neutral-600 text-[10.5px] font-medium">
                 <Layers className="inline-block shrink-0" size={11} aria-hidden="true" />
                 {placementList.length} placements
               </span>
               {mixed ? (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-slate-300 bg-slate-100 text-slate-700 text-[10.5px] font-medium">
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-neutral-300 bg-neutral-100 text-neutral-700 text-[10.5px] font-medium">
                   <AlertTriangle className="inline-block shrink-0" size={11} aria-hidden="true" />
                   mixed
                 </span>
@@ -201,12 +201,12 @@ export function CrossPlacementCard({
 
       <div className="mt-3 pl-[44px] grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5 items-center">
         <div className="space-y-1">
-          <div className="text-[12.5px] text-slate-700 leading-snug">
+          <div className="text-[12.5px] text-neutral-700 leading-snug">
             {card.reason || "No engine reason supplied."}
           </div>
           {card.predictive ? (
-            <div className="text-[11.5px] text-slate-500 italic flex items-center gap-1 mt-0.5">
-              <Sparkles className="inline-block shrink-0 text-slate-400" size={11} aria-hidden="true" />
+            <div className="text-[11.5px] text-neutral-500 italic flex items-center gap-1 mt-0.5">
+              <Sparkles className="inline-block shrink-0 text-neutral-400" size={11} aria-hidden="true" />
               <span>{card.predictive}</span>
             </div>
           ) : (
@@ -218,28 +218,28 @@ export function CrossPlacementCard({
             <CtrBar value={card.ctrFunnel?.value ?? card.ctr} p50={card.ctrFunnel?.p50} />
             <MetricDivider />
             <div className="flex items-center gap-1.5">
-              <span className="text-[10.5px] text-slate-500">28d ROAS</span>
+              <span className="text-[10.5px] text-neutral-500">28d ROAS</span>
               <Sparkline
                 values={card.sparkline}
                 tone={label === "scale" ? "text-emerald-500" : "text-rose-500"}
                 width={60}
                 height={18}
               />
-              <span className="font-mono tabular-nums text-[11px] font-medium text-slate-900">
+              <span className="font-mono tabular-nums text-[11px] font-medium text-neutral-900">
                 {formatRoas(card.roas)}
               </span>
             </div>
             <MetricDivider />
             <FatigueDot active={card.fatigue} />
             <MetricDivider />
-            <span className="font-mono tabular-nums text-[11px] text-slate-500">
+            <span className="font-mono tabular-nums text-[11px] text-neutral-500">
               {formatCurrency(card.spend)} spend · {numberOrZero(card.purchases)} purch.
             </span>
           </div>
         </div>
       </div>
 
-      <div className="flex items-center gap-1.5 flex-wrap mt-2 pt-2 border-t border-slate-100">
+      <div className="flex items-center gap-1.5 flex-wrap mt-2 pt-2 border-t border-neutral-100">
         <PrimaryActionButton
           kind={card.primary?.kind}
           label={card.primary?.label}
@@ -266,7 +266,7 @@ export function CrossPlacementCard({
         </DeferTooltip>
         <button
           type="button"
-          className="ml-auto inline-flex items-center gap-1 text-[11.5px] text-slate-500 hover:text-slate-900"
+          className="ml-auto inline-flex items-center gap-1 text-[11.5px] text-neutral-500 hover:text-neutral-900"
           data-action="evidence"
           data-id={actionCardId}
           aria-haspopup="dialog"
@@ -299,11 +299,11 @@ export function CrossPlacementCard({
 function PlacementStrip({ placements }: { placements: BriefingPlacement[] }) {
   return (
     <div className="mt-3 pl-[44px]">
-      <div className="text-[10.5px] uppercase tracking-wider text-slate-400 font-semibold mb-1 flex items-center gap-1">
-        <Layers className="inline-block shrink-0 text-slate-400" size={11} aria-hidden="true" />
+      <div className="text-[10.5px] uppercase tracking-wider text-neutral-400 font-semibold mb-1 flex items-center gap-1">
+        <Layers className="inline-block shrink-0 text-neutral-400" size={11} aria-hidden="true" />
         Placements ({placements.length})
       </div>
-      <div className="rounded-lg border border-slate-200 bg-slate-50/50 divide-y divide-slate-100">
+      <div className="rounded-lg border border-neutral-200 bg-neutral-50/50 divide-y divide-neutral-100">
         {placements.map((placement, index) => {
           const label = placement.label ? asDecisionLabel(placement.label) : null;
           const roas = numberOrZero(placement.roas);
@@ -316,21 +316,21 @@ function PlacementStrip({ placements }: { placements: BriefingPlacement[] }) {
             >
               <span
                 className={`w-1.5 h-1.5 rounded-full ${
-                  placement.status === "ACTIVE" ? "bg-emerald-500" : "bg-slate-300"
+                  placement.status === "ACTIVE" ? "bg-emerald-500" : "bg-neutral-300"
                 }`}
               />
-              <span className="text-slate-700 truncate flex-1 min-w-0">
+              <span className="text-neutral-700 truncate flex-1 min-w-0">
                 {placement.adset || placement.adsetName || "Ad set"}
               </span>
-              <span className="text-slate-400 truncate hidden lg:block">
+              <span className="text-neutral-400 truncate hidden lg:block">
                 {placement.campaign || placement.campaignName || "Campaign"}
               </span>
-              <span className="font-mono tabular-nums text-slate-500">
+              <span className="font-mono tabular-nums text-neutral-500">
                 {formatCurrency(placement.spend)}
               </span>
               <span
                 className={`font-mono tabular-nums font-medium ${
-                  roas >= 2 ? "text-emerald-700" : roas >= 1 ? "text-slate-700" : "text-rose-700"
+                  roas >= 2 ? "text-emerald-700" : roas >= 1 ? "text-neutral-700" : "text-rose-700"
                 }`}
               >
                 {formatRoas(roas)}

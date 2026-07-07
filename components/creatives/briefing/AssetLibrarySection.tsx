@@ -926,13 +926,13 @@ export function AssetLibrarySection({
           <span className="chev">▾</span>
         </button>
         <label className="relative min-w-[260px] flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 inline-block shrink-0" size={14} aria-hidden="true" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 inline-block shrink-0" size={14} aria-hidden="true" />
           <input
             type="search"
             value={filters.search}
             onChange={(event) => setFilters((current) => ({ ...current, search: event.currentTarget.value }))}
             placeholder="creative / campaign / ad set"
-            className="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-9 pr-3 text-[12.5px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
+            className="w-full rounded-md border border-neutral-200 bg-white py-1.5 pl-9 pr-3 text-[12.5px] text-neutral-900 placeholder:text-neutral-400 focus:outline-none"
           />
         </label>
         <div className="seg">

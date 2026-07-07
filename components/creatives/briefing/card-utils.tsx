@@ -211,7 +211,7 @@ export function BadgeChip({ label }: { label: DecisionLabel | string }) {
   if (label === "scale_readiness_blocked") {
     return (
       <span
-        className="inline-flex items-center gap-1 rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700"
+        className="inline-flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700"
         title="This is a scale-zone creative, but the engine withheld hard scale until all scale readiness gates are met."
       >
         <Target
@@ -290,8 +290,8 @@ export function CampaignKindChip({
     card.campaignKind === "main"
       ? "border-emerald-200 bg-emerald-50 text-emerald-700"
       : card.campaignKind === "test"
-        ? "border-sky-200 bg-sky-50 text-sky-700"
-        : "border-violet-200 bg-violet-50 text-violet-700";
+        ? "border-blue-200 bg-blue-50 text-blue-700"
+        : "border-neutral-200 bg-neutral-50 text-neutral-700";
   const detail = card.campaignTestDimension
     ? `${label}: ${card.campaignTestDimension}`
     : label;
@@ -306,9 +306,15 @@ export function CampaignKindChip({
   );
 }
 
+// Triple-Whale-calm sparkline signature: a thin blue->emerald gradient line,
+// no area fill, rounded caps. Every gradient is identical so one shared id is
+// safe and SSR-stable. Callers may still pass a semantic tone (emerald/rose)
+// to encode direction; that renders as a solid currentColor stroke instead.
+const SPARK_GRADIENT_ID = "adsecute-spark-gradient";
+
 export function Sparkline({
   values,
-  tone = "text-slate-400",
+  tone = "text-neutral-400",
   width = 80,
   height = 22,
 }: {
@@ -319,21 +325,32 @@ export function Sparkline({
 }) {
   const normalizedValues =
     Array.isArray(values) && values.length > 0 ? values : [0, 0];
+  const useGradient = !tone || tone === "text-neutral-400";
 
   return (
     <svg
       viewBox="0 0 60 16"
       width={width}
       height={height}
-      className={tone}
+      className={useGradient ? undefined : tone}
       preserveAspectRatio="none"
       aria-hidden="true"
     >
+      {useGradient ? (
+        <defs>
+          <linearGradient id={SPARK_GRADIENT_ID} x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="var(--brand, #2f6bff)" />
+            <stop offset="100%" stopColor="var(--ok, #0e9f6e)" />
+          </linearGradient>
+        </defs>
+      ) : null}
       <path
         d={sparklinePath(normalizedValues)}
         fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
+        stroke={useGradient ? `url(#${SPARK_GRADIENT_ID})` : "currentColor"}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </svg>
   );
@@ -353,14 +370,14 @@ export function CtrBar({
 
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-[10.5px] text-slate-500">CTR</span>
-      <div className="relative w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+      <span className="text-[10.5px] text-neutral-500">CTR</span>
+      <div className="relative w-20 h-1.5 bg-neutral-100 rounded-full overflow-hidden">
         <div
           className={`absolute inset-y-0 left-0 ${isAbove ? "bg-emerald-500" : "bg-rose-500"}`}
           style={{ width: `${pct}%` }}
         />
         <div
-          className="absolute inset-y-0 w-px bg-slate-400"
+          className="absolute inset-y-0 w-px bg-neutral-400"
           style={{ left: "50%" }}
         />
       </div>
@@ -371,7 +388,7 @@ export function CtrBar({
       >
         {ctr.toFixed(2)}%
       </span>
-      <span className="font-mono tabular-nums text-[10px] text-slate-400">
+      <span className="font-mono tabular-nums text-[10px] text-neutral-400">
         P50 {midpoint.toFixed(2)}%
       </span>
     </div>
@@ -382,11 +399,11 @@ export function FatigueDot({ active }: { active?: boolean | null }) {
   return (
     <span
       className={`inline-flex items-center gap-1 text-[10.5px] ${
-        active ? "text-amber-700" : "text-slate-400"
+        active ? "text-amber-700" : "text-neutral-400"
       }`}
     >
       <span
-        className={`w-1.5 h-1.5 rounded-full ${active ? "bg-amber-500" : "bg-slate-300"}`}
+        className={`w-1.5 h-1.5 rounded-full ${active ? "bg-amber-500" : "bg-neutral-300"}`}
       />
       {active ? "Fatigued" : "Stable"}
     </span>
@@ -394,7 +411,7 @@ export function FatigueDot({ active }: { active?: boolean | null }) {
 }
 
 export function MetricDivider() {
-  return <span className="text-slate-200">·</span>;
+  return <span className="text-neutral-200">·</span>;
 }
 
 export function PrimaryActionButton({
@@ -435,8 +452,8 @@ export function PrimaryActionButton({
       : "border-emerald-300 text-emerald-700 hover:bg-emerald-50";
   } else if (actionKind === "review_placements") {
     toneClass = isFilled
-      ? "bg-slate-800 text-white border-slate-800 hover:bg-slate-900"
-      : "border-slate-300 text-slate-700 hover:bg-slate-50";
+      ? "bg-neutral-800 text-white border-neutral-800 hover:bg-neutral-900"
+      : "border-neutral-300 text-neutral-700 hover:bg-neutral-50";
   } else {
     toneClass = isFilled
       ? "bg-blue-600 text-white border-blue-600 hover:bg-blue-700"
@@ -485,7 +502,7 @@ export function SecondaryButton({
       type="button"
       data-action={dataAction}
       disabled={disabled}
-      className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 text-[12px] disabled:cursor-not-allowed disabled:opacity-60"
+      className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md border border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50 text-[12px] disabled:cursor-not-allowed disabled:opacity-60"
       onClick={(event) => {
         event.preventDefault();
         onClick?.();
@@ -500,10 +517,10 @@ export function SecondaryButton({
 function Kv({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <div className="text-[10.5px] uppercase tracking-wider text-slate-400 font-semibold">
+      <div className="text-[10.5px] uppercase tracking-wider text-neutral-400 font-semibold">
         {label}
       </div>
-      <div className="font-mono tabular-nums text-slate-900 text-[12.5px] font-medium">
+      <div className="font-mono tabular-nums text-neutral-900 text-[12.5px] font-medium">
         {children}
       </div>
     </div>
@@ -534,15 +551,15 @@ function BlockersBody({ card }: { card: BriefingCreativeCard }) {
   const blockers = card.blockers ?? [];
   if (blockers.length === 0) {
     return (
-      <p className="text-[12px] text-slate-500">
+      <p className="text-[12px] text-neutral-500">
         No structured blocker predicates supplied.
       </p>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-md border border-slate-200">
-      <div className="grid grid-cols-[1.35fr_1fr_1fr_0.8fr] gap-2 border-b border-slate-200 bg-slate-50 px-2 py-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-slate-500">
+    <div className="overflow-hidden rounded-md border border-neutral-200">
+      <div className="grid grid-cols-[1.35fr_1fr_1fr_0.8fr] gap-2 border-b border-neutral-200 bg-neutral-50 px-2 py-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-neutral-500">
         <span>Predicate</span>
         <span>Observed</span>
         <span>Threshold</span>
@@ -551,25 +568,25 @@ function BlockersBody({ card }: { card: BriefingCreativeCard }) {
       {blockers.map((blocker, index) => (
         <div
           key={`${blocker.predicate}-${index}`}
-          className="grid grid-cols-[1.35fr_1fr_1fr_0.8fr] gap-2 border-b border-slate-100 px-2 py-1.5 text-[12px] last:border-b-0"
+          className="grid grid-cols-[1.35fr_1fr_1fr_0.8fr] gap-2 border-b border-neutral-100 px-2 py-1.5 text-[12px] last:border-b-0"
         >
           <div>
-            <div className="font-mono text-[11.5px] text-slate-900">
+            <div className="font-mono text-[11.5px] text-neutral-900">
               {blocker.predicate}
             </div>
             {blocker.reason ? (
-              <div className="mt-0.5 text-[11px] leading-snug text-slate-500">
+              <div className="mt-0.5 text-[11px] leading-snug text-neutral-500">
                 {blocker.reason}
               </div>
             ) : null}
           </div>
-          <span className="font-mono tabular-nums text-slate-700">
+          <span className="font-mono tabular-nums text-neutral-700">
             {formatBlockerValue(blocker.observed)}
           </span>
-          <span className="font-mono tabular-nums text-slate-700">
+          <span className="font-mono tabular-nums text-neutral-700">
             {formatBlockerValue(blocker.threshold)}
           </span>
-          <span className="font-medium text-slate-700">
+          <span className="font-medium text-neutral-700">
             {blocker.status ?? "failed"}
           </span>
         </div>
@@ -593,20 +610,20 @@ function ExplainabilityBody({ card }: { card: BriefingCreativeCard }) {
   return (
     <div className="space-y-3">
       {thresholdProvenance ? (
-        <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-slate-600">
-          <span className="inline-flex items-center rounded border border-slate-200 bg-white px-2 py-1 font-medium">
+        <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-neutral-600">
+          <span className="inline-flex items-center rounded border border-neutral-200 bg-white px-2 py-1 font-medium">
             Calibration{" "}
             {thresholdProvenance.calibrationComputedAt
               ? thresholdProvenance.calibrationComputedAt.slice(0, 10)
               : "unknown"}
           </span>
-          <span className="inline-flex items-center rounded border border-slate-200 bg-white px-2 py-1 font-medium">
+          <span className="inline-flex items-center rounded border border-neutral-200 bg-white px-2 py-1 font-medium">
             Refit due{" "}
             {thresholdProvenance.refitDueAt
               ? thresholdProvenance.refitDueAt.slice(0, 10)
               : "unknown"}
           </span>
-          <span className="inline-flex items-center rounded border border-slate-200 bg-white px-2 py-1 font-medium">
+          <span className="inline-flex items-center rounded border border-neutral-200 bg-white px-2 py-1 font-medium">
             {thresholdProvenance.source.replace(/_/g, " ")}
           </span>
         </div>
@@ -673,18 +690,18 @@ function ExplainabilityBody({ card }: { card: BriefingCreativeCard }) {
         </div>
       ) : null}
       {priority ? (
-        <div className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 text-[12px] text-slate-700">
+        <div className="rounded-md border border-neutral-200 bg-neutral-50 px-2.5 py-2 text-[12px] text-neutral-700">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-semibold text-slate-900">
+            <span className="font-semibold text-neutral-900">
               Priority {priority.band}
             </span>
             <span className="font-mono tabular-nums">
               {priority.score.toLocaleString("en-US")}
             </span>
-            <span className="text-slate-400">·</span>
+            <span className="text-neutral-400">·</span>
             <span>{priority.reason}</span>
           </div>
-          <div className="mt-1 text-[11px] text-slate-500">
+          <div className="mt-1 text-[11px] text-neutral-500">
             spend at risk {formatCurrency(priority.inputs.spendAtRisk)} ·
             opportunity {formatCurrency(priority.inputs.opportunityValue)} ·
             confidence factor {priority.inputs.confidenceFactor.toFixed(2)}
@@ -692,8 +709,8 @@ function ExplainabilityBody({ card }: { card: BriefingCreativeCard }) {
         </div>
       ) : null}
       {nearMisses.length > 0 ? (
-        <div className="rounded-md border border-sky-100 bg-sky-50/70 px-2.5 py-2 text-[12px] text-slate-700">
-          <div className="font-semibold text-slate-900">
+        <div className="rounded-md border border-blue-100 bg-blue-50/70 px-2.5 py-2 text-[12px] text-neutral-700">
+          <div className="font-semibold text-neutral-900">
             What would flip this decision?
           </div>
           <ul className="mt-1 list-disc space-y-0.5 pl-4">
@@ -704,7 +721,7 @@ function ExplainabilityBody({ card }: { card: BriefingCreativeCard }) {
         </div>
       ) : null}
       {missingEvidence.length > 0 ? (
-        <div className="text-[11.5px] text-slate-500">
+        <div className="text-[11.5px] text-neutral-500">
           Missing proof: {missingEvidence.join(", ").replace(/_/g, " ")}
         </div>
       ) : null}
@@ -725,15 +742,15 @@ function TrailItem({
 }) {
   return (
     <li className="relative">
-      <span className="absolute -left-[21px] top-1.5 w-2.5 h-2.5 rounded-full bg-white border-2 border-slate-300" />
-      <div className="flex items-center gap-2 text-slate-900 font-medium text-[12px]">
+      <span className="absolute -left-[21px] top-1.5 w-2.5 h-2.5 rounded-full bg-white border-2 border-neutral-300" />
+      <div className="flex items-center gap-2 text-neutral-900 font-medium text-[12px]">
         {label}
       </div>
-      <div className="text-[11px] text-slate-500 flex items-center gap-2">
+      <div className="text-[11px] text-neutral-500 flex items-center gap-2">
         <span className="font-mono tabular-nums">{date}</span>
-        <span className="text-slate-300">·</span>
+        <span className="text-neutral-300">·</span>
         <span>{version}</span>
-        <span className="text-slate-300">·</span>
+        <span className="text-neutral-300">·</span>
         <span className="italic">{why}</span>
       </div>
     </li>
@@ -759,7 +776,7 @@ function FunnelBody({ card }: { card: BriefingCreativeCard }) {
 
   if (denominator <= 0) {
     return (
-      <p className="text-[12px] text-slate-500">Funnel counts unavailable.</p>
+      <p className="text-[12px] text-neutral-500">Funnel counts unavailable.</p>
     );
   }
 
@@ -790,14 +807,14 @@ function FunnelBody({ card }: { card: BriefingCreativeCard }) {
     <div className="space-y-1.5">
       {stages.map((stage) => (
         <div key={stage.name} className="flex items-center gap-2 text-[12px]">
-          <span className="w-24 text-slate-500">{stage.name}</span>
-          <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+          <span className="w-24 text-neutral-500">{stage.name}</span>
+          <div className="flex-1 h-2 bg-neutral-100 rounded-full overflow-hidden">
             <div
               className="h-full bg-blue-500"
               style={{ width: `${stage.pct}%` }}
             />
           </div>
-          <span className="font-mono tabular-nums text-slate-900 w-20 text-right">
+          <span className="font-mono tabular-nums text-neutral-900 w-20 text-right">
             {stage.value.toLocaleString("en-US")}
           </span>
         </div>
@@ -841,7 +858,7 @@ export function buildEvidenceSections(
       content: (
         <div className="grid grid-cols-2 gap-3 text-[12px]">
           <div>
-            <div className="text-[10.5px] uppercase tracking-wider text-slate-400 font-semibold mb-1">
+            <div className="text-[10.5px] uppercase tracking-wider text-neutral-400 font-semibold mb-1">
               Engine label
             </div>
             <div className="flex items-center gap-2">
@@ -850,18 +867,18 @@ export function buildEvidenceSections(
             </div>
           </div>
           <div>
-            <div className="text-[10.5px] uppercase tracking-wider text-slate-400 font-semibold mb-1">
+            <div className="text-[10.5px] uppercase tracking-wider text-neutral-400 font-semibold mb-1">
               Recommended action
             </div>
-            <div className="text-slate-900 font-medium">{primaryLabel}</div>
+            <div className="text-neutral-900 font-medium">{primaryLabel}</div>
           </div>
           {priority ? (
-            <div className="col-span-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
-              <div className="text-[10.5px] uppercase tracking-wider text-slate-400 font-semibold">
+            <div className="col-span-2 rounded-md border border-neutral-200 bg-neutral-50 px-2 py-1.5">
+              <div className="text-[10.5px] uppercase tracking-wider text-neutral-400 font-semibold">
                 Priority model
               </div>
-              <div className="mt-0.5 text-slate-700">
-                <span className="font-semibold text-slate-900">
+              <div className="mt-0.5 text-neutral-700">
+                <span className="font-semibold text-neutral-900">
                   {priority.band}
                 </span>{" "}
                 <span className="font-mono tabular-nums">
@@ -872,10 +889,10 @@ export function buildEvidenceSections(
             </div>
           ) : null}
           <div className="col-span-2">
-            <div className="text-[10.5px] uppercase tracking-wider text-slate-400 font-semibold mb-1">
+            <div className="text-[10.5px] uppercase tracking-wider text-neutral-400 font-semibold mb-1">
               Reason
             </div>
-            <div className="text-slate-700 leading-snug">{reason}</div>
+            <div className="text-neutral-700 leading-snug">{reason}</div>
             {card.labelTransform ? (
               <div className="mt-1 inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10.5px] font-medium text-amber-800">
                 <SkipForward
@@ -887,7 +904,7 @@ export function buildEvidenceSections(
               </div>
             ) : null}
             {predictive ? (
-              <div className="text-slate-500 italic mt-1 flex items-center gap-1">
+              <div className="text-neutral-500 italic mt-1 flex items-center gap-1">
                 <Sparkles
                   className="inline-block shrink-0"
                   size={11}
@@ -984,7 +1001,7 @@ export function buildEvidenceSections(
         />
       ),
       content: (
-        <ol className="space-y-1.5 text-[12px] text-slate-600 relative pl-4 border-l border-slate-200">
+        <ol className="space-y-1.5 text-[12px] text-neutral-600 relative pl-4 border-l border-neutral-200">
           <TrailItem
             version={engineVersion}
             date={sourceAsOf}
@@ -1001,9 +1018,9 @@ export function buildEvidenceSections(
         <User className="inline-block shrink-0" size={13} aria-hidden="true" />
       ),
       content: (
-        <div className="text-[12px] text-slate-600 space-y-1">
+        <div className="text-[12px] text-neutral-600 space-y-1">
           <div className="flex items-center gap-2">
-            <span className="text-slate-400">
+            <span className="text-neutral-400">
               <Clock
                 className="inline-block shrink-0"
                 size={11}

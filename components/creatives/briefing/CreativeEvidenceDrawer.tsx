@@ -199,9 +199,14 @@ function buildEvidenceItems(card: BriefingCreativeCard): EvidenceItem[] {
   }
 
   if (hasPerformance) {
+    // Honest formatting: a metric the payload omits renders as an em dash, never
+    // a fabricated 0.00x / zero-currency. Currency stays per-card via formatCurrency.
+    const roasText = hasNumeric(card.roas) ? formatRoas(card.roas) : "—";
+    const spendText = hasNumeric(card.spend) ? formatCurrency(card.spend) : "—";
+    const cpaText = hasNumeric(card.cpa) ? formatCurrency(card.cpa) : "—";
     items.push({
-      title: `ROAS ${formatRoas(card.roas)} - spend ${formatCurrency(card.spend)}`,
-      body: `Purchases ${formatCount(card.purchases)}; CPA ${formatCurrency(card.cpa)}; confidence ${confidenceValue(card)}%.`,
+      title: `ROAS ${roasText} - spend ${spendText}`,
+      body: `Purchases ${formatCount(card.purchases)}; CPA ${cpaText}; confidence ${confidenceValue(card)}%.`,
       source: `${source} - mature metrics`,
       tone: numberOrZero(card.roas) >= 2 ? "positive" : numberOrZero(card.roas) < 1 ? "warn" : "default",
     });
@@ -927,6 +932,96 @@ function CreativeEvidenceDrawerContent({
                 <X size={16} aria-hidden="true" />
               </button>
             </div>
+
+            {hasNumeric(card.roas) ||
+            hasNumeric(card.spend) ||
+            hasNumeric(card.cpa) ||
+            hasNumeric(card.purchases) ? (
+              <section className="creative-evidence-section">
+                {/* Triple-Whale-calm hero-numeral strip: the key metrics read as
+                    large tabular numerals; anything the payload omits renders as
+                    an em dash, never 0. Currency stays per-card via formatCurrency. */}
+                <div
+                  data-testid="creative-evidence-keymetrics"
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(4, 1fr)",
+                    overflow: "hidden",
+                    border: "1px solid var(--border, #ecedef)",
+                    borderRadius: "8px",
+                    background: "var(--surface, #ffffff)",
+                  }}
+                >
+                  {[
+                    {
+                      key: "roas",
+                      label: "ROAS",
+                      value: hasNumeric(card.roas) ? formatRoas(card.roas) : "—",
+                      color:
+                        hasNumeric(card.roas) && numberOrZero(card.roas) >= 2
+                          ? "var(--ok, #0e9f6e)"
+                          : hasNumeric(card.roas) && numberOrZero(card.roas) < 1
+                            ? "var(--danger, #e11d48)"
+                            : "var(--ink, #10151c)",
+                    },
+                    {
+                      key: "spend",
+                      label: "Spend",
+                      value: hasNumeric(card.spend) ? formatCurrency(card.spend) : "—",
+                      color: "var(--ink, #10151c)",
+                    },
+                    {
+                      key: "cpa",
+                      label: "CPA",
+                      value: hasNumeric(card.cpa) ? formatCurrency(card.cpa) : "—",
+                      color: "var(--ink, #10151c)",
+                    },
+                    {
+                      key: "purch",
+                      label: "Purchases",
+                      value: hasNumeric(card.purchases)
+                        ? formatCount(card.purchases)
+                        : "—",
+                      color: "var(--ink, #10151c)",
+                    },
+                  ].map((metric, index) => (
+                    <div
+                      key={metric.key}
+                      style={{
+                        padding: "10px 12px",
+                        borderRight:
+                          index < 3 ? "1px solid var(--border, #ecedef)" : undefined,
+                      }}
+                    >
+                      <div
+                        style={{
+                          color: "var(--muted, #6b7280)",
+                          fontSize: "10px",
+                          fontWeight: 600,
+                          letterSpacing: "0.04em",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        {metric.label}
+                      </div>
+                      <div
+                        style={{
+                          marginTop: "2px",
+                          color: metric.color,
+                          fontSize: "26px",
+                          fontWeight: 650,
+                          lineHeight: 1.1,
+                          letterSpacing: "-0.01em",
+                          fontVariantNumeric: "tabular-nums",
+                        }}
+                      >
+                        {metric.value}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
 
             <section className="creative-evidence-section">
               <h4>Evidence</h4>

@@ -61,7 +61,7 @@ export function HealthyRow({
   const why = card.reason || "At target — no action needed today.";
 
   const primaryAction = (
-    <span className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-[11.5px] text-slate-600">
+    <span className="inline-flex h-7 items-center gap-1 rounded-md border border-neutral-200 bg-white px-3 text-[11.5px] text-neutral-600">
       Healthy
     </span>
   );

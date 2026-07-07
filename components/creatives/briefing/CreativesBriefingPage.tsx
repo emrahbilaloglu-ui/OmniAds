@@ -544,59 +544,59 @@ function CreativeEngineProfileStrip({
 
   return (
     <div
-      className="mb-4 rounded-xl border border-slate-200 bg-white px-4 py-3"
+      className="mb-4 rounded-xl border border-neutral-200 bg-white px-4 py-3"
       data-creative-engine-profile-strip
     >
-      <div className="flex flex-wrap items-center gap-2 text-[12px] text-slate-600">
+      <div className="flex flex-wrap items-center gap-2 text-[12px] text-neutral-600">
         <ShieldCheck
-          className="inline-block shrink-0 text-slate-500"
+          className="inline-block shrink-0 text-neutral-500"
           size={14}
           aria-hidden="true"
         />
-        <span className="font-semibold text-slate-900">Engine profile</span>
-        <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10.5px] font-medium text-slate-600">
+        <span className="font-semibold text-neutral-900">Engine profile</span>
+        <span className="rounded-md border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[10.5px] font-medium text-neutral-600">
           {profile.scope.type}:{profile.scope.id}
         </span>
-        <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10.5px] font-medium text-slate-600">
+        <span className="rounded-md border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[10.5px] font-medium text-neutral-600">
           preset {profile.preset}
         </span>
         {dataSource ? (
-          <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10.5px] font-medium text-slate-600">
+          <span className="rounded-md border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[10.5px] font-medium text-neutral-600">
             {dataSource}
           </span>
         ) : null}
         {asOf ? (
-          <span className="text-[11px] text-slate-400">as of {asOf}</span>
+          <span className="text-[11px] text-neutral-400">as of {asOf}</span>
         ) : null}
       </div>
-      <div className="mt-2 grid gap-2 text-[11.5px] text-slate-600 md:grid-cols-5">
+      <div className="mt-2 grid gap-2 text-[11.5px] text-neutral-600 md:grid-cols-5">
         <div>
-          <span className="text-slate-400">Hard actions</span>
-          <div className="font-medium text-slate-900">{hardActions}</div>
+          <span className="text-neutral-400">Hard actions</span>
+          <div className="font-medium text-neutral-900">{hardActions}</div>
         </div>
         <div>
-          <span className="text-slate-400">Scale floor</span>
-          <div className="font-mono text-slate-900">
+          <span className="text-neutral-400">Scale floor</span>
+          <div className="font-mono text-neutral-900">
             {profile.thresholds.scaleMinPurchases} purch · P50{" "}
             {formatProfileNumber(profile.accountBaselines.winnerPurchaseP50)}
           </div>
         </div>
         <div>
-          <span className="text-slate-400">Target / break-even ROAS</span>
-          <div className="font-mono text-slate-900">
+          <span className="text-neutral-400">Target / break-even ROAS</span>
+          <div className="font-mono text-neutral-900">
             {formatProfileNumber(profile.spendUnitEvidence.targetRoas)} /{" "}
             {formatProfileNumber(profile.spendUnitEvidence.breakEvenRoas)}
           </div>
         </div>
         <div>
-          <span className="text-slate-400">Mature creatives</span>
-          <div className="font-mono text-slate-900">
+          <span className="text-neutral-400">Mature creatives</span>
+          <div className="font-mono text-neutral-900">
             {profile.accountBaselines.matureCreativeCount}
           </div>
         </div>
         <div>
-          <span className="text-slate-400">Quality</span>
-          <div className="font-medium text-slate-900">{quality}</div>
+          <span className="text-neutral-400">Quality</span>
+          <div className="font-medium text-neutral-900">{quality}</div>
         </div>
       </div>
       {profile.scope.fallbackReason ? (
@@ -1152,10 +1152,10 @@ function LaneSummaryHeader({
   const watching = summary.watching;
   return (
     <div
-      className="mt-3 flex flex-wrap items-center gap-2 text-[11.5px] text-slate-500"
+      className="mt-3 flex flex-wrap items-center gap-2 text-[11.5px] text-neutral-500"
       data-creative-lane-summary
     >
-      <span className="font-semibold text-slate-700">
+      <span className="font-semibold text-neutral-700">
         Server lane summary
       </span>
       <span className="chip chip--ghost">Action {summary.actionNow}</span>
@@ -1164,7 +1164,7 @@ function LaneSummaryHeader({
       <span className="chip chip--ghost">Deferred {summary.deferred}</span>
       {watching.total > 0 ? (
         <>
-          <span className="text-slate-300">·</span>
+          <span className="text-neutral-300">·</span>
           <span>
             Near action {watching.nearAction}, test maturing{" "}
             {watching.testMaturing}, diagnostic {watching.diagnostic}, labels{" "}
@@ -1185,10 +1185,10 @@ function AggregateSuppressionNotice({
   if (suppressed.length === 0) return null;
   return (
     <div
-      className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[12px] text-slate-600"
+      className="mt-3 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-[12px] text-neutral-600"
       data-aggregate-suppression-trace
     >
-      <div className="font-semibold text-slate-800">
+      <div className="font-semibold text-neutral-800">
         Aggregate decisions not available
       </div>
       <div className="mt-1 flex flex-wrap gap-2">
@@ -2135,7 +2135,7 @@ export function CreativesBriefingPage() {
   }, [router]);
 
   if (!businessId) {
-    return <div className="min-h-screen bg-slate-50 text-slate-900" />;
+    return <div className="min-h-screen bg-neutral-50 text-neutral-900" />;
   }
 
   const activeCards =
@@ -2263,17 +2263,17 @@ export function CreativesBriefingPage() {
             <div style={{ flex: 1 }} />
             <div className="tab" style={{ color: "var(--muted)" }}><span className="chip chip--ghost"><span className="dot" />Deferred {deferredCount}</span></div>
           </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px] text-slate-500" data-creative-visibility-summary>
-            <span className="font-medium text-slate-700">
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px] text-neutral-500" data-creative-visibility-summary>
+            <span className="font-medium text-neutral-700">
               Visible {visibilitySummary.activeCount}/{visibilitySummary.total}
             </span>
-            <span className="text-slate-300">·</span>
+            <span className="text-neutral-300">·</span>
             <span>
               Action {filteredActionCards.length}, Watching {filteredWatchingItems.length}, Healthy {filteredHealthyItems.length}
             </span>
             {visibilitySummary.isSparseActionDefault ? (
               <>
-                <span className="text-slate-300">·</span>
+                <span className="text-neutral-300">·</span>
                 <span>Action is sparse; Watching is shown first.</span>
               </>
             ) : null}
@@ -2345,7 +2345,7 @@ export function CreativesBriefingPage() {
                   {activeGroups.map((group) => (
                     <section key={group.key} data-creative-lane-group={group.key}>
                       {(activeLane === "all" || activeLane === "watching") ? (
-                        <div className="mb-2 flex items-center gap-2 text-[12px] font-semibold text-slate-700">
+                        <div className="mb-2 flex items-center gap-2 text-[12px] font-semibold text-neutral-700">
                           <span>{group.title}</span>
                           <span className="chip chip--ghost">{group.cards.length}</span>
                         </div>
@@ -2497,7 +2497,7 @@ function WorkspaceSwitcher({
 }) {
   return (
     <div
-      className="inline-flex w-full rounded-lg border border-slate-200 bg-white p-1 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:w-auto"
+      className="inline-flex w-full rounded-lg border border-neutral-200 bg-white p-1 shadow-[0_1px_2px_rgba(16,21,28,0.04)] sm:w-auto"
       aria-label="Creatives workspace"
     >
       <WorkspaceButton
@@ -2538,8 +2538,8 @@ function WorkspaceButton({
       className={[
         "min-w-0 rounded-md px-3 py-2 text-left transition-colors",
         active
-          ? "bg-slate-900 text-white"
-          : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",
+          ? "bg-neutral-900 text-white"
+          : "text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900",
       ].join(" ")}
       onClick={onClick}
     >
@@ -2550,7 +2550,7 @@ function WorkspaceButton({
       <span
         className={[
           "mt-0.5 block whitespace-nowrap font-mono text-[10.5px]",
-          active ? "text-slate-300" : "text-slate-400",
+          active ? "text-neutral-300" : "text-neutral-400",
         ].join(" ")}
       >
         {summary}
@@ -2564,13 +2564,13 @@ function PulseScope() {
     <button
       type="button"
       data-pulse="scope"
-      className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+      className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-neutral-200 bg-neutral-50 text-neutral-700 hover:bg-neutral-100"
       onClick={(event) => {
         event.preventDefault();
         // TODO Phase 11+: within-business scope filter — Account / Campaign / Adset.
       }}
     >
-      <span className="text-slate-400">
+      <span className="text-neutral-400">
         <Layers
           className="inline-block shrink-0"
           size={13}
@@ -2578,9 +2578,9 @@ function PulseScope() {
         />
       </span>
       <span>Scope:</span>
-      <span className="font-medium text-slate-900">Account</span>
+      <span className="font-medium text-neutral-900">Account</span>
       <ChevronDown
-        className="inline-block shrink-0 text-slate-400"
+        className="inline-block shrink-0 text-neutral-400"
         size={12}
         aria-hidden="true"
       />
@@ -2609,7 +2609,7 @@ function BriefingToastViewport({ toast }: { toast: BriefingToast | null }) {
           ? "border-emerald-200 bg-emerald-50 text-emerald-900"
           : toast.type === "error"
             ? "border-rose-200 bg-rose-50 text-rose-900"
-            : "border-slate-200 bg-white text-slate-900"
+            : "border-neutral-200 bg-white text-neutral-900"
       }`}
     >
       <div className="flex items-center gap-3">
@@ -2663,16 +2663,16 @@ function PulseCenter({
 
   return (
     <>
-      <div className="h-5 w-px bg-slate-200" />
+      <div className="h-5 w-px bg-neutral-200" />
       <div
         data-pulse="spend"
         className="flex items-center gap-2 rounded-md px-1.5 py-1"
       >
-        <span className="text-slate-500">Spend today</span>
-        <span className="font-mono tabular-nums font-semibold text-slate-900">
+        <span className="text-neutral-500">Spend today</span>
+        <span className="font-mono tabular-nums font-semibold text-neutral-900">
           {formatCurrency(spend)}
         </span>
-        <span className="text-slate-400">/ {formatCurrency(target)}</span>
+        <span className="text-neutral-400">/ {formatCurrency(target)}</span>
         <svg
           viewBox="0 0 60 16"
           width="60"
@@ -2687,7 +2687,7 @@ function PulseCenter({
             strokeWidth="1.5"
           />
         </svg>
-        <span className="text-slate-500 font-mono tabular-nums">
+        <span className="text-neutral-500 font-mono tabular-nums">
           {spendPct}%
         </span>
       </div>
@@ -2695,8 +2695,8 @@ function PulseCenter({
         data-pulse="roas"
         className="flex items-center gap-2 rounded-md px-1.5 py-1"
       >
-        <span className="text-slate-500">7d ROAS</span>
-        <span className="font-mono tabular-nums font-semibold text-slate-900">
+        <span className="text-neutral-500">7d ROAS</span>
+        <span className="font-mono tabular-nums font-semibold text-neutral-900">
           {formatRoas(roas)}
         </span>
         <span
@@ -2712,18 +2712,18 @@ function PulseCenter({
             {roasDelta}%
           </span>
         </span>
-        <span className="text-slate-400">vs {formatRoas(targetRoas)}</span>
+        <span className="text-neutral-400">vs {formatRoas(targetRoas)}</span>
       </div>
       <div
         data-pulse="mature"
         className="flex items-center gap-1.5 rounded-md px-1.5 py-1"
       >
-        <span className="text-slate-500">Mature</span>
-        <span className="font-mono tabular-nums font-semibold text-slate-900">
+        <span className="text-neutral-500">Mature</span>
+        <span className="font-mono tabular-nums font-semibold text-neutral-900">
           {matureCount}
         </span>
       </div>
-      <div className="h-5 w-px bg-slate-200" />
+      <div className="h-5 w-px bg-neutral-200" />
     </>
   );
 }
@@ -2747,7 +2747,7 @@ function PulseRight({
   const calibratedLabel = relativeTime(calibratedAgo) ?? "2d ago";
 
   return (
-    <div className="flex flex-wrap items-center gap-3 text-slate-500">
+    <div className="flex flex-wrap items-center gap-3 text-neutral-500">
       <div
         data-pulse="engine"
         className="flex flex-shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 whitespace-nowrap"
@@ -2764,10 +2764,10 @@ function PulseRight({
           />
           {engineLive ? "Live" : "Syncing"}
         </span>
-        <span className="max-w-[180px] truncate text-slate-500">
+        <span className="max-w-[180px] truncate text-neutral-500">
           {engineVersion || "Engine v3"}
         </span>
-        <span className="text-slate-400">· calibrated {calibratedLabel}</span>
+        <span className="text-neutral-400">· calibrated {calibratedLabel}</span>
       </div>
       <div
         data-pulse="tracking"
@@ -2788,7 +2788,7 @@ function PulseRight({
           />
         )}
         <span
-          className={trackingAnomalyActive ? "text-rose-700" : "text-slate-700"}
+          className={trackingAnomalyActive ? "text-rose-700" : "text-neutral-700"}
         >
           {trackingAnomalyActive
             ? "Tracking anomaly active"
@@ -2796,7 +2796,7 @@ function PulseRight({
         </span>
       </div>
       <span className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap">
-        <span className="text-slate-400">
+        <span className="text-neutral-400">
           <RefreshCw
             className="inline-block shrink-0"
             size={12}
@@ -2843,9 +2843,9 @@ function JumpLink({
   return (
     <a
       href={href}
-      className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+      className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
     >
-      <span className="font-mono tabular-nums text-slate-400">{num}</span>
+      <span className="font-mono tabular-nums text-neutral-400">{num}</span>
       <span>{label}</span>
     </a>
   );
@@ -2853,14 +2853,14 @@ function JumpLink({
 
 function LaneSkeleton() {
   return (
-    <div className="rounded-2xl bg-white p-4 border border-slate-200 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+    <div className="rounded-2xl bg-white p-4 border border-neutral-200 shadow-[0_1px_2px_rgba(16,21,28,0.04)]">
       <div className="flex items-start gap-3">
-        <div className="w-4 h-4 rounded border border-slate-200 bg-slate-100" />
-        <div className="w-[72px] h-[72px] rounded-xl bg-slate-100" />
+        <div className="w-4 h-4 rounded border border-neutral-200 bg-neutral-100" />
+        <div className="w-[72px] h-[72px] rounded-xl bg-neutral-100" />
         <div className="flex-1 min-w-0 space-y-2">
-          <div className="h-4 w-60 rounded bg-slate-100" />
-          <div className="h-3 w-96 rounded bg-slate-100" />
-          <div className="h-3 w-full rounded bg-slate-100" />
+          <div className="h-4 w-60 rounded bg-neutral-100" />
+          <div className="h-3 w-96 rounded bg-neutral-100" />
+          <div className="h-3 w-full rounded bg-neutral-100" />
         </div>
       </div>
     </div>

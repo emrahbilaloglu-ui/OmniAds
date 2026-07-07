@@ -127,48 +127,52 @@
 
 @layer components {
   .ad-final {
-    --bg: #f6f7f9;
+    /* Triple-Whale-calm retune (design-tw-uplift): truly neutral surfaces
+       (no slate/indigo tint), a single blue primary, near-flat shadows so the
+       hairline border does the work, restrained semantic tones. Variable
+       names are unchanged so every component picks this up at once. */
+    --bg: #f7f8fa;
     --surface: #ffffff;
-    --surface-2: #fbfbfd;
-    --surface-3: #f2f3f6;
-    --hover: #f5f6f9;
-    --ink: #0f172a;
-    --ink-2: #1e293b;
-    --ink-3: #475569;
-    --muted: #64748b;
-    --muted-2: #94a3b8;
-    --border: #e5e7ec;
-    --border-2: #d8dce4;
-    --border-3: #cbd2dc;
-    --brand: #4f46e5;
-    --brand-2: #4338ca;
-    --brand-bg: #eef2ff;
-    --brand-bd: #c7d2fe;
-    --danger: #dc2626;
-    --danger-bg: #fef2f2;
-    --danger-bd: #fecaca;
+    --surface-2: #fafafb;
+    --surface-3: #f2f3f5;
+    --hover: #f4f5f7;
+    --ink: #10151c;
+    --ink-2: #303842;
+    --ink-3: #4c545f;
+    --muted: #6b7280;
+    --muted-2: #9aa1ac;
+    --border: #ecedef;
+    --border-2: #e2e4e8;
+    --border-3: #d4d7dd;
+    --brand: #2f6bff;
+    --brand-2: #2757d6;
+    --brand-bg: #eef3ff;
+    --brand-bd: #d3e0ff;
+    --danger: #e11d48;
+    --danger-bg: #fdecef;
+    --danger-bd: #f7ccd5;
     --warn: #b45309;
-    --warn-bg: #fef3c7;
-    --warn-bd: #fde68a;
-    --ok: #047857;
-    --ok-bg: #ecfdf5;
-    --ok-bd: #a7f3d0;
-    --info: #1d4ed8;
-    --info-bg: #eff6ff;
-    --info-bd: #bfdbfe;
+    --warn-bg: #fbf3e2;
+    --warn-bd: #eeddb4;
+    --ok: #0e9f6e;
+    --ok-bg: #e9f6f0;
+    --ok-bd: #c2e6d7;
+    --info: #2f6bff;
+    --info-bg: #eef3ff;
+    --info-bd: #d3e0ff;
     --purple: #6d28d9;
     --purple-bg: #f5f3ff;
     --purple-bd: #ddd6fe;
     --r-xs: 4px;
     --r-sm: 6px;
     --r: 8px;
-    --r-lg: 12px;
-    --r-xl: 16px;
-    --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
-    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 1px rgba(15, 23, 42, 0.04);
-    --shadow: 0 4px 12px -2px rgba(15, 23, 42, 0.08), 0 2px 4px -1px rgba(15, 23, 42, 0.04);
-    --shadow-lg: 0 12px 28px -4px rgba(15, 23, 42, 0.12), 0 4px 8px -2px rgba(15, 23, 42, 0.06);
-    --shadow-xl: 0 24px 48px -12px rgba(15, 23, 42, 0.18);
+    --r-lg: 11px;
+    --r-xl: 14px;
+    --shadow-xs: 0 0 0 0 rgba(0, 0, 0, 0);
+    --shadow-sm: 0 1px 1px rgba(16, 21, 28, 0.03);
+    --shadow: 0 1px 2px rgba(16, 21, 28, 0.05);
+    --shadow-lg: 0 8px 24px -6px rgba(16, 21, 28, 0.12), 0 2px 6px -2px rgba(16, 21, 28, 0.06);
+    --shadow-xl: 0 18px 40px -12px rgba(16, 21, 28, 0.16);
     min-height: 100vh;
     background: var(--bg);
     color: var(--ink);

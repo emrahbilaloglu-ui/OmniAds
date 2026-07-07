@@ -1041,7 +1041,20 @@ function FinalMetaPulse({
         </div>
         {pulse?.roasHistory?.length ? (
           <svg className="spark" viewBox="0 0 60 16" preserveAspectRatio="none" aria-hidden="true">
-            <path d={sparklinePath(pulse.roasHistory.slice(-28))} fill="none" stroke="#047857" strokeWidth="1.8" strokeLinecap="round" />
+            <defs>
+              <linearGradient id="meta-pulse-spark" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stopColor="#2f6bff" />
+                <stop offset="100%" stopColor="#0e9f6e" />
+              </linearGradient>
+            </defs>
+            <path
+              d={sparklinePath(pulse.roasHistory.slice(-28))}
+              fill="none"
+              stroke="url(#meta-pulse-spark)"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         ) : null}
       </div>

@@ -64,18 +64,18 @@ export function EvidenceAccordion({
                 section.title
               ) : (
                 <>
-                  {section.icon ? <span className="text-slate-400">{section.icon}</span> : null}
+                  {section.icon ? <span className="text-neutral-400">{section.icon}</span> : null}
                   <span className={classes.title}>{section.title}</span>
                 </>
               )}
               {section.count != null ? (
-                <span className="ml-auto text-[10.5px] text-slate-400 font-mono">{section.count}</span>
+                <span className="ml-auto text-[10.5px] text-neutral-400 font-mono">{section.count}</span>
               ) : null}
               {variant !== "legacy" ? (
                 <span
                   className={[
                     section.count != null ? "" : "ml-auto",
-                    variant === "creative" ? "text-slate-400 transition-transform" : "text-slate-400",
+                    variant === "creative" ? "text-neutral-400 transition-transform" : "text-neutral-400",
                     variant === "creative" && isOpen ? "rotate-180" : "",
                   ]
                     .filter(Boolean)
@@ -96,31 +96,31 @@ export function EvidenceAccordion({
 function getEvidenceAccordionClasses(variant: EvidenceAccordionVariant) {
   if (variant === "meta") {
     return {
-      container: "mt-3 rounded-xl border border-slate-200 bg-slate-50/40 overflow-hidden",
-      details: "border-t border-slate-100",
-      summary: "flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-slate-50 text-[12px]",
-      title: "font-medium text-slate-700",
-      body: "px-3 pb-3 pt-0 text-[12px] text-slate-600 leading-snug",
+      container: "mt-3 rounded-xl border border-neutral-200 bg-neutral-50/40 overflow-hidden",
+      details: "border-t border-neutral-100",
+      summary: "flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-neutral-50 text-[12px]",
+      title: "font-medium text-neutral-700",
+      body: "px-3 pb-3 pt-0 text-[12px] text-neutral-600 leading-snug",
     };
   }
 
   if (variant === "legacy") {
     return {
       container: "space-y-2",
-      details: "rounded-xl border border-slate-200 bg-white",
+      details: "rounded-xl border border-neutral-200 bg-white",
       summary:
-        "cursor-pointer select-none px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500",
+        "cursor-pointer select-none px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-neutral-500",
       title: "",
-      body: "border-t border-slate-100 px-3 py-3",
+      body: "border-t border-neutral-100 px-3 py-3",
     };
   }
 
   return {
-    container: "mt-3 ml-[44px] mr-1 rounded-xl border border-slate-200 bg-slate-50/40 overflow-hidden",
-    details: "border-b border-slate-200 last:border-b-0 group",
+    container: "mt-3 ml-[44px] mr-1 rounded-xl border border-neutral-200 bg-neutral-50/40 overflow-hidden",
+    details: "border-b border-neutral-200 last:border-b-0 group",
     summary:
-      "flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-slate-100/60 list-none [&::-webkit-details-marker]:hidden",
-    title: "text-[12px] font-semibold text-slate-700",
-    body: "px-3 pb-3 pt-1 bg-white border-t border-slate-100",
+      "flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-neutral-100/60 list-none [&::-webkit-details-marker]:hidden",
+    title: "text-[12px] font-semibold text-neutral-700",
+    body: "px-3 pb-3 pt-1 bg-white border-t border-neutral-100",
   };
 }

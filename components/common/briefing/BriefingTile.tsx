@@ -43,7 +43,7 @@ const SHAPE_DIMENSIONS: Record<TileShape, { width: number; height: number; ratio
 };
 
 const METRIC_TONE_CLASS: Record<NonNullable<TileMetric["tone"]>, string> = {
-  neutral: "text-slate-900",
+  neutral: "text-neutral-900",
   good: "text-emerald-700",
   warn: "text-rose-700",
 };
@@ -74,10 +74,10 @@ export function BriefingTile({
   const fmtLabel = durationLabel ? `${format} · ${durationLabel}` : format;
   const wrapperClasses = [
     "flex flex-col overflow-hidden rounded-xl border bg-white",
-    "shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
+    "shadow-[0_1px_2px_rgba(16,21,28,0.04)]",
     "transition-[box-shadow,border-color,transform] duration-150",
-    "hover:shadow-md hover:border-slate-300",
-    borderClass ?? "border-slate-200",
+    "hover:shadow-md hover:border-neutral-300",
+    borderClass ?? "border-neutral-200",
     deferred ? "opacity-60" : "",
     removing ? "opacity-0 -translate-x-4 pointer-events-none" : "",
   ]
@@ -95,8 +95,8 @@ export function BriefingTile({
       data-tile-variant={laneVariant}
       data-testid={testId}
     >
-      <div className="relative flex h-[170px] items-center justify-center border-b border-slate-200 bg-slate-50 p-3.5">
-        <span className="absolute left-2.5 top-2.5 rounded border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[9.5px] font-semibold tracking-wider text-slate-600">
+      <div className="relative flex h-[170px] items-center justify-center border-b border-neutral-200 bg-neutral-50 p-3.5">
+        <span className="absolute left-2.5 top-2.5 rounded border border-neutral-200 bg-white px-1.5 py-0.5 font-mono text-[9.5px] font-semibold tracking-wider text-neutral-600">
           {fmtLabel}
         </span>
         <button
@@ -107,10 +107,10 @@ export function BriefingTile({
           onClick={() => onSelectChange?.(!selected)}
           className={
             "absolute right-2.5 top-2.5 inline-flex h-[18px] w-[18px] items-center justify-center rounded " +
-            "border focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 " +
+            "border focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 " +
             (selected
-              ? "bg-slate-900 border-slate-900 text-white"
-              : "border-slate-300 bg-white text-transparent hover:border-slate-400")
+              ? "bg-neutral-900 border-neutral-900 text-white"
+              : "border-neutral-300 bg-white text-transparent hover:border-neutral-400")
           }
         >
           {selected ? (
@@ -128,15 +128,15 @@ export function BriefingTile({
             className="absolute inset-0 rounded"
             style={{
               background:
-                "linear-gradient(135deg, #94a3b8 0%, #475569 100%)",
-              boxShadow: "0 4px 12px -2px rgba(15,23,42,0.18)",
+                "linear-gradient(135deg, #a3a3a3 0%, #525252 100%)",
+              boxShadow: "0 1px 2px rgba(16,21,28,0.08)",
             }}
             aria-hidden="true"
           />
           <div className="relative flex h-full w-full items-center justify-center">
             {thumbContent ??
               (format === "VID" ? (
-                <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-slate-900 shadow-md">
+                <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-neutral-900 shadow-md">
                   <Play size={14} aria-hidden="true" fill="currentColor" />
                 </span>
               ) : (
@@ -153,28 +153,28 @@ export function BriefingTile({
 
       <div className="flex min-w-0 flex-1 flex-col gap-2 px-4 pb-4 pt-3.5">
         <div className="flex flex-wrap gap-1.5">{chips}</div>
-        <div className="truncate text-[14px] font-semibold tracking-tight text-slate-900">
+        <div className="truncate text-[14px] font-semibold tracking-tight text-neutral-900">
           {name}
         </div>
-        <div className="truncate font-mono text-[10.5px] text-slate-500">
+        <div className="truncate font-mono text-[10.5px] text-neutral-500">
           {meta}
         </div>
         <div
-          className="rounded-r border-l-[3px] border-slate-300 bg-slate-50 px-3 py-2 text-[12px] leading-snug text-slate-700 line-clamp-2"
+          className="rounded-r border-l-[3px] border-neutral-300 bg-neutral-50 px-3 py-2 text-[12px] leading-snug text-neutral-700 line-clamp-2"
           data-tile-why
         >
           {why}
         </div>
-        <div className="grid grid-cols-3 overflow-hidden rounded-md border border-slate-200 bg-slate-50">
+        <div className="grid grid-cols-3 overflow-hidden rounded-md border border-neutral-200 bg-neutral-50">
           {metrics.slice(0, 3).map((metric, index) => (
             <div
               key={metric.key}
               className={
                 "px-2 py-1.5 " +
-                (index < 2 ? "border-r border-slate-200" : "")
+                (index < 2 ? "border-r border-neutral-200" : "")
               }
             >
-              <span className="block text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+              <span className="block text-[9.5px] font-semibold uppercase tracking-wider text-neutral-500">
                 {metric.label}
               </span>
               <span
@@ -188,7 +188,7 @@ export function BriefingTile({
             </div>
           ))}
         </div>
-        <div className="mt-1 flex items-center justify-between gap-1.5 border-t border-slate-200 pt-2.5">
+        <div className="mt-1 flex items-center justify-between gap-1.5 border-t border-neutral-200 pt-2.5">
           <div className="min-w-0 flex-1">{primaryAction}</div>
           <div className="flex shrink-0 items-center gap-1">{secondaryActions}</div>
         </div>

@@ -134,7 +134,7 @@ function actionClasses(actionLabel: string) {
   if (normalized.includes("refresh")) return "border-amber-200 bg-amber-50 text-amber-800";
   if (normalized.includes("protect")) return "border-blue-200 bg-blue-50 text-blue-800";
   if (normalized.includes("test")) return "border-sky-200 bg-sky-50 text-sky-800";
-  return "border-slate-200 bg-slate-50 text-slate-700";
+  return "border-neutral-200 bg-neutral-50 text-neutral-700";
 }
 
 function compactLabel(value: string | null | undefined) {

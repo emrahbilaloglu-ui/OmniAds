@@ -10,7 +10,7 @@ function makeTone(className: string): AiTagPillTone {
   return { className };
 }
 
-const BASE_NONE_TONE = makeTone("border-slate-200 bg-slate-50 text-slate-600");
+const BASE_NONE_TONE = makeTone("border-neutral-200 bg-neutral-50 text-neutral-600");
 
 const AI_TAG_COLOR_MAP: AiTagToneMap = {
   assetType: {
@@ -19,7 +19,7 @@ const AI_TAG_COLOR_MAP: AiTagToneMap = {
     "Product Image": makeTone("border-lime-200 bg-lime-50 text-lime-700"),
     "Product Image with Text": makeTone("border-rose-200 bg-rose-50 text-rose-700"),
     Hybrid: makeTone("border-blue-200 bg-blue-50 text-blue-700"),
-    Other: makeTone("border-violet-200 bg-violet-50 text-violet-700"),
+    Other: makeTone("border-neutral-200 bg-neutral-50 text-neutral-700"),
     None: BASE_NONE_TONE,
   },
   visualFormat: {
@@ -33,7 +33,7 @@ const AI_TAG_COLOR_MAP: AiTagToneMap = {
     None: makeTone("border-emerald-100 bg-emerald-50 text-emerald-700"),
   },
   intendedAudience: {
-    Founder: makeTone("border-indigo-200 bg-indigo-50 text-indigo-700"),
+    Founder: makeTone("border-sky-200 bg-sky-50 text-sky-700"),
     "Ecommerce Shopper": makeTone("border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700"),
     "First-time Buyer": makeTone("border-blue-200 bg-blue-50 text-blue-700"),
     None: BASE_NONE_TONE,
@@ -42,7 +42,7 @@ const AI_TAG_COLOR_MAP: AiTagToneMap = {
     Nostalgia: makeTone("border-orange-200 bg-orange-50 text-orange-700"),
     "Problem Solution": makeTone("border-sky-200 bg-sky-50 text-sky-700"),
     "Social Proof": makeTone("border-emerald-200 bg-emerald-50 text-emerald-700"),
-    Benefit: makeTone("border-violet-200 bg-violet-50 text-violet-700"),
+    Benefit: makeTone("border-cyan-200 bg-cyan-50 text-cyan-700"),
     None: BASE_NONE_TONE,
   },
   seasonality: {
@@ -60,7 +60,7 @@ const AI_TAG_COLOR_MAP: AiTagToneMap = {
     None: BASE_NONE_TONE,
   },
   hookTactic: {
-    "Question Hook": makeTone("border-indigo-200 bg-indigo-50 text-indigo-700"),
+    "Question Hook": makeTone("border-sky-200 bg-sky-50 text-sky-700"),
     "Pattern Interrupt": makeTone("border-pink-200 bg-pink-50 text-pink-700"),
     "Shock Statement": makeTone("border-red-200 bg-red-50 text-red-700"),
     "Before/After": makeTone("border-teal-200 bg-teal-50 text-teal-700"),
@@ -68,7 +68,7 @@ const AI_TAG_COLOR_MAP: AiTagToneMap = {
   },
   headlineTactic: {
     "Benefit Headline": makeTone("border-emerald-200 bg-emerald-50 text-emerald-700"),
-    "Curiosity Headline": makeTone("border-violet-200 bg-violet-50 text-violet-700"),
+    "Curiosity Headline": makeTone("border-cyan-200 bg-cyan-50 text-cyan-700"),
     "How To": makeTone("border-blue-200 bg-blue-50 text-blue-700"),
     "Number Headline": makeTone("border-amber-200 bg-amber-50 text-amber-700"),
     None: BASE_NONE_TONE,
@@ -78,8 +78,8 @@ const AI_TAG_COLOR_MAP: AiTagToneMap = {
 const CATEGORY_FALLBACK_TONES: Record<MetaAiTagKey, AiTagPillTone> = {
   assetType: makeTone("border-emerald-200 bg-emerald-50 text-emerald-700"),
   visualFormat: makeTone("border-sky-200 bg-sky-50 text-sky-700"),
-  intendedAudience: makeTone("border-indigo-200 bg-indigo-50 text-indigo-700"),
-  messagingAngle: makeTone("border-violet-200 bg-violet-50 text-violet-700"),
+  intendedAudience: makeTone("border-sky-200 bg-sky-50 text-sky-700"),
+  messagingAngle: makeTone("border-cyan-200 bg-cyan-50 text-cyan-700"),
   seasonality: makeTone("border-amber-200 bg-amber-50 text-amber-700"),
   offerType: makeTone("border-rose-200 bg-rose-50 text-rose-700"),
   hookTactic: makeTone("border-pink-200 bg-pink-50 text-pink-700"),

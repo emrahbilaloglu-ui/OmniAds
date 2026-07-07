@@ -18,7 +18,7 @@ interface KpiSummaryTilesProps {
 }
 
 const HIGHLIGHT_STYLES: Record<NonNullable<KpiSummaryTile["highlight"]>, string> = {
-  neutral: "border-slate-200 bg-white",
+  neutral: "border-neutral-200 bg-white",
   warn: "border-amber-200 bg-amber-50/50",
   good: "border-emerald-200 bg-emerald-50/50",
 };
@@ -37,24 +37,24 @@ export function KpiSummaryTiles({
         <div
           key={tile.key}
           className={
-            "rounded-xl border px-3.5 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)] " +
+            "rounded-xl border px-3.5 py-3 shadow-[0_1px_2px_rgba(16,21,28,0.04)] " +
             HIGHLIGHT_STYLES[tile.highlight ?? "neutral"]
           }
         >
-          <div className="flex items-center justify-between text-[10.5px] uppercase tracking-wider text-slate-500">
+          <div className="flex items-center justify-between text-[10.5px] uppercase tracking-wider text-neutral-500">
             <span className="font-semibold">{tile.title}</span>
             {tile.scope ? <span className="font-mono normal-case">{tile.scope}</span> : null}
           </div>
           <div className="mt-1 flex items-baseline gap-1">
-            <span className="text-[20px] font-bold tabular-nums text-slate-900">
+            <span className="text-[20px] font-bold tabular-nums text-neutral-900">
               {tile.value}
             </span>
             {tile.unit ? (
-              <span className="text-[12px] text-slate-500">{tile.unit}</span>
+              <span className="text-[12px] text-neutral-500">{tile.unit}</span>
             ) : null}
           </div>
           {tile.micro ? (
-            <div className="mt-1 text-[11px] text-slate-500">{tile.micro}</div>
+            <div className="mt-1 text-[11px] text-neutral-500">{tile.micro}</div>
           ) : null}
         </div>
       ))}

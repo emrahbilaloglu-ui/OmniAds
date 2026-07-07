@@ -224,11 +224,11 @@ function PresetOverrideControl({
     profile.presetSource === "business_engine_v3_flags_override";
 
   return (
-    <div className="flex flex-wrap items-start gap-2 rounded-md border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs text-slate-700">
+    <div className="flex flex-wrap items-start gap-2 rounded-md border border-neutral-200 bg-neutral-50/80 px-3 py-2 text-xs text-neutral-700">
       <label className="flex items-center gap-2">
-        <span className="font-semibold text-slate-700">Preset</span>
+        <span className="font-semibold text-neutral-700">Preset</span>
         <select
-          className="h-7 rounded border border-slate-300 bg-white px-2 text-xs font-medium text-slate-900 shadow-sm outline-none focus:border-slate-500"
+          className="h-7 rounded border border-neutral-300 bg-white px-2 text-xs font-medium text-neutral-900 shadow-sm outline-none focus:border-neutral-500"
           value={profile.preset}
           disabled={mutation.isPending || !businessId}
           onChange={(event) => {
@@ -248,7 +248,7 @@ function PresetOverrideControl({
       {hasOverride && (
         <button
           type="button"
-          className="mt-1 text-[11px] font-medium text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline disabled:cursor-not-allowed disabled:text-slate-400"
+          className="mt-1 text-[11px] font-medium text-neutral-600 underline-offset-2 hover:text-neutral-900 hover:underline disabled:cursor-not-allowed disabled:text-neutral-400"
           disabled={mutation.isPending || !businessId}
           onClick={() => mutation.mutate(null)}
         >
@@ -256,7 +256,7 @@ function PresetOverrideControl({
         </button>
       )}
       {mutation.isPending && (
-        <span className="mt-1 text-[11px] text-slate-500">Saving...</span>
+        <span className="mt-1 text-[11px] text-neutral-500">Saving...</span>
       )}
       {errorVisible && (
         <span className="mt-1 text-[11px] font-medium text-rose-600">
@@ -278,8 +278,8 @@ function ScopeProfileDisclosure({
       : profile.spendUnitEvidence.operatorAovAssumption;
 
   return (
-    <details className="rounded-md border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs text-slate-700">
-      <summary className="cursor-pointer select-none font-semibold text-slate-800">
+    <details className="rounded-md border border-neutral-200 bg-neutral-50/80 px-3 py-2 text-xs text-neutral-700">
+      <summary className="cursor-pointer select-none font-semibold text-neutral-800">
         Scope profile ({profile.scope.type})
       </summary>
       {profile.scope.fallbackReason && (
@@ -348,9 +348,9 @@ function ScopeProfileDisclosure({
           detail={profile.hardActionEligibility.reason ?? undefined}
         />
         <div className="md:col-span-2 xl:col-span-3">
-          <div className="rounded border border-slate-200 bg-white px-2.5 py-2">
-            <span className="font-medium text-slate-500">Multipliers</span>
-            <span className="ml-2 font-mono text-[11px] text-slate-800">
+          <div className="rounded border border-neutral-200 bg-white px-2.5 py-2">
+            <span className="font-medium text-neutral-500">Multipliers</span>
+            <span className="ml-2 font-mono text-[11px] text-neutral-800">
               {formatMultipliers(profile.multipliers)}
             </span>
           </div>
@@ -372,12 +372,12 @@ function ProfileRow({
   mono?: boolean;
 }) {
   return (
-    <div className="rounded border border-slate-200 bg-white px-2.5 py-2">
-      <div className="font-medium text-slate-500">{label}</div>
-      <div className={cn("mt-0.5 break-words text-slate-900", mono && "font-mono")}>
+    <div className="rounded border border-neutral-200 bg-white px-2.5 py-2">
+      <div className="font-medium text-neutral-500">{label}</div>
+      <div className={cn("mt-0.5 break-words text-neutral-900", mono && "font-mono")}>
         {value}
       </div>
-      {detail && <div className="mt-0.5 text-[11px] text-slate-500">{detail}</div>}
+      {detail && <div className="mt-0.5 text-[11px] text-neutral-500">{detail}</div>}
     </div>
   );
 }

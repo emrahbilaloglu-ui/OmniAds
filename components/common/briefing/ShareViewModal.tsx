@@ -113,17 +113,17 @@ export function ShareViewModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" data-testid={testId}>
       <button
         type="button"
-        className="absolute inset-0 bg-slate-950/40"
+        className="absolute inset-0 bg-neutral-950/40"
         aria-label="Close share view"
         onClick={onClose}
       />
-      <div className="relative z-10 w-full max-w-[520px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+      <div className="relative z-10 w-full max-w-[520px] overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-neutral-200 px-5 py-3">
           <div>
-            <h2 className="text-[14px] font-bold tracking-tight text-slate-900">
+            <h2 className="text-[14px] font-bold tracking-tight text-neutral-900">
               Share view
             </h2>
-            <div className="text-[11.5px] text-slate-500">
+            <div className="text-[11.5px] text-neutral-500">
               preset · {presetLabel} · {itemCount} creatives
             </div>
           </div>
@@ -131,15 +131,15 @@ export function ShareViewModal({
             type="button"
             aria-label="Close"
             onClick={onClose}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-neutral-200 text-neutral-500 hover:bg-neutral-50"
           >
             <X size={14} aria-hidden="true" />
           </button>
         </div>
 
-        <div className="px-5 py-4 space-y-4 text-[12.5px] text-slate-700">
+        <div className="px-5 py-4 space-y-4 text-[12.5px] text-neutral-700">
           <section>
-            <div className="text-[10.5px] font-semibold uppercase tracking-wider text-slate-500">
+            <div className="text-[10.5px] font-semibold uppercase tracking-wider text-neutral-500">
               Audience
             </div>
             <div className="mt-1.5 grid grid-cols-1 gap-1.5 sm:grid-cols-3">
@@ -161,12 +161,12 @@ export function ShareViewModal({
                     className={
                       "rounded-md border px-3 py-2 text-left " +
                       (active
-                        ? "border-indigo-300 bg-indigo-50 text-indigo-700"
-                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50")
+                        ? "border-blue-300 bg-blue-50 text-blue-700"
+                        : "border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50")
                     }
                   >
                     <div className="font-semibold">{aud.label}</div>
-                    <div className="mt-0.5 text-[11px] text-slate-500">
+                    <div className="mt-0.5 text-[11px] text-neutral-500">
                       {aud.description}
                     </div>
                   </button>
@@ -186,7 +186,7 @@ export function ShareViewModal({
                     hideDecisionLanguage: event.currentTarget.checked,
                   }))
                 }
-                className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                className="h-4 w-4 rounded border-neutral-300 text-blue-600 focus:ring-blue-500"
               />
               <span>Hide all decision language (Cut / Scale / Promote)</span>
             </label>
@@ -200,7 +200,7 @@ export function ShareViewModal({
                     freezeSnapshot: event.currentTarget.checked,
                   }))
                 }
-                className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                className="h-4 w-4 rounded border-neutral-300 text-blue-600 focus:ring-blue-500"
               />
               <span>Freeze data snapshot (view stays consistent for recipients)</span>
             </label>
@@ -214,7 +214,7 @@ export function ShareViewModal({
                     expiresInDays: Number(event.currentTarget.value),
                   }))
                 }
-                className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[12px] text-slate-700"
+                className="rounded-md border border-neutral-300 bg-white px-2 py-1 text-[12px] text-neutral-700"
                 aria-label="Expires in"
               >
                 <option value={1}>1 day</option>
@@ -227,45 +227,45 @@ export function ShareViewModal({
           </section>
 
           <section>
-            <div className="text-[10.5px] font-semibold uppercase tracking-wider text-slate-500">
+            <div className="text-[10.5px] font-semibold uppercase tracking-wider text-neutral-500">
               Share link
             </div>
-            <div className="mt-1.5 flex items-stretch overflow-hidden rounded-md border border-slate-200">
+            <div className="mt-1.5 flex items-stretch overflow-hidden rounded-md border border-neutral-200">
               <input
                 type="text"
                 value={url}
                 readOnly
-                className="flex-1 bg-slate-50 px-3 py-1.5 font-mono text-[11.5px] text-slate-700 focus:outline-none"
+                className="flex-1 bg-neutral-50 px-3 py-1.5 font-mono text-[11.5px] text-neutral-700 focus:outline-none"
                 aria-label="Share URL"
               />
               <button
                 type="button"
                 onClick={handleCopy}
-                className="inline-flex items-center gap-1 border-l border-slate-200 bg-white px-3 text-[12px] font-medium text-slate-700 hover:bg-slate-50"
+                className="inline-flex items-center gap-1 border-l border-neutral-200 bg-white px-3 text-[12px] font-medium text-neutral-700 hover:bg-neutral-50"
               >
                 <Copy size={12} aria-hidden="true" />
                 {copyState === "copied" ? "Copied" : "Copy"}
               </button>
             </div>
-            <div className="mt-1.5 text-[10.5px] text-slate-500">
+            <div className="mt-1.5 text-[10.5px] text-neutral-500">
               Public URL pattern · /share/creative/[token] — token is minted on
               Confirm. Backend signing is future work.
             </div>
           </section>
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
+        <div className="flex justify-end gap-2 border-t border-neutral-200 px-5 py-3">
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-medium text-slate-700 hover:bg-slate-50"
+            className="inline-flex items-center gap-1 rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-[12px] font-medium text-neutral-700 hover:bg-neutral-50"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={handleConfirm}
-            className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-indigo-700"
+            className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700"
           >
             Create share link
           </button>

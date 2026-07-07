@@ -66,11 +66,11 @@ const compareItems = [
 
 export default function BriefingPlaygroundPage() {
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900">
+    <main className="min-h-screen bg-neutral-50 text-neutral-900">
       <PulseStrip
-        left={<button className="px-2 py-1 rounded-md border border-slate-200 bg-slate-50 text-slate-700">Scope: Account</button>}
+        left={<button className="px-2 py-1 rounded-md border border-neutral-200 bg-neutral-50 text-neutral-700">Scope: Account</button>}
         center={<span className="font-mono tabular-nums text-[12px]">Spend today $1,824 / $2,400</span>}
-        right={<span className="text-[12px] text-slate-500">Sync 2m ago</span>}
+        right={<span className="text-[12px] text-neutral-500">Sync 2m ago</span>}
         jumpNav={<><a href="#chips">Chips</a><a href="#accordions">Accordions</a><a href="#overlays">Overlays</a></>}
       />
 

@@ -25,7 +25,7 @@ export function PulseStrip({
 }: PulseStripProps) {
   const rootClassName = [
     sticky ? "sticky top-0 z-30" : "relative z-0",
-    variant === "meta" ? "bg-white border-b border-slate-200" : "bg-white/95 backdrop-blur border-b border-slate-200",
+    variant === "meta" ? "bg-white border-b border-neutral-200" : "bg-white/95 backdrop-blur border-b border-neutral-200",
   ].join(" ");
   const rowClassName =
     variant === "meta"
@@ -40,12 +40,12 @@ export function PulseStrip({
         {right ? <div className="ml-auto">{right}</div> : null}
       </div>
       {kpiBand ? (
-        <div className="max-w-[1440px] mx-auto px-6 border-t border-slate-100 grid grid-cols-4 gap-0">
+        <div className="max-w-[1440px] mx-auto px-6 border-t border-neutral-100 grid grid-cols-4 gap-0">
           {kpiBand}
         </div>
       ) : null}
       {jumpNav ? (
-        <div className="max-w-[1440px] mx-auto px-6 py-1.5 border-t border-slate-100 flex items-center gap-1 text-[11px] overflow-x-auto">
+        <div className="max-w-[1440px] mx-auto px-6 py-1.5 border-t border-neutral-100 flex items-center gap-1 text-[11px] overflow-x-auto">
           {jumpNav}
         </div>
       ) : null}

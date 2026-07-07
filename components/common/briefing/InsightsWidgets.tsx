@@ -38,17 +38,17 @@ export function buildLabelsCoverageWidget(
     needsAttention,
     content: (
       <div className="text-[12.5px] leading-relaxed">
-        <div className="flex h-2.5 overflow-hidden rounded-full bg-slate-100">
+        <div className="flex h-2.5 overflow-hidden rounded-full bg-neutral-100">
           {main > 0 ? (
             <span
-              className="block h-full bg-slate-900"
+              className="block h-full bg-neutral-900"
               style={{ width: widthFor(main) }}
               aria-hidden="true"
             />
           ) : null}
           {test > 0 ? (
             <span
-              className="block h-full bg-indigo-600"
+              className="block h-full bg-blue-600"
               style={{ width: widthFor(test) }}
               aria-hidden="true"
             />
@@ -66,35 +66,35 @@ export function buildLabelsCoverageWidget(
               style={{
                 width: widthFor(none),
                 backgroundImage:
-                  "repeating-linear-gradient(45deg, #f1f5f9 0 4px, #cbd5e1 4px 8px)",
+                  "repeating-linear-gradient(45deg, #f5f5f5 0 4px, #d4d4d4 4px 8px)",
               }}
               aria-hidden="true"
             />
           ) : null}
         </div>
-        <div className="mt-2.5 flex flex-wrap gap-3 text-[11px] text-slate-500">
+        <div className="mt-2.5 flex flex-wrap gap-3 text-[11px] text-neutral-500">
           {hasBreakdown ? (
             <>
-              <LegendDot color="bg-slate-900" label={`Main ${main}`} />
-              <LegendDot color="bg-indigo-600" label={`Test ${test}`} />
+              <LegendDot color="bg-neutral-900" label={`Main ${main}`} />
+              <LegendDot color="bg-blue-600" label={`Test ${test}`} />
               <LegendDot color="bg-amber-500" label={`Mixed ${mixed}`} />
             </>
           ) : (
             <LegendDot
-              color="bg-slate-900"
+              color="bg-neutral-900"
               label={`Labeled ${input.labeledCampaigns}`}
             />
           )}
           <LegendDot
-            color="bg-slate-200 border border-slate-300"
+            color="bg-neutral-200 border border-neutral-300"
             label={`None ${none}`}
           />
         </div>
-        <div className="mt-3 text-[12px] text-slate-600">
+        <div className="mt-3 text-[12px] text-neutral-600">
           {input.labeledCampaigns}/{input.activeCampaigns} active campaigns labeled
         </div>
         {input.scopeNote ? (
-          <div className="mt-1 text-[11px] text-slate-500">{input.scopeNote}</div>
+          <div className="mt-1 text-[11px] text-neutral-500">{input.scopeNote}</div>
         ) : null}
         {needsAttention ? (
           <div className="mt-3">
@@ -102,14 +102,14 @@ export function buildLabelsCoverageWidget(
               <button
                 type="button"
                 onClick={input.onFixGaps}
-                className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[12px] font-semibold text-indigo-700 hover:bg-indigo-100"
+                className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[12px] font-semibold text-blue-700 hover:bg-blue-100"
               >
                 Fix {input.unlabeledCampaigns} unlabeled
               </button>
             ) : (
               <a
                 href={input.fixHref ?? "#campaign-labels"}
-                className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[12px] font-semibold text-indigo-700 hover:bg-indigo-100"
+                className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[12px] font-semibold text-blue-700 hover:bg-blue-100"
               >
                 Fix {input.unlabeledCampaigns} unlabeled
               </a>
@@ -142,19 +142,19 @@ export function buildTargetAnchorWidget(
     trailingLabel: trailing,
     needsAttention: !input.configured,
     content: (
-      <div className="text-[12.5px] leading-relaxed text-slate-700">
+      <div className="text-[12.5px] leading-relaxed text-neutral-700">
         {input.configured ? (
           <div className="space-y-1">
             <div>
-              Breakeven · <b className="text-slate-900">{formatRatio(input.breakEvenRoas)}</b>
+              Breakeven · <b className="text-neutral-900">{formatRatio(input.breakEvenRoas)}</b>
             </div>
             <div>
               Target ·{" "}
-              <b className="text-slate-900">{formatRatio(input.targetRoas)}</b>
+              <b className="text-neutral-900">{formatRatio(input.targetRoas)}</b>
             </div>
             {input.median != null ? (
               <div>
-                Median 90d · <b className="text-slate-900">{formatRatio(input.median)}</b>
+                Median 90d · <b className="text-neutral-900">{formatRatio(input.median)}</b>
               </div>
             ) : null}
           </div>
@@ -169,14 +169,14 @@ export function buildTargetAnchorWidget(
                 <button
                   type="button"
                   onClick={input.onSetAnchor}
-                  className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[12px] font-semibold text-indigo-700 hover:bg-indigo-100"
+                  className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[12px] font-semibold text-blue-700 hover:bg-blue-100"
                 >
                   Set anchor…
                 </button>
               ) : (
                 <a
                   href={input.setAnchorHref ?? "/commercial-truth"}
-                  className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[12px] font-semibold text-indigo-700 hover:bg-indigo-100"
+                  className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[12px] font-semibold text-blue-700 hover:bg-blue-100"
                 >
                   Set anchor…
                 </a>
@@ -211,14 +211,14 @@ export function buildEngineStatusWidget(
     trailingLabel: versionLabel,
     needsAttention,
     content: (
-      <div className="text-[12.5px] leading-relaxed text-slate-700">
+      <div className="text-[12.5px] leading-relaxed text-neutral-700">
         <div>
-          Last run · <b className="text-slate-900">{lastRunLabel}</b>
+          Last run · <b className="text-neutral-900">{lastRunLabel}</b>
         </div>
         {input.operatingMode ? (
           <div>
             Operating mode ·{" "}
-            <b className="text-slate-900">{input.operatingMode}</b>
+            <b className="text-neutral-900">{input.operatingMode}</b>
           </div>
         ) : null}
         {needsAttention && input.snapshotStatus ? (
@@ -252,10 +252,10 @@ export function buildAnomaliesWidget(
       : "0 active",
     needsAttention: active,
     content: (
-      <div className="text-[12.5px] leading-relaxed text-slate-600">
+      <div className="text-[12.5px] leading-relaxed text-neutral-600">
         {active ? (
           <>
-            <div className="text-slate-800">
+            <div className="text-neutral-800">
               {input.detail ??
                 "Tracking, delivery, sync, or performance anomalies are open. Destructive actions require confirmation."}
             </div>

@@ -19,8 +19,8 @@ describe("LevelChip", () => {
     expect(html).toContain("Campaign");
     expect(html).toContain("Adset");
     expect(html).toContain("Creative");
+    expect(html).toContain("border-sky-200 bg-sky-50 text-sky-700");
     expect(html).toContain("border-blue-200 bg-blue-50 text-blue-700");
-    expect(html).toContain("border-violet-200 bg-violet-50 text-violet-700");
   });
 
   it("passes through className for edge placement tweaks", () => {

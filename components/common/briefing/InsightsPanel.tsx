@@ -99,20 +99,20 @@ export function InsightsPanel({
         style={topStyle}
         className={
           "fixed right-0 z-30 hidden xl:flex flex-col items-center gap-2 " +
-          "rounded-l-lg border border-r-0 border-slate-300 bg-white px-2 py-4 " +
-          "text-[12px] font-semibold text-slate-800 shadow-md " +
-          "hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 " +
+          "rounded-l-lg border border-r-0 border-neutral-300 bg-white px-2 py-4 " +
+          "text-[12px] font-semibold text-neutral-800 shadow-md " +
+          "hover:bg-neutral-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 " +
           "transition-colors"
         }
       >
         {attentionCount > 0 ? (
-          <span className="inline-flex min-w-[20px] items-center justify-center rounded-full bg-indigo-600 px-1.5 py-[1px] font-mono text-[10px] font-bold text-white">
+          <span className="inline-flex min-w-[20px] items-center justify-center rounded-full bg-blue-600 px-1.5 py-[1px] font-mono text-[10px] font-bold text-white">
             {attentionCount}
           </span>
         ) : null}
         <span
           aria-hidden="true"
-          className="text-slate-800"
+          className="text-neutral-800"
           style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
         >
           {handleLabel}
@@ -121,7 +121,7 @@ export function InsightsPanel({
           size={12}
           aria-hidden="true"
           className={
-            "text-slate-500 transition-transform " + (open ? "rotate-180" : "")
+            "text-neutral-500 transition-transform " + (open ? "rotate-180" : "")
           }
         />
       </button>
@@ -135,12 +135,12 @@ export function InsightsPanel({
           style={{ top: `${topOffset}px`, bottom: "24px" }}
           className={
             "fixed right-4 z-40 hidden xl:flex w-[340px] flex-col gap-4 " +
-            "overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-2xl " +
+            "overflow-y-auto rounded-xl border border-neutral-200 bg-white p-5 shadow-2xl " +
             (className ?? "")
           }
         >
-          <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-            <h2 className="m-0 text-[15px] font-bold text-slate-900 tracking-tight">
+          <div className="flex items-center justify-between border-b border-neutral-200 pb-3">
+            <h2 className="m-0 text-[15px] font-bold text-neutral-900 tracking-tight">
               {panelLabel}
             </h2>
             <button
@@ -149,7 +149,7 @@ export function InsightsPanel({
               aria-label="Close insights"
               data-testid={`${testId}-close`}
               onClick={() => setOpen(false)}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-500 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-neutral-300 bg-white text-neutral-500 hover:bg-neutral-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             >
               <X size={14} aria-hidden="true" />
             </button>
@@ -167,13 +167,13 @@ export function InsightsPanel({
 function InsightsWidget({ widget }: { widget: InsightWidget }) {
   return (
     <section
-      className="rounded-lg border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+      className="rounded-lg border border-neutral-200 bg-white p-4 shadow-[0_1px_2px_rgba(16,21,28,0.04)]"
       data-testid={`insights-widget-${widget.key}`}
     >
-      <h3 className="m-0 mb-3 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500">
+      <h3 className="m-0 mb-3 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.05em] text-neutral-500">
         <span>{widget.title}</span>
         {widget.trailingLabel ? (
-          <span className="font-bold text-slate-900">{widget.trailingLabel}</span>
+          <span className="font-bold text-neutral-900">{widget.trailingLabel}</span>
         ) : null}
       </h3>
       {widget.content}

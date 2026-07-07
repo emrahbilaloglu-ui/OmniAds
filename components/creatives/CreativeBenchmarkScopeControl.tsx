@@ -26,12 +26,12 @@ export function CreativeBenchmarkScopeControl({
   return (
     <div
       className={cn(
-        "inline-flex h-11 items-center gap-2 rounded-full border border-slate-200 bg-white pl-3.5 pr-1.5",
+        "inline-flex h-11 items-center gap-2 rounded-full border border-neutral-200 bg-white pl-3.5 pr-1.5",
         className,
       )}
       data-testid="creative-benchmark-scope-control"
     >
-      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-400">
         Benchmark
       </span>
       <button
@@ -46,7 +46,7 @@ export function CreativeBenchmarkScopeControl({
           }
         }}
         title={canToggle ? "Toggle benchmark scope" : undefined}
-        className="inline-flex h-8 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 text-[12px] font-medium text-slate-900 hover:bg-slate-50"
+        className="inline-flex h-8 items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3 text-[12px] font-medium text-neutral-900 hover:bg-neutral-50"
       >
         <span
           data-testid="creative-benchmark-scope-active"
@@ -61,7 +61,7 @@ export function CreativeBenchmarkScopeControl({
             height="9"
             viewBox="0 0 9 9"
             fill="none"
-            className="text-slate-400"
+            className="text-neutral-400"
             aria-hidden="true"
           >
             <path

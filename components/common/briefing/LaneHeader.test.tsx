@@ -24,9 +24,9 @@ describe("LaneHeader", () => {
       </>,
     );
 
-    expect(html).toContain("text-[13px] font-semibold text-slate-900 uppercase tracking-wider");
+    expect(html).toContain("text-[13px] font-semibold text-neutral-900 uppercase tracking-wider");
     expect(html).toContain("bg-sky-500");
-    expect(html).toContain("bg-violet-400");
+    expect(html).toContain("bg-cyan-400");
     expect(html).toContain("Expand");
   });
 });

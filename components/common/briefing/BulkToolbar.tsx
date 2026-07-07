@@ -89,11 +89,11 @@ export function BulkToolbar({
       <>
         <div className="sticky z-20 transition-all opacity-100" id="bulk-toolbar" style={{ top: stickyTop }}>
           <div className="max-w-[1440px] mx-auto px-6 py-2">
-            <div className="rounded-lg border border-slate-300 bg-white shadow-[0_2px_6px_rgba(15,23,42,0.06)] px-3 py-2 flex items-center gap-2 flex-wrap">
-              <span className="font-mono tabular-nums text-[12px] text-slate-700">
-                <span className="font-semibold text-slate-900">{selectedCount}</span> selected
+            <div className="rounded-lg border border-neutral-300 bg-white shadow-[0_2px_6px_rgba(16,21,28,0.06)] px-3 py-2 flex items-center gap-2 flex-wrap">
+              <span className="font-mono tabular-nums text-[12px] text-neutral-700">
+                <span className="font-semibold text-neutral-900">{selectedCount}</span> selected
               </span>
-              <span className="text-slate-200">|</span>
+              <span className="text-neutral-200">|</span>
               {visibleActions.has("cut") ? (
                 <button type="button" className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-rose-300 text-rose-700 hover:bg-rose-50 text-[11.5px]" data-bulk="cut" onClick={() => handleAction("cut")}>
                   <X className="inline-block shrink-0" size={12} aria-hidden="true" /> Cut all
@@ -105,7 +105,7 @@ export function BulkToolbar({
                 </button>
               ) : null}
               {visibleActions.has("apply_bid") ? (
-                <button type="button" className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50 text-[11.5px]" data-bulk="apply_bid" onClick={() => handleAction("apply_bid")}>
+                <button type="button" className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-neutral-300 text-neutral-700 hover:bg-neutral-50 text-[11.5px]" data-bulk="apply_bid" onClick={() => handleAction("apply_bid")}>
                   <Sliders className="inline-block shrink-0" size={12} aria-hidden="true" /> Apply bid changes
                 </button>
               ) : null}
@@ -115,13 +115,13 @@ export function BulkToolbar({
                 </button>
               ) : null}
               {visibleActions.has("compare") ? (
-                <button type="button" className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50 text-[11.5px]" data-bulk="compare" onClick={() => handleAction("compare")}>
+                <button type="button" className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-neutral-300 text-neutral-700 hover:bg-neutral-50 text-[11.5px]" data-bulk="compare" onClick={() => handleAction("compare")}>
                   <GitCompare className="inline-block shrink-0" size={12} aria-hidden="true" /> Compare
                 </button>
               ) : null}
               {visibleActions.has("clear") ? (
-                <span className="ml-auto text-[11px] text-slate-500">
-                  <button type="button" className="hover:text-slate-900" data-bulk="clear" onClick={() => handleAction("clear")}>Clear</button>
+                <span className="ml-auto text-[11px] text-neutral-500">
+                  <button type="button" className="hover:text-neutral-900" data-bulk="clear" onClick={() => handleAction("clear")}>Clear</button>
                 </span>
               ) : null}
               {trackingBlocked ? (
@@ -148,14 +148,14 @@ export function BulkToolbar({
   return (
     <>
       <div className="sticky z-20 rounded-xl border border-blue-200 bg-blue-50/60 px-3 py-2 mb-3 flex items-center gap-1.5 flex-wrap" data-bulk={scope} style={{ top: stickyTop }}>
-        <span className="text-[12.5px] font-medium text-slate-900 mr-2">{selectedCount} selected</span>
+        <span className="text-[12.5px] font-medium text-neutral-900 mr-2">{selectedCount} selected</span>
         {visibleActions.has("cut") ? (
           <button type="button" className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-rose-600 text-white border border-rose-600 hover:bg-rose-700 text-[12px] font-medium" data-bulk-action="cut" data-scope={scope} onClick={() => handleAction("cut")}>
             <X className="inline-block shrink-0" size={12} aria-hidden="true" /> Cut all
           </button>
         ) : null}
         {visibleActions.has("demote") ? (
-          <button type="button" className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-[12px]" data-bulk-action="demote" data-scope={scope} onClick={() => handleAction("demote")}>
+          <button type="button" className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50 text-[12px]" data-bulk-action="demote" data-scope={scope} onClick={() => handleAction("demote")}>
             <TrendingDown className="inline-block shrink-0" size={12} aria-hidden="true" /> Demote all <ArrowRight className="inline-block shrink-0" size={12} aria-hidden="true" />
           </button>
         ) : null}
@@ -170,12 +170,12 @@ export function BulkToolbar({
           </button>
         ) : null}
         {visibleActions.has("compare") ? (
-          <button type="button" className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-[12px]" data-bulk-action="compare" data-scope={scope} onClick={() => handleAction("compare")}>
+          <button type="button" className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50 text-[12px]" data-bulk-action="compare" data-scope={scope} onClick={() => handleAction("compare")}>
             <GitCompare className="inline-block shrink-0" size={12} aria-hidden="true" /> Compare side-by-side
           </button>
         ) : null}
         {visibleActions.has("clear") ? (
-          <button type="button" className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded-md text-slate-500 hover:bg-white hover:text-slate-900 text-[12px]" data-bulk-action="clear" data-scope={scope} onClick={() => handleAction("clear")}>
+          <button type="button" className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded-md text-neutral-500 hover:bg-white hover:text-neutral-900 text-[12px]" data-bulk-action="clear" data-scope={scope} onClick={() => handleAction("clear")}>
             <X className="inline-block shrink-0" size={12} aria-hidden="true" /> Clear
           </button>
         ) : null}

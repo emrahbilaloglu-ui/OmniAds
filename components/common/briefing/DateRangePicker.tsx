@@ -225,13 +225,13 @@ export function DateRangePicker({
         aria-expanded={open}
         aria-label={label}
         onClick={() => setOpen((next) => !next)}
-        className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] text-slate-700 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        className="inline-flex items-center gap-1.5 rounded-md border border-neutral-200 bg-white px-2.5 py-1.5 text-[12px] text-neutral-700 hover:bg-neutral-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
         data-testid={`${testId}-trigger`}
       >
-        <Calendar size={12} aria-hidden="true" className="text-slate-500" />
+        <Calendar size={12} aria-hidden="true" className="text-neutral-500" />
         <span className="font-mono tabular-nums">{chipLabel}</span>
-        <span className="text-slate-500">{chipSubtitle}</span>
-        <span aria-hidden="true" className="text-slate-400">
+        <span className="text-neutral-500">{chipSubtitle}</span>
+        <span aria-hidden="true" className="text-neutral-400">
           ▾
         </span>
       </button>
@@ -239,12 +239,12 @@ export function DateRangePicker({
         <div
           role="dialog"
           aria-label={label}
-          className="absolute right-0 top-full z-50 mt-1.5 w-[640px] max-w-[calc(100vw-32px)] rounded-xl border border-slate-200 bg-white p-4 shadow-2xl"
+          className="absolute right-0 top-full z-50 mt-1.5 w-[640px] max-w-[calc(100vw-32px)] rounded-xl border border-neutral-200 bg-white p-4 shadow-2xl"
           data-testid={`${testId}-popover`}
         >
           <div className="grid grid-cols-[170px_minmax(0,1fr)] gap-4">
             <div className="flex flex-col gap-1 text-[12px]">
-              <div className="px-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              <div className="px-1 text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
                 Quick picks
               </div>
               {PRESETS.map((preset_) => {
@@ -258,8 +258,8 @@ export function DateRangePicker({
                     className={
                       "rounded-md px-2 py-1.5 text-left " +
                       (isActive
-                        ? "bg-indigo-50 font-semibold text-indigo-700"
-                        : "text-slate-700 hover:bg-slate-50")
+                        ? "bg-blue-50 font-semibold text-blue-700"
+                        : "text-neutral-700 hover:bg-neutral-50")
                     }
                   >
                     {preset_.label}
@@ -275,15 +275,15 @@ export function DateRangePicker({
                 className={
                   "rounded-md px-2 py-1.5 text-left " +
                   (pending.preset === "custom"
-                    ? "bg-indigo-50 font-semibold text-indigo-700"
-                    : "text-slate-700 hover:bg-slate-50")
+                    ? "bg-blue-50 font-semibold text-blue-700"
+                    : "text-neutral-700 hover:bg-neutral-50")
                 }
               >
                 Custom range
               </button>
             </div>
             <div>
-              <div className="mb-2 flex items-center justify-between text-[12px] text-slate-700">
+              <div className="mb-2 flex items-center justify-between text-[12px] text-neutral-700">
                 <button
                   type="button"
                   aria-label="Previous month"
@@ -293,7 +293,7 @@ export function DateRangePicker({
                         new Date(current.getFullYear(), current.getMonth() - 1, 1),
                     )
                   }
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-neutral-200 text-neutral-600 hover:bg-neutral-50"
                 >
                   <ChevronLeft size={12} aria-hidden="true" />
                 </button>
@@ -314,7 +314,7 @@ export function DateRangePicker({
                         new Date(current.getFullYear(), current.getMonth() + 1, 1),
                     )
                   }
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-neutral-200 text-neutral-600 hover:bg-neutral-50"
                 >
                   <ChevronRight size={12} aria-hidden="true" />
                 </button>
@@ -331,7 +331,7 @@ export function DateRangePicker({
                   onDayClick={handleDayClick}
                 />
               </div>
-              <div className="mt-3 flex items-center gap-2 text-[11.5px] text-slate-600">
+              <div className="mt-3 flex items-center gap-2 text-[11.5px] text-neutral-600">
                 <span>Selected:</span>
                 <span className="font-mono tabular-nums">
                   {formatShortDate(pending.startDate)} – {formatShortDate(pending.endDate)}
@@ -340,18 +340,18 @@ export function DateRangePicker({
               </div>
             </div>
           </div>
-          <div className="mt-4 flex justify-end gap-2 border-t border-slate-200 pt-3">
+          <div className="mt-4 flex justify-end gap-2 border-t border-neutral-200 pt-3">
             <button
               type="button"
               onClick={handleCancel}
-              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-medium text-slate-700 hover:bg-slate-50"
+              className="inline-flex items-center gap-1 rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-[12px] font-medium text-neutral-700 hover:bg-neutral-50"
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={handleApply}
-              className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-indigo-700"
+              className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700"
             >
               Apply
             </button>
@@ -382,7 +382,7 @@ function CalendarMonth({
   }
   return (
     <div>
-      <div className="mb-1 grid grid-cols-7 text-center text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+      <div className="mb-1 grid grid-cols-7 text-center text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
         {DAY_HEADERS.map((label, idx) => (
           <span key={`${label}-${idx}`}>{label}</span>
         ))}
@@ -399,10 +399,10 @@ function CalendarMonth({
           const cellClasses = [
             "inline-flex h-7 w-9 items-center justify-center font-mono tabular-nums",
             isEdge
-              ? "bg-indigo-600 text-white font-semibold"
+              ? "bg-blue-600 text-white font-semibold"
               : inRange
-                ? "bg-indigo-50 text-indigo-700"
-                : "text-slate-700 hover:bg-slate-100",
+                ? "bg-blue-50 text-blue-700"
+                : "text-neutral-700 hover:bg-neutral-100",
             isStart ? "rounded-l-md" : "",
             isEnd ? "rounded-r-md" : "",
             !inRange ? "rounded-md" : "",

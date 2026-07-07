@@ -14,10 +14,10 @@ const LABELS: Record<DecisionLevel, string> = {
 };
 
 const TONES: Record<DecisionLevel, string> = {
-  campaign: "border-slate-300 bg-slate-50 text-slate-700",
-  adset: "border-violet-200 bg-violet-50 text-violet-700",
+  campaign: "border-neutral-300 bg-neutral-50 text-neutral-700",
+  adset: "border-sky-200 bg-sky-50 text-sky-700",
   account: "border-blue-200 bg-blue-50 text-blue-700",
-  creative: "border-slate-200 bg-white text-slate-600",
+  creative: "border-neutral-200 bg-white text-neutral-600",
 };
 
 const ICONS: Record<DecisionLevel, typeof Globe> = {

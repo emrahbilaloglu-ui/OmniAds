@@ -244,7 +244,7 @@ export function DeferChip({
   return (
     <div
       className={[
-        "mt-2 inline-flex items-center gap-1 px-2 py-1 rounded-md bg-slate-50 border border-slate-200 text-[11px] text-slate-600",
+        "mt-2 inline-flex items-center gap-1 px-2 py-1 rounded-md bg-neutral-50 border border-neutral-200 text-[11px] text-neutral-600",
         className,
       ]
         .filter(Boolean)

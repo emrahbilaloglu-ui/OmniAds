@@ -39,7 +39,7 @@ export function EvidencePopover({
   const tone =
     variant === "meta"
       ? "border-blue-100 bg-blue-50/60 text-blue-700"
-      : "border-slate-200 bg-slate-50 text-slate-700";
+      : "border-neutral-200 bg-neutral-50 text-neutral-700";
   const drawer = presentation === "drawer";
   const hasPreview = drawer && Boolean(media);
   const rootClassName = drawer
@@ -49,8 +49,8 @@ export function EvidencePopover({
     ? "md:w-[min(960px,calc(100vw-48px))]"
     : "md:w-[min(640px,calc(100vw-48px))]";
   const panelClassName = drawer
-    ? `absolute inset-x-0 bottom-0 z-10 max-h-[90vh] overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl md:inset-y-0 md:left-auto md:right-0 md:h-full md:max-h-none ${drawerWidth} md:rounded-none md:rounded-l-2xl md:border-y-0 md:border-r-0 md:border-l`
-    : "relative z-10 w-full max-w-[620px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl";
+    ? `absolute inset-x-0 bottom-0 z-10 max-h-[90vh] overflow-hidden rounded-t-2xl border border-neutral-200 bg-white shadow-2xl md:inset-y-0 md:left-auto md:right-0 md:h-full md:max-h-none ${drawerWidth} md:rounded-none md:rounded-l-2xl md:border-y-0 md:border-r-0 md:border-l`
+    : "relative z-10 w-full max-w-[620px] overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-2xl";
   const bodyClassName = drawer
     ? "max-h-[calc(90vh-56px)] overflow-y-auto px-4 py-3 md:max-h-none md:h-[calc(100vh-56px)]"
     : "max-h-[68vh] overflow-y-auto px-4 py-3";
@@ -59,21 +59,21 @@ export function EvidencePopover({
     <div className={rootClassName} role="dialog" aria-modal="true">
       <button
         type="button"
-        className="absolute inset-0 bg-slate-950/25"
+        className="absolute inset-0 bg-neutral-950/25"
         aria-label="Close evidence"
         onClick={onClose}
       />
       <div className={panelClassName} data-evidence-presentation={presentation}>
-        <div className="flex items-start gap-3 border-b border-slate-100 px-4 py-3">
+        <div className="flex items-start gap-3 border-b border-neutral-100 px-4 py-3">
           <div className="min-w-0 flex-1">
-            <div className="text-[14px] font-semibold text-slate-950">{title}</div>
+            <div className="text-[14px] font-semibold text-neutral-950">{title}</div>
             {subtitle ? (
-              <div className="mt-0.5 truncate text-[12px] text-slate-500">{subtitle}</div>
+              <div className="mt-0.5 truncate text-[12px] text-neutral-500">{subtitle}</div>
             ) : null}
           </div>
           <button
             type="button"
-            className="grid size-7 place-items-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+            className="grid size-7 place-items-center rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
             aria-label="Close evidence"
             onClick={onClose}
           >
@@ -84,24 +84,24 @@ export function EvidencePopover({
           {media ? <div className="mb-3">{media}</div> : null}
           <div className="space-y-3">
             {sections.length === 0 ? (
-              <section className="rounded-xl border border-slate-200 bg-white">
+              <section className="rounded-xl border border-neutral-200 bg-white">
                 <div className={`flex items-center gap-2 rounded-t-xl border-b px-3 py-2 ${tone}`}>
-                  <h3 className="text-[12px] font-semibold text-slate-800">Evidence unavailable</h3>
+                  <h3 className="text-[12px] font-semibold text-neutral-800">Evidence unavailable</h3>
                 </div>
-                <div className="px-3 py-3 text-[12px] leading-snug text-slate-600">
+                <div className="px-3 py-3 text-[12px] leading-snug text-neutral-600">
                   No server evidence was returned for this item. The drawer opens intentionally so missing evidence is visible instead of silently failing.
                 </div>
               </section>
             ) : sections.map((section) => (
-              <section key={section.key} className="rounded-xl border border-slate-200 bg-white">
+              <section key={section.key} className="rounded-xl border border-neutral-200 bg-white">
                 <div className={`flex items-center gap-2 rounded-t-xl border-b px-3 py-2 ${tone}`}>
-                  {section.icon ? <span className="text-slate-400">{section.icon}</span> : null}
-                  <h3 className="text-[12px] font-semibold text-slate-800">{section.title}</h3>
+                  {section.icon ? <span className="text-neutral-400">{section.icon}</span> : null}
+                  <h3 className="text-[12px] font-semibold text-neutral-800">{section.title}</h3>
                   {section.count != null ? (
-                    <span className="ml-auto font-mono text-[10.5px] text-slate-500">{section.count}</span>
+                    <span className="ml-auto font-mono text-[10.5px] text-neutral-500">{section.count}</span>
                   ) : null}
                 </div>
-                <div className="px-3 py-3 text-[12px] leading-snug text-slate-600">
+                <div className="px-3 py-3 text-[12px] leading-snug text-neutral-600">
                   {section.content}
                 </div>
               </section>

@@ -42,7 +42,7 @@ export function PhonePreview({
       className="flex flex-col items-center gap-3"
       data-testid={testId}
     >
-      <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+      <div className="flex items-center gap-1.5 text-[11px] text-neutral-500">
         {(Object.keys(PLACEMENT_LABELS) as PhonePreviewPlacement[]).map((key) => (
           <span
             key={key}
@@ -50,8 +50,8 @@ export function PhonePreview({
             className={
               "rounded-md border px-2 py-0.5 font-semibold " +
               (placement === key
-                ? "border-slate-900 bg-slate-900 text-white"
-                : "border-slate-200 bg-white text-slate-600")
+                ? "border-neutral-900 bg-neutral-900 text-white"
+                : "border-neutral-200 bg-white text-neutral-600")
             }
           >
             {PLACEMENT_LABELS[key]}
@@ -59,14 +59,14 @@ export function PhonePreview({
         ))}
       </div>
       <div
-        className="relative overflow-hidden rounded-[36px] border-[3px] border-slate-900 bg-slate-950 p-1 shadow-2xl"
+        className="relative overflow-hidden rounded-[36px] border-[3px] border-neutral-900 bg-neutral-950 p-1 shadow-[0_1px_2px_rgba(16,21,28,0.08)]"
         style={{ width: `${width + 16}px` }}
         aria-label={`${name} preview`}
       >
-        <div className="relative h-2 w-full rounded-t-[24px] bg-slate-950">
+        <div className="relative h-2 w-full rounded-t-[24px] bg-neutral-950">
           <span
             aria-hidden="true"
-            className="absolute left-1/2 top-1.5 inline-block h-1.5 w-16 -translate-x-1/2 rounded-full bg-slate-700"
+            className="absolute left-1/2 top-1.5 inline-block h-1.5 w-16 -translate-x-1/2 rounded-full bg-neutral-700"
           />
         </div>
         <div
@@ -85,14 +85,14 @@ export function PhonePreview({
               className="absolute inset-0"
               style={{
                 background:
-                  "linear-gradient(160deg, #94a3b8 0%, #475569 60%, #1e293b 100%)",
+                  "linear-gradient(160deg, #a3a3a3 0%, #525252 60%, #171717 100%)",
               }}
             />
           )}
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/0 to-black/30" />
           {format === "VID" ? (
             <div className="absolute inset-0 flex items-center justify-center">
-              <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-white/95 text-slate-900 shadow-xl">
+              <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-white/95 text-neutral-900 shadow-[0_1px_2px_rgba(16,21,28,0.08)]">
                 <Play size={22} aria-hidden="true" fill="currentColor" />
               </span>
             </div>
@@ -120,7 +120,7 @@ export function PhonePreview({
         <div className="mt-1 flex justify-center">
           <span
             aria-hidden="true"
-            className="block h-1 w-24 rounded-full bg-slate-700"
+            className="block h-1 w-24 rounded-full bg-neutral-700"
           />
         </div>
       </div>

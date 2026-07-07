@@ -18,8 +18,8 @@ const CREATIVE_TONE_CLASS: Record<LaneKey, string> = {
   watching: "bg-sky-500",
   healthy: "bg-emerald-500",
   nonSales: "bg-zinc-400",
-  archive: "bg-slate-400",
-  audience: "bg-violet-400",
+  archive: "bg-neutral-400",
+  audience: "bg-cyan-400",
 };
 
 const CREATIVE_ICON = {
@@ -36,8 +36,8 @@ const CREATIVE_ICON_CLASS: Record<LaneKey, string> = {
   watching: "text-sky-600",
   healthy: "text-emerald-600",
   nonSales: "text-zinc-600",
-  archive: "text-slate-500",
-  audience: "text-violet-600",
+  archive: "text-neutral-500",
+  audience: "text-cyan-600",
 };
 
 export function LaneHeader({
@@ -56,16 +56,16 @@ export function LaneHeader({
     return (
       <div className="flex items-center gap-2 px-1 mb-2" data-lane-header={title}>
         <span className={`w-1 h-4 rounded-full ${CREATIVE_TONE_CLASS[laneKey]}`} />
-        <h3 className="text-[13px] font-semibold text-slate-900 uppercase tracking-wider">
+        <h3 className="text-[13px] font-semibold text-neutral-900 uppercase tracking-wider">
           {title}
         </h3>
-        <span className="font-mono tabular-nums text-[11px] text-slate-500 px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded-md">
+        <span className="font-mono tabular-nums text-[11px] text-neutral-500 px-1.5 py-0.5 bg-neutral-50 border border-neutral-200 rounded-md">
           {count}
         </span>
-        {subtitle ? <span className="text-[11.5px] text-slate-500">{subtitle}</span> : null}
+        {subtitle ? <span className="text-[11.5px] text-neutral-500">{subtitle}</span> : null}
         <button
           type="button"
-          className="ml-auto text-[11px] text-slate-500 hover:text-slate-900 inline-flex items-center gap-1"
+          className="ml-auto text-[11px] text-neutral-500 hover:text-neutral-900 inline-flex items-center gap-1"
           data-toggle-lane={title}
           onClick={() => onToggle?.(laneKey)}
         >
@@ -85,18 +85,18 @@ export function LaneHeader({
           size={13}
           aria-hidden="true"
         />
-        <h3 className="text-[14px] font-semibold text-slate-900 tracking-tight">
+        <h3 className="text-[14px] font-semibold text-neutral-900 tracking-tight">
           {title}
         </h3>
-        <span className="font-mono tabular-nums text-[12px] text-slate-500 px-1.5 py-0.5 rounded-md bg-slate-100">
+        <span className="font-mono tabular-nums text-[12px] text-neutral-500 px-1.5 py-0.5 rounded-md bg-neutral-100">
           {count}
         </span>
       </div>
-      {subtitle ? <span className="text-[12px] text-slate-500">{subtitle}</span> : null}
+      {subtitle ? <span className="text-[12px] text-neutral-500">{subtitle}</span> : null}
       <button
         type="button"
         data-toggle-lane={laneKey}
-        className="ml-auto inline-flex items-center gap-1 text-[12px] text-slate-500 hover:text-slate-900 px-2 py-1 rounded-md hover:bg-slate-100"
+        className="ml-auto inline-flex items-center gap-1 text-[12px] text-neutral-500 hover:text-neutral-900 px-2 py-1 rounded-md hover:bg-neutral-100"
         onClick={() => onToggle?.(laneKey)}
       >
         {collapsed ? "Expand" : "Collapse"}

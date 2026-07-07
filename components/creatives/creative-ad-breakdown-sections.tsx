@@ -178,7 +178,7 @@ export function CreativeSummaryCards({
       <SummaryCard
         label="Total Purchases"
         value={Math.round(totalPurchases).toLocaleString()}
-        icon={<span className="text-xs font-bold text-violet-500">#</span>}
+        icon={<span className="text-xs font-bold text-blue-500">#</span>}
       />
       <SummaryCard
         label="Weighted CTR"

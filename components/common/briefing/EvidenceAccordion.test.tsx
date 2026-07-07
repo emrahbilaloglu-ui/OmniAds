@@ -36,7 +36,7 @@ describe("EvidenceAccordion", () => {
       </>,
     );
 
-    expect(html).toContain("hover:bg-slate-50 text-[12px]");
+    expect(html).toContain("hover:bg-neutral-50 text-[12px]");
     expect(html).toContain("uppercase tracking-[0.12em]");
   });
 

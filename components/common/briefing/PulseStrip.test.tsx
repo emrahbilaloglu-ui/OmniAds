@@ -27,7 +27,7 @@ describe("PulseStrip", () => {
     );
 
     expect(html).toContain("id=\"pulse\"");
-    expect(html).toContain("bg-white border-b border-slate-200");
+    expect(html).toContain("bg-white border-b border-neutral-200");
     expect(html).toContain("grid grid-cols-4 gap-0");
   });
 });

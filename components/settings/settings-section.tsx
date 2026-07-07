@@ -5,12 +5,14 @@ import { usePreferencesStore } from "@/store/preferences-store";
 import { cn } from "@/lib/utils";
 
 export function SettingsSection({
+  id,
   title,
   description,
   actions,
   children,
   danger = false,
 }: {
+  id?: string;
   title: string;
   description: string;
   actions?: React.ReactNode;
@@ -19,8 +21,9 @@ export function SettingsSection({
 }) {
   return (
     <section
+      id={id}
       className={cn(
-        "rounded-2xl border bg-card p-5 shadow-sm",
+        "scroll-mt-20 rounded-2xl border bg-card p-5 shadow-sm",
         danger && "border-destructive/30 bg-destructive/5"
       )}
     >

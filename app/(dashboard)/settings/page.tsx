@@ -216,6 +216,19 @@ export default function SettingsPage() {
   const isWorkspaceAdmin = workspaceRole === "admin";
   const isDemoWorkspace = isDemoBusinessId(selectedBusinessId);
 
+  // Sticky sub-nav model — mirrors the wireframe's left settings rail. Team is
+  // omitted for demo workspaces, matching the section that actually renders.
+  const settingsNav: Array<{ id: string; label: string }> = [
+    { id: "settings-billing", label: "Plan & Billing" },
+    { id: "settings-workspace", label: "Workspace" },
+    { id: "settings-account", label: "Account" },
+    ...(!isDemoWorkspace ? [{ id: "settings-team", label: "Team" }] : []),
+    { id: "settings-data", label: "Data & Integrations" },
+    { id: "settings-security", label: "Security" },
+    { id: "settings-preferences", label: "Preferences" },
+    { id: "settings-danger", label: "Danger zone" },
+  ];
+
   const totalMembers = members.length;
   const totalInvites = invites.filter((invite) => invite.status === "pending").length;
   const workspaceTimezoneLabel = activeBusiness?.timezone ?? "Derived after Shopify or GA4 connection";
@@ -581,7 +594,23 @@ export default function SettingsPage() {
         </div>
       ) : null}
 
+      <div className="grid gap-6 lg:grid-cols-[176px_minmax(0,1fr)]">
+        <nav aria-label="Settings sections" className="hidden lg:block">
+          <div className="sticky top-6 flex flex-col gap-0.5">
+            {settingsNav.map((item) => (
+              <a
+                key={item.id}
+                href={`#${item.id}`}
+                className="rounded-md px-2.5 py-1.5 text-[13px] text-neutral-600 transition hover:bg-neutral-100 hover:text-neutral-900"
+              >
+                {item.label}
+              </a>
+            ))}
+          </div>
+        </nav>
+        <div className="min-w-0 space-y-6">
       <SettingsSection
+        id="settings-billing"
         title="Plan & Billing"
         description="Manage your Adsecute subscription. Billing is handled through the Shopify App Store."
       >
@@ -696,6 +725,7 @@ export default function SettingsPage() {
       </SettingsSection>
 
       <SettingsSection
+        id="settings-workspace"
         title="Workspace Settings"
         description="Update the current workspace identity and default reporting context for this business."
       >
@@ -743,6 +773,7 @@ export default function SettingsPage() {
         </SettingsActionRow>
       </SettingsSection>
       <SettingsSection
+        id="settings-account"
         title="Account Settings"
         description="Manage your personal profile and password for Adsecute."
       >
@@ -799,6 +830,7 @@ export default function SettingsPage() {
       </SettingsSection>
 
       {!isDemoWorkspace && <SettingsSection
+        id="settings-team"
         title="Team Management"
         description="Invite teammates, review current workspace access, and manage roles."
         actions={
@@ -920,6 +952,7 @@ export default function SettingsPage() {
       </SettingsSection>}
 
       <SettingsSection
+        id="settings-data"
         title="Data & Integrations Management"
         description="Monitor connection health and trigger maintenance actions for provider data."
       >
@@ -980,6 +1013,7 @@ export default function SettingsPage() {
       </SettingsSection>
 
       <SettingsSection
+        id="settings-security"
         title="Security"
         description="Review account protection controls and session hygiene."
       >
@@ -1020,6 +1054,7 @@ export default function SettingsPage() {
       </SettingsSection>
 
       <SettingsSection
+        id="settings-preferences"
         title="System Preferences"
         description="Choose the defaults Adsecute should use across reporting and table-heavy views."
       >
@@ -1081,6 +1116,7 @@ export default function SettingsPage() {
       </SettingsSection>
 
       <SettingsSection
+        id="settings-danger"
         title="Danger Zone"
         description="High-impact actions are separated here to reduce accidental changes."
         danger
@@ -1114,6 +1150,8 @@ export default function SettingsPage() {
           </div>
         </div>
       </SettingsSection>
+        </div>
+      </div>
 
       <ConfirmOverlay
         open={confirmModal === "disconnectAll"}

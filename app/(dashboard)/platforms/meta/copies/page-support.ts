@@ -6,6 +6,12 @@ export type CopyMotionRow = MetaCreativeRow & {
   copyText: string;
   usedInCampaigns: string[];
   usedInAds: string[];
+  copyHeadline: string | null;
+  copyDescription: string | null;
+  copySource: string | null;
+  copyAssetType: MetaCopyApiRow["copy_asset_type"];
+  normalizedCopyKey: string | null;
+  unresolvedReason: string | null;
 };
 
 const EMPTY_PREVIEW: MetaCreativePreview = {
@@ -128,6 +134,15 @@ export function mapApiRowToCopyRow(row: MetaCopyApiRow): CopyMotionRow {
     video100: row.video100 ?? 0,
     atcToPurchaseRatio: row.atc_to_purchase_ratio ?? 0,
     copyText,
+    copyVariants: Array.isArray(row.copy_variants) ? row.copy_variants : [],
+    headlineVariants: Array.isArray(row.headline_variants) ? row.headline_variants : [],
+    descriptionVariants: Array.isArray(row.description_variants) ? row.description_variants : [],
+    copyHeadline: normalizeCopyIdentity(row.headline),
+    copyDescription: normalizeCopyIdentity(row.description),
+    copySource: row.copy_source ?? null,
+    copyAssetType: row.copy_asset_type ?? null,
+    normalizedCopyKey: row.normalized_copy_key ?? null,
+    unresolvedReason: row.unresolved_reason ?? null,
     usedInCampaigns: row.campaign_name ? [row.campaign_name] : [],
     usedInAds: row.name ? [row.name] : [],
   };

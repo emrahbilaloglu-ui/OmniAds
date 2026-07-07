@@ -26,14 +26,17 @@ const state = vi.hoisted(() => ({
   search: "window=28d",
   storeBusinesses: [] as Array<{ id: string; name: string; currency: string }>,
   selectBusiness: vi.fn(),
+  queryOverrides: {} as Record<string, { data?: unknown; isLoading?: boolean; error?: Error | null }>,
 }));
 
-function queryState(data: unknown) {
+function queryState(data: unknown, override?: { data?: unknown; isLoading?: boolean; error?: Error | null }) {
+  const hasDataOverride = override && Object.prototype.hasOwnProperty.call(override, "data");
+  const error = override?.error ?? null;
   return {
-    data,
-    isLoading: false,
-    isError: false,
-    error: null,
+    data: hasDataOverride ? override?.data : data,
+    isLoading: override?.isLoading ?? false,
+    isError: Boolean(error),
+    error,
   };
 }
 
@@ -52,15 +55,16 @@ vi.mock("@tanstack/react-query", () => ({
   useQuery: (input: { queryKey: unknown[] }) => {
     state.queryKeys.push(input.queryKey);
     const key = String(input.queryKey[0]);
-    if (key === "meta-account-pulse") return queryState(state.pulsePayload ?? metaPulse());
-    if (key === "meta-lanes") return queryState(state.lanePayload ?? metaLanePayload());
+    const override = state.queryOverrides[key];
+    if (key === "meta-account-pulse") return queryState(state.pulsePayload ?? metaPulse(), override);
+    if (key === "meta-lanes") return queryState(state.lanePayload ?? metaLanePayload(), override);
     if (key === "meta-anomalies") {
-      return queryState({ anomalies: [metaAnomaly()], snapshotDate: "2026-05-07", count: 1 });
+      return queryState({ anomalies: [metaAnomaly()], snapshotDate: "2026-05-07", count: 1 }, override);
     }
-    if (key === "meta-campaigns-for-labels") return queryState({ rows: state.labelCampaigns });
-    if (key === "meta-campaign-labels") return queryState({ labels: state.campaignLabels });
-    if (key === "triage-state") return queryState({ rows: [], deferredCount: 0 });
-    return queryState(null);
+    if (key === "meta-campaigns-for-labels") return queryState({ rows: state.labelCampaigns }, override);
+    if (key === "meta-campaign-labels") return queryState({ labels: state.campaignLabels }, override);
+    if (key === "triage-state") return queryState({ rows: [], deferredCount: 0 }, override);
+    return queryState(null, override);
   },
 }));
 
@@ -83,6 +87,7 @@ describe("MetaPlatformPage", () => {
     state.campaignLabels = [];
     state.search = "window=28d";
     state.storeBusinesses = [];
+    state.queryOverrides = {};
     state.selectBusiness.mockClear();
     state.routerPush.mockClear();
     state.routerReplace.mockClear();
@@ -108,6 +113,61 @@ describe("MetaPlatformPage", () => {
     expect(state.queryKeys.map((key) => key[0])).toContain("meta-lanes");
     expect(state.queryKeys).toContainEqual(["meta-account-pulse", "biz_1", "28d", "active", expect.any(String), expect.any(String)]);
     expect(state.queryKeys).toContainEqual(["meta-lanes", "biz_1", "28d", "active", expect.any(String), expect.any(String)]);
+  });
+
+  it("withholds false summary zeros while the pulse and lane briefing are loading", () => {
+    state.queryOverrides = {
+      "meta-account-pulse": { data: undefined, isLoading: true },
+      "meta-lanes": { data: undefined, isLoading: true },
+      "meta-anomalies": { data: undefined, isLoading: true },
+    };
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+
+    expect(html).toContain('data-testid="meta-pulse-loading"');
+    expect(html).toContain("briefing loading");
+    expect(html).toContain("queue is loading the latest decision snapshot");
+    expect(html).toContain('<span class="count">—</span>');
+    expect(html).toContain("act —");
+    expect(html).not.toContain("Snapshot missing");
+    expect(html).not.toContain("sync unknown snapshot — engine");
+  });
+
+  it("surfaces pulse or lane query errors before rendering briefing summaries", () => {
+    state.queryOverrides = {
+      "meta-lanes": { data: undefined, error: new Error("lane request failed") },
+    };
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+
+    expect(html).toContain('data-testid="meta-briefing-error"');
+    expect(html).toContain('data-testid="meta-pulse-error"');
+    expect(html).toContain("briefing unavailable");
+    expect(html).toContain("lane request failed");
+    expect(html).toContain('<span class="count">—</span>');
+    expect(html).not.toContain("queue reflects");
+  });
+
+  it("surfaces anomaly query errors without hiding a healthy pulse and lane briefing", () => {
+    state.queryOverrides = {
+      "meta-anomalies": { data: undefined, error: new Error("anomaly scan failed") },
+    };
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+
+    expect(html).toContain("queue reflects");
+    expect(html).toContain("Spend · 2026-05-07");
+    expect(html).toContain("anomaly scan failed");
+    expect(html).not.toContain('data-testid="meta-briefing-error"');
+    expect(html).not.toContain('data-testid="meta-pulse-error"');
+    expect(html).not.toContain("briefing unavailable");
+    expect(html).not.toContain("act —");
   });
 
   it("exposes campaign label management as a modal trigger without rendering the manager inline", () => {

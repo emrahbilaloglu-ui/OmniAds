@@ -1029,12 +1029,12 @@ function MetaLaneTab({
   active: boolean;
   className?: string;
   label: string;
-  count: number;
+  count: number | null;
   onClick: () => void;
 }) {
   return (
     <button type="button" className={cn("tab", className, active ? "active" : "")} onClick={onClick}>
-      {label} <span className="count">{count}</span>
+      {label} <span className="count">{count == null ? "—" : count}</span>
     </button>
   );
 }
@@ -1045,13 +1045,42 @@ function FinalMetaPulse({
   onManageLabels,
   moneyCurrency,
   laneAsOf,
+  loading = false,
+  error = null,
 }: {
   pulse?: MetaPulsePayload | null;
   window: MetaWindowKey;
   onManageLabels: () => void;
   moneyCurrency?: string | null;
   laneAsOf?: { snapshotDate: string | null; snapshotCreatedAt?: string | null } | null;
+  loading?: boolean;
+  error?: Error | null;
 }) {
+  if (loading || error) {
+    const unavailable = Boolean(error);
+    const status = unavailable ? "Unavailable" : "Loading";
+    const detail = unavailable
+      ? error?.message ?? "Meta briefing failed."
+      : "Waiting for the Meta briefing payload.";
+    return (
+      <div
+        className="pulse pulse--five"
+        data-testid={unavailable ? "meta-pulse-error" : "meta-pulse-loading"}
+        role="status"
+      >
+        {["Spend", "ROAS", "Snapshot", "Labels", "Mode"].map((label) => (
+          <div className="cell" key={label}>
+            <div className="label">
+              <span>{label}</span>
+            </div>
+            <div className="value">{status}</div>
+            <div className="micro">{detail}</div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   const endIsToday =
     !pulse?.endDate || pulse.endDate === new Date().toISOString().slice(0, 10);
   const lastSyncLabel = pulse?.lastSyncAt
@@ -1196,10 +1225,29 @@ function formatEngineRunTime(value: string | null | undefined) {
 function MetaAsOfCluster({
   pulse,
   laneSnapshotDate,
+  loading = false,
+  error = null,
 }: {
   pulse?: MetaPulsePayload | null;
   laneSnapshotDate?: string | null;
+  loading?: boolean;
+  error?: Error | null;
 }) {
+  if (loading || error) {
+    return (
+      <div
+        className="meta-asof"
+        data-testid="meta-asof-cluster"
+        title="The briefing payload is not available yet; as-of values are withheld instead of fabricated."
+      >
+        <span>{error ? "briefing unavailable" : "briefing loading"}</span>
+        <span className="sep" aria-hidden="true">·</span>
+        <span>snapshot —</span>
+        <span className="sep" aria-hidden="true">·</span>
+        <span>engine —</span>
+      </div>
+    );
+  }
   const synced = pulse?.lastSyncAt ? `synced ${shortRelativeTime(pulse.lastSyncAt)}` : "sync unknown";
   const snapshot = laneSnapshotDate ? `snapshot ${laneSnapshotDate}` : "snapshot —";
   const engineVersion = pulse?.engineVersion ?? "—";
@@ -1222,7 +1270,7 @@ function MetaAsOfCluster({
   );
 }
 
-type ScopeRailDotTone = "danger" | "warn" | "ok";
+type ScopeRailDotTone = "danger" | "warn" | "ok" | "unknown";
 
 /**
  * Left business scope rail. Lists the operator's real businesses from the app
@@ -1247,7 +1295,7 @@ function MetaScopeRail({
   onSelect: (id: string) => void;
   open: boolean;
   onToggle: () => void;
-  selectedActNowCount: number;
+  selectedActNowCount: number | null;
   selectedSpendToday: number | null;
   selectedDotTone: ScopeRailDotTone;
   moneyCurrency?: string | null;
@@ -1266,7 +1314,13 @@ function MetaScopeRail({
     );
   }
   const selectedDotColor =
-    selectedDotTone === "danger" ? "var(--danger)" : selectedDotTone === "warn" ? "var(--warn)" : "var(--ok)";
+    selectedDotTone === "danger"
+      ? "var(--danger)"
+      : selectedDotTone === "warn"
+        ? "var(--warn)"
+        : selectedDotTone === "ok"
+          ? "var(--ok)"
+          : "var(--muted-2)";
   return (
     <aside className="meta-scope-rail" data-testid="meta-scope-rail" aria-label="Businesses by urgency">
       <div className="meta-scope-rail__head">
@@ -1296,7 +1350,7 @@ function MetaScopeRail({
                 <span className="meta-scope-biz__name">{biz.name}</span>
                 {isSelected ? (
                   <span className="meta-scope-biz__count" data-testid="meta-scope-biz-count">
-                    {selectedActNowCount} act
+                    {selectedActNowCount == null ? "act —" : `${selectedActNowCount} act`}
                   </span>
                 ) : (
                   <span className="meta-scope-biz__open">Open</span>
@@ -1437,6 +1491,9 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
     enabled: Boolean(businessId),
     queryFn: () => fetchAnomalies(businessId, selectedWindow, selectedStatusFilter, selectedDateRange),
   });
+  const briefingLoading = pulseQuery.isLoading || laneQuery.isLoading;
+  const briefingError = (pulseQuery.error ?? laneQuery.error ?? null) as Error | null;
+  const briefingUnavailable = briefingLoading || Boolean(briefingError);
   const campaignDefer = useDeferState({
     businessId,
     scopeType: "campaign",
@@ -1574,17 +1631,20 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   // never fabricated. Act-now = real lane action rows + active anomalies
   // (mirrors the Action Now tab's meaning). Spend-today = pulse spendToday,
   // with the same day-pace fallback the pulse strip uses; null renders as "—".
-  const scopeSelectedActNowCount = actionNow.length + anomalies.length;
-  const scopeSelectedSpendToday =
-    pulseQuery.data?.pacing.spendToday ??
-    (pulseQuery.data?.pacing.dayPace != null && pulseQuery.data?.pacing.dailyTarget != null
-      ? pulseQuery.data.pacing.dayPace * pulseQuery.data.pacing.dailyTarget
-      : null);
-  const scopeSelectedDotTone: ScopeRailDotTone = trackingBlocked
-    ? "danger"
-    : scopeSelectedActNowCount > 0
-      ? "warn"
-      : "ok";
+  const scopeSelectedActNowCount = briefingUnavailable ? null : actionNow.length + anomalies.length;
+  const scopeSelectedSpendToday = briefingUnavailable
+    ? null
+    : pulseQuery.data?.pacing.spendToday ??
+      (pulseQuery.data?.pacing.dayPace != null && pulseQuery.data?.pacing.dailyTarget != null
+        ? pulseQuery.data.pacing.dayPace * pulseQuery.data.pacing.dailyTarget
+        : null);
+  const scopeSelectedDotTone: ScopeRailDotTone = briefingUnavailable
+    ? "unknown"
+    : trackingBlocked
+      ? "danger"
+      : scopeSelectedActNowCount != null && scopeSelectedActNowCount > 0
+        ? "warn"
+        : "ok";
   const laneSnapshotDate = laneQuery.data?.snapshotDate ?? null;
 
   const currentUrlParams = () =>
@@ -1803,7 +1863,6 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
         relatedRecs: rec.campaignId ? (adsetRecsByCampaign.get(rec.campaignId) ?? []) : [],
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entityParam, laneQuery.data]);
 
   const isTrackingSensitiveRec = (rec: MetaRecommendation) => {
@@ -2123,8 +2182,8 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
     await handlePrimary(rec);
   };
 
-  const loading = pulseQuery.isLoading || laneQuery.isLoading;
-  const error = pulseQuery.error ?? laneQuery.error ?? anomalyQuery.error;
+  const loading = briefingLoading;
+  const error = briefingError ?? ((anomalyQuery.error ?? null) as Error | null);
 
   return (
     <div className="ad-final" data-testid="meta-platform-page">
@@ -2140,7 +2199,12 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
           </div>
         </div>
         <div className="right-tools">
-          <MetaAsOfCluster pulse={pulseQuery.data ?? null} laneSnapshotDate={laneSnapshotDate} />
+          <MetaAsOfCluster
+            pulse={pulseQuery.data ?? null}
+            laneSnapshotDate={laneSnapshotDate}
+            loading={briefingLoading}
+            error={briefingError}
+          />
           <button type="button" className="btn" disabled={refreshingSnapshot} onClick={refreshSnapshotNow}>
             <RefreshCw className="inline-block shrink-0" size={13} aria-hidden="true" />
             {refreshingSnapshot ? "Running..." : "Run snapshot"}
@@ -2150,16 +2214,36 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
       </div>
 
       <p className="meta-queue-scope-note" data-testid="meta-queue-scope-note">
-        queue reflects{" "}
-        {laneSnapshotDate ? (
-          <>
-            snapshot <b>{laneSnapshotDate}</b>
-          </>
+        {briefingLoading ? (
+          "queue is loading the latest decision snapshot"
+        ) : briefingError ? (
+          "queue unavailable — snapshot and decision counts are withheld until the briefing reloads"
         ) : (
-          "the latest snapshot"
-        )}{" "}
-        — the date range scopes metrics, not decisions
+          <>
+            queue reflects{" "}
+            {laneSnapshotDate ? (
+              <>
+                snapshot <b>{laneSnapshotDate}</b>
+              </>
+            ) : (
+              "the latest snapshot"
+            )}{" "}
+            — the date range scopes metrics, not decisions
+          </>
+        )}
       </p>
+
+      {briefingError ? (
+        <div className="banner danger" data-testid="meta-briefing-error">
+          <div className="icon">!</div>
+          <div className="msg">
+            <b>Meta briefing could not load.</b>
+            <span className="sub">
+              {briefingError.message || "Pulse and decision counts are withheld to avoid showing false zeros."}
+            </span>
+          </div>
+        </div>
+      ) : null}
 
       {pulseQuery.data?.dataReadiness &&
       (pulseQuery.data.dataReadiness.status !== "ok" ||
@@ -2196,11 +2280,11 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
       ) : null}
 
       <div className="lane-tabs">
-        <MetaLaneTab active={activeLane === "action"} className="action" label="Action Now" count={filteredActionNow.length + anomalies.length} onClick={() => setActiveLane("action")} />
-        <MetaLaneTab active={activeLane === "watching"} className="watch" label="Watching" count={filteredWatching.length} onClick={() => setActiveLane("watching")} />
-        <MetaLaneTab active={activeLane === "healthy"} className="healthy" label="Healthy" count={filteredHealthy.length} onClick={() => setActiveLane("healthy")} />
-        <MetaLaneTab active={activeLane === "nonSales"} label="Non-sales" count={filteredNonSales.length} onClick={() => setActiveLane("nonSales")} />
-        <MetaLaneTab active={activeLane === "archive"} label="Archive" count={filteredArchive.length} onClick={() => setActiveLane("archive")} />
+        <MetaLaneTab active={activeLane === "action"} className="action" label="Action Now" count={briefingUnavailable ? null : filteredActionNow.length + anomalies.length} onClick={() => setActiveLane("action")} />
+        <MetaLaneTab active={activeLane === "watching"} className="watch" label="Watching" count={briefingUnavailable ? null : filteredWatching.length} onClick={() => setActiveLane("watching")} />
+        <MetaLaneTab active={activeLane === "healthy"} className="healthy" label="Healthy" count={briefingUnavailable ? null : filteredHealthy.length} onClick={() => setActiveLane("healthy")} />
+        <MetaLaneTab active={activeLane === "nonSales"} label="Non-sales" count={briefingUnavailable ? null : filteredNonSales.length} onClick={() => setActiveLane("nonSales")} />
+        <MetaLaneTab active={activeLane === "archive"} label="Archive" count={briefingUnavailable ? null : filteredArchive.length} onClick={() => setActiveLane("archive")} />
         <div style={{ flex: 1 }} />
         <div className="tab" style={{ color: "var(--muted)" }}>
           <span className="chip chip--ghost"><span className="dot" />Deferred {localDeferredIds.size + campaignDefer.deferredCount + adsetDefer.deferredCount}</span>
@@ -2424,6 +2508,8 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                   }
                 : null
             }
+            loading={briefingLoading}
+            error={briefingError}
           />
           <ReadinessNotice
             pulse={pulseQuery.data ?? null}

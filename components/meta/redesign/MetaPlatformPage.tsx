@@ -38,6 +38,7 @@ import {
   formatMoney,
 } from "@/components/meta/redesign/meta-card-utils";
 import { formatCurrency, formatRoas, sparklinePath } from "@/lib/briefing/utils";
+import { useAppStore } from "@/store/app-store";
 import {
   BRIEFING_STATUS_FILTER_LABELS,
   BRIEFING_STATUS_FILTERS,
@@ -1179,6 +1180,146 @@ function FinalMetaPulse({
   );
 }
 
+function formatEngineRunTime(value: string | null | undefined) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return `${parsed.toISOString().slice(11, 16)} UTC`;
+}
+
+/**
+ * Header as-of cluster. Surfaces the divergent as-of contract already carried
+ * by the payloads: ingest freshness (pulse.lastSyncAt), the served lane
+ * snapshot date (lane-classify), and the engine version + run time (pulse).
+ * Each value is real or an honest em dash — never fabricated "now".
+ */
+function MetaAsOfCluster({
+  pulse,
+  laneSnapshotDate,
+}: {
+  pulse?: MetaPulsePayload | null;
+  laneSnapshotDate?: string | null;
+}) {
+  const synced = pulse?.lastSyncAt ? `synced ${shortRelativeTime(pulse.lastSyncAt)}` : "sync unknown";
+  const snapshot = laneSnapshotDate ? `snapshot ${laneSnapshotDate}` : "snapshot —";
+  const engineVersion = pulse?.engineVersion ?? "—";
+  const runTime = formatEngineRunTime(pulse?.engineLastRun);
+  return (
+    <div
+      className="meta-asof"
+      data-testid="meta-asof-cluster"
+      title="Ingest, decision snapshot, and engine run each carry their own as-of; they can legitimately diverge."
+    >
+      <span>{synced}</span>
+      <span className="sep" aria-hidden="true">·</span>
+      <span>{snapshot}</span>
+      <span className="sep" aria-hidden="true">·</span>
+      <span>
+        engine {engineVersion}
+        {runTime ? ` · ${runTime}` : ""}
+      </span>
+    </div>
+  );
+}
+
+type ScopeRailDotTone = "danger" | "warn" | "ok";
+
+/**
+ * Left business scope rail. Lists the operator's real businesses from the app
+ * store. The CURRENTLY SELECTED business shows its real act-now count and real
+ * spend-today from the already-fetched lane/pulse payloads; other businesses
+ * carry no fabricated per-business numbers — only a name and an "Open"
+ * affordance, since the page holds data for the selected business alone.
+ */
+function MetaScopeRail({
+  businesses,
+  selectedBusinessId,
+  onSelect,
+  open,
+  onToggle,
+  selectedActNowCount,
+  selectedSpendToday,
+  selectedDotTone,
+  moneyCurrency,
+}: {
+  businesses: Array<{ id: string; name: string }>;
+  selectedBusinessId: string;
+  onSelect: (id: string) => void;
+  open: boolean;
+  onToggle: () => void;
+  selectedActNowCount: number;
+  selectedSpendToday: number | null;
+  selectedDotTone: ScopeRailDotTone;
+  moneyCurrency?: string | null;
+}) {
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="meta-scope-rail-collapsed"
+        aria-label="Expand business scope rail"
+        data-testid="meta-scope-rail-collapsed"
+        onClick={onToggle}
+      >
+        <span aria-hidden="true">»</span>
+      </button>
+    );
+  }
+  const selectedDotColor =
+    selectedDotTone === "danger" ? "var(--danger)" : selectedDotTone === "warn" ? "var(--warn)" : "var(--ok)";
+  return (
+    <aside className="meta-scope-rail" data-testid="meta-scope-rail" aria-label="Businesses by urgency">
+      <div className="meta-scope-rail__head">
+        <span>Businesses · by urgency</span>
+        <button type="button" aria-label="Collapse business scope rail" onClick={onToggle}>
+          <span aria-hidden="true">«</span>
+        </button>
+      </div>
+      <div className="meta-scope-rail__list">
+        {businesses.map((biz) => {
+          const isSelected = biz.id === selectedBusinessId;
+          return (
+            <button
+              key={biz.id}
+              type="button"
+              className={cn("meta-scope-biz", isSelected && "is-selected")}
+              aria-current={isSelected ? "true" : undefined}
+              data-selected={isSelected ? "true" : "false"}
+              onClick={() => onSelect(biz.id)}
+            >
+              <span className="meta-scope-biz__top">
+                <span
+                  className="dot"
+                  style={{ background: isSelected ? selectedDotColor : "var(--muted-2)" }}
+                  aria-hidden="true"
+                />
+                <span className="meta-scope-biz__name">{biz.name}</span>
+                {isSelected ? (
+                  <span className="meta-scope-biz__count" data-testid="meta-scope-biz-count">
+                    {selectedActNowCount} act
+                  </span>
+                ) : (
+                  <span className="meta-scope-biz__open">Open</span>
+                )}
+              </span>
+              {isSelected ? (
+                <span className="meta-scope-biz__spend" data-testid="meta-scope-biz-spend">
+                  {selectedSpendToday == null
+                    ? "spend —"
+                    : `${formatMoney(selectedSpendToday, moneyCurrency)} today`}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+      <p className="meta-scope-rail__note">
+        Spend shown in each account&rsquo;s own currency. Cross-business totals are never summed.
+      </p>
+    </aside>
+  );
+}
+
 export function MetaPlatformPage({ businessId, businessName, currency = "USD" }: MetaPlatformPageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1212,9 +1353,27 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   const [openSecondaryMenu, setOpenSecondaryMenu] = useState<MetaSecondaryMenu | null>(null);
   const [rowSort, setRowSort] = useState<MetaRowSort>("money");
   const [rowSearch, setRowSearch] = useState("");
+  const [scopeRailOpen, setScopeRailOpen] = useState(true);
   const pushInspector = useMinWidth(1440);
   const latestSearchParamsRef = useRef(searchParams.toString());
   const secondaryControlsRef = useRef<HTMLDivElement | null>(null);
+
+  // Business scope rail source: the operator's real businesses from the app
+  // store. Selecting a row drives the store; page.tsx re-resolves the selected
+  // business and re-keys this component's queries, so the whole page reloads
+  // that business's data.
+  const storeBusinesses = useAppStore((state) => state.businesses);
+  const selectBusiness = useAppStore((state) => state.selectBusiness);
+  // Always represent the currently selected business even before the persisted
+  // store has hydrated (SSR / first paint / tests), using the real props the
+  // page already resolved — never a fabricated entry.
+  const scopeRailBusinesses = useMemo(() => {
+    const rows = storeBusinesses.map((biz) => ({ id: biz.id, name: biz.name }));
+    if (!rows.some((biz) => biz.id === businessId)) {
+      return [{ id: businessId, name: businessName ?? "Selected business" }, ...rows];
+    }
+    return rows;
+  }, [storeBusinesses, businessId, businessName]);
 
   useEffect(() => {
     latestSearchParamsRef.current = searchParams.toString();
@@ -1410,6 +1569,23 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
 
   const trackingBlocked = isTrackingWriteBlocked(pulseQuery.data);
   const trackingBannerVisible = trackingBlocked && !trackingDismissed;
+
+  // Scope-rail summary for the SELECTED business only — real payload values,
+  // never fabricated. Act-now = real lane action rows + active anomalies
+  // (mirrors the Action Now tab's meaning). Spend-today = pulse spendToday,
+  // with the same day-pace fallback the pulse strip uses; null renders as "—".
+  const scopeSelectedActNowCount = actionNow.length + anomalies.length;
+  const scopeSelectedSpendToday =
+    pulseQuery.data?.pacing.spendToday ??
+    (pulseQuery.data?.pacing.dayPace != null && pulseQuery.data?.pacing.dailyTarget != null
+      ? pulseQuery.data.pacing.dayPace * pulseQuery.data.pacing.dailyTarget
+      : null);
+  const scopeSelectedDotTone: ScopeRailDotTone = trackingBlocked
+    ? "danger"
+    : scopeSelectedActNowCount > 0
+      ? "warn"
+      : "ok";
+  const laneSnapshotDate = laneQuery.data?.snapshotDate ?? null;
 
   const currentUrlParams = () =>
     new URLSearchParams(
@@ -1953,15 +2129,18 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   return (
     <div className="ad-final" data-testid="meta-platform-page">
       <div className="topbar">
-        <div>
-          <div className="crumbs">Platforms · <b>Meta</b> · Decision Center</div>
-          <h1 className="page-title">Meta · Decision Center</h1>
-        </div>
-        <div className="right-tools">
+        <div className="meta-topbar-left">
+          <div>
+            <div className="crumbs">Platforms · <b>Meta</b> · Decision Center</div>
+            <h1 className="page-title">Meta · Decision Center</h1>
+          </div>
           <div className="controls" style={{ border: "none", padding: 0 }}>
             <HtmlDateRangePicker value={selectedDateRange} onApply={setDateRange} />
             <MetaStatusControls selectedStatusFilter={selectedStatusFilter} onStatusFilterChange={setStatusFilter} />
           </div>
+        </div>
+        <div className="right-tools">
+          <MetaAsOfCluster pulse={pulseQuery.data ?? null} laneSnapshotDate={laneSnapshotDate} />
           <button type="button" className="btn" disabled={refreshingSnapshot} onClick={refreshSnapshotNow}>
             <RefreshCw className="inline-block shrink-0" size={13} aria-hidden="true" />
             {refreshingSnapshot ? "Running..." : "Run snapshot"}
@@ -1970,20 +2149,17 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
         </div>
       </div>
 
-      <FinalMetaPulse
-        pulse={pulseQuery.data ?? null}
-        window={selectedWindow}
-        onManageLabels={() => setLabelModalOpen(true)}
-        moneyCurrency={moneyCurrency}
-        laneAsOf={
-          laneQuery.data
-            ? {
-                snapshotDate: laneQuery.data.snapshotDate,
-                snapshotCreatedAt: laneQuery.data.snapshotCreatedAt ?? null,
-              }
-            : null
-        }
-      />
+      <p className="meta-queue-scope-note" data-testid="meta-queue-scope-note">
+        queue reflects{" "}
+        {laneSnapshotDate ? (
+          <>
+            snapshot <b>{laneSnapshotDate}</b>
+          </>
+        ) : (
+          "the latest snapshot"
+        )}{" "}
+        — the date range scopes metrics, not decisions
+      </p>
 
       {pulseQuery.data?.dataReadiness &&
       (pulseQuery.data.dataReadiness.status !== "ok" ||
@@ -1999,13 +2175,6 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
           </div>
         </div>
       ) : null}
-
-      <ReadinessNotice
-        pulse={pulseQuery.data ?? null}
-        onManageLabels={() => setLabelModalOpen(true)}
-        onRefresh={refreshSnapshotNow}
-        refreshing={refreshingSnapshot}
-      />
 
       {notice ? (
         <div className="banner warn">
@@ -2229,11 +2398,40 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
         </span>
       </div>
 
-      <div
-        className="workspace workspace-rel"
-        style={pushInspector && drillItem ? { display: "flex", alignItems: "stretch", gap: 16 } : undefined}
-      >
-        <div style={pushInspector && drillItem ? { flex: "1 1 0%", minWidth: 0 } : undefined}>
+      <div className="meta-content-row">
+        <MetaScopeRail
+          businesses={scopeRailBusinesses}
+          selectedBusinessId={businessId}
+          onSelect={selectBusiness}
+          open={scopeRailOpen}
+          onToggle={() => setScopeRailOpen((open) => !open)}
+          selectedActNowCount={scopeSelectedActNowCount}
+          selectedSpendToday={scopeSelectedSpendToday}
+          selectedDotTone={scopeSelectedDotTone}
+          moneyCurrency={moneyCurrency}
+        />
+        <div className="meta-queue-col">
+          <FinalMetaPulse
+            pulse={pulseQuery.data ?? null}
+            window={selectedWindow}
+            onManageLabels={() => setLabelModalOpen(true)}
+            moneyCurrency={moneyCurrency}
+            laneAsOf={
+              laneQuery.data
+                ? {
+                    snapshotDate: laneQuery.data.snapshotDate,
+                    snapshotCreatedAt: laneQuery.data.snapshotCreatedAt ?? null,
+                  }
+                : null
+            }
+          />
+          <ReadinessNotice
+            pulse={pulseQuery.data ?? null}
+            onManageLabels={() => setLabelModalOpen(true)}
+            onRefresh={refreshSnapshotNow}
+            refreshing={refreshingSnapshot}
+          />
+          <div className="workspace workspace-rel">
         {loading ? (
           <div className="lane-stack">
             {Array.from({ length: 3 }).map((_, index) => (
@@ -2486,6 +2684,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
             ) : null}
           </div>
         )}
+          </div>
         </div>
         {pushInspector && drillItem ? (
           <div

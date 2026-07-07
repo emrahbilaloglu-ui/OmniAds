@@ -34,9 +34,12 @@ Page shell:
 - `app/(dashboard)/platforms/meta/page.tsx` — resolves the selected business
   from the app store, renders `<MetaPlatformPage businessId businessName currency />`,
   or `BusinessEmptyState` when no business is selected.
-- `components/meta/redesign/MetaPlatformPage.tsx` — the entire page: topbar,
-  inline `FinalMetaPulse` strip, inline `ReadinessNotice`, banners, lane tabs,
-  filter bar, lane content, bulk bar, modals/drawers/overlays.
+- `components/meta/redesign/MetaPlatformPage.tsx` — the entire page: topbar
+  (with the right-aligned `MetaAsOfCluster`), queue-scope note, banners, lane
+  tabs, filter bar, then a `[MetaScopeRail | queue column | inspector]` content
+  row where the queue column carries the inline `FinalMetaPulse` strip, inline
+  `ReadinessNotice`, and the lane content + bulk bar; plus
+  modals/drawers/overlays.
 
 Components (all under `components/meta/redesign/`):
 
@@ -89,7 +92,9 @@ All write handlers funnel through `lib/meta/entity-action-routes.ts` and
 
 ## Page anatomy
 
-Top-to-bottom order in `MetaPlatformPage.tsx`:
+Top-to-bottom order in `MetaPlatformPage.tsx`: topbar → queue-scope note →
+full-width banners → lane tabs → filter bar → the
+`[MetaScopeRail | queue column | inspector]` content row.
 
 ### Topbar
 
@@ -99,17 +104,54 @@ Top-to-bottom order in `MetaPlatformPage.tsx`:
 - Status filter group — `active | active_plus_recent_paused | all`
   (`lib/meta/briefing-filter.ts`), threaded into both pulse and lane queries as
   `status_filter`.
+- **`MetaAsOfCluster`** (right-aligned, `data-testid="meta-asof-cluster"`) —
+  a quiet mono cluster surfacing the divergent as-of contract in the header:
+  `synced {shortRelativeTime(lastSyncAt)}` (or literal "sync unknown" when
+  null), `snapshot {laneSnapshotDate}` (the served lane snapshot date, em dash
+  when null), and `engine {engineVersion} · {engineLastRun as HH:MM UTC}`.
+  Every value is real payload truth or an honest em dash — never a fabricated
+  "now". There is no track-record chip: no outcome/hit-rate data exists in
+  these payloads, so none is shown.
 - "Run snapshot" button → `POST /api/meta/snapshot/run-now` (cooldown-aware,
   see write surfaces).
 - "+ New campaign" link → `/platforms/meta/launchpad?fromMetaBriefing=true&mode=duplicate`.
+
+Directly under the topbar, a **queue-scope note**
+(`data-testid="meta-queue-scope-note"`) reads "queue reflects snapshot
+`{laneSnapshotDate}` — the date range scopes metrics, not decisions" (falls
+back to "the latest snapshot" when the lane snapshot date is null), making the
+snapshot-vs-range distinction explicit.
 
 URL state: `window`, `startDate`/`endDate` (custom only), `status_filter`,
 `lane`, and `entity` (the open inspector's rec id) are all URL params; defaults
 (`28d`, `active`, `action`) are omitted from the URL.
 
+### Business scope rail (`MetaScopeRail`, `data-testid="meta-scope-rail"`)
+
+Left column of the content row, collapsible (« collapse / » expand). Lists the
+operator's real businesses from the app store (`useAppStore((s) =>
+s.businesses)`); before the persisted store hydrates it falls back to a single
+row built from the resolved `businessId`/`businessName` props so the selected
+business is always represented — never a fabricated entry.
+
+- The **currently selected** business shows its real act-now count
+  (`actionNow.length + anomalies.length`, mirroring the Action Now tab meaning)
+  and its real spend-today (`pacing.spendToday`, same day-pace fallback as the
+  pulse strip; null renders "spend —"), with a status dot toned by real signal
+  (tracking blocked → danger, act-now pending → warn, else ok).
+- **Other** businesses carry no fabricated per-business numbers — only the name
+  and a muted "Open" affordance — because the page holds data for the selected
+  business alone. Selecting a row drives the store (`selectBusiness`);
+  `page.tsx` re-resolves the selected business and re-keys the queries, so the
+  whole page reloads that business's data.
+- Footer: "Spend shown in each account's own currency. Cross-business totals
+  are never summed." There is no "All businesses" affordance — no cross-business
+  route exists, so none is shown.
+
 ### FinalMetaPulse — 5-cell strip (`MetaPlatformPage.tsx:1002`)
 
-Rendered inline from `MetaPulsePayload`; five cells:
+Rendered inline at the top of the queue column (right of the scope rail) from
+`MetaPulsePayload`; five cells:
 
 1. **Spend** — `pacing.spendToday` vs `pacing.avg7dSpend` (+ signed % delta)
    and today's conversions vs 7d avg. Honest historical labeling: when
@@ -357,8 +399,10 @@ to its tab count; they are `MetaAnomaly` objects, not recommendations, and are
 
 The pulse strip is a **live/warehouse aggregate** view (fresh up to
 `lastSyncAt`); the lanes are a **persisted decision snapshot** view. They can
-legitimately diverge. Each source carries its OWN as-of in its payload, and
-the Snapshot cell renders all of them together:
+legitimately diverge. Each source carries its OWN as-of in its payload. The
+header `MetaAsOfCluster` (`data-testid="meta-asof-cluster"`) surfaces the same
+divergence compactly (synced · snapshot · engine), and the Snapshot cell
+renders all of them together:
 
 - **Ingest (pulse):** `lastSyncAt` = real `MAX(updated_at)` from
   `meta_campaign_daily`, null-honest ("sync unknown"). Never fabricated.

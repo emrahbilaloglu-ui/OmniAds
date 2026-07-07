@@ -24,6 +24,8 @@ const state = vi.hoisted(() => ({
   labelCampaigns: [] as any[],
   campaignLabels: [] as any[],
   search: "window=28d",
+  storeBusinesses: [] as Array<{ id: string; name: string; currency: string }>,
+  selectBusiness: vi.fn(),
 }));
 
 function queryState(data: unknown) {
@@ -38,6 +40,11 @@ function queryState(data: unknown) {
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: state.routerPush, replace: state.routerReplace }),
   useSearchParams: () => new URLSearchParams(state.search),
+}));
+
+vi.mock("@/store/app-store", () => ({
+  useAppStore: (selector: (input: unknown) => unknown) =>
+    selector({ businesses: state.storeBusinesses, selectBusiness: state.selectBusiness }),
 }));
 
 vi.mock("@tanstack/react-query", () => ({
@@ -75,6 +82,8 @@ describe("MetaPlatformPage", () => {
     state.labelCampaigns = [];
     state.campaignLabels = [];
     state.search = "window=28d";
+    state.storeBusinesses = [];
+    state.selectBusiness.mockClear();
     state.routerPush.mockClear();
     state.routerReplace.mockClear();
   });
@@ -700,6 +709,98 @@ describe("MetaPlatformPage", () => {
     expect(countText(html, ">Optimization</span>")).toBe(1);
     expect(html).toContain(">Lowest Cost</span>");
     expect(html).toContain(">1 adset</div>");
+  });
+});
+
+describe("business scope rail", () => {
+  beforeEach(() => {
+    state.lanePayload = null;
+    state.pulsePayload = null;
+    state.search = "window=28d";
+    state.storeBusinesses = [];
+    state.selectBusiness.mockClear();
+  });
+
+  it("lists the operator's real businesses and scopes counts to the selected one", () => {
+    state.storeBusinesses = [
+      { id: "biz_1", name: "TheSwaf", currency: "USD" },
+      { id: "biz_2", name: "Second Co", currency: "EUR" },
+    ];
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+
+    expect(html).toContain('data-testid="meta-scope-rail"');
+    expect(html).toContain("Businesses · by urgency");
+    expect(html).toContain("TheSwaf");
+    expect(html).toContain("Second Co");
+    // Selected business (biz_1): real act-now count = lane actionNow (1) +
+    // anomalies (1), and real spend-today from the pulse payload.
+    expect(html).toContain("2 act");
+    expect(html).toContain("$401.00 today");
+    expect(html).toContain('data-selected="true"');
+    // Other business carries no fabricated numbers — only an Open affordance.
+    expect(html).toContain("Open");
+    expect(html).toContain('data-selected="false"');
+    expect(html).toContain(
+      "Spend shown in each account’s own currency. Cross-business totals are never summed.",
+    );
+  });
+
+  it("still shows the selected business before the store hydrates", () => {
+    state.storeBusinesses = [];
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+
+    expect(html).toContain('data-testid="meta-scope-rail"');
+    expect(html).toContain("TheSwaf");
+    expect(html).toContain("2 act");
+  });
+});
+
+describe("header as-of cluster and queue-scope note", () => {
+  beforeEach(() => {
+    state.lanePayload = null;
+    state.pulsePayload = null;
+    state.search = "window=28d";
+    state.storeBusinesses = [];
+  });
+
+  it("surfaces the real synced / snapshot / engine as-of from the payloads", () => {
+    state.pulsePayload = metaPulse({ lastSyncAt: "2020-01-01T00:00:00.000Z" });
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+
+    expect(html).toContain('data-testid="meta-asof-cluster"');
+    expect(html).toContain("synced");
+    expect(html).toContain("ago");
+    expect(html).toContain("snapshot 2026-05-07");
+    expect(html).toContain("engine v3.6.0-meta-taxonomy");
+    expect(html).toContain("03:00 UTC");
+  });
+
+  it("renders sync unknown when ingest freshness is absent, never a fabricated time", () => {
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+
+    expect(html).toContain("sync unknown");
+  });
+
+  it("pins the queue to the served snapshot date, scoping metrics not decisions", () => {
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+
+    expect(html).toContain('data-testid="meta-queue-scope-note"');
+    expect(html).toContain("queue reflects");
+    expect(html).toContain("2026-05-07");
+    expect(html).toContain("the date range scopes metrics, not decisions");
   });
 });
 

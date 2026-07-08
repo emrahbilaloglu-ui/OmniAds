@@ -1,7 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { MetaAutomationView } from "./page";
+import { MetaAutomationView } from "./automation-view";
 import type { MetaAutomationControlPlane } from "@/lib/meta/automation-control-plane";
 
 const payload: MetaAutomationControlPlane = {

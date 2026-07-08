@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
 import {
   emitMetaDecisionResponseTelemetry,
   META_DECISION_RESPONSE_ACTIONS,
@@ -60,6 +61,8 @@ export async function POST(request: NextRequest) {
     minRole: "collaborator",
   });
   if ("error" in access) return access.error;
+  const reviewerBlocked = rejectIfReviewerReadOnly(access, "operator_response");
+  if (reviewerBlocked) return reviewerBlocked;
 
   const response = await recordMetaDecisionResponse({
     recId,

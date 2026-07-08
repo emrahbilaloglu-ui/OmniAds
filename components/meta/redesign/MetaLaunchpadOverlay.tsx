@@ -12,6 +12,7 @@ interface MetaLaunchpadOverlayProps {
     campaign?: string;
     currentBidCap?: number;
     proposedBidCap?: number;
+    currencyCode?: string;
   };
   onClose: () => void;
   onConfirm: () => void;

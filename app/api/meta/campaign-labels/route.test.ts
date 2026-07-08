@@ -149,4 +149,34 @@ describe("/api/meta/campaign-labels", () => {
     expect(payload.error.code).toBe("invalid_labels");
     expect(labels.writeMetaCampaignLabels).not.toHaveBeenCalled();
   });
+
+  it("rejects reviewer read-only label writes before persistence or refresh", async () => {
+    vi.mocked(access.requireBusinessAccess).mockResolvedValue({
+      session: { user: { id: "reviewer_1", email: "shopify-review@adsecute.com" } } as never,
+      membership: { businessId: "biz_1" } as never,
+    });
+
+    const response = await PUT(
+      new NextRequest("http://localhost/api/meta/campaign-labels", {
+        method: "PUT",
+        body: JSON.stringify({
+          businessId: "biz_1",
+          labels: [
+            {
+              campaignId: "cmp_2",
+              kind: "test",
+              testDimension: "creative",
+            },
+          ],
+        }),
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(payload.error.code).toBe("reviewer_read_only");
+    expect(payload.error.action).toBe("campaign_labels_update");
+    expect(labels.writeMetaCampaignLabels).not.toHaveBeenCalled();
+    expect(snapshotRefresh.requestMetaSnapshotRefreshForBusiness).not.toHaveBeenCalled();
+  });
 });

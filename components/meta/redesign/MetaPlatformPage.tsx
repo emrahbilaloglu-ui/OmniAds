@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ChevronDown, Info, Play, Plus, RefreshCw, RotateCcw, Rocket, SlidersHorizontal, Tags, Target, TrendingUp } from "lucide-react";
@@ -19,6 +20,9 @@ import {
 } from "@/components/common/briefing/HtmlDateRangePicker";
 import type { MetaAnomaly } from "@/lib/meta/anomalies";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
+import type { DecisionLabel, DecisionOutput } from "@/lib/creative-decision-engine";
+import { LABEL_DISPLAY } from "@/components/creatives/decision-label-display";
+import { DECISION_LABEL_PALETTE } from "@/components/common/briefing/decision-label-palette";
 import { cn } from "@/lib/utils";
 import { MetaActionCard } from "@/components/meta/redesign/MetaActionCard";
 import { MetaCampaignLabelsSection } from "@/components/meta/redesign/MetaCampaignLabelsSection";
@@ -37,8 +41,7 @@ import {
   structuredMetricsForRec,
   formatMoney,
 } from "@/components/meta/redesign/meta-card-utils";
-import { formatCurrency, formatRoas, sparklinePath } from "@/lib/briefing/utils";
-import { useAppStore } from "@/store/app-store";
+import { formatCurrency, formatRoas } from "@/lib/briefing/utils";
 import {
   BRIEFING_STATUS_FILTER_LABELS,
   BRIEFING_STATUS_FILTERS,
@@ -47,6 +50,7 @@ import {
 } from "@/lib/meta/briefing-filter";
 import type {
   MetaArchivedEntity,
+  MetaDecisionsWorkspacePayload,
   MetaDrillItem,
   MetaHealthyEntity,
   MetaLanePayload,
@@ -96,6 +100,33 @@ type MetaLevelFilter = "campaign" | "adset";
 type MetaAutomationFilter = "all" | "auto" | "manual";
 type MetaLabelFilter = "all" | "main" | "test" | "mixed";
 type MetaSecondaryMenu = "campaign" | "automation" | "label";
+
+// Client-only queue-local filter: hide rows whose server-supplied spend is
+// below this window threshold. Rows with a null spend stay HIDDEN when the
+// toggle is on - they are never coerced to 0 (honesty law).
+const META_MIN_SPEND_THRESHOLD = 50;
+
+function passesMetaMinSpend(rec: MetaRecommendation, enabled: boolean): boolean {
+  if (!enabled) return true;
+  const spend = rec.metrics?.spend;
+  return typeof spend === "number" && Number.isFinite(spend) && spend >= META_MIN_SPEND_THRESHOLD;
+}
+
+// Fixed render order for the Watching lane segmentation. Any segment the
+// server did not describe still renders (header + count only) so no row is
+// silently dropped, but the ordering stays stable across snapshots.
+type MetaWatchingSegmentKey = MetaWatchingSegment["key"];
+const META_WATCHING_SEGMENT_ORDER: MetaWatchingSegmentKey[] = [
+  "issues",
+  "missing_target",
+  "unlabeled",
+  "learning",
+  "mid_confidence",
+  "insufficient_signal",
+  "recently_changed",
+  "deferred",
+  "other",
+];
 
 const META_AUTOMATION_FILTERS: Array<{ value: MetaAutomationFilter; label: string; description: string }> = [
   { value: "all", label: "All", description: "Show every recommendation in the current server lane." },
@@ -204,22 +235,18 @@ async function readJson<T>(url: string): Promise<T> {
   return payload as T;
 }
 
-function fetchPulse(businessId: string, window: MetaWindowKey, statusFilter: BriefingStatusFilter, range?: Pick<HtmlDateRangeValue, "start" | "end">) {
+function fetchDecisionsWorkspace(
+  businessId: string,
+  window: MetaWindowKey,
+  statusFilter: BriefingStatusFilter,
+  range?: Pick<HtmlDateRangeValue, "start" | "end">,
+) {
   const params = new URLSearchParams({ businessId, window, status_filter: statusFilter });
   if (window === "custom" && range) {
     params.set("startDate", range.start);
     params.set("endDate", range.end);
   }
-  return readJson<MetaPulsePayload>(`/api/meta/account-pulse?${params.toString()}`);
-}
-
-function fetchLanes(businessId: string, window: MetaWindowKey, statusFilter: BriefingStatusFilter, range?: Pick<HtmlDateRangeValue, "start" | "end">) {
-  const params = new URLSearchParams({ businessId, window, status_filter: statusFilter });
-  if (window === "custom" && range) {
-    params.set("startDate", range.start);
-    params.set("endDate", range.end);
-  }
-  return readJson<MetaLanePayload>(`/api/meta/lane-classify?${params.toString()}`);
+  return readJson<MetaDecisionsWorkspacePayload>(`/api/meta/decisions-workspace?${params.toString()}`);
 }
 
 function fetchAnomalies(
@@ -553,8 +580,8 @@ function SyntheticConfigChip({
       className={cn(
         "inline-flex min-w-0 max-w-[210px] items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10.5px]",
         tone === "violet"
-          ? "border-violet-200 bg-violet-50 text-violet-700"
-          : "border-slate-200 bg-slate-50 text-slate-600",
+          ? "border-[var(--adc-auto-bd)] bg-[var(--adc-auto-bg)] text-[var(--adc-auto-fg)]"
+          : "border-[var(--adc-b1)] bg-[var(--adc-s1)] text-[var(--adc-ink2)]",
       )}
     >
       {tone === "violet" ? (
@@ -562,7 +589,7 @@ function SyntheticConfigChip({
       ) : (
         <SlidersHorizontal className="inline-block shrink-0" size={10} aria-hidden="true" />
       )}
-      <span className="shrink-0 text-slate-400">{label}</span>
+      <span className="shrink-0 text-[var(--adc-ink3)]">{label}</span>
       <span className="truncate font-medium">{value}</span>
     </span>
   );
@@ -579,20 +606,20 @@ function SyntheticHealthyCampaignHeader({
 }) {
   return (
     <div
-      className="flex items-center gap-3 rounded-lg border border-dashed border-slate-200 bg-white px-3 py-2"
+      className="flex items-center gap-3 rounded-[8px] border border-dashed border-[var(--adc-b1)] bg-[var(--adc-s2)] px-3 py-2"
       data-healthy-synthetic-campaign={group.campaignKey}
     >
-      <div className="size-[15px] rounded-full border border-slate-300 bg-slate-50" aria-hidden="true" />
+      <div className="size-[15px] rounded-full border border-[var(--adc-b2)] bg-[var(--adc-s1)]" aria-hidden="true" />
       <MetaScopeChip level="campaign" />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[12.5px] font-medium text-slate-900">{group.campaignName}</div>
-        <div className="truncate text-[11px] text-slate-500">Campaign context inferred from adset snapshot</div>
+        <div className="truncate text-[12.5px] font-medium text-[var(--adc-ink)]">{group.campaignName}</div>
+        <div className="truncate text-[11px] text-[var(--adc-ink3)]">Campaign context inferred from adset snapshot</div>
       </div>
       <div className="hidden min-w-0 shrink-0 items-center justify-end gap-1.5 xl:flex">
         <SyntheticConfigChip label="Optimization" value={optimizationSummary.value} tone="violet" />
         <SyntheticConfigChip label="Bid" value={bidStrategySummary.value} />
       </div>
-      <div className="text-[11px] text-slate-500">{group.adsets.length} {group.adsets.length === 1 ? "adset" : "adsets"}</div>
+      <div className="text-[11px] text-[var(--adc-ink3)]">{group.adsets.length} {group.adsets.length === 1 ? "adset" : "adsets"}</div>
     </div>
   );
 }
@@ -622,7 +649,7 @@ function MetaHealthyHierarchy({
         return (
           <div
             key={group.campaignKey}
-            className="rounded-xl border border-slate-200 bg-slate-50/60 p-2"
+            className="rounded-[8px] border border-[var(--adc-b1)] bg-[var(--adc-s1)]/60 p-2"
             data-healthy-campaign-group={group.campaignKey}
           >
             {group.campaign ? (
@@ -643,7 +670,7 @@ function MetaHealthyHierarchy({
             )}
             {group.adsets.length > 0 ? (
               <div
-                className="ml-5 mt-2 grid gap-2 border-l border-slate-200 pl-4"
+                className="ml-5 mt-2 grid gap-2 border-l border-[var(--adc-b1)] pl-4"
                 data-healthy-adsets-for-campaign={group.campaignKey}
               >
                 {group.adsets.map((row) => (
@@ -681,12 +708,12 @@ function EmptyActionState({
   const showTargetCta = Boolean(targetAnchor && !targetAnchor.configured);
 
   return (
-    <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center" data-empty-action-state>
-      <div className="mx-auto grid size-10 place-items-center rounded-full bg-slate-50 text-slate-500">
+    <div className="rounded-[8px] border border-dashed border-[var(--adc-b2)] bg-[var(--adc-s2)] p-8 text-center" data-empty-action-state>
+      <div className="mx-auto grid size-10 place-items-center rounded-[8px] bg-[var(--adc-s1)] text-[var(--adc-ink3)]">
         <AlertTriangle className="inline-block shrink-0" size={18} aria-hidden="true" />
       </div>
-      <h3 className="mt-3 text-[15px] font-semibold text-slate-900">No high-confidence calls today</h3>
-      <p className="mt-1 text-[12.5px] text-slate-500">
+      <h3 className="mt-3 text-[15px] font-semibold text-[var(--adc-ink)]">No high-confidence calls today</h3>
+      <p className="mt-1 text-[12.5px] text-[var(--adc-ink3)]">
         {anomaliesCount > 0
           ? "Active anomalies are surfaced above while decision confidence stays below the act threshold."
           : "The engine is watching for stronger campaign or adset evidence before surfacing action."}
@@ -696,7 +723,7 @@ function EmptyActionState({
           {showLabelCta ? (
             <button
               type="button"
-              className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-[12px] font-medium text-amber-800 hover:bg-amber-100"
+              className="inline-flex items-center gap-1 rounded-[6px] border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-3 py-1.5 text-[12px] font-medium text-[var(--adc-caution-fg)] hover:bg-[var(--adc-s3)]"
               onClick={onManageLabels}
             >
               <Target className="inline-block shrink-0" size={12} aria-hidden="true" />
@@ -706,7 +733,7 @@ function EmptyActionState({
           {showTargetCta ? (
             <a
               href="/commercial-truth"
-              className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-[12px] font-medium text-blue-700 hover:bg-blue-100"
+              className="inline-flex items-center gap-1 rounded-[6px] border border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] px-3 py-1.5 text-[12px] font-medium text-[var(--adc-info-fg)] hover:bg-[var(--adc-s3)]"
             >
               <SlidersHorizontal className="inline-block shrink-0" size={12} aria-hidden="true" />
               Set target pack
@@ -730,11 +757,13 @@ function ReadinessNotice({
   onRefresh,
   refreshing,
   onManageLabels,
+  readOnlyReason,
 }: {
   pulse?: MetaPulsePayload | null;
   onRefresh: () => void;
   refreshing: boolean;
   onManageLabels: () => void;
+  readOnlyReason?: string | null;
 }) {
   if (!pulse) return null;
   const coverage = pulse.labelCoverage ?? null;
@@ -745,102 +774,85 @@ function ReadinessNotice({
   const staleSnapshot = Boolean(snapshot && snapshot.status !== "fresh");
   if (!needsLabels && !needsTarget && !staleSnapshot) return null;
 
-  return (
-    <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-[12.5px] text-amber-950" data-meta-readiness-notice>
-      <div className="flex flex-wrap items-center gap-2">
-        <AlertTriangle className="inline-block shrink-0 text-amber-700" size={15} aria-hidden="true" />
-        <span className="font-semibold">Decision readiness needs attention</span>
-        {snapshot?.ageHours != null ? (
-          <span className="rounded-md border border-amber-200 bg-white/70 px-1.5 py-0.5 text-[10.5px] font-medium text-amber-800">
-            snapshot age {formatSnapshotAge(snapshot.ageHours)}
-          </span>
-        ) : null}
-      </div>
-      <div className="mt-2 flex flex-wrap gap-2">
-        {needsLabels ? (
-          <button
-            type="button"
-            className="rounded-md border border-amber-300 bg-white px-2.5 py-1.5 font-medium text-amber-800 hover:bg-amber-100"
-            onClick={onManageLabels}
-          >
-            {coverage!.labeledCampaigns}/{coverage!.activeCampaigns} active campaigns labeled
-          </button>
-        ) : null}
-        {needsTarget ? (
-          <a href="/commercial-truth" className="rounded-md border border-blue-200 bg-white px-2.5 py-1.5 font-medium text-blue-700 hover:bg-blue-50">
-            Target pack missing
-          </a>
-        ) : null}
-        {staleSnapshot ? (
-          <button
-            type="button"
-            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={refreshing}
-            onClick={onRefresh}
-          >
-            {refreshing ? "Refreshing..." : "Refresh decisions now"}
-          </button>
-        ) : null}
-      </div>
-      {snapshot?.staleReason ? <p className="mt-2 text-[11.5px] text-amber-800">{snapshot.staleReason}</p> : null}
-    </div>
-  );
-}
+  const items: Array<{
+    id: string;
+    title: string;
+    detail: string;
+    action: ReactNode;
+  }> = [];
 
-function WatchingSegments({
-  segments,
-  onManageLabels,
-}: {
-  segments?: MetaWatchingSegment[] | null;
-  onManageLabels: () => void;
-}) {
-  if (!segments?.length) return null;
+  if (needsLabels) {
+    items.push({
+      id: "labels",
+      title: "Campaign labels incomplete",
+      detail: `${coverage!.labeledCampaigns}/${coverage!.activeCampaigns} active campaigns labeled`,
+      action: (
+        <button type="button" className="meta-readiness-row__button" onClick={onManageLabels}>
+          Label campaigns
+        </button>
+      ),
+    });
+  }
+
+  if (needsTarget) {
+    items.push({
+      id: "target",
+      title: "Target pack missing",
+      detail: "ROAS target source is not configured for this business",
+      action: (
+        <a href="/commercial-truth" className="meta-readiness-row__button">
+          Set target pack
+        </a>
+      ),
+    });
+  }
+
+  if (staleSnapshot) {
+    const ageLabel = snapshot?.ageHours != null ? formatSnapshotAge(snapshot.ageHours) : null;
+    items.push({
+      id: "snapshot",
+      title: "Snapshot stale",
+      detail: snapshot?.staleReason ?? (ageLabel ? `snapshot age ${ageLabel}` : "snapshot status is not fresh"),
+      action: (
+        <button
+          type="button"
+          className="meta-readiness-row__button"
+          disabled={refreshing || Boolean(readOnlyReason)}
+          title={readOnlyReason ?? undefined}
+          onClick={onRefresh}
+        >
+          {refreshing ? "Refreshing..." : readOnlyReason ? "Snapshot read-only" : "Refresh decisions"}
+        </button>
+      ),
+    });
+  }
+
   return (
-    <div className="mb-3 flex flex-wrap gap-2" data-meta-watching-segments>
-      {segments.map((segment) => {
-        const content = (
-          <>
-            <span className="font-semibold">{segment.label}</span>
-            <span className="font-mono tabular-nums">{segment.count}</span>
-            {segment.ctaLabel ? <span className="text-slate-400">{segment.ctaLabel}</span> : null}
-          </>
-        );
-        const className =
-          "inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11.5px] text-slate-600 shadow-sm";
-        if (segment.key === "unlabeled") {
-          return (
-            <button
-              key={segment.key}
-              type="button"
-              className={className}
-              title={segment.description}
-              data-watch-segment={segment.key}
-              onClick={onManageLabels}
-            >
-              {content}
-            </button>
-          );
-        }
-        return segment.href ? (
-          <a key={segment.key} href={segment.href} className={className} title={segment.description} data-watch-segment={segment.key}>
-            {content}
-          </a>
-        ) : (
-          <span key={segment.key} className={className} title={segment.description} data-watch-segment={segment.key}>
-            {content}
-          </span>
-        );
-      })}
+    <div className="meta-readiness-stack" data-meta-readiness-notice role="status" aria-label="Decision readiness status">
+      <div className="meta-readiness-stack__head">
+        <span className="meta-readiness-stack__mark" aria-hidden="true" />
+        <span>Decision readiness</span>
+        <small>required inputs before confident writes</small>
+      </div>
+      {items.map((item) => (
+        <div key={item.id} className="meta-readiness-row" data-readiness-item={item.id}>
+          <span className="meta-readiness-row__dot" aria-hidden="true" />
+          <span className="meta-readiness-row__title">{item.title}</span>
+          <span className="meta-readiness-row__detail">{item.detail}</span>
+          <span className="meta-readiness-row__spacer" aria-hidden="true" />
+          {item.action}
+        </div>
+      ))}
     </div>
   );
 }
 
 function archiveStatusClassName(status: string) {
   const normalized = status.toUpperCase();
-  if (normalized === "PAUSED") return "border-amber-200 bg-amber-50 text-amber-700";
-  if (normalized === "ARCHIVED") return "border-slate-200 bg-slate-50 text-slate-600";
-  if (normalized === "DELETED") return "border-rose-200 bg-rose-50 text-rose-700";
-  return "border-slate-200 bg-white text-slate-500";
+  if (normalized === "PAUSED") return "border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]";
+  if (normalized === "ARCHIVED") return "border-[var(--adc-b1)] bg-[var(--adc-s1)] text-[var(--adc-ink2)]";
+  if (normalized === "DELETED") return "border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]";
+  return "border-[var(--adc-b1)] bg-[var(--adc-s2)] text-[var(--adc-ink3)]";
 }
 
 
@@ -915,21 +927,10 @@ function percentDelta(current: number | null | undefined, previous: number | nul
   return ((current - previous) / previous) * 100;
 }
 
-function formatAverageCount(value: number | null | undefined) {
-  if (value == null || !Number.isFinite(value)) return "—";
-  return value >= 10 ? String(Math.round(value)) : value.toFixed(value >= 1 ? 1 : 2).replace(/\.0$/, "");
-}
-
 function labelCoveragePercent(pulse?: MetaPulsePayload | null) {
   const coverage = pulse?.labelCoverage;
   if (!coverage || coverage.activeCampaigns <= 0) return null;
   return Math.round((coverage.labeledCampaigns / coverage.activeCampaigns) * 100);
-}
-
-function snapshotStatusClass(status: NonNullable<MetaPulsePayload["snapshotHealth"]>["status"] | undefined) {
-  if (status === "fresh") return "chip--healthy";
-  if (status === "stale" || status === "engine_version_mismatch") return "chip--watch";
-  return "chip--ghost";
 }
 
 function trackingClass(status: MetaPulsePayload["trackingHealth"]["status"] | undefined) {
@@ -953,6 +954,279 @@ function automationFilterLabel(value: MetaAutomationFilter) {
 
 function labelFilterLabel(value: MetaLabelFilter) {
   return META_LABEL_FILTERS.find((option) => option.value === value)?.label ?? "All labels";
+}
+
+function mobileTimestamp(value: string | null | undefined) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "—";
+  return `${date.toISOString().slice(11, 16)} UTC`;
+}
+
+function mobileDecisionTone(rec: MetaRecommendation): "danger" | "positive" | "caution" {
+  const label = decisionLabelForRec(rec);
+  if (label === "cut" || label === "below_breakeven" || label === "fatigue") return "danger";
+  if (label === "scale" || label === "keep") return "positive";
+  return "caution";
+}
+
+function mobileDecisionLine(
+  rec: MetaRecommendation,
+  targetRoas: number | null | undefined,
+  currency: string | null | undefined,
+) {
+  const metrics = structuredMetricsForRec(rec);
+  const parts: string[] = [];
+  if (typeof metrics?.spend === "number" && Number.isFinite(metrics.spend)) {
+    parts.push(formatMoney(metrics.spend, currency));
+  }
+  if (typeof metrics?.roas === "number" && Number.isFinite(metrics.roas)) {
+    const roas = `${metrics.roas.toFixed(2)}x`;
+    parts.push(
+      typeof targetRoas === "number" && Number.isFinite(targetRoas)
+        ? `${roas} vs ${targetRoas.toFixed(2)}x target`
+        : roas,
+    );
+  }
+  return `${titleCaseCompact(decisionLabelForRec(rec))} · ${
+    parts.length > 0 ? parts.join(" · ") : rec.expectedImpact || rec.summary || "server summary —"
+  }`;
+}
+
+function MobileDecisionConfidence({ confidence }: { confidence: MetaRecommendation["confidence"] }) {
+  const label = confidence === "high" ? "High" : confidence === "medium" ? "Medium" : "Low";
+  const activeBars = label === "High" ? 3 : label === "Medium" ? 2 : 1;
+  return (
+    <span className="ad-confidence-pill">
+      <span aria-hidden="true">
+        {[0, 1, 2].map((index) => (
+          <i key={index} data-active={index < activeBars ? "true" : "false"} />
+        ))}
+      </span>
+      {label}
+    </span>
+  );
+}
+
+function MetaMobileCitationList({ items }: { items: Array<{ label: string; value: string }> }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="ad-mobile-citation-list">
+      {items.map((item, index) => (
+        <div key={`${item.label}-${index}`}>
+          <span className="ad-mobile-cite">[{index + 1}]</span>
+          <span>{item.label}: {item.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MetaMobileEvidenceScreen({
+  item,
+  targetRoas,
+  moneyCurrency,
+  onBack,
+}: {
+  item: MetaDrillItem;
+  targetRoas: number | null | undefined;
+  moneyCurrency: string | null | undefined;
+  onBack: () => void;
+}) {
+  if (item.mode === "anomaly") {
+    const citationItems = item.anomaly.diagnostics.slice(0, 2).map((diagnostic, index) => ({
+      label: `Diagnostic ${index + 1}`,
+      value: diagnostic,
+    }));
+    return (
+      <section className="meta-mobile-decision-stage" data-testid="meta-mobile-evidence">
+        <div className="ad-mobile-device">
+          <div className="ad-mobile-screen">
+            <div className="ad-mobile-status">
+              <span>--:--</span>
+              <span>evidence · read-only</span>
+            </div>
+            <button type="button" className="ad-mobile-back" onClick={onBack}>
+              ← Decisions
+            </button>
+            <div className="ad-mobile-title">
+              <h2>{item.anomaly.scopeLabel}</h2>
+              <p>{titleCaseCompact(item.anomaly.scopeType)} · anomaly · detected {mobileTimestamp(item.anomaly.detectedAt)}</p>
+            </div>
+            <article className="ad-mobile-heat">
+              <strong>{item.anomaly.title}</strong>
+              <span>{item.anomaly.detail}</span>
+            </article>
+            <p className="ad-mobile-copy">
+              {item.anomaly.diagnostics[0] ?? "The anomaly remains open in the server scan"}
+              {citationItems[0] ? <> <span className="ad-mobile-cite">[1]</span></> : null}. Mobile keeps this
+              as evidence review only.
+            </p>
+            <MetaMobileCitationList items={citationItems} />
+            <div className="ad-mobile-desktop-note">Act on desktop — this device is read-only by design.</div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  const rec = item.rec;
+  const metrics = structuredMetricsForRec(rec);
+  const roasText =
+    typeof metrics?.roas === "number" && Number.isFinite(metrics.roas)
+      ? `${metrics.roas.toFixed(2)}x${typeof targetRoas === "number" && Number.isFinite(targetRoas) ? ` vs ${targetRoas.toFixed(2)}x target` : ""}`
+      : "ROAS —";
+  const spendText =
+    typeof metrics?.spend === "number" && Number.isFinite(metrics.spend)
+      ? formatMoney(metrics.spend, moneyCurrency)
+      : "spend —";
+  const citationItems = rec.evidence.slice(0, 2).map((evidence) => ({
+    label: evidence.label,
+    value: evidence.value,
+  }));
+
+  return (
+    <section className="meta-mobile-decision-stage" data-testid="meta-mobile-evidence">
+      <div className="ad-mobile-device">
+        <div className="ad-mobile-screen">
+          <div className="ad-mobile-status">
+            <span>--:--</span>
+            <span>evidence · read-only</span>
+          </div>
+          <button type="button" className="ad-mobile-back" onClick={onBack}>
+            ← Decisions
+          </button>
+          <div className="ad-mobile-title">
+            <h2>{scopeNameForRec(rec)}</h2>
+            <p>{titleCaseCompact(rec.level)} · {rec.rowPresentation?.accountBadge ?? "account —"}</p>
+          </div>
+          <article className="ad-mobile-heat">
+            <strong>{mobileDecisionLine(rec, targetRoas, moneyCurrency)}</strong>
+            <span>{spendText} · {roasText}</span>
+          </article>
+          <p className="ad-mobile-copy">
+            {rec.why || rec.summary || "Decision reasoning is unavailable in this payload"}
+            {citationItems[0] ? <> <span className="ad-mobile-cite">[1]</span></> : null}; confidence is {rec.confidence}
+            {citationItems[1] ? <> <span className="ad-mobile-cite">[2]</span></> : null}.
+          </p>
+          <MetaMobileCitationList items={citationItems} />
+          <div className="ad-mobile-desktop-note">Act on desktop — this device is read-only by design.</div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MetaMobileDecisionRow({
+  rec,
+  targetRoas,
+  moneyCurrency,
+  onOpen,
+}: {
+  rec: MetaRecommendation;
+  targetRoas: number | null | undefined;
+  moneyCurrency: string | null | undefined;
+  onOpen: (rec: MetaRecommendation) => void;
+}) {
+  return (
+    <article className="ad-mobile-row-card">
+      <div>
+        <h3>{scopeNameForRec(rec)}</h3>
+        <p data-tone={mobileDecisionTone(rec)}>{mobileDecisionLine(rec, targetRoas, moneyCurrency)}</p>
+      </div>
+      <div className="ad-mobile-row-footer">
+        <MobileDecisionConfidence confidence={rec.confidence} />
+        <button type="button" onClick={() => onOpen(rec)}>
+          Read evidence →
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function MetaMobileDecisionsScreen({
+  businessName,
+  moneyCurrency,
+  pulse,
+  laneSnapshotDate,
+  loading,
+  error,
+  anomalies,
+  actionRows,
+  watchingRows,
+  targetRoas,
+  onOpenRec,
+  onOpenAnomaly,
+}: {
+  businessName?: string | null;
+  moneyCurrency: string | null | undefined;
+  pulse: MetaPulsePayload | null;
+  laneSnapshotDate: string | null;
+  loading: boolean;
+  error: Error | null;
+  anomalies: MetaAnomaly[];
+  actionRows: MetaRecommendation[];
+  watchingRows: MetaRecommendation[];
+  targetRoas: number | null | undefined;
+  onOpenRec: (rec: MetaRecommendation) => void;
+  onOpenAnomaly: (anomaly: MetaAnomaly) => void;
+}) {
+  const actCount = loading || error ? "—" : actionRows.length + anomalies.length;
+  const primaryRows = [...actionRows, ...watchingRows].slice(0, 2);
+  return (
+    <section className="meta-mobile-decision-stage" data-testid="meta-mobile-decisions">
+      <div className="ad-mobile-device">
+        <div className="ad-mobile-screen">
+          <div className="ad-mobile-status">
+            <span>--:--</span>
+            <span>{businessName ?? "Meta"} · Act now {actCount}</span>
+          </div>
+          <div className="ad-mobile-freshness">
+            synced {mobileTimestamp(pulse?.lastSyncAt ?? null)} · snapshot {laneSnapshotDate ?? "—"}
+          </div>
+          {loading ? (
+            <article className="ad-mobile-row-card">
+              <h3>Decision queue</h3>
+              <p>loading server snapshot —</p>
+            </article>
+          ) : error ? (
+            <article className="ad-mobile-anomaly">
+              <b>Decision queue unavailable.</b>
+              <div>{error.message || "Missing data is withheld, never shown as zero."}</div>
+            </article>
+          ) : anomalies[0] ? (
+            <button type="button" className="ad-mobile-anomaly ad-mobile-anomaly-button" onClick={() => onOpenAnomaly(anomalies[0]!)}>
+              <b>Anomaly:</b> {anomalies[0].title}
+              <div>detected {mobileTimestamp(anomalies[0].detectedAt)} · read evidence on mobile, act on desktop</div>
+            </button>
+          ) : (
+            <article className="ad-mobile-anomaly">
+              <b>No active anomaly.</b>
+              <div>Rows still open evidence on mobile; execution stays desktop-only.</div>
+            </article>
+          )}
+          {primaryRows.map((rec) => (
+            <MetaMobileDecisionRow
+              key={rec.id}
+              rec={rec}
+              targetRoas={targetRoas}
+              moneyCurrency={moneyCurrency}
+              onOpen={onOpenRec}
+            />
+          ))}
+          {!loading && !error && primaryRows.length === 0 ? (
+            <article className="ad-mobile-row-card">
+              <h3>No high-confidence calls</h3>
+              <p>server queue has no mobile-readable action rows</p>
+            </article>
+          ) : null}
+          <div className="ad-mobile-desktop-note">
+            Writes are desktop-only — rows here open evidence, never a pause button. Hit targets ≥44px.
+          </div>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function MetaCompactFilter({
@@ -1064,19 +1338,15 @@ function FinalMetaPulse({
       : "Waiting for the Meta briefing payload.";
     return (
       <div
-        className="pulse pulse--five"
+        className="pulse pulse--thin"
         data-testid={unavailable ? "meta-pulse-error" : "meta-pulse-loading"}
         role="status"
       >
-        {["Spend", "ROAS", "Snapshot", "Labels", "Mode"].map((label) => (
-          <div className="cell" key={label}>
-            <div className="label">
-              <span>{label}</span>
-            </div>
-            <div className="value">{status}</div>
-            <div className="micro">{detail}</div>
-          </div>
-        ))}
+        <span>
+          Business strip <b>{status}</b>
+        </span>
+        <span>{detail}</span>
+        <span>tones from this business&apos;s server targets</span>
       </div>
     );
   }
@@ -1091,7 +1361,6 @@ function FinalMetaPulse({
     pulse?.snapshotHealth?.ageHours != null
       ? formatSnapshotAge(pulse.snapshotHealth.ageHours)
       : shortRelativeTime(pulse?.engineLastRun);
-  const snapshotStatus = pulse?.snapshotHealth?.status ?? "missing";
   const dailySpend =
     pulse?.pacing.spendToday ??
     (pulse?.pacing.dayPace != null && pulse?.pacing.dailyTarget != null
@@ -1099,8 +1368,6 @@ function FinalMetaPulse({
       : null);
   const avg7dSpend = pulse?.pacing.avg7dSpend ?? null;
   const spendVs7dAvg = formatSignedPercent(percentDelta(dailySpend, avg7dSpend));
-  const conversionsToday = pulse?.pacing.conversionsToday ?? null;
-  const avg7dConversions = pulse?.pacing.avg7dConversions ?? null;
   const roasValue =
     window === "custom"
       ? pulse?.roas.selected
@@ -1111,100 +1378,364 @@ function FinalMetaPulse({
           : pulse?.roas.d28;
 
   return (
-    <div className="pulse pulse--five">
-      <div className="cell">
-        <div className="label">
-          <span>{endIsToday ? "Spend · today" : `Spend · ${pulse?.endDate ?? "last day"}`}</span>
-          <span style={{ color: "var(--muted)" }}>vs 7d avg</span>
-        </div>
-        <div className="value">
-          {dailySpend == null ? "—" : formatMoney(dailySpend, moneyCurrency)}
-          <span className="sub">
-            {avg7dSpend == null
-              ? " avg —"
-              : ` avg ${formatMoney(avg7dSpend, moneyCurrency)}/day${spendVs7dAvg ? ` · ${spendVs7dAvg}` : ""}`}
-          </span>
-        </div>
-        <div className="micro">
-          conversions · {conversionsToday == null ? "—" : formatAverageCount(conversionsToday)}
-          {avg7dConversions == null ? "" : ` · 7d avg ${formatAverageCount(avg7dConversions)}/day`}
-        </div>
-      </div>
-      <div className="cell">
-        <div className="label">
-          <span>ROAS · {window === "90d" ? "28d" : window}</span>
-          <span style={{ color: "var(--ok)" }}>{pulse?.roas.target && roasValue && roasValue >= pulse.roas.target ? "↑ vs target" : "vs target"}</span>
-        </div>
-        <div className="value">
-          {formatRoas(roasValue)} <span className="sub">tgt {pulse?.roas.target == null ? "—" : formatRoas(pulse.roas.target)}</span>
-        </div>
-        {pulse?.roasHistory?.length ? (
-          <svg className="spark" viewBox="0 0 60 16" preserveAspectRatio="none" aria-hidden="true">
-            <defs>
-              <linearGradient id="meta-pulse-spark" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stopColor="#2f6bff" />
-                <stop offset="100%" stopColor="#0e9f6e" />
-              </linearGradient>
-            </defs>
-            <path
-              d={sparklinePath(pulse.roasHistory.slice(-28))}
-              fill="none"
-              stroke="url(#meta-pulse-spark)"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        ) : null}
-      </div>
-      <div className="cell">
-        <div className="label">
-          <span>Snapshot</span>
-          <span className={cn("chip", snapshotStatusClass(snapshotStatus))} style={{ height: 16, padding: "0 6px", fontSize: 9.5 }}>
-            <span className="dot" />
-            {snapshotStatus === "engine_version_mismatch" ? "version" : snapshotStatus}
-          </span>
-        </div>
-        <div className="value">{snapshotAge ?? "—"}</div>
-        <div className="micro">
-          engine {pulse?.engineVersion ?? "—"} · ran {pulse?.engineLastRun ? new Date(pulse.engineLastRun).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"} · data{" "}
-          {lastSyncLabel ? `synced ${lastSyncLabel}` : "sync unknown"}
-          {laneAsOf ? ` · lanes ${laneAsOf.snapshotDate ?? "unavailable"}` : null}
-        </div>
-      </div>
-      <div className="cell">
-        <div className="label">
-          <span>Labels</span>
-          {labelPercent != null ? (
-            <span className={cn("chip", labelPercent >= 90 ? "chip--healthy" : "chip--watch")} style={{ height: 16, padding: "0 6px", fontSize: 9.5 }}>
-              <span className="dot" />
-              {labelPercent}%
-            </span>
+    <div className="pulse pulse--thin" data-testid="meta-business-strip">
+      <span>
+        {endIsToday ? "Spend · today" : `Spend · ${pulse?.endDate ?? "last day"}`}{" "}
+        <b>{dailySpend == null ? "—" : formatMoney(dailySpend, moneyCurrency)}</b>
+        {" vs 7d avg "}
+        {avg7dSpend == null ? "—" : `${formatMoney(avg7dSpend, moneyCurrency)}/day`}
+        {spendVs7dAvg ? ` · ${spendVs7dAvg}` : ""}
+      </span>
+      <span>
+        ROAS · {window === "90d" ? "28d" : window} <b>{formatRoas(roasValue)}</b>
+        {" vs target "}
+        {pulse?.roas.target == null ? "—" : formatRoas(pulse.roas.target)}
+      </span>
+      <span className={cn("chip", trackingClass(pulse?.trackingHealth?.status))}>
+        <span className="dot" />
+        {pulse?.trackingHealth?.status ?? "unknown"}
+      </span>
+      <span>
+        labels {pulse?.labelCoverage ? `${pulse.labelCoverage.labeledCampaigns}/${pulse.labelCoverage.activeCampaigns}` : "—"}
+        {labelPercent != null ? ` · ${labelPercent}%` : ""}
+        {" · "}
+        <button
+          type="button"
+          className="linklike"
+          aria-label="Manage campaign labels"
+          onClick={onManageLabels}
+        >
+          Manage labels
+        </button>
+      </span>
+      <span>
+        snapshot {snapshotAge ?? "—"} · engine {pulse?.engineVersion ?? "—"}
+        {laneAsOf ? ` · lanes ${laneAsOf.snapshotDate ?? "unavailable"}` : ""}
+        {lastSyncLabel ? ` · synced ${lastSyncLabel}` : " · sync unknown"}
+      </span>
+      <span>tones from this business&apos;s server targets</span>
+    </div>
+  );
+}
+
+function MetaOvernightDigest({
+  snapshotDate,
+  digest,
+  actionStates,
+  anomaliesCount,
+  deferredCount,
+}: {
+  snapshotDate: string | null;
+  digest?: MetaDecisionsWorkspacePayload["digest"] | null;
+  actionStates?: MetaDecisionsWorkspacePayload["queue"]["actionStates"] | null;
+  anomaliesCount: number;
+  deferredCount: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const executable =
+    (actionStates?.executablePause ?? 0) +
+    (actionStates?.executableBid ?? 0) +
+    (actionStates?.executableResume ?? 0);
+  const routes = actionStates?.launchpadRoutes ?? 0;
+  const reviewOnly = actionStates?.reviewOnly ?? 0;
+  const missing = actionStates?.missingActionKind ?? 0;
+  const labelFlipText = digest
+    ? `${countPhrase(digest.labelFlips.count, "label flip")} (${digest.labelFlips.publishedCount} published)`
+    : "label flips unavailable";
+  const actionText = digest
+    ? `${countPhrase(digest.actions.verifiedCount, "action")} verified${digest.actions.silentFailureCount > 0 ? ` · ${digest.actions.silentFailureCount} silent_failure` : ""}`
+    : `actions ready ${executable}`;
+  const anomalyText = digest ? `${countPhrase(digest.anomalies.openedCount, "anomaly")} opened` : `anomalies ${anomaliesCount}`;
+  const deferralText = digest ? `${countPhrase(digest.deferrals.dueCount, "deferral")} due back` : `deferrals due ${deferredCount}`;
+  return (
+    <div className="meta-digest" data-testid="meta-overnight-digest">
+      <button
+        type="button"
+        className="meta-digest__toggle"
+        aria-expanded={open}
+        aria-controls="meta-digest-details"
+        onClick={() => setOpen((value) => !value)}
+      >
+        <ChevronDown className={cn("meta-digest__chevron", open && "open")} size={13} aria-hidden="true" />
+        <span className="meta-digest__title">Since last snapshot</span>
+        <b>{snapshotDate ?? "snapshot —"}</b>
+        <span className="meta-digest__summary">
+          {labelFlipText} · {actionText} · {anomalyText} · {deferralText}
+        </span>
+      </button>
+      {open ? (
+        <div id="meta-digest-details" className="meta-digest__details">
+          {digest?.unavailableReason ? (
+            <div className="meta-digest__line muted">Digest details unavailable: {digest.unavailableReason}</div>
           ) : null}
+          <div className="meta-digest__line">
+            <span>Label flips:</span>{" "}
+            {digest && digest.labelFlips.items.length > 0
+              ? digest.labelFlips.items.slice(0, 3).map((item, index) => (
+                  <span key={item.id} className="meta-digest__item">
+                    {index > 0 ? "; " : null}
+                    <b>{item.title}</b> {item.previousLabel} -&gt; {item.currentLabel}{" "}
+                    <em>{item.status}</em>
+                  </span>
+                ))
+              : "none in the served snapshot window"}
+          </div>
+          <div className="meta-digest__line">
+            <span>Actions:</span>{" "}
+            {digest && digest.actions.items.length > 0
+              ? digest.actions.items.slice(0, 4).map((item, index) => (
+                  <span key={item.id} className="meta-digest__item">
+                    {index > 0 ? " · " : null}
+                    {item.action} <b>{item.target}</b>
+                    {item.actor ? ` by ${item.actor}` : ""}{" "}
+                    <em className={item.status === "silent_failure" ? "danger" : "success"}>
+                      {item.status === "silent_failure"
+                        ? `silent_failure${item.detail ? ` - ${item.detail}` : ""}`
+                        : `verified${formatDigestTime(item.occurredAt) ? ` ${formatDigestTime(item.occurredAt)}` : ""}`}
+                    </em>
+                  </span>
+                ))
+              : digest
+                ? "no verified action logs in the served window"
+                : `ready ${executable} · routes ${routes} · review-only ${reviewOnly}`}
+          </div>
+          <div className="meta-digest__line">
+            <span>Anomalies:</span>{" "}
+            {digest && digest.anomalies.items.length > 0
+              ? digest.anomalies.items.slice(0, 3).map((item, index) => (
+                  <span key={item.id} className="meta-digest__item">
+                    {index > 0 ? " · " : null}
+                    <b>{item.title}</b> {item.status}
+                    {formatDigestTime(item.occurredAt) ? ` ${formatDigestTime(item.occurredAt)}` : ""}
+                  </span>
+                ))
+              : `${anomaliesCount} counted separately`}
+          </div>
+          <div className="meta-digest__line">
+            <span>Deferrals due back:</span>{" "}
+            {digest && digest.deferrals.items.length > 0
+              ? digest.deferrals.items.slice(0, 3).map((item, index) => (
+                  <span key={item.id} className="meta-digest__item">
+                    {index > 0 ? " · " : null}
+                    <b>{item.title}</b>
+                    {formatDigestTime(item.dueAt) ? ` (${formatDigestTime(item.dueAt)})` : ""}
+                    {item.detail ? ` · ${item.detail}` : ""}
+                  </span>
+                ))
+              : `${deferredCount} deferred rows in local state`}
+          </div>
+          {missing > 0 ? <div className="meta-digest__line muted">Missing action kind: {missing}</div> : null}
         </div>
-        <div className="value">
-          {pulse?.labelCoverage ? `${pulse.labelCoverage.labeledCampaigns} / ${pulse.labelCoverage.activeCampaigns}` : "—"}
+      ) : null}
+    </div>
+  );
+}
+
+function formatDigestTime(value: string | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return new Intl.DateTimeFormat("en", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "UTC",
+  }).format(date);
+}
+
+function countPhrase(count: number, noun: string) {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+// The creative decision engine is a SEPARATE engine from the Meta v1 media-buying
+// engine. Its per-creative decisions are surfaced in the Action Now lane as their OWN
+// group, ranked only among themselves — never globally ranked against campaign/adset
+// money-at-stake ("no fake global rank across engines"). These are analysis-only:
+// Review links to Creative Studio, never a write. Gated by the engine's surfaceVisible.
+const ACTIONABLE_CREATIVE_LABELS = new Set<DecisionLabel>([
+  "scale",
+  "cut",
+  "refresh",
+  "test_more",
+  "diagnose",
+]);
+
+interface CreativeEngineDecisions {
+  decisions: DecisionOutput[];
+  surfaceVisible: boolean;
+}
+
+async function fetchCreativeEngineDecisions(
+  businessId: string,
+  asOf: string,
+): Promise<CreativeEngineDecisions> {
+  const params = new URLSearchParams({ businessId });
+  if (asOf) params.set("asOf", asOf);
+  const response = await fetch(`/api/creatives/decision-engine-v3?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error(`creative decision engine request failed (${response.status})`);
+  }
+  const payload = await response.json().catch(() => null);
+  if (!payload || payload.status === "disabled") {
+    return { decisions: [], surfaceVisible: false };
+  }
+  return {
+    decisions: Array.isArray(payload.decisions) ? (payload.decisions as DecisionOutput[]) : [],
+    surfaceVisible: Boolean(payload.flags?.enabled && payload.flags?.surfaceVisible),
+  };
+}
+
+function creativeDecisionSearchMatch(decision: DecisionOutput, search: string) {
+  const q = search.trim().toLowerCase();
+  if (!q) return true;
+  return [decision.creativeName ?? "", decision.creativeId, decision.label, decision.reason].some(
+    (value) => value.toLowerCase().includes(q),
+  );
+}
+
+function MetaCreativeDecisionCard({
+  decision,
+  moneyCurrency,
+}: {
+  decision: DecisionOutput;
+  moneyCurrency: string | null;
+}) {
+  const display = LABEL_DISPLAY[decision.label];
+  const palette = DECISION_LABEL_PALETTE[decision.label];
+  const roas = decision.metrics.roas;
+  return (
+    <article className="dcard" data-card="creative-decision" data-creative-id={decision.creativeId}>
+      <div className="check" />
+      <div>
+        <div className="meta-line">
+          <span className={cn("chip", palette.legacyClassName)} data-creative-label>
+            {display.label}
+          </span>
+          <b>{decision.creativeName ?? decision.creativeId}</b>
         </div>
-        <div className="micro">
-          {pulse?.labelCoverage ? `${pulse.labelCoverage.unlabeledCampaigns} unlabeled · ` : "coverage unavailable · "}
-          <button
-            type="button"
-            className="linklike"
-            aria-label="Manage campaign labels"
-            onClick={onManageLabels}
+        <div className="why">
+          {decision.reason || "Creative decision from the creative decision engine."}
+          <span className="from">
+            source · creative decision engine{decision.engineVersion ? ` · ${decision.engineVersion}` : ""}
+          </span>
+        </div>
+        <div className="metric-strip">
+          <div className="m">
+            <span className="k">Spend</span>
+            <span className="v">
+              {decision.metrics.spend != null ? formatMoney(decision.metrics.spend, moneyCurrency) : "—"}
+            </span>
+          </div>
+          <div className="m">
+            <span className="k">ROAS 28d</span>
+            <span className="v">{roas != null ? formatRoas(roas) : "—"}</span>
+          </div>
+          <div className="m">
+            <span className="k">Confidence</span>
+            <span className="v">
+              {Number.isFinite(decision.confidence) ? `${Math.round(decision.confidence)}%` : "—"}
+            </span>
+          </div>
+        </div>
+      </div>
+      <div className="actions-col">
+        <span className="why-action">Analysis only</span>
+        <Link className="btn btn--primary" href="/platforms/meta/creatives" data-testid="meta-creative-review">
+          Review
+        </Link>
+      </div>
+    </article>
+  );
+}
+
+function MetaLaneGroupHeader({
+  title,
+  note,
+}: {
+  title: string;
+  note?: ReactNode;
+}) {
+  return (
+    <div className="meta-lane-group-head" data-testid="meta-lane-group-head">
+      <span>{title}</span>
+      {typeof note === "string" ? <small>{note}</small> : note}
+    </div>
+  );
+}
+
+type MetaWorkspaceBanner = MetaDecisionsWorkspacePayload["banners"][number];
+
+function workspaceBannerPriority(banner: MetaWorkspaceBanner) {
+  if (banner.id === "meta_write_kill_switch") return 0;
+  if (banner.id === "dry_run_mode" || banner.id === "dry_run_only_guardrail") return 1;
+  if (banner.id === "tracking_write_gate") return 2;
+  if (banner.id === "reviewer_read_only" || banner.id === "workspace_read_only") return 3;
+  if (banner.blocking) return 3;
+  if (banner.id === "snapshot_health") return 4;
+  if (banner.id === "data_readiness") return 5;
+  return 6;
+}
+
+function workspaceBannerToneClass(banner: MetaWorkspaceBanner) {
+  if (banner.tone === "danger") return "danger";
+  if (banner.tone === "warning") return "warn";
+  if (banner.tone === "success") return "success";
+  return "info";
+}
+
+function workspaceBannerDetail(banner: MetaWorkspaceBanner) {
+  if (banner.id === "tracking_write_gate") {
+    return `${banner.detail} Pause, bid and rebuild writes ask for confirmation first. Hiding this banner does not unlock writes; the gate stays active.`;
+  }
+  if (banner.id === "meta_write_kill_switch") {
+    return `${banner.detail} The queue stays readable; execute and route actions are locked until an Admin releases it.`;
+  }
+  return banner.detail;
+}
+
+function MetaWorkspacePostureBanners({
+  banners,
+  trackingDismissed,
+  onDismissTracking,
+  onOpenTrackingDetails,
+}: {
+  banners: MetaWorkspaceBanner[];
+  trackingDismissed: boolean;
+  onDismissTracking: () => void;
+  onOpenTrackingDetails: () => void;
+}) {
+  const visibleBanners = [...banners]
+    .filter((banner) => !(banner.id === "tracking_write_gate" && trackingDismissed))
+    .sort((left, right) => workspaceBannerPriority(left) - workspaceBannerPriority(right));
+  if (visibleBanners.length === 0) return null;
+  return (
+    <div className="meta-posture-banners" data-testid="meta-posture-banners">
+      {visibleBanners.map((banner) => {
+        const tone = workspaceBannerToneClass(banner);
+        return (
+          <div
+            key={banner.id}
+            className={cn("meta-posture-banner", `meta-posture-banner--${tone}`)}
+            data-banner-id={banner.id}
+            data-banner-blocking={banner.blocking ? "true" : "false"}
+            role={banner.blocking || tone === "danger" ? "alert" : "status"}
           >
-            Manage labels
-          </button>
-        </div>
-      </div>
-      <div className="cell">
-        <div className="label"><span>Mode</span></div>
-        <div className="value" style={{ fontSize: 14 }}>{titleCaseCompact(pulse?.operatingMode || "Manual review")}</div>
-        <div className="status-row">
-          <span className="chip chip--ghost"><span className="dot" />{titleCaseCompact(pulse?.seasonalRegime || "normal")}</span>
-          <span className={cn("chip", trackingClass(pulse?.trackingHealth?.status))}><span className="dot" />{pulse?.trackingHealth?.status ?? "unknown"}</span>
-        </div>
-      </div>
+            <span className="meta-posture-banner__mark" aria-hidden="true" />
+            <span className="meta-posture-banner__title">{banner.title}</span>
+            <span className="meta-posture-banner__detail">{workspaceBannerDetail(banner)}</span>
+            <span className="meta-posture-banner__spacer" aria-hidden="true" />
+            {banner.id === "meta_write_kill_switch" ? (
+              <a className="meta-posture-banner__button" href="/platforms/meta/automation">System Status</a>
+            ) : null}
+            {banner.id === "tracking_write_gate" ? (
+              <>
+                <button type="button" className="meta-posture-banner__button" onClick={onOpenTrackingDetails}>View details</button>
+                <button type="button" className="meta-posture-banner__button meta-posture-banner__button--ghost" onClick={onDismissTracking}>Hide banner</button>
+              </>
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1270,110 +1801,6 @@ function MetaAsOfCluster({
   );
 }
 
-type ScopeRailDotTone = "danger" | "warn" | "ok" | "unknown";
-
-/**
- * Left business scope rail. Lists the operator's real businesses from the app
- * store. The CURRENTLY SELECTED business shows its real act-now count and real
- * spend-today from the already-fetched lane/pulse payloads; other businesses
- * carry no fabricated per-business numbers — only a name and an "Open"
- * affordance, since the page holds data for the selected business alone.
- */
-function MetaScopeRail({
-  businesses,
-  selectedBusinessId,
-  onSelect,
-  open,
-  onToggle,
-  selectedActNowCount,
-  selectedSpendToday,
-  selectedDotTone,
-  moneyCurrency,
-}: {
-  businesses: Array<{ id: string; name: string }>;
-  selectedBusinessId: string;
-  onSelect: (id: string) => void;
-  open: boolean;
-  onToggle: () => void;
-  selectedActNowCount: number | null;
-  selectedSpendToday: number | null;
-  selectedDotTone: ScopeRailDotTone;
-  moneyCurrency?: string | null;
-}) {
-  if (!open) {
-    return (
-      <button
-        type="button"
-        className="meta-scope-rail-collapsed"
-        aria-label="Expand business scope rail"
-        data-testid="meta-scope-rail-collapsed"
-        onClick={onToggle}
-      >
-        <span aria-hidden="true">»</span>
-      </button>
-    );
-  }
-  const selectedDotColor =
-    selectedDotTone === "danger"
-      ? "var(--danger)"
-      : selectedDotTone === "warn"
-        ? "var(--warn)"
-        : selectedDotTone === "ok"
-          ? "var(--ok)"
-          : "var(--muted-2)";
-  return (
-    <aside className="meta-scope-rail" data-testid="meta-scope-rail" aria-label="Businesses by urgency">
-      <div className="meta-scope-rail__head">
-        <span>Businesses · by urgency</span>
-        <button type="button" aria-label="Collapse business scope rail" onClick={onToggle}>
-          <span aria-hidden="true">«</span>
-        </button>
-      </div>
-      <div className="meta-scope-rail__list">
-        {businesses.map((biz) => {
-          const isSelected = biz.id === selectedBusinessId;
-          return (
-            <button
-              key={biz.id}
-              type="button"
-              className={cn("meta-scope-biz", isSelected && "is-selected")}
-              aria-current={isSelected ? "true" : undefined}
-              data-selected={isSelected ? "true" : "false"}
-              onClick={() => onSelect(biz.id)}
-            >
-              <span className="meta-scope-biz__top">
-                <span
-                  className="dot"
-                  style={{ background: isSelected ? selectedDotColor : "var(--muted-2)" }}
-                  aria-hidden="true"
-                />
-                <span className="meta-scope-biz__name">{biz.name}</span>
-                {isSelected ? (
-                  <span className="meta-scope-biz__count" data-testid="meta-scope-biz-count">
-                    {selectedActNowCount == null ? "act —" : `${selectedActNowCount} act`}
-                  </span>
-                ) : (
-                  <span className="meta-scope-biz__open">Open</span>
-                )}
-              </span>
-              {isSelected ? (
-                <span className="meta-scope-biz__spend" data-testid="meta-scope-biz-spend">
-                  {selectedSpendToday == null
-                    ? "spend —"
-                    : `${formatMoney(selectedSpendToday, moneyCurrency)} today`}
-                </span>
-              ) : null}
-            </button>
-          );
-        })}
-      </div>
-      <p className="meta-scope-rail__note">
-        Spend shown in each account&rsquo;s own currency. Cross-business totals are never summed.
-      </p>
-    </aside>
-  );
-}
-
 export function MetaPlatformPage({ businessId, businessName, currency = "USD" }: MetaPlatformPageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1407,27 +1834,13 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   const [openSecondaryMenu, setOpenSecondaryMenu] = useState<MetaSecondaryMenu | null>(null);
   const [rowSort, setRowSort] = useState<MetaRowSort>("money");
   const [rowSearch, setRowSearch] = useState("");
-  const [scopeRailOpen, setScopeRailOpen] = useState(true);
+  const [minSpendOnly, setMinSpendOnly] = useState(false);
+  const [laneDensity, setLaneDensity] = useState<"cozy" | "compact">("cozy");
+  const [pendingPauseRec, setPendingPauseRec] = useState<MetaRecommendation | null>(null);
+  const [bulkPauseOpen, setBulkPauseOpen] = useState(false);
   const pushInspector = useMinWidth(1440);
   const latestSearchParamsRef = useRef(searchParams.toString());
   const secondaryControlsRef = useRef<HTMLDivElement | null>(null);
-
-  // Business scope rail source: the operator's real businesses from the app
-  // store. Selecting a row drives the store; page.tsx re-resolves the selected
-  // business and re-keys this component's queries, so the whole page reloads
-  // that business's data.
-  const storeBusinesses = useAppStore((state) => state.businesses);
-  const selectBusiness = useAppStore((state) => state.selectBusiness);
-  // Always represent the currently selected business even before the persisted
-  // store has hydrated (SSR / first paint / tests), using the real props the
-  // page already resolved — never a fabricated entry.
-  const scopeRailBusinesses = useMemo(() => {
-    const rows = storeBusinesses.map((biz) => ({ id: biz.id, name: biz.name }));
-    if (!rows.some((biz) => biz.id === businessId)) {
-      return [{ id: businessId, name: businessName ?? "Selected business" }, ...rows];
-    }
-    return rows;
-  }, [storeBusinesses, businessId, businessName]);
 
   useEffect(() => {
     latestSearchParamsRef.current = searchParams.toString();
@@ -1465,20 +1878,30 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
     };
   }, [openSecondaryMenu]);
 
-  const pulseQuery = useQuery({
-    queryKey: ["meta-account-pulse", businessId, selectedWindow, selectedStatusFilter, selectedDateRange.start, selectedDateRange.end],
+  const workspaceQuery = useQuery({
+    queryKey: ["meta-decisions-workspace", businessId, selectedWindow, selectedStatusFilter, selectedDateRange.start, selectedDateRange.end],
     enabled: Boolean(businessId),
-    queryFn: () => fetchPulse(businessId, selectedWindow, selectedStatusFilter, selectedDateRange),
+    queryFn: () => fetchDecisionsWorkspace(businessId, selectedWindow, selectedStatusFilter, selectedDateRange),
+    // A transient upstream slowness (e.g. a cold route compile the first time the
+    // decisions-workspace fan-out is hit) previously left a permanent empty shell
+    // because retry was disabled. Retry with backoff so a one-off timeout self-heals.
+    retry: 2,
+    retryDelay: (attempt) => Math.min(1500 * 2 ** attempt, 6000),
   });
+  const pulseQuery = {
+    data: workspaceQuery.data?.pulse,
+    isLoading: workspaceQuery.isLoading,
+    error: workspaceQuery.error,
+  };
+  const laneQuery = {
+    data: workspaceQuery.data?.lanes,
+    isLoading: workspaceQuery.isLoading,
+    error: workspaceQuery.error,
+  };
   const moneyCurrency = pulseQuery.data?.currency ?? currency ?? null;
   const targetRoas = pulseQuery.data?.roas.target ?? null;
   const entityParam = searchParams.get("entity");
 
-  const laneQuery = useQuery({
-    queryKey: ["meta-lanes", businessId, selectedWindow, selectedStatusFilter, selectedDateRange.start, selectedDateRange.end],
-    enabled: Boolean(businessId),
-    queryFn: () => fetchLanes(businessId, selectedWindow, selectedStatusFilter, selectedDateRange),
-  });
   const anomalyQuery = useQuery({
     queryKey: [
       "meta-anomalies",
@@ -1490,6 +1913,15 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
     ],
     enabled: Boolean(businessId),
     queryFn: () => fetchAnomalies(businessId, selectedWindow, selectedStatusFilter, selectedDateRange),
+  });
+  // Creative decision engine (separate from the Meta v1 media-buying engine). Surfaced
+  // as its own Action Now group, ranked only among creatives. Analysis-only.
+  const creativeDecisionsQuery = useQuery({
+    queryKey: ["meta-decisions-creative-engine", businessId, selectedDateRange?.end ?? null],
+    enabled: Boolean(businessId),
+    queryFn: () => fetchCreativeEngineDecisions(businessId, selectedDateRange?.end ?? ""),
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
   });
   const briefingLoading = pulseQuery.isLoading || laneQuery.isLoading;
   const briefingError = (pulseQuery.error ?? laneQuery.error ?? null) as Error | null;
@@ -1598,16 +2030,29 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   // Row search + sort over structured server truth; missing-metric rows kept
   // last. Applied to the rendered rec lists only (tab counts stay lane totals).
   const visibleActionRecs = useMemo(
-    () => sortMetaRecs(individualActionNow.filter((rec) => metaRecSearchMatch(rec, rowSearch)), rowSort),
-    [individualActionNow, rowSearch, rowSort],
+    () => sortMetaRecs(individualActionNow.filter((rec) => metaRecSearchMatch(rec, rowSearch) && passesMetaMinSpend(rec, minSpendOnly)), rowSort),
+    [individualActionNow, rowSearch, rowSort, minSpendOnly],
   );
+  // Creative decisions that call for a decision (excludes keep/out_of_scope). Same
+  // search + min-spend filters as the campaign rows; null spend stays hidden, never 0.
+  const creativeActionDecisions = useMemo(() => {
+    const data = creativeDecisionsQuery.data;
+    if (!data || !data.surfaceVisible) return [] as DecisionOutput[];
+    return data.decisions
+      .filter((decision) => ACTIONABLE_CREATIVE_LABELS.has(decision.label))
+      .filter((decision) => creativeDecisionSearchMatch(decision, rowSearch))
+      .filter(
+        (decision) =>
+          !minSpendOnly || (typeof decision.metrics.spend === "number" && decision.metrics.spend >= 50),
+      );
+  }, [creativeDecisionsQuery.data, rowSearch, minSpendOnly]);
   const visibleWatchingRecs = useMemo(
-    () => sortMetaRecs(filteredWatching.filter((rec) => metaRecSearchMatch(rec, rowSearch)), rowSort),
-    [filteredWatching, rowSearch, rowSort],
+    () => sortMetaRecs(filteredWatching.filter((rec) => metaRecSearchMatch(rec, rowSearch) && passesMetaMinSpend(rec, minSpendOnly)), rowSort),
+    [filteredWatching, rowSearch, rowSort, minSpendOnly],
   );
   const visibleNonSalesRecs = useMemo(
-    () => sortMetaRecs(filteredNonSales.filter((rec) => metaRecSearchMatch(rec, rowSearch)), rowSort),
-    [filteredNonSales, rowSearch, rowSort],
+    () => sortMetaRecs(filteredNonSales.filter((rec) => metaRecSearchMatch(rec, rowSearch) && passesMetaMinSpend(rec, minSpendOnly)), rowSort),
+    [filteredNonSales, rowSearch, rowSort, minSpendOnly],
   );
   const rowSearchActive = rowSearch.trim().length > 0;
   const allRecs = useMemo(() => [...filteredActionNow, ...filteredWatching], [filteredActionNow, filteredWatching]);
@@ -1625,27 +2070,68 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   );
 
   const trackingBlocked = isTrackingWriteBlocked(pulseQuery.data);
-  const trackingBannerVisible = trackingBlocked && !trackingDismissed;
+  const viewerReadOnlyReason = workspaceQuery.data?.viewer?.readOnly
+    ? (workspaceQuery.data.viewer.readOnlyReason ?? "Current viewer is read-only; write controls are downgraded to review.")
+    : null;
+  const isViewerReadOnly = Boolean(viewerReadOnlyReason);
+  const workspaceBanners = useMemo<MetaWorkspaceBanner[]>(() => {
+    const served = workspaceQuery.data?.banners ?? [];
+    if (served.length > 0) return served;
+    const fallback: MetaWorkspaceBanner[] = [];
+    const readiness = pulseQuery.data?.dataReadiness ?? null;
+    if (readiness && (readiness.status !== "ok" || readiness.isPartial)) {
+      fallback.push({
+        id: "data_readiness",
+        tone: "warning",
+        title: "Data is not fully ready.",
+        detail: readiness.notReadyReason ?? "The selected range is partially verified; numbers may be incomplete.",
+        blocking: false,
+      });
+    }
+    if (trackingBlocked) {
+      fallback.push({
+        id: "tracking_write_gate",
+        tone: "warning",
+        title: "Tracking degraded — purchase signal may be incomplete.",
+        detail: pulseQuery.data?.trackingHealth.detail ?? "Hard actions stay gated until tracking is checked.",
+        blocking: true,
+      });
+    }
+    const snapshotHealth = pulseQuery.data?.snapshotHealth ?? laneQuery.data?.snapshotHealth ?? null;
+    if (snapshotHealth && snapshotHealth.status !== "fresh") {
+      fallback.push({
+        id: "snapshot_health",
+        tone: snapshotHealth.status === "missing" ? "danger" : "warning",
+        title: "Decision snapshot is not fresh.",
+        detail: snapshotHealth.staleReason ?? "The served snapshot does not meet the current freshness contract.",
+        blocking: snapshotHealth.status === "missing",
+      });
+    }
+    if (workspaceQuery.data?.system.killSwitchEngaged) {
+      fallback.push({
+        id: "meta_write_kill_switch",
+        tone: "danger",
+        title: "Kill switch engaged.",
+        detail: workspaceQuery.data.system.killSwitchReason ?? "Meta writes are disabled by kill switch.",
+        blocking: true,
+      });
+    }
+    const viewer = workspaceQuery.data?.viewer ?? null;
+    if (viewer?.readOnly && viewer.readOnlyReason) {
+      fallback.push({
+        id: viewer.isReviewer ? "reviewer_read_only" : "workspace_read_only",
+        tone: "info",
+        title: viewer.isReviewer ? "Reviewer access is read-only." : "Workspace access is read-only.",
+        detail: viewer.readOnlyReason,
+        blocking: false,
+      });
+    }
+    return fallback;
+  }, [workspaceQuery.data, pulseQuery.data, laneQuery.data, trackingBlocked]);
 
-  // Scope-rail summary for the SELECTED business only — real payload values,
-  // never fabricated. Act-now = real lane action rows + active anomalies
-  // (mirrors the Action Now tab's meaning). Spend-today = pulse spendToday,
-  // with the same day-pace fallback the pulse strip uses; null renders as "—".
-  const scopeSelectedActNowCount = briefingUnavailable ? null : actionNow.length + anomalies.length;
-  const scopeSelectedSpendToday = briefingUnavailable
-    ? null
-    : pulseQuery.data?.pacing.spendToday ??
-      (pulseQuery.data?.pacing.dayPace != null && pulseQuery.data?.pacing.dailyTarget != null
-        ? pulseQuery.data.pacing.dayPace * pulseQuery.data.pacing.dailyTarget
-        : null);
-  const scopeSelectedDotTone: ScopeRailDotTone = briefingUnavailable
-    ? "unknown"
-    : trackingBlocked
-      ? "danger"
-      : scopeSelectedActNowCount != null && scopeSelectedActNowCount > 0
-        ? "warn"
-        : "ok";
   const laneSnapshotDate = laneQuery.data?.snapshotDate ?? null;
+  const deferredCount = localDeferredIds.size + campaignDefer.deferredCount + adsetDefer.deferredCount;
+  const actionGroupCount = rollups.length + visibleActionRecs.length;
 
   const currentUrlParams = () =>
     new URLSearchParams(
@@ -1707,9 +2193,8 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
 
   const refreshDecisionData = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["meta-lanes", businessId] }),
+      queryClient.invalidateQueries({ queryKey: ["meta-decisions-workspace", businessId] }),
       queryClient.invalidateQueries({ queryKey: ["meta-anomalies", businessId] }),
-      queryClient.invalidateQueries({ queryKey: ["meta-account-pulse", businessId] }),
     ]);
   };
 
@@ -1729,6 +2214,10 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
 
   const refreshSnapshotNow = async () => {
     if (!businessId || refreshingSnapshot) return;
+    if (isViewerReadOnly) {
+      setNotice(viewerReadOnlyReason ?? "Current viewer is read-only; snapshot refresh is unavailable.");
+      return;
+    }
     setRefreshingSnapshot(true);
     setNotice(null);
     try {
@@ -1759,11 +2248,22 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   };
 
   const markActed = async (rec: MetaRecommendation, subtype: string) => {
+    if (isViewerReadOnly) return;
     setLocalResponseStates((current) => ({ ...current, [rec.id]: "acted" }));
     await postResponse({ businessId, recId: rec.id, action: "acted", actionSubtype: subtype }).catch(() => null);
   };
 
   const deferRec = async (rec: MetaRecommendation) => {
+    if (isViewerReadOnly) {
+      setPrimaryActionFeedback({
+        recId: rec.id,
+        tone: "info",
+        title: "Read-only access.",
+        detail: viewerReadOnlyReason,
+      });
+      openDrillForRec(rec);
+      return;
+    }
     const scopeId = scopeIdForRec(rec);
     const state = rec.level === "adset" ? adsetDefer : campaignDefer;
     setLocalDeferredIds((current) => new Set(current).add(rec.id));
@@ -1779,6 +2279,16 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   };
 
   const undeferRec = async (rec: MetaRecommendation) => {
+    if (isViewerReadOnly) {
+      setPrimaryActionFeedback({
+        recId: rec.id,
+        tone: "info",
+        title: "Read-only access.",
+        detail: viewerReadOnlyReason,
+      });
+      openDrillForRec(rec);
+      return;
+    }
     const scopeId = scopeIdForRec(rec);
     const state = rec.level === "adset" ? adsetDefer : campaignDefer;
     setLocalDeferredIds((current) => {
@@ -1874,6 +2384,16 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   };
 
   const performPrimary = async (rec: MetaRecommendation) => {
+    if (isViewerReadOnly) {
+      setPrimaryActionFeedback({
+        recId: rec.id,
+        tone: "info",
+        title: "Read-only access.",
+        detail: viewerReadOnlyReason,
+      });
+      openDrillForRec(rec);
+      return;
+    }
     setPrimaryActionFeedback(null);
     // Routing follows the server-owned actionKind; the UI never infers what
     // a primary control does from the rec type or its display text.
@@ -1933,6 +2453,16 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   };
 
   const resumeRecommendation = async (rec: MetaRecommendation) => {
+    if (isViewerReadOnly) {
+      setPrimaryActionFeedback({
+        recId: rec.id,
+        tone: "info",
+        title: "Read-only access.",
+        detail: viewerReadOnlyReason,
+      });
+      openDrillForRec(rec);
+      return;
+    }
     const entityId = rec.level === "campaign" ? rec.campaignId : rec.level === "adset" ? rec.adsetId : null;
     if (!entityId || (rec.level !== "campaign" && rec.level !== "adset")) return;
     setPrimaryActionFeedback(null);
@@ -1977,6 +2507,15 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   };
 
   const resumeArchivedEntity = async (row: MetaArchivedEntity) => {
+    if (isViewerReadOnly) {
+      setArchiveActionFeedback({
+        key: `${row.level}-${row.id}`,
+        tone: "info",
+        title: "Read-only access.",
+        detail: viewerReadOnlyReason,
+      });
+      return;
+    }
     if (row.status !== "PAUSED") return;
     const key = `${row.level}-${row.id}`;
     setArchiveActionFeedback(null);
@@ -2065,6 +2604,18 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   };
 
   const handlePrimary = async (rec: MetaRecommendation) => {
+    if (isViewerReadOnly) {
+      openDrillForRec(rec);
+      return;
+    }
+    // A pause is a delivery-stopping write: always show the Current -> Proposed
+    // delta first. This modal subsumes the tracking-anomaly confirm for pauses,
+    // so the trackingBlocked branch is chained into the delta Confirm rather
+    // than shown as a second dialog.
+    if (rec.actionKind === "execute_pause") {
+      setPendingPauseRec(rec);
+      return;
+    }
     if (trackingBlocked && isTrackingSensitiveRec(rec)) {
       setPendingPrimaryRec(rec);
       return;
@@ -2072,9 +2623,48 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
     await performPrimary(rec);
   };
 
+  const confirmPendingPause = () => {
+    const rec = pendingPauseRec;
+    setPendingPauseRec(null);
+    if (rec) void performPrimary(rec);
+  };
+
+  // Bulk pause: pauses each selected entity through the exact single-row pause
+  // path (performPrimary -> /api/meta/adsets/{id}/pause). Only adset-level
+  // execute_pause rows are pausable, so non-pausable selections are left
+  // untouched rather than silently "handled".
+  const bulkPausableRecs = useMemo(
+    () => selectedRecs.filter((rec) => rec.actionKind === "execute_pause" && Boolean(rec.adsetId)),
+    [selectedRecs],
+  );
+
+  const confirmBulkPause = async () => {
+    setBulkPauseOpen(false);
+    for (const rec of bulkPausableRecs) {
+      await performPrimary(rec);
+    }
+  };
+
+  const deferSelectedRecs = async () => {
+    for (const rec of selectedRecs) {
+      await deferRec(rec);
+    }
+  };
+
   const confirmOverlay = async () => {
     const rec = overlay.rec;
     if (!rec) return;
+    if (isViewerReadOnly) {
+      setPrimaryActionFeedback({
+        recId: rec.id,
+        tone: "info",
+        title: "Read-only access.",
+        detail: viewerReadOnlyReason,
+      });
+      setOverlay(EMPTY_OVERLAY);
+      openDrillForRec(rec);
+      return;
+    }
     setPrimaryActionFeedback(null);
     if (overlay.mode === "apply_bid" && rec.adsetId) {
       const bidAmountMinor = proposedBidMinorForExecute(rec);
@@ -2140,6 +2730,10 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
     }
     const first = selectedRecs[0];
     if (!first) return;
+    if (isViewerReadOnly && action !== "compare") {
+      openDrillForRec(first);
+      return;
+    }
     if (action === "rebuild") openOverlayForRec(first, "rebuild");
     if (action === "duplicate") openOverlayForRec(first, "duplicate");
     if (action === "apply_bid") openOverlayForRec(first, "apply_bid");
@@ -2173,6 +2767,11 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   };
 
   const handleCompareDrawerAction = async (action: "pause_weakest" | "scale_strongest" | "launch_selected") => {
+    if (isViewerReadOnly) {
+      const first = selectedRecs[0];
+      if (first) openDrillForRec(first);
+      return;
+    }
     if (action === "launch_selected") {
       openLaunchpadForSelectedRecs();
       return;
@@ -2186,7 +2785,30 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
   const error = briefingError ?? ((anomalyQuery.error ?? null) as Error | null);
 
   return (
-    <div className="ad-final" data-testid="meta-platform-page">
+    <div className="ad-final meta-decisions-final" data-testid="meta-platform-page">
+      {drillItem ? (
+        <MetaMobileEvidenceScreen
+          item={drillItem}
+          targetRoas={targetRoas}
+          moneyCurrency={moneyCurrency}
+          onBack={() => setDrillItem(null)}
+        />
+      ) : (
+        <MetaMobileDecisionsScreen
+          businessName={businessName}
+          moneyCurrency={moneyCurrency}
+          pulse={pulseQuery.data ?? null}
+          laneSnapshotDate={laneSnapshotDate}
+          loading={loading}
+          error={error}
+          anomalies={anomalies}
+          actionRows={visibleActionRecs}
+          watchingRows={visibleWatchingRecs}
+          targetRoas={targetRoas}
+          onOpenRec={(rec) => openDrillForRec(rec)}
+          onOpenAnomaly={(anomaly) => setDrillItem({ mode: "anomaly", anomaly })}
+        />
+      )}
       <div className="topbar">
         <div className="meta-topbar-left">
           <div>
@@ -2205,9 +2827,15 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
             loading={briefingLoading}
             error={briefingError}
           />
-          <button type="button" className="btn" disabled={refreshingSnapshot} onClick={refreshSnapshotNow}>
+          <button
+            type="button"
+            className="btn"
+            disabled={refreshingSnapshot || isViewerReadOnly}
+            title={isViewerReadOnly ? viewerReadOnlyReason ?? "Current viewer is read-only." : undefined}
+            onClick={refreshSnapshotNow}
+          >
             <RefreshCw className="inline-block shrink-0" size={13} aria-hidden="true" />
-            {refreshingSnapshot ? "Running..." : "Run snapshot"}
+            {isViewerReadOnly ? "Snapshot read-only" : refreshingSnapshot ? "Running..." : "Run snapshot"}
           </button>
           <a className="btn btn--primary" href="/platforms/meta/launchpad?fromMetaBriefing=true&mode=duplicate">+ New campaign</a>
         </div>
@@ -2239,24 +2867,18 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
           <div className="msg">
             <b>Meta briefing could not load.</b>
             <span className="sub">
-              {briefingError.message || "Pulse and decision counts are withheld to avoid showing false zeros."}
+              {briefingError.message || "Decision metrics and counts are withheld to avoid showing false zeros."}
             </span>
           </div>
-        </div>
-      ) : null}
-
-      {pulseQuery.data?.dataReadiness &&
-      (pulseQuery.data.dataReadiness.status !== "ok" ||
-        pulseQuery.data.dataReadiness.isPartial) ? (
-        <div className="banner warn" data-testid="meta-data-readiness">
-          <div className="icon">i</div>
-          <div className="msg">
-            <b>Data is not fully ready.</b>
-            <span className="sub">
-              {pulseQuery.data.dataReadiness.notReadyReason ??
-                "The selected range is partially verified; numbers may be incomplete."}
-            </span>
-          </div>
+          <button
+            type="button"
+            className="btn btn--sm"
+            data-testid="meta-briefing-retry"
+            disabled={workspaceQuery.isFetching}
+            onClick={() => void workspaceQuery.refetch()}
+          >
+            {workspaceQuery.isFetching ? "Retrying…" : "Retry"}
+          </button>
         </div>
       ) : null}
 
@@ -2267,17 +2889,12 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
         </div>
       ) : null}
 
-      {trackingBannerVisible ? (
-        <div className="banner danger">
-          <div className="icon">!</div>
-          <div className="msg">
-            <b>Tracking anomaly active.</b>
-            <span className="sub">{pulseQuery.data?.trackingHealth.detail ?? "Hard actions stay gated until tracking is checked."}</span>
-          </div>
-          <button type="button" className="btn btn--sm" onClick={() => setDrillItem(anomalies[0] ? { mode: "anomaly", anomaly: anomalies[0] } : null)}>View details</button>
-          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setTrackingDismissed(true)}>Hide banner</button>
-        </div>
-      ) : null}
+      <MetaWorkspacePostureBanners
+        banners={workspaceBanners}
+        trackingDismissed={trackingDismissed}
+        onDismissTracking={() => setTrackingDismissed(true)}
+        onOpenTrackingDetails={() => setDrillItem(anomalies[0] ? { mode: "anomaly", anomaly: anomalies[0] } : null)}
+      />
 
       <div className="lane-tabs">
         <MetaLaneTab active={activeLane === "action"} className="action" label="Action Now" count={briefingUnavailable ? null : filteredActionNow.length + anomalies.length} onClick={() => setActiveLane("action")} />
@@ -2287,7 +2904,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
         <MetaLaneTab active={activeLane === "archive"} label="Archive" count={briefingUnavailable ? null : filteredArchive.length} onClick={() => setActiveLane("archive")} />
         <div style={{ flex: 1 }} />
         <div className="tab" style={{ color: "var(--muted)" }}>
-          <span className="chip chip--ghost"><span className="dot" />Deferred {localDeferredIds.size + campaignDefer.deferredCount + adsetDefer.deferredCount}</span>
+          <span className="chip chip--ghost"><span className="dot" />Deferred {deferredCount}</span>
         </div>
       </div>
 
@@ -2473,6 +3090,46 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
             width: 150,
           }}
         />
+        <button
+          type="button"
+          data-testid="meta-min-spend-toggle"
+          data-active={minSpendOnly ? "true" : "false"}
+          aria-pressed={minSpendOnly}
+          onClick={() => setMinSpendOnly((current) => !current)}
+          title={`Client-only: hide rows with window spend below ${formatMoney(META_MIN_SPEND_THRESHOLD, moneyCurrency)}. Rows with no spend stay hidden — never counted as 0.`}
+          style={{
+            fontFamily: "inherit",
+            fontSize: 11.5,
+            color: minSpendOnly ? "var(--ink)" : "var(--muted)",
+            background: minSpendOnly ? "var(--surface)" : "var(--surface-2)",
+            border: `1px solid ${minSpendOnly ? "var(--ink)" : "var(--border-2)"}`,
+            borderRadius: "var(--r-sm)",
+            padding: "4px 9px",
+            cursor: "pointer",
+          }}
+        >
+          Min spend ≥ {formatMoney(META_MIN_SPEND_THRESHOLD, moneyCurrency)}
+        </button>
+        <button
+          type="button"
+          data-testid="meta-density-toggle"
+          data-density={laneDensity}
+          aria-label={`Row density: ${laneDensity}`}
+          onClick={() => setLaneDensity((current) => (current === "cozy" ? "compact" : "cozy"))}
+          title="Toggle row density (client-only)."
+          style={{
+            fontFamily: "inherit",
+            fontSize: 11.5,
+            color: "var(--muted)",
+            background: "var(--surface-2)",
+            border: "1px solid var(--border-2)",
+            borderRadius: "var(--r-sm)",
+            padding: "4px 9px",
+            cursor: "pointer",
+          }}
+        >
+          {laneDensity === "cozy" ? "Compact rows" : "Cozy rows"}
+        </button>
         <span
           className="filter-info-chip"
           title="These controls narrow server-provided lanes. They do not recompute recommendation lanes in the UI."
@@ -2483,17 +3140,6 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
       </div>
 
       <div className="meta-content-row">
-        <MetaScopeRail
-          businesses={scopeRailBusinesses}
-          selectedBusinessId={businessId}
-          onSelect={selectBusiness}
-          open={scopeRailOpen}
-          onToggle={() => setScopeRailOpen((open) => !open)}
-          selectedActNowCount={scopeSelectedActNowCount}
-          selectedSpendToday={scopeSelectedSpendToday}
-          selectedDotTone={scopeSelectedDotTone}
-          moneyCurrency={moneyCurrency}
-        />
         <div className="meta-queue-col">
           <FinalMetaPulse
             pulse={pulseQuery.data ?? null}
@@ -2511,11 +3157,19 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
             loading={briefingLoading}
             error={briefingError}
           />
+          <MetaOvernightDigest
+            snapshotDate={laneSnapshotDate}
+            digest={workspaceQuery.data?.digest ?? null}
+            actionStates={workspaceQuery.data?.queue.actionStates ?? null}
+            anomaliesCount={anomalies.length}
+            deferredCount={deferredCount}
+          />
           <ReadinessNotice
             pulse={pulseQuery.data ?? null}
             onManageLabels={() => setLabelModalOpen(true)}
             onRefresh={refreshSnapshotNow}
             refreshing={refreshingSnapshot}
+            readOnlyReason={viewerReadOnlyReason}
           />
           <div className="workspace workspace-rel">
         {loading ? (
@@ -2533,17 +3187,28 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
             <div className="lane-empty">{error instanceof Error ? error.message : "Meta briefing failed."}</div>
           </div>
         ) : (
-          <div className="lane-stack">
+          <div className="lane-stack" data-density={laneDensity}>
             {activeLane === "action" ? (
               <>
-                {anomalies.length > 0 && anomalyQuery.data?.snapshotDate ? (
-                  <div className="micro" data-testid="meta-anomaly-asof" style={{ padding: "2px 4px" }}>
-                    anomaly scan as of {anomalyQuery.data.snapshotDate}
-                  </div>
+                {anomalies.length > 0 ? (
+                  <MetaLaneGroupHeader
+                    title={`ANOMALIES · ${anomalies.length} · counted separately`}
+                    note={
+                      <small data-testid="meta-anomaly-asof">
+                        {anomalyQuery.data?.snapshotDate ? `anomaly scan as of ${anomalyQuery.data.snapshotDate}` : "anomaly scan as of —"}
+                      </small>
+                    }
+                  />
                 ) : null}
                 {anomalies.map((anomaly) => (
                   <MetaActionCard key={anomaly.id} anomaly={anomaly} onOpenDrill={(item) => setDrillItem({ mode: "anomaly", anomaly: item as MetaAnomaly })} />
                 ))}
+                {actionGroupCount > 0 ? (
+                  <MetaLaneGroupHeader
+                    title={`CAMPAIGNS & AD SETS · ${actionGroupCount}`}
+                    note="server-provided rows; filters only narrow the queue"
+                  />
+                ) : null}
                 {rollups.map((rollup) => (
                   <article key={rollup.campaignId} className="dcard" data-card="cross-adset-rollup">
                     <div className="check" />
@@ -2586,6 +3251,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                     responseState={responseStateForRec(rec)}
                     primaryPending={pendingActionRecId === rec.id}
                     actionFeedback={primaryActionFeedback?.recId === rec.id ? primaryActionFeedback : null}
+                    readOnlyReason={viewerReadOnlyReason}
                     evidenceWindow={selectedWindow}
                     onSelect={selectRec}
                     onPrimary={handlePrimary}
@@ -2596,10 +3262,25 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                     onCompare={compareRec}
                   />
                 ))}
-                {rowSearchActive && visibleActionRecs.length === 0 && rollups.length === 0 && anomalies.length === 0 && filteredActionNow.length > 0 ? (
+                {creativeActionDecisions.length > 0 ? (
+                  <>
+                    <MetaLaneGroupHeader
+                      title={`CREATIVES · ${creativeActionDecisions.length}`}
+                      note="creative decision engine · ranked separately — no fake global rank across engines"
+                    />
+                    {creativeActionDecisions.map((decision) => (
+                      <MetaCreativeDecisionCard
+                        key={decision.creativeId}
+                        decision={decision}
+                        moneyCurrency={moneyCurrency}
+                      />
+                    ))}
+                  </>
+                ) : null}
+                {rowSearchActive && visibleActionRecs.length === 0 && rollups.length === 0 && anomalies.length === 0 && creativeActionDecisions.length === 0 && filteredActionNow.length > 0 ? (
                   <div className="lane-empty">No Action Now rows match “{rowSearch.trim()}”.</div>
                 ) : null}
-                {filteredActionNow.length === 0 && anomalies.length === 0 ? (
+                {filteredActionNow.length === 0 && anomalies.length === 0 && creativeActionDecisions.length === 0 ? (
                   <EmptyActionState
                     anomaliesCount={0}
                     pulse={pulseQuery.data}
@@ -2608,42 +3289,97 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                 ) : null}
               </>
             ) : activeLane === "watching" ? (
-              <>
-                <WatchingSegments
-                  segments={laneQuery.data?.watchingSegments}
-                  onManageLabels={() => setLabelModalOpen(true)}
-                />
-                {visibleWatchingRecs.map((rec) => (
-                  <MetaActionCard
-                    key={rec.id}
-                    moneyCurrency={moneyCurrency}
-                    targetRoas={targetRoas}
-                    rec={rec}
-                    selected={selectedIds.has(rec.id)}
-                    deferred={isDeferred(rec)}
-                    responseState={responseStateForRec(rec)}
-                    primaryPending={pendingActionRecId === rec.id}
-                    actionFeedback={primaryActionFeedback?.recId === rec.id ? primaryActionFeedback : null}
-                    evidenceWindow={selectedWindow}
-                    onSelect={selectRec}
-                    onPrimary={handlePrimary}
-                    onResume={requestResumeRecommendation}
-                    onOpenDrill={(item) => openDrillForRec(item as MetaRecommendation)}
-                    onDefer={deferRec}
-                    onUndoDefer={undeferRec}
-                    onCompare={compareRec}
-                  />
-                ))}
-                {visibleWatchingRecs.length === 0 ? (
-                  <div className="lane-empty">
-                    {rowSearchActive && filteredWatching.length > 0
-                      ? `No watchlist items match “${rowSearch.trim()}”.`
-                      : metaFiltersActive
-                        ? "No watchlist items match the current filters."
-                        : "No watchlist items in the latest snapshot."}
-                  </div>
-                ) : null}
-              </>
+              visibleWatchingRecs.length === 0 ? (
+                <div className="lane-empty">
+                  {rowSearchActive && filteredWatching.length > 0
+                    ? `No watchlist items match “${rowSearch.trim()}”.`
+                    : metaFiltersActive
+                      ? "No watchlist items match the current filters."
+                      : "No watchlist items in the latest snapshot."}
+                </div>
+              ) : (
+                (() => {
+                  // Segment the rendered watchlist rows by the server-owned
+                  // rec.watchSegment. Header copy (label/description/cta) comes
+                  // only from the watchingSegments[] payload; a segment the
+                  // server did not describe still renders with just its header
+                  // and count, never fabricated prose.
+                  const copyByKey = new Map(
+                    (laneQuery.data?.watchingSegments ?? []).map((segment) => [segment.key, segment]),
+                  );
+                  const grouped = new Map<MetaWatchingSegmentKey, MetaRecommendation[]>();
+                  for (const rec of visibleWatchingRecs) {
+                    const key = (rec.watchSegment ?? "other") as MetaWatchingSegmentKey;
+                    grouped.set(key, [...(grouped.get(key) ?? []), rec]);
+                  }
+                  const orderedKeys = [
+                    ...META_WATCHING_SEGMENT_ORDER.filter((key) => grouped.has(key)),
+                    ...[...grouped.keys()].filter((key) => !META_WATCHING_SEGMENT_ORDER.includes(key)),
+                  ];
+                  return orderedKeys.map((key) => {
+                    const recs = grouped.get(key) ?? [];
+                    const copy = copyByKey.get(key) ?? null;
+                    return (
+                      <div key={key} data-meta-watching-segment={key}>
+                        <MetaLaneGroupHeader
+                          title={`SEGMENT · ${key.toUpperCase()} · ${recs.length}`}
+                          note={copy?.label ?? undefined}
+                        />
+                        {copy?.description ? (
+                          <p
+                            className="lane-segment-explain"
+                            style={{ margin: "2px 2px 8px", fontSize: 12, color: "var(--muted)" }}
+                          >
+                            {copy.description}
+                          </p>
+                        ) : null}
+                        {copy?.ctaLabel ? (
+                          key === "unlabeled" ? (
+                            <button
+                              type="button"
+                              className="btn btn--ghost"
+                              style={{ marginBottom: 8 }}
+                              onClick={() => setLabelModalOpen(true)}
+                            >
+                              {copy.ctaLabel}
+                            </button>
+                          ) : copy.href ? (
+                            <a
+                              className="btn btn--ghost"
+                              href={copy.href}
+                              style={{ display: "inline-flex", marginBottom: 8 }}
+                            >
+                              {copy.ctaLabel}
+                            </a>
+                          ) : null
+                        ) : null}
+                        {recs.map((rec) => (
+                          <MetaActionCard
+                            key={rec.id}
+                            moneyCurrency={moneyCurrency}
+                            targetRoas={targetRoas}
+                            rec={rec}
+                            selected={selectedIds.has(rec.id)}
+                            deferred={isDeferred(rec)}
+                            responseState={responseStateForRec(rec)}
+                            primaryPending={pendingActionRecId === rec.id}
+                            actionFeedback={primaryActionFeedback?.recId === rec.id ? primaryActionFeedback : null}
+                            readOnlyReason={viewerReadOnlyReason}
+                            evidenceWindow={selectedWindow}
+                            onSelect={selectRec}
+                            onPrimary={handlePrimary}
+                            onResume={requestResumeRecommendation}
+                            onOpenDrill={(item) => openDrillForRec(item as MetaRecommendation)}
+                            onDefer={deferRec}
+                            onUndoDefer={undeferRec}
+                            onCompare={compareRec}
+                          />
+                        ))}
+                      </div>
+                    );
+                  });
+                })()
+              )
             ) : activeLane === "healthy" ? (
               healthyGroups.length > 0 ? (
                 <MetaHealthyHierarchy groups={healthyGroups} moneyCurrency={moneyCurrency} />
@@ -2670,6 +3406,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                       responseState={responseStateForRec(rec)}
                       primaryPending={pendingActionRecId === rec.id}
                       actionFeedback={primaryActionFeedback?.recId === rec.id ? primaryActionFeedback : null}
+                      readOnlyReason={viewerReadOnlyReason}
                       evidenceWindow={selectedWindow}
                       onPrimary={handlePrimary}
                       onResume={requestResumeRecommendation}
@@ -2691,7 +3428,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                 ) : null}
               </>
             ) : filteredArchive.length > 0 ? (
-              <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white" data-meta-archive>
+              <div className="overflow-x-auto rounded-[8px] border border-[var(--adc-b1)] bg-[var(--adc-s2)]" data-meta-archive>
                 <table className="asset-table">
                   <thead>
                     <tr>
@@ -2727,11 +3464,12 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
                                 <button
                                   type="button"
                                   className="btn btn--sm"
-                                  disabled={pending}
+                                  disabled={pending || isViewerReadOnly}
+                                  title={isViewerReadOnly ? viewerReadOnlyReason ?? "Current viewer is read-only." : undefined}
                                   onClick={() => requestResumeArchivedEntity(row)}
                                 >
                                   <Play className="inline-block shrink-0" size={12} aria-hidden="true" />
-                                  {pending ? "Working..." : row.level === "campaign" ? "Resume campaign" : "Resume adset"}
+                                  {isViewerReadOnly ? "Review only" : pending ? "Working..." : row.level === "campaign" ? "Resume campaign" : "Resume adset"}
                                 </button>
                                 {feedback ? (
                                   <div className={cn("meta-action-feedback", `meta-action-feedback--${feedback.tone}`)} role="status" data-archive-action-feedback={feedback.tone}>
@@ -2761,9 +3499,34 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
               <div className="bulkbar">
                 <span>{selectedRecs.length} selected · {selectedRecs.slice(0, 2).map(scopeNameForRec).join(", ")}</span>
                 <div className="acts">
-                  <button type="button" className="btn" onClick={() => handleBulkAction("compare")}>Compare</button>
-                  <button type="button" className="btn" onClick={() => handleBulkAction("duplicate")}>Send to Launchpad</button>
-                  <button type="button" className="btn btn--danger" onClick={() => handleBulkAction("rebuild")}>Rebuild</button>
+                  <button
+                    type="button"
+                    className="btn btn--danger"
+                    data-testid="meta-bulk-pause"
+                    disabled={isViewerReadOnly || bulkPausableRecs.length === 0}
+                    title={
+                      isViewerReadOnly
+                        ? viewerReadOnlyReason ?? "Current viewer is read-only."
+                        : bulkPausableRecs.length === 0
+                          ? "No selected rows are pausable ad sets."
+                          : undefined
+                    }
+                    onClick={() => setBulkPauseOpen(true)}
+                  >
+                    Pause selected
+                  </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    data-testid="meta-bulk-defer"
+                    disabled={isViewerReadOnly}
+                    title={isViewerReadOnly ? viewerReadOnlyReason ?? "Current viewer is read-only." : undefined}
+                    onClick={() => void deferSelectedRecs()}
+                  >
+                    Defer selected 24h
+                  </button>
+                  <button type="button" className="btn btn--ghost" onClick={() => handleBulkAction("compare")}>Compare</button>
+                  <button type="button" className="btn btn--ghost" disabled={isViewerReadOnly} title={isViewerReadOnly ? viewerReadOnlyReason ?? "Current viewer is read-only." : undefined} onClick={() => handleBulkAction("duplicate")}>Send to Launchpad</button>
                   <button type="button" className="btn btn--ghost" onClick={() => handleBulkAction("clear")}>×</button>
                 </div>
               </div>
@@ -2791,7 +3554,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
               variant="push"
               onClose={closeDrill}
               onLaunch={
-                drillItem?.mode === "decision" && launchModeForRec(drillItem.rec)
+                !isViewerReadOnly && drillItem?.mode === "decision" && launchModeForRec(drillItem.rec)
                   ? () => openOverlayForRec(drillItem.rec, launchModeForRec(drillItem.rec)!)
                   : undefined
               }
@@ -2834,6 +3597,133 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
         </div>
       ) : null}
 
+      {pendingPauseRec ? (
+        <div
+          className="modal-backdrop meta-label-modal-backdrop"
+          data-testid="meta-pause-delta-modal"
+          onMouseDown={() => setPendingPauseRec(null)}
+        >
+          <div
+            className="meta-label-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="meta-pause-delta-title"
+            style={{ maxWidth: 440 }}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="meta-label-modal-head">
+              <div>
+                <h2 id="meta-pause-delta-title">Pause {scopeNameForRec(pendingPauseRec)}?</h2>
+                <p>Review the status change before this write reaches Meta.</p>
+              </div>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                aria-label="Cancel pause"
+                onClick={() => setPendingPauseRec(null)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="meta-label-modal-body">
+              <div
+                data-testid="meta-pause-delta-grid"
+                style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}
+              >
+                <div style={{ border: "1px solid var(--border-2)", borderRadius: "var(--r-sm)", padding: "8px 10px" }}>
+                  <div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.4 }}>Current</div>
+                  <div style={{ fontSize: 13 }}>Status ACTIVE</div>
+                </div>
+                <div style={{ border: "1px solid var(--border-2)", borderRadius: "var(--r-sm)", padding: "8px 10px" }}>
+                  <div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.4 }}>Proposed</div>
+                  <div style={{ fontSize: 13 }}>Status PAUSED</div>
+                </div>
+              </div>
+              <p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>
+                Confirming stops the ad set from delivering. It stays paused until a resume, which is a separate activation write.
+              </p>
+              {trackingBlocked ? (
+                <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>
+                  Tracking is currently flagged; purchase signal may be incomplete. This confirmation is the tracking gate — proceed only if the pause is warranted.
+                </p>
+              ) : null}
+            </div>
+            <div className="meta-label-modal-foot" style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "12px 16px" }}>
+              <button type="button" className="btn btn--ghost" onClick={() => setPendingPauseRec(null)}>
+                Cancel
+              </button>
+              <button type="button" className="btn btn--danger" data-testid="meta-pause-delta-confirm" onClick={confirmPendingPause}>
+                Confirm pause
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {bulkPauseOpen ? (
+        <div
+          className="modal-backdrop meta-label-modal-backdrop"
+          data-testid="meta-bulk-pause-modal"
+          onMouseDown={() => setBulkPauseOpen(false)}
+        >
+          <div
+            className="meta-label-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="meta-bulk-pause-title"
+            style={{ maxWidth: 480 }}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="meta-label-modal-head">
+              <div>
+                <h2 id="meta-bulk-pause-title">Pause {bulkPausableRecs.length} ad {bulkPausableRecs.length === 1 ? "set" : "sets"}?</h2>
+                <p>Each row is paused individually through the verified Meta pause path.</p>
+              </div>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                aria-label="Cancel bulk pause"
+                onClick={() => setBulkPauseOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="meta-label-modal-body">
+              <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+                {bulkPausableRecs.map((rec) => (
+                  <li
+                    key={rec.id}
+                    style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 12.5, borderBottom: "1px solid var(--border-2)", paddingBottom: 6 }}
+                  >
+                    <span>{scopeNameForRec(rec)}</span>
+                    <span style={{ fontVariantNumeric: "tabular-nums", color: "var(--muted)" }}>
+                      {formatMoney(rec.metrics?.spend, moneyCurrency)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 10 }}>
+                Money shown is each entity&rsquo;s own window spend. Totals are not summed — mixed-currency accounts cannot be added together.
+              </p>
+            </div>
+            <div className="meta-label-modal-foot" style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "12px 16px" }}>
+              <button type="button" className="btn btn--ghost" onClick={() => setBulkPauseOpen(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn--danger"
+                data-testid="meta-bulk-pause-confirm"
+                disabled={bulkPausableRecs.length === 0}
+                onClick={() => void confirmBulkPause()}
+              >
+                Pause {bulkPausableRecs.length} ad {bulkPausableRecs.length === 1 ? "set" : "sets"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {pushInspector ? null : (
         <MetaDrillDrawer
           moneyCurrency={moneyCurrency}
@@ -2842,7 +3732,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
           variant="overlay"
           onClose={closeDrill}
           onLaunch={
-            drillItem?.mode === "decision" && launchModeForRec(drillItem.rec)
+            !isViewerReadOnly && drillItem?.mode === "decision" && launchModeForRec(drillItem.rec)
               ? () => openOverlayForRec(drillItem.rec, launchModeForRec(drillItem.rec)!)
               : undefined
           }
@@ -2857,6 +3747,7 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
           name: overlay.rec ? scopeNameForRec(overlay.rec) : "Meta action",
           campaign: overlay.rec?.campaignName,
           proposedBidCap: overlay.rec ? (proposedBidDisplayValue(overlay.rec) ?? undefined) : undefined,
+          currencyCode: moneyCurrency ?? undefined,
         }}
         onClose={() => setOverlay(EMPTY_OVERLAY)}
         onConfirm={confirmOverlay}
@@ -2872,21 +3763,27 @@ export function MetaPlatformPage({ businessId, businessName, currency = "USD" }:
           <>
             <button
               type="button"
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-rose-600 text-white border border-rose-600 hover:bg-rose-700 text-[12.5px] font-medium"
+              className="inline-flex items-center gap-1 rounded-[6px] border border-[var(--adc-danger-fg)] bg-[var(--adc-danger-fg)] px-3 py-1.5 text-[12.5px] font-medium text-[var(--adc-s2)] hover:brightness-95"
+              disabled={isViewerReadOnly}
+              title={isViewerReadOnly ? viewerReadOnlyReason ?? "Current viewer is read-only." : undefined}
               onClick={() => void handleCompareDrawerAction("pause_weakest")}
             >
               <AlertTriangle className="inline-block shrink-0" size={13} aria-hidden="true" /> Pause weakest
             </button>
             <button
               type="button"
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-emerald-600 text-white border border-emerald-600 hover:bg-emerald-700 text-[12.5px] font-medium"
+              className="inline-flex items-center gap-1 rounded-[6px] border border-[var(--adc-pos-fg)] bg-[var(--adc-pos-fg)] px-3 py-1.5 text-[12.5px] font-medium text-[var(--adc-s2)] hover:brightness-95"
+              disabled={isViewerReadOnly}
+              title={isViewerReadOnly ? viewerReadOnlyReason ?? "Current viewer is read-only." : undefined}
               onClick={() => void handleCompareDrawerAction("scale_strongest")}
             >
               <TrendingUp className="inline-block shrink-0" size={13} aria-hidden="true" /> Scale strongest
             </button>
             <button
               type="button"
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-blue-200 bg-white text-blue-700 hover:bg-blue-50 text-[12.5px] font-medium"
+              className="inline-flex items-center gap-1 rounded-[6px] border border-[var(--adc-info-bd)] bg-[var(--adc-s2)] px-3 py-1.5 text-[12.5px] font-medium text-[var(--adc-info-fg)] hover:bg-[var(--adc-info-bg)]"
+              disabled={isViewerReadOnly}
+              title={isViewerReadOnly ? viewerReadOnlyReason ?? "Current viewer is read-only." : undefined}
               onClick={() => void handleCompareDrawerAction("launch_selected")}
             >
               <Rocket className="inline-block shrink-0" size={13} aria-hidden="true" /> Send selected to Launchpad

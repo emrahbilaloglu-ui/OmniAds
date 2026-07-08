@@ -20,6 +20,23 @@ export interface LaunchpadOverlayItem {
   label?: DecisionLabel;
   currentBidCap?: number;
   proposedBidCap?: number;
+  /** Account currency for bid-cap display. Missing → values render without a
+   *  currency symbol rather than a fabricated "$". */
+  currencyCode?: string;
+}
+
+/** Honest bid-cap formatter: a missing value renders "—" (never a placeholder),
+ *  and money uses the account currency instead of a hardcoded "$". */
+function formatBidCap(value: number | undefined, currency: string | undefined) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  if (currency && /^[A-Z]{3}$/.test(currency)) {
+    return new Intl.NumberFormat("en", {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 2,
+    }).format(value);
+  }
+  return value.toLocaleString();
 }
 
 interface LaunchpadOverlayProps {
@@ -116,8 +133,8 @@ export function LaunchpadOverlay({
 }
 
 function getLaunchpadModeConfig(mode: LaunchpadOverlayMode, item: LaunchpadOverlayItem) {
-  const bid = item.proposedBidCap ?? 22;
-  const currentBid = item.currentBidCap ?? 18;
+  const proposedBidText = formatBidCap(item.proposedBidCap, item.currencyCode);
+  const currentBidText = formatBidCap(item.currentBidCap, item.currencyCode);
 
   if (mode === "rebuild") {
     return {
@@ -155,7 +172,7 @@ function getLaunchpadModeConfig(mode: LaunchpadOverlayMode, item: LaunchpadOverl
 
   if (mode === "apply_bid") {
     return {
-      title: `Apply bid cap $${bid}`,
+      title: item.proposedBidCap != null ? `Apply bid cap ${proposedBidText}` : "Apply bid cap",
       subtitle: "Inline application — no Launchpad teleport.",
       icon: Sliders,
       iconBg: "bg-blue-100",
@@ -164,7 +181,7 @@ function getLaunchpadModeConfig(mode: LaunchpadOverlayMode, item: LaunchpadOverl
       primaryLabel: "Apply",
       body: (
         <>
-          <div className="flex items-start gap-2"><span className="text-neutral-400 mt-0.5"><Sliders className="inline-block shrink-0" size={12} aria-hidden="true" /></span><span>Current cap ${currentBid} → proposed ${bid}. Re-enters learning briefly.</span></div>
+          <div className="flex items-start gap-2"><span className="text-neutral-400 mt-0.5"><Sliders className="inline-block shrink-0" size={12} aria-hidden="true" /></span><span>Current cap {currentBidText} → proposed {proposedBidText}. Re-enters learning briefly.</span></div>
         </>
       ),
     };

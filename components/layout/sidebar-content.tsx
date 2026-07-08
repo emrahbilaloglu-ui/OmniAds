@@ -93,11 +93,13 @@ function L1NavItem({
   item,
   active,
   locked,
+  isConsole = false,
   onNavigate,
 }: {
   item: ShellNavItem;
   active: boolean;
   locked: boolean;
+  isConsole?: boolean;
   onNavigate?: () => void;
 }) {
   const router = useRouter();
@@ -105,12 +107,14 @@ function L1NavItem({
   const className = cn(
     "flex items-center gap-2 pl-2.5 pr-2 py-1.5 rounded-md text-[13px] cursor-pointer",
     active
-      ? "bg-blue-50 text-blue-700 font-semibold"
+      ? isConsole
+        ? "bg-[var(--adc-s2)] border border-[var(--adc-b1)] text-[var(--adc-ink)] font-semibold"
+        : "bg-blue-50 text-blue-700 font-semibold"
       : "text-neutral-600 hover:bg-neutral-50"
   );
   const content = (
     <>
-      <span className={cn("w-4 h-4 grid place-items-center", active ? "text-blue-600" : "text-neutral-500")}>
+      <span className={cn("w-4 h-4 grid place-items-center", active ? (isConsole ? "text-[var(--adc-ink2)]" : "text-blue-600") : "text-neutral-500")}>
         <Icon className="h-[15px] w-[15px]" />
       </span>
       <span>{item.label}</span>
@@ -144,6 +148,7 @@ function L2NavItem({
   dimmed,
   locked,
   accent,
+  isConsole = false,
   onNavigate,
 }: {
   item: ShellNavItem;
@@ -151,20 +156,27 @@ function L2NavItem({
   dimmed: boolean;
   locked: boolean;
   accent: PlatformAccent;
+  isConsole?: boolean;
   onNavigate?: () => void;
 }) {
   const router = useRouter();
   const Icon = item.icon;
   const className = cn(
-    "flex items-center gap-2 pr-2 py-1.5 rounded-r-md text-[13px] cursor-pointer",
+    isConsole
+      ? "flex items-center gap-2 pr-2 py-1.5 rounded-md text-[13px] cursor-pointer"
+      : "flex items-center gap-2 pr-2 py-1.5 rounded-r-md text-[13px] cursor-pointer",
     active
-      ? L2_ACTIVE_ACCENT_CLASSES[accent]
-      : "text-neutral-700 hover:bg-neutral-50 border-l-[3px] border-l-transparent pl-[7px]",
+      ? isConsole
+        ? "bg-[var(--adc-s2)] border border-[var(--adc-b1)] text-[var(--adc-ink)] font-semibold pl-[7px]"
+        : L2_ACTIVE_ACCENT_CLASSES[accent]
+      : isConsole
+        ? "text-[var(--adc-ink2)] hover:bg-[var(--adc-s3)] pl-[7px]"
+        : "text-neutral-700 hover:bg-neutral-50 border-l-[3px] border-l-transparent pl-[7px]",
     dimmed ? "opacity-50" : ""
   );
   const content = (
     <>
-      <span className={cn("w-4 h-4 grid place-items-center", active ? "" : "text-neutral-500")}>
+      <span className={cn("w-4 h-4 grid place-items-center", active ? (isConsole ? "text-[var(--adc-ink2)]" : "") : "text-neutral-500")}>
         <Icon className="h-[15px] w-[15px]" />
       </span>
       <span>{item.label}</span>
@@ -221,7 +233,13 @@ function SoonPlatformEmpty({ platformId }: { platformId: keyof typeof platformsR
   );
 }
 
-export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
+export function SidebarContent({
+  onNavigate,
+  variant = "legacy",
+}: {
+  onNavigate?: () => void;
+  variant?: "legacy" | "console";
+}) {
   const pathname = usePathname();
   const language = usePreferencesStore((state) => state.language);
   const currentPlan = usePlan();
@@ -238,19 +256,31 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const activeLayer3 = layer3Items.find((item) => isItemActive(item, pathname));
   const activeLayer = activeLayer1 ? "L1" : activeLayer3 ? "L3" : "L2";
   const dimLayer2 = activeLayer === "L1";
+  const isConsole = variant === "console";
 
   return (
-    <div className="w-60 shrink-0 border-r border-neutral-200 bg-white h-full flex flex-col" data-shell-sidebar>
-      <div className="px-3 py-2.5 border-b border-neutral-200 flex items-center gap-2">
-        <BrandLogo
-          className="gap-2"
-          markClassName="h-7 w-7"
-          textClassName="text-[13px] font-semibold text-neutral-900 leading-tight"
-          size={28}
-        />
-      </div>
+    <div
+      className={cn(
+        "h-full shrink-0 border-r flex flex-col",
+        isConsole
+          ? "w-[196px] border-[var(--adc-b1)] bg-[var(--adc-s1)]"
+          : "w-60 border-neutral-200 bg-white",
+      )}
+      data-shell-sidebar
+      data-shell-sidebar-variant={variant}
+    >
+      {!isConsole ? (
+        <div className="px-3 py-2.5 border-b border-neutral-200 flex items-center gap-2">
+          <BrandLogo
+            className="gap-2"
+            markClassName="h-7 w-7"
+            textClassName="text-[13px] font-semibold text-neutral-900 leading-tight"
+            size={28}
+          />
+        </div>
+      ) : null}
 
-      <nav className="flex-1 overflow-y-auto py-2 space-y-0.5">
+      <nav className={cn("flex-1 overflow-y-auto space-y-0.5", isConsole ? "py-3" : "py-2")}>
         <div className="px-2 pt-1 pb-1 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold">
           {t.navigation.workspace}
         </div>
@@ -261,6 +291,7 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
               item={item}
               active={activeLayer === "L1" && isItemActive(item, pathname)}
               locked={isLocked(item, currentPlan, isDemo)}
+              isConsole={isConsole}
               onNavigate={onNavigate}
             />
           ))}
@@ -290,6 +321,7 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
                   dimmed={dimLayer2}
                   locked={isLocked(item, currentPlan, isDemo)}
                   accent={platform.accent}
+                  isConsole={isConsole}
                   onNavigate={onNavigate}
                 />
               ))
@@ -309,6 +341,7 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
               item={item}
               active={activeLayer === "L3" && isItemActive(item, pathname)}
               locked={isLocked(item, currentPlan, isDemo)}
+              isConsole={isConsole}
               onNavigate={onNavigate}
             />
           ))}

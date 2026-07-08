@@ -1,15 +1,13 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Check, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 import { sanitizeNextPath } from "@/lib/auth-routing";
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
+import { AuthSurface } from "@/components/auth/auth-surface";
+import { AuthOnboardingArc } from "@/components/auth/onboarding-arc";
 
 export default function SelectBusinessPage() {
   const router = useRouter();
@@ -22,23 +20,10 @@ export default function SelectBusinessPage() {
   const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
   const assignedAccountsByBusiness = useIntegrationsStore((state) => state.assignedAccountsByBusiness);
   const removeBusinessData = useIntegrationsStore((state) => state.removeBusinessData);
-  const [menuBusinessId, setMenuBusinessId] = useState<string | null>(null);
   const [confirmBusinessId, setConfirmBusinessId] = useState<string | null>(null);
   const [confirmInput, setConfirmInput] = useState("");
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
-  const menuWrapRef = useRef<HTMLDivElement>(null);
-  const menuTriggerRef = useRef<HTMLButtonElement>(null);
-
-  useDropdownBehavior({
-    id: "business-actions-menu",
-    open: Boolean(menuBusinessId),
-    setOpen: (open) => {
-      if (!open) setMenuBusinessId(null);
-    },
-    containerRef: menuWrapRef,
-    triggerRef: menuTriggerRef,
-  });
 
   const confirmBusiness = useMemo(
     () => businesses.find((business) => business.id === confirmBusinessId) ?? null,
@@ -58,6 +43,24 @@ export default function SelectBusinessPage() {
     );
     return hasConnectedIntegration || assignedCount > 0;
   }, [assignedAccountsByBusiness, byBusinessId, confirmBusiness]);
+
+  function getAssignedAccountCount(businessId: string) {
+    return Object.values(assignedAccountsByBusiness[businessId] ?? {}).reduce(
+      (sum, ids) => sum + (ids?.length ?? 0),
+      0,
+    );
+  }
+
+  function getStatusTone(businessId: string, isDemoBusiness?: boolean) {
+    if (isDemoBusiness) return "pos";
+    const accountCount = getAssignedAccountCount(businessId);
+    if (accountCount > 0) return "pos";
+    const integrations = byBusinessId[businessId];
+    const hasConnectedIntegration = integrations
+      ? Object.values(integrations).some((item) => item.status !== "disconnected")
+      : false;
+    return hasConnectedIntegration ? "caution" : "danger";
+  }
 
   function getPostSwitchDestination() {
     const query = searchParams.toString();
@@ -143,160 +146,100 @@ export default function SelectBusinessPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
-      <div className="space-y-2">
-        <h2 className="text-2xl font-semibold">Select business</h2>
-        <p className="text-sm text-muted-foreground">
-          Pick a business to continue with integrations and linked accounts.
-        </p>
+    <AuthSurface
+      title="Choose a business"
+      description="Select the business scope before integrations, reports, and automation controls."
+      width="lg"
+      embedded
+    >
+      <div className="ad-auth-form">
         {feedback ? (
-          <p
-            className={cn(
-              "text-xs",
-              feedback.type === "success" ? "text-emerald-600" : "text-destructive"
-            )}
-          >
+          <p className={`ad-auth-alert ${feedback.type === "success" ? "ad-auth-alert-positive" : "ad-auth-alert-danger"}`}>
             {feedback.message}
           </p>
         ) : null}
-      </div>
 
-      {businesses.length > 0 ? (
-        <div className="grid gap-3">
+        {businesses.length > 0 ? (
+          <>
           {businesses.map((business) => {
             const isSelected = business.id === selectedBusinessId;
-            const isMenuOpen = menuBusinessId === business.id;
+            const accountCount = getAssignedAccountCount(business.id);
+            const tone = getStatusTone(business.id, business.isDemoBusiness);
 
             return (
-              <div
-                key={business.id}
-                className={cn(
-                  "flex items-center gap-4 rounded-xl border border-neutral-200 bg-white p-4 transition-colors",
-                  isSelected
-                    ? "border-primary bg-primary/5"
-                    : "hover:border-border hover:bg-accent"
-                )}
-              >
+              <div key={business.id} className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => void handleSelect(business.id)}
-                  className="flex min-w-0 flex-1 items-center gap-4 text-left"
+                  className="ad-auth-business-row"
                 >
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-sm font-bold text-primary">
-                    {business.name
-                      .split(" ")
-                      .filter(Boolean)
-                      .slice(0, 2)
-                      .map((part) => part[0]?.toUpperCase() ?? "")
-                      .join("")}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium">
+                  <span className="ad-auth-business-name">
+                    <span className={`ad-auth-dot ad-auth-dot-${tone}`} aria-hidden="true" />
+                    <span className="truncate">
                       {business.name}
-                      {business.isDemoBusiness ? (
-                        <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-                          Demo
-                        </span>
-                      ) : null}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {business.timezone ?? "Timezone pending"} • {business.currency}
-                    </p>
-                  </div>
-                  {isSelected ? <Check className="h-4 w-4 shrink-0 text-primary" /> : null}
+                      {business.isDemoBusiness ? <span className="ad-auth-mono"> · demo</span> : null}
+                    </span>
+                  </span>
+                  <span className="ad-auth-mono">
+                    {business.currency} · {accountCount} {accountCount === 1 ? "account" : "accounts"}
+                    {isSelected ? " · current" : ""}
+                  </span>
                 </button>
-
-                <div
-                  ref={(node) => {
-                    if (isMenuOpen) menuWrapRef.current = node;
-                  }}
-                  className="relative"
-                >
+                {!business.isDemoBusiness ? (
                   <button
-                    ref={(node) => {
-                      if (isMenuOpen) menuTriggerRef.current = node;
-                    }}
                     type="button"
-                    aria-label={`More actions for ${business.name}`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setMenuBusinessId((prev) => (prev === business.id ? null : business.id));
+                    className="ad-auth-secondary shrink-0 px-3"
+                    onClick={() => {
+                      setConfirmBusinessId(business.id);
+                      setConfirmInput("");
                     }}
-                    className="rounded-md border p-1.5 text-muted-foreground hover:bg-background hover:text-foreground"
                   >
-                    <MoreHorizontal className="h-4 w-4" />
+                    Delete
                   </button>
-
-                  {isMenuOpen && !business.isDemoBusiness && (
-                    <div className="absolute right-0 top-9 z-40 w-44 rounded-lg border bg-background p-1.5 shadow-lg">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMenuBusinessId(null);
-                          setConfirmBusinessId(business.id);
-                          setConfirmInput("");
-                        }}
-                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        Delete business
-                      </button>
-                    </div>
-                  )}
-                </div>
+                ) : null}
               </div>
             );
           })}
-        </div>
-      ) : (
-        <div className="rounded-xl border border-dashed border-neutral-300 bg-white p-6 text-center">
-          <h3 className="text-base font-semibold">No businesses yet</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
+          </>
+        ) : (
+          <div className="ad-auth-alert ad-auth-alert-caution">
             Create your first business to start integrations.
+          </div>
+        )}
+
+        {isDemoOnlyWorkspace ? (
+          <p className="ad-auth-mono">
+            This account is restricted to the Adsecute demo workspace.
           </p>
-        </div>
-      )}
+        ) : (
+          <button type="button" className="ad-auth-dashed" onClick={() => router.push("/businesses/new")}>
+            + Create business
+          </button>
+        )}
 
-      {!isDemoOnlyWorkspace ? (
-        <Button variant="outline" className="gap-2" onClick={() => router.push("/businesses/new")}>
-          <Plus className="h-4 w-4" />
-          Create new business
-        </Button>
-      ) : (
-        <p className="text-xs text-muted-foreground">
-          This account is restricted to the Adsecute demo workspace.
-        </p>
-      )}
-
-      {confirmBusiness ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-md rounded-xl border border-neutral-200 bg-white p-5 shadow-lg">
-            <h3 className="text-base font-semibold">Delete business?</h3>
-            <p className="mt-2 text-sm text-muted-foreground">
-              This will remove <span className="font-medium text-foreground">{confirmBusiness.name}</span> and its linked workspace context.
+        {confirmBusiness ? (
+          <div className="ad-auth-alert ad-auth-alert-caution">
+            <p>
+              Delete requires typing <span className="font-semibold">{confirmBusiness.name}</span>.
+              This removes the linked workspace context.
             </p>
             {hasLinkedData ? (
-              <p className="mt-1 text-xs text-muted-foreground">
+              <p className="mt-1">
                 Connected integrations, assigned accounts, and related share snapshots for this business will also be removed.
               </p>
             ) : null}
-
-            {hasLinkedData ? (
-              <div className="mt-4 space-y-1.5">
-                <label className="text-xs font-medium">
-                  Type <span className="font-semibold">{confirmBusiness.name}</span> to confirm
-                </label>
-                <input
-                  value={confirmInput}
-                  onChange={(event) => setConfirmInput(event.target.value)}
-                  className="h-9 w-full rounded-md border bg-background px-2 text-sm"
-                />
-              </div>
-            ) : null}
-
-            <div className="mt-5 flex justify-end gap-2">
-              <Button
-                variant="outline"
+            <label className="ad-auth-label mt-3">
+              Type business name
+              <input
+                value={confirmInput}
+                onChange={(event) => setConfirmInput(event.target.value)}
+                className="ad-auth-input"
+              />
+            </label>
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                className="ad-auth-secondary flex-1"
                 onClick={() => {
                   if (deleteLoading) return;
                   setConfirmBusinessId(null);
@@ -304,21 +247,24 @@ export default function SelectBusinessPage() {
                 }}
               >
                 Cancel
-              </Button>
-              <Button
-                variant="destructive"
+              </button>
+              <button
+                type="button"
+                className="ad-auth-danger-button flex-1"
                 disabled={
                   deleteLoading ||
-                  (hasLinkedData && confirmInput.trim() !== confirmBusiness.name)
+                  confirmInput.trim() !== confirmBusiness.name
                 }
                 onClick={handleDeleteBusiness}
               >
                 {deleteLoading ? "Deleting business..." : "Delete business"}
-              </Button>
+              </button>
             </div>
           </div>
-        </div>
-      ) : null}
-    </div>
+        ) : null}
+
+        <AuthOnboardingArc compact />
+      </div>
+    </AuthSurface>
   );
 }

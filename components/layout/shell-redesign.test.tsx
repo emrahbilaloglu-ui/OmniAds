@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { DesktopSidebar } from "@/components/layout/sidebar";
 import { SidebarContent } from "@/components/layout/sidebar-content";
 import { PlatformSwitcher } from "@/components/layout/PlatformSwitcher";
+import { DashboardFrame } from "@/components/layout/dashboard-frame";
 
 const state = vi.hoisted(() => ({
   pathname: "/platforms/meta/creatives",
@@ -24,7 +25,8 @@ const state = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   usePathname: () => state.pathname,
-  useRouter: () => ({ push: state.push, refresh: vi.fn() }),
+  useRouter: () => ({ push: state.push, replace: vi.fn(), refresh: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock("next/image", () => ({
@@ -40,11 +42,17 @@ vi.mock("@/store/preferences-store", () => ({
 vi.mock("@/store/app-store", () => ({
   useAppStore: (
     selector: (value: {
+      hasHydrated: boolean;
+      authBootstrapStatus: "ready";
+      workspaceResolved: boolean;
       selectedBusinessId: string;
       businesses: typeof state.businesses;
     }) => unknown
   ) =>
     selector({
+      hasHydrated: true,
+      authBootstrapStatus: "ready",
+      workspaceResolved: true,
       selectedBusinessId: state.selectedBusinessId,
       businesses: state.businesses,
     }),
@@ -106,5 +114,47 @@ describe("phase shell redesign", () => {
     expect(html).toContain("Meta");
     expect(html).toContain("/platform-logos/Meta.png");
     expect(html).not.toContain("Search");
+  });
+
+  it("renders compact mobile shell hooks and leaves Meta Decisions mobile composition to the page", () => {
+    state.pathname = "/platforms/meta";
+    state.selectedBusinessId = "biz_1";
+
+    const html = renderToStaticMarkup(
+      <DashboardFrame userName="Shopify App Reviewer">
+        <div>Meta body</div>
+      </DashboardFrame>,
+    );
+
+    expect(html).toContain("ad-console-brand");
+    expect(html).toContain("ad-console-business");
+    expect(html).toContain("ad-console-platform");
+    expect(html).toContain("ad-console-mobile-readonly");
+    expect(html).toContain("Adsecute · mobile read-only");
+    expect(html).toContain("Writes stay on desktop");
+    expect(html).toContain('data-mobile-surface="none"');
+    expect(html).toContain("Meta body");
+    expect(html).not.toContain("Meta decisions mobile read-only");
+  });
+
+  it("does not replace Automation or Launchpad page-owned mobile surfaces with the generic Meta fallback", () => {
+    for (const [pathname, mobileNote] of [
+      ["/platforms/meta/automation", "Guardrails are view-only here"],
+      ["/platforms/meta/launchpad", "Launch state is view-only here"],
+    ] as const) {
+      state.pathname = pathname;
+      state.selectedBusinessId = "biz_1";
+
+      const html = renderToStaticMarkup(
+        <DashboardFrame userName="Shopify App Reviewer">
+          <div>{pathname} body</div>
+        </DashboardFrame>,
+      );
+
+      expect(html).toContain('data-mobile-surface="none"');
+      expect(html).toContain(mobileNote);
+      expect(html).toContain(`${pathname} body`);
+      expect(html).not.toContain("Meta evidence mobile read-only");
+    }
   });
 });

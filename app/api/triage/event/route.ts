@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
 import {
   isTriageAction,
   recordTriageEvent,
@@ -54,6 +55,8 @@ export async function POST(request: NextRequest) {
     minRole: "collaborator",
   });
   if ("error" in access) return access.error;
+  const reviewerBlocked = rejectIfReviewerReadOnly(access, `triage_${action}`);
+  if (reviewerBlocked) return reviewerBlocked;
 
   try {
     const event = await recordTriageEvent({

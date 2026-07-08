@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { ArrowRight, Clock, ExternalLink, X } from "lucide-react";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
+import type { MetaEmpiricalOutcomeSummary } from "@/lib/meta/empirical-outcomes";
 import type { MetaWindowKey, MetaDrillItem } from "@/components/meta/redesign/types";
 import { MetaEvidenceAccordion } from "@/components/meta/redesign/MetaEvidenceAccordion";
 import { MetaCohortChip } from "@/components/meta/redesign/MetaCohortChip";
@@ -48,8 +49,31 @@ function evidenceAny(rec: MetaRecommendation, labels: string[]) {
   return null;
 }
 
-function confidencePercent(rec: MetaRecommendation) {
-  return Math.round((rec.confidenceScore ?? (rec.confidence === "high" ? 0.8 : rec.confidence === "medium" ? 0.62 : 0.42)) * 100);
+function confidenceBandLabel(confidence: MetaRecommendation["confidence"]) {
+  if (confidence === "high") return "High";
+  if (confidence === "medium") return "Medium";
+  return "Low";
+}
+
+function confidenceScoreDisplay(rec: MetaRecommendation) {
+  const score = rec.confidenceScore;
+  const band = confidenceBandLabel(rec.confidence);
+  if (score == null) {
+    return {
+      headline: `${band} band`,
+      detail: "Numeric confidence score not served.",
+    };
+  }
+  if (!Number.isFinite(score) || score < 0 || score > 1) {
+    return {
+      headline: `${band} band`,
+      detail: `Server score outside expected 0-1 range: ${String(score)}`,
+    };
+  }
+  return {
+    headline: `${Math.round(score * 100)}%`,
+    detail: `${band} band · server score ${score.toFixed(2)}`,
+  };
 }
 
 function stringValue(value: unknown) {
@@ -79,7 +103,7 @@ function automationTierLabel(tier: string | undefined) {
   return "—";
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function SectionLabel({ number, children }: { number?: string; children: React.ReactNode }) {
   return (
     <div
       className="mono"
@@ -91,14 +115,24 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
         textTransform: "uppercase",
       }}
     >
+      {number ? <span style={{ color: "var(--ink)", marginRight: 4 }}>{number} ·</span> : null}
       {children}
     </div>
   );
 }
 
-function Panel({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
+function Panel({
+  children,
+  style,
+  section,
+}: {
+  children: React.ReactNode;
+  style?: React.CSSProperties;
+  section?: string;
+}) {
   return (
     <section
+      data-inspector-section={section}
       style={{
         border: "1px solid var(--border)",
         borderRadius: "var(--r-lg)",
@@ -109,6 +143,146 @@ function Panel({ children, style }: { children: React.ReactNode; style?: React.C
     >
       {children}
     </section>
+  );
+}
+
+function MissingState({ children = "Not captured in the served decision row." }: { children?: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        border: "1px dashed var(--border-2)",
+        borderRadius: "var(--r-sm)",
+        background: "var(--surface-2)",
+        padding: "8px 10px",
+        fontSize: 12,
+        lineHeight: 1.5,
+        color: "var(--muted)",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function FieldRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "minmax(92px, 0.42fr) minmax(0, 1fr)",
+        gap: 10,
+        borderTop: "1px solid var(--border)",
+        padding: "6px 0",
+        fontSize: 12,
+      }}
+    >
+      <span className="mono" style={{ color: "var(--muted)", fontSize: 10.5, textTransform: "uppercase" }}>
+        {label}
+      </span>
+      <span style={{ minWidth: 0, color: "var(--ink-2)", overflowWrap: "anywhere" }}>{value}</span>
+    </div>
+  );
+}
+
+function EvidenceCitationChips({ rec }: { rec: MetaRecommendation }) {
+  if (rec.evidence.length === 0) return <MissingState>No cited evidence rows were persisted with this recommendation.</MissingState>;
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+      {rec.evidence.slice(0, 6).map((evidence, index) => (
+        <span
+          key={`${evidence.label}-${evidence.value}-${index}`}
+          className="mono"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            border: "1px solid var(--info-bd)",
+            borderRadius: 5,
+            background: "var(--info-bg)",
+            padding: "2px 6px",
+            color: "var(--info-fg)",
+            fontSize: 10.5,
+          }}
+          title={`${evidence.label}: ${evidence.value}`}
+        >
+          [{index + 1}] {evidence.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function formatNullableDate(value: string | null | undefined) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return value;
+  return parsed.toISOString().replace("T", " ").slice(0, 16);
+}
+
+function changeSummary(change: NonNullable<MetaRecommendation["evidenceTrail"]>["recent_changes"][number]) {
+  const type = change.type.replace(/_/g, " ");
+  const when = formatNullableDate(change.applied_at);
+  return `${type} · ${when}`;
+}
+
+/** Pretty-print a recent-change payload. Surfaces the two known keys (bid
+ * amount, status); anything else falls back to a compact JSON string. Returns
+ * null when the payload carries nothing to show, so the caller can omit it. */
+function formatChangeValue(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === "string") return value.trim() || null;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value !== "object") return String(value);
+
+  const record = value as Record<string, unknown>;
+  const parts: string[] = [];
+
+  const rawBid = record.bid_amount ?? record.bidAmount ?? record.amount;
+  if (typeof rawBid === "number" && Number.isFinite(rawBid)) {
+    parts.push(`bid amount ${rawBid.toLocaleString("en-US")}`);
+  } else if (typeof rawBid === "string" && rawBid.trim()) {
+    parts.push(`bid amount ${rawBid.trim()}`);
+  }
+
+  const rawStatus = record.status ?? record.effective_status;
+  if (typeof rawStatus === "string" && rawStatus.trim()) {
+    parts.push(`status ${rawStatus.trim()}`);
+  }
+
+  if (parts.length > 0) return parts.join(" · ");
+
+  const json = JSON.stringify(value);
+  if (!json || json === "{}") return null;
+  return json.length > 80 ? `${json.slice(0, 79)}…` : json;
+}
+
+function peerDistributionText(peer: NonNullable<MetaRecommendation["evidenceTrail"]>["peer_comparison"]) {
+  return `${peer.this_value.toFixed(2)}x vs p10 ${peer.p10.toFixed(2)} / p50 ${peer.p50.toFixed(2)} / p90 ${peer.p90.toFixed(2)}`;
+}
+
+/** Readable render of the persisted empirical-outcome summary. Never invents a
+ * value: precision/negativeRate collapse to "—" when the server sent null. */
+function PrecedentSummary({ summary }: { summary: MetaEmpiricalOutcomeSummary }) {
+  const precision = summary.precision != null ? `${(summary.precision * 100).toFixed(0)}%` : "—";
+  const negativeRate = summary.negativeRate != null ? `${(summary.negativeRate * 100).toFixed(0)}%` : "—";
+  const sample = `${summary.judgedSampleSize} judged / ${summary.sampleSize} total`;
+  return (
+    <div>
+      <FieldRow label="precision" value={precision} />
+      <FieldRow label="negative rate" value={negativeRate} />
+      <FieldRow label="sample" value={sample} />
+      <FieldRow label="confidence band" value={summary.confidenceBand} />
+      <FieldRow
+        label="outcomes"
+        value={
+          <span className="mono" style={{ fontVariantNumeric: "tabular-nums" }}>
+            {summary.positiveCount} positive · {summary.negativeCount} negative · {summary.neutralCount} neutral ·{" "}
+            {summary.unknownCount} unknown
+          </span>
+        }
+      />
+      <FieldRow label="auto eligible" value={summary.autoEligible ? "yes" : "no"} />
+    </div>
   );
 }
 
@@ -222,8 +396,8 @@ function DecisionKpis({
   const series = Array.isArray(history) ? history.map(Number).filter(Number.isFinite) : [];
 
   return (
-    <Panel style={{ background: "var(--surface-2)" }}>
-      <SectionLabel>Money impact &amp; metrics</SectionLabel>
+    <Panel section="money-impact" style={{ background: "var(--surface-2)" }}>
+      <SectionLabel number="3">Money impact &amp; metrics</SectionLabel>
       <section className="grid gap-2 md:grid-cols-4" data-meta-drill-kpis>
         <Kpi label="Decision" value={rec.decision} />
         <Kpi label="Spend" value={spend != null && spend > 0 ? formatMoney(spend, moneyCurrency) : "mixed"} mono />
@@ -294,9 +468,9 @@ function Kpi({
 function AdsetDepthTable({ recs, moneyCurrency }: { recs: MetaRecommendation[]; moneyCurrency?: string | null }) {
   const rows = recs.filter((rec) => rec.level === "adset");
   return (
-    <Panel data-meta-adset-depth>
+    <Panel section="adset-depth">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-        <SectionLabel>Ad set depth</SectionLabel>
+        <SectionLabel number="9">Ad set depth</SectionLabel>
         <span
           className="mono"
           style={{ border: "1px solid var(--border-2)", borderRadius: 5, padding: "1px 6px", fontSize: 10.5, color: "var(--muted)" }}
@@ -418,6 +592,7 @@ export function MetaDrillDrawer({
       ? "Brand-build cohort — no purchase decision evaluation"
       : scopeNameForRec(item.rec);
   const relatedRecs = item.mode === "decision" ? item.relatedRecs ?? [] : [];
+  const confidenceDisplay = item.mode === "decision" ? confidenceScoreDisplay(item.rec) : null;
 
   const rawJson =
     item.mode === "decision"
@@ -528,9 +703,8 @@ export function MetaDrillDrawer({
           </Panel>
         ) : (
           <>
-            {/* 1 · Decision contract */}
-            <Panel>
-              <SectionLabel>Decision contract</SectionLabel>
+            <Panel section="decision-contract">
+              <SectionLabel number="1">Decision contract</SectionLabel>
               <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
                 <span style={{ fontSize: 15, fontWeight: 650, color: "var(--ink)" }}>{decisionLabelForRec(item.rec)}</span>
                 {item.rec.actionKind ? (
@@ -540,39 +714,62 @@ export function MetaDrillDrawer({
                 ) : null}
                 <span className="mono" style={{ fontSize: 10.5, color: "var(--muted)" }}>{item.rec.engineVersion ?? "meta engine"}</span>
               </div>
-              <div style={{ fontSize: 11.5, color: "var(--ink-2)", marginTop: 5 }}>
-                state <b style={{ fontWeight: 600 }}>{item.rec.decisionState}</b> · primary action: {primaryLabelForRec(item.rec)}
+              <div style={{ marginTop: 8 }}>
+                <FieldRow label="published" value={decisionLabelForRec(item.rec)} />
+                <FieldRow label="raw label" value={item.rec.decisionLabel ?? "—"} />
+                <FieldRow label="state" value={item.rec.decisionState} />
+                <FieldRow label="primary action" value={primaryLabelForRec(item.rec)} />
+                <FieldRow
+                  label="hysteresis"
+                  value={
+                    item.rec.labelTransform
+                      ? `${item.rec.labelTransform.fromDecisionLabel ?? "raw"} → ${item.rec.labelTransform.toDecisionLabel} · ${item.rec.labelTransform.reason}`
+                      : "No label transform persisted"
+                  }
+                />
               </div>
             </Panel>
 
-            {/* 2 · Why */}
-            <Panel>
-              <SectionLabel>Engine reasoning</SectionLabel>
+            <Panel section="why">
+              <SectionLabel number="2">WHY · engine reasoning</SectionLabel>
               <p style={{ fontSize: 13, lineHeight: 1.6, color: "var(--ink-2)" }}>{item.rec.why}</p>
               <p style={{ marginTop: 8, borderRadius: "var(--r-sm)", background: "var(--surface-2)", padding: "8px 10px", fontSize: 12.5, color: "var(--ink-2)" }}>
                 {item.rec.recommendedAction}
               </p>
+              <EvidenceCitationChips rec={item.rec} />
             </Panel>
 
-            {/* 3 · Money impact & metrics vs target + gradient spark */}
             <DecisionKpis rec={item.rec} relatedRecs={relatedRecs} moneyCurrency={moneyCurrency} targetRoas={targetRoas} gradientId={gradientId} />
 
-            {/* 4 · Confidence + cap  ·  5 · Automation readiness */}
+            <Panel section="precedent">
+              <SectionLabel number="4">Precedent</SectionLabel>
+              {item.rec.empiricalOutcomeSummary ? (
+                <PrecedentSummary summary={item.rec.empiricalOutcomeSummary} />
+              ) : (
+                <MissingState>No judged precedent window is persisted for this recommendation.</MissingState>
+              )}
+              {item.rec.evidenceTrail?.peer_comparison ? (
+                <div style={{ marginTop: 4 }}>
+                  <FieldRow label="peer distribution" value={peerDistributionText(item.rec.evidenceTrail.peer_comparison)} />
+                </div>
+              ) : null}
+            </Panel>
+
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <Panel>
-                <SectionLabel>Evidence confidence</SectionLabel>
+              <Panel section="confidence">
+                <SectionLabel number="5">Confidence</SectionLabel>
                 <div style={{ fontSize: 22, fontWeight: 650, color: "var(--ink)", fontVariantNumeric: "tabular-nums" }}>
-                  {confidencePercent(item.rec)}%
+                  {confidenceDisplay?.headline}
                 </div>
                 <div style={{ fontSize: 11.5, color: "var(--muted)" }}>
-                  {item.rec.confidence} band{item.rec.confidenceScore != null ? ` · ${item.rec.confidenceScore.toFixed(2)}` : ""}
+                  {confidenceDisplay?.detail}
                 </div>
                 {signalCapText(item.rec) ? (
                   <div style={{ fontSize: 11.5, color: "var(--warn)", marginTop: 6 }}>cap: {signalCapText(item.rec)}</div>
                 ) : null}
               </Panel>
-              <Panel>
-                <SectionLabel>Automation readiness</SectionLabel>
+              <Panel section="automation-readiness">
+                <SectionLabel number="6">Automation readiness</SectionLabel>
                 <span
                   style={{
                     display: "inline-flex",
@@ -596,40 +793,101 @@ export function MetaDrillDrawer({
               </Panel>
             </div>
 
-            {/* 6 · Blockers */}
-            {item.rec.automationReadiness?.blockers && item.rec.automationReadiness.blockers.length > 0 ? (
-              <Panel style={{ borderColor: "var(--warn-bd)", background: "var(--warn-bg)" }}>
-                <SectionLabel>Blockers</SectionLabel>
+            <Panel
+              section="blockers"
+              style={
+                item.rec.automationReadiness?.blockers && item.rec.automationReadiness.blockers.length > 0
+                  ? { borderColor: "var(--warn-bd)", background: "var(--warn-bg)" }
+                  : undefined
+              }
+            >
+              <SectionLabel number="7">Blockers</SectionLabel>
+              {item.rec.automationReadiness?.blockers && item.rec.automationReadiness.blockers.length > 0 ? (
                 <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: "var(--warn)" }}>
                   {item.rec.automationReadiness.blockers.map((blocker) => (
                     <li key={blocker}>{blocker.replace(/_/g, " ")}</li>
                   ))}
                 </ul>
-              </Panel>
-            ) : null}
+              ) : (
+                <MissingState>No automation blockers were persisted on this recommendation.</MissingState>
+              )}
+            </Panel>
 
-            {/* 7 · Ad set depth */}
-            {item.rec.level === "campaign" || relatedRecs.length > 0 ? (
-              <AdsetDepthTable recs={relatedRecs} moneyCurrency={moneyCurrency} />
-            ) : null}
+            <Panel section="maturity">
+              <SectionLabel number="8">Maturity</SectionLabel>
+              <FieldRow label="age" value={item.rec.evidenceTrail?.age_days != null ? `${item.rec.evidenceTrail.age_days}d evidence age` : "—"} />
+              <FieldRow label="regime" value={item.rec.evidenceTrail?.regime_stability != null ? `${Math.round(item.rec.evidenceTrail.regime_stability * 100)}% stable` : "—"} />
+              <FieldRow label="timeframe" value={item.rec.timeframeContext.coreVerdict} />
+              <FieldRow label="history" value={item.rec.timeframeContext.historicalSupport} />
+            </Panel>
 
-            {/* 8 · Evidence */}
-            <MetaEvidenceAccordion rec={item.rec} />
+            <AdsetDepthTable recs={relatedRecs} moneyCurrency={moneyCurrency} />
 
-            {/* 9 · Provenance */}
-            <Panel>
-              <SectionLabel>Provenance</SectionLabel>
+            <Panel section="creative-evidence">
+              <SectionLabel number="10">Creative evidence</SectionLabel>
+              {item.rec.promoteCreatives?.length || item.rec.keepTestingCreatives?.length || item.rec.doNotDeployCreatives?.length ? (
+                <div style={{ display: "grid", gap: 6, marginBottom: 10 }}>
+                  {item.rec.promoteCreatives?.length ? <FieldRow label="promote" value={item.rec.promoteCreatives.join(", ")} /> : null}
+                  {item.rec.keepTestingCreatives?.length ? <FieldRow label="keep testing" value={item.rec.keepTestingCreatives.join(", ")} /> : null}
+                  {item.rec.doNotDeployCreatives?.length ? <FieldRow label="avoid" value={item.rec.doNotDeployCreatives.join(", ")} /> : null}
+                </div>
+              ) : (
+                <MissingState>Creative-level quartiles/thumbstop fields are not persisted on this decision row.</MissingState>
+              )}
+              <div style={{ marginTop: 10 }}>
+                <MetaEvidenceAccordion rec={item.rec} />
+              </div>
+            </Panel>
+
+            <Panel section="timeline">
+              <SectionLabel number="11">Entity timeline</SectionLabel>
+              {item.rec.evidenceTrail?.recent_changes && item.rec.evidenceTrail.recent_changes.length > 0 ? (
+                <div style={{ display: "grid", gap: 6 }}>
+                  {item.rec.evidenceTrail.recent_changes.slice(0, 6).map((change, index) => {
+                    const formattedValue = formatChangeValue(change.value);
+                    return (
+                      <div key={`${change.type}-${change.applied_at}-${index}`} style={{ borderTop: index === 0 ? 0 : "1px solid var(--border)", paddingTop: index === 0 ? 0 : 6 }}>
+                        <div className="mono" style={{ fontSize: 11, color: "var(--ink)" }}>{changeSummary(change)}</div>
+                        {formattedValue ? (
+                          <div style={{ fontSize: 12, color: "var(--muted)", overflowWrap: "anywhere" }}>{formattedValue}</div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : item.rec.operatorResponseAt ? (
+                <FieldRow label="operator" value={`${item.rec.operatorResponseState ?? "response"} · ${formatNullableDate(item.rec.operatorResponseAt)}`} />
+              ) : (
+                <MissingState>No entity timeline or recent-change rows are persisted for this recommendation.</MissingState>
+              )}
+            </Panel>
+
+            <Panel section="notes-protection">
+              <SectionLabel number="12">Notes &amp; protection</SectionLabel>
+              <FieldRow label="operator" value={item.rec.operatorResponseState ? `${item.rec.operatorResponseState}${item.rec.operatorResponseSubtype ? ` · ${item.rec.operatorResponseSubtype}` : ""}` : "—"} />
+              <FieldRow label="response at" value={formatNullableDate(item.rec.operatorResponseAt)} />
+              <FieldRow label="protection" value={item.rec.automationReadiness?.operatorReviewRequired ? "operator review required" : "No protection note persisted"} />
+            </Panel>
+
+            <Panel section="provenance">
+              <SectionLabel number="13">Provenance</SectionLabel>
               <div className="mono" style={{ fontSize: 11, color: "var(--ink-2)", lineHeight: 1.8 }}>
                 engine {item.rec.engineVersion ?? "—"}
                 {calibrationScopeText(item.rec) ? <><br />calibration: {calibrationScopeText(item.rec)}</> : null}
                 {signalCapText(item.rec) ? <><br />signal cap: {signalCapText(item.rec)}</> : null}
+                {item.rec.campaignRole ? <><br />campaign role: {item.rec.campaignRole}</> : null}
+                {item.rec.bidRegime ? <><br />bid regime: {item.rec.bidRegime}</> : null}
               </div>
+            </Panel>
+
+            <Panel section="raw-json">
+              <SectionLabel number="14">Raw JSON</SectionLabel>
               {rawJson ? (
                 <>
                   <button
                     type="button"
                     className="btn btn--ghost btn--sm mono"
-                    style={{ marginTop: 8 }}
+                    style={{ marginTop: 2 }}
                     aria-expanded={jsonOpen}
                     onClick={() => setJsonOpen((open) => !open)}
                   >
@@ -654,7 +912,9 @@ export function MetaDrillDrawer({
                     </pre>
                   ) : null}
                 </>
-              ) : null}
+              ) : (
+                <MissingState>Raw decision JSON is unavailable for this inspector mode.</MissingState>
+              )}
             </Panel>
           </>
         )}

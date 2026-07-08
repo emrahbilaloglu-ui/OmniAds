@@ -61,7 +61,7 @@ type PresetOption<TValue extends string> = {
 const RANGE_PRESETS: ReadonlyArray<PresetOption<RangePreset>> = [
   { value: "today", label: "Today", hint: "Only the current day", group: "Quick Select" },
   { value: "yesterday", label: "Yesterday", hint: "Previous completed day", group: "Quick Select" },
-  { value: "3d", label: "Last 3 days", hint: "Short performance pulse", group: "Rolling Windows" },
+  { value: "3d", label: "Last 3 days", hint: "Short performance read", group: "Rolling Windows" },
   { value: "7d", label: "Last 7 days", hint: "Weekly read", group: "Rolling Windows" },
   { value: "14d", label: "Last 14 days", hint: "Bi-weekly stability", group: "Rolling Windows" },
   { value: "30d", label: "Last 30 days", hint: "Balanced operating view", group: "Rolling Windows" },

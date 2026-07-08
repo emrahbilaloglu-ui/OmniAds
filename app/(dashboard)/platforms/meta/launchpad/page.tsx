@@ -18,6 +18,7 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useAppStore } from "@/store/app-store";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
@@ -975,31 +976,46 @@ export default function MetaLaunchpadPage() {
   const appliedTemplateMessageActive =
     appliedTemplateName != null && templateMessage === `Applied ${appliedTemplateName}`;
   const wizardPrefilled = Boolean(templateMessage?.startsWith("Meta briefing prefill"));
+  const wizardPrefillLabel = wizardPrefilled
+    ? formatLaunchpadPrefillLabel(templateMessage, selectedCreativeIds.length)
+    : null;
 
   if (!businessId) {
     return <div className="text-sm text-muted-foreground">Select a business.</div>;
   }
 
   return (
-    <div className="ad-final" data-testid="meta-launchpad-page">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 py-1">
-      {surface === "index" ? (
-        <LaunchpadIndex
-          drafts={drafts}
-          templates={templates}
-          currency={currency}
-          loading={libraryLoading}
-          message={templateMessage}
-          appliedTemplateName={appliedTemplateMessageActive ? appliedTemplateName : null}
-          onStartMode={startMode}
-          onApplyDraft={applyDraft}
-          onApplyTemplate={applyTemplate}
-          onClearAppliedTemplate={clearAppliedTemplate}
-          onDeleteDraft={deleteDraft}
-          onDeleteTemplate={deleteTemplate}
-        />
-      ) : (
-        <div className="overflow-hidden rounded-[12px] border border-[var(--border)] bg-[var(--surface)]">
+    <div className="ad-final meta-launchpad-final" data-testid="meta-launchpad-page">
+      <LaunchpadMobileSurface
+        businessName={activeBusiness?.name ?? "Meta"}
+        currency={currency}
+        surface={surface}
+        mode={mode}
+        step={step}
+        selectedCount={selectedCreativeIds.length}
+        draftCount={drafts.length}
+        templateCount={templates.length}
+        libraryLoading={libraryLoading}
+        creativeLoading={creativeLoading}
+      />
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-5 py-5">
+        <LaunchpadContextBar businessName={activeBusiness?.name ?? "Meta"} currency={currency} />
+        {surface === "index" ? (
+          <LaunchpadIndex
+            drafts={drafts}
+            templates={templates}
+            loading={libraryLoading}
+            message={templateMessage}
+            appliedTemplateName={appliedTemplateMessageActive ? appliedTemplateName : null}
+            onStartMode={startMode}
+            onApplyDraft={applyDraft}
+            onApplyTemplate={applyTemplate}
+            onClearAppliedTemplate={clearAppliedTemplate}
+            onDeleteDraft={deleteDraft}
+            onDeleteTemplate={deleteTemplate}
+          />
+        ) : (
+          <div className="overflow-hidden rounded-[12px] border border-[var(--border)] bg-[var(--surface)]">
           <div className="border-b border-[var(--border)] bg-[var(--surface)] px-5 py-3">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <button
@@ -1018,7 +1034,7 @@ export default function MetaLaunchpadPage() {
                     : "Manage existing ads"}
               </span>
               {wizardPrefilled ? (
-                <span className="chip chip--info">Prefilled from Decisions</span>
+                <span className="chip chip--info">{wizardPrefillLabel}</span>
               ) : appliedTemplateMessageActive && appliedTemplateName ? (
                 <span className="chip chip--info">Applied {appliedTemplateName}</span>
               ) : null}
@@ -1151,38 +1167,19 @@ export default function MetaLaunchpadPage() {
             ) : null}
           </main>
 
-          {step !== "progress" && step !== "review" ? (
+          {step !== "progress" ? (
             <div className="sticky bottom-0 z-10 border-t border-[var(--border)] bg-[var(--surface)] px-5 py-3">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
-                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12px] text-[var(--muted)]">
-                    <span className="tabular-nums">
-                      <strong className="text-[16px] font-[650] text-[var(--ink)]">{selectedCreativeIds.length}</strong> creatives
-                    </span>
-                    {mode === "new_campaign" ? (
-                      <>
-                        <span className="text-[var(--muted-2)]">·</span>
-                        <span className="tabular-nums">
-                          <strong className="text-[16px] font-[650] text-[var(--ink)]">{adSets.length}</strong> ad set{adSets.length === 1 ? "" : "s"}
-                        </span>
-                        <span className="text-[var(--muted-2)]">·</span>
-                        <span className="tabular-nums">
-                          <strong className="text-[16px] font-[650] text-[var(--ink)]">{adSets.length * selectedCreativeIds.length}</strong> ads
-                        </span>
-                      </>
-                    ) : null}
-                    {mode === "add_to_existing" ? (
-                      <>
-                        <span className="text-[var(--muted-2)]">·</span>
-                        <span className="tabular-nums">
-                          <strong className="text-[16px] font-[650] text-[var(--ink)]">{selectedExistingTargets.length}</strong> target{selectedExistingTargets.length === 1 ? "" : "s"}
-                        </span>
-                        <span className="text-[var(--muted-2)]">·</span>
-                        <span className="tabular-nums">
-                          <strong className="text-[16px] font-[650] text-[var(--ink)]">{selectedExistingTargets.length * selectedCreativeIds.length}</strong> ads
-                        </span>
-                      </>
-                    ) : null}
+                  <div className="mono text-[12.5px] text-[var(--ink)]">
+                    <strong className="font-semibold">
+                      {launchpadFooterMathLine({
+                        mode,
+                        creativeCount: selectedCreativeIds.length,
+                        adSetCount: adSets.length,
+                        targetCount: selectedExistingTargets.length,
+                      })}
+                    </strong>
                   </div>
                   {selectionSummary.count > 0 ? (
                     <div className="mt-0.5 text-[11px] text-[var(--muted-2)] tabular-nums">
@@ -1206,25 +1203,182 @@ export default function MetaLaunchpadPage() {
                     <ArrowLeft className="h-4 w-4" />
                     Back
                   </button>
-                  <button type="button" className="btn btn--primary" disabled={!canGoNext} onClick={goNext}>
-                    Continue
-                    <ArrowRight className="h-4 w-4" />
-                  </button>
+                  {step === "review" ? (
+                    <span className="btn btn--ghost" aria-disabled="true">
+                      Launch action is in review
+                    </span>
+                  ) : (
+                    <button type="button" className="btn btn--primary" disabled={!canGoNext} onClick={goNext}>
+                      Continue
+                      <ArrowRight className="h-4 w-4" />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
           ) : null}
-        </div>
-      )}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
+function LaunchpadMobileSurface({
+  businessName,
+  currency,
+  surface,
+  mode,
+  step,
+  selectedCount,
+  draftCount,
+  templateCount,
+  libraryLoading,
+  creativeLoading,
+}: {
+  businessName: string;
+  currency: string;
+  surface: LaunchpadSurface;
+  mode: LaunchpadMode;
+  step: WizardStep;
+  selectedCount: number;
+  draftCount: number;
+  templateCount: number;
+  libraryLoading: boolean;
+  creativeLoading: boolean;
+}) {
+  const modeLabel =
+    mode === "new_campaign"
+      ? "New campaign"
+      : mode === "add_to_existing"
+        ? "Add to existing"
+        : "Manage existing ads";
+  const loading = libraryLoading || creativeLoading;
+
+  return (
+    <section
+      className="meta-mobile-surface-stage"
+      data-testid="meta-mobile-launchpad"
+      aria-label="Launchpad mobile read-only"
+    >
+      <div className="ad-mobile-device">
+        <div className="ad-mobile-screen">
+          <div className="ad-mobile-status">
+            <span>--:--</span>
+            <span>Launchpad · read-only</span>
+          </div>
+          <div className="ad-mobile-freshness">
+            creative window fixed 28d · synced — · {currency}
+          </div>
+          <div className="ad-mobile-title">
+            <h2>{businessName}</h2>
+            <p>Guarded launch state only. Writes and uploads stay on desktop.</p>
+          </div>
+          <article className="ad-mobile-anomaly">
+            <b>Everything launches PAUSED.</b>
+            <div>
+              New campaign and add-to-existing writes are backend guarded. Resume in Manage existing is an activation write.
+            </div>
+          </article>
+          <article className="ad-mobile-row-card">
+            <h3>{surface === "index" ? "Modes" : modeLabel}</h3>
+            <p data-tone={surface === "index" ? "caution" : "positive"}>
+              {surface === "index" ? "3 guarded flows available" : `${step} · ${selectedCount} selected`}
+            </p>
+            <div className="ad-mobile-row-footer">
+              <span>{loading ? "server state loading —" : `drafts ${draftCount} · templates ${templateCount}`}</span>
+              <span>View only</span>
+            </div>
+          </article>
+          <article className="ad-mobile-row-card">
+            <h3>Media pipeline</h3>
+            <p data-tone="caution">NEEDS-SERVER-CONTRACT · no mobile upload</p>
+            <div className="ad-mobile-row-footer">
+              <span>No file is staged or transmitted here.</span>
+              <span>Desktop</span>
+            </div>
+          </article>
+          <article className="ad-mobile-anomaly" data-tone="info">
+            <b>Write posture is guarded, not hydrated.</b>
+            <div>
+              This page does not yet read a route-specific kill-switch/freshness contract, so it does not claim writes are enabled.
+            </div>
+          </article>
+          <div className="ad-mobile-desktop-note">
+            Mobile is read-only — launch, pause/resume, upload and retry controls stay on desktop.
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function LaunchpadContextBar({
+  businessName,
+  currency,
+}: {
+  businessName: string;
+  currency: string;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[var(--border)] pb-3">
+      <div className="min-w-0">
+        <div className="text-[13px] font-semibold text-[var(--ink)]">Launchpad</div>
+        <div className="mono mt-0.5 text-[11px] text-[var(--muted)]">
+          Meta · {businessName} · {currency}
+        </div>
+      </div>
+      <span className="chip chip--warn">Guarded write surface — everything launches PAUSED</span>
+      <div className="min-w-0 flex-1" />
+      <span className="mono hidden text-[11px] text-[var(--muted)] md:inline">
+        creative window: fixed 28d · synced —
+      </span>
+      <span className="chip chip--healthy">
+        <span className="dot" />
+        writes guarded
+      </span>
+      <Link href="/platforms/meta" className="text-[12px] font-medium text-[var(--info)] hover:text-[var(--ink)]">
+        ← Decisions
+      </Link>
+    </div>
+  );
+}
+
+function formatLaunchpadPrefillLabel(message: string | null, selectedCount: number) {
+  const mode = message?.match(/mode=([^ ·]+)/)?.[1] ?? "rebuild";
+  const action =
+    mode === "duplicate"
+      ? "duplicate"
+      : mode === "apply_bid"
+        ? "apply bid"
+        : "rebuild";
+  const count = Math.max(1, selectedCount);
+  return `Prefilled from Decisions · ${action} · ${count} creative${count === 1 ? "" : "s"}`;
+}
+
+function launchpadFooterMathLine(input: {
+  mode: LaunchpadMode;
+  creativeCount: number;
+  adSetCount: number;
+  targetCount: number;
+}) {
+  if (input.mode === "new_campaign") {
+    return `${input.creativeCount} creatives × ${input.adSetCount} ad set${input.adSetCount === 1 ? "" : "s"} = ${
+      input.creativeCount * input.adSetCount
+    } ads`;
+  }
+  if (input.mode === "add_to_existing") {
+    const targetCount = Math.max(1, input.targetCount);
+    return `${input.creativeCount} creatives × ${targetCount} target${targetCount === 1 ? "" : "s"} = ${
+      input.creativeCount * targetCount
+    } ads`;
+  }
+  return `${input.creativeCount} selected ads · pause or resume writes are explicit`;
+}
+
 function LaunchpadIndex({
   drafts,
   templates,
-  currency,
   loading,
   message,
   appliedTemplateName,
@@ -1237,7 +1391,6 @@ function LaunchpadIndex({
 }: {
   drafts: LaunchDraft[];
   templates: LaunchTemplate[];
-  currency: string;
   loading: boolean;
   message: string | null;
   appliedTemplateName: string | null;
@@ -1250,26 +1403,6 @@ function LaunchpadIndex({
 }) {
   return (
     <>
-      <header className="flex flex-col gap-3 border-b border-[var(--border)] pb-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0">
-          <div className="text-[11.5px] text-[var(--muted)]">
-            Platforms · <b className="font-semibold text-[var(--ink-3)]">Meta</b> · Launchpad
-          </div>
-          <div className="mt-0.5 flex flex-wrap items-center gap-2">
-            <h1 className="text-[20px] font-bold tracking-[-0.02em] text-[var(--ink)]">Launchpad · Meta</h1>
-            <span className="chip chip--warn">Guarded write surface — launches PAUSED</span>
-          </div>
-          <p className="mt-1 max-w-3xl text-[13px] text-[var(--muted)]">
-            Spin up campaigns or scale existing winners. All launches are created PAUSED and must be activated manually in Meta.
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-col items-start gap-1.5 lg:items-end">
-          <PausedBadge verbose />
-          <span className="mono text-[11px] text-[var(--muted)]">creative window · last 30d</span>
-          <span className="mono text-[11px] text-[var(--muted-2)]">account {currency}</span>
-        </div>
-      </header>
-
       <div className="grid gap-3 md:grid-cols-3" data-testid="launchpad-mode-selector">
         <ModeCard
           title="Launch new campaign"
@@ -1419,6 +1552,16 @@ function LaunchpadIndex({
                     <span className="mt-0.5 block truncate text-[11px] text-[var(--muted)]">
                       {template.description ?? summarizeTemplate(template)}
                     </span>
+                    {template.source === "auto_recent" ? (
+                      <span className="mt-1 flex flex-wrap gap-1.5">
+                        <span className="mono rounded-[4px] border border-dashed border-[var(--border-3)] px-1.5 py-0.5 text-[10.5px] text-[var(--muted)]">
+                          budget: placeholder — set at use
+                        </span>
+                        <span className="mono rounded-[4px] border border-dashed border-[var(--border-3)] px-1.5 py-0.5 text-[10.5px] text-[var(--muted)]">
+                          countries: placeholder
+                        </span>
+                      </span>
+                    ) : null}
                   </span>
                   <span className="hidden shrink-0 text-right text-[11px] text-[var(--muted)] sm:block">
                     <span className="chip chip--ghost">Use</span>

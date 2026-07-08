@@ -103,6 +103,19 @@ describe("proxy internal sync auth", () => {
     expect(response.headers.get("x-middleware-next")).toBe("1");
   });
 
+  it("exposes the password-reset flow without a session", () => {
+    for (const pathname of [
+      "/forgot-password",
+      "/reset-password",
+      "/api/auth/password-reset/request",
+      "/api/auth/password-reset/confirm",
+    ]) {
+      const response = proxy(buildRequest({ pathname }));
+      expect(response.status, pathname).toBe(200);
+      expect(response.headers.get("x-middleware-next"), pathname).toBe("1");
+    }
+  });
+
   it("hydrates a default language cookie for authenticated page requests", () => {
     const response = proxy(
       buildRequest({

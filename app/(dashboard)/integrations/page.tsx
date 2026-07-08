@@ -7,6 +7,11 @@ import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ProductSection, StateBanner } from "@/components/ui/product-surface";
+import {
+  WorkspacePill,
+  WorkspaceSurface,
+} from "@/components/workspace/workspace-surface";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store/app-store";
 import {
@@ -41,7 +46,20 @@ const REAL_PROVIDERS: IntegrationProvider[] = [
   "google",
   "ga4",
   "search_console",
-  "klaviyo",
+];
+
+/**
+ * Providers a user can actually connect right now — each has a real authorization flow
+ * (OAuth start route, or Shopify's app-store install). Providers NOT in this list have no
+ * live backend, so their cards render an honest "coming soon" state rather than a Connect
+ * button that would 404 (tiktok/pinterest/snapchat) or fake a handshake (klaviyo).
+ */
+const CONNECTABLE_PROVIDERS: IntegrationProvider[] = [
+  "meta",
+  "google",
+  "ga4",
+  "search_console",
+  "shopify",
 ];
 
 const DISPLAY_PROVIDERS: IntegrationProvider[] = [
@@ -626,67 +644,59 @@ export default function IntegrationsPage() {
   const isDemoWorkspace = isDemoBusinessId(businessId);
 
   return (
-    <div className="space-y-5">
-      <div className="rounded-xl border border-neutral-200 bg-white p-4">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="max-w-2xl space-y-2">
-            <div className="inline-flex items-center gap-2 rounded-full border border-neutral-200/70 bg-white/80 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+    <WorkspaceSurface
+      eyebrow="Integrations"
+      title="Connect and assign provider data"
+      description="Connect ad platforms, analytics tools, and storefronts once, then choose exactly which accounts Adsecute should use for this business."
+      meta={
+        <WorkspacePill tone={isDemoWorkspace ? "warning" : "positive"}>
+          {isDemoWorkspace ? "demo fixtures" : "live workspace"}
+        </WorkspacePill>
+      }
+      actions={
+        <div className="grid gap-2 sm:grid-cols-3 lg:min-w-[360px]">
+          <SummaryTile
+            label="Connected"
+            value={String(connectedCount)}
+            note={isDemoWorkspace ? "Fixture-backed integrations" : "Live integrations"}
+            tone="positive"
+          />
+          <SummaryTile
+            label="Needs setup"
+            value={String(needsSetupCount)}
+            note="Still disconnected or incomplete"
+            tone="neutral"
+          />
+          <SummaryTile
+            label="Assigned"
+            value={String(assignedAccountsTotal)}
+            note="Accounts, properties, and sites in use"
+            tone="accent"
+          />
+        </div>
+      }
+    >
+      <div className="inline-flex w-fit items-center gap-2 rounded-[6px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-2.5 py-1 text-[11px] font-medium text-[var(--adc-ink3)]">
               <Sparkles className="h-3.5 w-3.5" />
               Active business
-              <span className="text-foreground">{activeBusiness?.name ?? "Unknown"}</span>
+              <span className="text-[var(--adc-ink)]">{activeBusiness?.name ?? "Unknown"}</span>
               {isDemoWorkspace ? (
-                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                <span className="rounded-[4px] border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-2 py-0.5 text-[10px] font-semibold text-[var(--adc-caution-fg)]">
                   Demo fixtures active
                 </span>
               ) : null}
-            </div>
-            <div className="space-y-1">
-              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-                Integrations
-              </h1>
-              <p className="text-sm leading-5 text-muted-foreground">
-                Connect your ad platforms, analytics tools, and storefront once, then
-                choose exactly which accounts Adsecute should use for this business.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid gap-2 sm:grid-cols-3 lg:min-w-[360px]">
-            <SummaryTile
-              label="Connected"
-              value={String(connectedCount)}
-              note={isDemoWorkspace ? "Fixture-backed integrations" : "Live integrations"}
-              tone="positive"
-            />
-            <SummaryTile
-              label="Needs setup"
-              value={String(needsSetupCount)}
-              note="Still disconnected or incomplete"
-              tone="neutral"
-            />
-            <SummaryTile
-              label="Assigned"
-              value={String(assignedAccountsTotal)}
-              note="Accounts, properties, and sites in use"
-              tone="accent"
-            />
-          </div>
-        </div>
       </div>
 
       {toast && (
-        <div
-          className={`rounded-md border px-3 py-2 text-sm ${
-            toast.type === "success"
-              ? "border-green-500/30 bg-green-500/10 text-green-700"
-              : "border-destructive/30 bg-destructive/10 text-destructive"
-          }`}
+        <StateBanner
+          tone={toast.type === "success" ? "success" : "danger"}
+          title={toast.type === "success" ? "Integration updated" : "Integration action failed"}
         >
           {toast.message}
-        </div>
+        </StateBanner>
       )}
 
-      <div className="space-y-6">
+      <div className="space-y-4">
         {PROVIDER_GROUPS.map((group) => {
           const cards = providerCards.filter((item) =>
             group.providers.includes(item.provider),
@@ -694,17 +704,11 @@ export default function IntegrationsPage() {
           if (cards.length === 0) return null;
 
           return (
-            <section key={group.title} className="space-y-3">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                <div className="space-y-0.5">
-                  <div className="flex items-center gap-2">
-                    <Layers3 className="h-4 w-4 text-muted-foreground" />
-                    <h2 className="text-base font-semibold tracking-tight text-foreground">
-                      {group.title}
-                    </h2>
-                  </div>
-                  <p className="text-xs leading-5 text-muted-foreground">{group.description}</p>
-                </div>
+            <ProductSection
+              key={group.title}
+              title={group.title}
+              description={group.description}
+              actions={
                 <div className="flex flex-wrap gap-2">
                   {cards
                     .filter((item) => item.view.isConnected)
@@ -719,9 +723,16 @@ export default function IntegrationsPage() {
                       </Badge>
                     ))}
                 </div>
+              }
+            >
+              <div className="mb-3 flex items-center gap-2 text-[12px] text-[var(--adc-ink3)]">
+                  <div className="flex items-center gap-2">
+                    <Layers3 className="h-4 w-4 text-[var(--adc-ink3)]" />
+                    <span>Provider group</span>
+                  </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {cards.map((item) => (
                   <IntegrationsCard
                     key={item.provider}
@@ -737,6 +748,7 @@ export default function IntegrationsPage() {
                     googleSyncLoading={item.googleSyncLoading}
                     shopifySyncStatus={item.shopifySyncStatus}
                     shopifySyncLoading={item.shopifySyncLoading}
+                    comingSoon={!CONNECTABLE_PROVIDERS.includes(item.provider)}
                     onConnect={handleConnect}
                     onReconnect={(p) => setActiveProvider(p)}
                     onRetry={handleRetry}
@@ -763,7 +775,7 @@ export default function IntegrationsPage() {
                   />
                 ))}
               </div>
-            </section>
+            </ProductSection>
           );
         })}
       </div>
@@ -832,24 +844,24 @@ export default function IntegrationsPage() {
       />
 
       {isPropertySelectorOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-xl rounded-xl border bg-white p-5 shadow-lg">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(16,18,22,0.32)] p-4">
+          <div className="w-full max-w-xl rounded-lg border border-[var(--adc-b2)] bg-[var(--adc-s2)] p-5">
             <div className="mb-4">
               <h3 className="text-lg font-semibold">
                 Select Search Console Property
               </h3>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-[var(--adc-ink3)]">
                 Choose the property Adsecute should use for Search Console sync.
               </p>
             </div>
 
             <div className="max-h-[55vh] space-y-2 overflow-y-auto rounded-lg border p-3">
               {isLoadingProperties ? (
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-[var(--adc-ink3)]">
                   Loading properties...
                 </p>
               ) : properties.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-[var(--adc-ink3)]">
                   No Search Console properties found for this connection.
                 </p>
               ) : (
@@ -871,7 +883,7 @@ export default function IntegrationsPage() {
             </div>
 
             {propertyError ? (
-              <p className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              <p className="mt-3 rounded-md border border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] px-3 py-2 text-xs text-[var(--adc-danger-fg)]">
                 {propertyError}
               </p>
             ) : null}
@@ -896,14 +908,14 @@ export default function IntegrationsPage() {
           </div>
         </div>
       ) : null}
-    </div>
+    </WorkspaceSurface>
   );
 }
 
 function IntegrationsPageSkeleton() {
   return (
     <div className="space-y-5">
-      <div className="rounded-xl border border-neutral-200 bg-white p-4">
+      <div className="rounded-xl border border-[var(--adc-b1)] bg-[var(--adc-s2)] p-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl space-y-2">
             <Skeleton className="h-7 w-40 rounded-full" />
@@ -918,7 +930,7 @@ function IntegrationsPageSkeleton() {
             {Array.from({ length: 3 }).map((_, index) => (
               <div
                 key={index}
-                className="rounded-xl border border-neutral-200 bg-white p-4"
+                className="rounded-xl border border-[var(--adc-b1)] bg-[var(--adc-s2)] p-4"
               >
                 <Skeleton className="h-3 w-16" />
                 <Skeleton className="mt-4 h-8 w-12" />
@@ -939,7 +951,7 @@ function IntegrationsPageSkeleton() {
             {Array.from({ length: sectionIndex === 2 ? 1 : 2 }).map((__, cardIndex) => (
               <div
                 key={`${sectionIndex}-${cardIndex}`}
-                className="rounded-xl border border-neutral-200 bg-white p-4"
+                className="rounded-xl border border-[var(--adc-b1)] bg-[var(--adc-s2)] p-4"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-2">
@@ -981,22 +993,22 @@ function SummaryTile({
   return (
     <div
       className={cn(
-        "rounded-xl border px-4 py-4",
-        tone === "positive" && "border-emerald-200 bg-emerald-50/70",
-        tone === "neutral" && "border-neutral-200 bg-white",
-        tone === "accent" && "border-blue-200 bg-blue-50/70",
+        "rounded-[10px] border px-3 py-2.5",
+        tone === "positive" && "border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]",
+        tone === "neutral" && "border-[var(--adc-b1)] bg-[var(--adc-s2)] text-[var(--adc-ink2)]",
+        tone === "accent" && "border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)]",
       )}
     >
-      <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+      <p className="font-mono text-[10.5px] font-medium uppercase tracking-normal text-[var(--adc-ink3)]">
         {label}
       </p>
-      <div className="mt-2 flex items-end gap-2">
-        <span className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+      <div className="mt-1 flex items-end gap-2">
+        <span className="font-mono text-[19px] font-semibold tracking-normal tabular-nums text-[var(--adc-ink)]">
           {value}
         </span>
-        <ArrowRight className="mb-1 h-4 w-4 text-muted-foreground" />
+        <ArrowRight className="mb-0.5 h-3.5 w-3.5 text-current opacity-60" />
       </div>
-      <p className="mt-2 text-xs leading-5 text-muted-foreground">{note}</p>
+      <p className="mt-1 text-[11.5px] leading-5 text-current">{note}</p>
     </div>
   );
 }

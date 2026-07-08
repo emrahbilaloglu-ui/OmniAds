@@ -16,6 +16,28 @@ export const MOCK_SHARE_PAYLOAD: SharePayload = {
   includeNotes: true,
   note:
     "These creatives were selected based on ROAS and purchase volume over the last 14 days.",
+  businessName: "Miradora Home",
+  clientEmail: "selin@miradora.com",
+  currency: "TRY",
+  trackingState: "normal",
+  clientActions: [
+    {
+      id: "action_1",
+      what: "Paused an underperforming ad set",
+      why: "It spent 9,800 TRY over 7 days at 0.6x return vs the 1.8x target. The budget now flows to better-performing sets.",
+      date: "2026-03-03",
+      outcome: "7 days later: account return improved to 2.1x",
+      outcomeTone: "positive",
+    },
+    {
+      id: "action_2",
+      what: "Launched a new creative test",
+      why: "A UGC video variant entered testing in two ad sets. Tests start paused and are activated deliberately.",
+      date: "2026-03-01",
+      outcome: "outcome window not closed yet",
+      outcomeTone: "neutral",
+    },
+  ],
 
   creatives: [
     {

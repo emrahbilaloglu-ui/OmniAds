@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getIntegration } from "@/lib/integrations";
+import { rejectIfMetaWritesBlocked } from "@/lib/meta/automation-write-guard";
+import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
 import {
   completeMetaAdsActionLog,
   createMetaAdsActionLog,
@@ -120,6 +122,7 @@ async function prepareAction(input: {
   request: NextRequest;
   adId: string;
   body: ActionBody | null;
+  action: string;
 }) {
   const businessId = input.body?.businessId?.trim() ?? "";
   if (!businessId) {
@@ -143,6 +146,13 @@ async function prepareAction(input: {
   if ("error" in access) {
     return { ok: false as const, response: access.error };
   }
+  const reviewerBlocked = rejectIfReviewerReadOnly(access, `ad_${input.action}`);
+  if (reviewerBlocked) return { ok: false as const, response: reviewerBlocked };
+
+  const blocked = await rejectIfMetaWritesBlocked({
+    businessId: access.membership.businessId,
+  });
+  if (blocked) return { ok: false as const, response: blocked };
 
   const targetResult = await resolveMetaAdActionTarget({
     businessId: access.membership.businessId,
@@ -221,7 +231,7 @@ export async function handleMetaAdStatusAction(
   const { adId: rawAdId } = await context.params;
   const inputAdId = rawAdId?.trim() ?? "";
   const body = await readActionBody(request);
-  const prepared = await prepareAction({ request, adId: inputAdId, body });
+  const prepared = await prepareAction({ request, adId: inputAdId, body, action });
   if (!prepared.ok) return prepared.response;
 
   // Use resolved real Meta ad_id (warehouse may have synthesized an id like "creative_..."
@@ -314,7 +324,7 @@ export async function handleMetaAdDuplicateAction(
     );
   }
 
-  const prepared = await prepareAction({ request, adId: inputAdId, body });
+  const prepared = await prepareAction({ request, adId: inputAdId, body, action: "duplicate" });
   if (!prepared.ok) return prepared.response;
 
   const resolvedAdId = prepared.target.adId;

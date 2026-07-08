@@ -110,4 +110,25 @@ describe("POST /api/meta/recommendations/respond", () => {
     expect(responses.recordMetaDecisionResponse).not.toHaveBeenCalled();
     expect(responses.emitMetaDecisionResponseTelemetry).not.toHaveBeenCalled();
   });
+
+  it("rejects reviewer read-only attempts before persistence", async () => {
+    vi.mocked(access.requireBusinessAccess).mockResolvedValue({
+      session: { user: { id: "reviewer_1", email: "shopify-review@adsecute.com" } } as never,
+      membership: { businessId: "biz_1" } as never,
+    });
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/meta/recommendations/respond", {
+        method: "POST",
+        body: JSON.stringify({ businessId: "biz_1", recId: "rec_1", action: "deferred" }),
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(payload.error.code).toBe("reviewer_read_only");
+    expect(payload.error.action).toBe("operator_response");
+    expect(responses.recordMetaDecisionResponse).not.toHaveBeenCalled();
+    expect(responses.emitMetaDecisionResponseTelemetry).not.toHaveBeenCalled();
+  });
 });

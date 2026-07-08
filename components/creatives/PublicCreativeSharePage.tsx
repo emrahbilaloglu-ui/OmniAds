@@ -1,27 +1,14 @@
 "use client";
 
 import { useMemo } from "react";
-import { CalendarRange, Copy, Rows3 } from "lucide-react";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
-import {
-  SHARE_TABLE_COLUMNS,
-  SHARE_TABLE_COLUMN_MAP,
-  type ShareTableColumnDefinition,
-  type ShareTableColumnKey,
-  buildShareDistributions,
-  buildShareTableCalcContext,
-  evaluateShareMetricCell,
-  isShareMetricApplicable,
-  toShareHeatColor,
-} from "@/components/creatives/shareTableEngine";
-import {
-  ShareMetricKey,
+import type {
   SharePayload,
   SharedCreative,
-  SharedCreativeAnalysis,
+  SharedClientAction,
 } from "./shareCreativeTypes";
 
-type TopMetricLabelMap = Record<ShareMetricKey, string>;
+type ClientPanelLanguage = "tr" | "en";
 
 type PublicShareCreative = SharedCreative & {
   mediaPreviewUrl?: string | null;
@@ -33,401 +20,287 @@ type PublicShareCreative = SharedCreative & {
   previewUrl?: string | null;
 };
 
-const TOP_METRIC_LABELS: TopMetricLabelMap = {
-  spend: "Spend",
-  purchaseValue: "Purchase value",
-  roas: "ROAS",
-  cpa: "CPA",
-  cpcLink: "CPC link",
-  cpm: "CPM",
-  ctrAll: "CTR",
-  linkCtr: "Link CTR",
-  purchases: "Purchases",
-  impressions: "Impressions",
-  clicks: "Clicks",
-  linkClicks: "Link clicks",
-  addToCart: "Add to cart",
-  thumbstop: "Thumbstop",
-  clickToAddToCart: "Click to ATC",
-  clickToPurchase: "Click to purchase",
-  video25: "25% views",
-  video50: "50% views",
-  video75: "75% views",
-  video100: "100% views",
-  atcToPurchaseRatio: "ATC to purchase",
-  leads: "Leads",
-  messages: "Messages",
-  hookScore: "Hook",
-  ctaScore: "CTA",
-  offerScore: "Offer",
-  clickScore: "Click",
-  watchScore: "Watch",
-};
-
-const SHARE_METRIC_TO_TABLE_COLUMN: Partial<Record<ShareMetricKey, ShareTableColumnKey>> = {
-  clickToAddToCart: "clickToAtcRatio",
-  clickToPurchase: "clickToPurchaseRatio",
-  video25: "video25Rate",
-  video50: "video50Rate",
-  video75: "video75Rate",
-  video100: "video100Rate",
-};
-
-function tableColumnForMetric(key: ShareMetricKey) {
-  return SHARE_TABLE_COLUMN_MAP[SHARE_METRIC_TO_TABLE_COLUMN[key] ?? (key as ShareTableColumnKey)] ?? null;
-}
-
-function formatTopMetric(key: ShareMetricKey, value: number | null): string {
-  if (value == null) return "—";
-  switch (key) {
-    case "spend":
-    case "purchaseValue":
-    case "cpcLink":
-    case "cpm":
-    case "cpa":
-      return `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-    case "roas":
-      return value.toFixed(2);
-    case "ctrAll":
-    case "linkCtr":
-    case "thumbstop":
-    case "clickToAddToCart":
-    case "clickToPurchase":
-    case "video25":
-    case "video50":
-    case "video75":
-    case "video100":
-    case "atcToPurchaseRatio":
-      return `${value.toFixed(2)}%`;
-    case "purchases":
-    case "impressions":
-    case "clicks":
-    case "linkClicks":
-    case "addToCart":
-    case "leads":
-    case "messages":
-      return value.toLocaleString();
-    case "hookScore":
-    case "ctaScore":
-    case "offerScore":
-    case "clickScore":
-    case "watchScore":
-      return `${Math.round(value)}/100`;
-    default:
-      return String(value);
-  }
-}
-
-function topMetricValue(creative: SharedCreative, key: ShareMetricKey): number | null {
-  const value = creative[key as keyof SharedCreative];
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (key === "hookScore" || key === "ctaScore" || key === "offerScore" || key === "clickScore" || key === "watchScore") {
-    return null;
-  }
-  return 0;
-}
-
-function actionClasses(actionLabel: string) {
-  const normalized = actionLabel.toLowerCase();
-  if (normalized.includes("scale")) return "border-emerald-200 bg-emerald-50 text-emerald-800";
-  if (normalized.includes("cut")) return "border-rose-200 bg-rose-50 text-rose-800";
-  if (normalized.includes("refresh")) return "border-amber-200 bg-amber-50 text-amber-800";
-  if (normalized.includes("protect")) return "border-blue-200 bg-blue-50 text-blue-800";
-  if (normalized.includes("test")) return "border-sky-200 bg-sky-50 text-sky-800";
-  return "border-neutral-200 bg-neutral-50 text-neutral-700";
-}
-
-function compactLabel(value: string | null | undefined) {
-  return value?.replaceAll("_", " ").trim() || null;
-}
-
-function csvEscape(value: unknown) {
-  const text = String(value ?? "");
-  if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
-  return text;
-}
-
-function AnalysisPill({ label }: { label: string | null | undefined }) {
-  const normalized = compactLabel(label);
-  if (!normalized) return null;
-  return (
-    <span className="rounded-full border border-neutral-200 bg-neutral-50 px-2 py-0.5 text-[10px] font-medium text-neutral-700">
-      {normalized}
-    </span>
-  );
-}
-
-function CreativeAnalysisCard({
-  creative,
-  analysis,
-}: {
-  creative: PublicShareCreative;
-  analysis: SharedCreativeAnalysis;
-}) {
-  return (
-    <article className="rounded-lg border border-neutral-200 bg-white p-3">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="line-clamp-1 text-[13px] font-semibold text-neutral-950">
-            {analysis.headline || creative.name}
-          </p>
-          {analysis.headline && analysis.headline !== creative.name ? (
-            <p className="mt-0.5 line-clamp-1 text-[10px] font-medium text-neutral-500">{creative.name}</p>
-          ) : null}
-          <p className="mt-1 text-[11px] leading-relaxed text-neutral-500">{analysis.summary}</p>
-        </div>
-        <span
-          className={[
-            "shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide",
-            actionClasses(analysis.actionLabel),
-          ].join(" ")}
-        >
-          {analysis.actionLabel}
-        </span>
-      </div>
-
-      <div className="mt-3 grid gap-2 md:grid-cols-2">
-        <div className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">What to do</p>
-          <p className="mt-1 text-[12px] font-semibold leading-snug text-neutral-950">{analysis.whatToDo}</p>
-        </div>
-        <div className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Why</p>
-          <p className="mt-1 text-[12px] leading-snug text-neutral-700">{analysis.why}</p>
-        </div>
-      </div>
-
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        <AnalysisPill label={analysis.authorityLabel} />
-        <AnalysisPill label={`Confidence: ${analysis.confidenceLabel}`} />
-        <AnalysisPill label={analysis.evidenceStrength ? `Evidence: ${analysis.evidenceStrength}` : null} />
-        <AnalysisPill label={analysis.urgency ? `Urgency: ${analysis.urgency}` : null} />
-        <AnalysisPill label={analysis.benchmarkLabel ? `Benchmark: ${analysis.benchmarkLabel}` : null} />
-        <AnalysisPill label={analysis.benchmarkReliability ? `Benchmark reliability: ${analysis.benchmarkReliability}` : null} />
-        <AnalysisPill label={analysis.amountGuidance ? `Amount: ${analysis.amountGuidance}` : null} />
-        <AnalysisPill label={analysis.previewState ? `Preview: ${analysis.previewState}` : null} />
-      </div>
-
-      {analysis.factors.length > 0 ? (
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          {analysis.factors.slice(0, 4).map((factor) => (
-            <div key={`${analysis.creativeId}_${factor.label}`} className="rounded-md border border-neutral-200 px-2.5 py-2">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">{factor.label}</p>
-                <span className="text-[11px] font-semibold tabular-nums text-neutral-950">{factor.value}</span>
-              </div>
-              <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-neutral-500">{factor.reason}</p>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {analysis.nextObservation.length > 0 || analysis.invalidActions.length > 0 || analysis.businessValidationNote ? (
-        <div className="mt-3 grid gap-2 md:grid-cols-2">
-          {analysis.nextObservation.length > 0 ? (
-            <div className="rounded-md border border-neutral-200 px-3 py-2">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Watch next</p>
-              <ul className="mt-1 space-y-1 text-[11px] leading-snug text-neutral-700">
-                {analysis.nextObservation.map((item) => (
-                  <li key={item}>- {item}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          {analysis.invalidActions.length > 0 || analysis.businessValidationNote ? (
-            <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-rose-700">Do not</p>
-              <ul className="mt-1 space-y-1 text-[11px] leading-snug text-rose-900">
-                {analysis.businessValidationNote ? <li>- {analysis.businessValidationNote}</li> : null}
-                {analysis.invalidActions.map((item) => (
-                  <li key={item}>- {item}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </article>
-  );
-}
+const COPY = {
+  tr: {
+    badge: "Müşteri görünümü · salt okunur",
+    pdf: "PDF indir",
+    fallbackBusiness: "Adsecute",
+    title: "Reklam sonuçlarınız",
+    asOf: "veriler",
+    asOfSuffix: "itibarıyla",
+    spend: "Harcama (dönem)",
+    spendSubKnown: "hesap para birimi",
+    spendSubUnknown: "para birimi snapshot içinde yok",
+    returnLabel: "Getiri",
+    returnSub: "raporlanan satış / harcama",
+    sales: "Reklam kaynaklı satış",
+    salesSub: "Meta'nın raporladığı satış değeri",
+    feedTitle: "Ne yaptık ve neden",
+    noActions:
+      "Bu dönemde değişiklik gerekmedi — kampanyalar hedefin üzerinde seyretti. Hiçbir işlem yapılmadığında bunu açıkça söyleriz.",
+    missingActions:
+      "Bu paylaşımda müşteri paneline uygun işlem geçmişi yok. Eksik aksiyon verisini uydurmuyoruz; yalnızca güvenle gösterilebilen kreatif özetlerini paylaşıyoruz.",
+    outcomePending: "sonuç penceresi ayrıca doğrulanmalı",
+    highlights: "Öne çıkan kreatifler",
+    highlightNote:
+      "Yalnızca paylaşılan snapshot içinde yeterli harcama veya satış değeri bulunan kreatifler listelenir.",
+    degradedNote:
+      "Şeffaflık notu: ölçüm sinyali bu dönemde eksik veya gecikmeli olabilir. Eksik veri 0 gibi gösterilmez ve kalıcı sonuç yorumu yapılmaz.",
+    multiCurrency:
+      "Bu snapshot birden fazla para birimi içeriyor. Harcama ve satış toplamları güvenli olmadığı için — olarak gösterildi.",
+    footKnown:
+      "Bu panel yalnızca paylaşılan business kapsamındaki verileri gösterir. Tutarlar hesap para birimindedir; eksik veri — olarak gösterilir, asla 0 değil. Sonuç ifadeleri korelasyon temellidir.",
+    footUnknown:
+      "Bu panel yalnızca paylaşılan business kapsamındaki verileri gösterir. Snapshot para birimi taşımıyorsa değerler kaynak formatıyla sınırlıdır; eksik veri — olarak gösterilir, asla 0 değil. Sonuç ifadeleri korelasyon temellidir.",
+    readOnly: "client view",
+  },
+  en: {
+    badge: "Client view · read-only",
+    pdf: "Download PDF",
+    fallbackBusiness: "Adsecute",
+    title: "Your advertising results",
+    asOf: "data as of",
+    asOfSuffix: "",
+    spend: "Spend (period)",
+    spendSubKnown: "account currency",
+    spendSubUnknown: "currency missing from snapshot",
+    returnLabel: "Return",
+    returnSub: "reported sales / spend",
+    sales: "Ad-attributed sales",
+    salesSub: "as reported by Meta",
+    feedTitle: "What we did and why",
+    noActions:
+      "No changes were needed this period — campaigns stayed above target. When we do nothing, we say so plainly.",
+    missingActions:
+      "This share does not include a client-safe action history. We do not invent missing action data; only creative summaries that can be shown safely are included.",
+    outcomePending: "outcome window needs separate verification",
+    highlights: "Creative highlights",
+    highlightNote:
+      "Only creatives with enough spend or sales value inside this shared snapshot are listed.",
+    degradedNote:
+      "Transparency note: measurement signals may be missing or delayed for this period. Missing data is not shown as 0 and no permanent outcome claim is made.",
+    multiCurrency:
+      "This snapshot includes multiple currencies. Spend and sales totals are shown as — because cross-currency aggregation is unsafe.",
+    footKnown:
+      "This panel shows only the shared business scope. Amounts use the account currency; missing data renders as —, never 0. Outcome statements are correlational.",
+    footUnknown:
+      "This panel shows only the shared business scope. If the snapshot does not carry currency metadata, values are limited to the source format; missing data renders as —, never 0. Outcome statements are correlational.",
+    readOnly: "client view",
+  },
+} as const;
 
 interface PublicCreativeSharePageProps {
   payload: SharePayload;
+  language?: ClientPanelLanguage;
 }
 
-export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProps) {
-  const {
-    title,
-    dateRange,
-    metrics,
-    creatives,
-    benchmarkCreatives,
-    includeNotes,
-    note,
-    groupBy,
-    filters,
-    selectedRowIds,
-    totalRows,
-    createdAt,
-    frozenAt,
-    openCount,
-    audience,
-    presetLabel,
-    includeCampaignNames,
-    includeDecisionLanguage,
-    allowCsv,
-  } = payload;
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
 
-  const displayRows = creatives as PublicShareCreative[];
-  const showDecisionLanguage =
-    includeDecisionLanguage !== false &&
-    audience !== "creative_team" &&
-    audience !== "external";
-  const showCampaignNames = includeCampaignNames !== false;
-  const analysisRows = useMemo(
-    () =>
-      showDecisionLanguage
-        ? displayRows.filter(
-            (creative): creative is PublicShareCreative & { analysis: SharedCreativeAnalysis } =>
-              Boolean(creative.analysis),
-          )
-        : [],
-    [displayRows, showDecisionLanguage],
-  );
-  const benchmarkRows = useMemo(
-    () => ((benchmarkCreatives && benchmarkCreatives.length > 0 ? benchmarkCreatives : creatives) as PublicShareCreative[]),
-    [benchmarkCreatives, creatives]
-  );
+function formatDateTime(value: string, language: ClientPanelLanguage) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(language === "tr" ? "tr-TR" : "en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "UTC",
+  }).format(date);
+}
 
-  const benchmarkCtx = useMemo(() => buildShareTableCalcContext(benchmarkRows), [benchmarkRows]);
-  const displayCtx = useMemo(() => buildShareTableCalcContext(displayRows), [displayRows]);
+function normalizeCurrency(value: string | null | undefined) {
+  const normalized = value?.trim().toUpperCase();
+  return normalized || null;
+}
 
-  const distributions = useMemo(
-    () =>
-      buildShareDistributions({
-        benchmarkRows,
-        benchmarkCtx,
-      }),
-    [benchmarkCtx, benchmarkRows]
-  );
+function resolveCurrency(payload: SharePayload, creatives: PublicShareCreative[]) {
+  const explicit = [
+    normalizeCurrency(payload.currency),
+    ...creatives.map((creative) => normalizeCurrency(creative.currency)),
+  ].filter((currency): currency is string => Boolean(currency));
+  const unique = Array.from(new Set(explicit));
+  if (unique.length > 1) {
+    return { currency: null, known: true, canAggregate: false };
+  }
+  if (unique.length === 1) {
+    return { currency: unique[0], known: true, canAggregate: true };
+  }
+  return { currency: null, known: false, canAggregate: false };
+}
 
-  const roasDistribution = distributions.value.roas;
+function formatMoney(value: number | null, currency: string | null, language: ClientPanelLanguage) {
+  if (!isFiniteNumber(value) || !currency) return "—";
+  return new Intl.NumberFormat(language === "tr" ? "tr-TR" : "en-US", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: value >= 1000 ? 0 : 2,
+  }).format(value);
+}
 
-  const visibleTableColumns = useMemo(() => {
-    const mapped = metrics.map(tableColumnForMetric).filter((column): column is ShareTableColumnDefinition => Boolean(column));
-    return mapped.length > 0 ? mapped : SHARE_TABLE_COLUMNS.slice(0, 6);
-  }, [metrics]);
+function formatRoas(value: number | null, language: ClientPanelLanguage) {
+  if (!isFiniteNumber(value)) return "—";
+  const formatted = new Intl.NumberFormat(language === "tr" ? "tr-TR" : "en-US", {
+    maximumFractionDigits: 2,
+  }).format(value);
+  return `${formatted}x`;
+}
 
-  const tableMinWidth = useMemo(() => {
-    const staticWidth = 300;
-    return staticWidth + visibleTableColumns.reduce((sum, column) => sum + column.minWidth, 0);
-  }, [visibleTableColumns]);
+function sumMetric(creatives: PublicShareCreative[], key: "spend" | "purchaseValue") {
+  const values = creatives
+    .map((creative) => creative[key])
+    .filter((value): value is number => isFiniteNumber(value));
+  if (values.length === 0) return null;
+  return values.reduce((sum, value) => sum + value, 0);
+}
 
-  const frozenAtLabel = useMemo(() => new Date(frozenAt ?? createdAt).toLocaleString(), [createdAt, frozenAt]);
+function resolveBusinessLabel(payload: SharePayload, copy: typeof COPY.tr | typeof COPY.en) {
+  if (payload.businessName?.trim()) return payload.businessName.trim();
+  if (payload.businessId?.trim()) return `Business ${payload.businessId.trim().slice(0, 6)}`;
+  return copy.fallbackBusiness;
+}
 
-  const copyLink = async () => {
-    if (typeof window === "undefined") return;
-    try {
-      await navigator.clipboard.writeText(window.location.href);
-    } catch {
-      // no-op
+function normalizeClientActionDate(action: SharedClientAction, language: ClientPanelLanguage) {
+  if (!action.date.trim()) return "—";
+  const parsed = new Date(action.date);
+  if (Number.isNaN(parsed.getTime())) return action.date;
+  return formatDateTime(action.date, language).split(",")[0] ?? action.date;
+}
+
+function buildFeed(actions: SharedClientAction[] | undefined, language: ClientPanelLanguage) {
+  return (actions ?? [])
+    .filter((action) => action.what.trim() && action.why.trim())
+    .slice(0, 3)
+    .map((action, index) => ({
+      id: action.id || `${index}-${action.what}`,
+      what: action.what,
+      date: normalizeClientActionDate(action, language),
+      why: action.why,
+      outcome: action.outcome?.trim() || null,
+      outcomeTone: action.outcomeTone === "positive" ? "positive" : "neutral",
+    }));
+}
+
+function mediaLabel(creative: PublicShareCreative, language: ClientPanelLanguage) {
+  if (creative.format === "video") return "video";
+  if (creative.format === "catalog") return language === "tr" ? "katalog" : "catalog";
+  return language === "tr" ? "görsel" : "image";
+}
+
+function mediaAspectRatio(creative: PublicShareCreative): string {
+  const format = (creative.format ?? "").toLowerCase();
+  if (format === "video" || format === "reel" || format === "story") return "9 / 16";
+  if (format === "catalog" || format === "carousel") return "1 / 1";
+  return "4 / 5";
+}
+
+export function PublicCreativeSharePage({ payload, language = "tr" }: PublicCreativeSharePageProps) {
+  const copy = COPY[language];
+  const creatives = payload.creatives as PublicShareCreative[];
+  const currencyInfo = useMemo(() => resolveCurrency(payload, creatives), [payload, creatives]);
+  const totals = useMemo(() => {
+    if (!currencyInfo.canAggregate) {
+      return { spend: null, sales: null, roas: null };
     }
-  };
+    const spend = sumMetric(creatives, "spend");
+    const sales = sumMetric(creatives, "purchaseValue");
+    return {
+      spend,
+      sales,
+      roas: spend !== null && sales !== null && spend > 0 ? sales / spend : null,
+    };
+  }, [creatives, currencyInfo.canAggregate]);
 
-  const downloadCsv = () => {
-    if (typeof window === "undefined") return;
-    const headers = ["Creative", ...visibleTableColumns.map((column) => column.label), "Gap"];
-    const lines = displayRows.map((creative, index) => {
-      const ctx = displayCtx;
-      return [
-        showCampaignNames ? creative.name : `Creative asset ${index + 1}`,
-        ...visibleTableColumns.map((column) => {
-          const value = column.getValue(creative, ctx);
-          return isShareMetricApplicable(column.key, creative) ? column.format(value, creative) : "";
-        }),
-        creative.creativeScoreGap?.label ?? "",
-      ].map(csvEscape).join(",");
-    });
-    const blob = new Blob([[headers.map(csvEscape).join(","), ...lines].join("\n")], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `adsecute-shared-creatives-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
+  const feed = useMemo(() => buildFeed(payload.clientActions, language), [payload.clientActions, language]);
+
+  const highlights = useMemo(
+    () =>
+      [...creatives]
+        .sort((a, b) => (b.purchaseValue || b.spend || 0) - (a.purchaseValue || a.spend || 0))
+        .slice(0, 3),
+    [creatives],
+  );
+
+  const asOf = formatDateTime(payload.frozenAt ?? payload.createdAt, language);
+  const periodLine = `${payload.dateRange} · ${copy.asOf} ${asOf} UTC ${copy.asOfSuffix}`.trim();
+  const businessLabel = resolveBusinessLabel(payload, copy);
+  const trackingDegraded = payload.trackingState === "tracking_degraded" || !currencyInfo.canAggregate;
+
+  const printPdf = () => {
+    if (typeof window !== "undefined") window.print();
   };
 
   return (
-    <div className="min-h-screen bg-neutral-100 px-3 py-4 sm:px-5 sm:py-5">
-      <main className="mx-auto w-full max-w-[1320px] rounded-xl border border-neutral-200 bg-white p-3 sm:p-4">
-        <header className="mb-3 border-b border-neutral-200 pb-3">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <h1 className="text-lg font-semibold tracking-tight text-neutral-950">{title || "Top Creatives"}</h1>
-              <p className="mt-0.5 inline-flex items-center gap-1.5 text-xs text-neutral-500">
-                <CalendarRange className="h-3.5 w-3.5" />
-                {dateRange}
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {allowCsv ? (
-                <button
-                  type="button"
-                  onClick={downloadCsv}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 px-2.5 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50"
-                >
-                  Download CSV
-                </button>
-              ) : null}
-              <button
-                type="button"
-                onClick={copyLink}
-                className="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 px-2.5 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50"
-              >
-                <Copy className="h-3.5 w-3.5" />
-                Copy link
-              </button>
-            </div>
-          </div>
+    <div className="ad-client-panel">
+      <div className="ad-client-topbar">
+        <div className="ad-client-mark" aria-hidden="true" />
+        <div className="ad-client-business">{businessLabel}</div>
+        <span className="ad-client-pill">{copy.badge}</span>
+        <div className="ad-client-spacer" />
+        <button type="button" className="ad-client-outline-button" onClick={printPdf}>
+          {copy.pdf}
+        </button>
+        <span className="ad-client-email">{payload.clientEmail || copy.readOnly}</span>
+      </div>
 
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-neutral-500">
-            <span className="inline-flex items-center gap-1">
-              <Rows3 className="h-3.5 w-3.5" />
-              {displayRows.length} creatives
-            </span>
-            {typeof totalRows === "number" ? <span>{totalRows} rows in snapshot</span> : null}
-            <span>{benchmarkRows.length} rows in benchmark</span>
-            {showCampaignNames && groupBy ? <span>Group by: {groupBy}</span> : null}
-            {presetLabel ? <span>Preset: {presetLabel}</span> : null}
-            {selectedRowIds && selectedRowIds.length > 0 ? <span>Selection: {selectedRowIds.length}</span> : null}
-            <span>Snapshot frozen: {frozenAtLabel}</span>
-            {typeof openCount === "number" ? <span>Open count: {openCount}</span> : null}
-          </div>
-
-          {filters && filters.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {filters.map((item) => (
-                <span
-                  key={item}
-                  className="rounded-full border border-neutral-200 bg-neutral-50 px-2 py-0.5 text-[11px] text-neutral-500"
-                >
-                  {item}
-                </span>
-              ))}
-            </div>
-          )}
+      <main className="ad-client-content">
+        <header>
+          <h1 className="ad-client-title">{payload.title || copy.title}</h1>
+          <p className="ad-client-subtitle">{periodLine}</p>
         </header>
 
-        <section className="space-y-2">
-          <div className="overflow-x-auto pb-1">
-            <div className="flex min-w-max gap-2.5">
-              {displayRows.map((creative) => (
-                <article
-                  key={creative.id}
-                  className="w-[190px] shrink-0 overflow-hidden rounded-lg border border-neutral-200 bg-white"
-                >
+        {trackingDegraded ? (
+          <div className="ad-client-banner">
+            {!currencyInfo.canAggregate ? copy.multiCurrency : copy.degradedNote}
+          </div>
+        ) : null}
+
+        <section className="ad-client-kpi-grid" aria-label="Client KPI summary">
+          <div className="ad-client-card ad-client-kpi">
+            <p>{copy.spend}</p>
+            <strong>{formatMoney(totals.spend, currencyInfo.currency, language)}</strong>
+            <span>{currencyInfo.known ? `${copy.spendSubKnown} ${currencyInfo.currency ?? "—"}` : copy.spendSubUnknown}</span>
+          </div>
+          <div className="ad-client-card ad-client-kpi">
+            <p>{copy.returnLabel}</p>
+            <strong className="ad-client-positive">{formatRoas(totals.roas, language)}</strong>
+            <span>{copy.returnSub}</span>
+          </div>
+          <div className="ad-client-card ad-client-kpi">
+            <p>{copy.sales}</p>
+            <strong>{formatMoney(totals.sales, currencyInfo.currency, language)}</strong>
+            <span>{copy.salesSub}</span>
+          </div>
+        </section>
+
+        <section>
+          <h2 className="ad-client-section-title">{copy.feedTitle}</h2>
+          {feed.length > 0 ? (
+            <div className="ad-client-feed">
+              {feed.map((item) => (
+                <article key={item.id} className="ad-client-card ad-client-feed-item">
+                  <div>
+                    <h3>{item.what}</h3>
+                    <time>{item.date}</time>
+                  </div>
+                  <p>{item.why}</p>
+                  {item.outcome ? <span data-tone={item.outcomeTone}>{item.outcome}</span> : null}
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="ad-client-card ad-client-empty">
+              {payload.trackingState === "no_actions" ? copy.noActions : copy.missingActions}
+            </div>
+          )}
+        </section>
+
+        <section>
+          <h2 className="ad-client-section-title ad-client-section-title-tight">{copy.highlights}</h2>
+          <p className="ad-client-section-note">{copy.highlightNote}</p>
+          <div className="ad-client-highlight-grid">
+            {highlights.map((creative) => (
+              <article key={creative.id} className="ad-client-card ad-client-highlight">
+                <div className="ad-client-highlight-media" style={{ aspectRatio: mediaAspectRatio(creative) }}>
                   <CreativeRenderSurface
                     id={creative.id}
                     name={creative.name}
@@ -445,155 +318,27 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                       creative.thumbnailUrl,
                     ]}
                   />
-                  <div className="space-y-1 px-2.5 py-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="line-clamp-1 text-[12px] font-medium text-neutral-950">{creative.name}</p>
-                      <span className="rounded border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[10px] text-neutral-500">
-                        {creative.format === "video" ? "Video" : creative.format === "catalog" ? "Catalog" : "Image"}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-                      {metrics.slice(0, 4).map((metric) => (
-                        <div key={`${creative.id}_${metric}`}>
-                          <p className="text-[10px] text-neutral-400">{TOP_METRIC_LABELS[metric]}</p>
-                          <p className="text-[11px] font-semibold tabular-nums text-neutral-950">
-                            {formatTopMetric(metric, topMetricValue(creative, metric))}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                    {creative.creativeScoreGap?.label ? (
-                      <span className="inline-flex rounded-full border border-neutral-200 bg-neutral-50 px-2 py-0.5 text-[10px] font-medium text-neutral-700">
-                        {creative.creativeScoreGap.label}
-                      </span>
-                    ) : null}
-                  </div>
-                </article>
-              ))}
-            </div>
-          </div>
-
-          {analysisRows.length > 0 ? (
-            <section className="rounded-lg border border-neutral-200 bg-neutral-50 p-2.5">
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1">
-                <div>
-                  <h2 className="text-[13px] font-semibold text-neutral-950">Creative action plan</h2>
-                  <p className="mt-0.5 text-[11px] text-neutral-500">
-                    {analysisRows.length} selected creative{analysisRows.length === 1 ? "" : "s"} with export analysis
+                  <span>{mediaLabel(creative, language)}</span>
+                </div>
+                <div className="ad-client-highlight-body">
+                  <h3>{creative.name}</h3>
+                  <p>
+                    {formatMoney(currencyInfo.canAggregate ? creative.spend : null, currencyInfo.currency, language)}
+                    {" · "}
+                    {formatRoas(isFiniteNumber(creative.roas) ? creative.roas : null, language)}
                   </p>
                 </div>
-              </div>
-              <div className="grid gap-2 lg:grid-cols-2">
-                {analysisRows.map((creative) => (
-                  <CreativeAnalysisCard
-                    key={`analysis_${creative.id}`}
-                    creative={creative}
-                    analysis={creative.analysis}
-                  />
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-          <div className="overflow-x-auto rounded-lg border border-neutral-200">
-            <table className="text-[12px]" style={{ minWidth: tableMinWidth }}>
-              <thead className="bg-neutral-50">
-                <tr className="border-b border-neutral-200">
-                  <th className="px-3 py-2 text-left font-medium text-neutral-500">Creative</th>
-                  {visibleTableColumns.map((column) => (
-                    <th key={column.key} className="whitespace-nowrap px-3 py-2 text-right font-medium text-neutral-500">
-                      {column.label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {displayRows.map((creative) => (
-                  <tr key={`table_${creative.id}`} className="border-b border-neutral-100">
-                    <td className="px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <CreativeRenderSurface
-                          id={creative.id}
-                          name={creative.name}
-                          preview={creative.preview}
-                          size="thumb"
-                          mode="asset"
-                          className="h-8 w-14 rounded"
-                          assetFallbacks={[
-                            creative.tableThumbnailUrl,
-                            creative.cachedThumbnailUrl,
-                            creative.mediaPreviewUrl,
-                            creative.thumbnailUrl,
-                            creative.imageUrl,
-                            creative.preview?.image_url,
-                            creative.preview?.poster_url,
-                            creative.previewUrl,
-                          ]}
-                        />
-                        <span className="line-clamp-2 text-[11px] text-neutral-950">
-                          {showCampaignNames ? creative.name : "Creative asset"}
-                        </span>
-                      </div>
-                    </td>
-                    {visibleTableColumns.map((column) => {
-                      const value = column.getValue(creative, displayCtx);
-                      const distribution = distributions.value[column.key];
-                      const spendDistribution = distributions.spend[column.key];
-
-                      if (!distribution || !spendDistribution || !roasDistribution) {
-                        return (
-                          <td
-                            key={`cell_${creative.id}_${column.key}`}
-                            className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-neutral-950"
-                          >
-                            {column.format(value, creative)}
-                          </td>
-                        );
-                      }
-
-                      const evaluation = evaluateShareMetricCell({
-                        key: column.key,
-                        row: creative,
-                        value,
-                        distribution,
-                        roasDistribution,
-                        spendDistribution,
-                      });
-
-                      return (
-                        <td
-                          key={`cell_${creative.id}_${column.key}`}
-                          className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-neutral-950"
-                          style={{
-                            backgroundColor: evaluation.applicable
-                              ? toShareHeatColor(evaluation.tone, evaluation.intensity)
-                              : "transparent",
-                          }}
-                          title={evaluation.reason}
-                        >
-                          {isShareMetricApplicable(column.key, creative) ? (
-                            column.format(value, creative)
-                          ) : (
-                            <span className="text-neutral-400">—</span>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+              </article>
+            ))}
           </div>
         </section>
 
-        {includeNotes && note ? (
-          <section className="mt-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-[12px] text-neutral-700">
-            {note}
-          </section>
+        {payload.includeNotes && payload.note ? (
+          <section className="ad-client-card ad-client-note">{payload.note}</section>
         ) : null}
 
-        <footer className="mt-3 border-t border-neutral-200 pt-2 text-[11px] text-neutral-400">
-          Read-only shared report.
+        <footer className="ad-client-footer">
+          {currencyInfo.known ? copy.footKnown : copy.footUnknown}
         </footer>
       </main>
     </div>

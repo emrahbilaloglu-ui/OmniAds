@@ -3,6 +3,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { getCustomReportShareSnapshot } from "@/lib/custom-report-store";
 import { ReportCanvas } from "@/components/reports/report-canvas";
+import { ClientPanelPrintButton } from "@/components/client/ClientPanelPrintButton";
 import { getLanguageFromCookieValue, LANGUAGE_COOKIE_NAME } from "@/lib/i18n";
 
 export const metadata: Metadata = {
@@ -21,77 +22,104 @@ export default async function ShareReportPage({
 
   if (!payload) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-background px-6">
-        <div className="w-full max-w-md rounded-2xl border bg-card p-6 text-center shadow-sm">
-          <h1 className="text-lg font-semibold">{language === "tr" ? "Paylaşim linki bulunamadi veya süresi doldu" : "Share link not found or expired"}</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {language === "tr" ? "Bu paylaşilan raporun süresi dolmuş olabilir veya URL geçersiz olabilir." : "This shared report may have expired or the URL is invalid."}
-          </p>
-          <Link
-            href="/"
-            className="mt-4 inline-flex rounded-md border px-3 py-1.5 text-sm hover:bg-muted/40"
-          >
-            {language === "tr" ? "Adsecute'e don" : "Back to Adsecute"}
-          </Link>
-        </div>
-      </main>
+      <div className="ad-client-panel">
+        <main className="ad-client-empty-state">
+          <div className="ad-client-card">
+            <h1>{language === "tr" ? "Paylaşim linki bulunamadi veya süresi doldu" : "Share link not found or expired"}</h1>
+            <p>
+              {language === "tr" ? "Bu paylaşilan raporun süresi dolmuş olabilir veya URL geçersiz olabilir." : "This shared report may have expired or the URL is invalid."}
+            </p>
+            <Link href="/">
+              {language === "tr" ? "Adsecute'e don" : "Back to Adsecute"}
+            </Link>
+          </div>
+        </main>
+      </div>
     );
   }
 
+  const generatedAt = new Date(payload.generatedAt).toLocaleString(language === "tr" ? "tr-TR" : "en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "UTC",
+  });
+  const expiresAt = new Date(payload.expiresAt).toLocaleString(language === "tr" ? "tr-TR" : "en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "UTC",
+  });
+  const businessLabel =
+    payload.businessName?.trim() ||
+    (payload.businessId ? `Business ${payload.businessId.slice(0, 6)}` : "—");
+  const clientLabel = payload.clientEmail?.trim() || (language === "tr" ? "client view" : "client view");
+  const currencyLine = payload.currency
+    ? language === "tr"
+      ? `Tutarlar hesap para birimindedir (${payload.currency}); eksik veri — olarak gösterilir, asla 0 değil.`
+      : `Amounts use the account currency (${payload.currency}); missing data renders as —, never 0.`
+    : language === "tr"
+      ? "Para birimi snapshot içinde yoksa değerler kaynak formatıyla sınırlıdır; eksik veri — olarak gösterilir, asla 0 değil."
+      : "If currency metadata is missing, values stay limited to the source format; missing data renders as —, never 0.";
+
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(125,211,252,0.22),_transparent_32%),linear-gradient(180deg,#f8fafc,#f3f4f6)] px-6 py-10">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <div className="rounded-[32px] border bg-white/95 px-6 py-6 shadow-sm backdrop-blur">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="max-w-3xl">
-              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                {language === "tr" ? "Paylaşilan Rapor" : "Shared Report"}
-              </p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight">{payload.name}</h1>
-              {payload.description ? (
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">{payload.description}</p>
-              ) : null}
-            </div>
-            <div className="grid min-w-[220px] gap-3 rounded-3xl border bg-slate-50/90 p-4 text-sm text-slate-600">
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                  {language === "tr" ? "Tarih Araligi" : "Date Range"}
-                </div>
-                <div className="mt-1 font-medium text-slate-900">{payload.dateRangeLabel}</div>
-              </div>
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                  {language === "tr" ? "Oluşturulma" : "Generated"}
-                </div>
-                <div className="mt-1 font-medium text-slate-900">
-                  {new Date(payload.generatedAt).toLocaleString()}
-                </div>
-              </div>
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                  {language === "tr" ? "Bitis" : "Expires"}
-                </div>
-                <div className="mt-1 font-medium text-slate-900">
-                  {new Date(payload.expiresAt).toLocaleString()}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-[32px] border border-dashed bg-white/70 px-6 py-4 text-sm text-slate-600 shadow-sm">
-          {language === "tr"
-            ? "Bu, Adsecute tarafindan oluşturulmuş bir paylaşım görüntüsüdür. Süresi dolmadan önce linki açarak oluşturulan rapor düzenini inceleyebilirsiniz."
-            : "This is a captured share snapshot from Adsecute. Open the link anytime before it expires to review the generated report layout."}
-        </div>
-
-        <div className="rounded-[32px] border bg-white/80 p-5 shadow-sm backdrop-blur">
-          <p className="mb-4 text-xs uppercase tracking-[0.18em] text-slate-400">
-            {language === "tr" ? "Paylaşilan Rapor" : "Shared Report"}
-          </p>
-          <ReportCanvas report={payload} />
-        </div>
+    <div className="ad-client-panel">
+      <div className="ad-client-topbar">
+        <div className="ad-client-mark" aria-hidden="true" />
+        <div className="ad-client-business">{businessLabel}</div>
+        <span className="ad-client-pill">{language === "tr" ? "Müşteri görünümü · salt okunur" : "Client view · read-only"}</span>
+        <div className="ad-client-spacer" />
+        <ClientPanelPrintButton label={language === "tr" ? "PDF indir" : "Download PDF"} />
+        <span className="ad-client-email">{clientLabel}</span>
       </div>
-    </main>
+
+      <main className="ad-client-content">
+        <header>
+          <h1 className="ad-client-title">{payload.name}</h1>
+          <p className="ad-client-subtitle">
+            {payload.dateRangeLabel} · {language === "tr" ? "veriler" : "data as of"} {generatedAt} UTC
+          </p>
+        </header>
+
+        {payload.description ? (
+          <section className="ad-client-card ad-client-note">{payload.description}</section>
+        ) : null}
+
+        <section className="ad-client-kpi-grid" aria-label="Shared report metadata">
+          <div className="ad-client-card ad-client-kpi">
+            <p>{language === "tr" ? "Rapor dönemi" : "Report period"}</p>
+            <strong>{payload.dateRangeLabel || "—"}</strong>
+            <span>{language === "tr" ? "paylaşılan tarih aralığı" : "shared date range"}</span>
+          </div>
+          <div className="ad-client-card ad-client-kpi">
+            <p>{language === "tr" ? "Oluşturulma" : "Generated"}</p>
+            <strong>{generatedAt}</strong>
+            <span>UTC</span>
+          </div>
+          <div className="ad-client-card ad-client-kpi">
+            <p>{language === "tr" ? "Link süresi" : "Link expiry"}</p>
+            <strong>{expiresAt}</strong>
+            <span>UTC</span>
+          </div>
+        </section>
+
+        <div className="ad-client-banner">
+          {language === "tr"
+            ? "Şeffaflık notu: bu salt-okunur paylaşım rapor canvas'ını gösterir. Eksik metrikler — olarak kalmalı; sonuç yorumları korelasyon temellidir."
+            : "Transparency note: this read-only share shows the report canvas. Missing metrics must remain —; outcome statements are correlational."}
+        </div>
+
+        <section>
+          <h2 className="ad-client-section-title">{language === "tr" ? "Paylaşılan rapor" : "Shared report"}</h2>
+          <div className="ad-client-card ad-client-report-canvas">
+            <ReportCanvas report={payload} />
+          </div>
+        </section>
+
+        <footer className="ad-client-footer">
+          {language === "tr"
+            ? `Bu panel yalnızca paylaşılan business kapsamındaki verileri gösterir. ${currencyLine} Sonuç ifadeleri korelasyon temellidir.`
+            : `This panel shows only the shared business scope. ${currencyLine} Outcome statements are correlational.`}
+        </footer>
+      </main>
+    </div>
   );
 }

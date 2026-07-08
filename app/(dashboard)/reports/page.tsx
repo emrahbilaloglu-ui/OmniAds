@@ -10,6 +10,12 @@ import { useAppStore } from "@/store/app-store";
 import { CUSTOM_REPORT_TEMPLATES, type CustomReportRecord } from "@/lib/custom-reports";
 import { PlanGate } from "@/components/pricing/PlanGate";
 import { usePreferencesStore } from "@/store/preferences-store";
+import { ProductSection } from "@/components/ui/product-surface";
+import {
+  WorkspacePill,
+  WorkspaceStat,
+  WorkspaceSurface,
+} from "@/components/workspace/workspace-surface";
 
 async function fetchReports(businessId: string) {
   const response = await fetch(`/api/reports?businessId=${encodeURIComponent(businessId)}`, {
@@ -104,54 +110,43 @@ export default function ReportsPage() {
 
   return (
     <PlanGate requiredPlan="pro">
-    <div className="space-y-5">
-      <header>
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div className="max-w-2xl space-y-2">
-            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-neutral-500">
-              {language === "tr" ? "Ozel Raporlama" : "Reports"}
-            </p>
-            <h1 className="text-[24px] font-semibold tracking-tight text-neutral-950">
-              {language === "tr"
-                ? `${business?.name ?? "bu iş"} için tek tıkla raporlar oluşturun`
-                : `Build one-click reports for ${business?.name ?? "this business"}`}
-            </h1>
-            <p className="text-sm leading-5 text-neutral-500">
-              {language === "tr"
-                ? "Her iş altında tekrar kullanılabilir rapor formatları kaydedin, bir template ile başlayın, sonra çıktıyı public link olarak paylaşın veya tablo widget'larını CSV olarak dışa aktarın."
-                : "Save reusable report formats under each business, start from a template, then share the final output as a public link or export table widgets as CSV."}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <Button asChild size="lg">
-              <Link href="/reports/new">{language === "tr" ? "Boş Rapor Oluştur" : "Create Blank Report"}</Link>
-            </Button>
-          </div>
-        </div>
-      </header>
+    <WorkspaceSurface
+      eyebrow={language === "tr" ? "Ozel Raporlama" : "Reports"}
+      title={
+        language === "tr"
+          ? `${business?.name ?? "bu iş"} için tek tıkla raporlar oluşturun`
+          : `Build one-click reports for ${business?.name ?? "this business"}`
+      }
+      description={
+        language === "tr"
+          ? "Her iş altında tekrar kullanılabilir rapor formatları kaydedin, bir template ile başlayın, sonra çıktıyı public link olarak paylaşın veya tablo widget'larını CSV olarak dışa aktarın."
+          : "Save reusable report formats under each business, start from a template, then share the final output as a public link or export table widgets as CSV."
+      }
+      meta={<WorkspacePill tone="info">saved & templates</WorkspacePill>}
+      actions={
+        <Button asChild size="sm" className="bg-[var(--adc-ink)] text-[var(--adc-s2)] hover:bg-[var(--adc-ink2)]">
+          <Link href="/reports/new">{language === "tr" ? "Boş Rapor Oluştur" : "Create Blank Report"}</Link>
+        </Button>
+      }
+    >
 
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)]">
-        <div className="rounded-xl border border-neutral-200 bg-white p-6">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h2 className="text-[17px] font-semibold tracking-tight text-neutral-950">{language === "tr" ? "Kayitli Raporlar" : "Saved Reports"}</h2>
-              <p className="mt-1 text-sm text-neutral-500">
-                {language === "tr" ? "Kayitli her rapor aktif ise aittir." : "Every saved report belongs to the active business."}
-              </p>
-            </div>
-            {actionMessage ? <p className="text-sm text-neutral-500">{actionMessage}</p> : null}
-          </div>
-          <div className="mt-4 flex flex-wrap gap-3">
+      <section className="grid gap-3 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,1.25fr)]">
+        <ProductSection
+          title={language === "tr" ? "Kayitli Raporlar" : "Saved Reports"}
+          description={language === "tr" ? "Kayitli her rapor aktif ise aittir." : "Every saved report belongs to the active business."}
+          actions={actionMessage ? <p className="text-sm text-neutral-500">{actionMessage}</p> : null}
+        >
+          <div className="mt-3 flex flex-wrap gap-2">
             <input
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder={language === "tr" ? "Raporlarda ara..." : "Search reports..."}
-              className="min-w-[220px] rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:border-neutral-400"
+              className="h-8 min-w-[220px] rounded-[6px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2.5 text-[12.5px] text-[var(--adc-ink)] outline-none focus:border-[var(--adc-b2)]"
             />
             <select
               value={sortMode}
               onChange={(event) => setSortMode(event.target.value as "recent" | "name")}
-              className="rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:border-neutral-400"
+              className="h-8 rounded-[6px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2.5 text-[12.5px] text-[var(--adc-ink)] outline-none focus:border-[var(--adc-b2)]"
             >
               <option value="recent">{language === "tr" ? "Sirala: Son güncellenen" : "Sort: Recently updated"}</option>
               <option value="name">{language === "tr" ? "Sirala: Ad" : "Sort: Name"}</option>
@@ -159,35 +154,35 @@ export default function ReportsPage() {
           </div>
 
           {reportsQuery.isLoading ? (
-            <div className="mt-6 rounded-xl border border-dashed border-neutral-300 bg-neutral-50/60 p-8 text-sm text-neutral-500">
+            <div className="mt-4 rounded-[8px] border border-dashed border-[var(--adc-b2)] bg-[var(--adc-s1)] p-6 text-[12px] text-[var(--adc-ink3)]">
               {language === "tr" ? "Kayitli raporlar yükleniyor..." : "Loading saved reports..."}
             </div>
           ) : reportsQuery.error ? (
-            <div className="mt-6 rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">
+            <div className="mt-4 rounded-[8px] border border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] p-4 text-[12px] text-[var(--adc-danger-fg)]">
               {reportsQuery.error instanceof Error ? reportsQuery.error.message : language === "tr" ? "Raporlar yüklenemedi." : "Failed to load reports."}
             </div>
           ) : reports.length === 0 ? (
-            <div className="mt-6 rounded-xl border border-dashed border-neutral-300 bg-neutral-50/60 p-8 text-sm text-neutral-500">
+            <div className="mt-4 rounded-[8px] border border-dashed border-[var(--adc-b2)] bg-[var(--adc-s1)] p-6 text-[12px] text-[var(--adc-ink3)]">
               {language === "tr" ? "Henüz kayıtlı rapor yok. Bir template ile başlayın veya boş bir rapor oluşturun." : "No saved reports yet. Start from a template or create a blank report."}
             </div>
           ) : filteredReports.length === 0 ? (
-            <div className="mt-6 rounded-xl border border-dashed border-neutral-300 bg-neutral-50/60 p-8 text-sm text-neutral-500">
+            <div className="mt-4 rounded-[8px] border border-dashed border-[var(--adc-b2)] bg-[var(--adc-s1)] p-6 text-[12px] text-[var(--adc-ink3)]">
               {language === "tr" ? "Bu aramaya uyan rapor bulunamadi." : "No reports match this search yet."}
             </div>
           ) : (
-            <div className="mt-6 space-y-3">
+            <div className="mt-4 space-y-2">
               {filteredReports.map((report) => (
                 <div
                   key={report.id}
-                  className="rounded-xl border border-neutral-200 px-4 py-4 transition hover:border-neutral-300 hover:bg-neutral-50"
+                  className="rounded-[8px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-3 py-3 transition hover:border-[var(--adc-b2)] hover:bg-[var(--adc-s1)]"
                 >
-                  <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px]">
+                  <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_160px]">
                     <Link href={`/reports/${report.id}`} className="block">
-                      <h3 className="text-base font-semibold text-neutral-950">{report.name}</h3>
-                      <p className="mt-1 text-sm text-neutral-500">
+                      <h3 className="text-[13px] font-semibold text-[var(--adc-ink)]">{report.name}</h3>
+                      <p className="mt-1 text-[12px] text-[var(--adc-ink3)]">
                         {report.description || (language === "tr" ? "Henüz açıklama yok." : "No description yet.")}
                       </p>
-                      <p className="mt-3 text-xs text-neutral-400">
+                      <p className="mt-2 font-mono text-[10.5px] text-[var(--adc-ink3)]">
                         {language === "tr" ? "Güncellendi" : "Updated"} {new Date(report.updatedAt).toLocaleString()}
                       </p>
                     </Link>
@@ -196,7 +191,7 @@ export default function ReportsPage() {
                     </Link>
                   </div>
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                    <span className="rounded-md border border-neutral-200 bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600">
+                    <span className="rounded-[5px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2 py-1 font-mono text-[10.5px] font-medium text-[var(--adc-ink3)]">
                       {report.definition?.widgets?.length ?? 0} {language === "tr" ? "widget" : "widgets"}
                     </span>
                     <div className="flex flex-wrap gap-2">
@@ -225,37 +220,40 @@ export default function ReportsPage() {
               ))}
             </div>
           )}
-        </div>
+        </ProductSection>
 
-        <div className="rounded-xl border border-neutral-200 bg-white p-6">
-          <div>
-            <h2 className="text-[17px] font-semibold tracking-tight text-neutral-950">{language === "tr" ? "Template Galerisi" : "Template Gallery"}</h2>
-            <p className="mt-1 text-sm text-neutral-500">
-              {language === "tr" ? "Tek tıkla bir yapıyla başlayın, sonra her widget ve slot'u özelleştirin." : "Start with a one-click structure, then customize every widget and slot."}
-            </p>
-          </div>
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
+        <ProductSection
+          title={language === "tr" ? "Template Galerisi" : "Template Gallery"}
+          description={language === "tr" ? "Tek tıkla bir yapıyla başlayın, sonra her widget ve slot'u özelleştirin." : "Start with a one-click structure, then customize every widget and slot."}
+        >
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
             {CUSTOM_REPORT_TEMPLATES.map((template) => (
               <Link
                 key={template.id}
                 href={`/reports/new?template=${template.id}`}
-                className="rounded-xl border border-neutral-200 bg-white p-5 transition hover:border-neutral-300 hover:bg-neutral-50"
+                className="rounded-[10px] border border-dashed border-[var(--adc-b2)] bg-[var(--adc-s2)] p-4 transition hover:border-[var(--adc-b2)] hover:bg-[var(--adc-s1)]"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <span className="rounded-md border border-neutral-200 bg-neutral-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-neutral-500">
+                  <span className="rounded-[4px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-normal text-[var(--adc-ink3)]">
                     {template.category}
                   </span>
                   <TemplateProviders template={template} />
                 </div>
-                <TemplateMiniPreview definition={template.definition} className="mt-8" />
-                <h3 className="mt-5 text-lg font-semibold text-neutral-900">{template.name}</h3>
-                <p className="mt-2 text-sm leading-6 text-neutral-500">{template.description}</p>
+                <TemplateMiniPreview definition={template.definition} className="mt-6" />
+                <h3 className="mt-4 text-[13px] font-semibold text-[var(--adc-ink)]">{template.name}</h3>
+                <p className="mt-1 text-[11.5px] leading-5 text-[var(--adc-ink3)]">{template.description}</p>
+                <WorkspaceStat
+                  label="Output"
+                  value={`${template.definition.widgets.length} widgets`}
+                  detail="share link · CSV tables · print"
+                  className="mt-3"
+                />
               </Link>
             ))}
           </div>
-        </div>
+        </ProductSection>
       </section>
-    </div>
+    </WorkspaceSurface>
     </PlanGate>
   );
 }

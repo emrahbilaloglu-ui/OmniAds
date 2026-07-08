@@ -25,6 +25,8 @@ const state = vi.hoisted(() => ({
   campaignLabels: [] as any[],
   search: "window=28d",
   storeBusinesses: [] as Array<{ id: string; name: string; currency: string }>,
+  workspaceBanners: [] as any[],
+  workspaceViewer: null as any,
   selectBusiness: vi.fn(),
   queryOverrides: {} as Record<string, { data?: unknown; isLoading?: boolean; error?: Error | null }>,
 }));
@@ -37,6 +39,114 @@ function queryState(data: unknown, override?: { data?: unknown; isLoading?: bool
     isLoading: override?.isLoading ?? false,
     isError: Boolean(error),
     error,
+  };
+}
+
+function workspacePayload() {
+  const pulse = state.pulsePayload ?? metaPulse();
+  const lanes = state.lanePayload ?? metaLanePayload();
+  return {
+    businessId: pulse.businessId,
+    window: pulse.window,
+    statusFilter: pulse.statusFilter,
+    startDate: pulse.startDate,
+    endDate: pulse.endDate,
+    pulse,
+    lanes,
+    queue: {
+      groups: [
+        { key: "action", label: "Action Now", count: lanes.counts.actionNow },
+        { key: "watching", label: "Watching", count: lanes.counts.watching },
+        { key: "healthy", label: "Healthy", count: lanes.counts.healthy },
+        { key: "nonSales", label: "Non-sales", count: lanes.counts.nonSales },
+        { key: "archive", label: "Archive", count: lanes.counts.archive },
+      ],
+      actionStates: {
+        executablePause: 0,
+        executableBid: 0,
+        executableResume: 0,
+        launchpadRoutes: 0,
+        reviewOnly: 0,
+        missingActionKind: 0,
+      },
+    },
+    system: {
+      trackingBlocked: pulse.trackingAnomalyActive === true || pulse.trackingHealth.status === "blocked" || pulse.trackingHealth.status === "degraded",
+      dataReadiness: pulse.dataReadiness ?? null,
+      snapshotHealth: pulse.snapshotHealth ?? lanes.snapshotHealth ?? null,
+      laneSnapshotDate: lanes.snapshotDate,
+      laneSnapshotCreatedAt: lanes.snapshotCreatedAt ?? null,
+      engineVersion: pulse.engineVersion,
+      currency: pulse.currency ?? null,
+      killSwitchEngaged: false,
+      killSwitchReason: null,
+    },
+    viewer: state.workspaceViewer,
+    banners: state.workspaceBanners,
+    digest: {
+      snapshotDate: lanes.snapshotDate,
+      unavailableReason: null,
+      labelFlips: {
+        count: 2,
+        publishedCount: 2,
+        items: [
+          {
+            id: "flip_1",
+            title: "Retargeting 30d",
+            previousLabel: "watch",
+            currentLabel: "act",
+            status: "published",
+            occurredAt: "2026-05-07",
+          },
+        ],
+      },
+      actions: {
+        verifiedCount: 1,
+        silentFailureCount: 1,
+        items: [
+          {
+            id: "action_1",
+            action: "pause",
+            target: "Broad LAL 2",
+            actor: "Autopilot",
+            status: "verified",
+            occurredAt: "2026-05-07T06:41:00.000Z",
+            detail: null,
+          },
+          {
+            id: "action_2",
+            action: "pause",
+            target: "Broad Test 01",
+            actor: "Deniz",
+            status: "silent_failure",
+            occurredAt: "2026-05-07T06:52:00.000Z",
+            detail: "Meta verification disagreed.",
+          },
+        ],
+      },
+      anomalies: {
+        openedCount: 1,
+        items: [
+          {
+            id: "anom_1",
+            title: "Purchase-event drop",
+            status: "open",
+            occurredAt: "2026-05-07T05:12:00.000Z",
+          },
+        ],
+      },
+      deferrals: {
+        dueCount: 1,
+        items: [
+          {
+            id: "rec_deferred",
+            title: "Creator Test 03",
+            dueAt: "2026-05-07T06:00:00.000Z",
+            detail: "let_cook_24h",
+          },
+        ],
+      },
+    },
   };
 }
 
@@ -56,8 +166,7 @@ vi.mock("@tanstack/react-query", () => ({
     state.queryKeys.push(input.queryKey);
     const key = String(input.queryKey[0]);
     const override = state.queryOverrides[key];
-    if (key === "meta-account-pulse") return queryState(state.pulsePayload ?? metaPulse(), override);
-    if (key === "meta-lanes") return queryState(state.lanePayload ?? metaLanePayload(), override);
+    if (key === "meta-decisions-workspace") return queryState(workspacePayload(), override);
     if (key === "meta-anomalies") {
       return queryState({ anomalies: [metaAnomaly()], snapshotDate: "2026-05-07", count: 1 }, override);
     }
@@ -87,6 +196,8 @@ describe("MetaPlatformPage", () => {
     state.campaignLabels = [];
     state.search = "window=28d";
     state.storeBusinesses = [];
+    state.workspaceBanners = [];
+    state.workspaceViewer = null;
     state.queryOverrides = {};
     state.selectBusiness.mockClear();
     state.routerPush.mockClear();
@@ -108,17 +219,28 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain("Spend · 2026-05-07");
     expect(html).toContain("avg $350.00/day");
     expect(html).toContain("+15%");
-    expect(html).toContain("7d avg 2/day");
+    expect(html).toContain('data-testid="meta-business-strip"');
+    expect(html).toContain('data-testid="meta-overnight-digest"');
+    expect(html).toContain("Since last snapshot");
+    expect(html).toContain("2 label flips (2 published)");
+    expect(html).toContain("1 action verified");
+    expect(html).toContain("ANOMALIES · 1 · counted separately");
+    expect(html).toContain("CAMPAIGNS &amp; AD SETS · 1");
     expect(html).toContain("Run snapshot");
-    expect(state.queryKeys.map((key) => key[0])).toContain("meta-lanes");
-    expect(state.queryKeys).toContainEqual(["meta-account-pulse", "biz_1", "28d", "active", expect.any(String), expect.any(String)]);
-    expect(state.queryKeys).toContainEqual(["meta-lanes", "biz_1", "28d", "active", expect.any(String), expect.any(String)]);
+    expect(html).toContain('data-testid="meta-mobile-decisions"');
+    expect(html).toContain("TheSwaf · Act now 2");
+    expect(html).toContain("Policy delivery block");
+    expect(html).toContain("ASC Prospecting");
+    expect(html).toContain("Writes are desktop-only");
+    expect(html).not.toContain("Mobile diagnostic summary unavailable");
+    expect(state.queryKeys).toContainEqual(["meta-decisions-workspace", "biz_1", "28d", "active", expect.any(String), expect.any(String)]);
+    expect(state.queryKeys.map((key) => key[0])).not.toContain("meta-account-pulse");
+    expect(state.queryKeys.map((key) => key[0])).not.toContain("meta-lanes");
   });
 
   it("withholds false summary zeros while the pulse and lane briefing are loading", () => {
     state.queryOverrides = {
-      "meta-account-pulse": { data: undefined, isLoading: true },
-      "meta-lanes": { data: undefined, isLoading: true },
+      "meta-decisions-workspace": { data: undefined, isLoading: true },
       "meta-anomalies": { data: undefined, isLoading: true },
     };
 
@@ -130,14 +252,13 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain("briefing loading");
     expect(html).toContain("queue is loading the latest decision snapshot");
     expect(html).toContain('<span class="count">—</span>');
-    expect(html).toContain("act —");
     expect(html).not.toContain("Snapshot missing");
     expect(html).not.toContain("sync unknown snapshot — engine");
   });
 
-  it("surfaces pulse or lane query errors before rendering briefing summaries", () => {
+  it("surfaces workspace query errors before rendering briefing summaries", () => {
     state.queryOverrides = {
-      "meta-lanes": { data: undefined, error: new Error("lane request failed") },
+      "meta-decisions-workspace": { data: undefined, error: new Error("workspace request failed") },
     };
 
     const html = renderToStaticMarkup(
@@ -147,7 +268,7 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain('data-testid="meta-briefing-error"');
     expect(html).toContain('data-testid="meta-pulse-error"');
     expect(html).toContain("briefing unavailable");
-    expect(html).toContain("lane request failed");
+    expect(html).toContain("workspace request failed");
     expect(html).toContain('<span class="count">—</span>');
     expect(html).not.toContain("queue reflects");
   });
@@ -168,6 +289,56 @@ describe("MetaPlatformPage", () => {
     expect(html).not.toContain('data-testid="meta-pulse-error"');
     expect(html).not.toContain("briefing unavailable");
     expect(html).not.toContain("act —");
+  });
+
+  it("renders server-owned action authority, automation tier, and evidence affordance on decision rows", () => {
+    state.lanePayload = metaLanePayload({
+      actionNow: [
+        metaRec({
+          id: "rec_pause",
+          level: "adset",
+          adsetId: "adset_1",
+          adsetName: "Cold Prospecting - Broad",
+          type: "adset_cut_spend",
+          actionKind: "execute_pause",
+          primaryActionLabel: "Pause adset",
+          automationReadiness: {
+            contractVersion: "meta-automation-readiness.v1",
+            tier: "manual_review",
+            autoExecuteEligible: false,
+            operatorReviewRequired: true,
+            decisionLabel: "cut",
+            blockers: ["missing_live_preflight"],
+            missingEvidence: ["live_preflight"],
+            requiredEvidence: ["commercial_anchor", "live_preflight"],
+            reason: "Live preflight is required before execution.",
+          },
+          evidenceTrail: {
+            roas_history: [0.8, 0.7, 0.6],
+            peer_comparison: { p10: 0.5, p50: 1.2, p90: 2.2, this_value: 0.6 },
+            regime_stability: 0.7,
+            age_days: 9,
+            recent_changes: [],
+          },
+        }),
+      ],
+      watching: [],
+      counts: { actionNow: 1, watching: 0, healthy: 1, nonSales: 0, archive: 0 },
+    });
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+
+    expect(html).toContain('data-action-authority="execute"');
+    expect(html).toContain('data-action-kind="execute_pause"');
+    expect(html).toContain("Execute · pause");
+    expect(html).toContain('data-row-signal="blocker"');
+    expect(html).toContain("Missing Live Preflight");
+    expect(html).toContain("Automation blocked");
+    expect(html).toContain("evidence 9d");
+    expect(html).toContain("Read evidence");
+    expect(html).toContain("Pause adset");
   });
 
   it("exposes campaign label management as a modal trigger without rendering the manager inline", () => {
@@ -223,7 +394,7 @@ describe("MetaPlatformPage", () => {
     expect(html).not.toContain("data-meta-label-management-modal");
     expect(html).not.toContain("Main ASC");
     expect(html).not.toContain("Creative Test");
-    expect(html).toContain("1 unlabeled");
+    expect(html).toContain("1/2 active campaigns labeled");
     expect(state.queryKeys.map((key) => key[0])).not.toContain("meta-campaigns-for-labels");
     expect(state.queryKeys.map((key) => key[0])).not.toContain("meta-campaign-labels");
   });
@@ -295,7 +466,7 @@ describe("MetaPlatformPage", () => {
     expect(html).not.toContain('disabled=""');
   });
 
-  it("threads the selected status filter into Pulse and lane queries", () => {
+  it("threads the selected status filter into the Decisions workspace query", () => {
     state.search = "window=28d&status_filter=all";
 
     const html = renderToStaticMarkup(
@@ -303,8 +474,7 @@ describe("MetaPlatformPage", () => {
     );
 
     expect(html).toContain('data-status-filter-option="all"');
-    expect(state.queryKeys).toContainEqual(["meta-account-pulse", "biz_1", "28d", "all", expect.any(String), expect.any(String)]);
-    expect(state.queryKeys).toContainEqual(["meta-lanes", "biz_1", "28d", "all", expect.any(String), expect.any(String)]);
+    expect(state.queryKeys).toContainEqual(["meta-decisions-workspace", "biz_1", "28d", "all", expect.any(String), expect.any(String)]);
   });
 
   it("uses endpoint-provided selected ROAS for custom ranges", () => {
@@ -331,7 +501,7 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain("ROAS · custom");
     expect(html).toContain("4.20×");
     expect(html).not.toContain("1.10×");
-    expect(state.queryKeys).toContainEqual(["meta-account-pulse", "biz_1", "custom", "active", "2026-05-01", "2026-05-07"]);
+    expect(state.queryKeys).toContainEqual(["meta-decisions-workspace", "biz_1", "custom", "active", "2026-05-01", "2026-05-07"]);
   });
 
   it("renders closed entities in the archive surface without action cards", () => {
@@ -772,55 +942,6 @@ describe("MetaPlatformPage", () => {
   });
 });
 
-describe("business scope rail", () => {
-  beforeEach(() => {
-    state.lanePayload = null;
-    state.pulsePayload = null;
-    state.search = "window=28d";
-    state.storeBusinesses = [];
-    state.selectBusiness.mockClear();
-  });
-
-  it("lists the operator's real businesses and scopes counts to the selected one", () => {
-    state.storeBusinesses = [
-      { id: "biz_1", name: "TheSwaf", currency: "USD" },
-      { id: "biz_2", name: "Second Co", currency: "EUR" },
-    ];
-
-    const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
-    );
-
-    expect(html).toContain('data-testid="meta-scope-rail"');
-    expect(html).toContain("Businesses · by urgency");
-    expect(html).toContain("TheSwaf");
-    expect(html).toContain("Second Co");
-    // Selected business (biz_1): real act-now count = lane actionNow (1) +
-    // anomalies (1), and real spend-today from the pulse payload.
-    expect(html).toContain("2 act");
-    expect(html).toContain("$401.00 today");
-    expect(html).toContain('data-selected="true"');
-    // Other business carries no fabricated numbers — only an Open affordance.
-    expect(html).toContain("Open");
-    expect(html).toContain('data-selected="false"');
-    expect(html).toContain(
-      "Spend shown in each account’s own currency. Cross-business totals are never summed.",
-    );
-  });
-
-  it("still shows the selected business before the store hydrates", () => {
-    state.storeBusinesses = [];
-
-    const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
-    );
-
-    expect(html).toContain('data-testid="meta-scope-rail"');
-    expect(html).toContain("TheSwaf");
-    expect(html).toContain("2 act");
-  });
-});
-
 describe("header as-of cluster and queue-scope note", () => {
   beforeEach(() => {
     state.lanePayload = null;
@@ -985,6 +1106,87 @@ describe("data readiness banner", () => {
     );
     expect(html).toContain("Data is not fully ready.");
     expect(html).toContain("No Meta ad account is assigned");
+  });
+});
+
+describe("workspace posture banners", () => {
+  it("renders server posture banners in reference priority without implying dismissed tracking unlocks writes", () => {
+    state.workspaceBanners = [
+      {
+        id: "tracking_write_gate",
+        tone: "warning",
+        title: "Tracking degraded — purchase signal may be incomplete.",
+        detail: "Purchase signal is incomplete.",
+        blocking: true,
+      },
+      {
+        id: "meta_write_kill_switch",
+        tone: "danger",
+        title: "Kill switch engaged.",
+        detail: "All active Meta write endpoints are blocked by META_ADS_WRITE_KILL_SWITCH.",
+        blocking: true,
+      },
+    ];
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+    );
+
+    expect(html).toContain('data-testid="meta-posture-banners"');
+    expect(html).toContain('data-banner-id="meta_write_kill_switch"');
+    expect(html).toContain('data-banner-id="tracking_write_gate"');
+    expect(html.indexOf("Kill switch engaged.")).toBeLessThan(html.indexOf("Tracking degraded"));
+    expect(html).toContain('href="/platforms/meta/automation"');
+    expect(html).toContain("System Status");
+    expect(html).toContain("Hiding this banner does not unlock writes");
+  });
+
+  it("downgrades write controls to evidence review when the server marks the viewer read-only", () => {
+    state.workspaceViewer = {
+      role: "collaborator",
+      isReviewer: true,
+      readOnly: true,
+      readOnlyReason: "You have read-only access: all evidence is visible, write controls are downgraded to review.",
+    };
+    state.workspaceBanners = [
+      {
+        id: "reviewer_read_only",
+        tone: "info",
+        title: "Reviewer access is read-only.",
+        detail: "You have read-only access: all evidence is visible, write controls are downgraded to review.",
+        blocking: false,
+      },
+    ];
+    state.lanePayload = metaLanePayload({
+      actionNow: [
+        metaRec({
+          id: "pause-rec",
+          actionKind: "execute_pause",
+          type: "adset_cut_spend",
+          adsetId: "as_1",
+          operatorResponseState: "deferred",
+        }),
+      ],
+      watching: [],
+      healthy: [],
+      nonSales: [],
+      archive: [],
+      counts: { actionNow: 1, watching: 0, healthy: 0, nonSales: 0, archive: 0 },
+    });
+
+    const html = renderToStaticMarkup(<MetaPlatformPage businessId="biz_1" />);
+
+    expect(html).toContain('data-banner-id="reviewer_read_only"');
+    expect(html).toContain("Reviewer access is read-only.");
+    expect(html).toContain('data-action-kind="execute_pause"');
+    expect(html).toContain('data-action-authority="review"');
+    expect(html).toContain('data-read-only-action="true"');
+    expect(html).toContain("Review evidence");
+    expect(html).toContain("Snapshot read-only");
+    expect(html).not.toContain(">Run snapshot<");
+    expect(html).toContain("Reappears tomorrow 9am");
+    expect(html).not.toContain('data-action="undefer"');
+    expect(html).not.toContain(">Pause weakest<");
   });
 });
 

@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 
 const TABS = [
-  { label: 'Pulse', href: '/platforms/google' },
+  { label: 'Decisions', href: '/platforms/google' },
   { label: 'Launchpad', href: '/platforms/google/launchpad' },
   { label: 'Ads', href: '/platforms/google/ads' },
   { label: 'Keywords', href: '/platforms/google/keywords' },

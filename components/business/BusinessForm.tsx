@@ -1,8 +1,6 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { Button } from "@/components/ui/button";
-
 interface BusinessFormProps {
   onSubmit: (payload: {
     name: string;
@@ -29,29 +27,25 @@ export function BusinessForm({ onSubmit }: BusinessFormProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="space-y-1.5">
-        <label htmlFor="business-name" className="text-sm font-medium">
-          Business name
-        </label>
+    <form onSubmit={handleSubmit} className="ad-auth-form">
+      <label htmlFor="business-name" className="ad-auth-label">
+        Business name
         <input
           id="business-name"
           value={name}
           onChange={(event) => setName(event.target.value)}
           placeholder="Your business name"
-          className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+          className="ad-auth-input"
         />
-      </div>
+      </label>
 
-      <div className="space-y-1.5">
-        <label htmlFor="business-currency" className="text-sm font-medium">
-          Currency
-        </label>
+      <label htmlFor="business-currency" className="ad-auth-label">
+        Currency
         <select
           id="business-currency"
           value={currency}
           onChange={(event) => setCurrency(event.target.value)}
-          className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+          className="ad-auth-select"
         >
           {CURRENCY_OPTIONS.map((item) => (
             <option key={item} value={item}>
@@ -59,11 +53,11 @@ export function BusinessForm({ onSubmit }: BusinessFormProps) {
             </option>
           ))}
         </select>
-      </div>
+      </label>
 
-      <Button type="submit" className="w-full" disabled={isDisabled}>
+      <button type="submit" className="ad-auth-primary" disabled={isDisabled}>
         Create business
-      </Button>
+      </button>
     </form>
   );
 }

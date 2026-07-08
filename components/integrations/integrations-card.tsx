@@ -38,6 +38,9 @@ interface IntegrationsCardProps {
   googleSyncLoading?: boolean;
   shopifySyncStatus?: ShopifyStatusResponse | null;
   shopifySyncLoading?: boolean;
+  /** True when the provider has no live OAuth/backend yet — the card shows an honest
+   *  "coming soon" state instead of a Connect button that would 404 or fake a handshake. */
+  comingSoon?: boolean;
   onConnect: (provider: IntegrationProvider) => void;
   onReconnect: (provider: IntegrationProvider) => void;
   onRetry: (provider: IntegrationProvider) => void;
@@ -59,6 +62,7 @@ export function IntegrationsCard({
   googleSyncLoading = false,
   shopifySyncStatus,
   shopifySyncLoading = false,
+  comingSoon = false,
   onConnect,
   onReconnect,
   onRetry,
@@ -127,7 +131,13 @@ export function IntegrationsCard({
             </p>
           </div>
         </div>
-        <StatusBadge status={visualStatus} />
+        {comingSoon ? (
+          <span className="inline-flex items-center rounded-md border border-neutral-200 bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-500">
+            Coming soon
+          </span>
+        ) : (
+          <StatusBadge status={visualStatus} />
+        )}
       </div>
 
       <div className="mt-3 grid gap-x-3 gap-y-2 sm:grid-cols-2">
@@ -190,6 +200,12 @@ export function IntegrationsCard({
       ) : null}
 
       <div className="mt-3 border-t border-border/70 pt-3">
+        {comingSoon ? (
+          <p className="text-[11.5px] leading-4 text-muted-foreground">
+            {providerLabel} isn&apos;t connectable yet — no live authorization or data sync
+            exists for it. This card is a visible roadmap placeholder, not a working connector.
+          </p>
+        ) : (
         <div className="flex flex-wrap items-center gap-1.5">
           {isDisconnected ? (
             <Button size="sm" className="min-w-[104px]" onClick={() => onConnect(provider)}>
@@ -253,6 +269,7 @@ export function IntegrationsCard({
             </>
           ) : null}
         </div>
+        )}
       </div>
     </div>
   );

@@ -125,7 +125,7 @@ describe("MetaActionCard lean decision row", () => {
     expect(html).toContain("Meta verified the ad set status.");
   });
 
-  it("renders backend-provided automation readiness without deriving the action in UI", () => {
+  it("renders server-owned row blocker and protection warning without deriving the action in UI", () => {
     const html = renderToStaticMarkup(
       <MetaActionCard
         rec={metaRec({
@@ -143,8 +143,45 @@ describe("MetaActionCard lean decision row", () => {
         })}
       />,
     );
-    expect(html).toContain("data-automation-readiness");
-    expect(html).toContain("Backtest needed");
+    expect(html).toContain('data-row-signal="blocker"');
+    expect(html).toContain("No Empirical Outcome Model");
+    expect(html).toContain("data-row-warn-line");
+    expect(html).toContain("Automation blocked");
+    expect(html).not.toContain("data-automation-readiness");
+  });
+
+  it("renders the reference row thumb, account badge, and compact auto pill only from rowPresentation", () => {
+    const html = renderToStaticMarkup(
+      <MetaActionCard
+        rec={metaRec({
+          rowPresentation: {
+            accountBadge: "act_12345",
+            thumbLabel: "VID",
+            signal: "shield",
+            shieldLabel: "Operator protection active",
+            autoBadge: true,
+            warnLine: "Operator protection active · verified server-side.",
+          },
+          automationReadiness: {
+            contractVersion: "meta-automation-readiness.v1",
+            tier: "auto_execute",
+            autoExecuteEligible: true,
+            operatorReviewRequired: false,
+            decisionLabel: "scale",
+            blockers: [],
+            missingEvidence: [],
+            requiredEvidence: ["commercial_anchor"],
+            reason: "All automation checks passed.",
+          },
+        })}
+      />,
+    );
+    expect(html).toContain('data-row-signal="shield"');
+    expect(html).toContain('data-row-thumb="VID"');
+    expect(html).toContain("act_12345");
+    expect(html).toContain('data-automation-tier="auto_execute"');
+    expect(html).toContain(">auto<");
+    expect(html).toContain("verified server-side");
   });
 
   it("renders anomaly rows in diagnostic mode", () => {

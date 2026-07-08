@@ -1,15 +1,8 @@
-import { PlatformTablePage } from "@/components/platform-table-page";
-import { Platform } from "@/src/types";
-import { PlanGate } from "@/components/pricing/PlanGate";
+import { ComingSoonState } from "@/components/states/ComingSoonState";
 
+// Snapchat has no live integration (no OAuth, sync, or API routes) — the only data source
+// is demo/fabricated. Rendering it as a "server-backed table" would be dishonest, so the
+// route shows the honest not-built boundary until a real Snapchat backend exists.
 export default function SnapchatPage() {
-  return (
-    <PlanGate requiredPlan="scale">
-      <PlatformTablePage
-        platform={Platform.SNAPCHAT}
-        title="Snapchat Ads"
-        description="Monitor Snapchat campaign-level spend and conversion data."
-      />
-    </PlanGate>
-  );
+  return <ComingSoonState platformId="snapchat" />;
 }

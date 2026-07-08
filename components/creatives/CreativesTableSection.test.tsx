@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { mapApiRowToUiRow } from "@/app/(dashboard)/platforms/meta/creatives/page-support";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
+import type { DecisionOutput, EngineV3Flags } from "@/lib/creative-decision-engine";
 
 vi.mock("@/hooks/use-dropdown-behavior", () => ({
   useDropdownBehavior: () => {},
@@ -122,6 +123,42 @@ function buildApiRow(overrides: Partial<MetaCreativeApiRow> = {}): MetaCreativeA
   };
 }
 
+function makeDecision(overrides: Partial<DecisionOutput> = {}): DecisionOutput {
+  return {
+    creativeId: "cr_degraded",
+    creativeName: "Truth Gated Creative",
+    label: "scale",
+    reason: "Strong relative winner.",
+    confidence: 72,
+    truthSource: "commercial_truth",
+    effectiveTargetRoas: 2.2,
+    ratioToTarget: 1.4,
+    badges: [],
+    metrics: { spend: 100, purchases: 10, roas: 3.1, recent7dRoas: 2.8 },
+    engineVersion: "v3-test",
+    generatedAt: "2026-05-04T12:30:00.000Z",
+    ...overrides,
+  };
+}
+
+function makeFlags(overrides: Partial<EngineV3Flags> = {}): EngineV3Flags {
+  return {
+    businessId: "biz-1",
+    enabled: true,
+    surfaceVisible: true,
+    shadowOnly: false,
+    presetOverride: null,
+    source: {
+      enabled: "env",
+      surfaceVisible: "business_override",
+      shadowOnly: "business_override",
+      presetOverride: null,
+    },
+    envDefaults: { enabled: true, surfaceVisible: false, shadowOnly: true },
+    ...overrides,
+  };
+}
+
 describe("CreativesTableSection", () => {
   it("keeps preview heat polarity aligned with table evaluation", () => {
     const highRoasLowCpa = mapApiRowToUiRow(
@@ -202,6 +239,80 @@ describe("CreativesTableSection", () => {
     expect(html).not.toContain("Legacy only");
     expect(html).not.toContain("No V2.1 row decision");
     expect(html).not.toContain("metrics-only");
+    // The DECISION column stays hidden unless the buyer-language toggle is on.
+    expect(html).not.toContain(">DECISION<");
+  });
+
+  it("reveals the server DECISION column only when buyer decision language is on", () => {
+    const row = mapApiRowToUiRow(buildApiRow());
+    const html = renderToStaticMarkup(
+      <CreativesTableSection
+        rows={[row]}
+        creativeHistoryById={new Map()}
+        defaultCurrency="USD"
+        selectedMetricIds={["spend", "roas"]}
+        onSelectedMetricIdsChange={() => {}}
+        selectedRowIds={[]}
+        onToggleRow={() => {}}
+        onToggleAll={() => {}}
+        onOpenRow={() => {}}
+        buyerDecisionLanguage
+        v3Flags={makeFlags()}
+        v3Decisions={[makeDecision({ creativeId: "cr_degraded", label: "scale" })]}
+      />,
+    );
+
+    expect(html).toContain(">DECISION<");
+    // Renders the product decision string (Scale), not a reference placeholder (Protect).
+    expect(html).toContain("Scale");
+    expect(html).not.toContain("Protect");
+  });
+
+  it("shows an honest em dash in the DECISION column when the engine has no decision for a creative", () => {
+    const row = mapApiRowToUiRow(buildApiRow());
+    const html = renderToStaticMarkup(
+      <CreativesTableSection
+        rows={[row]}
+        creativeHistoryById={new Map()}
+        defaultCurrency="USD"
+        selectedMetricIds={["spend", "roas"]}
+        onSelectedMetricIdsChange={() => {}}
+        selectedRowIds={[]}
+        onToggleRow={() => {}}
+        onToggleAll={() => {}}
+        onOpenRow={() => {}}
+        buyerDecisionLanguage
+        v3Flags={makeFlags()}
+        v3Decisions={[makeDecision({ creativeId: "cr_other", label: "scale" })]}
+      />,
+    );
+
+    // Column is present, but this creative has no engine decision → em dash, never fabricated.
+    expect(html).toContain(">DECISION<");
+    expect(html).not.toContain("Scale");
+  });
+
+  it("labels the client-computed hook score with an honest provenance pill", () => {
+    const row = mapApiRowToUiRow(buildApiRow());
+    const html = renderToStaticMarkup(
+      <CreativesTableSection
+        rows={[row]}
+        creativeHistoryById={new Map()}
+        defaultCurrency="USD"
+        initialPresetName="Facebook Video"
+        selectedMetricIds={["spend", "roas"]}
+        onSelectedMetricIdsChange={() => {}}
+        selectedRowIds={[]}
+        onToggleRow={() => {}}
+        onToggleAll={() => {}}
+        onOpenRow={() => {}}
+      />,
+    );
+
+    // The Hook score is client-computed (calculateCreativeHookScore), not provider-reported,
+    // so its cell carries an honest "proxy" provenance pill with an explanatory tooltip.
+    expect(html).toContain("proxy");
+    expect(html).toContain("Client-computed proxy");
   });
 
   it("renders the updated heatmap legend copy for the creatives table", () => {

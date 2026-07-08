@@ -81,8 +81,8 @@ const RATE_LIMIT_RETRY_MS =
     : 30_000;
 
 function isMetaAdsWriteKillSwitchEngaged() {
-  const value = process.env.META_ADS_WRITE_KILL_SWITCH;
-  return value === "1" || value?.toLowerCase() === "true";
+  const value = process.env.META_ADS_WRITE_KILL_SWITCH?.trim().toLowerCase();
+  return value === "1" || value === "true" || value === "yes";
 }
 
 function killSwitchFailure(): MetaAdsWriteFailure {

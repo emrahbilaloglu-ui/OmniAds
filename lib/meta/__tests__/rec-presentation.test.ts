@@ -91,10 +91,19 @@ describe("server-owned rec presentation", () => {
     const metrics = new Map([
       ["as_1", { spend: 120.5, roas: 1.8, cpa: 22, ctr: 1.1, purchases: 6, frequency: 1.9 }],
     ]);
-    const [annotated] = annotateMetaRecPresentation([rec()], metrics);
+    const rowPresentation = new Map([
+      ["as_1", { accountId: "act_1234567890", thumbLabel: null }],
+    ]);
+    const [annotated] = annotateMetaRecPresentation([rec()], metrics, rowPresentation);
     expect(annotated.actionKind).toBe("execute_pause");
     expect(annotated.primaryActionLabel).toBe("Pause adset");
     expect(annotated.decisionLabel).toBe("cut");
+    expect(annotated.rowPresentation).toMatchObject({
+      accountBadge: "act_1234567890",
+      thumbLabel: null,
+      signal: null,
+      autoBadge: false,
+    });
     expect(annotated.metrics).toEqual({
       spend: 120.5,
       roas: 1.8,
@@ -105,6 +114,51 @@ describe("server-owned rec presentation", () => {
     });
     const [noMetrics] = annotateMetaRecPresentation([rec({ adsetId: "unknown" })]);
     expect(noMetrics.metrics).toBeNull();
+  });
+
+  it("builds row protection markers from server readiness evidence", () => {
+    const [blocked] = annotateMetaRecPresentation([
+      rec({
+        automationReadiness: {
+          contractVersion: "meta-automation-readiness.v1",
+          tier: "manual_review",
+          autoExecuteEligible: false,
+          operatorReviewRequired: true,
+          decisionLabel: "cut",
+          blockers: ["missing_live_preflight"],
+          missingEvidence: ["live_preflight"],
+          requiredEvidence: ["commercial_anchor", "live_preflight"],
+          reason: "Live preflight is required before execution.",
+        },
+      }),
+    ]);
+    expect(blocked.rowPresentation).toMatchObject({
+      signal: "blocker",
+      blockerLabel: "Missing Live Preflight",
+      autoBadge: false,
+      warnLine: "Automation blocked · Missing Live Preflight",
+    });
+
+    const [auto] = annotateMetaRecPresentation([
+      rec({
+        automationReadiness: {
+          contractVersion: "meta-automation-readiness.v1",
+          tier: "auto_execute",
+          autoExecuteEligible: true,
+          operatorReviewRequired: false,
+          decisionLabel: "cut",
+          blockers: [],
+          missingEvidence: [],
+          requiredEvidence: ["commercial_anchor"],
+          reason: "All checks passed.",
+        },
+      }),
+    ]);
+    expect(auto.rowPresentation).toMatchObject({
+      signal: null,
+      autoBadge: true,
+      warnLine: null,
+    });
   });
 });
 

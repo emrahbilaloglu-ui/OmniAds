@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { AuthSurface } from "@/components/auth/auth-surface";
 import { DEFAULT_LANGUAGE, syncLanguageCookie } from "@/lib/i18n";
 import { sanitizeNextPath } from "@/lib/auth-routing";
 
@@ -35,10 +36,12 @@ export default function SelectLanguagePage() {
   }, [destination, router]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-      <div className="rounded-2xl border border-slate-200 bg-white px-6 py-5 text-sm text-slate-600 shadow-sm">
-        Applying language preference...
-      </div>
-    </div>
+    <AuthSurface
+      eyebrow="Workspace preference"
+      title="Applying language preference..."
+      description="Redirecting you to the right workspace route."
+    >
+      <div className="h-2 rounded-full bg-neutral-100" />
+    </AuthSurface>
   );
 }

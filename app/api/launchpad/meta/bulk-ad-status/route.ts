@@ -11,11 +11,13 @@ import {
   resumeAd,
   type MetaAdsWriteFailure,
 } from "@/lib/meta/ads-write";
+import { rejectIfMetaWritesBlocked } from "@/lib/meta/automation-write-guard";
 import { adsManagerUrl } from "@/lib/launchpad/meta";
 import { resolveMetaLaunchWriteContext } from "@/lib/launchpad/meta-validation";
 import {
   jsonError,
   readJsonBody,
+  rejectIfLaunchpadReviewerReadOnly,
   requireLaunchpadBusinessAccess,
   sanitizeErrorMessage,
 } from "../route-utils";
@@ -133,6 +135,10 @@ export async function POST(request: NextRequest) {
 
   const access = await requireLaunchpadBusinessAccess({ request, businessId });
   if (!access.ok) return access.response;
+  const reviewerBlocked = rejectIfLaunchpadReviewerReadOnly(access, "launchpad_bulk_ad_status");
+  if (reviewerBlocked) return reviewerBlocked;
+  const blocked = await rejectIfMetaWritesBlocked({ businessId: access.businessId });
+  if (blocked) return blocked;
   if (action !== "pause" && action !== "resume") {
     return jsonError(400, "invalid_action", "action must be pause or resume.");
   }

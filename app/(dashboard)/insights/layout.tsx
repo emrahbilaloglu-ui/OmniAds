@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { PlanGate } from "@/components/pricing/PlanGate";
+import { WorkspacePill, WorkspaceSurface } from "@/components/workspace/workspace-surface";
 import { cn } from "@/lib/utils";
 
 const INSIGHTS_TABS = [
@@ -31,8 +32,13 @@ export default function InsightsLayout({ children }: { children: React.ReactNode
 
   return (
     <PlanGate requiredPlan="pro">
-      <div className="space-y-5">
-        <div className="border-b border-neutral-200">
+      <WorkspaceSurface
+        eyebrow="Workspace intelligence"
+        title="Insights"
+        description="Analytics, AI visibility, and SEO intelligence share the same workspace context."
+        meta={<WorkspacePill tone="neutral">restyle only</WorkspacePill>}
+      >
+        <div className="border-b border-[var(--adc-b1)]">
           <div className="flex items-center gap-1" role="tablist" aria-label="Insights">
             {INSIGHTS_TABS.map((tab) => {
               const active = pathname === tab.href || pathname.startsWith(`${tab.href}/`);
@@ -43,8 +49,8 @@ export default function InsightsLayout({ children }: { children: React.ReactNode
                   className={cn(
                     "-mb-px border-b-2 px-3 py-2 text-[12.5px]",
                     active
-                      ? "border-neutral-950 font-medium text-neutral-950"
-                      : "border-transparent text-neutral-500 hover:text-neutral-900"
+                      ? "border-[var(--adc-ink)] font-medium text-[var(--adc-ink)]"
+                      : "border-transparent text-[var(--adc-ink2)] hover:text-[var(--adc-ink)]"
                   )}
                   title={tab.desc}
                 >
@@ -55,7 +61,7 @@ export default function InsightsLayout({ children }: { children: React.ReactNode
           </div>
         </div>
         {children}
-      </div>
+      </WorkspaceSurface>
     </PlanGate>
   );
 }

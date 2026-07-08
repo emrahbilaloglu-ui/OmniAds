@@ -188,16 +188,16 @@ Amber remediation banner rendered under the pulse when any of:
 
 Hidden entirely when all three are healthy.
 
-### Tracking banner vs write gate — deliberately separate
+### Tracking posture banner vs write gate — deliberately separate
 
 - `isTrackingWriteBlocked(pulse)` (`MetaPlatformPage.tsx:861-869`) is the
   **write gate**: server verdict only (`trackingAnomalyActive`, falling back to
   `trackingHealth.status ∈ {blocked, degraded}`). It is pure and
   dismissal-free **by signature** — it takes exactly one argument (the server
   payload) so client dismissal state cannot reach it.
-- `trackingDismissed` local state only hides the red banner
-  (`trackingBannerVisible = trackingBlocked && !trackingDismissed`,
-  `MetaPlatformPage.tsx:1330`). "Hide banner" never unlocks writes.
+- `trackingDismissed` local state only hides the `tracking_write_gate` row in
+  `MetaWorkspacePostureBanners`; the posture copy explicitly says hiding the
+  banner does not unlock writes. The write gate above still stays active.
 - While gated, tracking-sensitive primaries (`execute_pause`,
   `execute_bid`, `route_launchpad_rebuild` — `isTrackingSensitiveRec`) and
   all resume intents are intercepted by `TrackingConfirmModal` ("Pause
@@ -322,8 +322,8 @@ warehouse read models). Key semantics:
 - `labelCoverage`, `targetAnchor` — readiness inputs for the notice/empty
   states.
 - `dataReadiness` — `{status, isPartial, notReadyReason, evidenceSource}`
-  passthrough from the campaigns source. Rendered as a warning banner
-  (`data-testid="meta-data-readiness"`) when status is not `ok` or the
+  passthrough from the campaigns source. Rendered in the workspace posture
+  stack as `data-banner-id="data_readiness"` when status is not `ok` or the
   range is partial.
 
 ### `/api/meta/lane-classify` → `MetaLanePayload` (`types.ts:135-151`)
@@ -578,10 +578,10 @@ Real, current limitations — kept explicit on purpose:
   present configuration — an explicit deliberate contract as of 2026-07-07;
   see docs/meta-serving-history-contract.md for the rule and its decision
   gates.
-- **`dataReadiness` is rendered as a warning banner** (`data-testid="meta-data-readiness"`)
-  when status is not `ok` or the range is partial, so not-ready ranges do
-  not present as silent zeros (regression-tested in
-  `MetaPlatformPage.test.tsx`).
+- **`dataReadiness` is rendered in the workspace posture stack**
+  (`data-banner-id="data_readiness"`) when status is not `ok` or the range
+  is partial, so not-ready ranges do not present as silent zeros
+  (regression-tested in `MetaPlatformPage.test.tsx`).
 - **`MetaLanePayload.snapshotHealth` is never populated by lane-classify**
   (`types.ts:149` is optional; the route omits it). Snapshot health on this
   page comes solely from account-pulse.

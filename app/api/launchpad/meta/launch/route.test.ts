@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { normalizeMetaLaunchPayload } from "@/lib/launchpad/meta";
 
 vi.mock("@/lib/access", () => ({
@@ -18,6 +18,10 @@ vi.mock("@/lib/meta/launch-write", () => ({
   createAd: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/automation-write-guard", () => ({
+  rejectIfMetaWritesBlocked: vi.fn(),
+}));
+
 vi.mock("@/lib/launchpad/meta-validation", () => ({
   resolveMetaLaunchWriteContext: vi.fn(),
   validateMetaLaunchRequest: vi.fn(),
@@ -25,6 +29,7 @@ vi.mock("@/lib/launchpad/meta-validation", () => ({
 
 const access = await import("@/lib/access");
 const actionLog = await import("@/lib/meta/ads-action-log");
+const writeGuard = await import("@/lib/meta/automation-write-guard");
 const launchWrite = await import("@/lib/meta/launch-write");
 const validation = await import("@/lib/launchpad/meta-validation");
 const { POST } = await import("./route");
@@ -95,6 +100,7 @@ describe("POST /api/launchpad/meta/launch", () => {
       membership: { businessId: BUSINESS_ID },
     } as never);
     vi.mocked(actionLog.hasRecentPendingMetaLaunchAction).mockResolvedValue(false);
+    vi.mocked(writeGuard.rejectIfMetaWritesBlocked).mockResolvedValue(null);
     vi.mocked(actionLog.createMetaAdsActionLog).mockImplementation(async () => ({
       id: `log_${vi.mocked(actionLog.createMetaAdsActionLog).mock.calls.length}`,
     }) as never);
@@ -237,6 +243,54 @@ describe("POST /api/launchpad/meta/launch", () => {
     expect(body.error.code).toBe("launch_in_flight");
     expect(validation.validateMetaLaunchRequest).not.toHaveBeenCalled();
     expect(launchWrite.createCampaign).not.toHaveBeenCalled();
+  });
+
+  it("blocks launch before validation when the Meta write kill switch is engaged", async () => {
+    vi.mocked(writeGuard.rejectIfMetaWritesBlocked).mockResolvedValueOnce(
+      NextResponse.json(
+        { ok: false, error: { code: "kill_switch_engaged" } },
+        { status: 503 },
+      ),
+    );
+
+    const response = await POST(
+      request({
+        businessId: BUSINESS_ID,
+        payload: payload(),
+        idempotencyKey: "idem_kill",
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error.code).toBe("kill_switch_engaged");
+    expect(validation.validateMetaLaunchRequest).not.toHaveBeenCalled();
+    expect(launchWrite.createCampaign).not.toHaveBeenCalled();
+    expect(actionLog.createMetaAdsActionLog).not.toHaveBeenCalled();
+  });
+
+  it("rejects reviewer read-only launch attempts before kill-switch or validation", async () => {
+    vi.mocked(access.requireBusinessAccess).mockResolvedValue({
+      session: { user: { id: "reviewer_1", email: "shopify-review@adsecute.com" } },
+      membership: { businessId: BUSINESS_ID },
+    } as never);
+
+    const response = await POST(
+      request({
+        businessId: BUSINESS_ID,
+        payload: payload(),
+        idempotencyKey: "idem_reviewer",
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(body.error.code).toBe("reviewer_read_only");
+    expect(body.error.action).toBe("launchpad_launch");
+    expect(writeGuard.rejectIfMetaWritesBlocked).not.toHaveBeenCalled();
+    expect(validation.validateMetaLaunchRequest).not.toHaveBeenCalled();
+    expect(launchWrite.createCampaign).not.toHaveBeenCalled();
+    expect(actionLog.createMetaAdsActionLog).not.toHaveBeenCalled();
   });
 
   it("blocks launch when validation returns blockers", async () => {

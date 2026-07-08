@@ -27,7 +27,11 @@ describe("LaunchpadOverlay", () => {
     expect(html).toContain("Launch fresh test (Mode A)");
     expect(html).toContain("Rebuild in Launchpad");
     expect(html).toContain("Duplicate to test");
-    expect(html).toContain("Apply bid cap $22");
+    // Honesty: with no real bid data on the item, the title carries no fabricated cap
+    // (the old "$22"/"$18" placeholders are gone).
+    expect(html).toContain("Apply bid cap");
+    expect(html).not.toContain("$22");
+    expect(html).not.toContain("$18");
   });
 
   it("renders accessible modal attributes and hides when closed", () => {
@@ -35,14 +39,15 @@ describe("LaunchpadOverlay", () => {
       <LaunchpadOverlay
         open
         mode="apply_bid"
-        item={{ id: "bid", scopeName: "Campaign A", currentBidCap: 18, proposedBidCap: 24 }}
+        item={{ id: "bid", scopeName: "Campaign A", currentBidCap: 18, proposedBidCap: 24, currencyCode: "USD" }}
         onClose={() => undefined}
         onConfirm={() => undefined}
       />,
     );
 
     expect(openHtml).toContain("role=\"dialog\"");
-    expect(openHtml).toContain("Current cap $18");
+    // Real caps, formatted in the account currency (not a hardcoded "$").
+    expect(openHtml).toContain("Current cap $18.00 → proposed $24.00");
     expect(renderToStaticMarkup(
       <LaunchpadOverlay open={false} mode="promote" item={{ id: "x" }} onClose={() => undefined} onConfirm={() => undefined} />,
     )).toBe("");

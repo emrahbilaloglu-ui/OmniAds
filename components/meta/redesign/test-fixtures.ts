@@ -17,6 +17,7 @@ function pickExplicitPresentation(overrides: Partial<MetaRecommendation>) {
   if (overrides.decisionLabel !== undefined) explicit.decisionLabel = overrides.decisionLabel;
   if (overrides.actionKind !== undefined) explicit.actionKind = overrides.actionKind;
   if (overrides.primaryActionLabel !== undefined) explicit.primaryActionLabel = overrides.primaryActionLabel;
+  if (overrides.rowPresentation !== undefined) explicit.rowPresentation = overrides.rowPresentation;
   if (overrides.metrics !== undefined) explicit.metrics = overrides.metrics;
   return explicit;
 }

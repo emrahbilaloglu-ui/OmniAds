@@ -247,6 +247,57 @@ export interface MetaRecEntityMetricsSource {
   frequency?: number | null;
 }
 
+export interface MetaRecRowPresentationSource {
+  /** Provider account id from the serving row. Null means the source row did not expose one. */
+  accountId?: string | null;
+  /** Creative/media preview label from a real media source. Null means no real source was available. */
+  thumbLabel?: string | null;
+}
+
+function compactTitle(value: string) {
+  return value
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function compactAccountBadge(accountId: string | null | undefined) {
+  const value = accountId?.trim();
+  if (!value) return null;
+  if (value.length <= 14) return value;
+  if (value.startsWith("act_")) return `act_${value.slice(-5)}`;
+  return `${value.slice(0, 4)}…${value.slice(-5)}`;
+}
+
+function serverRowPresentationForRec(
+  rec: MetaRecommendation,
+  source?: MetaRecRowPresentationSource | null,
+): NonNullable<MetaRecommendation["rowPresentation"]> {
+  const readiness = rec.automationReadiness;
+  const firstBlocker = readiness?.blockers?.find((blocker) => blocker.trim().length > 0) ?? null;
+  const hasBlocker = Boolean(firstBlocker);
+  const hasShield = !hasBlocker && readiness?.operatorReviewRequired === true;
+  const signal = hasBlocker ? "blocker" : hasShield ? "shield" : null;
+  const blockerLabel = firstBlocker ? compactTitle(firstBlocker) : null;
+  const shieldLabel = hasShield ? "Operator protection active" : null;
+  const autoBadge = readiness?.tier === "auto_execute" && readiness.autoExecuteEligible === true;
+  const warnLine = hasBlocker
+    ? `Automation blocked · ${blockerLabel}`
+    : hasShield && readiness?.reason
+      ? `Operator protection active · ${readiness.reason}`
+      : null;
+  return {
+    accountBadge: compactAccountBadge(source?.accountId),
+    thumbLabel: source?.thumbLabel?.trim() || null,
+    signal,
+    blockerLabel,
+    shieldLabel,
+    autoBadge,
+    warnLine,
+  };
+}
+
 /**
  * Enrich recommendations with server-owned presentation fields and, when a
  * metrics source is provided, structured numeric metrics (compare/bulk math
@@ -255,16 +306,20 @@ export interface MetaRecEntityMetricsSource {
 export function annotateMetaRecPresentation(
   recs: MetaRecommendation[],
   metricsByEntityId?: Map<string, MetaRecEntityMetricsSource>,
+  rowPresentationByEntityId?: Map<string, MetaRecRowPresentationSource>,
 ): MetaRecommendation[] {
   return recs.map((rec) => {
     const entityId = rec.level === "adset" ? rec.adsetId : rec.campaignId;
     const metrics =
       metricsByEntityId && entityId ? metricsByEntityId.get(entityId) ?? null : null;
+    const rowPresentationSource =
+      rowPresentationByEntityId && entityId ? rowPresentationByEntityId.get(entityId) ?? null : null;
     return {
       ...rec,
       decisionLabel: serverDecisionLabelForRec(rec),
       actionKind: serverActionKindForRec(rec),
       primaryActionLabel: serverPrimaryActionLabelForRec(rec),
+      rowPresentation: serverRowPresentationForRec(rec, rowPresentationSource),
       metrics: rec.metrics ?? metrics ?? null,
     };
   });

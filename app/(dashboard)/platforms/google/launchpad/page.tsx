@@ -1,12 +1,8 @@
-import { ComingSoonState } from "@/components/states/ComingSoonState";
+import { redirect } from "next/navigation";
 
-export default function GoogleLaunchpadPage() {
-  return (
-    <ComingSoonState
-      platformId="google"
-      status="beta"
-      title="Google Ads Launchpad is in beta"
-      description="This placeholder keeps the platform route live while Google Ads launch workflows are scoped."
-    />
-  );
+// Google Ads has no launch/write surface built yet, and the intelligence dashboard is
+// the single live Google workspace, so this legacy sub-route folds back into it rather
+// than advertising a "coming soon" surface that isn't wired.
+export default function GoogleLaunchpadRedirect() {
+  redirect("/platforms/google");
 }

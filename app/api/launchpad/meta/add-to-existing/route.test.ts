@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { normalizeMetaAddToExistingPayload } from "@/lib/launchpad/meta";
 
 vi.mock("@/lib/access", () => ({
@@ -16,6 +16,10 @@ vi.mock("@/lib/meta/ads-write", () => ({
   duplicateAd: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/automation-write-guard", () => ({
+  rejectIfMetaWritesBlocked: vi.fn(),
+}));
+
 vi.mock("@/lib/launchpad/meta-validation", () => ({
   resolveMetaLaunchWriteContext: vi.fn(),
   validateMetaAddToExistingRequest: vi.fn(),
@@ -24,6 +28,7 @@ vi.mock("@/lib/launchpad/meta-validation", () => ({
 const access = await import("@/lib/access");
 const actionLog = await import("@/lib/meta/ads-action-log");
 const adsWrite = await import("@/lib/meta/ads-write");
+const writeGuard = await import("@/lib/meta/automation-write-guard");
 const validation = await import("@/lib/launchpad/meta-validation");
 const { POST } = await import("./route");
 
@@ -109,6 +114,7 @@ describe("POST /api/launchpad/meta/add-to-existing", () => {
       session: { user: { id: USER_ID } },
       membership: { businessId: BUSINESS_ID },
     } as never);
+    vi.mocked(writeGuard.rejectIfMetaWritesBlocked).mockResolvedValue(null);
     vi.mocked(actionLog.hasRecentPendingMetaAddToExistingAction).mockResolvedValue(false);
     vi.mocked(actionLog.createMetaAdsActionLog).mockImplementation(async () => ({
       id: `log_${vi.mocked(actionLog.createMetaAdsActionLog).mock.calls.length}`,
@@ -366,6 +372,25 @@ describe("POST /api/launchpad/meta/add-to-existing", () => {
     expect(response.status).toBe(409);
     expect(payload.error.code).toBe("launch_in_flight");
     expect(validation.validateMetaAddToExistingRequest).not.toHaveBeenCalled();
+    expect(adsWrite.duplicateAd).not.toHaveBeenCalled();
+  });
+
+  it("blocks add-to-existing writes before pending checks, validation, or Meta writes", async () => {
+    vi.mocked(writeGuard.rejectIfMetaWritesBlocked).mockResolvedValueOnce(
+      NextResponse.json(
+        { ok: false, error: { code: "kill_switch_engaged" } },
+        { status: 503 },
+      ),
+    );
+
+    const response = await POST(request(body()));
+    const payload = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(payload.error.code).toBe("kill_switch_engaged");
+    expect(actionLog.hasRecentPendingMetaAddToExistingAction).not.toHaveBeenCalled();
+    expect(validation.validateMetaAddToExistingRequest).not.toHaveBeenCalled();
+    expect(validation.resolveMetaLaunchWriteContext).not.toHaveBeenCalled();
     expect(adsWrite.duplicateAd).not.toHaveBeenCalled();
   });
 });

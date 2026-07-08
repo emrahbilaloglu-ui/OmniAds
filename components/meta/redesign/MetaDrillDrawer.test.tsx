@@ -15,7 +15,7 @@ describe("MetaDrillDrawer", () => {
         onLaunch={vi.fn()}
       />,
     );
-    expect(html).toContain("Engine reasoning");
+    expect(html).toContain("WHY");
     expect(html).toContain("Launchpad bridge");
   });
 
@@ -23,7 +23,7 @@ describe("MetaDrillDrawer", () => {
     const html = renderToStaticMarkup(
       <MetaDrillDrawer item={{ mode: "decision", rec: metaRec() }} window="28d" onWindowChange={vi.fn()} onClose={vi.fn()} />,
     );
-    expect(html).toContain("Engine reasoning");
+    expect(html).toContain("WHY");
     expect(html).not.toContain("Launchpad bridge");
   });
 
@@ -58,7 +58,7 @@ describe("MetaDrillDrawer", () => {
     expect(html).toContain("Cost / ThruPlay");
     expect(html).toContain("ThruPlay rate");
     expect(html).toContain("Hook rate (3s)");
-    expect(html).not.toContain("Engine reasoning");
+    expect(html).not.toContain("WHY");
     expect(html).not.toContain("Launchpad bridge");
     expect(html).not.toContain("data-meta-drill-kpis");
   });
@@ -77,21 +77,46 @@ describe("MetaDrillDrawer push inspector", () => {
     );
     expect(html).toContain('data-inspector-variant="push"');
     expect(html).not.toContain("fixed inset-0");
-    expect(html).toContain("Engine reasoning");
+    expect(html).toContain("WHY");
   });
 
-  it("renders decision sections in spec order", () => {
+  it("renders the reference inspector sections in spec order", () => {
     const html = renderToStaticMarkup(
       <MetaDrillDrawer item={{ mode: "decision", rec: metaRec() }} window="28d" onWindowChange={vi.fn()} onClose={vi.fn()} />,
     );
-    const contract = html.indexOf("Decision contract");
-    const why = html.indexOf("Engine reasoning");
-    const money = html.indexOf("data-meta-drill-kpis");
-    const provenance = html.indexOf("Provenance");
-    expect(contract).toBeGreaterThan(-1);
-    expect(contract).toBeLessThan(why);
-    expect(why).toBeLessThan(money);
-    expect(money).toBeLessThan(provenance);
+    const sections = [
+      "decision-contract",
+      "why",
+      "money-impact",
+      "precedent",
+      "confidence",
+      "automation-readiness",
+      "blockers",
+      "maturity",
+      "adset-depth",
+      "creative-evidence",
+      "timeline",
+      "notes-protection",
+      "provenance",
+      "raw-json",
+    ];
+    const positions = sections.map((section) => html.indexOf(`data-inspector-section="${section}"`));
+    for (const position of positions) expect(position).toBeGreaterThan(-1);
+    expect([...positions].sort((left, right) => left - right)).toEqual(positions);
+    expect(html).toContain("1 ·");
+    expect(html).toContain("14 ·");
+  });
+
+  it("does not fabricate a numeric confidence percent when only the band is served", () => {
+    const rec = { ...metaRec({ confidence: "high" }), confidenceScore: undefined };
+    const html = renderToStaticMarkup(
+      <MetaDrillDrawer item={{ mode: "decision", rec }} window="28d" onWindowChange={vi.fn()} onClose={vi.fn()} />,
+    );
+    const confidenceStart = html.indexOf('data-inspector-section="confidence"');
+    const confidenceHtml = html.slice(confidenceStart, html.indexOf('data-inspector-section="automation-readiness"'));
+    expect(confidenceHtml).toContain("High band");
+    expect(confidenceHtml).toContain("Numeric confidence score not served.");
+    expect(confidenceHtml).not.toContain("80%");
   });
 
   it("draws a gradient ROAS trend spark when a real series exists", () => {
@@ -119,6 +144,116 @@ describe("MetaDrillDrawer push inspector", () => {
     expect(html).toContain("<polyline");
     expect(html).toContain("linearGradient");
     expect(html).toContain("ROAS trend");
+  });
+});
+
+describe("MetaDrillDrawer precedent + timeline", () => {
+  function precedentHtml(rec: ReturnType<typeof metaRec>) {
+    const html = renderToStaticMarkup(
+      <MetaDrillDrawer item={{ mode: "decision", rec }} window="28d" onWindowChange={vi.fn()} onClose={vi.fn()} />,
+    );
+    const start = html.indexOf('data-inspector-section="precedent"');
+    return html.slice(start, html.indexOf('data-inspector-section="confidence"'));
+  }
+
+  it("renders readable precedent labels from a persisted empirical summary", () => {
+    const rec = metaRec({
+      empiricalOutcomeSummary: {
+        contractVersion: "meta-empirical-outcome-summary.v1",
+        sampleSize: 20,
+        judgedSampleSize: 12,
+        positiveCount: 8,
+        negativeCount: 3,
+        neutralCount: 1,
+        unknownCount: 8,
+        precision: 0.72,
+        negativeRate: 0.18,
+        confidenceBand: "medium",
+        minSampleSize: 10,
+        autoEligible: true,
+      },
+    });
+    const section = precedentHtml(rec);
+    expect(section).toContain("precision");
+    expect(section).toContain("72%");
+    expect(section).toContain("negative rate");
+    expect(section).toContain("18%");
+    expect(section).toContain("12 judged / 20 total");
+    expect(section).toContain("confidence band");
+    expect(section).toContain("medium");
+    expect(section).toContain("8 positive");
+    expect(section).toContain("auto eligible");
+    expect(section).toContain("yes");
+    // Never dumps raw JSON of the summary.
+    expect(section).not.toContain("contractVersion");
+  });
+
+  it("collapses null precision/negativeRate to em dash without fabricating", () => {
+    const rec = metaRec({
+      empiricalOutcomeSummary: {
+        contractVersion: "meta-empirical-outcome-summary.v1",
+        sampleSize: 3,
+        judgedSampleSize: 0,
+        positiveCount: 0,
+        negativeCount: 0,
+        neutralCount: 0,
+        unknownCount: 3,
+        precision: null,
+        negativeRate: null,
+        confidenceBand: "insufficient_sample",
+        minSampleSize: 10,
+        autoEligible: false,
+      },
+    });
+    const section = precedentHtml(rec);
+    expect(section).toContain("insufficient_sample");
+    expect(section).toContain("—");
+    expect(section).toContain("no");
+  });
+
+  it("keeps the precedent MissingState when no empirical summary is served", () => {
+    const rec = metaRec();
+    expect(rec.empiricalOutcomeSummary).toBeUndefined();
+    const section = precedentHtml(rec);
+    expect(section).toContain("No judged precedent window is persisted for this recommendation.");
+  });
+
+  it("renders a peer distribution row from evidenceTrail percentiles", () => {
+    const section = precedentHtml(metaRec());
+    // Default fixture peer_comparison: p10 1, p50 2, p90 4, this_value 3.2
+    expect(section).toContain("peer distribution");
+    expect(section).toContain("3.20x vs p10 1.00 / p50 2.00 / p90 4.00");
+  });
+
+  it("formats known recent-change payload keys instead of dumping JSON", () => {
+    const html = renderToStaticMarkup(
+      <MetaDrillDrawer
+        item={{
+          mode: "decision",
+          rec: metaRec({
+            evidenceTrail: {
+              roas_history: [2.2, 2.8, 3.2],
+              peer_comparison: { p10: 1, p50: 2, p90: 4, this_value: 3.2 },
+              regime_stability: 0.8,
+              age_days: 42,
+              recent_changes: [
+                { type: "bid_change", applied_at: "2026-07-01T10:00:00Z", value: { bid_amount: 1500 } },
+                { type: "status_change", applied_at: "2026-07-02T10:00:00Z", value: { status: "PAUSED" } },
+              ],
+            },
+          }),
+        }}
+        window="28d"
+        onWindowChange={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    const start = html.indexOf('data-inspector-section="timeline"');
+    const section = html.slice(start, html.indexOf('data-inspector-section="notes-protection"'));
+    expect(section).toContain("bid amount 1,500");
+    expect(section).toContain("status PAUSED");
+    expect(section).not.toContain('{"bid_amount"');
+    expect(section).not.toContain('{"status"');
   });
 });
 

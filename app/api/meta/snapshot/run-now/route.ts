@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
 import { requestMetaSnapshotRefreshForBusiness } from "@/lib/meta/snapshot-refresh";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +28,8 @@ export async function POST(request: NextRequest) {
     minRole: "collaborator",
   });
   if ("error" in access) return access.error;
+  const reviewerBlocked = rejectIfReviewerReadOnly(access, "snapshot_refresh");
+  if (reviewerBlocked) return reviewerBlocked;
 
   const refresh = await requestMetaSnapshotRefreshForBusiness({
     businessId: access.membership.businessId,

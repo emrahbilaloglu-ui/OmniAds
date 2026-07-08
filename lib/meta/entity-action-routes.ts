@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
 import { getIntegration } from "@/lib/integrations";
+import { rejectIfMetaWritesBlocked } from "@/lib/meta/automation-write-guard";
+import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
 import {
   completeMetaAdsActionLog,
   createMetaAdsActionLog,
@@ -245,6 +247,7 @@ async function prepareEntityAction(input: {
   body: EntityActionBody | null;
   scopeType: MetaEntityScopeType;
   entityId: string;
+  action: string;
 }) {
   const businessId = input.body?.businessId?.trim() ?? "";
   if (!businessId) {
@@ -268,6 +271,13 @@ async function prepareEntityAction(input: {
   if ("error" in access) {
     return { ok: false as const, response: access.error };
   }
+  const reviewerBlocked = rejectIfReviewerReadOnly(access, `${input.scopeType}_${input.action}`);
+  if (reviewerBlocked) return { ok: false as const, response: reviewerBlocked };
+
+  const blocked = await rejectIfMetaWritesBlocked({
+    businessId: access.membership.businessId,
+  });
+  if (blocked) return { ok: false as const, response: blocked };
 
   const target = await resolveMetaEntityActionTarget({
     businessId: access.membership.businessId,
@@ -348,6 +358,7 @@ async function handleMetaEntityStatusAction(
     body,
     scopeType: input.scopeType,
     entityId,
+    action: input.action,
   });
   if (!prepared.ok) return prepared.response;
 
@@ -466,6 +477,7 @@ export async function handleMetaAdsetBidAction(
     body,
     scopeType: "adset",
     entityId: adsetId,
+    action: "apply_bid",
   });
   if (!prepared.ok) return prepared.response;
 

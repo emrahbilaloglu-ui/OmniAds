@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { SharePayload } from "@/components/creatives/shareCreativeTypes";
 import { createCreativeShareSnapshot } from "@/lib/creative-share-store";
+import { buildBuyerClientActions } from "@/lib/creatives/client-action-feed";
 import { requireBusinessAccess } from "@/lib/access";
 
 type CreateShareRequest = Omit<SharePayload, "token" | "createdAt">;
@@ -33,7 +34,16 @@ export async function POST(request: NextRequest) {
   });
   if ("error" in access) return access.error;
 
-  const { token } = await createCreativeShareSnapshot(body);
+  // Only buyer-audience shares carry the client-facing "What we did and why" feed. We build it
+  // from the real Meta write ledger here (never derived from analysis.actionLabel). An empty
+  // feed leaves clientActions undefined so PublicCreativeSharePage hides the section honestly.
+  const payload: CreateShareRequest = body;
+  if (businessId && payload.audience === "buyer") {
+    const clientActions = await buildBuyerClientActions({ businessId });
+    payload.clientActions = clientActions.length > 0 ? clientActions : undefined;
+  }
+
+  const { token } = await createCreativeShareSnapshot(payload);
   return NextResponse.json({
     token,
     url: `/share/creative/${token}`,

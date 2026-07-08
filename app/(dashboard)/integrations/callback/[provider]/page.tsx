@@ -9,6 +9,7 @@ import {
   useIntegrationsStore,
 } from "@/store/integrations-store";
 import { getProviderLabel } from "@/components/integrations/oauth";
+import { ProductPageShell, ProductSection, StateBanner } from "@/components/ui/product-surface";
 import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 import { sanitizeNextPath } from "@/lib/auth-routing";
 
@@ -156,36 +157,41 @@ function IntegrationCallbackPageClient() {
   ]);
 
   return (
-    <div className="relative flex min-h-[60vh] items-center justify-center">
-      <div
-        className={`absolute right-4 top-4 rounded-md border px-3 py-2 text-sm ${
-          statusParam === "success"
-            ? "border-green-500/30 bg-green-500/10 text-green-700"
-            : "border-destructive/30 bg-destructive/10 text-destructive"
-        }`}
+    <ProductPageShell
+      eyebrow="Integration callback"
+      title="Processing authorization"
+      description={`Applying the ${providerLabel} authorization result to the selected workspace.`}
+      className="max-w-3xl"
+    >
+      <StateBanner
+        tone={statusParam === "success" ? "success" : "danger"}
+        title={statusParam === "success" ? "Connection verified" : "Connection failed"}
       >
         {statusParam === "success"
           ? `${providerLabel} connected successfully.`
           : `${providerLabel} connection failed${errorParam ? `: ${errorParam}` : "."}`}
-      </div>
-      <div className="w-full max-w-md rounded-xl border border-neutral-200 bg-white p-5 text-center">
-        <h1 className="text-lg font-semibold">OAuth Callback</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
+      </StateBanner>
+      <ProductSection title="OAuth callback" description="You will be redirected when the provider state is saved.">
+        <p className="text-sm text-neutral-500">
           Processing {providerLabel} authorization result...
         </p>
-      </div>
-    </div>
+      </ProductSection>
+    </ProductPageShell>
   );
 }
 
 function IntegrationCallbackFallback() {
   return (
-    <div className="relative flex min-h-[60vh] items-center justify-center">
-      <div className="w-full max-w-md rounded-xl border border-neutral-200 bg-white p-5 text-center">
-        <h1 className="text-lg font-semibold">OAuth Callback</h1>
-        <p className="mt-2 text-sm text-muted-foreground">Preparing authorization context...</p>
-      </div>
-    </div>
+    <ProductPageShell
+      eyebrow="Integration callback"
+      title="OAuth callback"
+      description="Preparing authorization context..."
+      className="max-w-3xl"
+    >
+      <ProductSection>
+        <div className="h-2 rounded-full bg-neutral-100" />
+      </ProductSection>
+    </ProductPageShell>
   );
 }
 

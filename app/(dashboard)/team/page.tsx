@@ -4,6 +4,12 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { MailPlus, MoreHorizontal, Shield, User, Users, Settings } from "lucide-react";
 import { useAppStore } from "@/store/app-store";
 import { Button } from "@/components/ui/button";
+import { ProductSection, StateBanner } from "@/components/ui/product-surface";
+import {
+  WorkspaceCard,
+  WorkspacePill,
+  WorkspaceSurface,
+} from "@/components/workspace/workspace-surface";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -260,21 +266,25 @@ export default function TeamPage() {
 
   return (
     <PlanGate requiredPlan="scale">
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Team</h1>
-          <p className="text-sm text-muted-foreground">
-            Manage members and their workspace access.
-          </p>
-        </div>
-        <Button onClick={openInviteModal} className="gap-2" disabled={!selectedBusinessId}>
+    <WorkspaceSurface
+      eyebrow="Workspace access"
+      title="Team"
+      description="Manage members and their workspace access."
+      width="narrow"
+      meta={<WorkspacePill tone="auto">roles are internal; clients stay scoped</WorkspacePill>}
+      actions={
+        <Button
+          onClick={openInviteModal}
+          className="gap-2 bg-[var(--adc-ink)] text-[var(--adc-s2)] hover:bg-[var(--adc-ink2)]"
+          disabled={!selectedBusinessId}
+        >
           <MailPlus className="h-4 w-4" />
           Invite people
         </Button>
-      </div>
+      }
+    >
 
-      <div className="flex gap-1 border-b">
+      <div className="flex gap-1 border-b border-[var(--adc-b1)]">
         {(["members", "invites"] as TeamTab[]).map((tab) => (
           <button
             key={tab}
@@ -283,8 +293,8 @@ export default function TeamPage() {
             className={cn(
               "rounded-t-md px-3 py-2 text-sm capitalize",
               activeTab === tab
-                ? "border-b-2 border-foreground font-medium text-foreground"
-                : "text-muted-foreground hover:text-foreground"
+                ? "border-b-2 border-[var(--adc-ink)] font-medium text-[var(--adc-ink)]"
+                : "text-[var(--adc-ink2)] hover:text-[var(--adc-ink)]"
             )}
           >
             {tab}
@@ -293,17 +303,18 @@ export default function TeamPage() {
       </div>
 
       {flash ? (
-        <p className={cn("text-xs", flash.type === "success" ? "text-emerald-600" : "text-destructive")}>
+        <StateBanner tone={flash.type === "success" ? "success" : "danger"} title={flash.type === "success" ? "Team updated" : "Team action failed"}>
           {flash.text}
-        </p>
+        </StateBanner>
       ) : null}
 
-      {loading ? <p className="text-sm text-muted-foreground">Loading...</p> : null}
+      {loading ? <p className="text-[12px] text-[var(--adc-ink3)]">Loading...</p> : null}
 
       {activeTab === "members" ? (
-        <div className="overflow-x-auto rounded-xl border">
-          <table className="min-w-full text-sm">
-            <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+        <ProductSection title="Members" description="People with access to the selected workspace.">
+        <div className="overflow-x-auto rounded-[10px] border border-[var(--adc-b1)]">
+          <table className="min-w-full text-[12.5px]">
+            <thead className="bg-[var(--adc-s1)] font-mono text-[10.5px] uppercase tracking-normal text-[var(--adc-ink3)]">
               <tr>
                 <th className="px-4 py-3 text-left">User</th>
                 <th className="px-4 py-3 text-left">Role</th>
@@ -314,17 +325,17 @@ export default function TeamPage() {
             <tbody>
               {members.length === 0 && !loading ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-sm text-muted-foreground">No members yet.</td>
+                  <td colSpan={4} className="px-4 py-8 text-center text-[12px] text-[var(--adc-ink3)]">No members yet.</td>
                 </tr>
               ) : null}
               {members.map((member) => (
-                <tr key={member.membership_id} className="border-t">
+                <tr key={member.membership_id} className="border-t border-[var(--adc-b1)]">
                   <td className="px-4 py-3">
-                    <p className="font-medium">{member.name}</p>
-                    <p className="text-xs text-muted-foreground">{member.email}</p>
+                    <p className="font-medium text-[var(--adc-ink)]">{member.name}</p>
+                    <p className="text-[11px] text-[var(--adc-ink3)]">{member.email}</p>
                   </td>
                   <td className="px-4 py-3">
-                    <span className="rounded-full border px-2 py-0.5 text-xs">
+                    <span className="rounded-[5px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2 py-0.5 text-[11px] text-[var(--adc-ink2)]">
                       {ROLE_META[member.role].label}
                     </span>
                   </td>
@@ -332,7 +343,7 @@ export default function TeamPage() {
                     <button
                       type="button"
                       onClick={() => openWsModal(member)}
-                      className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                      className="inline-flex items-center gap-1 text-[11.5px] text-[var(--adc-ink3)] hover:text-[var(--adc-ink)]"
                     >
                       <Settings className="h-3 w-3" />
                       Manage workspaces
@@ -372,12 +383,14 @@ export default function TeamPage() {
             </tbody>
           </table>
         </div>
+        </ProductSection>
       ) : null}
 
       {activeTab === "invites" ? (
-        <div className="overflow-x-auto rounded-xl border">
-          <table className="min-w-full text-sm">
-            <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+        <ProductSection title="Pending invites" description="Generated invitations and their current delivery status.">
+        <div className="overflow-x-auto rounded-[10px] border border-[var(--adc-b1)]">
+          <table className="min-w-full text-[12.5px]">
+            <thead className="bg-[var(--adc-s1)] font-mono text-[10.5px] uppercase tracking-normal text-[var(--adc-ink3)]">
               <tr>
                 <th className="px-4 py-3 text-left">Email</th>
                 <th className="px-4 py-3 text-left">Role</th>
@@ -389,12 +402,12 @@ export default function TeamPage() {
             </thead>
             <tbody>
               {invites.map((invite) => (
-                <tr key={invite.id} className="border-t">
+                <tr key={invite.id} className="border-t border-[var(--adc-b1)]">
                   <td className="px-4 py-3">{invite.email}</td>
                   <td className="px-4 py-3">{ROLE_META[invite.role].label}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{invite.invited_by_name ?? invite.invited_by_email ?? "-"}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{new Date(invite.expires_at).toLocaleDateString()}</td>
-                  <td className="px-4 py-3 text-muted-foreground capitalize">{invite.status}</td>
+                  <td className="px-4 py-3 text-[var(--adc-ink3)]">{invite.invited_by_name ?? invite.invited_by_email ?? "-"}</td>
+                  <td className="px-4 py-3 font-mono text-[var(--adc-ink3)]">{new Date(invite.expires_at).toLocaleDateString()}</td>
+                  <td className="px-4 py-3 text-[var(--adc-ink3)] capitalize">{invite.status}</td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex justify-end gap-2">
                       <Button
@@ -415,41 +428,53 @@ export default function TeamPage() {
               ))}
               {invites.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">No pending invites.</td>
+                  <td colSpan={6} className="px-4 py-8 text-center text-[12px] text-[var(--adc-ink3)]">No pending invites.</td>
                 </tr>
               ) : null}
             </tbody>
           </table>
         </div>
+        </ProductSection>
       ) : null}
+
+      <WorkspaceCard
+        title="Client identities"
+        description="Separate client identity rows are part of the reference design, but this backend currently exposes internal members and invites only."
+        tone="auto"
+      >
+        <div className="flex flex-wrap items-center gap-2 text-[12px] text-[var(--adc-ink2)]">
+          <WorkspacePill tone="auto">NEEDS-SERVER-CONTRACT</WorkspacePill>
+          <span>Do not fabricate client-only users here; use generated share links until a scoped client identity model exists.</span>
+        </div>
+      </WorkspaceCard>
 
       {/* Invite Modal */}
       {inviteOpen ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/35 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(16,18,22,0.4)] p-4"
           onClick={(e) => { if (e.target === e.currentTarget) { setInviteOpen(false); } }}
         >
-          <div className="w-full max-w-xl rounded-xl border border-neutral-200 bg-white p-5 shadow-lg">
+          <div className="w-full max-w-xl rounded-[10px] border border-[var(--adc-b2)] bg-[var(--adc-s2)] p-5 shadow-lg">
             <h2 className="text-base font-semibold">Invite people</h2>
             {inviteStep === "form" ? (
               <>
-                <p className="mt-1 text-sm text-muted-foreground">
+                <p className="mt-1 text-sm text-[var(--adc-ink3)]">
                   Add teammates by email, choose their role, and select which workspaces they can access.
                 </p>
 
                 <div className="mt-4 space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Email addresses</label>
+                  <label className="text-xs font-medium text-[var(--adc-ink3)]">Email addresses</label>
                   <textarea
                     value={inviteInput}
                     onChange={(e) => setInviteInput(e.target.value)}
                     rows={3}
                     placeholder="name@company.com, teammate@company.com"
-                    className="w-full rounded-lg border bg-background p-2.5 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
+                    className="w-full rounded-lg border border-[var(--adc-b1)] bg-[var(--adc-s1)] p-2.5 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
                   />
                 </div>
 
                 <div className="mt-4 space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground">Role</p>
+                  <p className="text-xs font-medium text-[var(--adc-ink3)]">Role</p>
                   <div className="grid gap-2">
                     {(["guest", "collaborator", "admin"] as TeamRole[]).map((role) => (
                       <button
@@ -458,11 +483,11 @@ export default function TeamPage() {
                         onClick={() => setInviteRole(role)}
                         className={cn(
                           "rounded-lg border px-3 py-2 text-left",
-                          inviteRole === role ? "border-primary bg-primary/5" : "hover:border-muted-foreground/30"
+                          inviteRole === role ? "border-[var(--adc-b2)] bg-[var(--adc-s3)]" : "hover:border-muted-foreground/30"
                         )}
                       >
                         <p className="text-sm font-medium">{ROLE_META[role].label}</p>
-                        <p className="text-xs text-muted-foreground">{ROLE_META[role].description}</p>
+                        <p className="text-xs text-[var(--adc-ink3)]">{ROLE_META[role].description}</p>
                       </button>
                     ))}
                   </div>
@@ -471,10 +496,10 @@ export default function TeamPage() {
                 {availableWorkspaces.length > 0 ? (
                   <div className="mt-4 space-y-2">
                     <div className="flex items-center justify-between">
-                      <p className="text-xs font-medium text-muted-foreground">Workspace access</p>
+                      <p className="text-xs font-medium text-[var(--adc-ink3)]">Workspace access</p>
                       <button
                         type="button"
-                        className="text-xs text-muted-foreground hover:text-foreground"
+                        className="text-xs text-[var(--adc-ink3)] hover:text-foreground"
                         onClick={() =>
                           selectedWorkspaceIds.length === availableWorkspaces.length
                             ? setSelectedWorkspaceIds([])
@@ -486,7 +511,7 @@ export default function TeamPage() {
                     </div>
                     <div className="rounded-lg border divide-y max-h-40 overflow-y-auto">
                       {availableWorkspaces.map((ws) => (
-                        <label key={ws.id} className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/30">
+                        <label key={ws.id} className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-[var(--adc-s3)]">
                           <input
                             type="checkbox"
                             checked={selectedWorkspaceIds.includes(ws.id)}
@@ -503,13 +528,13 @@ export default function TeamPage() {
             ) : (
               <div className="mt-3 space-y-3">
                 <p className="text-sm font-medium">Invitation link created</p>
-                <p className="text-xs text-muted-foreground">Share this link with the invited user.</p>
+                <p className="text-xs text-[var(--adc-ink3)]">Share this link with the invited user.</p>
                 <div className="space-y-2">
                   {generatedLinks.map((row) => (
                     <div key={row.email} className="rounded-lg border p-2.5">
-                      <p className="text-xs text-muted-foreground">{row.email}</p>
+                      <p className="text-xs text-[var(--adc-ink3)]">{row.email}</p>
                       <div className="mt-1 flex items-center gap-2">
-                        <input readOnly value={row.inviteUrl} className="h-8 flex-1 rounded-md border bg-muted/30 px-2 text-xs" />
+                        <input readOnly value={row.inviteUrl} className="h-8 flex-1 rounded-md border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2 text-xs" />
                         <Button size="sm" variant="outline" onClick={() => copyInviteLink(row.inviteUrl)}>Copy</Button>
                       </div>
                     </div>
@@ -539,21 +564,21 @@ export default function TeamPage() {
       {/* Workspace Access Modal */}
       {wsModalMember ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/35 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(16,18,22,0.4)] p-4"
           onClick={(e) => { if (e.target === e.currentTarget) setWsModalMember(null); }}
         >
-          <div className="w-full max-w-md rounded-xl border border-neutral-200 bg-white p-5 shadow-lg">
+          <div className="w-full max-w-md rounded-[10px] border border-[var(--adc-b2)] bg-[var(--adc-s2)] p-5 shadow-lg">
             <h2 className="text-base font-semibold">Workspace access</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 text-sm text-[var(--adc-ink3)]">
               Configure which workspaces <span className="font-medium text-foreground">{wsModalMember.name}</span> can access.
             </p>
 
             {wsModalLoading ? (
-              <p className="mt-4 text-sm text-muted-foreground">Loading...</p>
+              <p className="mt-4 text-sm text-[var(--adc-ink3)]">Loading...</p>
             ) : (
               <>
                 <div className="mt-4 space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground">Role in selected workspaces</p>
+                  <p className="text-xs font-medium text-[var(--adc-ink3)]">Role in selected workspaces</p>
                   <div className="flex gap-2">
                     {(["guest", "collaborator", "admin"] as TeamRole[]).map((role) => (
                       <button
@@ -562,7 +587,7 @@ export default function TeamPage() {
                         onClick={() => setWsModalRole(role)}
                         className={cn(
                           "rounded-lg border px-3 py-1.5 text-xs font-medium",
-                          wsModalRole === role ? "border-primary bg-primary/5" : "hover:border-muted-foreground/30"
+                          wsModalRole === role ? "border-[var(--adc-b2)] bg-[var(--adc-s3)]" : "hover:border-muted-foreground/30"
                         )}
                       >
                         {ROLE_META[role].label}
@@ -573,10 +598,10 @@ export default function TeamPage() {
 
                 <div className="mt-4 space-y-2">
                   <div className="flex items-center justify-between">
-                    <p className="text-xs font-medium text-muted-foreground">Workspaces</p>
+                    <p className="text-xs font-medium text-[var(--adc-ink3)]">Workspaces</p>
                     <button
                       type="button"
-                      className="text-xs text-muted-foreground hover:text-foreground"
+                      className="text-xs text-[var(--adc-ink3)] hover:text-foreground"
                       onClick={() =>
                         wsModalSelected.length === wsModalWorkspaces.length
                           ? setWsModalSelected([])
@@ -588,7 +613,7 @@ export default function TeamPage() {
                   </div>
                   <div className="rounded-lg border divide-y max-h-52 overflow-y-auto">
                     {wsModalWorkspaces.map((ws) => (
-                      <label key={ws.id} className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/30">
+                      <label key={ws.id} className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-[var(--adc-s3)]">
                         <input
                           type="checkbox"
                           checked={wsModalSelected.includes(ws.id)}
@@ -603,7 +628,7 @@ export default function TeamPage() {
                       </label>
                     ))}
                     {wsModalWorkspaces.length === 0 ? (
-                      <p className="px-3 py-3 text-sm text-muted-foreground">No workspaces found.</p>
+                      <p className="px-3 py-3 text-sm text-[var(--adc-ink3)]">No workspaces found.</p>
                     ) : null}
                   </div>
                 </div>
@@ -619,7 +644,7 @@ export default function TeamPage() {
           </div>
         </div>
       ) : null}
-    </div>
+    </WorkspaceSurface>
     </PlanGate>
   );
 }

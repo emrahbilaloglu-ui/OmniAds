@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { AlertTriangle, Check, CheckSquare, LayoutGrid, List, Search, XSquare } from "lucide-react";
+import { AlertTriangle, Check, CheckSquare, LayoutGrid, List, Search, UploadCloud, XSquare } from "lucide-react";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import { CreativeDecisionLabelBadge } from "@/components/creatives/CreativeDecisionLabelBadge";
 import { buildPlacementTooltip } from "@/components/creatives/CreativesTopGrid";
@@ -198,6 +198,20 @@ function noteClass(tone: "success" | "warning" | "danger" | "muted") {
   if (tone === "danger") return "border-[var(--danger-bd)] bg-[var(--danger-bg)] text-[var(--danger)]";
   if (tone === "warning") return "border-[var(--warn-bd)] bg-[var(--warn-bg)] text-[var(--warn)]";
   return "border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted)]";
+}
+
+function labelToneClass(label: DecisionLabel, active: boolean) {
+  if (active) return "border-[var(--ink)] bg-[var(--ink)] text-white";
+  if (label === "scale" || label === "keep") {
+    return "border-[var(--ok-bd)] bg-[var(--ok-bg)] text-[var(--ok)] hover:border-[var(--ok)]";
+  }
+  if (label === "cut" || label === "diagnose") {
+    return "border-[var(--danger-bd)] bg-[var(--danger-bg)] text-[var(--danger)] hover:border-[var(--danger)]";
+  }
+  if (label === "refresh" || label === "test_more") {
+    return "border-[var(--warn-bd)] bg-[var(--warn-bg)] text-[var(--warn)] hover:border-[var(--warn)]";
+  }
+  return "border-[var(--border-2)] bg-[var(--surface)] text-[var(--muted)] hover:bg-[var(--hover)]";
 }
 
 export function LaunchpadCreativeSelection({
@@ -440,11 +454,17 @@ export function LaunchpadCreativeSelection({
           ))}
         </FilterGroup>
         <FilterGroup label="Engine">
-          <FilterChip active={labels.length === 0} onClick={() => setLabels([])}>
+          <FilterChip active={labels.length === 0} onClick={() => setLabels([])} mono>
             All
           </FilterChip>
           {LABEL_OPTIONS.map((label) => (
-            <FilterChip key={label} active={labels.includes(label)} onClick={() => toggleLabel(label)}>
+            <FilterChip
+              key={label}
+              active={labels.includes(label)}
+              onClick={() => toggleLabel(label)}
+              mono
+              className={labelToneClass(label, labels.includes(label))}
+            >
               {label.replaceAll("_", " ")}
             </FilterChip>
           ))}
@@ -459,7 +479,12 @@ export function LaunchpadCreativeSelection({
             </FilterChip>
           ))}
         </FilterGroup>
+        <p className="pl-16 text-[10.5px] leading-relaxed text-[var(--muted)]">
+          Engine-label filter vocabulary (scale / keep / refresh / cut / test_more / diagnose / out_of_scope) is the launch engine&apos;s — deliberately distinct from buyerAction.
+        </p>
       </div>
+
+      <LaunchpadUploadContractNotice />
 
       {loading ? (
         <div className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] p-4 text-[13px] text-[var(--muted)]">
@@ -720,10 +745,14 @@ function FilterGroup({ label, children }: { label: string; children: ReactNode }
 function FilterChip({
   active,
   onClick,
+  mono = false,
+  className,
   children,
 }: {
   active: boolean;
   onClick: () => void;
+  mono?: boolean;
+  className?: string;
   children: ReactNode;
 }) {
   return (
@@ -732,13 +761,50 @@ function FilterChip({
       onClick={onClick}
       className={cn(
         "rounded-[6px] border px-2.5 py-1 text-[11.5px] capitalize transition-colors",
-        active
+        mono ? "mono" : null,
+        className ??
+          (active
           ? "border-[var(--ink)] bg-[var(--ink)] text-white"
-          : "border-[var(--border-2)] bg-[var(--surface)] text-[var(--ink-3)] hover:bg-[var(--hover)]",
+            : "border-[var(--border-2)] bg-[var(--surface)] text-[var(--ink-3)] hover:bg-[var(--hover)]"),
       )}
     >
       {children}
     </button>
+  );
+}
+
+function LaunchpadUploadContractNotice() {
+  return (
+    <div className="rounded-[10px] border border-dashed border-[var(--border-3)] bg-[var(--surface)] p-3" data-testid="launchpad-upload-contract">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] border border-dashed border-[var(--border-3)] text-[var(--muted)]">
+          <UploadCloud className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-[12.5px] font-medium text-[var(--ink)]">Upload new creative</p>
+            <span className="chip chip--auto rounded-[4px]">
+              NEEDS-SERVER-CONTRACT · media pipeline
+            </span>
+          </div>
+          <p className="mt-0.5 text-[11px] text-[var(--muted)]">
+            video 9:16 / 4:5 / 1:1, ≤4GB · image ≤30MB. Upload is not enabled until staged media metadata and provider upload writes exist.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn btn--sm"
+          disabled
+          title="Media upload backend is not implemented yet."
+        >
+          Choose files
+        </button>
+      </div>
+      <div className="mt-2 flex items-center gap-2 rounded-[8px] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-2 text-[11.5px] text-[var(--warn)]">
+        <span className="mono text-[10.5px] text-[var(--muted)]">upload</span>
+        <span className="flex-1">No file is staged or transmitted from this surface. This is a visible backend contract gap, not a silent dead uploader.</span>
+      </div>
+    </div>
   );
 }
 

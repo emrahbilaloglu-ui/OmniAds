@@ -26,22 +26,21 @@ export default async function ShareCreativePage({
     : await getCreativeShareSnapshot(token, { recordOpen: true });
   if (!payload) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-background px-6">
-        <div className="w-full max-w-md rounded-2xl border bg-card p-6 text-center shadow-sm">
-          <h1 className="text-lg font-semibold">{language === "tr" ? "Paylaşim linki bulunamadi veya süresi doldu" : "Share link not found or expired"}</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {language === "tr" ? "Bu paylaşılan creative çıktıları süresi dolmuş olabilir veya URL geçersiz olabilir." : "This shared creatives export may have expired or the URL is invalid."}
-          </p>
-          <Link
-            href="/"
-            className="mt-4 inline-flex rounded-md border px-3 py-1.5 text-sm hover:bg-muted/40"
-          >
-            {language === "tr" ? "Adsecute'e don" : "Back to Adsecute"}
-          </Link>
-        </div>
-      </main>
+      <div className="ad-client-panel">
+        <main className="ad-client-empty-state">
+          <div className="ad-client-card">
+            <h1>{language === "tr" ? "Paylaşim linki bulunamadi veya süresi doldu" : "Share link not found or expired"}</h1>
+            <p>
+              {language === "tr" ? "Bu paylaşılan creative çıktıları süresi dolmuş olabilir veya URL geçersiz olabilir." : "This shared creatives export may have expired or the URL is invalid."}
+            </p>
+            <Link href="/">
+              {language === "tr" ? "Adsecute'e don" : "Back to Adsecute"}
+            </Link>
+          </div>
+        </main>
+      </div>
     );
   }
 
-  return <PublicCreativeSharePage payload={payload} />;
+  return <PublicCreativeSharePage payload={payload} language={language} />;
 }

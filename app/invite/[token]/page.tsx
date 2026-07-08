@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
+import { AuthSurface } from "@/components/auth/auth-surface";
 
 interface InvitePayload {
   invite: {
@@ -28,6 +28,7 @@ export default function InviteAcceptPage() {
   const [invite, setInvite] = useState<InvitePayload["invite"] | null>(null);
   const [me, setMe] = useState<MePayload | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [switchingAccount, setSwitchingAccount] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -71,18 +72,36 @@ export default function InviteAcceptPage() {
     router.push("/overview");
   }
 
+  async function switchAccount() {
+    setSwitchingAccount(true);
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => null);
+    router.push(`/login?invite=${encodeURIComponent(token)}&email=${encodeURIComponent(invite?.email ?? "")}`);
+    router.refresh();
+  }
+
   if (loading) {
-    return <main className="flex min-h-screen items-center justify-center text-sm">Loading invite…</main>;
+    return (
+      <AuthSurface
+        eyebrow="Team invite"
+        title="Loading invite..."
+        description="Preparing workspace invitation context."
+      >
+        <div className="h-2 rounded-full bg-neutral-100" />
+      </AuthSurface>
+    );
   }
 
   if (!invite) {
     return (
-      <main className="flex min-h-screen items-center justify-center px-4">
-        <div className="w-full max-w-md rounded-xl border bg-card p-5 text-center">
-          <h1 className="text-lg font-semibold">Invite unavailable</h1>
-          <p className="mt-2 text-sm text-muted-foreground">{error ?? "Invite link is invalid or expired."}</p>
-        </div>
-      </main>
+      <AuthSurface
+        eyebrow="Team invite"
+        title="Invite unavailable"
+        description={error ?? "Invite link is invalid or expired."}
+      >
+        <Link href="/login" className="ad-auth-link-button">
+          Back to sign in
+        </Link>
+      </AuthSurface>
     );
   }
 
@@ -90,56 +109,65 @@ export default function InviteAcceptPage() {
   const emailMatch = !isAuthed || me?.user?.email?.toLowerCase() === invite.email.toLowerCase();
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-4">
-      <div className="w-full max-w-md space-y-4 rounded-xl border bg-card p-5">
-        <div>
-          <h1 className="text-lg font-semibold">Accept team invite</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            You are invited as <span className="font-medium text-foreground capitalize">{invite.role}</span> to the following workspace{invite.workspaces && invite.workspaces.length > 1 ? "s" : ""}:
-          </p>
-        </div>
-
-        {invite.workspaces && invite.workspaces.length > 0 ? (
-          <ul className="rounded-lg border bg-muted/30 px-4 py-2 space-y-1">
-            {invite.workspaces.map((ws) => (
-              <li key={ws.id} className="text-sm font-medium">{ws.name}</li>
-            ))}
-          </ul>
-        ) : null}
-
-        <p className="text-xs text-muted-foreground">
-          Invite for: <span className="font-medium text-foreground">{invite.email}</span>
+    <AuthSurface
+      eyebrow="Team invite"
+      title="You're invited"
+      description={
+        <>
+          You are invited as <span className="font-semibold capitalize">{invite.role}</span>{" "}
+          {invite.workspaces && invite.workspaces.length > 0
+            ? `across ${invite.workspaces.map((workspace) => workspace.name).join(", ")}.`
+            : "to this workspace."}
+        </>
+      }
+    >
+      <div className="ad-auth-form">
+        <p className="ad-auth-mono">
+          Invite for: <span>{invite.email}</span>
           {invite.expiresAt ? ` · Expires ${new Date(invite.expiresAt).toLocaleDateString()}` : ""}
         </p>
 
-        {error ? <p className="text-xs text-destructive">{error}</p> : null}
+        {error ? <p className="ad-auth-alert ad-auth-alert-danger">{error}</p> : null}
 
         {!isAuthed ? (
-          <div className="space-y-2">
-            <Button asChild className="w-full">
-              <Link href={`/login?invite=${encodeURIComponent(token)}&email=${encodeURIComponent(invite.email)}`}>
-                Sign in to accept
-              </Link>
-            </Button>
-            <Button asChild variant="outline" className="w-full">
-              <Link href={`/signup?invite=${encodeURIComponent(token)}&email=${encodeURIComponent(invite.email)}`}>
-                Create account and accept
-              </Link>
-            </Button>
-          </div>
+          <>
+            <Link
+              href={`/login?invite=${encodeURIComponent(token)}&email=${encodeURIComponent(invite.email)}`}
+              className="ad-auth-link-button"
+            >
+              Sign in to accept
+            </Link>
+            <Link
+              href={`/signup?invite=${encodeURIComponent(token)}&email=${encodeURIComponent(invite.email)}`}
+              className="ad-auth-link-button"
+            >
+              Create account and accept
+            </Link>
+          </>
         ) : (
-          <div className="space-y-2">
+          <>
             {!emailMatch ? (
-              <p className="text-xs text-destructive">
-                This invite is for {invite.email}. Please sign in with that email.
+              <p className="ad-auth-alert ad-auth-alert-caution">
+                You are signed in as <span className="font-semibold">{me?.user?.email}</span> — this invite is for{" "}
+                <span className="font-semibold">{invite.email}</span>. Sign in with the invited address to accept.
               </p>
             ) : null}
-            <Button onClick={acceptInvite} disabled={submitting || !emailMatch} className="w-full">
+            {!emailMatch ? (
+              <button type="button" className="ad-auth-secondary" onClick={switchAccount} disabled={switchingAccount}>
+                {switchingAccount ? "Switching account..." : "Switch account"}
+              </button>
+            ) : null}
+            <button type="button" className="ad-auth-primary" onClick={acceptInvite} disabled={submitting || !emailMatch}>
               {submitting ? "Accepting..." : "Accept invite"}
-            </Button>
-          </div>
+            </button>
+            {!emailMatch ? (
+              <div className="ad-auth-mono">
+                Disabled with the reason visible above — never a silent dead button.
+              </div>
+            ) : null}
+          </>
         )}
       </div>
-    </main>
+    </AuthSurface>
   );
 }

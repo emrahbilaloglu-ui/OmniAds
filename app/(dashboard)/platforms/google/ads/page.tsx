@@ -1,12 +1,7 @@
-import { ComingSoonState } from "@/components/states/ComingSoonState";
+import { redirect } from "next/navigation";
 
-export default function GoogleAdsPage() {
-  return (
-    <ComingSoonState
-      platformId="google"
-      status="beta"
-      title="Google Ads workspace is in beta"
-      description="Ads management will land here after the shell migration. The current PR only wires the route and navigation context."
-    />
-  );
+// The Google Ads intelligence dashboard is a single self-contained workspace; its
+// Ads view is an internal panel, so this legacy sub-route folds back into it.
+export default function GoogleAdsRedirect() {
+  redirect("/platforms/google");
 }

@@ -6,6 +6,8 @@ const LANGUAGE_COOKIE = "adsecute_locale";
 const PUBLIC_PAGE_PREFIXES = [
   "/login",
   "/signup",
+  "/forgot-password",
+  "/reset-password",
   "/invite",
   "/share",
   "/about",
@@ -26,6 +28,7 @@ const PUBLIC_API_PREFIXES = [
   "/api/auth/logout",
   "/api/auth/me",
   "/api/auth/demo-login",
+  "/api/auth/password-reset",
   "/api/build-info",
   "/api/healthz",
   "/api/release-authority",

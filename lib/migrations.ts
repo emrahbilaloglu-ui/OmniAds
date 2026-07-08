@@ -1437,6 +1437,16 @@ export async function runMigrations(options?: {
           expires_at         TIMESTAMPTZ NOT NULL,
           created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
         )`,
+        sql`CREATE TABLE IF NOT EXISTS password_reset_tokens (
+          id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          token_hash TEXT NOT NULL UNIQUE,
+          expires_at TIMESTAMPTZ NOT NULL,
+          used_at    TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user
+          ON password_reset_tokens (user_id)`,
         sql`CREATE TABLE IF NOT EXISTS business_cost_models (
           id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id        UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
@@ -1631,6 +1641,72 @@ export async function runMigrations(options?: {
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_launch_templates_business
           ON meta_launch_templates (business_id, source, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_automation_business_controls (
+          business_id UUID PRIMARY KEY REFERENCES businesses(id) ON DELETE CASCADE,
+          kill_switch_engaged BOOLEAN NOT NULL DEFAULT FALSE,
+          kill_switch_reason TEXT,
+          auto_execution_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+          readiness_tier TEXT NOT NULL DEFAULT 'manual_review'
+            CHECK (readiness_tier IN ('read_only', 'manual_review', 'backtest_candidate', 'auto_execute')),
+          guardrails_json JSONB NOT NULL DEFAULT '{
+            "dailyAutoActionCap": 3,
+            "perActionSpendCeilingMinor": 5000,
+            "perActionSpendCeilingCurrency": "EUR",
+            "notificationPolicy": "every_auto_action",
+            "maxBudgetIncreasePct": 15,
+            "maxDailyBudgetChangeMinor": null,
+            "requireCampaignLabel": true,
+            "requireCommercialAnchor": true,
+            "requireLivePreflight": true,
+            "requireRollbackPlan": true,
+            "dryRunOnly": true
+          }'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_by UUID REFERENCES users(id) ON DELETE SET NULL
+        )`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_automation_promotion_records (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          rec_id TEXT,
+          entity_type TEXT NOT NULL,
+          entity_id TEXT,
+          source_tier TEXT,
+          target_tier TEXT,
+          status TEXT NOT NULL DEFAULT 'proposed'
+            CHECK (status IN ('proposed', 'approved', 'blocked', 'executed', 'rejected', 'expired')),
+          reason TEXT,
+          payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_automation_promotion_records_business
+          ON meta_automation_promotion_records (business_id, created_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_automation_activity_ledger (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          activity_type TEXT NOT NULL,
+          severity TEXT NOT NULL DEFAULT 'info'
+            CHECK (severity IN ('info', 'warning', 'danger', 'success')),
+          message TEXT NOT NULL,
+          payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_automation_activity_ledger_business
+          ON meta_automation_activity_ledger (business_id, created_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_automation_decision_type_modes (
+          business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          decision_type TEXT NOT NULL
+            CHECK (decision_type IN ('pause', 'bid', 'budget', 'creative')),
+          mode TEXT NOT NULL DEFAULT 'manual'
+            CHECK (mode IN ('manual', 'semi_auto', 'auto')),
+          lock_reason TEXT,
+          updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (business_id, decision_type)
+        )`.catch(() => {}),
         sql`DO $$
           DECLARE
             action_constraint_name TEXT;

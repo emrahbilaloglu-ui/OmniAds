@@ -79,6 +79,15 @@ export interface SharedCreativeScoreGap {
   severity?: "none" | "watch" | "action" | "missing" | null;
 }
 
+export interface SharedClientAction {
+  id?: string | null;
+  what: string;
+  why: string;
+  date: string;
+  outcome?: string | null;
+  outcomeTone?: "positive" | "neutral" | null;
+}
+
 /**
  * Creative object used in public share pages
  */
@@ -186,6 +195,11 @@ export interface SharePayload {
   openCount?: number;
 
   businessId?: string;
+  businessName?: string | null;
+  clientEmail?: string | null;
+  currency?: string | null;
+  trackingState?: "normal" | "no_actions" | "tracking_degraded" | null;
+  clientActions?: SharedClientAction[];
   groupBy?: string;
 
   filters?: string[];

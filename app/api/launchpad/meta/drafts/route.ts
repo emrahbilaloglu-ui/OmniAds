@@ -6,6 +6,7 @@ import {
 import {
   jsonError,
   readJsonBody,
+  rejectIfLaunchpadReviewerReadOnly,
   requireLaunchpadBusinessAccess,
   sanitizeErrorMessage,
 } from "../route-utils";
@@ -38,6 +39,8 @@ export async function POST(request: NextRequest) {
     body?.businessId ?? request.nextUrl.searchParams.get("businessId") ?? "";
   const access = await requireLaunchpadBusinessAccess({ request, businessId });
   if (!access.ok) return access.response;
+  const reviewerBlocked = rejectIfLaunchpadReviewerReadOnly(access, "launchpad_draft_save");
+  if (reviewerBlocked) return reviewerBlocked;
 
   const name = body?.name?.trim() ?? "";
   if (!name) {

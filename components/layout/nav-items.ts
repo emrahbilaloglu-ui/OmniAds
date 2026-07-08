@@ -9,8 +9,8 @@ import {
   PieChart,
   Plug,
   Rocket,
-  Search,
   Settings,
+  ShieldCheck,
   Sparkles,
   Target,
   Users,
@@ -80,7 +80,7 @@ export const platformsRegistry: Record<PlatformId, PlatformRegistryItem> = {
   google: {
     id: "google",
     name: "Google Ads",
-    status: "beta",
+    status: "live",
     accent: "emerald",
     logoSrc: "/platform-logos/googleAds.svg",
   },
@@ -150,6 +150,7 @@ export function getPlatformLayer2Items(
           icon: Globe,
         },
         { id: "launchpad", label: t.launchpad, href: "/platforms/meta/launchpad", icon: Rocket },
+        { id: "automation", label: t.automation, href: "/platforms/meta/automation", icon: ShieldCheck },
         {
           id: "audiences",
           label: t.audiences,
@@ -166,6 +167,10 @@ export function getPlatformLayer2Items(
         { id: "segments", label: t.segments, href: "/platforms/klaviyo/segments", icon: Target },
       ];
     case "google":
+      // The Google Ads intelligence dashboard is one self-contained workspace with its
+      // own internal panels (summary / insights / asset groups & audiences / products /
+      // assets). The abandoned per-view sub-routes (ads/keywords/audiences/launchpad) now
+      // redirect into it, so Layer-2 exposes the single live entry instead of dead links.
       return [
         {
           id: "pulse",
@@ -174,27 +179,6 @@ export function getPlatformLayer2Items(
           icon: Activity,
           activeHrefs: ["/platforms/google", "/platforms/google/pulse"],
           exact: true,
-        },
-        {
-          id: "launchpad",
-          label: t.launchpad,
-          href: "/platforms/google/launchpad",
-          icon: Rocket,
-        },
-        { id: "ads", label: t.ads, href: "/platforms/google/ads", icon: Layers },
-        {
-          id: "keywords",
-          label: t.keywords,
-          href: "/platforms/google/keywords",
-          icon: Search,
-          subStatus: "soon",
-        },
-        {
-          id: "audiences",
-          label: t.audiences,
-          href: "/platforms/google/audiences",
-          icon: Target,
-          subStatus: "soon",
         },
       ];
     case "tiktok":

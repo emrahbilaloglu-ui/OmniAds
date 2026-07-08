@@ -182,7 +182,10 @@ describe("LaunchpadReview", () => {
     );
 
     expect(html).toContain("1 of 1 selected creatives are engine-flagged");
-    expect(html).toContain("Payload preview");
+    expect(html).toContain("SERVER VALIDATION · real blocker vocabulary");
+    expect(html).toContain("campaign_name_required");
+    expect(html).toContain("raw launch JSON");
+    expect(html).not.toContain("&quot;campaign&quot;:");
     expect(html).toContain("Launch (paused)");
     expect(html).toContain("disabled");
   });

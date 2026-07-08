@@ -52,7 +52,7 @@ const COPY_GROUP_OPTIONS: Array<{ value: CreativeGroupBy; label: string }> = [
 ];
 
 const LIBRARY_HREF = "/platforms/meta/creatives?tab=library";
-const DECISIONS_HREF = "/platforms/meta/creatives";
+const DECISIONS_HREF = "/platforms/meta";
 
 function hasMessage(payload: unknown): payload is { message: string } {
   if (!payload || typeof payload !== "object") return false;
@@ -358,6 +358,15 @@ export default function CopiesPage() {
             <span aria-current="page" style={modeTabStyle(true)}>
               Copy
             </span>
+            <Link href="/platforms/meta/landing-pages" style={modeTabStyle(false)}>
+              Landing pages
+            </Link>
+            <Link href="/platforms/meta/creative-inbox" style={modeTabStyle(false)}>
+              Inbox
+            </Link>
+            <Link href="/platforms/meta/audiences" style={modeTabStyle(false)}>
+              Audiences
+            </Link>
             <button
               type="button"
               onClick={() => setCompareOpen(true)}

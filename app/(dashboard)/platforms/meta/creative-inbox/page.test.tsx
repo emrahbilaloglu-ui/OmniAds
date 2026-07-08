@@ -44,7 +44,7 @@ describe("MetaCreativeInboxPage", () => {
     expect(useQueryMock).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }));
     expect(html).toContain("Loading workspace");
     expect(html).toContain("Loading");
-    expect(html).not.toContain("0 decisions");
+    expect(html).not.toContain("0 items");
     expect(html).not.toContain("No creative priorities are available");
   });
 
@@ -76,7 +76,7 @@ describe("MetaCreativeInboxPage", () => {
 
     const html = renderToStaticMarkup(<MetaCreativeInboxPage />);
 
-    expect(html).toContain("1 decisions");
+    expect(html).toContain("1 items");
     expect(html).toContain("Priority");
     expect(html).toContain("Spend —");
     expect(html).toContain("ROAS —");

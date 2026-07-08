@@ -56,37 +56,37 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (!admin) redirect("/overview");
 
   return (
-    <div className="flex min-h-screen bg-gray-50 text-gray-900">
+    <div className="ad-admin-shell flex min-h-screen flex-col bg-neutral-50 text-neutral-950 lg:flex-row">
       {/* Sidebar */}
-      <aside className="w-60 shrink-0 bg-white border-r border-gray-200 flex flex-col fixed inset-y-0 left-0 z-10">
+      <aside className="ad-admin-sidebar z-10 flex w-full shrink-0 flex-col border-b border-neutral-200 bg-white lg:fixed lg:inset-y-0 lg:left-0 lg:w-[196px] lg:border-b-0 lg:border-r">
         {/* Brand */}
-        <div className="px-5 py-4 border-b border-gray-200 flex items-center gap-2.5">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-600">
-            <ShieldCheck className="w-4 h-4 text-white" />
+        <div className="ad-admin-brand flex items-center gap-2.5 border-b border-neutral-200 px-4 py-3">
+          <div className="ad-admin-mark flex h-7 w-7 items-center justify-center rounded-lg border border-neutral-200 bg-neutral-950">
+            <ShieldCheck className="h-4 w-4 text-white" />
           </div>
           <div>
-            <p className="text-sm font-bold text-gray-900 leading-none">Adsecute</p>
-            <p className="text-[10px] font-medium text-indigo-600 uppercase tracking-widest leading-none mt-0.5">Admin Panel</p>
+            <p className="text-sm font-bold leading-none text-neutral-950">Adsecute</p>
+            <p className="mt-0.5 text-[10px] font-medium uppercase tracking-widest leading-none text-neutral-500">Admin Console</p>
           </div>
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-5">
+        <nav className="ad-admin-nav flex-1 space-y-5 overflow-x-auto px-2.5 py-3 lg:overflow-y-auto">
           {navGroups.map((group) => (
             <div key={group.label}>
-              <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+              <p className="ad-admin-nav-group-label mb-1 px-2.5 text-[10px] font-semibold uppercase tracking-widest text-neutral-400">
                 {group.label}
               </p>
-              <ul className="space-y-0.5">
+              <ul className="flex gap-0.5 lg:block lg:space-y-0.5">
                 {group.items.map((item) => {
                   const Icon = item.icon;
                   return (
                     <li key={item.href}>
                       <Link
                         href={item.href}
-                        className="flex items-center gap-2.5 px-3 py-2 text-sm text-gray-600 rounded-lg hover:bg-gray-100 hover:text-gray-900 transition-colors"
+                        className="ad-admin-nav-item flex whitespace-nowrap rounded-lg px-2.5 py-2 text-sm text-neutral-600 transition-colors hover:bg-neutral-100 hover:text-neutral-950 lg:items-center lg:gap-2"
                       >
-                        <Icon className="w-4 h-4 shrink-0" />
+                        <Icon className="h-4 w-4 shrink-0" />
                         {item.label}
                       </Link>
                     </li>
@@ -98,24 +98,24 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </nav>
 
         {/* Footer */}
-        <div className="px-3 py-4 border-t border-gray-200 space-y-1">
+        <div className="ad-admin-footer space-y-1 border-t border-neutral-200 px-2.5 py-3">
           <Link
             href="/overview"
-            className="flex items-center gap-2 px-3 py-2 text-xs text-gray-500 hover:text-gray-900 rounded-lg hover:bg-gray-100 transition-colors"
+            className="ad-admin-nav-item flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-950"
           >
-            <ArrowLeft className="w-3.5 h-3.5" />
+            <ArrowLeft className="h-3.5 w-3.5" />
             Dashboard'a dön
           </Link>
-          <div className="px-3 py-1.5">
-            <p className="text-xs font-medium text-gray-700">{session.user.name}</p>
-            <p className="text-[11px] text-gray-400 truncate">{session.user.email}</p>
+          <div className="px-2.5 py-1.5">
+            <p className="text-xs font-medium text-neutral-700">{session.user.name}</p>
+            <p className="truncate text-[11px] text-neutral-400">{session.user.email}</p>
           </div>
         </div>
       </aside>
 
       {/* Main content */}
-      <div className="flex-1 ml-60 min-h-screen">
-        <main className="p-8 max-w-7xl mx-auto">
+      <div className="ad-admin-content min-h-screen flex-1 lg:ml-[196px]">
+        <main className="mx-auto max-w-7xl p-4 sm:p-5 lg:p-6">
           {children}
         </main>
       </div>

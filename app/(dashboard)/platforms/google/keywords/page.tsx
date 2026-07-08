@@ -1,11 +1,7 @@
-import { ComingSoonState } from "@/components/states/ComingSoonState";
+import { redirect } from "next/navigation";
 
-export default function GoogleKeywordsPage() {
-  return (
-    <ComingSoonState
-      platformId="google"
-      title="Google Ads Keywords are coming soon"
-      description="Keyword intelligence is listed in the platform context but remains a future surface."
-    />
-  );
+// The Google Ads intelligence dashboard is a single self-contained workspace; its
+// keyword/search intelligence lives inside it, so this legacy sub-route folds back in.
+export default function GoogleKeywordsRedirect() {
+  redirect("/platforms/google");
 }

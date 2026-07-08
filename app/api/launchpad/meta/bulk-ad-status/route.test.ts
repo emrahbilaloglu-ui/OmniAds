@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 vi.mock("@/lib/access", () => ({
   requireBusinessAccess: vi.fn(),
@@ -17,6 +17,10 @@ vi.mock("@/lib/meta/ads-write", () => ({
   resumeAd: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/automation-write-guard", () => ({
+  rejectIfMetaWritesBlocked: vi.fn(),
+}));
+
 vi.mock("@/lib/launchpad/meta-validation", () => ({
   resolveMetaLaunchWriteContext: vi.fn(),
 }));
@@ -24,6 +28,7 @@ vi.mock("@/lib/launchpad/meta-validation", () => ({
 const access = await import("@/lib/access");
 const actionLog = await import("@/lib/meta/ads-action-log");
 const adsWrite = await import("@/lib/meta/ads-write");
+const writeGuard = await import("@/lib/meta/automation-write-guard");
 const validation = await import("@/lib/launchpad/meta-validation");
 const { POST } = await import("./route");
 
@@ -65,6 +70,7 @@ describe("POST /api/launchpad/meta/bulk-ad-status", () => {
         accessToken: "secret-token",
       },
     } as never);
+    vi.mocked(writeGuard.rejectIfMetaWritesBlocked).mockResolvedValue(null);
     vi.mocked(actionLog.hasRecentPendingMetaAdsAction).mockResolvedValue(false);
     vi.mocked(actionLog.createMetaAdsActionLog).mockImplementation(async () => ({
       id: `log_${vi.mocked(actionLog.createMetaAdsActionLog).mock.calls.length}`,
@@ -256,6 +262,24 @@ describe("POST /api/launchpad/meta/bulk-ad-status", () => {
     expect(response.status).toBe(200);
     expect(payload.status).toBe("ACTIVE");
     expect(adsWrite.resumeAd).toHaveBeenCalledTimes(2);
+    expect(adsWrite.pauseAd).not.toHaveBeenCalled();
+  });
+
+  it("blocks bulk status writes before provider context or target resolution", async () => {
+    vi.mocked(writeGuard.rejectIfMetaWritesBlocked).mockResolvedValueOnce(
+      NextResponse.json(
+        { ok: false, error: { code: "kill_switch_engaged" } },
+        { status: 503 },
+      ),
+    );
+
+    const response = await POST(request(body()));
+    const payload = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(payload.error.code).toBe("kill_switch_engaged");
+    expect(validation.resolveMetaLaunchWriteContext).not.toHaveBeenCalled();
+    expect(actionLog.resolveMetaAdActionTarget).not.toHaveBeenCalled();
     expect(adsWrite.pauseAd).not.toHaveBeenCalled();
   });
 });

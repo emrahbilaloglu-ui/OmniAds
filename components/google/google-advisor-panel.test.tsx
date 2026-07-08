@@ -252,7 +252,7 @@ describe("GoogleAdvisorPanel", () => {
       })
     );
 
-    expect(html).toContain("Account Pulse");
+    expect(html).toContain("Account decisions");
     expect(html).toContain("Decision Snapshot");
     expect(html).toContain("Manual Action Packs");
     expect(html).toContain("Opportunity Queue");

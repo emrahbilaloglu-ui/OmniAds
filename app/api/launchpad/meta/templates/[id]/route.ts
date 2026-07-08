@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { deleteManualMetaLaunchTemplate } from "@/lib/launchpad/meta-store";
 import {
   jsonError,
+  rejectIfLaunchpadReviewerReadOnly,
   requireLaunchpadBusinessAccess,
   sanitizeErrorMessage,
 } from "../../route-utils";
@@ -14,6 +15,8 @@ export async function DELETE(request: NextRequest, context: RouteParams) {
   const businessId = request.nextUrl.searchParams.get("businessId");
   const access = await requireLaunchpadBusinessAccess({ request, businessId });
   if (!access.ok) return access.response;
+  const reviewerBlocked = rejectIfLaunchpadReviewerReadOnly(access, "launchpad_template_delete");
+  if (reviewerBlocked) return reviewerBlocked;
 
   const { id } = await context.params;
   const templateId = id?.trim() ?? "";

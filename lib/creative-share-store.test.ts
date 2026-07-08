@@ -38,6 +38,16 @@ const basePayload = {
   includeDecisionLanguage: true,
   allowCsv: true,
   snapshotOnly: true,
+  clientActions: [
+    {
+      id: "action_1",
+      what: "Paused an underperforming ad set ",
+      why: " It spent above target for 7 days.",
+      date: "2026-05-17",
+      outcome: "Return improved",
+      outcomeTone: "positive",
+    },
+  ],
   creatives: [
     {
       id: "creative_1",
@@ -106,10 +116,35 @@ describe("creative share store", () => {
     expect(snapshot.filters).toEqual([]);
     expect(snapshot.selectedRowIds).toBeUndefined();
     expect(snapshot.groupBy).toBeUndefined();
+    expect(snapshot.clientActions).toBeUndefined();
     expect(snapshot.creatives[0]?.analysis).toBeNull();
     expect(snapshot.createdAt).toBe("2026-05-18T09:30:00.000Z");
     expect(snapshot.frozenAt).toBe("2026-05-18T09:30:00.000Z");
     expect(snapshot.openCount).toBe(0);
+  });
+
+  it("keeps only plain client actions for buyer shares", () => {
+    const snapshot = sanitizeCreativeSharePayloadForStorage(
+      {
+        ...basePayload,
+        audience: "buyer",
+        includeDecisionLanguage: true,
+        includeCampaignNames: true,
+      },
+      new Date("2026-05-18T09:30:00.000Z"),
+    );
+
+    expect(snapshot.clientActions).toEqual([
+      {
+        id: "action_1",
+        what: "Paused an underperforming ad set",
+        why: "It spent above target for 7 days.",
+        date: "2026-05-17",
+        outcome: "Return improved",
+        outcomeTone: "positive",
+      },
+    ]);
+    expect(snapshot.creatives[0]?.analysis?.actionLabel).toBe("Cut");
   });
 
   it("records public opens in the stored payload", async () => {

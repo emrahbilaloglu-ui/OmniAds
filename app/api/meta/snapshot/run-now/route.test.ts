@@ -67,4 +67,24 @@ describe("POST /api/meta/snapshot/run-now", () => {
     expect(payload.error).toBe("missing_business_id");
     expect(snapshotRefresh.requestMetaSnapshotRefreshForBusiness).not.toHaveBeenCalled();
   });
+
+  it("rejects reviewer read-only attempts before running a refresh", async () => {
+    vi.mocked(access.requireBusinessAccess).mockResolvedValue({
+      session: { user: { id: "reviewer_1", email: "shopify-review@adsecute.com" } } as never,
+      membership: { businessId: "biz_1" } as never,
+    });
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/meta/snapshot/run-now", {
+        method: "POST",
+        body: JSON.stringify({ businessId: "biz_1" }),
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(payload.error.code).toBe("reviewer_read_only");
+    expect(payload.error.action).toBe("snapshot_refresh");
+    expect(snapshotRefresh.requestMetaSnapshotRefreshForBusiness).not.toHaveBeenCalled();
+  });
 });

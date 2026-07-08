@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 vi.mock("@/lib/access", () => ({
   requireBusinessAccess: vi.fn(),
@@ -11,6 +11,10 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/integrations", () => ({
   getIntegration: vi.fn(),
+}));
+
+vi.mock("@/lib/meta/automation-write-guard", () => ({
+  rejectIfMetaWritesBlocked: vi.fn(),
 }));
 
 vi.mock("@/lib/meta/ads-action-log", () => ({
@@ -30,6 +34,7 @@ vi.mock("@/lib/meta/ads-write", () => ({
 const access = await import("@/lib/access");
 const db = await import("@/lib/db");
 const integrations = await import("@/lib/integrations");
+const writeGuard = await import("@/lib/meta/automation-write-guard");
 const logs = await import("@/lib/meta/ads-action-log");
 const writes = await import("@/lib/meta/ads-write");
 const campaignPause = await import("@/app/api/meta/campaigns/[campaignId]/pause/route");
@@ -58,6 +63,7 @@ describe("Meta entity write routes", () => {
       provider_account_id: "act_1",
       access_token: "token",
     } as never);
+    vi.mocked(writeGuard.rejectIfMetaWritesBlocked).mockResolvedValue(null);
     vi.mocked(logs.hasRecentPendingMetaAdsAction).mockResolvedValue(false);
     vi.mocked(logs.createMetaAdsActionLog).mockResolvedValue({ id: "log_1" } as never);
     vi.mocked(logs.completeMetaAdsActionLog).mockResolvedValue({ id: "log_1" } as never);
@@ -109,6 +115,26 @@ describe("Meta entity write routes", () => {
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({ action: "pause", recIdOrigin: "rec_1", adId: "cmp_1" }),
     );
+  });
+
+  it("rejects reviewer read-only provider writes before kill-switch or Meta calls", async () => {
+    vi.mocked(access.requireBusinessAccess).mockResolvedValue({
+      session: { user: { id: "reviewer_1", email: "shopify-review@adsecute.com" } } as never,
+      membership: { businessId: "biz_1" } as never,
+    });
+
+    const response = await adsetPause.POST(
+      request({ businessId: "biz_1", recIdOrigin: "rec_2" }),
+      { params: Promise.resolve({ adsetId: "adset_1" }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(payload.error.code).toBe("reviewer_read_only");
+    expect(payload.error.action).toBe("adset_pause");
+    expect(writeGuard.rejectIfMetaWritesBlocked).not.toHaveBeenCalled();
+    expect(writes.pauseAdset).not.toHaveBeenCalled();
+    expect(logs.createMetaAdsActionLog).not.toHaveBeenCalled();
   });
 
   it("pauses adsets with verify-after-write infrastructure", async () => {
@@ -300,5 +326,26 @@ describe("Meta entity write routes", () => {
         errorCode: "kill_switch_engaged",
       }),
     );
+  });
+
+  it("blocks entity writes before target lookup and action logging when the business kill switch is engaged", async () => {
+    vi.mocked(writeGuard.rejectIfMetaWritesBlocked).mockResolvedValueOnce(
+      NextResponse.json(
+        { ok: false, error: { code: "kill_switch_engaged" } },
+        { status: 503 },
+      ),
+    );
+
+    const response = await campaignPause.POST(
+      request({ businessId: "biz_1", recId: "rec_1" }),
+      { params: Promise.resolve({ campaignId: "cmp_1" }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(payload.error.code).toBe("kill_switch_engaged");
+    expect(db.getDb).not.toHaveBeenCalled();
+    expect(logs.createMetaAdsActionLog).not.toHaveBeenCalled();
+    expect(writes.pauseCampaign).not.toHaveBeenCalled();
   });
 });

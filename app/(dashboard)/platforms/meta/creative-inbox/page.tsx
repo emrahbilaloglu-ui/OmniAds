@@ -2,7 +2,8 @@
 
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, ArrowRight, Inbox } from "lucide-react";
+import Link from "next/link";
 import type { BriefingCreativeCard } from "@/components/creatives/briefing/types";
 import {
   cardCampaign,
@@ -68,26 +69,40 @@ export default function MetaCreativeInboxPage() {
     businessIds.length > 0 &&
     (inboxQuery.isLoading || (!inboxQuery.data && inboxQuery.isFetching));
   const countLabel =
-    isScopeLoading || isInboxLoading ? "Loading" : `${cards.length} decisions`;
+    isScopeLoading || isInboxLoading ? "Loading" : `${cards.length} items`;
 
   return (
-    <main className="min-h-screen bg-neutral-50 px-8 py-8 text-neutral-900">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <div className="text-[12px] font-medium text-neutral-500">
-            Platforms · Meta
+    <main className="ad-final px-4 py-4" data-testid="creative-inbox-studio-page">
+      <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4">
+        <header className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--surface)]">
+          <div className="flex flex-col gap-3 border-b border-[var(--border)] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <div className="crumbs">Platforms · <b>Meta</b> · Creative Studio</div>
+              <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                <h1 className="page-title">Creative Priority Inbox</h1>
+                <span className="chip chip--info">Read-only cross-business triage</span>
+              </div>
+              <p className="mt-1 max-w-3xl text-[13px] text-[var(--muted)]">
+                Review server-supplied creative priority items across businesses. Execution
+                decisions remain in <Link href="/platforms/meta">Decisions</Link>.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="chip chip--ghost">
+                <Inbox className="h-3.5 w-3.5" aria-hidden="true" />
+                {countLabel}
+              </span>
+              <Link className="btn btn--sm" href="/platforms/meta/creatives">Library</Link>
+              <Link className="btn btn--sm" href="/platforms/meta/copies">Copy</Link>
+              <Link className="btn btn--sm" href="/platforms/meta/landing-pages">Landing pages</Link>
+              <Link className="btn btn--sm" href="/platforms/meta/audiences">Audiences</Link>
+              <Link className="btn btn--sm" href="/platforms/meta">Decisions</Link>
+            </div>
           </div>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-            Creative Priority Inbox
-          </h1>
-        </div>
-        <div className="rounded-md border border-neutral-200 bg-white px-3 py-1.5 text-[12px] font-medium text-neutral-600">
-          {countLabel}
-        </div>
-      </div>
+        </header>
 
       {errors.length > 0 ? (
-        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+        <div className="rounded-[var(--r)] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-2 text-[12px] text-[var(--warn)]">
           <AlertTriangle
             className="mr-1 inline-block"
             size={14}
@@ -99,23 +114,23 @@ export default function MetaCreativeInboxPage() {
       ) : null}
 
       {isScopeLoading ? (
-        <div className="rounded-lg border border-neutral-200 bg-white p-5 text-sm text-neutral-500">
+        <div className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--surface)] p-5 text-sm text-[var(--muted)]">
           Loading workspace...
         </div>
       ) : businessIds.length === 0 ? (
-        <div className="rounded-lg border border-neutral-200 bg-white p-5 text-sm text-neutral-500">
+        <div className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--surface)] p-5 text-sm text-[var(--muted)]">
           No businesses are available for creative priorities.
         </div>
       ) : isInboxLoading ? (
-        <div className="rounded-lg border border-neutral-200 bg-white p-5 text-sm text-neutral-500">
+        <div className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--surface)] p-5 text-sm text-[var(--muted)]">
           Loading creative priorities...
         </div>
       ) : inboxQuery.isError ? (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 p-5 text-sm text-rose-900">
+        <div className="rounded-[var(--r)] border border-[var(--danger-bd)] bg-[var(--danger-bg)] p-5 text-sm text-[var(--danger)]">
           Creative inbox unavailable.
         </div>
       ) : cards.length === 0 ? (
-        <div className="rounded-lg border border-neutral-200 bg-white p-5 text-sm text-neutral-500">
+        <div className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--surface)] p-5 text-sm text-[var(--muted)]">
           No creative priorities are available.
         </div>
       ) : (
@@ -123,22 +138,22 @@ export default function MetaCreativeInboxPage() {
           {cards.map((card) => (
             <article
               key={`${card.businessId}:${cardId(card)}`}
-              className="rounded-lg border border-neutral-200 bg-white p-4"
+              className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--surface)] p-4"
             >
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
                     {businessNameById.get(card.businessId) ?? card.businessId}
                   </div>
-                  <div className="mt-1 font-semibold text-neutral-950">
+                  <div className="mt-1 font-semibold text-[var(--ink)]">
                     {cardName(card)}
                   </div>
-                  <div className="mt-1 text-[12px] text-neutral-500">
+                  <div className="mt-1 text-[12px] text-[var(--muted)]">
                     {cardCampaign(card)}
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
                     Priority
                   </div>
                   <div className="font-mono text-sm font-semibold">
@@ -146,27 +161,35 @@ export default function MetaCreativeInboxPage() {
                   </div>
                 </div>
               </div>
-              <div className="mt-3 flex flex-wrap gap-2 text-[12px] text-neutral-600">
-                <span className="rounded border border-neutral-200 px-2 py-1">
+              <div className="mt-3 flex flex-wrap gap-2 text-[12px] text-[var(--muted)]">
+                <span className="chip chip--ghost">
                   {card.primary?.label ?? card.label ?? "Review"}
                 </span>
-                <span className="rounded border border-neutral-200 px-2 py-1">
+                <span className="chip chip--ghost">
                   {/* Cross-business list: each card renders in its own
                       account currency; unknown currency falls back to the
                       legacy formatter rather than asserting USD. */}
                   Spend {formatNullableMoney(card.spend, card.currency ?? null)}
                 </span>
-                <span className="rounded border border-neutral-200 px-2 py-1">
+                <span className="chip chip--ghost">
                   ROAS {formatNullableNumber(card.roas, 2)}
                 </span>
-                <span className="rounded border border-neutral-200 px-2 py-1">
+                <span className="chip chip--ghost">
                   Confidence {formatNullablePercent(card.confidence)}
                 </span>
+                <Link
+                  className="chip chip--info"
+                  href={`/platforms/meta?businessId=${encodeURIComponent(card.businessId)}`}
+                >
+                  Open Decisions
+                  <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                </Link>
               </div>
             </article>
           ))}
         </div>
       )}
+      </div>
     </main>
   );
 }

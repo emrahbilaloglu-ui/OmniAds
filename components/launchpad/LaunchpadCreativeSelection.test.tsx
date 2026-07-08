@@ -119,6 +119,10 @@ describe("LaunchpadCreativeSelection", () => {
     expect(html).toContain("Scale");
     expect(html).toContain("Below breakeven");
     expect(html).toContain("Engine: scale candidate");
+    expect(html).toContain("Upload new creative");
+    expect(html).toContain("NEEDS-SERVER-CONTRACT");
+    expect(html).toContain("out_of_scope");
+    expect(html).toContain("deliberately distinct from buyerAction");
   });
 
   it("renders creative spend and selection totals in the account currency", () => {

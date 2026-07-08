@@ -20,6 +20,12 @@ import {
   SettingsSelect,
   SettingsStat,
 } from "@/components/settings/settings-section";
+import { StateBanner } from "@/components/ui/product-surface";
+import {
+  WorkspaceAnchorNav,
+  WorkspacePill,
+  WorkspaceSurface,
+} from "@/components/workspace/workspace-surface";
 import {
   fetchProviderAccountSnapshot,
   warmProviderAccountSnapshot,
@@ -557,57 +563,44 @@ export default function SettingsPage() {
 
   if (!selectedBusinessId || !activeBusiness) {
     return (
-      <div className="space-y-6">
-        <h1 className="text-[24px] font-semibold tracking-tight text-neutral-950">Settings</h1>
-        <p className="text-sm text-muted-foreground">
-          Select a workspace to manage settings.
-        </p>
-      </div>
+      <WorkspaceSurface
+        eyebrow="Workspace"
+        title="Settings"
+        description="Select a workspace to manage settings."
+        width="narrow"
+      >
+        <StateBanner tone="warning" title="No workspace selected" />
+      </WorkspaceSurface>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div className="space-y-2">
-          <h1 className="text-[24px] font-semibold tracking-tight text-neutral-950">Settings</h1>
-          <p className="max-w-2xl text-sm text-muted-foreground">
-            Manage your account, workspace operations, integrations, preferences, and security from one place.
-          </p>
-        </div>
+    <WorkspaceSurface
+      eyebrow="Workspace"
+      title="Settings"
+      description="Manage your account, workspace operations, integrations, preferences, and security from one place."
+      width="narrow"
+      meta={<WorkspacePill tone="neutral">business identity · account · data</WorkspacePill>}
+      actions={
         <div className="grid gap-3 sm:grid-cols-3">
           <SettingsStat label="Workspace" value={activeBusiness.name} />
           <SettingsStat label="Team members" value={String(totalMembers)} />
           <SettingsStat label="Connected apps" value={String(connectedIntegrations.length)} tone="positive" />
         </div>
-      </div>
+      }
+    >
 
       {toast ? (
-        <div
-          className={`rounded-xl border px-3 py-2 text-sm ${
-            toast.type === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-              : "border-destructive/30 bg-destructive/10 text-destructive"
-          }`}
+        <StateBanner
+          tone={toast.type === "success" ? "success" : "danger"}
+          title={toast.type === "success" ? "Settings updated" : "Settings action failed"}
         >
           {toast.message}
-        </div>
+        </StateBanner>
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[176px_minmax(0,1fr)]">
-        <nav aria-label="Settings sections" className="hidden lg:block">
-          <div className="sticky top-6 flex flex-col gap-0.5">
-            {settingsNav.map((item) => (
-              <a
-                key={item.id}
-                href={`#${item.id}`}
-                className="rounded-md px-2.5 py-1.5 text-[13px] text-neutral-600 transition hover:bg-neutral-100 hover:text-neutral-900"
-              >
-                {item.label}
-              </a>
-            ))}
-          </div>
-        </nav>
+        <WorkspaceAnchorNav items={settingsNav} className="hidden lg:flex" />
         <div className="min-w-0 space-y-6">
       <SettingsSection
         id="settings-billing"
@@ -615,11 +608,11 @@ export default function SettingsPage() {
         description="Manage your Adsecute subscription. Billing is handled through the Shopify App Store."
       >
         {billingLoading ? (
-          <p className="text-sm text-muted-foreground">Loading subscription details...</p>
+          <p className="text-sm text-[var(--adc-ink3)]">Loading subscription details...</p>
         ) : (
           <div className="space-y-5">
             {/* Current plan summary */}
-            <div className="rounded-xl border border-neutral-200 bg-white p-4">
+            <div className="rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] p-4">
               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-sm font-semibold">
@@ -627,15 +620,15 @@ export default function SettingsPage() {
                     {billing?.monthlyPrice === 0 ? " — Free" : billing ? ` — $${billing.monthlyPrice}/month` : ""}
                   </p>
                   {billing?.connected && billing.storeName ? (
-                    <p className="mt-0.5 text-xs text-muted-foreground">
+                    <p className="mt-0.5 text-xs text-[var(--adc-ink3)]">
                       Billed via Shopify store: {billing.storeName}
                     </p>
                   ) : billing?.managedPricingUrl ? (
-                    <p className="mt-0.5 text-xs text-muted-foreground">
+                    <p className="mt-0.5 text-xs text-[var(--adc-ink3)]">
                       Billing is available in Shopify for this connected workspace.
                     </p>
                   ) : (
-                    <p className="mt-0.5 text-xs text-muted-foreground">
+                    <p className="mt-0.5 text-xs text-[var(--adc-ink3)]">
                       Connect your Shopify store to manage billing.
                     </p>
                   )}
@@ -662,11 +655,11 @@ export default function SettingsPage() {
             {billing?.managedPricingUrl ? (
               <div>
                 {isDemoWorkspace ? (
-                  <div className="mb-3 rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-muted-foreground">
+                  <div className="mb-3 rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-[var(--adc-ink3)]">
                     Demo workspace billing is fixture-backed. Plan changes are disabled here so the review flow stays stable.
                   </div>
                 ) : (
-                  <div className="mb-3 rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-muted-foreground">
+                  <div className="mb-3 rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-[var(--adc-ink3)]">
                     Plan changes are handled on Shopify&apos;s hosted pricing page. The buttons below open Shopify so the merchant can choose and approve the final plan there.
                   </div>
                 )}
@@ -679,17 +672,17 @@ export default function SettingsPage() {
                     return (
                       <div
                         key={planId}
-                        className={`rounded-xl border p-3 ${isCurrent ? "border-blue-200 bg-blue-50" : "border-neutral-200 bg-white"}`}
+                        className={`rounded-xl border p-3 ${isCurrent ? "border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)]" : "border-[var(--adc-b1)] bg-[var(--adc-s2)]"}`}
                       >
                         <p className="text-sm font-semibold">{plan.name}</p>
-                        <p className="mt-0.5 text-sm text-muted-foreground">{displayPrice}</p>
-                        {subPrice && <p className="text-xs text-blue-600">{subPrice}</p>}
+                        <p className="mt-0.5 text-sm text-[var(--adc-ink3)]">{displayPrice}</p>
+                        {subPrice && <p className="text-xs text-[var(--adc-info-fg)]">{subPrice}</p>}
                         {plan.trialDays > 0 && (
-                          <p className="text-xs text-emerald-600">{plan.trialDays}-day trial</p>
+                          <p className="text-xs text-[var(--adc-pos-fg)]">{plan.trialDays}-day trial</p>
                         )}
                         <div className="mt-3">
                           {isCurrent ? (
-                            <span className="text-xs text-blue-600 font-medium">Current plan</span>
+                            <span className="text-xs text-[var(--adc-info-fg)] font-medium">Current plan</span>
                           ) : (
                             <Button
                               size="sm"
@@ -712,9 +705,9 @@ export default function SettingsPage() {
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-[var(--adc-ink3)]">
                 Connect a Shopify store from the{" "}
-                <a href="/integrations" className="text-blue-600 hover:underline">
+                <a href="/integrations" className="text-[var(--adc-info-fg)] hover:underline">
                   Integrations
                 </a>{" "}
                 page to manage your subscription.
@@ -740,7 +733,7 @@ export default function SettingsPage() {
           <SettingsField label="Default timezone">
             <div className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm">
               <div className="font-medium">{workspaceTimezoneLabel}</div>
-              <div className="mt-1 text-xs text-muted-foreground">
+              <div className="mt-1 text-xs text-[var(--adc-ink3)]">
                 Source: {workspaceTimezoneSourceLabel}. Managed automatically from Shopify first, then GA4.
               </div>
             </div>
@@ -758,14 +751,14 @@ export default function SettingsPage() {
               ))}
             </SettingsSelect>
           </SettingsField>
-          <div className="rounded-xl border border-neutral-200 bg-white px-4 py-3">
+          <div className="rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-4 py-3">
             <p className="text-sm font-medium">Access level</p>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 text-sm text-[var(--adc-ink3)]">
               {workspaceRole === "admin" ? "Admin" : workspaceRole === "collaborator" ? "Member" : "Viewer"}
             </p>
           </div>
         </SettingsGrid>
-        {workspaceError ? <p className="mt-3 text-sm text-destructive">{workspaceError}</p> : null}
+        {workspaceError ? <p className="mt-3 text-sm text-[var(--adc-danger-fg)]">{workspaceError}</p> : null}
         <SettingsActionRow>
           <Button onClick={handleWorkspaceSave} disabled={!isWorkspaceAdmin || savingWorkspace}>
             {savingWorkspace ? "Saving..." : "Save workspace settings"}
@@ -781,21 +774,17 @@ export default function SettingsPage() {
           <SettingsField label="Name">
             <SettingsInput value={accountName} onChange={(event) => setAccountName(event.target.value)} />
           </SettingsField>
-          <SettingsField label="Email" hint="Email changes will be supported in a future update.">
+          <SettingsField label="Email" hint="Read-only account identifier.">
             <SettingsInput value={accountEmail} readOnly disabled />
           </SettingsField>
-          <div className="rounded-xl border border-neutral-200 bg-white px-4 py-3">
-            <p className="text-sm font-medium">Profile picture</p>
-            <p className="mt-1 text-sm text-muted-foreground">Coming soon</p>
-          </div>
-          <div className="rounded-xl border border-neutral-200 bg-white px-4 py-3">
-            <p className="text-sm font-medium">Member since</p>
-            <p className="mt-1 text-sm text-muted-foreground">
+          <div className="rounded-[8px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-3 py-2.5">
+            <p className="text-[12px] font-medium text-[var(--adc-ink)]">Member since</p>
+            <p className="mt-1 font-mono text-[12px] text-[var(--adc-ink3)]">
               {accountCreatedAt ? new Date(accountCreatedAt).toLocaleDateString() : "Unknown"}
             </p>
           </div>
         </SettingsGrid>
-        {accountError ? <p className="mt-3 text-sm text-destructive">{accountError}</p> : null}
+        {accountError ? <p className="mt-3 text-sm text-[var(--adc-danger-fg)]">{accountError}</p> : null}
         <SettingsActionRow>
           <Button onClick={handleAccountSave} disabled={savingAccount}>
             {savingAccount ? "Saving..." : "Update profile"}
@@ -820,7 +809,7 @@ export default function SettingsPage() {
               />
             </SettingsField>
           </div>
-          {passwordError ? <p className="mt-3 text-sm text-destructive">{passwordError}</p> : null}
+          {passwordError ? <p className="mt-3 text-sm text-[var(--adc-danger-fg)]">{passwordError}</p> : null}
           <SettingsActionRow>
             <Button onClick={handlePasswordUpdate} disabled={savingPassword}>
               {savingPassword ? "Updating..." : "Change password"}
@@ -842,15 +831,15 @@ export default function SettingsPage() {
         <div className="grid gap-6 lg:grid-cols-[1.25fr_0.9fr]">
           <div className="space-y-4">
             <div className="rounded-xl border">
-              <div className="grid grid-cols-[1.4fr_1fr_140px] gap-3 border-b px-4 py-3 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+              <div className="grid grid-cols-[1.4fr_1fr_140px] gap-3 border-b px-4 py-3 text-xs font-medium uppercase tracking-[0.16em] text-[var(--adc-ink3)]">
                 <span>Member</span>
                 <span>Role</span>
                 <span className="text-right">Actions</span>
               </div>
               {loadingTeam ? (
-                <p className="px-4 py-4 text-sm text-muted-foreground">Loading team members...</p>
+                <p className="px-4 py-4 text-sm text-[var(--adc-ink3)]">Loading team members...</p>
               ) : members.length === 0 ? (
-                <p className="px-4 py-4 text-sm text-muted-foreground">No members found for this workspace.</p>
+                <p className="px-4 py-4 text-sm text-[var(--adc-ink3)]">No members found for this workspace.</p>
               ) : (
                 members.map((member) => (
                   <div
@@ -859,7 +848,7 @@ export default function SettingsPage() {
                   >
                     <div>
                       <p className="text-sm font-medium">{member.name}</p>
-                      <p className="text-xs text-muted-foreground">{member.email}</p>
+                      <p className="text-xs text-[var(--adc-ink3)]">{member.email}</p>
                     </div>
                     <div>
                       <SettingsSelect
@@ -875,7 +864,7 @@ export default function SettingsPage() {
                     <div className="flex justify-end">
                       <Button
                         variant="ghost"
-                        className="text-muted-foreground hover:text-destructive"
+                        className="text-[var(--adc-ink3)] hover:text-[var(--adc-danger-fg)]"
                         disabled={!isWorkspaceAdmin}
                         onClick={() => void removeMemberAction(member.membership_id)}
                       >
@@ -887,11 +876,11 @@ export default function SettingsPage() {
               )}
             </div>
 
-            <div className="rounded-xl border border-neutral-200 bg-white p-4">
+            <div className="rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] p-4">
               <h3 className="text-sm font-semibold">Pending invites</h3>
               <div className="mt-3 space-y-3">
                 {inviteRows.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No pending invites.</p>
+                  <p className="text-sm text-[var(--adc-ink3)]">No pending invites.</p>
                 ) : (
                   inviteRows.map((invite) => (
                     <div
@@ -900,13 +889,13 @@ export default function SettingsPage() {
                     >
                       <div>
                         <p className="text-sm font-medium">{invite.email}</p>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-xs text-[var(--adc-ink3)]">
                           {invite.role === "collaborator" ? "Member" : invite.role === "guest" ? "Viewer" : "Admin"} • expires {new Date(invite.expires_at).toLocaleDateString()}
                         </p>
                       </div>
                       <Button
                         variant="ghost"
-                        className="self-end text-muted-foreground hover:text-destructive sm:self-auto"
+                        className="self-end text-[var(--adc-ink3)] hover:text-[var(--adc-danger-fg)] sm:self-auto"
                         disabled={!isWorkspaceAdmin}
                         onClick={() => void revokeInviteAction(invite.id)}
                       >
@@ -919,7 +908,7 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-neutral-200 bg-white p-4">
+          <div className="rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] p-4">
             <h3 className="text-sm font-semibold">Invite team member</h3>
             <div className="mt-4 space-y-4">
               <SettingsField label="Email address">
@@ -942,7 +931,7 @@ export default function SettingsPage() {
                   <option value="guest">Viewer</option>
                 </SettingsSelect>
               </SettingsField>
-              {teamError ? <p className="text-sm text-destructive">{teamError}</p> : null}
+              {teamError ? <p className="text-sm text-[var(--adc-danger-fg)]">{teamError}</p> : null}
               <Button className="w-full" onClick={handleInvite} disabled={!isWorkspaceAdmin || sendingInvite}>
                 {sendingInvite ? "Sending..." : "Invite team member"}
               </Button>
@@ -959,40 +948,40 @@ export default function SettingsPage() {
         <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
           <div className="grid gap-3 md:grid-cols-2">
             {["meta", "google"].map((provider) => (
-              <div key={provider} className="rounded-xl border border-neutral-200 bg-white p-4">
+              <div key={provider} className="rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] p-4">
                 <p className="text-sm font-medium capitalize">{provider}</p>
-                <p className="mt-2 text-sm text-muted-foreground">
+                <p className="mt-2 text-sm text-[var(--adc-ink3)]">
                   {providerHealth[provider]?.label ?? "Checking health..."}
                 </p>
-                <p className="mt-1 text-xs text-muted-foreground">
+                <p className="mt-1 text-xs text-[var(--adc-ink3)]">
                   {providerHealth[provider]?.value ?? "Loading snapshot status"}
                 </p>
               </div>
             ))}
-            <div className="rounded-xl border border-neutral-200 bg-white p-4">
+            <div className="rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] p-4">
               <p className="text-sm font-medium">Last sync status</p>
-              <p className="mt-2 text-sm text-muted-foreground">
+              <p className="mt-2 text-sm text-[var(--adc-ink3)]">
                 {connectedIntegrations.length > 0 ? "Connected providers available" : "No connected integrations"}
               </p>
-              <p className="mt-1 text-xs text-muted-foreground">
+              <p className="mt-1 text-xs text-[var(--adc-ink3)]">
                 {connectedIntegrations
                   .map((integration) => integration.providerAccountName ?? integration.provider)
                   .slice(0, 3)
                   .join(", ") || "Connect a provider to begin syncing"}
               </p>
             </div>
-            <div className="rounded-xl border border-neutral-200 bg-white p-4">
+            <div className="rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] p-4">
               <p className="text-sm font-medium">Provider snapshot health</p>
-              <p className="mt-2 text-sm text-muted-foreground">
+              <p className="mt-2 text-sm text-[var(--adc-ink3)]">
                 {Object.keys(providerHealth).length > 0 ? "Observed" : "Not available yet"}
               </p>
-              <p className="mt-1 text-xs text-muted-foreground">
+              <p className="mt-1 text-xs text-[var(--adc-ink3)]">
                 Snapshot actions refresh account discovery state without changing assignments.
               </p>
             </div>
           </div>
 
-          <div className="rounded-xl border border-neutral-200 bg-white p-4">
+          <div className="rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] p-4">
             <h3 className="text-sm font-semibold">Maintenance actions</h3>
             <div className="mt-4 space-y-3">
               <Button className="w-full justify-between" onClick={handleResyncIntegrations}>
@@ -1015,35 +1004,19 @@ export default function SettingsPage() {
       <SettingsSection
         id="settings-security"
         title="Security"
-        description="Review account protection controls and session hygiene."
+        description="Only working security controls are shown here; 2FA, API tokens, and profile pictures are cut rather than stubbed."
       >
-        <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="rounded-xl border border-neutral-200 bg-white p-4">
-              <p className="text-sm font-medium">Two-factor authentication</p>
-              <p className="mt-2 text-sm text-muted-foreground">Coming soon</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Add an extra verification step when signing in.
-              </p>
-            </div>
-            <div className="rounded-xl border border-neutral-200 bg-white p-4">
-              <p className="text-sm font-medium">API token management</p>
-              <p className="mt-2 text-sm text-muted-foreground">Coming soon</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Create and revoke machine access keys for future automations.
-              </p>
-            </div>
+        <div className="grid gap-4 lg:grid-cols-[1fr_0.9fr]">
+          <div className="rounded-[8px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] p-3 text-[12px] leading-5 text-[var(--adc-ink2)]">
+            The reference design intentionally removes non-working security settings. This page should not promise
+            2FA, API token management, profile images, or session browsers until those contracts exist.
           </div>
-          <div className="rounded-xl border border-neutral-200 bg-white p-4">
+          <div className="rounded-[8px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] p-4">
             <h3 className="text-sm font-semibold">Session controls</h3>
-            <p className="mt-2 text-sm text-muted-foreground">
+            <p className="mt-2 text-sm text-[var(--adc-ink3)]">
               Manage active sessions and security-sensitive access across devices.
             </p>
             <div className="mt-4 space-y-3">
-              <Button variant="outline" className="w-full justify-between" disabled>
-                Manage login sessions
-                <span className="text-xs opacity-80">Coming soon</span>
-              </Button>
               <Button className="w-full justify-between" onClick={() => setConfirmModal("revokeSessions")}>
                 Revoke all sessions
                 <span className="text-xs opacity-80">Sign out everywhere</span>
@@ -1094,9 +1067,9 @@ export default function SettingsPage() {
               <option value="compact">Compact</option>
             </SettingsSelect>
           </SettingsField>
-          <div className="rounded-xl border border-neutral-200 bg-white px-4 py-3">
+          <div className="rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-4 py-3">
             <p className="text-sm font-medium">Heatmap visualizations</p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-xs text-[var(--adc-ink3)]">
               Toggle denser visual heatmap treatments where available.
             </p>
             <div className="mt-4 flex items-center justify-between">
@@ -1122,9 +1095,9 @@ export default function SettingsPage() {
         danger
       >
         <div className="grid gap-4 md:grid-cols-2">
-          <div className="rounded-xl border border-rose-200 bg-white p-4">
+          <div className="rounded-[10px] border border-[var(--adc-danger-bd)] bg-[var(--adc-s2)] p-4">
             <p className="text-sm font-medium">Disconnect all integrations</p>
-            <p className="mt-2 text-sm text-muted-foreground">
+            <p className="mt-2 text-sm text-[var(--adc-ink3)]">
               Removes active provider connections for this workspace without deleting the workspace itself.
             </p>
             <div className="mt-4">
@@ -1133,9 +1106,9 @@ export default function SettingsPage() {
               </Button>
             </div>
           </div>
-          <div className="rounded-xl border border-rose-200 bg-white p-4">
+          <div className="rounded-[10px] border border-[var(--adc-danger-bd)] bg-[var(--adc-s2)] p-4">
             <p className="text-sm font-medium">Delete workspace</p>
-            <p className="mt-2 text-sm text-muted-foreground">
+            <p className="mt-2 text-sm text-[var(--adc-ink3)]">
               Permanently removes this workspace and its assignments. This action cannot be undone.
             </p>
             <div className="mt-4">
@@ -1181,6 +1154,6 @@ export default function SettingsPage() {
         onConfirm={() => void handleDangerConfirm()}
         busy={runningDangerAction}
       />
-    </div>
+    </WorkspaceSurface>
   );
 }

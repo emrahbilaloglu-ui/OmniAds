@@ -25,11 +25,16 @@ describe("MetaLaunchpadPage", () => {
   it("renders the Launchpad index with mode cards and endpoint-backed library sections", () => {
     const html = renderToStaticMarkup(<MetaLaunchpadPage />);
 
-    expect(html).toContain("Launchpad · Meta");
+    expect(html).toContain('data-testid="meta-mobile-launchpad"');
+    expect(html).toContain("Launchpad · read-only");
+    expect(html).toContain("Writes and uploads stay on desktop");
+    expect(html).toContain("Write posture is guarded, not hydrated");
+    expect(html).toContain("Guarded write surface — everything launches PAUSED");
     expect(html).toContain("Launch new campaign");
     expect(html).toContain("Add ads to existing");
     expect(html).toContain("Manage existing ads");
-    expect(html).toContain("Will launch as PAUSED");
+    expect(html).toContain("everything launches PAUSED");
+    expect(html).toContain('href="/platforms/meta"');
     expect(html).toContain("Drafts");
     expect(html).toContain("Templates");
     expect(html).toContain("No drafts yet.");

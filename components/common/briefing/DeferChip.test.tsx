@@ -23,6 +23,14 @@ describe("DeferChip", () => {
     expect(renderToStaticMarkup(<DeferChip id="card-1" deferred={false} />)).toBe("");
   });
 
+  it("can render deferred state without an undo affordance", () => {
+    const html = renderToStaticMarkup(<DeferChip id="card-1" showUndo={false} />);
+
+    expect(html).toContain("Reappears tomorrow 9am");
+    expect(html).not.toContain("Undo");
+    expect(html).not.toContain("data-action=\"undefer\"");
+  });
+
   it("hydrates deferred ids and count from triage state", () => {
     const parsed = parseTriageState(
       {

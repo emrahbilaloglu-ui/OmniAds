@@ -1,43 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireBusinessAccess } from "@/lib/access";
-import { upsertIntegration } from "@/lib/integrations";
 
-export async function GET(request: NextRequest) {
-  const { searchParams } = request.nextUrl;
-  const businessId = searchParams.get("businessId");
-  const returnTo = searchParams.get("returnTo") ?? "/integrations/callback/klaviyo";
-
-  if (!businessId) {
-    return NextResponse.json(
-      { error: "businessId query parameter is required." },
-      { status: 400 },
-    );
-  }
-
-  const access = await requireBusinessAccess({
-    request,
-    businessId,
-    minRole: "collaborator",
-  });
-  if ("error" in access) return access.error;
-
-  const integration = await upsertIntegration({
-    businessId,
-    provider: "klaviyo",
-    status: "connected",
-    providerAccountId: `klaviyo-${businessId.slice(0, 8)}`,
-    providerAccountName: "Klaviyo workspace",
-    metadata: {
-      connectionMode: "preview",
-      syncedAt: new Date().toISOString(),
-      benchmarkMode: "baseline",
+/**
+ * Klaviyo has no real OAuth integration. This endpoint previously fabricated a
+ * "connected" integration record (upsertIntegration with a synthetic account id) and
+ * redirected back with status=success — a fake handshake that made the UI claim Klaviyo
+ * was connected when nothing real happened.
+ *
+ * That violated the honesty rule ("make it work with a real backend or remove — never
+ * fake"). Until a genuine Klaviyo OAuth flow exists, this route refuses to fabricate a
+ * connection and reports the honest not-implemented boundary. The Integrations UI no
+ * longer links here (Klaviyo renders as a "coming soon" provider).
+ */
+export function GET(_request: NextRequest) {
+  return NextResponse.json(
+    {
+      error: "not_implemented",
+      message:
+        "Klaviyo does not have a live OAuth integration yet. A real authorization flow must be built before Klaviyo can be connected.",
     },
-  });
-
-  const callbackUrl = new URL(returnTo, request.nextUrl.origin);
-  callbackUrl.searchParams.set("businessId", businessId);
-  callbackUrl.searchParams.set("status", "success");
-  callbackUrl.searchParams.set("integrationId", integration.id);
-
-  return NextResponse.redirect(callbackUrl);
+    { status: 501 },
+  );
 }

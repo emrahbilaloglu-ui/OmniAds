@@ -11,26 +11,33 @@ vi.mock("@/components/creatives/CreativeRenderSurface", () => ({
 }));
 
 describe("PublicCreativeSharePage", () => {
-  it("renders selected creative analyses in the exported share link", () => {
+  it("renders a client-safe read-only panel without leaking operator decision jargon", () => {
     const html = renderToStaticMarkup(
-      <PublicCreativeSharePage payload={MOCK_SHARE_PAYLOAD} />,
+      <PublicCreativeSharePage payload={MOCK_SHARE_PAYLOAD} language="en" />,
     );
 
-    expect(html).toContain("Creative action plan");
-    expect(html).toContain("Scale review: UGC Reel - Morning routine hook");
-    expect(html).toContain("Amount: No safe amount calculated");
-    expect(html).toContain("Send this to the media buyer for a controlled scale review.");
-    expect(html).toContain("Do not scale from ROAS alone without buyer confirmation.");
-    expect(html).toContain("Leave the creative active and monitor weekly movement.");
+    expect(html).toContain("Client view · read-only");
+    expect(html).toContain("What we did and why");
+    expect(html).toContain("Creative highlights");
+    expect(html).toContain("Paused an underperforming ad set");
+    expect(html).toContain("7 days later: account return improved to 2.1x");
+    expect(html).toContain("missing data renders as");
+    expect(html).not.toContain("Creative action plan");
+    expect(html).not.toContain("Scale review: UGC Reel");
+    expect(html).not.toContain("Amount: No safe amount calculated");
+    expect(html).not.toContain("Do not scale from ROAS alone without buyer confirmation.");
+    expect(html).not.toContain("Confidence:");
+    expect(html).not.toContain("Evidence:");
   });
 
-  it("honors creative-team share controls without leaking decision language or unrelated columns", () => {
+  it("honors creative-team share controls by suppressing decision observations", () => {
     const payload: SharePayload = {
       ...MOCK_SHARE_PAYLOAD,
       audience: "creative_team" as const,
       presetLabel: "Creative teams",
       includeCampaignNames: false,
       includeDecisionLanguage: false,
+      clientActions: undefined,
       metrics: ["spend", "hookScore", "ctaScore", "offerScore", "clickScore", "watchScore"],
       creatives: MOCK_SHARE_PAYLOAD.creatives.slice(0, 1).map((creative) => ({
         ...creative,
@@ -44,22 +51,48 @@ describe("PublicCreativeSharePage", () => {
     };
 
     const html = renderToStaticMarkup(
-      <PublicCreativeSharePage payload={payload} />,
+      <PublicCreativeSharePage payload={payload} language="en" />,
     );
 
-    expect(html).toContain("Preset: Creative teams");
-    expect(html).toContain("Offer gap");
-    expect(html).toContain(">Hook<");
-    expect(html).toContain(">CTA<");
-    expect(html).toContain(">Offer<");
-    expect(html).toContain(">Click<");
-    expect(html).toContain(">Watch<");
-    expect(html).toContain("88/100");
-    expect(html).toContain(">44<");
-    expect(html).toContain(">93<");
-    expect(html).not.toContain("Creative action plan");
+    expect(html).toContain("Client view · read-only");
+    expect(html).toContain("This share does not include a client-safe action history");
+    expect(html).toContain("UGC Reel - Morning routine hook");
+    expect(html).not.toContain("Paused an underperforming ad set");
     expect(html).not.toContain("Scale review: UGC Reel");
-    expect(html).not.toContain("Purchase value</th>");
-    expect(html).not.toContain("Cost per purchase");
+    expect(html).not.toContain("Confidence:");
+    expect(html).not.toContain("Do not");
+  });
+
+  it("does not fabricate a client action feed from internal analysis labels", () => {
+    const payload: SharePayload = {
+      ...MOCK_SHARE_PAYLOAD,
+      clientActions: undefined,
+    };
+
+    const html = renderToStaticMarkup(
+      <PublicCreativeSharePage payload={payload} language="en" />,
+    );
+
+    expect(html).toContain("This share does not include a client-safe action history");
+    expect(html).not.toContain("A high-performing creative was reviewed");
+    expect(html).not.toContain("A stable creative was monitored");
+    expect(html).not.toContain("Scale review: UGC Reel");
+  });
+
+  it("does not fabricate USD or zero KPIs when currency or metric data is missing", () => {
+    const payload: SharePayload = {
+      ...MOCK_SHARE_PAYLOAD,
+      currency: null,
+      creatives: [],
+    };
+
+    const html = renderToStaticMarkup(
+      <PublicCreativeSharePage payload={payload} language="en" />,
+    );
+
+    expect(html).toContain("currency missing from snapshot");
+    expect(html).toContain("missing data renders as");
+    expect(html).not.toContain("$0");
+    expect(html).not.toContain("US$");
   });
 });

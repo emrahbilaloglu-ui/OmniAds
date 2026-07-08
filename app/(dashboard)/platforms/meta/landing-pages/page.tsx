@@ -3,6 +3,7 @@
 import { useDeferredValue, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
+import Link from "next/link";
 import { useAppStore } from "@/store/app-store";
 import { usePreferencesStore } from "@/store/preferences-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
@@ -148,16 +149,19 @@ export default function LandingPagesPage() {
 
   if (showBootstrapGuard) {
     return (
-      <div className="space-y-6">
+      <div className="ad-final px-4 py-4" data-testid="landing-pages-studio-page">
+        <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4">
         <LandingPageHeader propertyName={undefined} />
         <LoadingSkeleton rows={5} />
+        </div>
       </div>
     );
   }
 
   if (!ga4Connected) {
     return (
-      <div className="space-y-6">
+      <div className="ad-final px-4 py-4" data-testid="landing-pages-studio-page">
+        <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4">
         <LandingPageHeader propertyName={undefined} />
         <IntegrationEmptyState
           providerLabel="GA4"
@@ -165,16 +169,18 @@ export default function LandingPagesPage() {
           title={language === "tr" ? "Landing page funnel analizini açmak için GA4 bağlayın" : "Connect GA4 to unlock landing page funnel analysis"}
           description={language === "tr" ? "Landing page performansı GA4 property'nizle çalışır. Sayfa bazında purchase funnel incelemek için GA4 bağlayın ve bir property seçin." : "Landing page performance is powered by your GA4 property. Connect GA4 and select a property to inspect your purchase funnel by page."}
         />
+        </div>
       </div>
     );
   }
 
   return (
     <PlanGate requiredPlan="growth">
-      <div className="space-y-5">
+      <div className="ad-final px-4 py-4" data-testid="landing-pages-studio-page">
+      <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4">
         <LandingPageHeader propertyName={query.data?.meta.propertyName} />
 
-        <section className="rounded-xl border border-neutral-200 bg-white p-5 ">
+        <section className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--surface)] p-4">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="max-w-2xl">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-neutral-500">
@@ -184,7 +190,7 @@ export default function LandingPagesPage() {
                 {language === "tr" ? "GA4 funnel diagnostigi: oturum girişinden tamamlanan purchase'a" : "GA4 funnel diagnostics from session entry to completed purchase"}
               </h2>
               <p className="mt-2 text-sm leading-6 text-neutral-600">
-                {language === "tr" ? "Creatives sayfa yapısı üzerine yeniden kuruldu: özet kartları, sıralanabilir funnel tablo ve her landing page için AI analizli detay drawer." : "Rebuilt on top of the creatives page structure: summary cards, sortable funnel table, and a detailed drawer with AI analysis for each landing page."}
+                {language === "tr" ? "GA4 kanıtıyla landing page girişlerini, funnel sürtünmesini ve satın alma sonucunu inceler. Bu yüzey analiz içindir; reklam aksiyonları Decisions veya Launchpad içinde kalır." : "Inspect landing-page entry quality, funnel friction, and purchase outcomes from GA4 evidence. This surface is analysis-only; ad actions stay in Decisions or Launchpad."}
               </p>
             </div>
 
@@ -229,7 +235,7 @@ export default function LandingPagesPage() {
             {visibleRows.length === 0 ? (
               <EmptyState
                 title="No landing pages found"
-                description="Try adjüsting the date range or clearing the page search."
+                description="Try adjusting the date range or clearing the page search."
               />
             ) : (
               <LandingPagesTableSection
@@ -255,18 +261,36 @@ export default function LandingPagesPage() {
           }}
         />
       </div>
+      </div>
     </PlanGate>
   );
 }
 
 function LandingPageHeader({ propertyName }: { propertyName?: string }) {
   return (
-    <div className="space-y-1">
-      <h1 className="text-2xl font-semibold tracking-tight">Landing Pages</h1>
-      <p className="text-sm text-muted-foreground">
-        Page-level funnel analysis powered by GA4.
-        {propertyName ? ` Property: ${propertyName}.` : ""}
-      </p>
-    </div>
+    <header className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--surface)]">
+      <div className="flex flex-col gap-3 border-b border-[var(--border)] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="crumbs">Platforms · <b>Meta</b> · Creative Studio</div>
+          <div className="mt-0.5 flex flex-wrap items-center gap-2">
+            <h1 className="page-title">Landing Pages</h1>
+            <span className="chip chip--info">
+              Analysis only - decisions live in <Link href="/platforms/meta">Decisions</Link>
+            </span>
+          </div>
+          <p className="mt-1 max-w-3xl text-[13px] text-[var(--muted)]">
+            Page-level funnel analysis powered by GA4.
+            {propertyName ? ` Property: ${propertyName}.` : ""}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link className="btn btn--sm" href="/platforms/meta/creatives">Library</Link>
+          <Link className="btn btn--sm" href="/platforms/meta/copies">Copy</Link>
+          <span className="btn btn--sm btn--primary" aria-current="page">Landing pages</span>
+          <Link className="btn btn--sm" href="/platforms/meta/creative-inbox">Inbox</Link>
+          <Link className="btn btn--sm" href="/platforms/meta/audiences">Audiences</Link>
+        </div>
+      </div>
+    </header>
   );
 }

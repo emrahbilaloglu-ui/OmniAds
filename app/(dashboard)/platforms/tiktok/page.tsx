@@ -1,15 +1,8 @@
-import { PlatformTablePage } from "@/components/platform-table-page";
-import { Platform } from "@/src/types";
-import { PlanGate } from "@/components/pricing/PlanGate";
+import { ComingSoonState } from "@/components/states/ComingSoonState";
 
+// TikTok has no live integration (no OAuth, sync, or API routes) — the only data source
+// is demo/fabricated. Rendering it as a "server-backed table" would be dishonest, so the
+// route shows the honest not-built boundary until a real TikTok backend exists.
 export default function TikTokPage() {
-  return (
-    <PlanGate requiredPlan="scale">
-      <PlatformTablePage
-        platform={Platform.TIKTOK}
-        title="TikTok Ads"
-        description="Track TikTok ad campaign performance in one table."
-      />
-    </PlanGate>
-  );
+  return <ComingSoonState platformId="tiktok" />;
 }

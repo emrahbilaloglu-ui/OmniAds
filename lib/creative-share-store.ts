@@ -22,6 +22,23 @@ function safeNumber(value: number | undefined): number {
     : 0;
 }
 
+function sanitizeClientActions(payload: CreateCreativeSharePayload) {
+  const audience = normalizeShareAudience(payload.audience);
+  if (audience !== "buyer") return undefined;
+  const actions = payload.clientActions ?? [];
+  return actions
+    .filter((action) => action.what.trim() && action.why.trim())
+    .slice(0, 10)
+    .map((action) => ({
+      id: action.id ?? null,
+      what: action.what.trim(),
+      why: action.why.trim(),
+      date: action.date.trim(),
+      outcome: action.outcome?.trim() || null,
+      outcomeTone: action.outcomeTone === "positive" ? "positive" as const : "neutral" as const,
+    }));
+}
+
 export function sanitizeCreativeSharePayloadForStorage(
   payload: CreateCreativeSharePayload,
   now = new Date(),
@@ -46,6 +63,7 @@ export function sanitizeCreativeSharePayloadForStorage(
     filters: audience === "external" ? [] : payload.filters,
     selectedRowIds: audience === "external" ? undefined : payload.selectedRowIds,
     groupBy: allowCampaignNames ? payload.groupBy : undefined,
+    clientActions: sanitizeClientActions(payload),
     creatives: payload.creatives.map(sanitizeCreative),
     benchmarkCreatives: payload.benchmarkCreatives?.map(sanitizeCreative),
   };

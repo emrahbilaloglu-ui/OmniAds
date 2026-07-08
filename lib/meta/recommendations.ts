@@ -186,6 +186,19 @@ export type MetaRecommendationProposedAction =
   | { kind: "pause" }
   | { kind: "resume" };
 
+export interface MetaRecommendationRowPresentation {
+  /** Compact server-owned account badge; null means the source account is unknown. */
+  accountBadge?: string | null;
+  /** Creative/media preview label such as VID/IMG. Null means no real preview source was available. */
+  thumbLabel?: string | null;
+  /** Leading reference signal slot; rendered only from server-provided readiness evidence. */
+  signal?: "blocker" | "shield" | null;
+  blockerLabel?: string | null;
+  shieldLabel?: string | null;
+  autoBadge?: boolean;
+  warnLine?: string | null;
+}
+
 export interface MetaRecommendationTimeframeContext {
   coreVerdict: string;
   selectedRangeOverlay: string;
@@ -258,6 +271,9 @@ export interface MetaRecommendation {
     | "route_launchpad_duplicate"
     | "review_drill";
   primaryActionLabel?: string;
+  /** Server-owned row presentation fields for the Decisions reference row.
+   * These are display affordances only; buyer actions still come from actionKind. */
+  rowPresentation?: MetaRecommendationRowPresentation;
   /** Structured numeric metrics for compare/bulk math; display strings in
    * evidence[] are presentation-only and must never be parsed back. */
   metrics?: {

@@ -1,6 +1,7 @@
 "use client";
 
-import { CheckCircle2, ExternalLink, Loader2, XCircle } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export interface LaunchpadProgressResult {
   ok: boolean;
@@ -44,6 +45,14 @@ export function LaunchpadProgress({
   onDone: () => void;
 }) {
   const steps = result?.steps ?? [];
+  const hasSilentFailure = Boolean(
+    result?.error?.code === "silent_failure" ||
+      steps.some((step) => step.status === "silent_failure" || step.error?.code === "silent_failure"),
+  );
+  const inFlight =
+    result?.error?.code === "launch_in_flight" ||
+    result?.error?.code === "action_in_flight";
+  const partialHalt = Boolean(result && !result.ok && mode === "new_campaign" && !inFlight);
 
   return (
     <section className="space-y-5" data-testid="launchpad-progress">
@@ -105,11 +114,19 @@ export function LaunchpadProgress({
             {steps.map((step) => (
               <div key={`${step.kind}-${step.index}-${step.id ?? step.name}`} className="flex items-center justify-between gap-3 px-4 py-3">
                 <div className="flex min-w-0 items-center gap-3">
-                  {step.status === "success" ? (
-                    <CheckCircle2 className="h-4 w-4 shrink-0 text-[var(--ok)]" />
-                  ) : (
-                    <XCircle className="h-4 w-4 shrink-0 text-[var(--danger)]" />
-                  )}
+                  <span
+                    className={cn(
+                      "h-2 w-2 shrink-0 rounded-full",
+                      step.status === "success"
+                        ? "bg-[var(--ok)]"
+                        : step.status === "pending"
+                          ? "animate-pulse bg-[var(--warn)]"
+                          : step.status === "silent_failure"
+                            ? "bg-[var(--danger)]"
+                            : "bg-[var(--danger)]",
+                    )}
+                    aria-hidden="true"
+                  />
                   <div className="min-w-0">
                     <p className="truncate text-[13px] font-medium text-[var(--ink)]">
                       {step.kind} · {step.name}
@@ -126,10 +143,9 @@ export function LaunchpadProgress({
                     href={step.adsManagerUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex shrink-0 items-center gap-1 text-[11px] text-[var(--brand)] hover:underline"
+                    className="inline-flex shrink-0 items-center gap-1 text-[11px] text-[var(--info)] hover:underline"
                   >
-                    Ads Manager
-                    <ExternalLink className="h-3 w-3" />
+                    Ads Manager ↗
                   </a>
                 ) : null}
               </div>
@@ -144,9 +160,22 @@ export function LaunchpadProgress({
         </div>
       ) : null}
 
-      {!loading && result && !result.ok && mode !== "manage_existing" ? (
+      {!loading && partialHalt ? (
         <div className="rounded-[8px] border border-[var(--warn-bd)] bg-[var(--warn-bg)] p-3 text-[13px] text-[var(--warn)]">
-          Delete partial is deferred — review or remove the created items in Meta Ads Manager. No auto-retry, no auto-rollback.
+          <b className="font-semibold">Partial launch stopped at {result?.failedAt ?? "the failed step"}.</b>{" "}
+          Delete partial is deferred — review created items in Meta. New-campaign mode HALTS on failure; add-to-existing and manage continue per item.
+        </div>
+      ) : null}
+
+      {!loading && result && hasSilentFailure ? (
+        <div className="rounded-[8px] border border-[var(--danger-bd)] bg-[var(--danger-bg)] p-3 text-[13px] text-[var(--danger)]">
+          <b className="font-semibold">silent_failure:</b> the create/update call claimed success, but Meta verification could not find or confirm the entity. Logged to Audit Trail; verify manually before retrying.
+        </div>
+      ) : null}
+
+      {!loading && result && inFlight ? (
+        <div className="rounded-[8px] border border-[var(--warn-bd)] bg-[var(--warn-bg)] p-3 text-[13px] text-[var(--warn)]">
+          <b className="font-semibold">Launch already in flight (409).</b> Another write for this account or entity is running — this one was not started. In-flight guard, not an error to retry blindly.
         </div>
       ) : null}
 

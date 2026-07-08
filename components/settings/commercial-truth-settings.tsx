@@ -56,20 +56,20 @@ function CtSection({
   children: React.ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
-      <div className="flex items-start justify-between gap-4 border-b border-neutral-200 px-6 py-5">
+    <section className="overflow-hidden rounded-2xl border border-[var(--adc-b1)] bg-[var(--adc-s2)] shadow-sm">
+      <div className="flex items-start justify-between gap-4 border-b border-[var(--adc-b1)] px-6 py-5">
         <div className="flex min-w-0 flex-col gap-1">
           {eyebrow && (
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-400">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--adc-ink3)]">
               {eyebrow}
             </p>
           )}
           <div className="flex items-center gap-2">
-            <h2 className="text-[17px] font-semibold tracking-[-0.01em] text-neutral-900">{title}</h2>
+            <h2 className="text-[17px] font-semibold tracking-[-0.01em] text-[var(--adc-ink)]">{title}</h2>
             {tooltip ? <CtTooltip content={tooltip} /> : null}
           </div>
           {subtitle && (
-            <p className="text-[12.5px] leading-snug text-neutral-500">{subtitle}</p>
+            <p className="text-[12.5px] leading-snug text-[var(--adc-ink3)]">{subtitle}</p>
           )}
         </div>
         {action}
@@ -85,13 +85,13 @@ function CtTooltip({ content }: { content: string }) {
       <span
         tabIndex={0}
         aria-label={content}
-        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-400 outline-none hover:border-neutral-300 hover:text-neutral-700 focus:border-neutral-400 focus:text-neutral-700"
+        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-[var(--adc-b1)] bg-[var(--adc-s2)] text-[var(--adc-ink3)] outline-none hover:border-[var(--adc-b2)] hover:text-[var(--adc-ink2)] focus:border-[var(--adc-b2)] focus:text-[var(--adc-ink2)]"
       >
         <Info size={12} strokeWidth={2.2} aria-hidden="true" />
       </span>
       <span
         role="tooltip"
-        className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 hidden w-72 -translate-x-1/2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-[11.5px] font-medium leading-snug text-neutral-600 shadow-lg group-hover:block group-focus-within:block"
+        className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 hidden w-72 -translate-x-1/2 rounded-lg border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-3 py-2 text-[11.5px] font-medium leading-snug text-[var(--adc-ink2)] shadow-lg group-hover:block group-focus-within:block"
       >
         {content}
       </span>
@@ -113,12 +113,12 @@ function CtField({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
-        <label className="text-[12.5px] font-semibold text-neutral-900">{label}</label>
+        <label className="text-[12.5px] font-semibold text-[var(--adc-ink)]">{label}</label>
         {tooltip ? <CtTooltip content={tooltip} /> : null}
       </div>
       {children}
       {helper && (
-        <p className="text-[11.5px] leading-snug text-neutral-500">{helper}</p>
+        <p className="text-[11.5px] leading-snug text-[var(--adc-ink3)]">{helper}</p>
       )}
     </div>
   );
@@ -140,8 +140,8 @@ function CtNumberInput({
   testId?: string;
 }) {
   return (
-    <div className="flex h-10 items-center gap-1.5 rounded-[10px] border border-neutral-200 bg-white px-3">
-      {prefix && <span className="text-[13px] text-neutral-400">{prefix}</span>}
+    <div className="flex h-10 items-center gap-1.5 rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-3">
+      {prefix && <span className="text-[13px] text-[var(--adc-ink3)]">{prefix}</span>}
       <input
         type="number"
         step="0.01"
@@ -151,9 +151,9 @@ function CtNumberInput({
         onChange={(e) =>
           onChange(e.target.value === "" ? null : Number(e.target.value))
         }
-        className="min-w-0 flex-1 bg-transparent text-[14px] font-medium text-neutral-900 tabular-nums outline-none disabled:cursor-not-allowed disabled:opacity-60"
+        className="min-w-0 flex-1 bg-transparent text-[14px] font-medium text-[var(--adc-ink)] tabular-nums outline-none disabled:cursor-not-allowed disabled:opacity-60"
       />
-      {suffix && <span className="text-[13px] text-neutral-500">{suffix}</span>}
+      {suffix && <span className="text-[13px] text-[var(--adc-ink3)]">{suffix}</span>}
     </div>
   );
 }
@@ -178,7 +178,7 @@ function CtSelect({
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
         data-testid={testId}
-        className="h-10 w-full appearance-none rounded-[10px] border border-neutral-200 bg-white pl-3 pr-9 text-[13px] font-medium text-neutral-900 outline-none disabled:cursor-not-allowed disabled:opacity-60"
+        className="h-10 w-full appearance-none rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] pl-3 pr-9 text-[13px] font-medium text-[var(--adc-ink)] outline-none disabled:cursor-not-allowed disabled:opacity-60"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>
@@ -191,7 +191,7 @@ function CtSelect({
         height="10"
         viewBox="0 0 10 10"
         fill="none"
-        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400"
+        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[var(--adc-ink3)]"
       >
         <path
           d="M2.5 4l2.5 2.5L7.5 4"
@@ -221,7 +221,7 @@ function CtTextInput({
   testId?: string;
 }) {
   const baseClass =
-    "w-full rounded-[10px] border border-neutral-200 bg-white px-3 py-2.5 text-[13px] font-medium text-neutral-900 outline-none disabled:cursor-not-allowed disabled:opacity-60";
+    "w-full rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-3 py-2.5 text-[13px] font-medium text-[var(--adc-ink)] outline-none disabled:cursor-not-allowed disabled:opacity-60";
   return multiline ? (
     <textarea
       value={value}
@@ -260,27 +260,27 @@ function CtStatCard({
     <div
       className={`flex flex-col gap-1.5 rounded-2xl p-[18px] ${
         dominant
-          ? "bg-neutral-900 text-white"
-          : "border border-neutral-200 bg-neutral-50 text-neutral-900"
+          ? "bg-[var(--adc-ink)] text-[var(--adc-s2)]"
+          : "border border-[var(--adc-b1)] bg-[var(--adc-s1)] text-[var(--adc-ink)]"
       }`}
     >
       <p
         className={`text-[10.5px] font-semibold uppercase tracking-[0.14em] ${
-          dominant ? "text-white/70" : "text-neutral-500"
+          dominant ? "text-[var(--adc-s2)]/70" : "text-[var(--adc-ink3)]"
         }`}
       >
         {label}
       </p>
       <p
         className={`tabular-nums leading-none tracking-[-0.025em] ${
-          dominant ? "text-[38px] font-bold text-white" : "text-[26px] font-bold text-neutral-900"
+          dominant ? "text-[38px] font-bold text-[var(--adc-s2)]" : "text-[26px] font-bold text-[var(--adc-ink)]"
         }`}
       >
         {value}
       </p>
       <p
         className={`text-[11.5px] leading-snug ${
-          dominant ? "text-white/65" : "text-neutral-500"
+          dominant ? "text-[var(--adc-s2)]/65" : "text-[var(--adc-ink3)]"
         }`}
       >
         {helper}
@@ -306,7 +306,7 @@ function CtGhostBtn({
       onClick={onClick}
       disabled={disabled}
       data-testid={testId}
-      className="h-8 rounded-lg border border-neutral-200 bg-white px-3 text-[12.5px] font-semibold text-neutral-900 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
+      className="h-8 rounded-lg border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-3 text-[12.5px] font-semibold text-[var(--adc-ink)] hover:bg-[var(--adc-s1)] disabled:cursor-not-allowed disabled:opacity-50"
     >
       {children}
     </button>
@@ -330,7 +330,7 @@ function CtIconCircleBtn({
       onClick={onClick}
       disabled={disabled}
       data-testid={testId}
-      className="flex h-7 w-7 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-400 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
+      className="flex h-7 w-7 items-center justify-center rounded-full border border-[var(--adc-b1)] bg-[var(--adc-s2)] text-[var(--adc-ink3)] hover:bg-[var(--adc-s1)] disabled:cursor-not-allowed disabled:opacity-50"
     >
       {children}
     </button>
@@ -339,7 +339,7 @@ function CtIconCircleBtn({
 
 function CtEmptyState({ message }: { message: string }) {
   return (
-    <div className="rounded-[10px] border border-dashed border-neutral-300 bg-neutral-50 px-4 py-3.5 text-[12.5px] leading-snug text-neutral-500">
+    <div className="rounded-[10px] border border-dashed border-[var(--adc-b2)] bg-[var(--adc-s1)] px-4 py-3.5 text-[12.5px] leading-snug text-[var(--adc-ink3)]">
       {message}
     </div>
   );
@@ -350,10 +350,10 @@ function CtEmptyState({ message }: { message: string }) {
 // ---------------------------------------------------------------------------
 
 const COVERAGE_TONE = {
-  complete: { dot: "bg-emerald-500", ring: "shadow-[0_0_0_3px_rgb(16,185,129,0.13)]", badge: "bg-emerald-50 text-emerald-700", label: "Complete" },
-  optional: { dot: "bg-neutral-400", ring: "shadow-[0_0_0_3px_rgb(148,163,184,0.13)]", badge: "bg-neutral-100 text-neutral-600", label: "Optional" },
-  missing:  { dot: "bg-amber-400", ring: "shadow-[0_0_0_3px_rgb(245,158,11,0.13)]", badge: "bg-amber-50 text-amber-700", label: "Missing" },
-  blocking: { dot: "bg-rose-500",  ring: "shadow-[0_0_0_3px_rgb(244,63,94,0.13)]",  badge: "bg-rose-50 text-rose-700",   label: "Blocking" },
+  complete: { dot: "bg-[var(--adc-pos-fg)]", ring: "shadow-[0_0_0_3px_rgb(16,185,129,0.13)]", badge: "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]", label: "Complete" },
+  optional: { dot: "bg-[var(--adc-ink3)]", ring: "shadow-[0_0_0_3px_rgb(148,163,184,0.13)]", badge: "bg-[var(--adc-s3)] text-[var(--adc-ink2)]", label: "Optional" },
+  missing:  { dot: "bg-[var(--adc-caution-fg)]", ring: "shadow-[0_0_0_3px_rgb(245,158,11,0.13)]", badge: "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]", label: "Missing" },
+  blocking: { dot: "bg-[var(--adc-danger-fg)]",  ring: "shadow-[0_0_0_3px_rgb(244,63,94,0.13)]",  badge: "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]",   label: "Blocking" },
 };
 type CoverageToneKey = keyof typeof COVERAGE_TONE;
 
@@ -426,21 +426,21 @@ function DecisionCoverageSection({ snapshot }: { snapshot: BusinessCommercialTru
       tooltip="This summary separates true blockers from optional context. Empty Country Economics is informational; it means global economics are used for every location."
     >
       {blockingRows.length > 0 && (
-        <div className="mb-4 flex gap-3 rounded-[10px] border-l-4 border-amber-400 bg-amber-50 px-4 py-3.5">
+        <div className="mb-4 flex gap-3 rounded-[10px] border-l-4 border-[var(--adc-caution-fg)] bg-[var(--adc-caution-bg)] px-4 py-3.5">
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="mt-0.5 shrink-0">
             <path d="M9 1.5l8 14H1l8-14z" fill="#fbbf24" stroke="#b45309" strokeWidth="1.2" strokeLinejoin="round"/>
             <path d="M9 6.5v4M9 12.5v.6" stroke="#7c2d12" strokeWidth="1.6" strokeLinecap="round"/>
           </svg>
           <div className="flex flex-col gap-1">
-            <p className="text-[13px] font-bold text-amber-800">Blocking reasons</p>
-            <p className="text-[12.5px] leading-snug text-amber-900">
+            <p className="text-[13px] font-bold text-[var(--adc-caution-fg)]">Blocking reasons</p>
+            <p className="text-[12.5px] leading-snug text-[var(--adc-caution-fg)]">
               {blockingRows.map((r) => r.detail).join(" · ")}. The engine stays on conservative fallbacks until these clear.
             </p>
           </div>
         </div>
       )}
       <div
-        className="grid overflow-hidden rounded-xl border border-neutral-200"
+        className="grid overflow-hidden rounded-xl border border-[var(--adc-b1)]"
         style={{ gridTemplateColumns: "1fr 1fr" }}
         data-testid="commercial-coverage-summary"
       >
@@ -451,13 +451,13 @@ function DecisionCoverageSection({ snapshot }: { snapshot: BusinessCommercialTru
           return (
             <div
               key={r.id}
-              className={`grid items-center gap-2.5 bg-white px-3.5 py-2.5 ${row > 0 ? "border-t border-neutral-100" : ""} ${col === 1 ? "border-l border-neutral-100" : ""}`}
+              className={`grid items-center gap-2.5 bg-[var(--adc-s2)] px-3.5 py-2.5 ${row > 0 ? "border-t border-[var(--adc-b1)]" : ""} ${col === 1 ? "border-l border-[var(--adc-b1)]" : ""}`}
               style={{ gridTemplateColumns: "12px 1fr auto" }}
             >
               <div className={`h-2 w-2 shrink-0 rounded-full ${tone.dot} ${tone.ring}`} />
               <div className="flex min-w-0 flex-col gap-0.5">
-                <p className="truncate text-[12.5px] font-semibold text-neutral-900">{r.label}</p>
-                <p className="truncate text-[11.5px] text-neutral-500">{r.detail}</p>
+                <p className="truncate text-[12.5px] font-semibold text-[var(--adc-ink)]">{r.label}</p>
+                <p className="truncate text-[11.5px] text-[var(--adc-ink3)]">{r.detail}</p>
               </div>
               <span className={`inline-flex h-5 shrink-0 items-center rounded-full px-2 text-[10.5px] font-semibold ${tone.badge}`}>
                 {tone.label}
@@ -658,21 +658,21 @@ function RoasScenarioSection({
       subtitle="Compare how spend × ROAS combinations stack up. Edit spend levels in the header and ROAS per column — the table recalculates live."
       action={<CtGhostBtn onClick={resetRoas}>Reset ROAS to {targetRoas.toFixed(2)}x</CtGhostBtn>}
     >
-      <div className="overflow-hidden rounded-xl border border-neutral-200">
+      <div className="overflow-hidden rounded-xl border border-[var(--adc-b1)]">
         {/* Header row: spend inputs */}
         <div
-          className="grid bg-neutral-900 text-white"
+          className="grid bg-[var(--adc-ink)] text-[var(--adc-s2)]"
           style={{ gridTemplateColumns: `200px repeat(${cols.length}, minmax(0, 1fr))` }}
         >
-          <div className="px-4 py-3 text-[11px] font-bold uppercase tracking-[0.14em] text-white/70">
+          <div className="px-4 py-3 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--adc-s2)]/70">
             Spend / month
           </div>
           {spendLevels.map((s, i) => (
             <div
               key={i}
-              className={`flex items-center justify-end border-l border-white/10 p-2 ${i === bestIdx ? "bg-emerald-500/20" : ""}`}
+              className={`flex items-center justify-end border-l border-[var(--adc-s2)]/10 p-2 ${i === bestIdx ? "bg-[var(--adc-pos-fg)]/20" : ""}`}
             >
-              <div className="flex h-8 items-center gap-0.5 rounded-lg bg-white/10 px-2.5 text-[13px] font-bold tabular-nums text-white">
+              <div className="flex h-8 items-center gap-0.5 rounded-lg bg-[var(--adc-s2)]/10 px-2.5 text-[13px] font-bold tabular-nums text-[var(--adc-s2)]">
                 <span>$</span>
                 <input
                   type="number"
@@ -693,24 +693,24 @@ function RoasScenarioSection({
 
         {/* ROAS row: editable per column */}
         <div
-          className="grid border-b border-neutral-200 bg-amber-50"
+          className="grid border-b border-[var(--adc-b1)] bg-[var(--adc-caution-bg)]"
           style={{ gridTemplateColumns: `200px repeat(${cols.length}, minmax(0, 1fr))` }}
         >
           <div className="flex flex-col justify-center px-4 py-2.5">
-            <p className="text-[12px] font-bold text-amber-800">Target ROAS</p>
-            <p className="text-[10.5px] text-amber-700">edit per column</p>
+            <p className="text-[12px] font-bold text-[var(--adc-caution-fg)]">Target ROAS</p>
+            <p className="text-[10.5px] text-[var(--adc-caution-fg)]">edit per column</p>
           </div>
           {columnRoas.map((r, i) => {
             const belowBE = r > 0 && r < breakEven;
             return (
-              <div key={i} className="flex items-center justify-end border-l border-amber-200/60 p-2">
+              <div key={i} className="flex items-center justify-end border-l border-[var(--adc-caution-bd)]/60 p-2">
                 <div
                   className={`flex h-8 items-center gap-0.5 rounded-lg px-2.5 text-[13px] font-bold tabular-nums ${
                     i === bestIdx
-                      ? "bg-emerald-500 text-white"
+                      ? "bg-[var(--adc-pos-fg)] text-[var(--adc-s2)]"
                       : belowBE
-                        ? "border border-rose-400 bg-rose-50 text-rose-800"
-                        : "border border-amber-200 bg-amber-100/60 text-amber-900"
+                        ? "border border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]"
+                        : "border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)]/60 text-[var(--adc-caution-fg)]"
                   }`}
                 >
                   <input
@@ -736,11 +736,11 @@ function RoasScenarioSection({
         {rows.map((r, ri) => (
           <div
             key={ri}
-            className={`grid border-t border-neutral-100 ${r.highlight ? "bg-neutral-900" : ri % 2 === 0 ? "bg-white" : "bg-neutral-50/60"}`}
+            className={`grid border-t border-[var(--adc-b1)] ${r.highlight ? "bg-[var(--adc-ink)]" : ri % 2 === 0 ? "bg-[var(--adc-s2)]" : "bg-[var(--adc-s1)]/60"}`}
             style={{ gridTemplateColumns: `200px repeat(${cols.length}, minmax(0, 1fr))` }}
           >
             <div
-              className={`px-4 py-3 text-[12.5px] ${r.highlight ? "font-bold text-white" : r.muted ? "text-neutral-500" : "font-medium text-neutral-900"}`}
+              className={`px-4 py-3 text-[12.5px] ${r.highlight ? "font-bold text-[var(--adc-s2)]" : r.muted ? "text-[var(--adc-ink3)]" : "font-medium text-[var(--adc-ink)]"}`}
             >
               {r.label}
             </div>
@@ -752,8 +752,8 @@ function RoasScenarioSection({
                   key={j}
                   className={`border-l px-3.5 py-3 text-right text-[13px] tabular-nums ${
                     r.highlight
-                      ? `border-white/10 font-bold ${isNeg ? "text-rose-300" : "text-white"} ${isBest ? "bg-emerald-500/18" : ""}`
-                      : `border-neutral-100 ${isNeg ? "bg-rose-50 text-rose-700 font-medium" : isBest && !r.muted ? "bg-emerald-50 font-semibold text-neutral-900" : r.muted ? "text-neutral-500" : "text-neutral-900"}`
+                      ? `border-[var(--adc-s2)]/10 font-bold ${isNeg ? "text-[var(--adc-danger-fg)]" : "text-[var(--adc-s2)]"} ${isBest ? "bg-[var(--adc-pos-fg)]/18" : ""}`
+                      : `border-[var(--adc-b1)] ${isNeg ? "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)] font-medium" : isBest && !r.muted ? "bg-[var(--adc-pos-bg)] font-semibold text-[var(--adc-ink)]" : r.muted ? "text-[var(--adc-ink3)]" : "text-[var(--adc-ink)]"}`
                   }`}
                 >
                   {v}
@@ -793,17 +793,17 @@ function TargetRoasSection({
 
   let statusBg: string, statusBorder: string, statusDot: string, statusText: string, statusMsg: string;
   if (!val || val <= 0) {
-    statusBg = "bg-neutral-50"; statusBorder = "border-neutral-200"; statusDot = "bg-neutral-400"; statusText = "text-neutral-500";
+    statusBg = "bg-[var(--adc-s1)]"; statusBorder = "border-[var(--adc-b1)]"; statusDot = "bg-[var(--adc-ink3)]"; statusText = "text-[var(--adc-ink3)]";
     statusMsg = "Set a target above zero.";
   } else if (isFinite(breakEven) && val < breakEven) {
-    statusBg = "bg-rose-50"; statusBorder = "border-rose-200"; statusDot = "bg-rose-500"; statusText = "text-rose-700";
+    statusBg = "bg-[var(--adc-danger-bg)]"; statusBorder = "border-[var(--adc-danger-bd)]"; statusDot = "bg-[var(--adc-danger-fg)]"; statusText = "text-[var(--adc-danger-fg)]";
     statusMsg = "Below break-even — this target loses money on variable costs alone.";
   } else if (ratio < 1.2) {
-    statusBg = "bg-amber-50"; statusBorder = "border-amber-200"; statusDot = "bg-amber-400"; statusText = "text-amber-700";
+    statusBg = "bg-[var(--adc-caution-bg)]"; statusBorder = "border-[var(--adc-caution-bd)]"; statusDot = "bg-[var(--adc-caution-fg)]"; statusText = "text-[var(--adc-caution-fg)]";
     statusMsg = "Close to break-even — limited buffer for volatility or returns.";
   } else {
     const above = (val - breakEven).toFixed(2);
-    statusBg = "bg-emerald-50"; statusBorder = "border-emerald-200"; statusDot = "bg-emerald-500"; statusText = "text-emerald-700";
+    statusBg = "bg-[var(--adc-pos-bg)]"; statusBorder = "border-[var(--adc-pos-bd)]"; statusDot = "bg-[var(--adc-pos-fg)]"; statusText = "text-[var(--adc-pos-fg)]";
     statusMsg = `${above}x above break-even — healthy margin buffer.`;
   }
 
@@ -816,7 +816,7 @@ function TargetRoasSection({
     >
       <div className="grid items-center gap-6" style={{ gridTemplateColumns: "minmax(240px, 360px) 1fr" }}>
         <div className="flex flex-col gap-3">
-          <div className="flex h-14 items-center gap-1.5 rounded-[10px] border border-neutral-200 bg-white px-4">
+          <div className="flex h-14 items-center gap-1.5 rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-4">
             <input
               type="number"
               step={0.1}
@@ -825,9 +825,9 @@ function TargetRoasSection({
               disabled={disabled}
               onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
               data-testid="commercial-target-roas"
-              className="min-w-0 flex-1 bg-transparent text-[28px] font-bold tabular-nums tracking-[-0.02em] text-neutral-900 outline-none disabled:opacity-60"
+              className="min-w-0 flex-1 bg-transparent text-[28px] font-bold tabular-nums tracking-[-0.02em] text-[var(--adc-ink)] outline-none disabled:opacity-60"
             />
-            <span className="text-[18px] text-neutral-500">x</span>
+            <span className="text-[18px] text-[var(--adc-ink3)]">x</span>
           </div>
           <div className={`flex items-center gap-2 rounded-[10px] border px-3 py-2.5 ${statusBg} ${statusBorder}`}>
             <span className={`h-2 w-2 shrink-0 rounded-full ${statusDot}`} />
@@ -836,16 +836,16 @@ function TargetRoasSection({
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1 rounded-xl border border-neutral-200 bg-neutral-50 p-4">
-            <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-neutral-500">Break-even ROAS</p>
-            <p className="text-[22px] font-bold tabular-nums tracking-[-0.02em] text-neutral-900">
+          <div className="flex flex-col gap-1 rounded-xl border border-[var(--adc-b1)] bg-[var(--adc-s1)] p-4">
+            <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--adc-ink3)]">Break-even ROAS</p>
+            <p className="text-[22px] font-bold tabular-nums tracking-[-0.02em] text-[var(--adc-ink)]">
               {isFinite(breakEven) && breakEven > 0 ? `${breakEven.toFixed(2)}x` : "—"}
             </p>
-            <p className="text-[11.5px] text-neutral-500">Derived from your cost structure</p>
+            <p className="text-[11.5px] text-[var(--adc-ink3)]">Derived from your cost structure</p>
           </div>
-          <div className="flex flex-col gap-1 rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+          <div className="flex flex-col gap-1 rounded-xl border border-[var(--adc-b1)] bg-[var(--adc-s1)] p-4">
             <div className="flex items-center gap-2">
-              <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-neutral-500">Break-even ROAS (manual)</p>
+              <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--adc-ink3)]">Break-even ROAS (manual)</p>
               <CtTooltip content="Use this only when cost structure is unavailable. Once cost structure is filled, derived break-even ROAS becomes the source of truth." />
             </div>
             <CtNumberInput
@@ -855,7 +855,7 @@ function TargetRoasSection({
               disabled={disabled || costStructureActive}
               testId="commercial-break-even-roas"
             />
-            <p className="text-[11.5px] text-neutral-500">
+            <p className="text-[11.5px] text-[var(--adc-ink3)]">
               {costStructureActive
                 ? "Cost structure is filled, so derived break-even will be saved."
                 : "Override if cost inputs are unavailable."}
@@ -911,7 +911,7 @@ function CountryEconomicsSection({
       ) : (
         <div className="flex flex-col gap-2">
           <div
-            className="grid px-1 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-neutral-400"
+            className="grid px-1 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[var(--adc-ink3)]"
             style={{ gridTemplateColumns: "1.4fr 1fr 1fr 1.6fr 36px" }}
           >
             <span>Country</span>
@@ -1000,7 +1000,7 @@ function PromoCalendarSection({
       ) : (
         <div className="flex flex-col gap-2">
           <div
-            className="grid px-1 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-neutral-400"
+            className="grid px-1 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[var(--adc-ink3)]"
             style={{ gridTemplateColumns: "1.6fr 1fr 1fr 1fr 36px" }}
           >
             <span>Name</span>
@@ -1026,14 +1026,14 @@ function PromoCalendarSection({
                 value={r.startDate}
                 onChange={(e) => onUpdate(i, "startDate", e.target.value)}
                 disabled={disabled}
-                className="h-10 w-full rounded-[10px] border border-neutral-200 bg-white px-3 text-[13px] font-medium text-neutral-900 outline-none disabled:opacity-60"
+                className="h-10 w-full rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-3 text-[13px] font-medium text-[var(--adc-ink)] outline-none disabled:opacity-60"
               />
               <input
                 type="date"
                 value={r.endDate}
                 onChange={(e) => onUpdate(i, "endDate", e.target.value)}
                 disabled={disabled}
-                className="h-10 w-full rounded-[10px] border border-neutral-200 bg-white px-3 text-[13px] font-medium text-neutral-900 outline-none disabled:opacity-60"
+                className="h-10 w-full rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-3 text-[13px] font-medium text-[var(--adc-ink)] outline-none disabled:opacity-60"
               />
               <CtSelect
                 value={r.severity}
@@ -1171,8 +1171,8 @@ function CalibrationSection({
               aria-pressed={active}
               className={`flex flex-col gap-1.5 rounded-xl border p-4 text-left transition-colors ${
                 active
-                  ? "border-neutral-900 bg-neutral-900 text-white"
-                  : "border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-50"
+                  ? "border-[var(--adc-ink)] bg-[var(--adc-ink)] text-[var(--adc-s2)]"
+                  : "border-[var(--adc-b1)] bg-[var(--adc-s2)] text-[var(--adc-ink)] hover:bg-[var(--adc-s1)]"
               } disabled:cursor-not-allowed disabled:opacity-60`}
             >
               <div className="flex items-center justify-between">
@@ -1183,7 +1183,7 @@ function CalibrationSection({
                   </svg>
                 )}
               </div>
-              <span className={`text-[12px] leading-snug ${active ? "text-white/70" : "text-neutral-500"}`}>
+              <span className={`text-[12px] leading-snug ${active ? "text-[var(--adc-s2)]/70" : "text-[var(--adc-ink3)]"}`}>
                 {o.desc}
               </span>
             </button>
@@ -1191,13 +1191,13 @@ function CalibrationSection({
         })}
       </div>
 
-      <div className="mt-5 flex items-center justify-between gap-4 border-t border-neutral-100 pt-5">
+      <div className="mt-5 flex items-center justify-between gap-4 border-t border-[var(--adc-b1)] pt-5">
         <div className="flex min-w-0 flex-col gap-1">
           <div className="flex items-center gap-2">
-            <p className="text-[13px] font-bold text-neutral-900">Calibration profiles</p>
+            <p className="text-[13px] font-bold text-[var(--adc-ink)]">Calibration profiles</p>
             <CtTooltip content="Use profiles to tune ROAS/CPA thresholds and confidence/action ceilings for a specific channel, objective family, bid regime, and decision archetype." />
           </div>
-          <p className="text-[12px] text-neutral-500">
+          <p className="text-[12px] text-[var(--adc-ink3)]">
             Optional. Profiles are matched by channel + objective + bid regime + archetype.
           </p>
         </div>
@@ -1213,7 +1213,7 @@ function CalibrationSection({
       ) : (
         <div className="mt-3 flex flex-col gap-3">
           {profiles.map((profile, index) => (
-            <div key={`${profile.channel}-${profile.objectiveFamily}-${profile.bidRegime}-${profile.archetype}-${index}`} className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+            <div key={`${profile.channel}-${profile.objectiveFamily}-${profile.bidRegime}-${profile.archetype}-${index}`} className="rounded-xl border border-[var(--adc-b1)] bg-[var(--adc-s1)] p-4">
               <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr 36px" }}>
                 <CtField label="Channel" tooltip="The decision surface this calibration applies to. Creative profiles affect creative decision hints; Meta profiles affect Meta decision hints.">
                   <CtSelect
@@ -1322,10 +1322,10 @@ function StickySaveBar({
   disabled?: boolean;
 }) {
   return (
-    <div className="sticky bottom-0 z-10 mt-7 flex items-center justify-between gap-4 border-t border-neutral-200 bg-white/92 px-6 py-3.5 backdrop-blur-sm">
+    <div className="sticky bottom-0 z-10 mt-7 flex items-center justify-between gap-4 border-t border-[var(--adc-b1)] bg-[var(--adc-s2)]/92 px-6 py-3.5 backdrop-blur-sm">
       <div className="flex items-center gap-2.5">
-        <span className={`h-2 w-2 rounded-full ${dirty ? "bg-amber-400" : "bg-emerald-500"}`} />
-        <span className="text-[12.5px] text-neutral-500">
+        <span className={`h-2 w-2 rounded-full ${dirty ? "bg-[var(--adc-caution-fg)]" : "bg-[var(--adc-pos-fg)]"}`} />
+        <span className="text-[12.5px] text-[var(--adc-ink3)]">
           {dirty ? "Unsaved changes" : "All changes saved"}
         </span>
       </div>
@@ -1334,7 +1334,7 @@ function StickySaveBar({
           type="button"
           onClick={onDiscard}
           disabled={!dirty || disabled}
-          className="h-9 rounded-[10px] border border-neutral-200 bg-white px-3.5 text-[13px] font-medium text-neutral-900 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:text-neutral-400"
+          className="h-9 rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-3.5 text-[13px] font-medium text-[var(--adc-ink)] hover:bg-[var(--adc-s1)] disabled:cursor-not-allowed disabled:text-[var(--adc-ink3)]"
         >
           Discard
         </button>
@@ -1343,7 +1343,7 @@ function StickySaveBar({
           onClick={onSave}
           disabled={disabled || saving}
           data-testid="commercial-settings-save"
-          className="h-9 rounded-[10px] border border-neutral-900 bg-neutral-900 px-4 text-[13px] font-semibold text-white shadow-sm hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-60"
+          className="h-9 rounded-[10px] border border-[var(--adc-ink)] bg-[var(--adc-ink)] px-4 text-[13px] font-semibold text-[var(--adc-s2)] shadow-sm hover:bg-[var(--adc-ink2)] disabled:cursor-not-allowed disabled:opacity-60"
         >
           {saving ? "Saving..." : "Save Commercial Truth"}
         </button>
@@ -1568,24 +1568,24 @@ export function CommercialTruthSettingsSection({ businessId }: { businessId: str
     <div className="flex flex-col gap-4" data-testid="commercial-truth-settings">
       {/* Status banners */}
       {!loading && permissions?.reason ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <div className="rounded-xl border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-4 py-3 text-sm text-[var(--adc-caution-fg)]">
           {permissions.reason}
         </div>
       ) : null}
       {notice ? (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+        <div className="rounded-xl border border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] px-4 py-3 text-sm text-[var(--adc-pos-fg)]">
           {notice}
         </div>
       ) : null}
       {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-xl border border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] px-4 py-3 text-sm text-[var(--adc-danger-fg)]">
           {error}
         </div>
       ) : null}
       {loading ? (
-        <div className="flex items-center gap-3 rounded-2xl border border-neutral-200 bg-white p-6">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-700" />
-          <p className="text-[13px] text-neutral-500">Loading commercial truth settings…</p>
+        <div className="flex items-center gap-3 rounded-2xl border border-[var(--adc-b1)] bg-[var(--adc-s2)] p-6">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--adc-b2)] border-t-[var(--adc-ink2)]" />
+          <p className="text-[13px] text-[var(--adc-ink3)]">Loading commercial truth settings…</p>
         </div>
       ) : null}
 

@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
   const name = body?.name?.trim() ?? "";
   const email = body?.email?.trim().toLowerCase() ?? "";
   const password = body?.password ?? "";
-  const businessName = body?.businessName?.trim() ?? "My Business";
+  const businessName = body?.businessName?.trim() ?? "";
   const currency = body?.currency?.trim().toUpperCase() || "USD";
   const inviteToken = body?.inviteToken?.trim() ?? "";
   if (typeof body?.timezone === "string" && body.timezone.trim().length > 0) {
@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
       timezoneSource: null,
       currency,
     };
-  } else {
+  } else if (businessName) {
     business = await createBusinessWithAdminMembership({
       name: businessName,
       ownerId: user.id,

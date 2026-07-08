@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { AuthBootstrap } from "@/components/layout/auth-bootstrap";
 import { BusinessForm } from "@/components/business/BusinessForm";
 import { Button } from "@/components/ui/button";
+import { ProductSection, StateBanner } from "@/components/ui/product-surface";
 import { useAppStore } from "@/store/app-store";
 import { applyAuthenticatedWorkspace } from "@/lib/client-auth-state";
 import { sanitizeNextPath } from "@/lib/auth-routing";
@@ -47,11 +48,10 @@ interface AuthPayload {
 
 function AuthPrompt({ nextPath }: { nextPath: string }) {
   return (
-    <div className="space-y-3 rounded-2xl border bg-card p-5 shadow-sm">
-      <h2 className="text-lg font-semibold">Sign in to continue</h2>
-      <p className="text-sm text-muted-foreground">
-        Shopify installed Adsecute successfully. Sign in to choose which workspace should receive this store connection.
-      </p>
+    <ProductSection
+      title="Sign in to continue"
+      description="Shopify returned an install context. Choose the workspace only after authentication."
+    >
       <div className="flex flex-wrap gap-3">
         <Link href={`/login?next=${encodeURIComponent(nextPath)}`}>
           <Button>Sign in</Button>
@@ -60,7 +60,7 @@ function AuthPrompt({ nextPath }: { nextPath: string }) {
           <Button variant="outline">Create account</Button>
         </Link>
       </div>
-    </div>
+    </ProductSection>
   );
 }
 
@@ -260,16 +260,17 @@ export function ShopifyConnectClientPage() {
   return (
     <>
       <AuthBootstrap />
-      <div className="mx-auto flex min-h-screen w-full max-w-3xl items-center px-4 py-10">
-        <div className="w-full space-y-6">
-          <div className="space-y-2">
-            <p className="text-sm font-medium uppercase tracking-[0.24em] text-muted-foreground">
+      <main className="min-h-screen bg-neutral-50 px-4 py-10 text-neutral-950">
+        <div className="mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-3xl items-center">
+        <div className="w-full space-y-5">
+          <div className="border-b border-neutral-200 pb-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-500">
               Shopify Connect
             </p>
-            <h1 className="text-3xl font-semibold tracking-tight">
+            <h1 className="mt-1 text-[24px] font-semibold tracking-tight">
               {context ? "Choose a workspace for this Shopify store" : "Connect a Shopify store"}
             </h1>
-            <p className="max-w-2xl text-sm text-muted-foreground">
+            <p className="mt-1 max-w-2xl text-[13px] leading-5 text-neutral-500">
               {context
                 ? "Your Shopify install reached Adsecute successfully. Pick the workspace that should own this store connection."
                 : "Shopify installation must start from Shopify App Store or Shopify Admin. Come back here only after Shopify redirects back with an install context."}
@@ -277,43 +278,46 @@ export function ShopifyConnectClientPage() {
           </div>
 
           {error ? (
-            <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <StateBanner tone="danger" title="Connection needs attention">
               {error}
-            </div>
+            </StateBanner>
           ) : null}
 
           {contextLoading || authLoading || !hasHydrated ? (
-            <div className="rounded-2xl border bg-card p-6 text-sm text-muted-foreground shadow-sm">
+            <ProductSection>
+            <div className="text-sm text-neutral-500">
               Preparing Shopify connection context...
             </div>
+            </ProductSection>
           ) : context ? (
             auth?.authenticated ? (
               <div className="space-y-4">
-                <div className="rounded-2xl border bg-card p-5 shadow-sm">
+                <ProductSection>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <h2 className="text-lg font-semibold">{context.shopName ?? context.shopDomain}</h2>
-                      <p className="text-sm text-muted-foreground">{context.shopDomain}</p>
+                      <h2 className="text-base font-semibold text-neutral-950">{context.shopName ?? context.shopDomain}</h2>
+                      <p className="text-sm text-neutral-500">{context.shopDomain}</p>
                     </div>
-                    <div className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+                    <div className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-1 text-xs font-medium text-neutral-600">
                       {context.currency ? `Currency: ${context.currency}` : "Awaiting workspace selection"}
                     </div>
                   </div>
-                </div>
+                </ProductSection>
 
                 {businesses.length === 0 ? (
-                  <div className="rounded-2xl border bg-card p-5 shadow-sm">
-                    <h2 className="text-lg font-semibold">Create a workspace first</h2>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      We need one workspace to attach this Shopify install.
-                    </p>
+                  <ProductSection
+                    title="Create a workspace first"
+                    description="We need one workspace to attach this Shopify install."
+                  >
                     <div className="mt-4">
                       <BusinessForm onSubmit={createBusinessAndFinalize} />
                     </div>
-                  </div>
+                  </ProductSection>
                 ) : (
-                  <div className="rounded-2xl border bg-card p-5 shadow-sm">
-                    <h2 className="text-lg font-semibold">Available workspaces</h2>
+                  <ProductSection
+                    title="Available workspaces"
+                    description="Choose exactly one owner for this store connection."
+                  >
                     <div className="mt-4 grid gap-3">
                       {businesses.map((business) => {
                         const recommended =
@@ -328,15 +332,15 @@ export function ShopifyConnectClientPage() {
                               void finalizeConnection(business.id);
                             }}
                             disabled={busy}
-                            className="flex items-center justify-between rounded-xl border px-4 py-3 text-left transition hover:border-foreground/30 disabled:cursor-not-allowed disabled:opacity-60"
+                            className="flex items-center justify-between rounded-lg border border-neutral-200 bg-white px-4 py-3 text-left transition hover:border-neutral-400 disabled:cursor-not-allowed disabled:opacity-60"
                           >
                             <div>
-                              <p className="font-medium">{business.name}</p>
-                              <p className="text-sm text-muted-foreground">
+                              <p className="font-medium text-neutral-950">{business.name}</p>
+                              <p className="text-sm text-neutral-500">
                                 {business.timezone ?? "Timezone pending"} · {business.currency}
                               </p>
                             </div>
-                            <div className="text-xs text-muted-foreground">
+                            <div className="text-xs text-neutral-500">
                               {busy && pendingBusinessId === business.id
                                 ? "Connecting..."
                                 : recommended
@@ -347,37 +351,35 @@ export function ShopifyConnectClientPage() {
                         );
                       })}
                     </div>
-                  </div>
+                  </ProductSection>
                 )}
               </div>
             ) : (
               <AuthPrompt nextPath={nextPath} />
             )
           ) : (
-            <div className="space-y-4 rounded-2xl border bg-card p-5 shadow-sm">
-              <div className="space-y-1">
-                <h2 className="text-lg font-semibold">Start from Shopify</h2>
-                <p className="text-sm text-muted-foreground">
-                  Install Adsecute from a Shopify-owned surface first. After Shopify redirects back, this page will let the merchant log in and choose the workspace that should receive the store connection.
-                </p>
-              </div>
+            <ProductSection
+              title="Start from Shopify"
+              description="Install Adsecute from a Shopify-owned surface first. After Shopify redirects back, this page will let the merchant log in and choose the workspace that should receive the store connection."
+            >
               <div className="flex flex-wrap gap-3">
                 <a
                   href={SHOPIFY_APP_STORE_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center rounded-md border px-4 py-2 text-sm font-medium"
+                  className="inline-flex items-center rounded-md border border-neutral-200 px-4 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50"
                 >
                   Open App Store listing
                 </a>
               </div>
-              <p className="text-sm text-muted-foreground">
+              <p className="mt-4 text-sm text-neutral-500">
                 If the install already finished but this page does not show a pending store, the install context may have expired and should be restarted from Shopify.
               </p>
-            </div>
+            </ProductSection>
           )}
         </div>
-      </div>
+        </div>
+      </main>
     </>
   );
 }

@@ -289,7 +289,11 @@ const PRESET_OPTIONS: Array<{ value: CreativeDatePreset; label: string }> = [
   { value: "since", label: "Since..." },
 ];
 
-const METRIC_COLOR_TOKENS = ["bg-blue-100 text-blue-700", "bg-emerald-100 text-emerald-700", "bg-amber-100 text-amber-700", "bg-rose-100 text-rose-700", "bg-cyan-100 text-cyan-700", "bg-neutral-100 text-neutral-700"];
+// Reference Creative Studio (02 Creative Studio.dc.html) is monochrome — the
+// selected-metric chips are differentiated by their index number + name, not by
+// categorical colour. Neutralized to a single neutral token (the creatives page
+// remaps these neutrals to the --adc reference palette in its scoped style).
+const METRIC_COLOR_TOKENS = ["bg-neutral-100 text-neutral-700"];
 
 const METRIC_DEFS: CreativeMetricDefinition[] = [
   { id: "spend", label: "Spend", direction: "neutral", format: fmtCurrency, getValue: (r) => r.spend },

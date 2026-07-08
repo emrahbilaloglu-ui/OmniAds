@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
 
 export function jsonError(
   status: number,
@@ -49,5 +50,14 @@ export async function requireLaunchpadBusinessAccess(input: {
     ok: true as const,
     businessId: access.membership.businessId,
     userId: access.session.user.id,
+    session: access.session,
+    membership: access.membership,
   };
+}
+
+export function rejectIfLaunchpadReviewerReadOnly(
+  access: Extract<Awaited<ReturnType<typeof requireLaunchpadBusinessAccess>>, { ok: true }>,
+  action: string,
+) {
+  return rejectIfReviewerReadOnly(access, action);
 }

@@ -7,6 +7,7 @@ import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
 import {
   annotateMetaRecPresentation,
   type MetaRecEntityMetricsSource,
+  type MetaRecRowPresentationSource,
 } from "@/lib/meta/rec-presentation";
 import { readMetaDecisionSnapshotForRange } from "@/lib/meta/snapshot";
 import {
@@ -1344,6 +1345,7 @@ export async function GET(request: NextRequest) {
   // Old persisted snapshots are covered because annotation happens at read
   // time.
   const metricsByEntityId = new Map<string, MetaRecEntityMetricsSource>();
+  const rowPresentationByEntityId = new Map<string, MetaRecRowPresentationSource>();
   for (const row of campaignRows) {
     metricsByEntityId.set(row.id, {
       spend: row.spend ?? null,
@@ -1352,6 +1354,10 @@ export async function GET(request: NextRequest) {
       ctr: row.ctr ?? null,
       purchases: row.purchases ?? null,
       frequency: row.frequency ?? null,
+    });
+    rowPresentationByEntityId.set(row.id, {
+      accountId: row.accountId ?? null,
+      thumbLabel: null,
     });
   }
   for (const row of adsetRows) {
@@ -1363,10 +1369,14 @@ export async function GET(request: NextRequest) {
       purchases: row.purchases ?? null,
       frequency: row.frequency ?? null,
     });
+    rowPresentationByEntityId.set(row.id, {
+      accountId: row.accountId ?? null,
+      thumbLabel: null,
+    });
   }
-  const annotatedActionNow = annotateMetaRecPresentation(actionNow, metricsByEntityId);
-  const annotatedWatching = annotateMetaRecPresentation(watching, metricsByEntityId);
-  const annotatedNonSales = annotateMetaRecPresentation(nonSales, metricsByEntityId);
+  const annotatedActionNow = annotateMetaRecPresentation(actionNow, metricsByEntityId, rowPresentationByEntityId);
+  const annotatedWatching = annotateMetaRecPresentation(watching, metricsByEntityId, rowPresentationByEntityId);
+  const annotatedNonSales = annotateMetaRecPresentation(nonSales, metricsByEntityId, rowPresentationByEntityId);
 
   // Typed against the shared client contract so response drift fails typecheck.
   const payload = {

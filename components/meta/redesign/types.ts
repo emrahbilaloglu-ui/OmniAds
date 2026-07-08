@@ -153,6 +153,110 @@ export interface MetaLanePayload {
   counts: { actionNow: number; watching: number; healthy: number; nonSales: number; archive: number };
 }
 
+export type MetaDecisionsWorkspaceBannerTone = "info" | "warning" | "danger" | "success";
+
+export interface MetaDecisionsWorkspaceBanner {
+  id: string;
+  tone: MetaDecisionsWorkspaceBannerTone;
+  title: string;
+  detail: string;
+  blocking: boolean;
+}
+
+export interface MetaDecisionsWorkspaceViewer {
+  role: "admin" | "collaborator" | "guest" | null;
+  isReviewer: boolean;
+  readOnly: boolean;
+  readOnlyReason: string | null;
+}
+
+export interface MetaDecisionsDigest {
+  snapshotDate: string | null;
+  unavailableReason: string | null;
+  labelFlips: {
+    count: number;
+    publishedCount: number;
+    items: Array<{
+      id: string;
+      title: string;
+      previousLabel: string;
+      currentLabel: string;
+      status: "published";
+      occurredAt: string | null;
+    }>;
+  };
+  actions: {
+    verifiedCount: number;
+    silentFailureCount: number;
+    items: Array<{
+      id: string;
+      action: string;
+      target: string;
+      actor: string | null;
+      status: "verified" | "silent_failure";
+      occurredAt: string | null;
+      detail: string | null;
+    }>;
+  };
+  anomalies: {
+    openedCount: number;
+    items: Array<{
+      id: string;
+      title: string;
+      status: "open" | "resolved";
+      occurredAt: string | null;
+    }>;
+  };
+  deferrals: {
+    dueCount: number;
+    items: Array<{
+      id: string;
+      title: string;
+      dueAt: string | null;
+      detail: string | null;
+    }>;
+  };
+}
+
+export interface MetaDecisionsWorkspacePayload {
+  businessId: string;
+  window: MetaWindowKey;
+  statusFilter?: BriefingStatusFilter;
+  startDate: string;
+  endDate: string;
+  pulse: MetaPulsePayload;
+  lanes: MetaLanePayload;
+  queue: {
+    groups: Array<{
+      key: "action" | "watching" | "healthy" | "nonSales" | "archive";
+      label: string;
+      count: number;
+    }>;
+    actionStates: {
+      executablePause: number;
+      executableBid: number;
+      executableResume: number;
+      launchpadRoutes: number;
+      reviewOnly: number;
+      missingActionKind: number;
+    };
+  };
+  system: {
+    trackingBlocked: boolean;
+    dataReadiness: MetaPulsePayload["dataReadiness"] | null;
+    snapshotHealth: MetaSnapshotHealth | null;
+    laneSnapshotDate: string | null;
+    laneSnapshotCreatedAt: string | null;
+    engineVersion: string;
+    currency: string | null;
+    killSwitchEngaged: boolean;
+    killSwitchReason: string | null;
+  };
+  viewer: MetaDecisionsWorkspaceViewer | null;
+  banners: MetaDecisionsWorkspaceBanner[];
+  digest: MetaDecisionsDigest;
+}
+
 export type MetaWatchingSegmentKey =
   | "unlabeled"
   | "missing_target"

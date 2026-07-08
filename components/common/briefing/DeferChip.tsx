@@ -230,6 +230,7 @@ interface DeferChipProps {
   id: string;
   deferred?: boolean;
   onUndo?: (id: string) => void;
+  showUndo?: boolean;
   className?: string;
 }
 
@@ -237,6 +238,7 @@ export function DeferChip({
   id,
   deferred = true,
   onUndo,
+  showUndo = true,
   className,
 }: DeferChipProps) {
   if (!deferred) return null;
@@ -251,16 +253,21 @@ export function DeferChip({
         .join(" ")}
     >
       <Clock className="inline-block shrink-0" size={12} aria-hidden="true" />
-      Reappears tomorrow 9am ·{" "}
-      <button
-        type="button"
-        className="text-blue-600 hover:underline"
-        data-action="undefer"
-        data-id={id}
-        onClick={() => onUndo?.(id)}
-      >
-        Undo
-      </button>
+      Reappears tomorrow 9am
+      {showUndo ? (
+        <>
+          {" · "}
+          <button
+            type="button"
+            className="text-blue-600 hover:underline"
+            data-action="undefer"
+            data-id={id}
+            onClick={() => onUndo?.(id)}
+          >
+            Undo
+          </button>
+        </>
+      ) : null}
     </div>
   );
 }

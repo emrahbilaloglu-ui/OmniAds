@@ -48,6 +48,9 @@ import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
 import { createPortal } from "react-dom";
 import { getCreativeVisualFormatLabel } from "@/lib/meta/creative-taxonomy";
 import type { AiCreativeHistoricalWindows as CreativeHistoricalWindows } from "@/lib/meta/creative-scoring";
+import type { DecisionLabel, DecisionOutput, EngineV3Flags } from "@/lib/creative-decision-engine";
+import { LABEL_DISPLAY } from "@/components/creatives/decision-label-display";
+import { DECISION_LABEL_PALETTE } from "@/components/common/briefing/decision-label-palette";
 
 type GoodDirection = "high" | "low" | "neutral";
 type ColorFormattingMode = "heatmap" | "none";
@@ -157,7 +160,17 @@ interface CreativesTableSectionProps {
   onOpenRow: (rowId: string) => void;
   onOpenBreakdownRow?: (rowId: string) => void;
   onSortedRowsChange?: (rows: MetaCreativeRow[]) => void;
+  /** Server-truth creative decisions (Engine v3) + flags. Used only to render the
+   *  optional DECISION column when buyerDecisionLanguage is on. Never derived here. */
+  v3Decisions?: DecisionOutput[] | null;
+  v3Flags?: EngineV3Flags | null;
+  /** When true, appends a right-aligned DECISION column showing the server decision
+   *  label per creative ("—" when the engine has none). Off by default: Creative Studio
+   *  stays "analysis only", and this is a buyer-language overlay, not execution. */
+  buyerDecisionLanguage?: boolean;
 }
+
+const DECISION_COLUMN_WIDTH = 116;
 
 interface MetricTooltipState {
   key: TableColumnKey;
@@ -225,6 +238,8 @@ interface CreativeTableRowProps {
   metricDistributions: Partial<Record<TableColumnKey, MetricDistribution>>;
   metricSpendDistributions: Partial<Record<TableColumnKey, MetricDistribution>>;
   heatmapBaselineLabel: string;
+  buyerDecisionLanguage: boolean;
+  decisionLabel: DecisionLabel | null;
   onToggleRow: (rowId: string) => void;
   onOpenRow: (rowId: string) => void;
   onOpenBreakdownRow?: (rowId: string) => void;
@@ -815,6 +830,9 @@ export function CreativesTableSection({
   onOpenRow,
   onOpenBreakdownRow,
   onSortedRowsChange,
+  v3Decisions = null,
+  v3Flags = null,
+  buyerDecisionLanguage = false,
 }: CreativesTableSectionProps) {
   const defaultPreset = PRESETS.find((p) => p.presetName === initialPresetName) ?? PRESETS[0];
   const [tablePreset, setTablePreset] = useState<TablePreset>(defaultPreset);
@@ -1019,6 +1037,20 @@ export function CreativesTableSection({
     };
   }, [ctx, rows, selectedColumns]);
 
+  // Server-truth decision labels for the optional DECISION column. Presence of the
+  // column is driven ONLY by the buyer-language toggle (so width/colSpan/cell counts
+  // stay in sync); the label VALUE is additionally gated by engine surface visibility
+  // and renders "—" when the engine has no decision for a creative.
+  const v3SurfaceVisible = Boolean(v3Flags?.enabled && v3Flags.surfaceVisible);
+  const decisionLabelByCreativeId = useMemo(
+    () =>
+      v3Decisions
+        ? new Map(v3Decisions.map((decision) => [decision.creativeId, decision.label]))
+        : new Map<string, DecisionLabel>(),
+    [v3Decisions],
+  );
+  const showDecisionColumn = buyerDecisionLanguage;
+
   const totalTableWidth = useMemo(() => {
     const cw = (key: string, min: number, pref: number) => Math.max(min, columnWidths[key] ?? pref);
     let w = cw("creativeName", STATIC_COLUMN_SPECS.creativeName.minWidth, STATIC_COLUMN_SPECS.creativeName.preferredWidth);
@@ -1032,15 +1064,17 @@ export function CreativesTableSection({
     for (const col of selectedColumns) {
       w += cw(col.key, col.minWidth, col.preferredWidth);
     }
+    if (showDecisionColumn) w += DECISION_COLUMN_WIDTH;
     return w;
-  }, [columnWidths, tablePreset, selectedAiTagColumns, selectedColumns]);
+  }, [columnWidths, tablePreset, selectedAiTagColumns, selectedColumns, showDecisionColumn]);
   const tableColumnCount =
     1 +
     selectedColumns.length +
     selectedAiTagColumns.length +
     Number(tablePreset.showLaunchDate) +
     Number(tablePreset.showActiveStatus) +
-    Number(tablePreset.showAdLength);
+    Number(tablePreset.showAdLength) +
+    Number(showDecisionColumn);
 
   const modalMetricGroups = useMemo(() => {
     const query = modalSearch.toLowerCase().trim();
@@ -1748,6 +1782,15 @@ export function CreativesTableSection({
                   </button>
                 </th>
               ))}
+
+              {showDecisionColumn ? (
+                <th
+                  className="px-2.5 py-1.5 text-right text-[9px] font-medium tracking-[0.01em] text-neutral-500"
+                  style={{ minWidth: DECISION_COLUMN_WIDTH, width: DECISION_COLUMN_WIDTH }}
+                >
+                  DECISION
+                </th>
+              ) : null}
             </tr>
           </thead>
 
@@ -1759,6 +1802,9 @@ export function CreativesTableSection({
             )}
             {visiblePagedRows.map((row) => {
               const rowId = safeTableText(row.id) || safeTableText(row.creativeId) || "creative";
+              const decisionLabel = v3SurfaceVisible
+                ? decisionLabelByCreativeId.get(row.creativeId) ?? null
+                : null;
               return (
 	              <CreativeTableRow
 	                key={rowId}
@@ -1773,6 +1819,8 @@ export function CreativesTableSection({
                 metricDistributions={metricDistributions}
                 metricSpendDistributions={metricSpendDistributions}
                 heatmapBaselineLabel={heatmapBaselineLabel}
+                buyerDecisionLanguage={showDecisionColumn}
+                decisionLabel={decisionLabel}
                 onToggleRow={onToggleRow}
                 onOpenRow={onOpenRow}
                 onOpenBreakdownRow={onOpenBreakdownRow}
@@ -1839,6 +1887,9 @@ export function CreativesTableSection({
                   </td>
                 );
               })}
+              {showDecisionColumn ? (
+                <td className="px-2.5 py-1.5 text-right text-[9px] text-muted-foreground">—</td>
+              ) : null}
             </tr>
           </tfoot>
         </table>
@@ -1923,6 +1974,8 @@ const CreativeTableRow = memo(function CreativeTableRow({
   metricDistributions,
   metricSpendDistributions,
   heatmapBaselineLabel,
+  buyerDecisionLanguage,
+  decisionLabel,
   onToggleRow,
   onOpenRow,
   onOpenBreakdownRow,
@@ -2044,9 +2097,36 @@ const CreativeTableRow = memo(function CreativeTableRow({
             {evaluation.applicable !== false
               ? column.format(value, resolvedRowCurrency, defaultCurrency)
               : "—"}
+            {column.key === "hookScore" && evaluation.applicable !== false ? (
+              <span
+                className="ml-1 inline-block rounded-[3px] border border-[var(--adc-auto-bd,#d9ccf1)] bg-[var(--adc-auto-bg,#f2edfb)] px-1 align-middle text-[8px] font-medium text-[var(--adc-auto-fg,#6c41be)]"
+                title="Client-computed proxy from early-attention and thumbstop signals — not a provider-reported metric."
+              >
+                proxy
+              </span>
+            ) : null}
           </td>
         );
       })}
+      {buyerDecisionLanguage ? (
+        <td
+          className="border-b px-2.5 py-1.5 text-right"
+          style={{ width: DECISION_COLUMN_WIDTH, minWidth: DECISION_COLUMN_WIDTH }}
+        >
+          {decisionLabel ? (
+            <span
+              className={cn(
+                "inline-flex rounded-full border px-2 py-0.5 text-[9px] font-semibold leading-none",
+                DECISION_LABEL_PALETTE[decisionLabel].legacyClassName,
+              )}
+            >
+              {LABEL_DISPLAY[decisionLabel].label}
+            </span>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
+        </td>
+      ) : null}
     </tr>
   );
 });

@@ -85,6 +85,8 @@ export function LaunchpadReview({
 }) {
   const [validation, setValidation] = useState<LaunchpadValidationState | null>(null);
   const [validating, setValidating] = useState(false);
+  const [jsonOpen, setJsonOpen] = useState(false);
+  const [ack, setAck] = useState(false);
   const aggregate = useMemo(
     () => buildEngineAggregate({ selectedCreatives, decisionByCreativeId }),
     [decisionByCreativeId, selectedCreatives],
@@ -227,10 +229,16 @@ export function LaunchpadReview({
             </span>
           </div>
         </div>
-        <div className="mt-3 flex items-center gap-2 rounded-[8px] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-2 text-[12px] text-[var(--warn)]">
+        <label className="mt-3 flex cursor-pointer items-center gap-2 rounded-[8px] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-2 text-[12px] text-[var(--warn)]">
+          <input
+            type="checkbox"
+            checked={ack}
+            onChange={(event) => setAck(event.target.checked)}
+            className="h-3.5 w-3.5 shrink-0"
+          />
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
           Everything launches PAUSED and must be activated manually in Meta.
-        </div>
+        </label>
       </div>
 
       <div
@@ -283,11 +291,27 @@ export function LaunchpadReview({
         ) : null}
       </div>
 
-      <div className="overflow-hidden rounded-[10px] border border-[var(--border)] bg-[var(--surface)]">
-        <div className="border-b border-[var(--border)] px-4 py-3 text-[13px] font-semibold text-[var(--ink)]">Payload preview</div>
-        <pre className="mono max-h-[420px] overflow-auto p-4 text-[11px] leading-relaxed text-[var(--ink-2)]">
-          {JSON.stringify(payload, null, 2)}
-        </pre>
+      <div className="rounded-[8px] border border-[var(--border)] bg-[var(--bg)] p-3 text-[11.5px] leading-relaxed text-[var(--ink-2)]">
+        <div className="mono mb-1 text-[10.5px] font-medium text-[var(--muted)]">SERVER VALIDATION · real blocker vocabulary</div>
+        <span className="mono">
+          campaign_name_required ✓ · budget_required ✓ · pixel_required ✓ · pixel_not_active ✓ · attribution_click_required ✓ · creative_rejected ✓ · target_adset_not_active — · billing_not_ok ✓ · meta_not_connected ✓ · cross_account_duplicate_not_supported —
+        </span>
+      </div>
+
+      <div className="space-y-2">
+        <button
+          type="button"
+          className="btn btn--sm mono"
+          onClick={() => setJsonOpen((open) => !open)}
+          aria-expanded={jsonOpen}
+        >
+          {jsonOpen ? "▾" : "▸"} raw launch JSON
+        </button>
+        {jsonOpen ? (
+          <pre className="mono max-h-[420px] overflow-auto rounded-[8px] border border-[var(--border)] bg-[var(--bg)] p-3 text-[11px] leading-relaxed text-[var(--ink-2)]">
+            {JSON.stringify(payload, null, 2)}
+          </pre>
+        ) : null}
       </div>
 
       <div className="flex flex-wrap items-center justify-end gap-2">
@@ -304,7 +328,7 @@ export function LaunchpadReview({
             Save draft
           </button>
         ) : null}
-        <button type="button" className="btn btn--primary" disabled={launchBlocked} onClick={onLaunch}>
+        <button type="button" className="btn btn--primary" disabled={launchBlocked || !ack} onClick={onLaunch}>
           <Send className="h-4 w-4" />
           Launch (paused)
         </button>

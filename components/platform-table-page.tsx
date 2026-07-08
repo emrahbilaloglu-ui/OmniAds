@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ProductPageShell, ProductSection, StateBanner } from "@/components/ui/product-surface";
 import { cn } from "@/lib/utils";
 import { Plus, X } from "lucide-react";
 
@@ -135,13 +136,7 @@ export function PlatformTablePage({
       statusFilter === "all" ? rows : rows.filter((row) => row.status === statusFilter);
 
     const sorted = [...byStatus].sort((a, b) => {
-      const multiplier = sortDirection === "asc" ? 1 : -1;
-      if (sortColumn === "name" || sortColumn === "status") {
-        return a[sortColumn].localeCompare(b[sortColumn]) * multiplier;
-      }
-      const aValue = a.metrics[sortColumn] ?? 0;
-      const bValue = b.metrics[sortColumn] ?? 0;
-      return (aValue - bValue) * multiplier;
+      return comparePlatformTableRows(a, b, sortColumn, sortDirection);
     });
 
     return sorted;
@@ -179,20 +174,18 @@ export function PlatformTablePage({
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
   return (
-    <div className="space-y-5">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="space-y-1">
-          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-neutral-500">
-            Platform workspace
-          </p>
-          <h1 className="text-[22px] font-semibold tracking-tight text-neutral-950">{title}</h1>
-          <p className="max-w-2xl text-sm leading-5 text-neutral-500">{description}</p>
+    <ProductPageShell
+      eyebrow="Platform workspace"
+      title={title}
+      description={description}
+      className="ad-platform-table"
+      actions={
+        <div className="ad-platform-table-status">
+          <span aria-hidden="true" />
+          Server-backed table · currency not inferred
         </div>
-        <div className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-500">
-          <span className="h-1.5 w-1.5 rounded-full bg-neutral-400" />
-          Server-backed table
-        </div>
-      </header>
+      }
+    >
 
       <div className="flex gap-1 overflow-x-auto border-b border-neutral-200">
         {tabs.map((tab) => (
@@ -212,7 +205,10 @@ export function PlatformTablePage({
         ))}
       </div>
 
-      <div className="rounded-xl border border-neutral-200 bg-white px-3 py-3">
+      <ProductSection
+        title="Table controls"
+        description="Filtering stays client-side over server-returned rows; unavailable metric cells stay blank."
+      >
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-xs font-medium text-neutral-500">
             <span className="uppercase tracking-[0.12em]">Account</span>
@@ -281,19 +277,36 @@ export function PlatformTablePage({
             Add metrics
           </Button>
         </div>
-      </div>
+      </ProductSection>
 
-      {isLoading && <LoadingSkeleton rows={3} />}
-      {isError && <ErrorState onRetry={() => tableQuery.refetch()} />}
+      {isLoading && (
+        <ProductSection>
+          <LoadingSkeleton rows={3} />
+        </ProductSection>
+      )}
+      {isError && (
+        <ProductSection>
+          <ErrorState onRetry={() => tableQuery.refetch()} />
+        </ProductSection>
+      )}
       {!isLoading && !isError && filteredRows.length === 0 && (
-        <EmptyState
-          title="No rows found"
-          description="No rows match the selected account, level, or filters."
-        />
+        <ProductSection>
+          <EmptyState
+            title="No rows found"
+            description="No rows match the selected account, level, or filters."
+          />
+        </ProductSection>
       )}
 
       {!isLoading && !isError && filteredRows.length > 0 && (
-        <div className="overflow-x-auto rounded-xl border border-neutral-200 bg-white">
+        <ProductSection
+          title={`${tabs.find((tab) => tab.key === activeTab)?.label ?? "Rows"} table`}
+          description="Money columns are rendered at row grain; no cross-currency aggregation is performed here."
+          actions={
+            <StateBanner tone="neutral" title={`${filteredRows.length} rows`} className="px-2 py-1.5" />
+          }
+        >
+        <div className="overflow-x-auto rounded-lg border border-neutral-200 bg-white">
           <table className="min-w-full text-sm">
             <thead className="bg-neutral-50 text-left text-[11px] uppercase tracking-[0.12em] text-neutral-500">
               <tr>
@@ -325,7 +338,7 @@ export function PlatformTablePage({
                   </td>
                   {visibleColumns.map((column) => (
                     <td key={column} className="px-4 py-3 text-right font-medium tabular-nums text-neutral-700">
-                      {formatMetricCell(column, row)}
+                      {formatPlatformMetricCell(column, row)}
                     </td>
                   ))}
                 </tr>
@@ -333,11 +346,12 @@ export function PlatformTablePage({
             </tbody>
           </table>
         </div>
+        </ProductSection>
       )}
 
       {isMetricsModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/35 p-4">
-          <div className="w-full max-w-md rounded-xl border border-neutral-200 bg-white p-5 shadow-lg">
+          <div className="w-full max-w-md rounded-lg border border-neutral-200 bg-white p-5 shadow-lg">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-base font-semibold tracking-tight text-neutral-950">Manage metric columns</h3>
               <button
@@ -381,17 +395,35 @@ export function PlatformTablePage({
           </div>
         </div>
       )}
-    </div>
+    </ProductPageShell>
   );
 }
 
-function formatMetricCell(column: MetricColumn, row: PlatformTableRow) {
+export function formatPlatformMetricCell(column: MetricColumn, row: PlatformTableRow) {
   const value = row.metrics[column];
-  if (typeof value !== "number") return "-";
+  if (typeof value !== "number") return "—";
   if (column === "spend" || column === "revenue" || column === "cpa" || column === "cpm") {
-    return `$${value.toLocaleString()}`;
+    return `${value.toLocaleString()} · currency —`;
   }
   if (column === "roas") return value.toFixed(2);
   if (column === "ctr") return `${value.toFixed(2)}%`;
   return value.toLocaleString();
+}
+
+export function comparePlatformTableRows(
+  a: PlatformTableRow,
+  b: PlatformTableRow,
+  sortColumn: SortColumn,
+  sortDirection: SortDirection,
+) {
+  const multiplier = sortDirection === "asc" ? 1 : -1;
+  if (sortColumn === "name" || sortColumn === "status") {
+    return a[sortColumn].localeCompare(b[sortColumn]) * multiplier;
+  }
+  const aValue = a.metrics[sortColumn];
+  const bValue = b.metrics[sortColumn];
+  if (aValue == null && bValue == null) return 0;
+  if (aValue == null) return 1;
+  if (bValue == null) return -1;
+  return (aValue - bValue) * multiplier;
 }

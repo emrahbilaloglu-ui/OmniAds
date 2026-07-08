@@ -7,6 +7,7 @@ import {
 } from "@/lib/meta/ads-action-log";
 import type { MetaAdsWriteFailure } from "@/lib/meta/ads-write";
 import { createAd, createAdSet, createCampaign } from "@/lib/meta/launch-write";
+import { rejectIfMetaWritesBlocked } from "@/lib/meta/automation-write-guard";
 import {
   adsManagerUrl,
   toAdInput,
@@ -20,6 +21,7 @@ import {
 import {
   jsonError,
   readJsonBody,
+  rejectIfLaunchpadReviewerReadOnly,
   requireLaunchpadBusinessAccess,
   sanitizeErrorMessage,
 } from "../route-utils";
@@ -101,6 +103,10 @@ export async function POST(request: NextRequest) {
   const idempotencyKey = body?.idempotencyKey?.trim() ?? "";
   const access = await requireLaunchpadBusinessAccess({ request, businessId });
   if (!access.ok) return access.response;
+  const reviewerBlocked = rejectIfLaunchpadReviewerReadOnly(access, "launchpad_launch");
+  if (reviewerBlocked) return reviewerBlocked;
+  const blocked = await rejectIfMetaWritesBlocked({ businessId: access.businessId });
+  if (blocked) return blocked;
   if (!idempotencyKey) {
     return jsonError(400, "idempotency_key_required", "idempotencyKey is required.");
   }

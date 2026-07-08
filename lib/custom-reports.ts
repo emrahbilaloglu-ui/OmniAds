@@ -114,6 +114,10 @@ export interface CustomReportSharePayload extends RenderedReportPayload {
   token: string;
   createdAt: string;
   expiresAt: string;
+  businessName?: string | null;
+  clientEmail?: string | null;
+  currency?: string | null;
+  trackingState?: "normal" | "no_actions" | "tracking_degraded" | null;
 }
 
 export const REPORT_GRID_SLOT_COUNT = 48;

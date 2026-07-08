@@ -108,4 +108,33 @@ describe("POST /api/triage/event", () => {
     expect(response.status).toBe(401);
     expect(recordTriageEvent).not.toHaveBeenCalled();
   });
+
+  it("rejects reviewer read-only attempts before writing triage state", async () => {
+    vi.mocked(requireBusinessAccess).mockResolvedValue({
+      session: { user: { id: "reviewer_1", email: "shopify-review@adsecute.com" } } as never,
+      membership: {
+        id: "membership_1",
+        userId: "reviewer_1",
+        businessId: "biz_1",
+        role: "collaborator",
+        status: "active",
+        joinedAt: "2026-05-07T00:00:00.000Z",
+      },
+    });
+
+    const response = await POST(
+      request({
+        businessId: "biz_1",
+        scopeType: "adset",
+        scopeId: "as_1",
+        action: "deferred",
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(payload.error.code).toBe("reviewer_read_only");
+    expect(payload.error.action).toBe("triage_deferred");
+    expect(recordTriageEvent).not.toHaveBeenCalled();
+  });
 });

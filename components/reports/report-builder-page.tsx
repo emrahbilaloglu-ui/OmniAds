@@ -18,7 +18,7 @@ const ReportBuilder = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="rounded-xl border border-neutral-200 bg-white p-8 text-sm text-muted-foreground">
+      <div className="rounded-lg border border-neutral-200 bg-white p-8 text-sm text-neutral-500">
         Loading builder...
       </div>
     ),
@@ -99,14 +99,14 @@ export function ReportBuilderPage({
   if (mode === "view") {
     if (renderedQuery.isLoading) {
       return (
-        <div className="rounded-xl border border-neutral-200 bg-white p-8 text-sm text-muted-foreground animate-pulse">
+        <div className="animate-pulse rounded-lg border border-neutral-200 bg-white p-8 text-sm text-neutral-500">
           {language === "tr" ? "Rapor yükleniyor..." : "Loading report..."}
         </div>
       );
     }
     if (renderedQuery.error || !renderedQuery.data) {
       return (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-8 text-sm text-red-700">
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-8 text-sm text-rose-700">
           {renderedQuery.error instanceof Error ? renderedQuery.error.message : language === "tr" ? "Rapor yüklenemedi." : "Failed to load report."}
         </div>
       );
@@ -157,14 +157,14 @@ export function ReportBuilderPage({
     };
 
     return (
-      <div className="min-h-screen bg-[#f6f7fb]">
+      <div className="min-h-screen bg-neutral-50">
         {/* Header */}
-        <div className="sticky top-0 z-20 border-b bg-white/95 backdrop-blur px-6 py-3">
+        <div className="sticky top-0 z-20 border-b border-neutral-200 bg-white px-6 py-3">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <Link
                 href="/reports"
-                className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm text-neutral-600 hover:bg-neutral-50 transition"
+                className="inline-flex items-center gap-1.5 rounded-md border border-neutral-200 px-3 py-1.5 text-sm text-neutral-600 transition hover:bg-neutral-50"
               >
                 {language === "tr" ? "← Geri" : "← Back"}
               </Link>
@@ -183,13 +183,13 @@ export function ReportBuilderPage({
                 <button
                   type="button"
                   onClick={() => setExportOpen((o) => !o)}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50 transition"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-neutral-200 bg-white px-3 py-1.5 text-xs text-neutral-700 transition hover:bg-neutral-50"
                 >
                   {language === "tr" ? "Disa Aktar" : "Export"}
                   <ChevronDown className="h-3.5 w-3.5 text-neutral-400" />
                 </button>
                 {exportOpen && (
-                  <div className="absolute right-0 top-10 z-50 w-[280px] rounded-xl border border-neutral-200 bg-white p-3 shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)]">
+                  <div className="absolute right-0 top-10 z-50 w-[280px] rounded-lg border border-neutral-200 bg-white p-3 shadow-lg">
                     <button
                       type="button"
                       onClick={handleShareLink}
@@ -234,7 +234,7 @@ export function ReportBuilderPage({
 
               <Link
                 href={`/reports/${reportId}/edit`}
-                className="rounded-full bg-neutral-900 px-4 py-1.5 text-xs font-medium text-white hover:bg-neutral-700 transition"
+                className="rounded-md bg-neutral-900 px-4 py-1.5 text-xs font-medium text-white transition hover:bg-neutral-700"
               >
                 {language === "tr" ? "Düzenle" : "Edit"}
               </Link>
@@ -256,7 +256,7 @@ export function ReportBuilderPage({
   // ── Edit mode ──────────────────────────────────────────────────────────────
   if (mode === "edit" && reportQuery.isLoading) {
     return (
-      <div className="rounded-xl border border-neutral-200 bg-white p-8 text-sm text-muted-foreground">
+      <div className="rounded-lg border border-neutral-200 bg-white p-8 text-sm text-neutral-500">
         {language === "tr" ? "Rapor yükleniyor..." : "Loading report..."}
       </div>
     );
@@ -264,7 +264,7 @@ export function ReportBuilderPage({
 
   if (mode === "edit" && reportQuery.error) {
     return (
-      <div className="rounded-xl border border-red-200 bg-red-50 p-8 text-sm text-red-700">
+      <div className="rounded-lg border border-rose-200 bg-rose-50 p-8 text-sm text-rose-700">
         {reportQuery.error instanceof Error ? reportQuery.error.message : language === "tr" ? "Rapor yüklenemedi." : "Failed to load report."}
       </div>
     );

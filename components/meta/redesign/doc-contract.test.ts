@@ -30,8 +30,10 @@ describe("meta page UI contract doc stays consistent with code", () => {
     expect(gatingSection).toContain("execute_bid");
   });
 
-  it("dataReadiness: page renders the banner and the doc must not call it payload-only", () => {
-    expect(page).toContain('data-testid="meta-data-readiness"');
+  it("dataReadiness: page renders through the workspace posture stack and the doc must not call it payload-only", () => {
+    expect(page).toContain("MetaWorkspacePostureBanners");
+    expect(page).toContain('id: "data_readiness"');
+    expect(page).toContain('data-banner-id={banner.id}');
     expect(doc).not.toMatch(/dataReadiness[^.\n]*payload-only/i);
     expect(doc).not.toMatch(/dataReadiness[^.\n]*(never|not) render/i);
     // The first stale copy hid two paragraphs apart from the field name -

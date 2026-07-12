@@ -9,6 +9,7 @@ vi.mock("@/lib/meta/ads-action-log", () => ({
   completeMetaAdsActionLog: vi.fn(),
   createMetaAdsActionLog: vi.fn(),
   hasRecentPendingMetaAdsAction: vi.fn(),
+  readLaunchpadCreatedAdIds: vi.fn(),
   resolveMetaAdActionTarget: vi.fn(),
 }));
 
@@ -22,7 +23,15 @@ vi.mock("@/lib/meta/automation-write-guard", () => ({
 }));
 
 vi.mock("@/lib/launchpad/meta-validation", () => ({
+  metaLaunchAccountBlockerHttpStatus: vi.fn((code: string) =>
+    code === "provider_account_not_assigned" ? 403 : 400,
+  ),
+  normalizeMetaLaunchProviderAccountId: vi.fn((value: string | null | undefined) =>
+    value?.trim() || "",
+  ),
+  resolveAssignedMetaLaunchAccount: vi.fn(),
   resolveMetaLaunchWriteContext: vi.fn(),
+  validateMetaBulkResumePreflight: vi.fn(),
 }));
 
 const access = await import("@/lib/access");
@@ -36,9 +45,13 @@ const BUSINESS_ID = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
 const USER_ID = "272d0ab8-495b-4679-a4c6-ffa404c389d3";
 
 function request(body: unknown) {
+  const scopedBody =
+    body && typeof body === "object" && !Array.isArray(body)
+      ? { providerAccountId: "act_123", ...body }
+      : body;
   return new NextRequest("http://localhost/api/launchpad/meta/bulk-ad-status", {
     method: "POST",
-    body: JSON.stringify(body),
+    body: JSON.stringify(scopedBody),
     headers: { "Content-Type": "application/json" },
   });
 }
@@ -46,6 +59,7 @@ function request(body: unknown) {
 function body() {
   return {
     businessId: BUSINESS_ID,
+    providerAccountId: "act_123",
     action: "pause",
     ads: [
       { adId: "ad_1", creativeId: "creative_1", name: "Creative 1" },
@@ -66,12 +80,23 @@ describe("POST /api/launchpad/meta/bulk-ad-status", () => {
       ok: true,
       ctx: {
         businessId: BUSINESS_ID,
-        providerAccountId: "act_default",
+        providerAccountId: "act_123",
         accessToken: "secret-token",
       },
     } as never);
+    vi.mocked(validation.resolveAssignedMetaLaunchAccount).mockResolvedValue({
+      ok: true,
+      providerAccountId: "act_123",
+    });
     vi.mocked(writeGuard.rejectIfMetaWritesBlocked).mockResolvedValue(null);
     vi.mocked(actionLog.hasRecentPendingMetaAdsAction).mockResolvedValue(false);
+    vi.mocked(actionLog.readLaunchpadCreatedAdIds).mockResolvedValue(
+      new Set(["ad_1", "ad_2"]),
+    );
+    vi.mocked(validation.validateMetaBulkResumePreflight).mockResolvedValue({
+      ok: true,
+      blockers: [],
+    });
     vi.mocked(actionLog.createMetaAdsActionLog).mockImplementation(async () => ({
       id: `log_${vi.mocked(actionLog.createMetaAdsActionLog).mock.calls.length}`,
     }) as never);
@@ -82,7 +107,7 @@ describe("POST /api/launchpad/meta/bulk-ad-status", () => {
         businessId: BUSINESS_ID,
         adId: input.adId,
         creativeId: input.adId === "ad_1" ? "creative_1" : "creative_2",
-        providerAccountId: input.adId === "ad_1" ? "act_123" : "act_456",
+        providerAccountId: "act_123",
       },
     }) as never);
     vi.mocked(adsWrite.pauseAd)
@@ -106,7 +131,7 @@ describe("POST /api/launchpad/meta/bulk-ad-status", () => {
     } as never);
   });
 
-  it("pauses selected ads with each resolved provider account", async () => {
+  it("pauses selected ads only in the explicitly selected provider account", async () => {
     const response = await POST(request(body()));
     const payload = await response.json();
 
@@ -126,7 +151,7 @@ describe("POST /api/launchpad/meta/bulk-ad-status", () => {
     );
     expect(adsWrite.pauseAd).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ providerAccountId: "act_456" }),
+      expect.objectContaining({ providerAccountId: "act_123" }),
       "ad_2",
     );
     expect(actionLog.createMetaAdsActionLog).toHaveBeenCalledWith(
@@ -175,6 +200,32 @@ describe("POST /api/launchpad/meta/bulk-ad-status", () => {
         attemptedIds: ["ad_2"],
       },
     ]);
+  });
+
+  it("does not write an ad resolved outside the selected provider account", async () => {
+    vi.mocked(actionLog.resolveMetaAdActionTarget).mockImplementation(
+      async (input) => ({
+        ok: true,
+        target: {
+          businessId: BUSINESS_ID,
+          adId: input.adId,
+          creativeId: input.adId === "ad_1" ? "creative_1" : "creative_2",
+          providerAccountId: input.adId === "ad_1" ? "act_123" : "act_456",
+        },
+      }) as never,
+    );
+
+    const response = await POST(request(body()));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ ok: false, successCount: 1, failedCount: 1 });
+    expect(payload.results[1].error.code).toBe("provider_account_mismatch");
+    expect(adsWrite.pauseAd).toHaveBeenCalledTimes(1);
+    expect(adsWrite.pauseAd).toHaveBeenCalledWith(
+      expect.objectContaining({ providerAccountId: "act_123" }),
+      "ad_1",
+    );
   });
 
   it("resolves bulk pause through fallback candidate ids before mutating Meta", async () => {
@@ -263,6 +314,89 @@ describe("POST /api/launchpad/meta/bulk-ad-status", () => {
     expect(payload.status).toBe("ACTIVE");
     expect(adsWrite.resumeAd).toHaveBeenCalledTimes(2);
     expect(adsWrite.pauseAd).not.toHaveBeenCalled();
+    expect(actionLog.readLaunchpadCreatedAdIds).toHaveBeenCalledWith({
+      businessId: BUSINESS_ID,
+      adIds: ["ad_1", "ad_2"],
+    });
+    expect(validation.validateMetaBulkResumePreflight).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects oversized batches before resolving provider context", async () => {
+    const response = await POST(
+      request({
+        ...body(),
+        ads: Array.from({ length: 21 }, (_, index) => ({
+          adId: `ad_${index + 1}`,
+        })),
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error.code).toBe("bulk_limit_exceeded");
+    expect(validation.resolveMetaLaunchWriteContext).not.toHaveBeenCalled();
+  });
+
+  it("blocks resume outside the verified Launchpad-created scope", async () => {
+    vi.mocked(actionLog.readLaunchpadCreatedAdIds).mockResolvedValue(
+      new Set(["ad_1"]),
+    );
+
+    const response = await POST(
+      request({ ...body(), action: "resume", idempotencyKey: "bulk_scope" }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(payload.error.code).toBe("resume_scope_blocked");
+    expect(adsWrite.resumeAd).not.toHaveBeenCalled();
+  });
+
+  it("blocks the whole resume batch when live preflight fails", async () => {
+    vi.mocked(validation.validateMetaBulkResumePreflight).mockResolvedValue({
+      ok: false,
+      blockers: [{ code: "billing_not_ok", message: "Billing is not active." }],
+    });
+
+    const response = await POST(
+      request({ ...body(), action: "resume", idempotencyKey: "bulk_preflight" }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error.code).toBe("resume_preflight_blocked");
+    expect(adsWrite.resumeAd).not.toHaveBeenCalled();
+  });
+
+  it("halts the batch when the kill switch engages between mutations", async () => {
+    vi.mocked(adsWrite.pauseAd)
+      .mockReset()
+      .mockResolvedValueOnce({
+        ok: true,
+        verifiedStatus: "PAUSED",
+      } as never)
+      .mockResolvedValueOnce({
+        ok: false,
+        httpStatus: 503,
+        error: {
+          code: "kill_switch_engaged",
+          message: "Owner stopped Meta writes.",
+        },
+      } as never);
+    const requestBody = body();
+    requestBody.ads.push({
+      adId: "ad_3",
+      creativeId: "creative_3",
+      name: "Creative 3",
+    });
+
+    const response = await POST(request(requestBody));
+    const payload = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(payload.halted).toBe(true);
+    expect(payload.omittedCount).toBe(1);
+    expect(adsWrite.pauseAd).toHaveBeenCalledTimes(2);
   });
 
   it("blocks bulk status writes before provider context or target resolution", async () => {

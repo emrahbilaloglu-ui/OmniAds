@@ -203,7 +203,7 @@ function LoginPageClient() {
   }
 
   return (
-    <AuthSurface title={t.signIn} description="Sign in to your workspace.">
+    <AuthSurface titleOnBrandLine title={t.signIn} description="Sign in to your workspace.">
       <div className="ad-auth-form">
         <label className="ad-auth-label" htmlFor="email">
           {t.email}
@@ -259,7 +259,7 @@ function LoginPageFallback() {
       title="Loading sign in..."
       description="Preparing authentication flow."
     >
-      <div className="h-2 rounded-full bg-neutral-100" />
+      <div className="h-2 rounded-full bg-[var(--adc-s3,#ededea)]" />
     </AuthSurface>
   );
 }

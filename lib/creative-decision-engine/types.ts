@@ -13,7 +13,7 @@ import type {
 import type { EngineV3Flags } from "./feature-flags";
 import type { OperatorResponseResult } from "./operator-response-detection";
 
-export const ENGINE_VERSION = "v3-2026-07-07-vnext-stale-fatigue";
+export const ENGINE_VERSION = "v3-2026-07-12-safety-dominant-hysteresis";
 
 /** Final decision label. */
 export type DecisionLabel =
@@ -28,6 +28,7 @@ export type DecisionLabel =
 /** Where the target_roas comparison value came from. */
 export type TruthSource =
   | "commercial_truth"
+  | "commercial_truth_stale"
   | "account_baseline"
   | "account_baseline_thin"
   | "global_default";
@@ -62,6 +63,8 @@ export type MetaAovQuality =
   | "low_sample"
   | "ready";
 
+export type CommercialTargetFreshness = "fresh" | "stale" | "unknown";
+
 export type ThresholdQuality = "ready" | "degraded" | "insufficient";
 
 export type DecisionProfileScopeType = "account" | "campaign";
@@ -87,6 +90,9 @@ export interface SpendUnitEvidence {
   accountCpaP50: number | null;
   accountCpaSampleCount: number;
   warnings: string[];
+  /** Confidence produced by spend-unit evidence before commercial-target
+   * freshness caps it. Used to avoid charging the same stale cause twice. */
+  confidenceBeforeFreshness?: SpendUnitConfidence;
 }
 
 export interface SpendUnitProfile {
@@ -220,6 +226,20 @@ export interface AccountFunnelCalibration {
 
 export type CalibrationCampaignKind = "all" | MetaCampaignKind;
 
+/**
+ * Server-owned cardinality of the exact 28-day source grain used to hydrate a
+ * creative. The purchase engine has authority only when every required
+ * context dimension is known and singular.
+ */
+export interface CreativeDecisionContextGrain {
+  providerAccountCount: number;
+  campaignCount: number;
+  adsetCount: number;
+  optimizationContextCount: number;
+  objectiveCount: number;
+  contextIdentityUnknown: boolean;
+}
+
 /** Per-creative metric inputs the engine needs to decide. */
 export interface CreativeInput {
   creativeId: string;
@@ -235,8 +255,13 @@ export interface CreativeInput {
   // Scope
   objective: CampaignObjective | null;
   /**
-   * Spend-weighted dominant funnel cohort across underlying adsets in the
-   * rollup window. Null if no adset spend is available.
+   * Populated by production hydration paths. Optional only for legacy unit
+   * fixtures and explicit callers that predate the grain contract.
+   */
+  contextGrain?: CreativeDecisionContextGrain;
+  /**
+   * Resolved cohort across every positive-spend optimization context in the
+   * rollup window. Mixed cohorts resolve to `unknown`; null means no spend.
    */
   effectiveCohort?: MetaFunnelCohort | null;
 
@@ -278,6 +303,7 @@ export interface CreativeInput {
   // If null the engine falls back through the truth resolution chain.
   targetRoas: number | null;
   breakevenRoas: number | null;
+  commercialTargetFreshness?: CommercialTargetFreshness;
 
   // Lifecycle signals (Phase 3.4+); populated from engine_v3_creative_lifecycle_daily.
   lifecyclePosition?: LifecyclePosition | null;
@@ -425,6 +451,7 @@ export interface AccountDecisionProfile {
 
   quality: {
     commercialTruthReady: boolean;
+    commercialTruthFreshness?: CommercialTargetFreshness;
     calibrationReady: boolean;
     metaAovQuality: MetaAovQuality;
     thresholdQuality: ThresholdQuality;
@@ -440,6 +467,7 @@ export interface DecisionBadge {
     | "low_ctr"
     | "truth_account_baseline"
     | "truth_account_baseline_thin"
+    | "truth_commercial_stale"
     | "truth_global_default"
     | "missing_recent_data"
     | "weak_performance"
@@ -459,6 +487,7 @@ export interface DecisionBadge {
     | "creative_quality_weak"
     | "delivery_limited"
     | "delivery_no_spend_24h"
+    | "delivery_status_unknown"
     | "policy_blocked"
     | "launch_monitoring"
     | "landing_page_issue"
@@ -493,6 +522,10 @@ export const DECISION_BADGE_DISPLAY: Record<
   },
   truth_account_baseline_thin: {
     label: "Truth: thin account baseline",
+    severity: "warning",
+  },
+  truth_commercial_stale: {
+    label: "Target stale - reduced authority",
     severity: "warning",
   },
   truth_global_default: {
@@ -582,6 +615,10 @@ export const DECISION_BADGE_DISPLAY: Record<
   },
   delivery_no_spend_24h: {
     label: "No delivery in verified 24h window",
+    severity: "warning",
+  },
+  delivery_status_unknown: {
+    label: "Delivery status unavailable",
     severity: "warning",
   },
   policy_blocked: {
@@ -686,10 +723,12 @@ export interface DecisionOutput {
  *
  * - `none`     -> data is recent (<36h since source max date), no UI signal needed
  * - `warning`  -> data is stale (36-72h), confidence reduced + UI badge shown
+ * - `unknown`  -> source freshness is unavailable; render warning-equivalent,
+ *                 but do not infer a formula threshold or fresh state
  * - `disabled` -> data is too stale (>72h), data-derived intelligence is disabled
  *                 (engine falls back to core gates only)
  */
-export type StaleTier = "none" | "warning" | "disabled";
+export type StaleTier = "none" | "warning" | "unknown" | "disabled";
 
 /**
  * Fallback mode applied at the data layer.

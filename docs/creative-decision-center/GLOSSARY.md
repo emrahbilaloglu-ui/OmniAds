@@ -4,6 +4,10 @@
 |---|---|
 | primaryDecision | Engine root decision: `Scale`, `Cut`, `Refresh`, `Protect`, `Test More`, `Diagnose`. |
 | buyerAction | Buyer-facing action from deterministic adapter: `scale`, `cut`, `refresh`, `protect`, `test_more`, `watch_launch`, `fix_delivery`, `fix_policy`, `diagnose_data`. |
+| legacyBuyerAction | Historical V2.1 adapter output retained for audit. Meta Decisions may project `diagnose_data` into a blocked resolution instead of a buyer action. |
+| decisionState | Meta Decisions served state: `act`, `monitor`, `blocked`, or `not_applicable`. |
+| resolution | Server-produced task for a blocked decision, including code, category, owner, label, and next step. |
+| heldAction | Nullable Scale, Cut, or Refresh signal withheld by a safety/context guard and persisted as `blocked_action_type`. |
 | actionability | Safety/operation posture such as direct, review-only, blocked, or diagnose. |
 | problemClass | Root class explaining what kind of issue/opportunity exists: performance, delivery, policy, data_quality, etc. |
 | maturity | Whether enough evidence exists to judge performance: too_early, learning, actionable, mature. |
@@ -24,4 +28,3 @@
 | adapterVersion | Version of buyer adapter mapping rules. |
 | engineVersion | Version of V2.1 engine logic. |
 | configVersion | Version of threshold/config set used for a snapshot. |
-

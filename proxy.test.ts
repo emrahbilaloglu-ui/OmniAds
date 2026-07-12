@@ -7,6 +7,7 @@ function buildRequest(input: {
   pathname: string;
   bearerToken?: string;
   sessionToken?: string;
+  method?: string;
 }) {
   const headers = new Headers();
   if (input.bearerToken) {
@@ -15,6 +16,7 @@ function buildRequest(input: {
 
   const request = new NextRequest(`http://localhost${input.pathname}`, {
     headers,
+    method: input.method,
   });
 
   if (input.sessionToken) {
@@ -127,5 +129,58 @@ describe("proxy internal sync auth", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("x-middleware-next")).toBe("1");
     expect(response.cookies.get("adsecute_locale")?.value).toBe("en");
+  });
+
+  it("allows only public creative-share reads and marks them no-store", async () => {
+    const readResponse = proxy(
+      buildRequest({
+        pathname: "/api/creatives/share/share_token",
+      }),
+    );
+    expect(readResponse.status).toBe(200);
+    expect(readResponse.headers.get("Cache-Control")).toBe("private, no-store, max-age=0");
+
+    for (const request of [
+      buildRequest({ pathname: "/api/creatives/share", method: "POST" }),
+      buildRequest({ pathname: "/api/creatives/share/share_token", method: "DELETE" }),
+    ]) {
+      const response = proxy(request);
+      expect(response.status).toBe(401);
+      await expect(response.json()).resolves.toEqual({
+        error: "auth_error",
+        message: "Authentication required.",
+      });
+    }
+  });
+
+  it("allows authenticated creative-share writes", () => {
+    for (const request of [
+      buildRequest({
+        pathname: "/api/creatives/share",
+        method: "POST",
+        sessionToken: "session_123",
+      }),
+      buildRequest({
+        pathname: "/api/creatives/share/share_token",
+        method: "DELETE",
+        sessionToken: "session_123",
+      }),
+    ]) {
+      const response = proxy(request);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("x-middleware-next")).toBe("1");
+    }
+  });
+
+  it("marks public creative-share pages no-store", () => {
+    const response = proxy(
+      buildRequest({
+        pathname: "/share/creative/share_token",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0");
+    expect(response.headers.get("Pragma")).toBe("no-cache");
   });
 });

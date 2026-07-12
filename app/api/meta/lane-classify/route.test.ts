@@ -1304,6 +1304,7 @@ describe("GET /api/meta/lane-classify", () => {
         // decisionState "watch" wins over the score band: mid-band watch-state
         // recs stay on the existing insufficient_signal path.
         metaRec({ id: "rec_watch_state", confidenceScore: 0.62, decisionState: "watch" }),
+        metaRec({ id: "rec_watch_high", confidenceScore: 0.95, decisionState: "watch" }),
       ],
     });
 
@@ -1315,8 +1316,9 @@ describe("GET /api/meta/lane-classify", () => {
     expect(payload.actionNow.map((rec: { id: string }) => rec.id)).toEqual(["rec_at_bar"]);
     expect(watching.get("rec_below_band")).toMatchObject({ watchSegment: "insufficient_signal" });
     expect(watching.get("rec_watch_state")).toMatchObject({ watchSegment: "insufficient_signal" });
+    expect(watching.get("rec_watch_high")).toMatchObject({ watchSegment: "insufficient_signal" });
     expect(payload.watchingSegments).toEqual([
-      expect.objectContaining({ key: "insufficient_signal", count: 2 }),
+      expect.objectContaining({ key: "insufficient_signal", count: 3 }),
     ]);
   });
 

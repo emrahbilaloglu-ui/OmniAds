@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+import { DatePicker } from "@/components/date-range/DateRangePicker";
 
 const PLANS = [
   { id: "starter", label: "Starter" },
@@ -172,24 +173,24 @@ export default function NewDiscountPage() {
 
         {/* Date range */}
         <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Başlangıç Tarihi</label>
-            <input
-              type="date"
-              value={validFrom}
-              onChange={(e) => setValidFrom(e.target.value)}
-              className="w-full rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] px-3.5 py-2.5 text-sm text-slate-700 shadow-[0_10px_24px_rgba(15,23,42,0.05)] transition-all focus:outline-none focus:ring-2 focus:ring-blue-200"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Bitiş Tarihi</label>
-            <input
-              type="date"
-              value={validUntil}
-              onChange={(e) => setValidUntil(e.target.value)}
-              className="w-full rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] px-3.5 py-2.5 text-sm text-slate-700 shadow-[0_10px_24px_rgba(15,23,42,0.05)] transition-all focus:outline-none focus:ring-2 focus:ring-blue-200"
-            />
-          </div>
+          <DatePicker
+            label="Başlangıç tarihi"
+            value={validFrom || null}
+            onChange={(value) => setValidFrom(value ?? "")}
+            maxDate={validUntil || null}
+            className="w-full"
+            testId="discount-valid-from"
+          />
+          <DatePicker
+            label="Bitiş tarihi"
+            value={validUntil || null}
+            onChange={(value) => setValidUntil(value ?? "")}
+            minDate={validFrom || undefined}
+            maxDate={null}
+            className="w-full"
+            testId="discount-valid-until"
+            align="end"
+          />
         </div>
 
         {/* Submit */}

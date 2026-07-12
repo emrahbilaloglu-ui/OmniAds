@@ -1,16 +1,28 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ArrowRight, Inbox } from "lucide-react";
 import Link from "next/link";
-import type { BriefingCreativeCard } from "@/components/creatives/briefing/types";
+import { useSearchParams } from "next/navigation";
+import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
+import type {
+  BriefingCreativeCard,
+  CreativesBriefingResponse,
+} from "@/components/creatives/briefing/types";
 import {
   cardCampaign,
   cardId,
   cardName,
 } from "@/components/creatives/briefing/card-utils";
 import { formatMoney } from "@/components/meta/redesign/meta-card-utils";
+import {
+  flattenCreativeStudioBriefingCards,
+  scopeCreativeInboxCards,
+} from "@/app/(dashboard)/platforms/meta/creatives/studio-truth";
+import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
+import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
+import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
 import { useAppStore } from "@/store/app-store";
 
 type InboxCard = BriefingCreativeCard & {
@@ -22,81 +34,190 @@ interface CreativeInboxResponse {
   errors?: Array<{ businessId: string; status: number; error: string }>;
 }
 
-async function fetchCreativeInbox(businessIds: string[]) {
+async function fetchCreativeInbox(
+  businessId: string,
+  providerAccountId: string,
+): Promise<CreativeInboxResponse> {
   const params = new URLSearchParams({
-    businessIds: businessIds.join(","),
-    limit: "50",
+    businessId,
+    providerAccountId,
+    decisionCenter: "1",
   });
-  const response = await fetch(`/api/creatives/inbox?${params.toString()}`, {
+  const response = await fetch(`/api/creatives/briefing?${params.toString()}`, {
     headers: { Accept: "application/json" },
     cache: "no-store",
   });
   const payload = (await response.json().catch(() => null)) as
-    | CreativeInboxResponse
+    | (CreativesBriefingResponse & { message?: string })
     | null;
   if (!response.ok) {
-    throw new Error(
-      payload && typeof payload === "object" && "error" in payload
-        ? String((payload as { error?: unknown }).error)
-        : "Creative inbox could not load.",
-    );
+    throw new Error(payload?.message ?? "Creative inbox could not load.");
   }
-  return payload ?? { inbox: [], errors: [] };
+  return {
+    inbox: flattenCreativeStudioBriefingCards(payload).map((card) => ({
+      ...card,
+      businessId,
+    })),
+    errors: [],
+  } satisfies CreativeInboxResponse;
 }
 
 export default function MetaCreativeInboxPage() {
+  const searchParams = useSearchParams();
   const businesses = useAppStore((state) => state.businesses);
+  const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const workspaceResolved = useAppStore((state) => state.workspaceResolved);
-  const businessNameById = useMemo(
-    () => new Map(businesses.map((business) => [business.id, business.name])),
-    [businesses],
+  const selectedBusiness = businesses.find((business) => business.id === selectedBusinessId) ?? null;
+  const requestedProviderAccountId =
+    searchParams?.get("providerAccountId")?.trim() ?? "";
+  const providerAccountsQuery = useQuery({
+    queryKey: ["meta-provider-accounts", selectedBusinessId],
+    enabled: workspaceResolved && Boolean(selectedBusinessId),
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+    queryFn: () => fetchMetaHistoryAccounts({ businessId: selectedBusinessId ?? "" }),
+  });
+  const providerAccounts = providerAccountsQuery.data ?? [];
+  const [selectedProviderAccountId, setSelectedProviderAccountId] = useState(
+    requestedProviderAccountId,
   );
-  const businessIds = useMemo(
-    () => businesses.map((business) => business.id).filter(Boolean),
-    [businesses],
-  );
+  const providerAccountId =
+    selectedProviderAccountId ||
+    (providerAccounts.length === 1 ? providerAccounts[0]!.id : "");
+
+  useEffect(() => {
+    setSelectedProviderAccountId((current) => {
+      if (current && providerAccounts.some((account) => account.id === current)) return current;
+      if (
+        requestedProviderAccountId &&
+        providerAccounts.some((account) => account.id === requestedProviderAccountId)
+      ) {
+        return requestedProviderAccountId;
+      }
+      return "";
+    });
+  }, [providerAccounts, requestedProviderAccountId, selectedBusinessId]);
+
+  const routeScope = {
+    businessId: selectedBusinessId,
+    providerAccountId,
+  };
+
   const inboxQuery = useQuery({
-    queryKey: ["creative-cross-business-inbox", businessIds],
-    enabled: workspaceResolved && businessIds.length > 0,
+    queryKey: ["creative-account-inbox", selectedBusinessId, providerAccountId],
+    enabled:
+      workspaceResolved &&
+      Boolean(selectedBusinessId) &&
+      Boolean(providerAccountId),
     staleTime: 30 * 1000,
-    queryFn: () => fetchCreativeInbox(businessIds),
+    queryFn: () =>
+      fetchCreativeInbox(selectedBusinessId ?? "", providerAccountId),
   });
   const cards = inboxQuery.data?.inbox ?? [];
-  const errors = inboxQuery.data?.errors ?? [];
+  const errors = (inboxQuery.data?.errors ?? []).filter(
+    (error) => error.businessId === selectedBusinessId,
+  );
+  const scoped = useMemo(
+    () =>
+      selectedBusinessId && providerAccountId
+        ? scopeCreativeInboxCards(cards, {
+            businessId: selectedBusinessId,
+            providerAccountId,
+          })
+        : {
+            cards: [] as InboxCard[],
+            excludedBusinessCount: 0,
+            excludedAccountCount: 0,
+            missingAccountCount: cards.filter((card) => !resolveCardAccountId(card)).length,
+          },
+    [cards, providerAccountId, selectedBusinessId],
+  );
+  const scopedCards = scoped.cards;
   const isScopeLoading = !workspaceResolved;
   const isInboxLoading =
     workspaceResolved &&
-    businessIds.length > 0 &&
+    Boolean(selectedBusinessId) &&
+    Boolean(providerAccountId) &&
     (inboxQuery.isLoading || (!inboxQuery.data && inboxQuery.isFetching));
   const countLabel =
-    isScopeLoading || isInboxLoading ? "Loading" : `${cards.length} items`;
+    isScopeLoading || providerAccountsQuery.isLoading || isInboxLoading
+      ? "Loading"
+      : !providerAccountId
+        ? "Withheld"
+        : `${scopedCards.length} items`;
+  const inboxState =
+    isScopeLoading || providerAccountsQuery.isLoading || isInboxLoading
+      ? "loading"
+      : providerAccountsQuery.isError || inboxQuery.isError
+        ? "error"
+        : providerAccountId
+          ? "ready"
+          : "account_required";
+
+  if (workspaceResolved && !selectedBusinessId) return <BusinessEmptyState />;
 
   return (
-    <main className="ad-final px-4 py-4" data-testid="creative-inbox-studio-page">
+    <main
+      className="ad-final px-4 py-4"
+      data-testid="creative-inbox-studio-page"
+      data-inbox-state={inboxState}
+    >
       <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4">
         <header className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--surface)]">
           <div className="flex flex-col gap-3 border-b border-[var(--border)] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0">
               <div className="crumbs">Platforms · <b>Meta</b> · Creative Studio</div>
               <div className="mt-0.5 flex flex-wrap items-center gap-2">
-                <h1 className="page-title">Creative Priority Inbox</h1>
-                <span className="chip chip--info">Read-only cross-business triage</span>
+                <h1 className="page-title">Creative Inbox</h1>
+                <span className="chip chip--info">Read-only · account scoped</span>
               </div>
               <p className="mt-1 max-w-3xl text-[13px] text-[var(--muted)]">
-                Review server-supplied creative priority items across businesses. Execution
-                decisions remain in <Link href="/platforms/meta">Decisions</Link>.
+                Review server-supplied creative priorities for {selectedBusiness?.name ?? "the selected business"} and one Meta account. Execution remains in <Link href={buildMetaScopedHref("/platforms/meta", routeScope)}>Decisions</Link>.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <label className="inline-flex h-8 items-center gap-2 rounded-[6px] border border-[var(--border)] bg-[var(--surface-2)] px-2 text-[11px] text-[var(--muted)]">
+                Account
+                <select
+                  value={providerAccountId}
+                  onChange={(event) => {
+                    const nextProviderAccountId = event.target.value;
+                    if (typeof window !== "undefined") {
+                      const url = new URL(window.location.href);
+                      if (nextProviderAccountId) {
+                        url.searchParams.set("providerAccountId", nextProviderAccountId);
+                      } else {
+                        url.searchParams.delete("providerAccountId");
+                      }
+                      window.history.replaceState(null, "", url);
+                    }
+                    setSelectedProviderAccountId(nextProviderAccountId);
+                  }}
+                  className="max-w-[190px] border-0 bg-transparent font-mono text-[11px] text-[var(--ink)] outline-none"
+                  aria-label="Select Meta account for Creative Inbox"
+                  disabled={providerAccountsQuery.isLoading}
+                >
+                  <option value="">
+                    {providerAccountsQuery.isLoading
+                      ? "Loading accounts"
+                      : providerAccounts.length === 0
+                        ? "Unavailable"
+                        : "Select account"}
+                  </option>
+                  {providerAccounts.map((account) => (
+                    <option key={account.id} value={account.id}>{accountLabel(account)}</option>
+                  ))}
+                </select>
+              </label>
               <span className="chip chip--ghost">
                 <Inbox className="h-3.5 w-3.5" aria-hidden="true" />
                 {countLabel}
               </span>
-              <Link className="btn btn--sm" href="/platforms/meta/creatives">Library</Link>
-              <Link className="btn btn--sm" href="/platforms/meta/copies">Copy</Link>
-              <Link className="btn btn--sm" href="/platforms/meta/landing-pages">Landing pages</Link>
-              <Link className="btn btn--sm" href="/platforms/meta/audiences">Audiences</Link>
-              <Link className="btn btn--sm" href="/platforms/meta">Decisions</Link>
+              <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta/creatives", routeScope)}>Assets</Link>
+              <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta/copies", routeScope)}>Copy</Link>
+              <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta/landing-pages", routeScope)}>Landing pages</Link>
+              <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta/audiences", routeScope)}>Audiences</Link>
+              <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta", routeScope)}>Decisions</Link>
             </div>
           </div>
         </header>
@@ -108,8 +229,7 @@ export default function MetaCreativeInboxPage() {
             size={14}
             aria-hidden="true"
           />
-          {errors.length} business briefing source failed; loaded cards remain
-          read-only.
+          The selected account briefing source failed; any loaded cards remain read-only.
         </div>
       ) : null}
 
@@ -117,9 +237,25 @@ export default function MetaCreativeInboxPage() {
         <div className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--surface)] p-5 text-sm text-[var(--muted)]">
           Loading workspace...
         </div>
-      ) : businessIds.length === 0 ? (
+      ) : !selectedBusinessId ? (
         <div className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--surface)] p-5 text-sm text-[var(--muted)]">
-          No businesses are available for creative priorities.
+          Select a business to load creative priorities.
+        </div>
+      ) : providerAccountsQuery.isError ? (
+        <div className="rounded-[var(--r)] border border-[var(--danger-bd)] bg-[var(--danger-bg)] p-5 text-sm text-[var(--danger)]">
+          Assigned Meta accounts could not load. Creative Inbox remains withheld.
+        </div>
+      ) : providerAccountsQuery.isLoading ? (
+        <div className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--surface)] p-5 text-sm text-[var(--muted)]">
+          Loading assigned Meta accounts...
+        </div>
+      ) : providerAccounts.length === 0 ? (
+        <div className="rounded-[var(--r)] border border-[var(--warn-bd)] bg-[var(--warn-bg)] p-5 text-sm text-[var(--warn)]">
+          Meta account identity is unavailable. Inbox items stay hidden until an assigned provider account is present.
+        </div>
+      ) : !providerAccountId ? (
+        <div className="rounded-[var(--r)] border border-[var(--warn-bd)] bg-[var(--warn-bg)] p-5 text-sm text-[var(--warn)]" data-testid="creative-inbox-account-required">
+          Select one assigned Meta ad account. Creative priorities and counts remain withheld until the provider scope is explicit.
         </div>
       ) : isInboxLoading ? (
         <div className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--surface)] p-5 text-sm text-[var(--muted)]">
@@ -129,13 +265,13 @@ export default function MetaCreativeInboxPage() {
         <div className="rounded-[var(--r)] border border-[var(--danger-bd)] bg-[var(--danger-bg)] p-5 text-sm text-[var(--danger)]">
           Creative inbox unavailable.
         </div>
-      ) : cards.length === 0 ? (
+      ) : scopedCards.length === 0 ? (
         <div className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--surface)] p-5 text-sm text-[var(--muted)]">
-          No creative priorities are available.
+          No creative priorities are available for account {providerAccountId}.
         </div>
       ) : (
         <div className="grid gap-3">
-          {cards.map((card) => (
+          {scopedCards.map((card) => (
             <article
               key={`${card.businessId}:${cardId(card)}`}
               className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--surface)] p-4"
@@ -143,7 +279,7 @@ export default function MetaCreativeInboxPage() {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
-                    {businessNameById.get(card.businessId) ?? card.businessId}
+                    {card.providerAccountId ?? card.accountId ?? "Account unavailable"}
                   </div>
                   <div className="mt-1 font-semibold text-[var(--ink)]">
                     {cardName(card)}
@@ -154,10 +290,10 @@ export default function MetaCreativeInboxPage() {
                 </div>
                 <div className="text-right">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
-                    Priority
+                    Decision context
                   </div>
-                  <div className="font-mono text-sm font-semibold">
-                    {formatNullableNumber(card.priorityScore?.score, 2)}
+                  <div className="text-[12px] font-semibold text-[var(--ink)]">
+                    {card.decisionCenterRow?.priority ?? "Priority unavailable"}
                   </div>
                 </div>
               </div>
@@ -175,11 +311,11 @@ export default function MetaCreativeInboxPage() {
                   ROAS {formatNullableNumber(card.roas, 2)}
                 </span>
                 <span className="chip chip--ghost">
-                  Confidence {formatNullablePercent(card.confidence)}
+                  Confidence {card.decisionCenterRow?.confidenceBand ?? "unavailable"}
                 </span>
                 <Link
                   className="chip chip--info"
-                  href={`/platforms/meta?businessId=${encodeURIComponent(card.businessId)}`}
+                  href={`/platforms/meta?businessId=${encodeURIComponent(card.businessId)}&providerAccountId=${encodeURIComponent(providerAccountId)}&creativeId=${encodeURIComponent(card.creativeId ?? card.id)}`}
                 >
                   Open Decisions
                   <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
@@ -189,9 +325,24 @@ export default function MetaCreativeInboxPage() {
           ))}
         </div>
       )}
+      {scoped.missingAccountCount > 0 ? (
+        <div className="rounded-[var(--r)] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-2 text-[11.5px] text-[var(--warn)]">
+          {scoped.missingAccountCount} {scoped.missingAccountCount === 1 ? "item was" : "items were"} withheld because provider account identity is missing.
+        </div>
+      ) : null}
       </div>
     </main>
   );
+}
+
+function resolveCardAccountId(card: BriefingCreativeCard): string {
+  return card.providerAccountId?.trim() || card.accountId?.trim() || card.metaAccountId?.trim() || "";
+}
+
+function accountLabel(account: MetaHistoryAccount): string {
+  const name = account.name?.trim();
+  const currency = account.currency?.trim();
+  return [name || account.id, currency].filter(Boolean).join(" · ");
 }
 
 function finiteNumber(value: number | null | undefined) {
@@ -206,9 +357,4 @@ function formatNullableNumber(value: number | null | undefined, digits: number) 
 function formatNullableMoney(value: number | null | undefined, currency: string | null) {
   const numeric = finiteNumber(value);
   return numeric === null ? "—" : formatMoney(numeric, currency);
-}
-
-function formatNullablePercent(value: number | null | undefined) {
-  const numeric = finiteNumber(value);
-  return numeric === null ? "—" : `${numeric.toFixed(0)}%`;
 }

@@ -56,9 +56,16 @@ export interface DecisionBacktestSegmentSummary
   weekStartDate: string;
   coverageScope: "global" | "week";
   minSegmentSampleSize: number;
+  metricSampleSize: number;
   sampleReliable: boolean;
   confidenceLevel: "insufficient_sample" | "directional" | "defensible";
   nonComputableReason: string | null;
+  /** Recall cannot be conditioned on the emitted label because false
+   * negatives live in other label groups. It is therefore repeated from the
+   * complete weekly opportunity set, never computed from the segment rows. */
+  hardActionRecallScope: "week_opportunity_set";
+  hardActionRecallSampleSize: number;
+  hardActionRecallReliable: boolean;
 }
 
 const HARD_ACTIONS = new Set<DecisionLabel>(["scale", "cut", "refresh"]);
@@ -89,28 +96,39 @@ export function computeExpectedCalibrationError(
   // unpassable-by-construction: a confident correct keep registered as
   // near-maximal calibration error. Calibration is therefore measured on the
   // rows whose confidence claims an action, i.e. hard rows.
-  const known = rows.filter(
-    (row) => isHardAction(row.label) && row.realizedOutcome !== "unknown",
+  const judged = rows.filter(
+    (row) =>
+      isHardAction(row.label) &&
+      (row.realizedOutcome === "positive" ||
+        row.realizedOutcome === "negative"),
   );
-  if (known.length === 0) return null;
+  if (judged.length === 0) return null;
 
-  const buckets = new Map<number, { total: number; positives: number }>();
-  for (const row of known) {
+  const buckets = new Map<
+    number,
+    { total: number; positives: number; confidenceSum: number }
+  >();
+  for (const row of judged) {
     const bucket = Math.min(9, Math.max(0, Math.floor(row.confidence / 10)));
-    const current = buckets.get(bucket) ?? { total: 0, positives: 0 };
+    const current = buckets.get(bucket) ?? {
+      total: 0,
+      positives: 0,
+      confidenceSum: 0,
+    };
     current.total += 1;
+    current.confidenceSum += Math.min(100, Math.max(0, row.confidence));
     if (row.realizedOutcome === "positive") current.positives += 1;
     buckets.set(bucket, current);
   }
 
   let weightedError = 0;
-  for (const [bucket, value] of buckets) {
-    const expectedConfidence = (bucket * 10 + 5) / 100;
+  for (const value of buckets.values()) {
+    const expectedConfidence = value.confidenceSum / value.total / 100;
     const observedRate = value.positives / value.total;
     weightedError += Math.abs(observedRate - expectedConfidence) * value.total;
   }
 
-  return round(weightedError / known.length);
+  return round(weightedError / judged.length);
 }
 
 export function summarizeDecisionBacktest(input: {
@@ -119,11 +137,19 @@ export function summarizeDecisionBacktest(input: {
   maxStaleSnapshotCount?: number;
 }): DecisionBacktestSummary {
   const hardRows = input.rows.filter((row) => isHardAction(row.label));
-  const positiveRows = input.rows.filter((row) => row.realizedOutcome === "positive");
-  const truePositiveHardRows = hardRows.filter(
+  const judgedHardRows = hardRows.filter(
+    (row) =>
+      row.realizedOutcome === "positive" ||
+      row.realizedOutcome === "negative",
+  );
+  const positiveOpportunityRows = input.rows.filter(
+    (row) =>
+      row.label !== "out_of_scope" && row.realizedOutcome === "positive",
+  );
+  const truePositiveHardRows = judgedHardRows.filter(
     (row) => row.realizedOutcome === "positive",
   );
-  const falsePositiveHardRows = hardRows.filter(
+  const falsePositiveHardRows = judgedHardRows.filter(
     (row) => row.realizedOutcome === "negative",
   );
   const criticalFalsePositiveRows = falsePositiveHardRows.filter(
@@ -132,6 +158,7 @@ export function summarizeDecisionBacktest(input: {
   const missedHighSeverityRows = input.rows.filter(
     (row) =>
       !isHardAction(row.label) &&
+      row.label !== "out_of_scope" &&
       row.realizedOutcome === "positive" &&
       (row.severity === "critical" || row.severity === "high"),
   );
@@ -142,21 +169,25 @@ export function summarizeDecisionBacktest(input: {
 
   return {
     hardActionPrecision: round(
-      hardRows.length > 0 ? truePositiveHardRows.length / hardRows.length : null,
+      judgedHardRows.length > 0
+        ? truePositiveHardRows.length / judgedHardRows.length
+        : null,
     ),
     hardActionRecall: round(
-      positiveRows.length > 0
-        ? truePositiveHardRows.length / positiveRows.length
+      positiveOpportunityRows.length > 0
+        ? truePositiveHardRows.length / positiveOpportunityRows.length
         : null,
     ),
     // Hard-only by construction; see computeExpectedCalibrationError.
     expectedCalibrationError: computeExpectedCalibrationError(input.rows),
     criticalFalsePositiveRate: round(
-      hardRows.length > 0 ? criticalFalsePositiveRows.length / hardRows.length : null,
+      judgedHardRows.length > 0
+        ? criticalFalsePositiveRows.length / judgedHardRows.length
+        : null,
     ),
     highSeverityMissedOpportunityRate: round(
-      positiveRows.length > 0
-        ? missedHighSeverityRows.length / positiveRows.length
+      positiveOpportunityRows.length > 0
+        ? missedHighSeverityRows.length / positiveOpportunityRows.length
         : null,
     ),
     activeDecisionCoverage: round(coverage),
@@ -168,9 +199,7 @@ export function summarizeDecisionBacktest(input: {
     // Sample basis for calibration honesty: ECE/precision are hard-row
     // metrics, so reliability copy must gate on hard rows with known
     // outcomes, not total rows.
-    hardActionKnownSampleSize: hardRows.filter(
-      (row) => row.realizedOutcome !== "unknown",
-    ).length,
+    hardActionKnownSampleSize: judgedHardRows.length,
     hardConfidenceBuckets: computeHardConfidenceBuckets(hardRows),
   };
 }
@@ -180,7 +209,12 @@ function computeHardConfidenceBuckets(
 ) {
   const byBucket = new Map<string, { known: number; positive: number }>();
   for (const row of hardRows) {
-    if (row.realizedOutcome === "unknown") continue;
+    if (
+      row.realizedOutcome !== "positive" &&
+      row.realizedOutcome !== "negative"
+    ) {
+      continue;
+    }
     const decade = Math.min(9, Math.floor(Math.max(0, row.confidence) / 10));
     const bucket = `${decade * 10}_${decade * 10 + 9}`;
     const cell = byBucket.get(bucket) ?? { known: 0, positive: 0 };
@@ -206,6 +240,7 @@ export function summarizeDecisionBacktestByLabelAndWeek(input: {
   minSegmentSampleSize?: number;
 }): DecisionBacktestSegmentSummary[] {
   const groups = new Map<string, CreativeDecisionBacktestRow[]>();
+  const rowsByWeek = new Map<string, CreativeDecisionBacktestRow[]>();
   const minSegmentSampleSize = input.minSegmentSampleSize ?? 30;
 
   for (const row of input.rows) {
@@ -214,6 +249,9 @@ export function summarizeDecisionBacktestByLabelAndWeek(input: {
     const current = groups.get(key) ?? [];
     current.push(row);
     groups.set(key, current);
+    const weekRows = rowsByWeek.get(weekStartDate) ?? [];
+    weekRows.push(row);
+    rowsByWeek.set(weekStartDate, weekRows);
   }
 
   return Array.from(groups.entries())
@@ -231,10 +269,29 @@ export function summarizeDecisionBacktestByLabelAndWeek(input: {
         coverage: weekCoverage,
         maxStaleSnapshotCount: input.maxStaleSnapshotCount,
       });
+      const weekRows = rowsByWeek.get(weekStartDate) ?? [];
+      const weekSummary = summarizeDecisionBacktest({
+        rows: weekRows,
+        coverage: weekCoverage,
+        maxStaleSnapshotCount: input.maxStaleSnapshotCount,
+      });
+      const hardActionRecallSampleSize = weekRows.filter(
+        (row) =>
+          row.label !== "out_of_scope" && row.realizedOutcome === "positive",
+      ).length;
+      const hardActionRecallReliable =
+        hardActionRecallSampleSize >= minSegmentSampleSize;
+      const metricSampleSize = isHardAction(label)
+        ? summary.hardActionKnownSampleSize
+        : rows.filter(
+            (row) =>
+              row.label !== "out_of_scope" &&
+              row.realizedOutcome === "positive",
+          ).length;
       const confidenceLevel: DecisionBacktestSegmentSummary["confidenceLevel"] =
-        summary.sampleSize >= minSegmentSampleSize
+        metricSampleSize >= minSegmentSampleSize
           ? "defensible"
-          : summary.sampleSize >=
+          : metricSampleSize >=
               Math.max(10, Math.floor(minSegmentSampleSize / 2))
             ? "directional"
             : "insufficient_sample";
@@ -244,14 +301,20 @@ export function summarizeDecisionBacktestByLabelAndWeek(input: {
         weekStartDate,
         coverageScope,
         minSegmentSampleSize,
+        metricSampleSize,
         ...summary,
         sampleReliable: confidenceLevel === "defensible",
         confidenceLevel,
         nonComputableReason: insufficient
           ? "insufficient_segment_sample_size"
           : null,
+        hardActionRecallScope: "week_opportunity_set" as const,
+        hardActionRecallSampleSize,
+        hardActionRecallReliable,
         hardActionPrecision: insufficient ? null : summary.hardActionPrecision,
-        hardActionRecall: insufficient ? null : summary.hardActionRecall,
+        hardActionRecall: hardActionRecallReliable
+          ? weekSummary.hardActionRecall
+          : null,
         expectedCalibrationError: insufficient
           ? null
           : summary.expectedCalibrationError,

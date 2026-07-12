@@ -2,6 +2,8 @@ import type { MetaAnomaly } from "@/lib/meta/anomalies";
 import type { BriefingStatusFilter } from "@/lib/meta/briefing-filter";
 import type { MetaCampaignKind } from "@/lib/meta/campaign-label-types";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
+import type { MetaDecisionsWorkspaceReadModel } from "@/lib/meta/decisions-workspace-contract";
+import type { MetaOsDecisionsPresentation } from "@/lib/meta/decisions-os-contract";
 
 export type MetaWindowKey = "7d" | "14d" | "28d" | "90d" | "custom";
 
@@ -31,7 +33,10 @@ export interface MetaPulsePayload {
     d28: number;
     target: number | null;
     median: number | null;
-    target_source: "commercial_truth" | "account_median" | "none";
+    target_source:
+      "commercial_truth" | "commercial_truth_stale" | "account_median" | "none";
+    targetFreshness?: "fresh" | "stale" | "unknown";
+    targetUpdatedAt?: string | null;
   };
   roasHistory?: number[];
   spend: { current: number; prev: number };
@@ -46,14 +51,18 @@ export interface MetaPulsePayload {
   snapshotHealth?: MetaSnapshotHealth | null;
   labelCoverage?: MetaLabelCoverage | null;
   targetAnchor?: MetaTargetAnchor | null;
-  trackingHealth: { status: "healthy" | "degraded" | "blocked" | "syncing" | "unknown"; detail: string };
+  trackingHealth: {
+    status: "healthy" | "degraded" | "blocked" | "syncing" | "unknown";
+    detail: string;
+  };
   trackingAnomalyActive?: boolean;
   /** Newest warehouse ingest timestamp; null = unknown, never fabricated. */
   lastSyncAt?: string | null;
   /** Ad-account currency code from warehouse rows; null = unknown. */
   currency?: string | null;
   dataReadiness?: {
-    status: "ok" | "no_accounts_assigned" | "account_not_assigned" | "not_connected";
+    status:
+      "ok" | "no_accounts_assigned" | "account_not_assigned" | "not_connected";
     isPartial: boolean;
     notReadyReason: string | null;
     evidenceSource: string;
@@ -74,6 +83,8 @@ export interface MetaTargetAnchor {
   breakEvenRoas: number | null;
   targetCpa: number | null;
   breakEvenCpa: number | null;
+  freshness: "fresh" | "stale" | "unknown";
+  updatedAt: string | null;
 }
 
 export interface MetaSnapshotHealth {
@@ -150,10 +161,17 @@ export interface MetaLanePayload {
   deferredIds: string[];
   watchingSegments?: MetaWatchingSegment[];
   snapshotHealth?: MetaSnapshotHealth | null;
-  counts: { actionNow: number; watching: number; healthy: number; nonSales: number; archive: number };
+  counts: {
+    actionNow: number;
+    watching: number;
+    healthy: number;
+    nonSales: number;
+    archive: number;
+  };
 }
 
-export type MetaDecisionsWorkspaceBannerTone = "info" | "warning" | "danger" | "success";
+export type MetaDecisionsWorkspaceBannerTone =
+  "info" | "warning" | "danger" | "success";
 
 export interface MetaDecisionsWorkspaceBanner {
   id: string;
@@ -255,6 +273,8 @@ export interface MetaDecisionsWorkspacePayload {
   viewer: MetaDecisionsWorkspaceViewer | null;
   banners: MetaDecisionsWorkspaceBanner[];
   digest: MetaDecisionsDigest;
+  decisionReadModel: MetaDecisionsWorkspaceReadModel;
+  os: MetaOsDecisionsPresentation;
 }
 
 export type MetaWatchingSegmentKey =
@@ -278,7 +298,11 @@ export interface MetaWatchingSegment {
 }
 
 export type MetaDrillItem =
-  | { mode: "decision"; rec: MetaRecommendation; relatedRecs?: MetaRecommendation[] }
+  | {
+      mode: "decision";
+      rec: MetaRecommendation;
+      relatedRecs?: MetaRecommendation[];
+    }
   | { mode: "informational"; rec: MetaRecommendation }
   | { mode: "anomaly"; anomaly: MetaAnomaly };
 

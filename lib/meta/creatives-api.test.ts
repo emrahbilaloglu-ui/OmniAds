@@ -15,9 +15,13 @@ vi.mock("@/lib/meta/creatives-service", () => ({
   buildCreativesResponse: vi.fn(),
 }));
 
-vi.mock("@/lib/meta/creatives-warehouse", () => ({
-  getMetaCreativesWarehousePayload: vi.fn(),
-}));
+vi.mock("@/lib/meta/creatives-warehouse", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/meta/creatives-warehouse")>();
+  return {
+    ...actual,
+    getMetaCreativesWarehousePayload: vi.fn(),
+  };
+});
 
 vi.mock("@/lib/meta/readiness", () => ({
   getMetaPartialReason: vi.fn(() => "Meta is still preparing current-day warehouse data."),
@@ -233,9 +237,11 @@ describe("getMetaCreativesApiPayload", () => {
     const result = await getMetaCreativesApiPayload(buildInput());
 
     expect((result as { readSource?: string }).readSource).toBe("warehouse");
+    expect((result as { providerAccountId?: string }).providerAccountId).toBe("act_1");
     expect(warehousePayloads.getMetaCreativesWarehousePayload).toHaveBeenCalledWith(
       expect.objectContaining({
         businessId: "biz",
+        providerAccountId: "act_1",
         start: "2026-03-01",
         end: "2026-03-31",
         groupBy: "creative",
@@ -245,8 +251,8 @@ describe("getMetaCreativesApiPayload", () => {
     expect(service.buildCreativesResponse).not.toHaveBeenCalled();
   });
 
-  it("refreshes warehouse media URLs before serving full-media creative rows", async () => {
-    vi.mocked(warehouse.getMetaCreativeDailyCoverage).mockResolvedValue({
+  it("filters warehouse rows before refreshing full-media thumbnails", async () => {
+    vi.mocked(warehouse.getMetaAdDailyCoverage).mockResolvedValue({
       completed_days: 31,
       ready_through_date: "2026-03-31",
       latest_updated_at: "2026-04-01T03:00:00.000Z",
@@ -259,6 +265,7 @@ describe("getMetaCreativesApiPayload", () => {
         {
           id: "creative_row_1",
           creative_id: "cr_1",
+          account_id: "act_1",
           name: "Creative 1",
           thumbnail_url: "https://old.example/thumb.jpg",
           table_thumbnail_url: "https://old.example/table.jpg",
@@ -277,6 +284,11 @@ describe("getMetaCreativesApiPayload", () => {
             is_catalog: false,
           },
         },
+        {
+          id: "creative_row_2",
+          creative_id: "cr_2",
+          account_id: "act_1",
+        },
       ],
       snapshot_source: "persisted",
     } as never);
@@ -284,11 +296,23 @@ describe("getMetaCreativesApiPayload", () => {
       .mockResolvedValueOnce(new Map([["cr_1", "https://fresh.example/table.jpg"]]))
       .mockResolvedValueOnce(new Map([["cr_1", "https://fresh.example/card.jpg"]]));
 
-    const result = await getMetaCreativesApiPayload(buildInput());
+    const result = await getMetaCreativesApiPayload({
+      ...buildInput(),
+      creativeId: " cr_1 ",
+      groupBy: "ad",
+    });
     const row = result.rows[0];
 
     expect((result as { readSource?: string }).readSource).toBe("warehouse");
     expect((result as { media_hydrated?: boolean }).media_hydrated).toBe(true);
+    expect(result.rows).toHaveLength(1);
+    expect(warehousePayloads.getMetaCreativesWarehousePayload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerAccountId: "act_1",
+        creativeId: "cr_1",
+        groupBy: "ad",
+      }),
+    );
     expect(fetchers.fetchCreativeThumbnailMap).toHaveBeenNthCalledWith(
       1,
       ["cr_1"],
@@ -313,6 +337,34 @@ describe("getMetaCreativesApiPayload", () => {
     expect(row.preview.poster_url).toBe("https://fresh.example/table.jpg");
     expect(row.preview_origin).toBe("live");
     expect(service.buildCreativesResponse).not.toHaveBeenCalled();
+  });
+
+  it("preserves a warehouse account-scope failure instead of overwriting it", async () => {
+    vi.mocked(warehouse.getMetaCreativeDailyCoverage).mockResolvedValue({
+      completed_days: 31,
+      ready_through_date: "2026-03-31",
+      latest_updated_at: "2026-04-01T03:00:00.000Z",
+    } as never);
+    vi.mocked(warehousePayloads.getMetaCreativesWarehousePayload).mockResolvedValue({
+      status: "account_not_assigned",
+      rows: [],
+      providerAccountId: "act_1",
+      account_scope: {
+        status: "blocked",
+        resolution: "account_not_assigned",
+        assigned_account_count: 0,
+      },
+    } as never);
+
+    const result = await getMetaCreativesApiPayload(buildInput());
+
+    expect(result).toMatchObject({
+      status: "account_not_assigned",
+      providerAccountId: "act_1",
+      account_scope: { status: "blocked", resolution: "account_not_assigned" },
+      readSource: "warehouse",
+    });
+    expect(fetchers.fetchCreativeThumbnailMap).not.toHaveBeenCalled();
   });
 
   it("uses the historical truth end date when a selected range includes today", async () => {
@@ -474,5 +526,142 @@ describe("getMetaCreativesApiPayload", () => {
       request,
     );
     expect(warehousePayloads.getMetaCreativesWarehousePayload).not.toHaveBeenCalled();
+  });
+
+  it("scopes an explicit assigned account through the live reader and response", async () => {
+    vi.mocked(fetchers.fetchAssignedAccountIds).mockResolvedValue(["act_1", "act_2"]);
+    vi.mocked(service.buildCreativesResponse).mockResolvedValue({
+      status: "ok",
+      rows: [
+        { id: "row-2", creative_id: "cr-2", account_id: "act_2" },
+        { id: "foreign", creative_id: "cr-1", account_id: "act_1" },
+      ],
+      media_mode: "full",
+      media_hydrated: false,
+    } as never);
+
+    const result = await getMetaCreativesApiPayload({
+      ...buildInput(),
+      providerAccountId: "act_2",
+    });
+
+    expect(service.buildCreativesResponse).toHaveBeenCalledWith(
+      expect.objectContaining({ assignedAccountIds: ["act_2"] }),
+      expect.any(NextRequest),
+    );
+    expect(result).toMatchObject({
+      status: "ok",
+      providerAccountId: "act_2",
+      account_scope: {
+        status: "resolved",
+        resolution: "explicit",
+        assigned_account_count: 2,
+      },
+    });
+    expect(result.rows).toEqual([
+      expect.objectContaining({ id: "row-2", account_id: "act_2" }),
+    ]);
+  });
+
+  it("fails closed when a multi-account business omits providerAccountId", async () => {
+    vi.mocked(fetchers.fetchAssignedAccountIds).mockResolvedValue(["act_1", "act_2"]);
+
+    const result = await getMetaCreativesApiPayload(buildInput());
+
+    expect(result).toMatchObject({
+      status: "provider_account_required",
+      rows: [],
+      providerAccountId: null,
+      account_scope: {
+        status: "blocked",
+        assigned_account_count: 2,
+      },
+    });
+    expect(integrations.getIntegration).not.toHaveBeenCalled();
+    expect(service.buildCreativesResponse).not.toHaveBeenCalled();
+  });
+
+  it("rejects an explicit account that is not assigned to the business", async () => {
+    vi.mocked(fetchers.fetchAssignedAccountIds).mockResolvedValue(["act_1"]);
+
+    const result = await getMetaCreativesApiPayload({
+      ...buildInput(),
+      providerAccountId: "act_other",
+    });
+
+    expect(result).toMatchObject({
+      status: "account_not_assigned",
+      rows: [],
+      providerAccountId: "act_other",
+    });
+    expect(integrations.getIntegration).not.toHaveBeenCalled();
+    expect(service.buildCreativesResponse).not.toHaveBeenCalled();
+  });
+
+  it("isolates request-scoped live fallback cache entries by providerAccountId", async () => {
+    vi.mocked(fetchers.fetchAssignedAccountIds).mockResolvedValue(["act_1", "act_2"]);
+    vi.mocked(service.buildCreativesResponse).mockImplementation(async (query) => ({
+      status: "ok",
+      rows: [
+        {
+          id: `row-${query.assignedAccountIds[0]}`,
+          creative_id: `cr-${query.assignedAccountIds[0]}`,
+          account_id: query.assignedAccountIds[0],
+        },
+      ],
+      media_mode: "full",
+      media_hydrated: false,
+    }) as never);
+    const request = new NextRequest("http://localhost/api/meta/creatives?businessId=biz");
+
+    const first = await getMetaCreativesApiPayload({
+      ...buildInput(request),
+      providerAccountId: "act_1",
+    });
+    const second = await getMetaCreativesApiPayload({
+      ...buildInput(request),
+      providerAccountId: "act_2",
+    });
+
+    expect(service.buildCreativesResponse).toHaveBeenCalledTimes(2);
+    expect(first.rows).toEqual([
+      expect.objectContaining({ id: "row-act_1", account_id: "act_1" }),
+    ]);
+    expect(second.rows).toEqual([
+      expect.objectContaining({ id: "row-act_2", account_id: "act_2" }),
+    ]);
+  });
+
+  it("isolates live fallback cache entries by creativeId and returns exact rows", async () => {
+    vi.mocked(service.buildCreativesResponse).mockResolvedValue({
+      status: "ok",
+      rows: [
+        { id: "ad-1", creative_id: "cr-1", account_id: "act_1" },
+        { id: "ad-2", creative_id: "cr-2", account_id: "act_1" },
+        { id: "foreign", creative_id: "cr-1", account_id: "act_2" },
+      ],
+      media_mode: "full",
+      media_hydrated: false,
+    } as never);
+    const request = new NextRequest("http://localhost/api/meta/creatives?businessId=biz");
+
+    const first = await getMetaCreativesApiPayload({
+      ...buildInput(request),
+      groupBy: "ad",
+      creativeId: "cr-1",
+    });
+    const second = await getMetaCreativesApiPayload({
+      ...buildInput(request),
+      groupBy: "ad",
+      creativeId: " cr-2 ",
+    });
+
+    expect(service.buildCreativesResponse).toHaveBeenCalledTimes(2);
+    expect(first.rows).toEqual([
+      expect.objectContaining({ id: "ad-1", creative_id: "cr-1", account_id: "act_1" }),
+    ]);
+    expect(second.rows).toEqual([
+      expect.objectContaining({ id: "ad-2", creative_id: "cr-2", account_id: "act_1" }),
+    ]);
   });
 });

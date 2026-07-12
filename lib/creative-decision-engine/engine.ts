@@ -19,17 +19,33 @@ import {
   type GateContext,
 } from "./gates/types";
 
+export function initialConfidenceDeltas(
+  profile: AccountDecisionProfile,
+): number[] {
+  const freshnessReducedCommercialAuthority =
+    profile.quality.commercialTruthFreshness !== "fresh" &&
+    profile.spendUnitEvidence.warnings.some(
+      (warning) =>
+        warning === "commercial_target_stale" ||
+        warning === "commercial_target_freshness_unknown",
+    );
+  const confidenceForIndependentPenalty = freshnessReducedCommercialAuthority
+    ? profile.spendUnitEvidence.confidenceBeforeFreshness ??
+      profile.spendUnitConfidence
+    : profile.spendUnitConfidence;
+  return confidenceForIndependentPenalty === "insufficient"
+    ? [-20]
+    : confidenceForIndependentPenalty === "low"
+      ? [-10]
+      : [];
+}
+
 function initialContext(
   input: CreativeInput,
   profile: AccountDecisionProfile,
   dataHealth?: DataHealth,
 ): GateContext {
-  const confidenceDeltas =
-    profile.spendUnitConfidence === "insufficient"
-      ? [-20]
-      : profile.spendUnitConfidence === "low"
-        ? [-10]
-        : [];
+  const confidenceDeltas = initialConfidenceDeltas(profile);
 
   return {
     input,

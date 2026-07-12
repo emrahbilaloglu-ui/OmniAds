@@ -9,7 +9,9 @@ import {
   type MetaRecEntityMetricsSource,
   type MetaRecRowPresentationSource,
 } from "@/lib/meta/rec-presentation";
-import { readMetaDecisionSnapshotForRange } from "@/lib/meta/snapshot";
+import {
+  readMetaDecisionSnapshotForRange as readLatestMetaDecisionSnapshot,
+} from "@/lib/meta/snapshot";
 import {
   META_RECOMMENDATION_ENGINE_VERSION,
   type MetaRecommendation,
@@ -210,6 +212,69 @@ function attachCampaignKindToRecommendation(input: {
       activeCampaignIds: input.activeCampaignIds,
     });
   return campaignKind ? { ...input.rec, campaignKind } : input.rec;
+}
+
+function controlOwnerForEntity(input: {
+  level: "campaign" | "adset";
+  budgetLevel: "campaign" | "adset" | null | undefined;
+  bidStrategyType: string | null | undefined;
+}) {
+  if (input.level === "adset") return "adset" as const;
+  const strategy = input.bidStrategyType?.trim().toLowerCase() ?? "";
+  if (/(cost[_ -]?cap|bid[_ -]?cap|min[_ -]?roas|target[_ -]?roas)/.test(strategy)) {
+    return "adset" as const;
+  }
+  return input.budgetLevel ?? "unknown";
+}
+
+function attachEntityConfiguration(input: {
+  rec: MetaRecommendation;
+  campaignsById: Map<string, CampaignRow>;
+  adsetsById: Map<string, AdsetRow>;
+}): MetaRecommendation {
+  const row =
+    input.rec.level === "adset"
+      ? input.rec.adsetId
+        ? input.adsetsById.get(input.rec.adsetId)
+        : null
+      : input.rec.level === "campaign"
+        ? input.rec.campaignId
+          ? input.campaignsById.get(input.rec.campaignId)
+          : null
+        : null;
+  if (!row || (input.rec.level !== "campaign" && input.rec.level !== "adset")) {
+    return input.rec;
+  }
+  const budgetOwner = row.isBudgetMixed
+    ? ("mixed" as const)
+    : (row.budgetLevel ?? "unknown");
+  const budgetMode =
+    budgetOwner === "campaign"
+      ? ("campaign_budget" as const)
+      : budgetOwner === "adset"
+        ? ("adset_budget" as const)
+        : budgetOwner === "mixed"
+          ? ("mixed" as const)
+          : ("unknown" as const);
+  return {
+    ...input.rec,
+    entityConfiguration: {
+      source:
+        input.rec.level === "campaign"
+          ? "account_scoped_campaign_row"
+          : "account_scoped_adset_row",
+      budgetOwner,
+      budgetMode,
+      controlOwner: controlOwnerForEntity({
+        level: input.rec.level,
+        budgetLevel: row.budgetLevel,
+        bidStrategyType: row.bidStrategyType,
+      }),
+      status: row.status ?? null,
+      optimizationGoal: row.optimizationGoal ?? null,
+      bidStrategyType: row.bidStrategyType ?? null,
+    },
+  };
 }
 
 function cohortForCampaignRow(row: CampaignRow) {
@@ -1189,6 +1254,8 @@ function nonSalesAdsetRows(input: {
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const businessId = searchParams.get("businessId")?.trim() ?? "";
+  const providerAccountId =
+    searchParams.get("providerAccountId")?.trim() || null;
   const window = parseWindow(searchParams.get("window"));
   const statusFilter = parseBriefingStatusFilter(searchParams.get("status_filter"));
   const endDate = searchParams.get("endDate")?.trim() || todayISO();
@@ -1210,10 +1277,11 @@ export async function GET(request: NextRequest) {
   }
 
   const [snapshot, operatorStates, campaigns, adsets, upperFunnelCostPerThruplayP50] = await Promise.all([
-    readMetaDecisionSnapshotForRange({ businessId, startDate, endDate }),
+    readLatestMetaDecisionSnapshot({ businessId, startDate, endDate }),
     readOperatorRecStates(businessId).catch(() => new Map<string, OperatorRecState>()),
     getMetaCampaignsForRange({
       businessId,
+      accountId: providerAccountId,
       startDate,
       endDate,
       includePrev: false,
@@ -1221,6 +1289,7 @@ export async function GET(request: NextRequest) {
     }),
     getMetaAdSetsForRange({
       businessId,
+      accountId: providerAccountId,
       startDate,
       endDate,
       includePrev: false,
@@ -1229,7 +1298,30 @@ export async function GET(request: NextRequest) {
     readUpperFunnelCostPerThruplayP50(businessId).catch(() => null),
   ]);
 
-  const snapshotRecommendations = snapshot?.recommendations ?? [];
+  const campaignIdsInScope = new Set(
+    (campaigns.rows ?? []).map((row) => row.id).filter(Boolean),
+  );
+  const adsetIdsInScope = new Set(
+    (adsets.rows ?? []).map((row) => row.id).filter(Boolean),
+  );
+  const snapshotRecommendations = (snapshot?.recommendations ?? []).filter(
+    (rec) => {
+      if (!providerAccountId) return true;
+      if (rec.level === "campaign") {
+        return Boolean(rec.campaignId && campaignIdsInScope.has(rec.campaignId));
+      }
+      if (rec.level === "adset") {
+        return Boolean(
+          rec.adsetId &&
+            adsetIdsInScope.has(rec.adsetId) &&
+            (!rec.campaignId || campaignIdsInScope.has(rec.campaignId)),
+        );
+      }
+      // Legacy account-level snapshots have no provider-account identity and
+      // therefore cannot be served safely on an explicit account surface.
+      return false;
+    },
+  );
   const liveStatusesById = await readLiveMetaEntityStatuses(
     businessId,
     collectLiveStatusProbeIds(snapshotRecommendations, operatorStates),
@@ -1258,6 +1350,9 @@ export async function GET(request: NextRequest) {
         campaignLabelsById,
         activeCampaignIds,
       }),
+    )
+    .map((rec) =>
+      attachEntityConfiguration({ rec, campaignsById, adsetsById }),
     );
   const purchaseScopedRecs = recommendations.filter((rec) => isPurchaseScopedCohort(rec.cohort));
   const nonSalesRecs = recommendations
@@ -1272,6 +1367,7 @@ export async function GET(request: NextRequest) {
     );
   const actionNow = purchaseScopedRecs.filter(
     (rec) =>
+      rec.decisionState === "act" &&
       (rec.confidenceScore ?? 0) >= 0.7 &&
       !isInLearning(rec) &&
       !isWithIssuesRec({ rec, campaignsById, adsetsById }) &&

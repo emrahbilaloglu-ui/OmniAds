@@ -27,6 +27,10 @@ vi.mock("@/lib/meta/creatives-api", () => ({
   getMetaCreativesApiPayload: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/creatives-fetchers", () => ({
+  fetchAssignedAccountIds: vi.fn(async () => ["act_1"]),
+}));
+
 vi.mock("@/lib/creative-decision-engine/feature-flags", () => ({
   resolveEngineV3Flags: vi.fn(),
 }));
@@ -96,7 +100,22 @@ function campaignLabel(
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockDbQuery.mockResolvedValue([]);
+  mockDbQuery.mockImplementation(async (query: unknown) => {
+    const sql = String(query);
+    if (
+      sql.includes("SELECT DISTINCT ON (creative_id)") &&
+      sql.includes("raw_label")
+    ) {
+      return [
+        {
+          creative_id: "mock-creative-001",
+          label: "scale",
+          raw_label: "scale",
+        },
+      ];
+    }
+    return [];
+  });
   process.env.DECISION_ENGINE_V3_DATA_SOURCE = "mock";
   delete process.env.DECISION_CENTER_DEFAULT_DISABLED;
   delete process.env.DECISION_CENTER_OBSERVABILITY;
@@ -342,6 +361,60 @@ describe("GET /api/creatives/briefing", () => {
     });
   });
 
+  it("keeps bootstrap hard decisions pending when no scoped hysteresis baseline exists", async () => {
+    mockDbQuery.mockResolvedValue([]);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=0",
+      ),
+    );
+    const payload = await response.json();
+    const cards = [...payload.actionNow, ...payload.watching, ...payload.healthy];
+
+    expect(payload.actionNow).toEqual([]);
+    expect(cards[0]).toMatchObject({
+      label: "keep",
+      rawLabel: "scale",
+      pendingTransition: true,
+      primary: { kind: "review", label: "Review pending signal" },
+    });
+  });
+
+  it("fails closed when the scoped hysteresis baseline read errors", async () => {
+    mockDbQuery.mockImplementation(async (query: unknown) => {
+      const sql = String(query);
+      if (
+        sql.includes("SELECT DISTINCT ON (creative_id)") &&
+        sql.includes("raw_label")
+      ) {
+        throw new Error("baseline unavailable");
+      }
+      return [];
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=0",
+      ),
+    );
+    const payload = await response.json();
+    const cards = [...payload.actionNow, ...payload.watching, ...payload.healthy];
+
+    expect(payload.actionNow).toEqual([]);
+    expect(cards[0]).toMatchObject({
+      label: "keep",
+      rawLabel: "scale",
+      pendingTransition: true,
+    });
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("hard entries remain pending"),
+      expect.any(Error),
+    );
+    errorSpy.mockRestore();
+  });
+
   it("hydrates synthetic grouped creative ids with real Meta ad ids", async () => {
     const syntheticCreativeRow = {
       id: "creative_synthetic",
@@ -442,6 +515,22 @@ describe("GET /api/creatives/briefing", () => {
     expect(getMetaCreativesApiPayload).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ groupBy: "ad" }),
+    );
+  });
+
+  it("uses the caller's date window when resolving Studio creative identity", async () => {
+    await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&providerAccountId=act_1&start=2026-05-01&asOf=2026-05-07&status_filter=all",
+      ),
+    );
+
+    expect(getMetaCreativesApiPayload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerAccountId: "act_1",
+        start: "2026-05-01",
+        end: "2026-05-07",
+      }),
     );
   });
 

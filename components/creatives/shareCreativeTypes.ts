@@ -34,6 +34,44 @@ export const SHARE_METRIC_KEYS = [
 
 export type ShareMetricKey = (typeof SHARE_METRIC_KEYS)[number];
 
+export const SHARE_AUDIENCES = ["buyer", "creative_team", "external"] as const;
+
+export type ShareAudience = (typeof SHARE_AUDIENCES)[number];
+
+export interface CreativeShareLedgerEntry {
+  token: string;
+  title: string;
+  audience: ShareAudience;
+  status: "active" | "expired" | "revoked";
+  createdAt: string;
+  expiresAt: string;
+  revokedAt: string | null;
+  openCount: number;
+  creativeCount: number;
+  firstCreativeName: string | null;
+  providerAccountId: string;
+}
+
+export interface CreativeShareLedgerCapability {
+  status: "ready" | "migration_required";
+  canReadLedger: boolean;
+  canWrite: boolean;
+  missingColumns: string[];
+}
+
+/**
+ * Closed metric set that may cross the creative-team/external serialization boundary.
+ */
+export const CREATOR_TIER_0_SHARE_METRIC_KEYS = [
+  "thumbstop",
+  "ctrAll",
+  "linkCtr",
+  "video25",
+  "video50",
+  "video75",
+  "video100",
+] as const satisfies readonly ShareMetricKey[];
+
 /**
  * Render preview returned from backend
  */
@@ -154,6 +192,19 @@ export interface SharedCreative {
   analysis?: SharedCreativeAnalysis | null;
 }
 
+type RedactableSharedCreativeMetric =
+  | "spend"
+  | "purchaseValue"
+  | "roas"
+  | "cpa"
+  | "purchases";
+
+/**
+ * Stored/public payloads may be projected to a creator-safe metric subset.
+ */
+export type SharePayloadCreative = Omit<SharedCreative, RedactableSharedCreativeMetric> &
+  Partial<Pick<SharedCreative, RedactableSharedCreativeMetric>>;
+
 /**
  * Configuration used when generating public share links
  */
@@ -162,8 +213,7 @@ export interface ShareLinkConfig {
   expiration: "3" | "7" | "14";
   metrics: ShareMetricKey[];
   includeNotes: boolean;
-  passwordProtection: boolean;
-  audience?: "buyer" | "creative_team" | "external";
+  audience?: ShareAudience;
   presetId?: string;
   presetLabel?: string;
   includeCampaignNames?: boolean;
@@ -195,6 +245,7 @@ export interface SharePayload {
   openCount?: number;
 
   businessId?: string;
+  providerAccountId?: string;
   businessName?: string | null;
   clientEmail?: string | null;
   currency?: string | null;
@@ -208,7 +259,7 @@ export interface SharePayload {
 
   metrics: ShareMetricKey[];
   includeNotes: boolean;
-  audience?: "buyer" | "creative_team" | "external";
+  audience?: ShareAudience;
   presetId?: string;
   presetLabel?: string;
   includeCampaignNames?: boolean;
@@ -216,8 +267,8 @@ export interface SharePayload {
   allowCsv?: boolean;
   snapshotOnly?: boolean;
 
-  creatives: SharedCreative[];
-  benchmarkCreatives?: SharedCreative[];
+  creatives: SharePayloadCreative[];
+  benchmarkCreatives?: SharePayloadCreative[];
 
   note?: string;
 }

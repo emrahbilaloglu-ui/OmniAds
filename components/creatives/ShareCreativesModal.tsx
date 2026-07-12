@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, Copy, ExternalLink, FileText, Link2, Lock, X } from "lucide-react";
+import { Check, Copy, ExternalLink, FileText, Link2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ExportPdfConfig, ShareLinkConfig, ShareMetricKey } from "./shareCreativeTypes";
 import { MOCK_SHARE_URL } from "./shareCreativeMock";
@@ -38,7 +38,6 @@ export function ShareCreativesModal({ selectedCount, onClose }: ShareCreativesMo
     expiration: "7",
     metrics: DEFAULT_LINK_METRICS,
     includeNotes: false,
-    passwordProtection: false,
   });
   const [generatedUrl, setGeneratedUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -193,26 +192,13 @@ export function ShareCreativesModal({ selectedCount, onClose }: ShareCreativesMo
                 </div>
               </Field>
 
-              <div className="space-y-2">
-                <ToggleRow
-                  label="Include notes"
-                  checked={linkConfig.includeNotes}
-                  onChange={(checked) => setLinkConfig((prev) => ({ ...prev, includeNotes: checked }))}
-                />
-                <ToggleRow
-                  label={
-                    <span className="flex items-center gap-1.5">
-                      <Lock className="h-3 w-3" />
-                      Password protection
-                      <span className="text-[10px] text-muted-foreground">(UI only)</span>
-                    </span>
-                  }
-                  checked={linkConfig.passwordProtection}
-                  onChange={(checked) =>
-                    setLinkConfig((prev) => ({ ...prev, passwordProtection: checked }))
-                  }
-                />
-              </div>
+              <ToggleRow
+                label="Include notes"
+                checked={linkConfig.includeNotes}
+                onChange={(checked) =>
+                  setLinkConfig((prev) => ({ ...prev, includeNotes: checked }))
+                }
+              />
 
               {generatedUrl ? (
                 <Field label="Share link">

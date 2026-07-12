@@ -25,7 +25,7 @@ export function BrandLogo({
         alt="Adsecute logo"
         width={size}
         height={size}
-        className={cn("h-auto w-auto shrink-0", markClassName)}
+        className={cn("h-auto w-auto shrink-0 dark:invert", markClassName)}
         priority
       />
       {showWordmark ? (

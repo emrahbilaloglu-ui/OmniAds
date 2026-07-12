@@ -1,7 +1,12 @@
-import { getBusinessCommercialTruthSnapshot } from "@/lib/business-commercial";
+import {
+  getBusinessCommercialTruthSnapshot,
+  getBusinessTargetPackHistoryAsOf,
+  resolveBusinessTargetPackFreshness,
+} from "@/lib/business-commercial";
 
 export type MetaCommercialTargetSource = "configured_targets" | "none";
-export type MetaCommercialRiskPosture = "conservative" | "balanced" | "aggressive";
+export type MetaCommercialRiskPosture =
+  "conservative" | "balanced" | "aggressive";
 
 export interface MetaCommercialTargets {
   source: MetaCommercialTargetSource;
@@ -10,13 +15,15 @@ export interface MetaCommercialTargets {
   targetCpa: number | null;
   breakEvenCpa: number | null;
   riskPosture: MetaCommercialRiskPosture;
+  freshness: "fresh" | "stale" | "unknown";
+  updatedAt: string | null;
 }
 
 export interface MetaLossBudgetMaturity {
   spendThreshold: number;
   cpaBaseline: number;
   multiplier: number;
-  currencyFloor: number;
+  calibratedSpendFloor: number;
   source: "break_even_cpa" | "target_cpa" | "account_cpa";
 }
 
@@ -26,15 +33,35 @@ function positiveNumber(value: unknown) {
 }
 
 function normalizeRiskPosture(value: unknown): MetaCommercialRiskPosture {
-  return value === "conservative" || value === "aggressive" ? value : "balanced";
+  return value === "conservative" || value === "aggressive"
+    ? value
+    : "balanced";
 }
 
-export function normalizeMetaCommercialTargets(input?: Partial<MetaCommercialTargets> | null): MetaCommercialTargets {
+export function normalizeMetaCommercialTargets(
+  input?: Partial<MetaCommercialTargets> | null,
+): MetaCommercialTargets {
   const targetRoas = positiveNumber(input?.targetRoas);
   const breakEvenRoas = positiveNumber(input?.breakEvenRoas);
   const targetCpa = positiveNumber(input?.targetCpa);
   const breakEvenCpa = positiveNumber(input?.breakEvenCpa);
-  const hasAnchor = Boolean(targetRoas || breakEvenRoas || targetCpa || breakEvenCpa);
+  const hasAnchor = Boolean(
+    targetRoas || breakEvenRoas || targetCpa || breakEvenCpa,
+  );
+  const updatedAtCandidate =
+    typeof input?.updatedAt === "string" && input.updatedAt.trim()
+      ? input.updatedAt.trim()
+      : null;
+  const updatedAt =
+    updatedAtCandidate && Number.isFinite(Date.parse(updatedAtCandidate))
+      ? updatedAtCandidate
+      : null;
+  const freshness =
+    hasAnchor && updatedAt && input?.freshness === "fresh"
+      ? "fresh"
+      : hasAnchor && input?.freshness === "stale"
+        ? "stale"
+        : "unknown";
   return {
     source: hasAnchor ? "configured_targets" : "none",
     targetRoas,
@@ -42,43 +69,104 @@ export function normalizeMetaCommercialTargets(input?: Partial<MetaCommercialTar
     targetCpa,
     breakEvenCpa,
     riskPosture: normalizeRiskPosture(input?.riskPosture),
+    freshness,
+    updatedAt,
   };
 }
 
-export async function readMetaCommercialTargets(businessId: string): Promise<MetaCommercialTargets> {
+export async function readMetaCommercialTargets(
+  businessId: string,
+  input?: { asOf?: string | Date },
+): Promise<MetaCommercialTargets> {
+  if (input?.asOf !== undefined) {
+    const referenceTime =
+      input.asOf instanceof Date
+        ? new Date(input.asOf.getTime())
+        : new Date(
+            /^\d{4}-\d{2}-\d{2}$/.test(input.asOf.trim())
+              ? `${input.asOf.trim()}T03:00:00.000Z`
+              : input.asOf,
+          );
+    if (!Number.isFinite(referenceTime.getTime())) {
+      throw new Error("asOf must be a valid date or timestamp");
+    }
+    const targetPack = await getBusinessTargetPackHistoryAsOf({
+      businessId,
+      asOf: input.asOf,
+    });
+    return normalizeMetaCommercialTargets({
+      targetRoas: targetPack?.targetRoas ?? null,
+      breakEvenRoas: targetPack?.breakEvenRoas ?? null,
+      targetCpa: targetPack?.targetCpa ?? null,
+      breakEvenCpa: targetPack?.breakEvenCpa ?? null,
+      riskPosture: targetPack?.defaultRiskPosture ?? "balanced",
+      freshness: resolveBusinessTargetPackFreshness(
+        targetPack?.updatedAt,
+        referenceTime,
+      ),
+      updatedAt: targetPack?.updatedAt ?? null,
+    });
+  }
+
   const snapshot = await getBusinessCommercialTruthSnapshot(businessId);
   const targetPack = snapshot.targetPack;
+  const targetFreshness = snapshot.sectionMeta?.targetPack?.freshness;
   return normalizeMetaCommercialTargets({
     targetRoas: targetPack?.targetRoas ?? null,
     breakEvenRoas: targetPack?.breakEvenRoas ?? null,
     targetCpa: targetPack?.targetCpa ?? null,
     breakEvenCpa: targetPack?.breakEvenCpa ?? null,
     riskPosture: targetPack?.defaultRiskPosture ?? "balanced",
+    freshness:
+      targetFreshness?.status === "fresh"
+        ? "fresh"
+        : targetFreshness?.status === "stale"
+          ? "stale"
+          : "unknown",
+    updatedAt: targetFreshness?.updatedAt ?? targetPack?.updatedAt ?? null,
   });
 }
 
-export function hasMetaHardActionAnchor(targets: MetaCommercialTargets | null | undefined) {
-  return normalizeMetaCommercialTargets(targets).source === "configured_targets";
-}
-
-export function metaScaleRoasFloor(targets: MetaCommercialTargets | null | undefined) {
+export function hasMetaHardActionAnchor(
+  targets: MetaCommercialTargets | null | undefined,
+) {
   const normalized = normalizeMetaCommercialTargets(targets);
-  if (normalized.targetRoas) return normalized.targetRoas;
-  if (normalized.breakEvenRoas) return normalized.breakEvenRoas * 1.15;
-  return null;
+  return (
+    normalized.source === "configured_targets" &&
+    normalized.freshness === "fresh" &&
+    normalized.updatedAt !== null
+  );
 }
 
-export function metaCutRoasCeiling(targets: MetaCommercialTargets | null | undefined) {
+export function metaScaleRoasFloor(
+  targets: MetaCommercialTargets | null | undefined,
+) {
   const normalized = normalizeMetaCommercialTargets(targets);
-  if (normalized.breakEvenRoas) return normalized.breakEvenRoas;
-  if (normalized.targetRoas) return normalized.targetRoas * 0.75;
-  return null;
+  if (!hasMetaHardActionAnchor(normalized)) return null;
+  // Budget expansion needs an explicit operating target. Break-even only
+  // proves non-loss; it does not define acceptable growth economics.
+  return normalized.targetRoas;
 }
 
-function currencyFloor(currency: string | null | undefined) {
-  if (currency === "TRY") return 1500;
-  if (currency === "EUR") return 50;
-  return 50;
+export function metaCutRoasCeiling(
+  targets: MetaCommercialTargets | null | undefined,
+) {
+  const normalized = normalizeMetaCommercialTargets(targets);
+  if (!hasMetaHardActionAnchor(normalized)) return null;
+  // Only break-even establishes that spend is economically loss-making.
+  // A fixed fraction of a target ROAS is not a loss boundary.
+  return normalized.breakEvenRoas;
+}
+
+export function metaCutRoasReviewCeiling(
+  targets: MetaCommercialTargets | null | undefined,
+) {
+  const normalized = normalizeMetaCommercialTargets(targets);
+  if (normalized.source !== "configured_targets") return null;
+  // A stale break-even value may still identify a protective review candidate,
+  // but it must never grant action authority. The caller applies the authority
+  // guard before serving or executing the recommendation.
+  return normalized.breakEvenRoas;
 }
 
 function riskMultiplier(posture: MetaCommercialRiskPosture) {
@@ -90,7 +178,7 @@ function riskMultiplier(posture: MetaCommercialRiskPosture) {
 export function metaLossBudgetMaturity(input: {
   targets?: MetaCommercialTargets | null;
   accountCpaBaseline?: number | null;
-  currency?: string | null;
+  calibratedHardCutSpend?: number | null;
 }): MetaLossBudgetMaturity | null {
   const targets = normalizeMetaCommercialTargets(input.targets);
   const breakEvenCpa = positiveNumber(targets.breakEvenCpa);
@@ -99,12 +187,16 @@ export function metaLossBudgetMaturity(input: {
   const cpaBaseline = breakEvenCpa ?? targetCpa ?? accountCpa;
   if (!cpaBaseline) return null;
   const multiplier = riskMultiplier(targets.riskPosture);
-  const floor = currencyFloor(input.currency);
+  const calibratedSpendFloor = positiveNumber(input.calibratedHardCutSpend) ?? 0;
   return {
-    spendThreshold: Math.max(floor, cpaBaseline * multiplier),
+    spendThreshold: Math.max(calibratedSpendFloor, cpaBaseline * multiplier),
     cpaBaseline,
     multiplier,
-    currencyFloor: floor,
-    source: breakEvenCpa ? "break_even_cpa" : targetCpa ? "target_cpa" : "account_cpa",
+    calibratedSpendFloor,
+    source: breakEvenCpa
+      ? "break_even_cpa"
+      : targetCpa
+        ? "target_cpa"
+        : "account_cpa",
   };
 }

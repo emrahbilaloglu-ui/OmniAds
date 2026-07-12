@@ -729,13 +729,6 @@ export async function runMigrations(options?: {
           captured_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
           created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
         )`,
-        sql`CREATE TABLE IF NOT EXISTS creative_share_snapshots (
-          id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          token      TEXT NOT NULL UNIQUE,
-          payload    JSONB NOT NULL,
-          expires_at TIMESTAMPTZ NOT NULL,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )`,
         sql`CREATE TABLE IF NOT EXISTS creative_decision_os_snapshots (
           id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           surface                   TEXT NOT NULL DEFAULT 'creative',
@@ -959,6 +952,18 @@ export async function runMigrations(options?: {
           metadata         JSONB NOT NULL DEFAULT '{}'::jsonb,
           created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
         )`,
+        sql`CREATE TABLE IF NOT EXISTS creative_share_snapshots (
+          id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          token       TEXT NOT NULL UNIQUE,
+          payload     JSONB NOT NULL,
+          expires_at  TIMESTAMPTZ NOT NULL,
+          business_id UUID REFERENCES businesses(id) ON DELETE CASCADE,
+          provider_account_id TEXT,
+          created_by  UUID REFERENCES users(id) ON DELETE SET NULL,
+          revoked_at  TIMESTAMPTZ,
+          revoked_by  UUID REFERENCES users(id) ON DELETE SET NULL,
+          created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
         sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT`,
         sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS facebook_id TEXT`,
         sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider TEXT NOT NULL DEFAULT 'password'`,
@@ -1053,8 +1058,39 @@ export async function runMigrations(options?: {
         sql`CREATE INDEX IF NOT EXISTS idx_provider_reporting_snapshots_business ON provider_reporting_snapshots (business_id, updated_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_config_snapshots_lookup ON meta_config_snapshots (business_id, entity_level, entity_id, captured_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_config_snapshots_latest_guard
-          ON meta_config_snapshots (business_id, account_id, entity_level, entity_id, captured_at DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_creative_share_snapshots_token ON creative_share_snapshots (token)`.catch(() => {}),
+          ON meta_config_snapshots (business_id, account_id, entity_level, entity_id, captured_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_creative_share_snapshots_token ON creative_share_snapshots (token)`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE creative_share_snapshots
+          ADD COLUMN IF NOT EXISTS business_id UUID REFERENCES businesses(id) ON DELETE CASCADE`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE creative_share_snapshots
+          ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id) ON DELETE SET NULL`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE creative_share_snapshots
+          ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE creative_share_snapshots
+          ADD COLUMN IF NOT EXISTS revoked_by UUID REFERENCES users(id) ON DELETE SET NULL`.catch(
+          () => {},
+        ),
+        sql`UPDATE creative_share_snapshots AS snapshot
+          SET business_id = business.id
+          FROM businesses AS business
+          WHERE snapshot.business_id IS NULL
+            AND NULLIF(snapshot.payload->>'businessId', '') = business.id::text`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_creative_share_snapshots_business_active
+          ON creative_share_snapshots (business_id)
+          WHERE revoked_at IS NULL`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_creative_share_snapshots_creator_active
+          ON creative_share_snapshots (created_by)
+          WHERE revoked_at IS NULL`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_creative_decision_os_snapshots_scope
           ON creative_decision_os_snapshots (
             business_id,
@@ -1480,6 +1516,30 @@ export async function runMigrations(options?: {
           created_at                     TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at                     TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (business_id)
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS business_target_pack_history (
+          id                              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id                     UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          business_ref_id                 UUID REFERENCES businesses(id) ON DELETE SET NULL,
+          target_cpa                      DOUBLE PRECISION,
+          target_roas                     DOUBLE PRECISION,
+          break_even_cpa                  DOUBLE PRECISION,
+          break_even_roas                 DOUBLE PRECISION,
+          contribution_margin_assumption  DOUBLE PRECISION,
+          aov_assumption                  DOUBLE PRECISION,
+          new_customer_weight             DOUBLE PRECISION,
+          default_risk_posture            TEXT NOT NULL
+                                            CHECK (default_risk_posture IN ('conservative', 'balanced', 'aggressive')),
+          cost_cogs_percent               DOUBLE PRECISION,
+          cost_shipping_percent           DOUBLE PRECISION,
+          cost_fulfillment_percent        DOUBLE PRECISION,
+          cost_payment_processing_percent DOUBLE PRECISION,
+          source_label                    TEXT,
+          operation                       TEXT NOT NULL CHECK (operation IN ('upsert', 'delete')),
+          effective_at                    TIMESTAMPTZ NOT NULL,
+          recorded_at                     TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_by_user_id              UUID REFERENCES users(id) ON DELETE SET NULL,
+          CHECK (effective_at <= recorded_at)
         )`,
         sql`CREATE TABLE IF NOT EXISTS business_country_economics (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2085,26 +2145,70 @@ export async function runMigrations(options?: {
           ADD COLUMN IF NOT EXISTS winner_memory_multiplier DOUBLE PRECISION,
           ADD COLUMN IF NOT EXISTS recent_sample_multiplier DOUBLE PRECISION,
           ADD COLUMN IF NOT EXISTS weak_funnel_rate_multiplier DOUBLE PRECISION,
-          ADD COLUMN IF NOT EXISTS attribution_aov_adjustment_multiplier DOUBLE PRECISION`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions (user_id)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_invites_business_id ON invites (business_id)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_invites_email ON invites (email)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_business_cost_models_business_id ON business_cost_models (business_id)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_business_target_packs_business_id ON business_target_packs (business_id)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_business_country_economics_business_country ON business_country_economics (business_id, country_code)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_business_promo_calendar_events_business_event ON business_promo_calendar_events (business_id, event_id)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_business_promo_calendar_events_business_dates ON business_promo_calendar_events (business_id, start_date, end_date)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_business_operating_constraints_business_id ON business_operating_constraints (business_id)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_business_decision_calibration_profiles_business ON business_decision_calibration_profiles (business_id, channel)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_business_decision_calibration_profiles_profile ON business_decision_calibration_profiles (business_id, objective_family, bid_regime, archetype)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_admin ON admin_audit_logs (admin_id, created_at DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_created ON admin_audit_logs (created_at DESC)`.catch(() => {}),
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_discount_codes_code ON discount_codes (lower(code))`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_shopify_subscriptions_business_id ON shopify_subscriptions (business_id)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_shopify_subscriptions_user_id ON shopify_subscriptions (user_id)`.catch(() => {}),
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_shopify_install_contexts_token ON shopify_install_contexts (token)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_shopify_install_contexts_expires_at ON shopify_install_contexts (expires_at)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_shopify_install_contexts_user_id ON shopify_install_contexts (user_id)`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS attribution_aov_adjustment_multiplier DOUBLE PRECISION`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions (user_id)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_invites_business_id ON invites (business_id)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_invites_email ON invites (email)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_business_cost_models_business_id ON business_cost_models (business_id)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_business_target_packs_business_id ON business_target_packs (business_id)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_business_target_pack_history_business_effective
+          ON business_target_pack_history (business_id, effective_at DESC, recorded_at DESC, id DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_business_country_economics_business_country ON business_country_economics (business_id, country_code)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_business_promo_calendar_events_business_event ON business_promo_calendar_events (business_id, event_id)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_business_promo_calendar_events_business_dates ON business_promo_calendar_events (business_id, start_date, end_date)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_business_operating_constraints_business_id ON business_operating_constraints (business_id)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_business_decision_calibration_profiles_business ON business_decision_calibration_profiles (business_id, channel)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_business_decision_calibration_profiles_profile ON business_decision_calibration_profiles (business_id, objective_family, bid_regime, archetype)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_admin ON admin_audit_logs (admin_id, created_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_created ON admin_audit_logs (created_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_discount_codes_code ON discount_codes (lower(code))`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_subscriptions_business_id ON shopify_subscriptions (business_id)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_subscriptions_user_id ON shopify_subscriptions (user_id)`.catch(
+          () => {},
+        ),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_shopify_install_contexts_token ON shopify_install_contexts (token)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_install_contexts_expires_at ON shopify_install_contexts (expires_at)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_install_contexts_user_id ON shopify_install_contexts (user_id)`.catch(
+          () => {},
+        ),
       ]);
 
       // Phase 4b: discount_redemptions indexes (after table created above)
@@ -2854,7 +2958,7 @@ export async function runMigrations(options?: {
           rec_type            TEXT NOT NULL,
           level               TEXT NOT NULL,
           decision_state      TEXT NOT NULL CHECK (decision_state IN ('act', 'test', 'watch')),
-          confidence_score    NUMERIC NOT NULL CHECK (confidence_score BETWEEN 0 AND 1),
+          confidence_score    NUMERIC CHECK (confidence_score BETWEEN 0 AND 1),
           evidence            JSONB NOT NULL DEFAULT '{}'::jsonb,
           recommended_action  TEXT NOT NULL,
           target_value        JSONB,
@@ -2892,7 +2996,18 @@ export async function runMigrations(options?: {
         sql`ALTER TABLE meta_decision_snapshots_daily
           ADD COLUMN IF NOT EXISTS calibration_scope JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(() => {}),
         sql`ALTER TABLE meta_decision_snapshots_daily
-          ADD COLUMN IF NOT EXISTS signal_quality JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS signal_quality JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_decision_snapshots_daily
+          ALTER COLUMN confidence_score DROP NOT NULL`.catch(() => {}),
+        sql`UPDATE meta_decision_snapshots_daily
+          SET confidence_score = NULL
+          WHERE kind = 'recommendation'
+            AND confidence_score = 0.4
+            AND evidence->'recommendation'->'confidenceScore' IS NULL`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_entity_decision_signals_daily (
           business_id TEXT NOT NULL,
           provider_account_id TEXT,
@@ -5289,7 +5404,8 @@ export async function runMigrations(options?: {
           )),
           confidence                 INTEGER NOT NULL CHECK (confidence >= 0 AND confidence <= 100),
           truth_source               TEXT NOT NULL CHECK (truth_source IN (
-            'commercial_truth', 'account_baseline', 'account_baseline_thin', 'global_default'
+            'commercial_truth', 'commercial_truth_stale', 'account_baseline',
+            'account_baseline_thin', 'global_default'
           )),
           effective_target_roas      DOUBLE PRECISION NOT NULL,
           ratio_to_target            DOUBLE PRECISION,
@@ -5300,6 +5416,7 @@ export async function runMigrations(options?: {
           roas                       DOUBLE PRECISION,
           recent7d_roas              DOUBLE PRECISION,
           label_transform            TEXT CHECK (label_transform IN ('test_cohort_refresh_to_cut')),
+          blocked_action_type        TEXT CHECK (blocked_action_type IN ('scale', 'cut', 'refresh')),
           job_run_id                 UUID REFERENCES engine_v3_job_runs(id) ON DELETE SET NULL,
           lifecycle_row_id           UUID REFERENCES engine_v3_creative_lifecycle_daily(id) ON DELETE SET NULL,
           calibration_row_id         UUID REFERENCES engine_v3_account_calibration_daily(id) ON DELETE SET NULL,
@@ -5312,7 +5429,53 @@ export async function runMigrations(options?: {
         sql`ALTER TABLE engine_v3_decision_snapshots_daily
           ADD COLUMN IF NOT EXISTS scope_type TEXT NOT NULL DEFAULT 'account',
           ADD COLUMN IF NOT EXISTS scope_id TEXT NOT NULL DEFAULT '*',
-          ADD COLUMN IF NOT EXISTS label_transform TEXT CHECK (label_transform IN ('test_cohort_refresh_to_cut'))`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS label_transform TEXT CHECK (label_transform IN ('test_cohort_refresh_to_cut')),
+          ADD COLUMN IF NOT EXISTS blocked_action_type TEXT CHECK (blocked_action_type IN ('scale', 'cut', 'refresh'))`.catch(
+          () => {},
+        ),
+        sql`DO $$
+          DECLARE
+            old_constraint_name TEXT;
+          BEGIN
+            SELECT c.conname
+            INTO old_constraint_name
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'engine_v3_decision_snapshots_daily'
+              AND c.contype = 'c'
+              AND pg_get_constraintdef(c.oid) LIKE '%truth_source%'
+              AND pg_get_constraintdef(c.oid) NOT LIKE '%commercial_truth_stale%'
+            LIMIT 1;
+
+            IF old_constraint_name IS NOT NULL THEN
+              EXECUTE format(
+                'ALTER TABLE engine_v3_decision_snapshots_daily DROP CONSTRAINT %I',
+                old_constraint_name
+              );
+            END IF;
+
+            IF NOT EXISTS (
+              SELECT 1
+              FROM pg_constraint c
+              JOIN pg_class t ON t.oid = c.conrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+              WHERE n.nspname = current_schema()
+                AND t.relname = 'engine_v3_decision_snapshots_daily'
+                AND c.contype = 'c'
+                AND pg_get_constraintdef(c.oid) LIKE '%truth_source%'
+                AND pg_get_constraintdef(c.oid) LIKE '%commercial_truth_stale%'
+            ) THEN
+              ALTER TABLE engine_v3_decision_snapshots_daily
+                ADD CONSTRAINT engine_v3_decision_snapshots_daily_truth_source_check
+                CHECK (truth_source IN (
+                  'commercial_truth', 'commercial_truth_stale', 'account_baseline',
+                  'account_baseline_thin', 'global_default'
+                ));
+            END IF;
+          END
+          $$`,
         sql`DO $$
           DECLARE
             old_constraint_name TEXT;
@@ -5458,7 +5621,134 @@ export async function runMigrations(options?: {
       // ── Decision-label hysteresis: persist the raw (pre-hysteresis) label ─
       await runMigrationBatchSequentially([
         sql`ALTER TABLE engine_v3_decision_snapshots_daily
-          ADD COLUMN IF NOT EXISTS raw_label TEXT NULL`,
+          ADD COLUMN IF NOT EXISTS raw_label TEXT NULL,
+          ADD COLUMN IF NOT EXISTS blocked_action_type TEXT CHECK (blocked_action_type IN ('scale', 'cut', 'refresh'))`,
+      ]);
+
+      // Creative Briefs are separate workflow objects linked to immutable
+      // decision evidence. They never alter or decorate a decision row.
+      await runMigrationBatchSequentially([
+        sql`CREATE TABLE IF NOT EXISTS meta_creative_briefs (
+          id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id              UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          provider_account_id      TEXT NOT NULL CHECK (length(btrim(provider_account_id)) > 0),
+          contract_version         TEXT NOT NULL DEFAULT 'meta-creative-brief.v1'
+                                     CHECK (contract_version = 'meta-creative-brief.v1'),
+          idempotency_key          TEXT NOT NULL CHECK (length(btrim(idempotency_key)) > 0),
+          create_request_hash      TEXT NOT NULL CHECK (length(create_request_hash) = 64),
+          source_decision_id       TEXT NOT NULL CHECK (length(btrim(source_decision_id)) > 0),
+          source_snapshot_id       UUID NOT NULL REFERENCES engine_v3_decision_snapshots_daily(id) ON DELETE RESTRICT,
+          source_creative_id       TEXT NOT NULL CHECK (length(btrim(source_creative_id)) > 0),
+          source_engine_version    TEXT NOT NULL CHECK (length(btrim(source_engine_version)) > 0),
+          source_snapshot_as_of    DATE NOT NULL,
+          source_scope_type        TEXT NOT NULL,
+          source_scope_id          TEXT NOT NULL,
+          source_published_label   TEXT NOT NULL,
+          source_raw_label         TEXT,
+          source_reason            TEXT NOT NULL,
+          source_badges_json       JSONB NOT NULL DEFAULT '[]'::jsonb
+                                     CHECK (jsonb_typeof(source_badges_json) = 'array'),
+          source_trigger           TEXT NOT NULL CHECK (length(btrim(source_trigger)) > 0),
+          keep_text                TEXT NOT NULL DEFAULT '',
+          change_text              TEXT NOT NULL DEFAULT '',
+          next_text                TEXT NOT NULL DEFAULT '',
+          status                   TEXT NOT NULL DEFAULT 'draft'
+                                     CHECK (status IN ('draft', 'reviewed')),
+          version                  INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+          created_by               UUID REFERENCES users(id) ON DELETE SET NULL,
+          updated_by               UUID REFERENCES users(id) ON DELETE SET NULL,
+          reviewed_by              UUID REFERENCES users(id) ON DELETE SET NULL,
+          created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          reviewed_at              TIMESTAMPTZ,
+          UNIQUE (business_id, provider_account_id, idempotency_key),
+          CHECK (
+            (status = 'draft' AND reviewed_at IS NULL)
+            OR (status = 'reviewed' AND reviewed_at IS NOT NULL)
+          )
+        )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_briefs_account_recent
+          ON meta_creative_briefs
+          (business_id, provider_account_id, updated_at DESC, id DESC)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_briefs_source_decision
+          ON meta_creative_briefs
+          (business_id, provider_account_id, source_decision_id, created_at DESC)`,
+      ]);
+
+      // Launchpad workflow objects are explicitly Meta-account scoped. Legacy
+      // draft/template rows remain nullable and are withheld by account-scoped
+      // readers rather than being guessed into an account.
+      await runMigrationBatchSequentially([
+        sql`ALTER TABLE creative_share_snapshots
+          ADD COLUMN IF NOT EXISTS provider_account_id TEXT`,
+        sql`CREATE INDEX IF NOT EXISTS idx_creative_share_snapshots_account_recent
+          ON creative_share_snapshots
+          (business_id, provider_account_id, created_at DESC)
+          WHERE provider_account_id IS NOT NULL`,
+        sql`ALTER TABLE meta_launch_drafts
+          ADD COLUMN IF NOT EXISTS provider_account_id TEXT`,
+        sql`ALTER TABLE meta_launch_templates
+          ADD COLUMN IF NOT EXISTS provider_account_id TEXT`,
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_launch_drafts_account_recent
+          ON meta_launch_drafts
+          (business_id, provider_account_id, updated_at DESC, id DESC)
+          WHERE provider_account_id IS NOT NULL`,
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_launch_templates_account_recent
+          ON meta_launch_templates
+          (business_id, provider_account_id, source, updated_at DESC, id DESC)
+          WHERE provider_account_id IS NOT NULL`,
+      ]);
+
+      // LaunchIntent is the immutable account-bound command envelope between
+      // Decisions/Creative Briefs and guarded provider writes. All executions
+      // remain PAUSED-only; outcome receipts explicitly deny retry/rollback.
+      await runMigrationBatchSequentially([
+        sql`CREATE TABLE IF NOT EXISTS meta_launch_intents (
+          id                          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id                 UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          provider_account_id         TEXT NOT NULL CHECK (length(btrim(provider_account_id)) > 0),
+          operation                   TEXT NOT NULL CHECK (operation IN ('new_campaign', 'add_to_existing')),
+          idempotency_key             TEXT NOT NULL CHECK (length(btrim(idempotency_key)) > 0),
+          requested_status            TEXT NOT NULL DEFAULT 'PAUSED' CHECK (requested_status = 'PAUSED'),
+          source_decision_id          TEXT,
+          source_decision_snapshot_id UUID REFERENCES engine_v3_decision_snapshots_daily(id) ON DELETE RESTRICT,
+          creative_brief_id           UUID REFERENCES meta_creative_briefs(id) ON DELETE RESTRICT,
+          source_draft_id              UUID REFERENCES meta_launch_drafts(id) ON DELETE RESTRICT,
+          request_payload_json        JSONB NOT NULL CHECK (jsonb_typeof(request_payload_json) = 'object'),
+          request_fingerprint         TEXT NOT NULL CHECK (length(request_fingerprint) = 64),
+          status                      TEXT NOT NULL DEFAULT 'prepared' CHECK (status IN (
+            'prepared', 'validation_blocked', 'write_blocked', 'ready',
+            'executing', 'succeeded', 'partially_succeeded', 'failed',
+            'silent_failure'
+          )),
+          validation_receipt_json     JSONB,
+          result_receipt_json         JSONB,
+          error_receipt_json          JSONB,
+          created_by                  UUID REFERENCES users(id) ON DELETE SET NULL,
+          created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          started_at                  TIMESTAMPTZ,
+          completed_at                TIMESTAMPTZ,
+          UNIQUE (business_id, provider_account_id, operation, idempotency_key),
+          CHECK (validation_receipt_json IS NULL OR jsonb_typeof(validation_receipt_json) = 'object'),
+          CHECK (result_receipt_json IS NULL OR jsonb_typeof(result_receipt_json) = 'object'),
+          CHECK (error_receipt_json IS NULL OR jsonb_typeof(error_receipt_json) = 'object')
+        )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_launch_intents_business_account_recent
+          ON meta_launch_intents
+          (business_id, provider_account_id, created_at DESC, id DESC)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_launch_intents_lineage_decision
+          ON meta_launch_intents (business_id, source_decision_id)
+          WHERE source_decision_id IS NOT NULL`,
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_launch_intents_lineage_brief
+          ON meta_launch_intents (business_id, creative_brief_id)
+          WHERE creative_brief_id IS NOT NULL`,
+        sql`ALTER TABLE meta_ads_action_log
+          ADD COLUMN IF NOT EXISTS launch_intent_id UUID
+          REFERENCES meta_launch_intents(id) ON DELETE SET NULL`,
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_ads_action_log_launch_intent
+          ON meta_ads_action_log (launch_intent_id, requested_at ASC)
+          WHERE launch_intent_id IS NOT NULL`,
       ]);
 
       // ── Automatic campaign context (D033): daily inferred campaign role ──

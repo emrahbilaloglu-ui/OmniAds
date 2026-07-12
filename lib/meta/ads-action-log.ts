@@ -32,6 +32,7 @@ export interface MetaAdsActionLogRow {
   verifiedAt: string | null;
   verificationPayload: Record<string, unknown> | null;
   recIdOrigin: string | null;
+  launchIntentId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -62,6 +63,7 @@ interface MetaAdsActionLogDbRow {
   verified_at: string | null;
   verification_payload: Record<string, unknown> | null;
   rec_id_origin: string | null;
+  launch_intent_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -86,6 +88,7 @@ function mapActionLogRow(row: MetaAdsActionLogDbRow): MetaAdsActionLogRow {
     verifiedAt: row.verified_at,
     verificationPayload: row.verification_payload,
     recIdOrigin: row.rec_id_origin,
+    launchIntentId: row.launch_intent_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -337,7 +340,6 @@ export async function findRecentDuplicateActionResult(input: {
   businessId: string;
   adId: string;
   targetAdsetId: string;
-  statusOption: "ACTIVE" | "PAUSED";
   sinceMinutes?: number;
 }): Promise<MetaAdsActionLogRow | null> {
   const sql = getDb();
@@ -353,10 +355,6 @@ export async function findRecentDuplicateActionResult(input: {
         payload_request->'body'->>'target_adset_id',
         payload_request->>'target_adset_id'
       ) = ${input.targetAdsetId}
-      AND COALESCE(
-        payload_request->'body'->>'status_option',
-        payload_request->>'status_option'
-      ) = ${input.statusOption}
       AND requested_at > NOW() - (${input.sinceMinutes ?? 10}::int * interval '1 minute')
     ORDER BY requested_at DESC
     LIMIT 1
@@ -372,6 +370,7 @@ export async function createMetaAdsActionLog(input: {
   requestedBy?: string | null;
   payloadRequest?: Record<string, unknown> | null;
   recIdOrigin?: string | null;
+  launchIntentId?: string | null;
 }): Promise<MetaAdsActionLogRow> {
   const sql = getDb();
   const rows = (await sql`
@@ -383,6 +382,7 @@ export async function createMetaAdsActionLog(input: {
       requested_by,
       payload_request,
       rec_id_origin,
+      launch_intent_id,
       status
     ) VALUES (
       ${input.businessId},
@@ -392,6 +392,7 @@ export async function createMetaAdsActionLog(input: {
       ${input.requestedBy ?? null},
       ${JSON.stringify(input.payloadRequest ?? null)}::jsonb,
       ${input.recIdOrigin ?? null},
+      ${input.launchIntentId ?? null},
       'pending'
     )
     RETURNING *
@@ -449,4 +450,26 @@ export async function listRecentMetaAdsActionLogs(input: {
     LIMIT ${limit}
   `) as MetaAdsActionLogDbRow[];
   return rows.map(mapActionLogRow);
+}
+
+export async function readLaunchpadCreatedAdIds(input: {
+  businessId: string;
+  adIds: string[];
+}): Promise<Set<string>> {
+  const adIds = Array.from(
+    new Set(input.adIds.map((adId) => adId.trim()).filter(Boolean)),
+  );
+  if (adIds.length === 0) return new Set();
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT DISTINCT resulting_ad_id
+    FROM meta_ads_action_log
+    WHERE business_id = ${input.businessId}
+      AND action IN ('launch_ad', 'duplicate')
+      AND status = 'success'
+      AND resulting_ad_id = ANY(${adIds}::text[])
+  `) as Array<{ resulting_ad_id: string | null }>;
+  return new Set(
+    rows.flatMap((row) => row.resulting_ad_id?.trim() || []),
+  );
 }

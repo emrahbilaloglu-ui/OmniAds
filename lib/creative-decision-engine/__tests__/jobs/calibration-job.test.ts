@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getDb, resetDbClientCache, runDbTransaction } from "@/lib/db";
 import { ENGINE_VERSION } from "../../types";
 import {
+  FUNNEL_METRIC_SAMPLE_FLOOR,
   hashAdvisoryLock,
   JOB_NAME,
   runCalibrationJob,
@@ -63,6 +64,8 @@ type CalibrationRow = Record<string, unknown> & {
   roas_p60: unknown;
   quality_status: unknown;
   ctr_p50: unknown;
+  click_to_purchase_p25: unknown;
+  click_to_purchase_p50: unknown;
   funnel_sample_count: unknown;
   funnel_quality_status: unknown;
 };
@@ -254,7 +257,7 @@ async function setupCampaignScopeFixture(
       payload_json
     )
     SELECT
-      $1,
+      $1::text,
       $1::uuid,
       $2,
       $3::date,
@@ -302,6 +305,56 @@ async function setupCampaignScopeFixture(
       JSON.stringify(rows),
     ],
   );
+}
+
+async function setClickToPurchaseSampleCount(
+  fixture: CampaignScopeFixture,
+  sampleCount: number,
+) {
+  await getDb().query(
+    `
+    WITH ranked AS (
+      SELECT
+        creative_id,
+        ROW_NUMBER() OVER (ORDER BY creative_id) AS sample_rank
+      FROM meta_creative_daily
+      WHERE business_ref_id = $1::uuid
+        AND date = $2::date
+    )
+    UPDATE meta_creative_daily AS daily
+    SET
+      link_clicks = CASE WHEN ranked.sample_rank <= $3::integer THEN 100 ELSE 0 END,
+      outbound_clicks = CASE WHEN ranked.sample_rank <= $3::integer THEN 100 ELSE 0 END
+    FROM ranked
+    WHERE daily.business_ref_id = $1::uuid
+      AND daily.date = $2::date
+      AND daily.creative_id = ranked.creative_id
+    `,
+    [fixture.businessId, AS_OF, sampleCount],
+  );
+}
+
+async function readOverallFunnelCalibration(fixture: CampaignScopeFixture) {
+  const [row] = await getDb().query<CalibrationRow>(
+    `
+    SELECT
+      ctr_p50,
+      click_to_purchase_p25,
+      click_to_purchase_p50,
+      funnel_sample_count,
+      funnel_quality_status
+    FROM engine_v3_account_calibration_daily
+    WHERE business_ref_id = $1::uuid
+      AND as_of_date = $2::date
+      AND engine_version = $3
+      AND scope_type = 'account'
+      AND scope_id = '*'
+      AND campaign_kind = 'all'
+      AND creative_format = 'overall'
+    `,
+    [fixture.businessId, AS_OF, ENGINE_VERSION],
+  );
+  return row;
 }
 
 describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
@@ -644,6 +697,50 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
     );
     expect(toNumber(overall?.ctr_p50)).toBeCloseTo(3, 6);
     expect(overall?.funnel_quality_status).toBe("insufficient");
+  });
+
+  it("does not let dense funnel metrics activate a sparse metric", async () => {
+    const fixture = CAMPAIGN_SCOPE_FIXTURES[0]!;
+    await setupCampaignScopeFixture(fixture, AS_OF, { campaign_a: 30 });
+    await setClickToPurchaseSampleCount(fixture, 1);
+
+    await runCalibrationJob({ businessId: fixture.businessId, asOf: AS_OF });
+    const overall = await readOverallFunnelCalibration(fixture);
+
+    expect(toNumber(overall?.funnel_sample_count)).toBe(30);
+    expect(overall?.funnel_quality_status).toBe("ready");
+    expect(overall?.ctr_p50).not.toBeNull();
+    expect(overall?.click_to_purchase_p25).toBeNull();
+    expect(overall?.click_to_purchase_p50).toBeNull();
+  });
+
+  it("produces both metric percentiles at the exact sample floor", async () => {
+    const fixture = CAMPAIGN_SCOPE_FIXTURES[0]!;
+    await setupCampaignScopeFixture(fixture, AS_OF, { campaign_a: 30 });
+    await setClickToPurchaseSampleCount(
+      fixture,
+      FUNNEL_METRIC_SAMPLE_FLOOR,
+    );
+
+    await runCalibrationJob({ businessId: fixture.businessId, asOf: AS_OF });
+    const overall = await readOverallFunnelCalibration(fixture);
+
+    expect(overall?.click_to_purchase_p25).not.toBeNull();
+    expect(overall?.click_to_purchase_p50).not.toBeNull();
+  });
+
+  it("keeps empty metric percentiles null", async () => {
+    const fixture = CAMPAIGN_SCOPE_FIXTURES[0]!;
+    await setupCampaignScopeFixture(fixture, AS_OF, { campaign_a: 30 });
+    await setClickToPurchaseSampleCount(fixture, 0);
+
+    await runCalibrationJob({ businessId: fixture.businessId, asOf: AS_OF });
+    const overall = await readOverallFunnelCalibration(fixture);
+
+    expect(toNumber(overall?.funnel_sample_count)).toBe(30);
+    expect(overall?.funnel_quality_status).toBe("ready");
+    expect(overall?.click_to_purchase_p25).toBeNull();
+    expect(overall?.click_to_purchase_p50).toBeNull();
   });
 
   it("records skipped when the advisory lock is already held", async () => {

@@ -83,6 +83,7 @@ describe("Meta campaign role taxonomy", () => {
       purchases: 28,
       roas: 3.8,
       spend: 1800,
+      revenue: 6840,
     });
     const test = campaign({
       id: "cmp_test",
@@ -90,6 +91,7 @@ describe("Meta campaign role taxonomy", () => {
       purchases: 2,
       roas: 0.6,
       spend: 200,
+      revenue: 120,
     });
     const campaigns = [scaling, test];
 

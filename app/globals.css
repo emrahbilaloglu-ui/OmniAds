@@ -175,11 +175,120 @@
     --adc-auto-fg: #6c41be;
     --adc-auto-bg: #f2edfb;
     --adc-auto-bd: #d9ccf1;
+    /* Unify the shadcn/Tailwind theme vars onto the reference --adc-* palette so
+       shared components that still use bg-background / text-muted-foreground /
+       bg-card / border / ring / bg-accent stop rendering the achromatic shadcn
+       grays and instead track the warm reference tokens. Only names NOT already
+       claimed by the nested .ad-final aliases are set here (---muted stays the
+       .ad-final "muted text" meaning inside that scope). */
+    --background: var(--adc-s2);
+    --foreground: var(--adc-ink);
+    --card: var(--adc-s2);
+    --card-foreground: var(--adc-ink);
+    --popover: var(--adc-s2);
+    --popover-foreground: var(--adc-ink);
+    --secondary: var(--adc-s3);
+    --secondary-foreground: var(--adc-ink);
+    --muted: var(--adc-s3);
+    --muted-foreground: var(--adc-ink3);
+    --accent: var(--adc-s3);
+    --accent-foreground: var(--adc-ink);
+    --destructive: var(--adc-danger-fg);
+    --border: var(--adc-b1);
+    --input: var(--adc-b1);
+    --ring: var(--adc-focus);
     background: var(--adc-s1);
     color: var(--adc-ink);
     font-family: var(--font-ibm-plex-sans), var(--font-geist-sans), system-ui, sans-serif;
     font-size: 13px;
     line-height: 1.45;
+  }
+
+  .dark .ad-console-shell {
+    --adc-s1: #111315;
+    --adc-s2: #191c1f;
+    --adc-s3: #24282c;
+    --adc-ink: #f3f4f5;
+    --adc-ink2: #c2c7cc;
+    --adc-ink3: #8f979f;
+    --adc-b1: #30353a;
+    --adc-b2: #464d54;
+    --adc-focus: #78a9f6;
+    --adc-danger-fg: #ff9fba;
+    --adc-danger-bg: #3a1f29;
+    --adc-danger-bd: #6d3448;
+    --adc-caution-fg: #e8c46e;
+    --adc-caution-bg: #352b17;
+    --adc-caution-bd: #615025;
+    --adc-pos-fg: #7fd3b4;
+    --adc-pos-bg: #18352c;
+    --adc-pos-bd: #315f4e;
+    --adc-info-fg: #8bb8fa;
+    --adc-info-bg: #1b2d47;
+    --adc-info-bd: #34547d;
+    --adc-auto-fg: #c2a5f5;
+    --adc-auto-bg: #302540;
+    --adc-auto-bd: #5b4777;
+    --background: var(--adc-s2);
+    --foreground: var(--adc-ink);
+    --card: var(--adc-s2);
+    --card-foreground: var(--adc-ink);
+    --popover: var(--adc-s2);
+    --popover-foreground: var(--adc-ink);
+    --secondary: var(--adc-s3);
+    --secondary-foreground: var(--adc-ink);
+    --muted: var(--adc-s3);
+    --muted-foreground: var(--adc-ink3);
+    --accent: var(--adc-s3);
+    --accent-foreground: var(--adc-ink);
+    --destructive: var(--adc-danger-fg);
+    --border: var(--adc-b1);
+    --input: var(--adc-b1);
+    --ring: var(--adc-focus);
+    color-scheme: dark;
+  }
+
+  /* Meta still embeds a few shared analytical components that use Tailwind's
+     legacy neutral utilities. Keep them on the same semantic dark palette
+     while those components are incrementally moved to adc tokens. */
+  .dark .ad-console-shell .ad-final [class~="bg-white"],
+  .dark .ad-console-shell .ad-final [class~="bg-white/70"],
+  .dark .ad-console-shell .ad-final [class~="bg-white/85"],
+  .dark .ad-console-shell .ad-final [class~="bg-white/95"] {
+    background-color: var(--adc-s2) !important;
+  }
+
+  .dark .ad-console-shell .ad-final [class~="bg-neutral-50"],
+  .dark .ad-console-shell .ad-final [class~="bg-neutral-50/50"],
+  .dark .ad-console-shell .ad-final [class~="bg-neutral-100"],
+  .dark .ad-console-shell .ad-final [class~="bg-neutral-200"] {
+    background-color: var(--adc-s3) !important;
+  }
+
+  .dark .ad-console-shell .ad-final [class~="border-neutral-100"],
+  .dark .ad-console-shell .ad-final [class~="border-neutral-200"] {
+    border-color: var(--adc-b1) !important;
+  }
+
+  .dark .ad-console-shell .ad-final [class~="border-neutral-300"] {
+    border-color: var(--adc-b2) !important;
+  }
+
+  .dark .ad-console-shell .ad-final [class~="text-neutral-950"],
+  .dark .ad-console-shell .ad-final [class~="text-neutral-900"],
+  .dark .ad-console-shell .ad-final [class~="text-neutral-800"] {
+    color: var(--adc-ink) !important;
+  }
+
+  .dark .ad-console-shell .ad-final [class~="text-neutral-700"],
+  .dark .ad-console-shell .ad-final [class~="text-neutral-600"] {
+    color: var(--adc-ink2) !important;
+  }
+
+  .dark .ad-console-shell .ad-final [class~="text-neutral-500"],
+  .dark .ad-console-shell .ad-final [class~="text-neutral-400"],
+  .dark .ad-console-shell .ad-final [class~="text-neutral-300"] {
+    color: var(--adc-ink3) !important;
   }
 
   .ad-console-shell .ad-console-topbar {
@@ -1557,7 +1666,7 @@
 
   .ad-auth-row a,
   .ad-auth-footer a {
-    color: #1d5fc4;
+    color: var(--adc-info-fg);
     text-decoration: none;
   }
 
@@ -1729,8 +1838,8 @@
   }
 
   .ad-auth-step-card[data-tone="active"] {
-    border-color: var(--adc-info-bd, #c5d6f1);
-    background: var(--adc-info-bg, #ebf1fb);
+    border-color: var(--adc-info-bd);
+    background: var(--adc-info-bg);
   }
 
   .ad-auth-step-card[data-tone="waiting"] {
@@ -1776,7 +1885,7 @@
 
   .ad-auth-step-link {
     align-self: flex-start;
-    color: #1d5fc4;
+    color: var(--adc-info-fg);
     font-size: 11.5px;
     margin-top: auto;
     text-decoration: none;
@@ -2572,7 +2681,7 @@
   .ad-final .btn--primary {
     background: var(--ink);
     border-color: var(--ink);
-    color: #fff;
+    color: var(--bg);
     font-weight: 600;
   }
 
@@ -3562,6 +3671,482 @@
     flex-direction: column;
     gap: 6px;
     padding: 12px 16px 24px;
+  }
+
+  /* ---- Morning brief: one default-collapsed context line above the queue ---- */
+  .ad-final .meta-brief {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex: none;
+  }
+
+  .ad-final .meta-brief__bar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    padding: 7px 16px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  .ad-final .meta-brief__bar:hover {
+    background: var(--hover);
+  }
+
+  .ad-final .meta-brief__chev {
+    flex: none;
+    color: var(--muted);
+    transition: transform 0.15s ease;
+  }
+
+  .ad-final .meta-brief__chev.open {
+    transform: rotate(180deg);
+  }
+
+  .ad-final .meta-brief__title {
+    flex: none;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .ad-final .meta-brief__cell {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .ad-final .meta-brief__cell i {
+    flex: none;
+    font-style: normal;
+    font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .ad-final .meta-brief__cell span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ad-final .meta-brief__cell b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  .ad-final .meta-brief__spacer {
+    flex: 1;
+  }
+
+  .ad-final .meta-brief__asof {
+    flex: none;
+    font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .ad-final .meta-brief__detail {
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--border);
+    padding: 8px 0;
+  }
+
+  .ad-final .meta-brief__detail[hidden] {
+    display: none;
+  }
+
+  /* ---- Columnar spine grid (Zone B: one fixed-track data grid, all grains) ---- */
+  .ad-final .meta-spine-lens {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .ad-final .meta-spine-lens__group {
+    display: inline-flex;
+    border: 1px solid var(--border-2);
+    border-radius: var(--r-sm);
+    overflow: hidden;
+  }
+
+  .ad-final .meta-spine-lens__group button {
+    background: var(--surface-2);
+    border: none;
+    padding: 4px 11px;
+    font-family: inherit;
+    font-size: 11.5px;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .ad-final .meta-spine-lens__group button + button {
+    border-left: 1px solid var(--border-2);
+  }
+
+  .ad-final .meta-spine-lens__group button.on {
+    background: var(--surface);
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  .ad-final .meta-spine-lens__note {
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .ad-final .meta-spine {
+    max-width: 1240px;
+    --spine-cols: 24px 40px minmax(180px, 1fr) 66px 68px 100px 48px 88px 44px 96px 46px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .ad-final .meta-spine__head,
+  .ad-final .meta-spine__row {
+    display: grid;
+    grid-template-columns: var(--spine-cols);
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+  }
+
+  .ad-final .meta-spine__head {
+    height: 30px;
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--border-3);
+    font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+  }
+
+  .ad-final .meta-spine__head [data-num] {
+    text-align: right;
+  }
+
+  .ad-final .meta-spine__head button {
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    padding: 0;
+  }
+
+  .ad-final .meta-spine__head [data-num] button {
+    width: 100%;
+    text-align: right;
+  }
+
+  .ad-final .meta-spine__head button:hover,
+  .ad-final .meta-spine__head [data-active="true"] {
+    color: var(--ink);
+  }
+
+  .ad-final .meta-spine__section {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    position: sticky;
+    top: 30px;
+    z-index: 3;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--border);
+    padding: 7px 12px 5px;
+    font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .ad-final .meta-spine__section b {
+    color: var(--ink-2);
+    font-weight: 600;
+  }
+
+  .ad-final .meta-spine__section-stake {
+    margin-left: auto;
+    color: var(--ink-2);
+    font-variant-numeric: tabular-nums;
+    text-transform: none;
+  }
+
+  .ad-final .meta-spine__row {
+    height: 34px;
+    width: 100%;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    font-family: inherit;
+    font-size: 12px;
+    color: var(--ink-2);
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .ad-final .meta-spine__row:last-child {
+    border-bottom: none;
+  }
+
+  .ad-final .meta-spine[data-density="compact"] .meta-spine__row {
+    height: 30px;
+  }
+
+  .ad-final .meta-spine__row:hover {
+    background: var(--hover);
+  }
+
+  .ad-final .meta-spine__row.is-selected {
+    background: var(--brand-bg);
+  }
+
+  .ad-final .meta-spine__row[data-clickable="false"] {
+    cursor: default;
+  }
+
+  .ad-final .meta-spine__row [data-num] {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--ink-2);
+  }
+
+  .ad-final .meta-spine__money {
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .ad-final .meta-spine__muted {
+    color: var(--muted);
+  }
+
+  .ad-final .meta-spine__sel {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .ad-final .meta-spine__grain {
+    justify-self: start;
+    font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10px;
+    letter-spacing: 0.02em;
+    border: 1px solid var(--border-2);
+    border-radius: var(--r-xs);
+    padding: 1px 4px;
+    color: var(--muted);
+    background: var(--surface-2);
+  }
+
+  .ad-final .meta-spine__grain[data-grain="ANOM"] {
+    color: var(--danger);
+    border-color: var(--danger-bd);
+    background: var(--danger-bg);
+  }
+
+  .ad-final .meta-spine__grain[data-grain="CRV"] {
+    color: var(--purple);
+    border-color: var(--purple-bd);
+    background: var(--purple-bg);
+  }
+
+  .ad-final .meta-spine__entity {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+  }
+
+  .ad-final .meta-spine__swatch {
+    width: 22px;
+    height: 22px;
+    flex: none;
+    border-radius: var(--r-xs);
+    border: 1px solid var(--border-2);
+    background: var(--surface-3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 8px;
+    color: var(--muted);
+  }
+
+  .ad-final .meta-spine__name {
+    font-weight: 600;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ad-final .meta-spine__fmt {
+    flex: none;
+    font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10px;
+    color: var(--muted);
+    border: 1px solid var(--border-2);
+    border-radius: var(--r-xs);
+    padding: 0 3px;
+  }
+
+  .ad-final .meta-spine__meta {
+    flex: none;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .ad-final .meta-spine__auto {
+    flex: none;
+    font-size: 10px;
+    color: var(--purple);
+    border: 1px solid var(--purple-bd);
+    background: var(--purple-bg);
+    border-radius: var(--r-xs);
+    padding: 0 3px;
+  }
+
+  .ad-final .meta-spine__delta {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .ad-final .meta-spine__delta[data-changed="true"] {
+    color: var(--info);
+  }
+
+  .ad-final .meta-spine__delivery {
+    justify-self: start;
+    font-size: 10.5px;
+    border: 1px solid var(--border-2);
+    border-radius: 999px;
+    padding: 1px 7px;
+    white-space: nowrap;
+    color: var(--muted);
+    background: var(--surface);
+  }
+
+  .ad-final .meta-spine__delivery[data-tone="learning"] {
+    color: var(--info);
+    border-color: var(--info-bd);
+    background: var(--info-bg);
+  }
+
+  .ad-final .meta-spine__delivery[data-tone="blocked"],
+  .ad-final .meta-spine__delivery[data-tone="fatiguing"] {
+    color: var(--warn);
+    border-color: var(--warn-bd);
+    background: var(--warn-bg);
+  }
+
+  .ad-final .meta-spine__delivery[data-tone="active"] {
+    color: var(--ok);
+    border-color: var(--ok-bd);
+    background: var(--ok-bg);
+  }
+
+  .ad-final .meta-spine__conf {
+    justify-self: center;
+    font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    color: var(--ink-2);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ad-final .meta-spine__verdict {
+    justify-self: start;
+    font-size: 10.5px;
+    font-weight: 600;
+    border: 1px solid var(--border-2);
+    border-radius: 999px;
+    padding: 1px 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+    color: var(--ink-2);
+    background: var(--surface);
+  }
+
+  .ad-final .meta-spine__verdict[data-tone="success"] {
+    color: var(--ok);
+    border-color: var(--ok-bd);
+    background: var(--ok-bg);
+  }
+
+  .ad-final .meta-spine__verdict[data-tone="danger"] {
+    color: var(--danger);
+    border-color: var(--danger-bd);
+    background: var(--danger-bg);
+  }
+
+  .ad-final .meta-spine__verdict[data-tone="warning"] {
+    color: var(--warn);
+    border-color: var(--warn-bd);
+    background: var(--warn-bg);
+  }
+
+  .ad-final .meta-spine__verdict[data-tone="info"] {
+    color: var(--info);
+    border-color: var(--info-bd);
+    background: var(--info-bg);
+  }
+
+  .ad-final .meta-spine__trend {
+    justify-self: end;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (max-width: 1180px) {
+    .ad-final .meta-spine {
+      --spine-cols: 24px 40px minmax(180px, 1fr) 66px 68px 100px 48px 88px 96px;
+    }
+
+    .ad-final .meta-spine__c-conf,
+    .ad-final .meta-spine__c-trend {
+      display: none;
+    }
+  }
+
+  @media (max-width: 1000px) {
+    .ad-final .meta-spine {
+      --spine-cols: 24px 40px minmax(160px, 1fr) 66px 68px 100px 88px 96px;
+    }
+
+    .ad-final .meta-spine__c-delta {
+      display: none;
+    }
+  }
+
+  @media (max-width: 860px) {
+    .ad-final .meta-spine {
+      --spine-cols: 24px 40px minmax(150px, 1fr) 100px 88px 96px;
+    }
+
+    .ad-final .meta-spine__c-roas,
+    .ad-final .meta-spine__c-cpa {
+      display: none;
+    }
   }
 
   .ad-final .lane-empty {

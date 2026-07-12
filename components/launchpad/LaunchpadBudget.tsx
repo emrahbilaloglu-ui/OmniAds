@@ -44,7 +44,7 @@ export function LaunchpadBudget({
   onChange,
 }: {
   value: LaunchpadBudgetState;
-  currency: string;
+  currency: string | null;
   expectedCpa?: number | null;
   onChange: (value: LaunchpadBudgetState) => void;
 }) {
@@ -60,7 +60,9 @@ export function LaunchpadBudget({
     <section className="space-y-5" data-testid="launchpad-budget">
       <div>
         <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-[var(--ink)]">Budget</h2>
-        <p className="mono text-[12px] text-[var(--muted)]">account currency {currency}</p>
+        <p className="mono text-[12px] text-[var(--muted)]">
+          account currency {currency ?? "unavailable"}
+        </p>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">

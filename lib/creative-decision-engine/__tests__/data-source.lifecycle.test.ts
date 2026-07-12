@@ -17,6 +17,31 @@ function freshTimestamp() {
   return new Date().toISOString();
 }
 
+function targetPackRow(overrides: Record<string, unknown> = {}) {
+  return {
+    target_cpa: 40,
+    target_roas: 2,
+    break_even_cpa: 55,
+    break_even_roas: 1.5,
+    aov_assumption: 100,
+    default_risk_posture: "balanced",
+    updated_at: "2026-04-20T12:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function mockLifecycleRows(rows: unknown[]) {
+  query.mockImplementation(async (queryText: string) => {
+    if (queryText.includes("FROM business_target_pack_history")) {
+      return [targetPackRow()];
+    }
+    if (queryText.includes("FROM engine_v3_creative_lifecycle_daily l")) {
+      return rows;
+    }
+    return [];
+  });
+}
+
 function purchaseCohortInputs(spend: number) {
   return [
     {
@@ -38,6 +63,12 @@ function lifecycleRow(
     campaign_id: "campaign_1",
     objective: "OUTCOME_SALES",
     effective_cohort_inputs: effectiveCohortInputs,
+    provider_account_count: 1,
+    campaign_count: 1,
+    adset_count: 1,
+    optimization_context_count: 1,
+    objective_count: 1,
+    context_identity_unknown: false,
     spend,
     purchases: 3,
     purchase_value: 300,
@@ -82,6 +113,7 @@ function lifecycleRow(
     creative_format: "image",
     target_roas: 2,
     break_even_roas: 1.5,
+    target_pack_updated_at: "2026-04-20T12:00:00.000Z",
   };
 }
 
@@ -96,6 +128,12 @@ function runtimeRow(
     campaign_id: "campaign_2",
     objective: "OUTCOME_SALES",
     effective_cohort_inputs: effectiveCohortInputs,
+    provider_account_count: 1,
+    campaign_count: 1,
+    adset_count: 1,
+    optimization_context_count: 1,
+    objective_count: 1,
+    context_identity_unknown: false,
     spend,
     purchases: 1,
     purchase_value: 90,
@@ -116,6 +154,7 @@ function runtimeRow(
     data_freshness_hours: 0,
     target_roas: 2,
     break_even_roas: 1.5,
+    target_pack_updated_at: "2026-04-20T12:00:00.000Z",
     cpm: 9,
     outbound_clicks: 20,
     landing_page_views: 18,
@@ -132,7 +171,7 @@ describe("WarehouseDataSource lifecycle hydration", () => {
   });
 
   it("hydrates lifecycle rows only for the current engine version", async () => {
-    query.mockResolvedValueOnce([lifecycleRow("creative-a")]);
+    mockLifecycleRows([lifecycleRow("creative-a")]);
 
     const warehouse = new WarehouseDataSource();
     const inputs = await warehouse.listCreativeInputs({
@@ -143,24 +182,140 @@ describe("WarehouseDataSource lifecycle hydration", () => {
 
     expect(inputs.map((input) => input.creativeId)).toEqual(["creative-a"]);
     expect(inputs[0]?.effectiveCohort).toBe("purchase");
-    expect(query).toHaveBeenCalledTimes(1);
-    expect(query.mock.calls[0]?.[0]).toContain("l.engine_version = $5");
-    expect(query.mock.calls[0]?.[1]).toEqual([
+    expect(inputs[0]?.contextGrain).toEqual({
+      providerAccountCount: 1,
+      campaignCount: 1,
+      adsetCount: 1,
+      optimizationContextCount: 1,
+      objectiveCount: 1,
+      contextIdentityUnknown: false,
+    });
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls[1]?.[0]).toContain("l.engine_version = $5");
+    expect(query.mock.calls[1]?.[1]).toEqual([
       BUSINESS_ID,
       AS_OF,
       ["creative-a"],
       true,
       ENGINE_VERSION,
+      2,
+      1.5,
+      "2026-04-20T12:00:00.000Z",
     ]);
+    expect(query.mock.calls[0]?.[0]).toContain(
+      "effective_at <= $2::timestamptz",
+    );
+    expect(query.mock.calls[0]?.[0]).toContain(
+      "recorded_at <= $2::timestamptz",
+    );
+    expect(query.mock.calls[1]?.[0]).toContain(
+      "COUNT(DISTINCT provider_account_id) AS provider_account_count",
+    );
+    expect(query.mock.calls[1]?.[0]).toContain(
+      "COUNT(DISTINCT (optimization_goal, custom_event_type))",
+    );
+  });
+
+  it("fails closed when production hydration omits context identity metadata", async () => {
+    mockLifecycleRows([
+      {
+        ...lifecycleRow("creative-missing-context"),
+        provider_account_count: undefined,
+        campaign_count: undefined,
+        adset_count: undefined,
+        optimization_context_count: undefined,
+        objective_count: undefined,
+        context_identity_unknown: undefined,
+      },
+    ]);
+
+    const warehouse = new WarehouseDataSource();
+    const [input] = await warehouse.listCreativeInputs({
+      businessId: BUSINESS_ID,
+      asOf: AS_OF,
+      creativeIds: ["creative-missing-context"],
+    });
+
+    expect(input?.contextGrain).toEqual({
+      providerAccountCount: 0,
+      campaignCount: 0,
+      adsetCount: 0,
+      optimizationContextCount: 0,
+      objectiveCount: 0,
+      contextIdentityUnknown: true,
+    });
+  });
+
+  it("evaluates target freshness against asOf instead of the wall clock", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2040-01-01T00:00:00.000Z"));
+      mockLifecycleRows([lifecycleRow("creative-time-travel")]);
+
+      const warehouse = new WarehouseDataSource();
+      const [input] = await warehouse.listCreativeInputs({
+        businessId: BUSINESS_ID,
+        asOf: AS_OF,
+        creativeIds: ["creative-time-travel"],
+      });
+
+      expect(input?.commercialTargetFreshness).toBe("fresh");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects a future target defensively and constrains the DB read", async () => {
+    query.mockResolvedValueOnce([
+      {
+        target_cpa: 40,
+        target_roas: 2,
+        break_even_cpa: 55,
+        break_even_roas: 1.5,
+        aov_assumption: 100,
+        default_risk_posture: "balanced",
+        updated_at: "2026-05-05T00:00:00.000Z",
+      },
+    ]);
+
+    const warehouse = new WarehouseDataSource();
+    const targetPack = await warehouse.getBusinessTargetPack({
+      businessId: BUSINESS_ID,
+      asOf: AS_OF,
+    });
+
+    expect(query.mock.calls[0]?.[0]).toContain(
+      "effective_at <= $2::timestamptz",
+    );
+    expect(query.mock.calls[0]?.[0]).toContain(
+      "recorded_at <= $2::timestamptz",
+    );
+    expect(query.mock.calls[0]?.[1]).toEqual([
+      BUSINESS_ID,
+      "2026-05-04T03:00:00.000Z",
+    ]);
+    expect(targetPack?.freshness).toBe("unknown");
   });
 
   it("fills missing requested creatives from runtime SQL when lifecycle is partial", async () => {
     query.mockImplementation(async (queryText: string, params: unknown[]) => {
+      if (queryText.includes("FROM business_target_pack_history")) {
+        return [targetPackRow()];
+      }
       if (queryText.includes("FROM engine_v3_creative_lifecycle_daily l")) {
         return [lifecycleRow("creative-a", 123)];
       }
       if (queryText.includes("FROM meta_creative_daily")) {
+        expect(queryText).toContain("decision_context_sources AS");
+        expect(queryText).toContain(
+          "COUNT(DISTINCT provider_account_id) AS provider_account_count",
+        );
         expect(params[2]).toEqual(["creative-b"]);
+        expect(params.slice(4)).toEqual([
+          2,
+          1.5,
+          "2026-04-20T12:00:00.000Z",
+        ]);
         return [runtimeRow("creative-b", 45)];
       }
       return [];
@@ -183,10 +338,14 @@ describe("WarehouseDataSource lifecycle hydration", () => {
       "purchase",
       "purchase",
     ]);
-    expect(query).toHaveBeenCalledTimes(2);
+    expect(inputs.map((input) => input.contextGrain?.campaignCount)).toEqual([
+      1,
+      1,
+    ]);
+    expect(query).toHaveBeenCalledTimes(4);
   });
 
-  it("hydrates purchase effective cohort when purchase adsets dominate spend", async () => {
+  it("hydrates unknown effective cohort for a 95/5 purchase and traffic mix", async () => {
     query.mockImplementation(async (queryText: string) => {
       if (queryText.includes("FROM engine_v3_creative_lifecycle_daily l")) {
         return [];
@@ -195,13 +354,13 @@ describe("WarehouseDataSource lifecycle hydration", () => {
         return [
           runtimeRow("creative-cohort", 900, [
             {
-              spend: 800,
+              spend: 950,
               optimizationGoal: "OFFSITE_CONVERSIONS",
               customEventType: "PURCHASE",
             },
             {
-              spend: 100,
-              optimizationGoal: "THRUPLAY",
+              spend: 50,
+              optimizationGoal: "LINK_CLICKS",
               customEventType: null,
             },
           ]),
@@ -217,10 +376,44 @@ describe("WarehouseDataSource lifecycle hydration", () => {
       asOf: AS_OF,
     });
 
+    expect(input?.effectiveCohort).toBe("unknown");
+  });
+
+  it("hydrates purchase when PURCHASE and VALUE contexts resolve alike", async () => {
+    query.mockImplementation(async (queryText: string) => {
+      if (queryText.includes("FROM engine_v3_creative_lifecycle_daily l")) {
+        return [];
+      }
+      if (queryText.includes("FROM meta_creative_daily")) {
+        return [
+          runtimeRow("creative-purchase-contexts", 1000, [
+            {
+              spend: 700,
+              optimizationGoal: "PURCHASE",
+              customEventType: "PURCHASE",
+            },
+            {
+              spend: 300,
+              optimizationGoal: "VALUE",
+              customEventType: "VALUE",
+            },
+          ]),
+        ];
+      }
+      return [];
+    });
+
+    const warehouse = new WarehouseDataSource();
+    const input = await warehouse.getCreativeInput({
+      creativeId: "creative-purchase-contexts",
+      businessId: BUSINESS_ID,
+      asOf: AS_OF,
+    });
+
     expect(input?.effectiveCohort).toBe("purchase");
   });
 
-  it("hydrates unknown effective cohort when no cohort has 60% spend share", async () => {
+  it("hydrates unknown effective cohort for any mixed positive-spend cohorts", async () => {
     query.mockImplementation(async (queryText: string) => {
       if (queryText.includes("FROM engine_v3_creative_lifecycle_daily l")) {
         return [];

@@ -19,7 +19,7 @@ const eventCases: Array<[string, MetaFunnelCohort]> = [
   ["SUBMIT_APPLICATION", "lead"],
   ["START_TRIAL", "lead"],
   ["SUBSCRIBE", "lead"],
-  ["CONTACT", "engagement"],
+  ["CONTACT", "lead"],
 ];
 
 const optimizationGoalCases: Array<[string, MetaFunnelCohort]> = [
@@ -43,11 +43,11 @@ const optimizationGoalCases: Array<[string, MetaFunnelCohort]> = [
   ["POST_ENGAGEMENT", "engagement"],
   ["PAGE_LIKES", "engagement"],
   ["EVENT_RESPONSES", "engagement"],
-  ["REPLIES", "engagement"],
-  ["MESSAGING_PURCHASE_CONVERSION", "engagement"],
-  ["CONVERSATIONS", "engagement"],
-  ["MESSAGES", "engagement"],
-  ["DERIVED_EVENTS", "engagement"],
+  ["REPLIES", "unknown"],
+  ["MESSAGING_PURCHASE_CONVERSION", "unknown"],
+  ["CONVERSATIONS", "unknown"],
+  ["MESSAGES", "unknown"],
+  ["DERIVED_EVENTS", "unknown"],
 ];
 
 describe("resolveMetaFunnelCohort", () => {
@@ -93,6 +93,15 @@ describe("resolveMetaFunnelCohort", () => {
       optimizationGoal: "LANDING_PAGE_VIEWS",
       objective: "OUTCOME_SALES",
     })).toBe("traffic");
+  });
+
+  it("never treats messaging optimization as post-engagement evidence", () => {
+    expect(
+      resolveMetaFunnelCohort({
+        optimizationGoal: "CONVERSATIONS",
+        objective: "OUTCOME_ENGAGEMENT",
+      }),
+    ).toBe("unknown");
   });
 
   it("uses revenue-bearing fallback only when all cohort metadata is absent", () => {

@@ -57,7 +57,10 @@ function adset(overrides: Partial<MetaAdSetData> = {}): MetaAdSetData {
   };
 }
 
-function signal(ageDays = 20): MetaEntityDecisionSignal {
+function signal(
+  ageDays = 20,
+  overrides: Partial<MetaEntityDecisionSignal> = {},
+): MetaEntityDecisionSignal {
   return {
     businessId: "biz_1",
     providerAccountId: "act_1",
@@ -75,6 +78,7 @@ function signal(ageDays = 20): MetaEntityDecisionSignal {
     ctrDecayPct: null,
     sourceJson: { age_days: ageDays },
     qualityStatus: "ready",
+    ...overrides,
   };
 }
 
@@ -97,6 +101,26 @@ describe("emitTrafficAdsetScenario", () => {
     expect(rec?.decisionLabel).toBe("scale");
     expect(rec?.confidence).toBe("high");
     expect(rec?.cohort).toBe("traffic");
+  });
+
+  it("keeps an efficient one-event traffic row on watch", () => {
+    const rec = emitTrafficAdsetScenario({
+      adset: adset({
+        spend: context.thresholds.metrics.cost_per_link_click_28d.p10,
+        linkClicks: 1,
+        ctr: 6,
+      }),
+      context,
+      cohort: "traffic",
+      signals: signal(20),
+    });
+
+    expect(rec?.type).toBe("scenario_t2_traffic_steady_keep");
+    expect(rec?.decisionLabel).toBe("keep");
+    expect(rec?.decisionState).toBe("watch");
+    expect(targetValue(rec)?.score).toBe(0.92);
+    expect(rec?.confidence).toBe("low");
+    expect(rec?.confidenceScore).toBe(0.5525);
   });
 
   it("emits T3 cut for inefficient mature traffic above hard-cut spend", () => {
@@ -151,7 +175,7 @@ describe("emitTrafficAdsetScenario", () => {
     expect(rec?.type).toBe("scenario_t3_traffic_inefficient_cut");
     expect(rec?.decisionLabel).toBe("cut");
     expect(rec?.confidence).toBe("high");
-    expect(rec?.confidenceScore).toBe(1);
+    expect(rec?.confidenceScore).toBe(0.97);
   });
 
   it("uses LPV cost calibration for landing-page-view traffic", () => {
@@ -182,7 +206,7 @@ describe("emitTrafficAdsetScenario", () => {
 
     expect(rec?.type).toBe("scenario_t2_traffic_steady_keep");
     expect(rec?.decisionLabel).toBe("keep");
-    expect(targetValue(rec)?.score).toBe(0.6);
+    expect(targetValue(rec)?.score).toBe(0.55);
   });
 
   it("emits T4 refresh for weak traffic with fatigue", () => {
@@ -190,11 +214,35 @@ describe("emitTrafficAdsetScenario", () => {
       adset: adset({ spend: 140, linkClicks: 100, ctr: 2.5, frequency: 4 }),
       context,
       cohort: "traffic",
-      signals: signal(3),
+      signals: signal(3, { ctrDecayPct: -20 }),
     });
 
     expect(rec?.type).toBe("scenario_t4_traffic_refresh");
     expect(rec?.decisionLabel).toBe("refresh");
+  });
+
+  it("does not call high frequency fatigue without temporal decay", () => {
+    const rec = emitTrafficAdsetScenario({
+      adset: adset({ spend: 140, linkClicks: 100, ctr: 2.5, frequency: 4 }),
+      context,
+      cohort: "traffic",
+      signals: signal(20, { ctrDecayPct: null }),
+    });
+
+    expect(rec?.type).toBe("scenario_t2_traffic_steady_keep");
+    expect(rec?.decisionLabel).toBe("keep");
+  });
+
+  it("does not call CTR decay fatigue without account-relative exposure pressure", () => {
+    const rec = emitTrafficAdsetScenario({
+      adset: adset({ spend: 140, linkClicks: 100, ctr: 0.5, frequency: 1.2 }),
+      context,
+      cohort: "traffic",
+      signals: signal(20, { ctrDecayPct: -25 }),
+    });
+
+    expect(rec?.type).toBe("scenario_t2_traffic_steady_keep");
+    expect(rec?.decisionLabel).toBe("keep");
   });
 
   it("returns null when matching link-click calibration is missing", () => {

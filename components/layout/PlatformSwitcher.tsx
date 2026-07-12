@@ -13,9 +13,9 @@ import {
 import { usePlatformContext } from "@/lib/navigation/platform-context";
 
 const STATUS_BADGE_CLASSES: Record<PlatformStatus, string> = {
-  live: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  beta: "bg-amber-50 text-amber-800 border-amber-200",
-  soon: "bg-neutral-100 text-neutral-500 border-neutral-200",
+  live: "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)] border-[var(--adc-pos-bd)]",
+  beta: "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)] border-[var(--adc-caution-bd)]",
+  soon: "bg-[var(--adc-s3)] text-[var(--adc-ink3)] border-[var(--adc-b1)]",
 };
 
 const STATUS_LABELS: Record<PlatformStatus, string> = {

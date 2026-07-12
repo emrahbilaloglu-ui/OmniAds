@@ -1,8 +1,6 @@
 import {
   Activity,
   Database,
-  FileText,
-  Globe,
   Home,
   Layers,
   Megaphone,
@@ -22,12 +20,7 @@ import { getTranslations } from "@/lib/i18n";
 
 export type ShellLayer = "L1" | "L2" | "L3";
 export type PlatformId =
-  | "meta"
-  | "klaviyo"
-  | "google"
-  | "tiktok"
-  | "pinterest"
-  | "snapchat";
+  "meta" | "klaviyo" | "google" | "tiktok" | "pinterest" | "snapchat";
 export type PlatformStatus = "live" | "beta" | "soon";
 export type PlatformAccent = "blue" | "violet" | "emerald" | "slate";
 export type Layer2SubStatus = "coming" | "soon";
@@ -110,8 +103,21 @@ export const platformsRegistry: Record<PlatformId, PlatformRegistryItem> = {
 export function getLayer1Items(language: AppLanguage): ShellNavItem[] {
   const t = getTranslations(language).navigation;
   return [
-    { id: "overview", label: t.overview, href: "/overview", icon: Home, group: "Workspace" },
-    { id: "reports", label: t.reports, href: "/reports", icon: PieChart, group: "Workspace", requiredPlan: "pro" },
+    {
+      id: "overview",
+      label: t.overview,
+      href: "/overview",
+      icon: Home,
+      group: "Workspace",
+    },
+    {
+      id: "reports",
+      label: t.reports,
+      href: "/reports",
+      icon: PieChart,
+      group: "Workspace",
+      requiredPlan: "pro",
+    },
     {
       id: "commercial-truth",
       label: t.commercialTruth,
@@ -127,44 +133,83 @@ export function getLayer1Items(language: AppLanguage): ShellNavItem[] {
       icon: Sparkles,
       group: "Workspace",
       requiredPlan: "pro",
-      activeHrefs: ["/insights", "/insights/analytics", "/insights/ai-visibility", "/insights/seo"],
+      activeHrefs: [
+        "/insights",
+        "/insights/analytics",
+        "/insights/ai-visibility",
+        "/insights/seo",
+      ],
     },
   ];
 }
 
 export function getPlatformLayer2Items(
   platformId: PlatformId,
-  language: AppLanguage
+  language: AppLanguage,
 ): ShellNavItem[] {
   const t = getTranslations(language).navigation;
   switch (platformId) {
     case "meta":
       return [
-        { id: "pulse", label: t.pulse, href: "/platforms/meta", icon: Activity, exact: true },
-        { id: "creatives", label: t.creatives, href: "/platforms/meta/creatives", icon: Layers },
-        { id: "copies", label: t.copies, href: "/platforms/meta/copies", icon: FileText },
         {
-          id: "landing-pages",
-          label: t.landingPages,
-          href: "/platforms/meta/landing-pages",
-          icon: Globe,
+          id: "pulse",
+          label: t.pulse,
+          href: "/platforms/meta",
+          icon: Activity,
+          exact: true,
+          activeHrefs: ["/platforms/meta/history"],
         },
-        { id: "launchpad", label: t.launchpad, href: "/platforms/meta/launchpad", icon: Rocket },
-        { id: "automation", label: t.automation, href: "/platforms/meta/automation", icon: ShieldCheck },
         {
-          id: "audiences",
-          label: t.audiences,
-          href: "/platforms/meta/audiences",
-          icon: Target,
-          subStatus: "soon",
+          id: "creative-studio",
+          label: t.creativeStudio,
+          href: "/platforms/meta/creatives",
+          icon: Layers,
+          activeHrefs: [
+            "/platforms/meta/copies",
+            "/platforms/meta/landing-pages",
+            "/platforms/meta/creative-inbox",
+            "/platforms/meta/audiences",
+          ],
+        },
+        {
+          id: "launchpad",
+          label: t.launchpad,
+          href: "/platforms/meta/launchpad",
+          icon: Rocket,
+        },
+        {
+          id: "automation",
+          label: t.automation,
+          href: "/platforms/meta/automation",
+          icon: ShieldCheck,
         },
       ];
     case "klaviyo":
       return [
-        { id: "flows", label: t.flows, href: "/platforms/klaviyo/flows", icon: Activity },
-        { id: "campaigns", label: t.campaigns, href: "/platforms/klaviyo/campaigns", icon: Megaphone },
-        { id: "templates", label: t.templates, href: "/platforms/klaviyo/templates", icon: Layers },
-        { id: "segments", label: t.segments, href: "/platforms/klaviyo/segments", icon: Target },
+        {
+          id: "flows",
+          label: t.flows,
+          href: "/platforms/klaviyo/flows",
+          icon: Activity,
+        },
+        {
+          id: "campaigns",
+          label: t.campaigns,
+          href: "/platforms/klaviyo/campaigns",
+          icon: Megaphone,
+        },
+        {
+          id: "templates",
+          label: t.templates,
+          href: "/platforms/klaviyo/templates",
+          icon: Layers,
+        },
+        {
+          id: "segments",
+          label: t.segments,
+          href: "/platforms/klaviyo/segments",
+          icon: Target,
+        },
       ];
     case "google":
       // The Google Ads intelligence dashboard is one self-contained workspace with its
@@ -191,20 +236,47 @@ export function getPlatformLayer2Items(
 export function getLayer3Items(language: AppLanguage): ShellNavItem[] {
   const t = getTranslations(language).navigation;
   return [
-    { id: "integrations", label: t.integrations, href: "/integrations", icon: Plug, group: "Manage" },
-    { id: "team", label: t.team, href: "/team", icon: Users, group: "Manage", requiredPlan: "scale" },
-    { id: "settings", label: t.settings, href: "/settings", icon: Settings, group: "Manage" },
+    {
+      id: "integrations",
+      label: t.integrations,
+      href: "/integrations",
+      icon: Plug,
+      group: "Manage",
+    },
+    {
+      id: "team",
+      label: t.team,
+      href: "/team",
+      icon: Users,
+      group: "Manage",
+      requiredPlan: "scale",
+    },
+    {
+      id: "settings",
+      label: t.settings,
+      href: "/settings",
+      icon: Settings,
+      group: "Manage",
+    },
   ];
 }
 
-export function getPlatformFirstHref(platformId: PlatformId, language: AppLanguage = "en") {
-  return getPlatformLayer2Items(platformId, language)[0]?.href ?? `/platforms/${platformId}`;
+export function getPlatformFirstHref(
+  platformId: PlatformId,
+  language: AppLanguage = "en",
+) {
+  return (
+    getPlatformLayer2Items(platformId, language)[0]?.href ??
+    `/platforms/${platformId}`
+  );
 }
 
 export function getAllShellNavItems(language: AppLanguage): ShellNavItem[] {
   return [
     ...getLayer1Items(language),
-    ...platformOrder.flatMap((platformId) => getPlatformLayer2Items(platformId, language)),
+    ...platformOrder.flatMap((platformId) =>
+      getPlatformLayer2Items(platformId, language),
+    ),
     ...getLayer3Items(language),
   ];
 }

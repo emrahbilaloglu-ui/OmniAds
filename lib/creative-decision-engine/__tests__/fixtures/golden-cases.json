@@ -934,5 +934,44 @@
     "expectedTopReasonTag": "recovery_hold_strict_roas_boundary",
     "expectedMaturity": "mature",
     "expectedSafeFallbackIfDataMissing": "diagnose_data"
+  },
+  {
+    "caseId": "GC-077",
+    "inputSummary": "scale-ready winner uses a positive commercial target confirmed within the 30-day freshness window",
+    "expectedPrimaryDecision": "Scale",
+    "expectedBuyerAction": "scale",
+    "expectedActionability": "review_only",
+    "expectedProblemClass": "performance",
+    "expectedPriorityBand": "high",
+    "expectedConfidenceBand": "high",
+    "expectedTopReasonTag": "fresh_commercial_truth_unchanged",
+    "expectedMaturity": "mature",
+    "expectedSafeFallbackIfDataMissing": "diagnose_data"
+  },
+  {
+    "caseId": "GC-078",
+    "inputSummary": "scale-ready winner uses a positive commercial target last confirmed more than 30 days ago",
+    "expectedPrimaryDecision": "Keep",
+    "expectedBuyerAction": "review",
+    "expectedActionability": "review_only",
+    "expectedProblemClass": "data_quality",
+    "expectedPriorityBand": "high",
+    "expectedConfidenceBand": "medium",
+    "expectedTopReasonTag": "commercial_truth_stale_scale_block",
+    "expectedMaturity": "mature",
+    "expectedSafeFallbackIfDataMissing": "diagnose_data"
+  },
+  {
+    "caseId": "GC-079",
+    "inputSummary": "scale-ready winner uses a positive commercial target whose update time is unknown",
+    "expectedPrimaryDecision": "Keep",
+    "expectedBuyerAction": "review",
+    "expectedActionability": "review_only",
+    "expectedProblemClass": "data_quality",
+    "expectedPriorityBand": "high",
+    "expectedConfidenceBand": "medium",
+    "expectedTopReasonTag": "commercial_truth_unknown_scale_block",
+    "expectedMaturity": "mature",
+    "expectedSafeFallbackIfDataMissing": "diagnose_data"
   }
 ]

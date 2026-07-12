@@ -23,8 +23,28 @@ vi.mock("@/lib/meta/automation-write-guard", () => ({
 }));
 
 vi.mock("@/lib/launchpad/meta-validation", () => ({
+  metaLaunchAccountBlockerHttpStatus: vi.fn((code: string) =>
+    code === "provider_account_not_assigned" ? 403 : 400,
+  ),
+  resolveAssignedMetaLaunchAccount: vi.fn(),
   resolveMetaLaunchWriteContext: vi.fn(),
   validateMetaLaunchRequest: vi.fn(),
+}));
+
+vi.mock("@/lib/launchpad/meta-launch-intent-service", () => ({
+  prepareMetaLaunchIntentForExecution: vi.fn(),
+}));
+
+vi.mock("@/lib/launchpad/meta-launch-intent-capability", () => ({
+  getMetaLaunchIntentCapability: vi.fn(),
+}));
+
+vi.mock("@/lib/launchpad/meta-launch-intent-store", () => ({
+  markMetaLaunchIntentExecuting: vi.fn(),
+  recordMetaLaunchIntentOutcome: vi.fn(),
+  recordMetaLaunchIntentPreExecutionFailure: vi.fn(),
+  recordMetaLaunchIntentValidation: vi.fn(),
+  recordMetaLaunchIntentWriteBlocked: vi.fn(),
 }));
 
 const access = await import("@/lib/access");
@@ -32,6 +52,9 @@ const actionLog = await import("@/lib/meta/ads-action-log");
 const writeGuard = await import("@/lib/meta/automation-write-guard");
 const launchWrite = await import("@/lib/meta/launch-write");
 const validation = await import("@/lib/launchpad/meta-validation");
+const intentService = await import("@/lib/launchpad/meta-launch-intent-service");
+const intentCapability = await import("@/lib/launchpad/meta-launch-intent-capability");
+const intentStore = await import("@/lib/launchpad/meta-launch-intent-store");
 const { POST } = await import("./route");
 
 const BUSINESS_ID = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
@@ -75,9 +98,13 @@ function payload() {
 }
 
 function request(body: unknown) {
+  const scopedBody =
+    body && typeof body === "object" && !Array.isArray(body)
+      ? { providerAccountId: "act_123", ...body }
+      : body;
   return new NextRequest("http://localhost/api/launchpad/meta/launch", {
     method: "POST",
-    body: JSON.stringify(body),
+    body: JSON.stringify(scopedBody),
     headers: { "Content-Type": "application/json" },
   });
 }
@@ -95,6 +122,13 @@ function mockValidPayload() {
 describe("POST /api/launchpad/meta/launch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(intentCapability.getMetaLaunchIntentCapability).mockResolvedValue({
+      status: "ready",
+      canRead: true,
+      canWrite: true,
+      missingTables: [],
+      checkedAt: "2026-07-11T00:00:00.000Z",
+    });
     vi.mocked(access.requireBusinessAccess).mockResolvedValue({
       session: { user: { id: USER_ID } },
       membership: { businessId: BUSINESS_ID },
@@ -106,6 +140,34 @@ describe("POST /api/launchpad/meta/launch", () => {
     }) as never);
     vi.mocked(actionLog.completeMetaAdsActionLog).mockResolvedValue({
       id: "log",
+    } as never);
+    vi.mocked(validation.resolveAssignedMetaLaunchAccount).mockResolvedValue({
+      ok: true,
+      providerAccountId: "act_123",
+    });
+    vi.mocked(intentService.prepareMetaLaunchIntentForExecution).mockResolvedValue({
+      ok: true,
+      created: true,
+      intent: { id: "intent_1", status: "prepared" },
+    } as never);
+    vi.mocked(intentStore.recordMetaLaunchIntentValidation).mockResolvedValue({
+      id: "intent_1",
+      status: "ready",
+    } as never);
+    vi.mocked(intentStore.markMetaLaunchIntentExecuting).mockResolvedValue({
+      id: "intent_1",
+      status: "executing",
+    } as never);
+    vi.mocked(intentStore.recordMetaLaunchIntentOutcome).mockImplementation(
+      async (input) => ({ id: "intent_1", status: input.status }) as never,
+    );
+    vi.mocked(intentStore.recordMetaLaunchIntentPreExecutionFailure).mockResolvedValue({
+      id: "intent_1",
+      status: "failed",
+    } as never);
+    vi.mocked(intentStore.recordMetaLaunchIntentWriteBlocked).mockResolvedValue({
+      id: "intent_1",
+      status: "write_blocked",
     } as never);
     vi.mocked(validation.resolveMetaLaunchWriteContext).mockResolvedValue({
       ok: true,
@@ -167,13 +229,18 @@ describe("POST /api/launchpad/meta/launch", () => {
       campaignId: "cmp_1",
       adsetIds: ["adset_1"],
       adIds: ["ad_1", "ad_2"],
+      launchIntentId: "intent_1",
+      launchIntentStatus: "succeeded",
     });
     expect(body.steps).toHaveLength(4);
     expect(launchWrite.createCampaign).toHaveBeenCalledOnce();
     expect(launchWrite.createAdSet).toHaveBeenCalledOnce();
     expect(launchWrite.createAd).toHaveBeenCalledTimes(2);
     expect(actionLog.createMetaAdsActionLog).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "launch_campaign" }),
+      expect.objectContaining({
+        action: "launch_campaign",
+        payloadRequest: expect.objectContaining({ launch_intent_id: "intent_1" }),
+      }),
     );
     expect(actionLog.createMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({ action: "launch_adset" }),
@@ -188,6 +255,17 @@ describe("POST /api/launchpad/meta/launch", () => {
       expect.objectContaining({
         status: "success",
         resultingAdId: "cmp_1",
+      }),
+    );
+    expect(validation.validateMetaLaunchRequest).toHaveBeenCalledWith({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_123",
+      payload: normalizeMetaLaunchPayload(payload()),
+    });
+    expect(intentStore.recordMetaLaunchIntentOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "intent_1",
+        status: "succeeded",
       }),
     );
   });
@@ -264,6 +342,10 @@ describe("POST /api/launchpad/meta/launch", () => {
 
     expect(response.status).toBe(503);
     expect(body.error.code).toBe("kill_switch_engaged");
+    expect(body.launchIntentId).toBe("intent_1");
+    expect(intentStore.recordMetaLaunchIntentWriteBlocked).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "intent_1" }),
+    );
     expect(validation.validateMetaLaunchRequest).not.toHaveBeenCalled();
     expect(launchWrite.createCampaign).not.toHaveBeenCalled();
     expect(actionLog.createMetaAdsActionLog).not.toHaveBeenCalled();
@@ -313,6 +395,53 @@ describe("POST /api/launchpad/meta/launch", () => {
 
     expect(response.status).toBe(400);
     expect(body.error.code).toBe("validation_blocked");
+    expect(launchWrite.createCampaign).not.toHaveBeenCalled();
+  });
+
+  it("persists a terminal receipt when validation infrastructure fails", async () => {
+    vi.mocked(validation.validateMetaLaunchRequest).mockRejectedValueOnce(
+      new Error("warehouse unavailable"),
+    );
+
+    const response = await POST(
+      request({
+        businessId: BUSINESS_ID,
+        payload: payload(),
+        idempotencyKey: "idem_validation_error",
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body.error.code).toBe("launch_validation_failed");
+    expect(body.launchIntentId).toBe("intent_1");
+    expect(intentStore.recordMetaLaunchIntentPreExecutionFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "intent_1",
+        receipt: expect.objectContaining({ code: "launch_validation_failed" }),
+      }),
+    );
+    expect(launchWrite.createCampaign).not.toHaveBeenCalled();
+  });
+
+  it("blocks before intent preparation or provider writes when the intent migration is missing", async () => {
+    vi.mocked(intentCapability.getMetaLaunchIntentCapability).mockResolvedValue({
+      status: "migration_required",
+      canRead: false,
+      canWrite: false,
+      missingTables: ["meta_launch_intents"],
+      checkedAt: "2026-07-11T00:00:00.000Z",
+    });
+
+    const response = await POST(
+      request({ businessId: BUSINESS_ID, payload: payload(), idempotencyKey: "idem_missing" }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: { code: "launch_intent_migration_required" },
+    });
+    expect(intentService.prepareMetaLaunchIntentForExecution).not.toHaveBeenCalled();
     expect(launchWrite.createCampaign).not.toHaveBeenCalled();
   });
 });

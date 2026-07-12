@@ -1,28 +1,136 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const queryLog: string[] = [];
+const queryCalls: Array<{ text: string; values: unknown[] }> = [];
 const tableResponses = {
   targetPack: [] as unknown[],
+  targetHistory: [] as Array<Record<string, unknown>>,
   countryEconomics: [] as unknown[],
   promoCalendar: [] as unknown[],
   operatingConstraints: [] as unknown[],
   calibrationProfiles: [] as unknown[],
 };
+let currentTargetPack: Record<string, unknown> | null = null;
+let targetHistorySequence = 0;
 
 vi.mock("@/lib/db", () => {
-  const sql = vi.fn(async (strings: TemplateStringsArray) => {
-    const text = strings.join("?");
-    queryLog.push(text);
+  const sql = vi.fn(
+    async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = strings.join("?");
+      queryLog.push(text);
+      queryCalls.push({ text, values });
 
-    if (text.includes("FROM business_target_packs")) return tableResponses.targetPack;
-    if (text.includes("FROM business_country_economics")) return tableResponses.countryEconomics;
-    if (text.includes("FROM business_promo_calendar_events")) return tableResponses.promoCalendar;
-    if (text.includes("FROM business_operating_constraints")) return tableResponses.operatingConstraints;
-    if (text.includes("FROM business_decision_calibration_profiles")) {
-      return tableResponses.calibrationProfiles;
-    }
-    return [];
-  }) as unknown as ((strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]>) & {
+      if (
+        text.includes("WITH write_clock AS") &&
+        text.includes("INSERT INTO business_target_packs") &&
+        text.includes("FROM current_write")
+      ) {
+        const candidate = {
+          business_id: values[0],
+          business_ref_id: currentTargetPack?.business_ref_id ?? values[1],
+          target_cpa: values[2],
+          target_roas: values[3],
+          break_even_cpa: values[4],
+          break_even_roas: values[5],
+          contribution_margin_assumption: values[6],
+          aov_assumption: values[7],
+          new_customer_weight: values[8],
+          default_risk_posture: values[9],
+          cost_cogs_percent: values[10],
+          cost_shipping_percent: values[11],
+          cost_fulfillment_percent: values[12],
+          cost_payment_processing_percent: values[13],
+          source_label: values[14],
+        };
+        const semanticCurrent = currentTargetPack
+          ? Object.fromEntries(
+              Object.keys(candidate).map((key) => [
+                key,
+                currentTargetPack?.[key],
+              ]),
+            )
+          : null;
+
+        if (
+          !semanticCurrent ||
+          JSON.stringify(semanticCurrent) !== JSON.stringify(candidate)
+        ) {
+          const effectiveAt = new Date().toISOString();
+          currentTargetPack = {
+            ...candidate,
+            updated_by_user_id: values[15],
+            updated_at: effectiveAt,
+          };
+          tableResponses.targetHistory.push({
+            ...currentTargetPack,
+            id: `history-${++targetHistorySequence}`,
+            operation: "upsert",
+            effective_at: effectiveAt,
+            recorded_at: effectiveAt,
+          });
+        }
+        return [];
+      }
+
+      if (
+        text.includes("WITH write_clock AS") &&
+        text.includes("history_write AS") &&
+        text.includes("DELETE FROM business_target_packs target")
+      ) {
+        if (currentTargetPack?.business_id === values[0]) {
+          const effectiveAt = new Date().toISOString();
+          tableResponses.targetHistory.push({
+            ...currentTargetPack,
+            id: `history-${++targetHistorySequence}`,
+            operation: "delete",
+            effective_at: effectiveAt,
+            recorded_at: effectiveAt,
+            updated_at: effectiveAt,
+            updated_by_user_id: values[1],
+          });
+          currentTargetPack = null;
+        }
+        return [];
+      }
+
+      if (text.includes("FROM business_target_pack_history")) {
+        const businessId = values[0];
+        const cutoff = Date.parse(String(values[1]));
+        return tableResponses.targetHistory
+          .filter((row) => row.business_id === businessId)
+          .filter((row) => Date.parse(String(row.effective_at)) <= cutoff)
+          .filter((row) => Date.parse(String(row.recorded_at)) <= cutoff)
+          .sort((left, right) => {
+            const effectiveDelta =
+              Date.parse(String(right.effective_at)) -
+              Date.parse(String(left.effective_at));
+            if (effectiveDelta !== 0) return effectiveDelta;
+            const recordedDelta =
+              Date.parse(String(right.recorded_at)) -
+              Date.parse(String(left.recorded_at));
+            if (recordedDelta !== 0) return recordedDelta;
+            return String(right.id).localeCompare(String(left.id));
+          })
+          .slice(0, 1);
+      }
+
+      if (text.includes("FROM business_target_packs"))
+        return tableResponses.targetPack;
+      if (text.includes("FROM business_country_economics"))
+        return tableResponses.countryEconomics;
+      if (text.includes("FROM business_promo_calendar_events"))
+        return tableResponses.promoCalendar;
+      if (text.includes("FROM business_operating_constraints"))
+        return tableResponses.operatingConstraints;
+      if (text.includes("FROM business_decision_calibration_profiles")) {
+        return tableResponses.calibrationProfiles;
+      }
+      return [];
+    },
+  ) as unknown as ((
+    strings: TemplateStringsArray,
+    ...values: unknown[]
+  ) => Promise<unknown[]>) & {
     query?: ReturnType<typeof vi.fn>;
   };
 
@@ -61,14 +169,63 @@ vi.mock("@/lib/provider-account-reference-store", () => ({
 
 const businessCommercial = await import("@/lib/business-commercial");
 
+describe("commercial target freshness", () => {
+  it("uses the shared 30-day rule and fails unknown timestamps closed", () => {
+    const now = new Date("2026-07-10T00:00:00.000Z");
+
+    expect(
+      businessCommercial.resolveBusinessTargetPackFreshness(
+        "2026-06-11T00:00:00.000Z",
+        now,
+      ),
+    ).toBe("fresh");
+    expect(
+      businessCommercial.resolveBusinessTargetPackFreshness(
+        "2026-06-09T23:59:59.000Z",
+        now,
+      ),
+    ).toBe("stale");
+    expect(
+      businessCommercial.resolveBusinessTargetPackFreshness(null, now),
+    ).toBe("unknown");
+  });
+
+  it("uses the supplied reference time and rejects future target updates", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2040-01-01T00:00:00.000Z"));
+      const historicalAsOf = new Date("2026-07-10T23:59:59.999Z");
+
+      expect(
+        businessCommercial.resolveBusinessTargetPackFreshness(
+          "2026-06-20T12:00:00.000Z",
+          historicalAsOf,
+        ),
+      ).toBe("fresh");
+      expect(
+        businessCommercial.resolveBusinessTargetPackFreshness(
+          "2026-07-11T00:00:00.000Z",
+          historicalAsOf,
+        ),
+      ).toBe("unknown");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("upsertBusinessCommercialTruthSnapshot", () => {
   beforeEach(() => {
     queryLog.length = 0;
+    queryCalls.length = 0;
     tableResponses.targetPack = [];
+    tableResponses.targetHistory = [];
     tableResponses.countryEconomics = [];
     tableResponses.promoCalendar = [];
     tableResponses.operatingConstraints = [];
     tableResponses.calibrationProfiles = [];
+    currentTargetPack = null;
+    targetHistorySequence = 0;
     vi.clearAllMocks();
   });
 
@@ -223,6 +380,249 @@ describe("upsertBusinessCommercialTruthSnapshot", () => {
       fulfillmentPercent: 0.05,
       paymentProcessingPercent: 0.03,
     });
+  });
+
+  it("keeps changed target versions, skips retry duplicates, and resolves them point in time", async () => {
+    vi.useFakeTimers();
+    try {
+      const saveTarget = (targetRoas: number) =>
+        businessCommercial.upsertBusinessCommercialTruthSnapshot({
+          businessId: "11111111-1111-4111-8111-111111111111",
+          updatedByUserId: "22222222-2222-4222-8222-222222222222",
+          snapshot: {
+            targetPack: {
+              targetCpa: 40,
+              targetRoas,
+              breakEvenCpa: 55,
+              breakEvenRoas: 1.8,
+              contributionMarginAssumption: 0.4,
+              aovAssumption: 100,
+              newCustomerWeight: 0.25,
+              defaultRiskPosture: "balanced",
+              costStructure: {
+                cogsPercent: 0.3,
+                shippingPercent: 0.08,
+                fulfillmentPercent: 0.05,
+                paymentProcessingPercent: 0.03,
+              },
+              sourceLabel: "settings_manual_entry",
+              updatedAt: null,
+              updatedByUserId: null,
+            },
+          },
+        });
+
+      vi.setSystemTime(new Date("2026-06-01T10:00:00.000Z"));
+      await saveTarget(2.5);
+      vi.setSystemTime(new Date("2026-06-01T10:05:00.000Z"));
+      await saveTarget(2.5);
+      vi.setSystemTime(new Date("2026-06-02T10:00:00.000Z"));
+      await saveTarget(3.1);
+
+      expect(tableResponses.targetHistory).toHaveLength(2);
+      expect(
+        tableResponses.targetHistory.map((row) => row.target_roas),
+      ).toEqual([2.5, 3.1]);
+
+      const first = await businessCommercial.getBusinessTargetPackHistoryAsOf({
+        businessId: "11111111-1111-4111-8111-111111111111",
+        asOf: "2026-06-01T10:00:00.000Z",
+      });
+      const second = await businessCommercial.getBusinessTargetPackHistoryAsOf({
+        businessId: "11111111-1111-4111-8111-111111111111",
+        asOf: "2026-06-02T10:00:00.000Z",
+      });
+
+      expect(first?.targetRoas).toBe(2.5);
+      expect(second?.targetRoas).toBe(3.1);
+
+      const upsertQuery = queryCalls.find((call) =>
+        call.text.includes("FROM current_write"),
+      );
+      expect(upsertQuery?.text).toContain("IS DISTINCT FROM");
+      expect(upsertQuery?.text).toContain(
+        "INSERT INTO business_target_pack_history",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("excludes future versions and treats a delete snapshot as a tombstone", async () => {
+    const businessId = "11111111-1111-4111-8111-111111111111";
+    tableResponses.targetHistory = [
+      {
+        id: "history-1",
+        business_id: businessId,
+        target_cpa: 40,
+        target_roas: 2.4,
+        break_even_cpa: 55,
+        break_even_roas: 1.8,
+        contribution_margin_assumption: 0.4,
+        aov_assumption: 100,
+        new_customer_weight: 0.25,
+        default_risk_posture: "balanced",
+        cost_cogs_percent: 0.3,
+        cost_shipping_percent: 0.08,
+        cost_fulfillment_percent: 0.05,
+        cost_payment_processing_percent: 0.03,
+        source_label: "test",
+        updated_by_user_id: null,
+        updated_at: "2026-06-01T10:00:00.000Z",
+        operation: "upsert",
+        effective_at: "2026-06-01T10:00:00.000Z",
+        recorded_at: "2026-06-01T10:00:00.000Z",
+      },
+      {
+        id: "history-2",
+        business_id: businessId,
+        target_cpa: 40,
+        target_roas: 3.5,
+        break_even_cpa: 55,
+        break_even_roas: 1.8,
+        contribution_margin_assumption: 0.4,
+        aov_assumption: 100,
+        new_customer_weight: 0.25,
+        default_risk_posture: "balanced",
+        cost_cogs_percent: 0.3,
+        cost_shipping_percent: 0.08,
+        cost_fulfillment_percent: 0.05,
+        cost_payment_processing_percent: 0.03,
+        source_label: "future",
+        updated_by_user_id: null,
+        updated_at: "2026-06-05T10:00:00.000Z",
+        operation: "upsert",
+        effective_at: "2026-06-05T10:00:00.000Z",
+        recorded_at: "2026-06-05T10:00:00.000Z",
+      },
+    ];
+
+    expect(
+      (
+        await businessCommercial.getBusinessTargetPackHistoryAsOf({
+          businessId,
+          asOf: "2026-06-02T12:00:00.000Z",
+        })
+      )?.targetRoas,
+    ).toBe(2.4);
+
+    tableResponses.targetHistory.push({
+      ...tableResponses.targetHistory[0],
+      id: "history-3",
+      operation: "delete",
+      effective_at: "2026-06-03T09:00:00.000Z",
+      recorded_at: "2026-06-03T09:00:00.000Z",
+      updated_at: "2026-06-03T09:00:00.000Z",
+    });
+    expect(
+      await businessCommercial.getBusinessTargetPackHistoryAsOf({
+        businessId,
+        asOf: "2026-06-03T10:00:00.000Z",
+      }),
+    ).toBeNull();
+  });
+
+  it("uses the scheduled 03:00Z producer cutoff for a date-only asOf", async () => {
+    const businessId = "11111111-1111-4111-8111-111111111111";
+    tableResponses.targetHistory = [
+      {
+        id: "before-cutoff",
+        business_id: businessId,
+        target_roas: 2.4,
+        default_risk_posture: "balanced",
+        operation: "upsert",
+        effective_at: "2026-06-05T02:59:59.000Z",
+        recorded_at: "2026-06-05T02:59:59.000Z",
+      },
+      {
+        id: "after-cutoff",
+        business_id: businessId,
+        target_roas: 9.9,
+        default_risk_posture: "balanced",
+        operation: "upsert",
+        effective_at: "2026-06-05T03:00:01.000Z",
+        recorded_at: "2026-06-05T03:00:01.000Z",
+      },
+    ];
+
+    await expect(
+      businessCommercial.getBusinessTargetPackHistoryAsOf({
+        businessId,
+        asOf: "2026-06-05",
+      }),
+    ).resolves.toMatchObject({ targetRoas: 2.4 });
+  });
+
+  it("writes a delete tombstone before removing current state and makes delete retries inert", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-06-01T10:00:00.000Z"));
+      await businessCommercial.upsertBusinessCommercialTruthSnapshot({
+        businessId: "11111111-1111-4111-8111-111111111111",
+        updatedByUserId: "22222222-2222-4222-8222-222222222222",
+        snapshot: {
+          targetPack: {
+            targetCpa: null,
+            targetRoas: 2.5,
+            breakEvenCpa: null,
+            breakEvenRoas: 1.8,
+            contributionMarginAssumption: null,
+            aovAssumption: null,
+            newCustomerWeight: null,
+            defaultRiskPosture: "balanced",
+            costStructure: null,
+            sourceLabel: "test",
+            updatedAt: null,
+            updatedByUserId: null,
+          },
+        },
+      });
+
+      vi.setSystemTime(new Date("2026-06-02T10:00:00.000Z"));
+      const deleteInput = {
+        businessId: "11111111-1111-4111-8111-111111111111",
+        updatedByUserId: "33333333-3333-4333-8333-333333333333",
+        snapshot: { targetPack: null },
+      };
+      await businessCommercial.upsertBusinessCommercialTruthSnapshot(
+        deleteInput,
+      );
+      await businessCommercial.upsertBusinessCommercialTruthSnapshot(
+        deleteInput,
+      );
+
+      expect(tableResponses.targetHistory.map((row) => row.operation)).toEqual([
+        "upsert",
+        "delete",
+      ]);
+      const deleteQuery = queryCalls.find((call) =>
+        call.text.includes("DELETE FROM business_target_packs target"),
+      );
+      expect(deleteQuery?.text.indexOf("history_write AS")).toBeLessThan(
+        deleteQuery?.text.indexOf("DELETE FROM business_target_packs target") ??
+          -1,
+      );
+      expect(deleteQuery?.text).toContain("FOR UPDATE OF target");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not invent pre-history state from the mutable current target row", async () => {
+    tableResponses.targetPack = [
+      {
+        target_roas: 9.9,
+        default_risk_posture: "balanced",
+        updated_at: "2026-05-01T00:00:00.000Z",
+      },
+    ];
+
+    await expect(
+      businessCommercial.getBusinessTargetPackHistoryAsOf({
+        businessId: "11111111-1111-4111-8111-111111111111",
+        asOf: "2026-05-01",
+      }),
+    ).resolves.toBeNull();
   });
 
   it("normalizes database timestamps before building coverage summaries", async () => {

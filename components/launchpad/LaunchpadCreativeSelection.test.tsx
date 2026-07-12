@@ -104,7 +104,13 @@ function makeDecision(overrides: Partial<DecisionOutput> = {}): DecisionOutput {
 describe("LaunchpadCreativeSelection", () => {
   it("renders engine v3 label and below breakeven badges", () => {
     const decision = makeDecision({
-      badges: [{ type: "below_breakeven", label: "Below breakeven", severity: "warning" }],
+      badges: [
+        {
+          type: "below_breakeven",
+          label: "Below breakeven",
+          severity: "warning",
+        },
+      ],
     });
 
     const html = renderToStaticMarkup(
@@ -202,17 +208,25 @@ describe("LaunchpadCreativeSelection", () => {
   });
 
   it("maps cut and diagnose decisions to advisory notes", () => {
-    expect(getCreativeAdvisoryNotes(makeDecision({ label: "cut" })).map((note) => note.text)).toContain(
-      "Engine: cut candidate - confirm intent",
-    );
-    expect(getCreativeAdvisoryNotes(makeDecision({ label: "diagnose" })).map((note) => note.text)).toContain(
-      "Engine: data anomaly - verify before launch",
-    );
+    expect(
+      getCreativeAdvisoryNotes(makeDecision({ label: "cut" })).map(
+        (note) => note.text,
+      ),
+    ).toContain("Engine: cut candidate - confirm intent");
+    expect(
+      getCreativeAdvisoryNotes(makeDecision({ label: "diagnose" })).map(
+        (note) => note.text,
+      ),
+    ).toContain("Engine: data anomaly - verify before launch");
   });
 
   it("filters by status, format, label, badge, and search", () => {
     const rows = [
-      makeRow({ creativeId: "creative_1", name: "Hero Scale", format: "image" }),
+      makeRow({
+        creativeId: "creative_1",
+        name: "Hero Scale",
+        format: "image",
+      }),
       makeRow({
         id: "row_2",
         creativeId: "creative_2",
@@ -233,16 +247,28 @@ describe("LaunchpadCreativeSelection", () => {
       }),
     ];
     const decisions = new Map<string, DecisionOutput>([
-      ["creative_1", makeDecision({ creativeId: "creative_1", label: "scale" })],
+      [
+        "creative_1",
+        makeDecision({ creativeId: "creative_1", label: "scale" }),
+      ],
       [
         "creative_2",
         makeDecision({
           creativeId: "creative_2",
           label: "cut",
-          badges: [{ type: "below_breakeven", label: "Below breakeven", severity: "warning" }],
+          badges: [
+            {
+              type: "below_breakeven",
+              label: "Below breakeven",
+              severity: "warning",
+            },
+          ],
         }),
       ],
-      ["creative_3", makeDecision({ creativeId: "creative_3", label: "refresh" })],
+      [
+        "creative_3",
+        makeDecision({ creativeId: "creative_3", label: "refresh" }),
+      ],
     ]);
 
     expect(
@@ -279,12 +305,39 @@ describe("LaunchpadCreativeSelection", () => {
 
   it("sorts and builds the persistent selection summary", () => {
     const rows = [
-      makeRow({ creativeId: "creative_1", name: "B", spend: 50, roas: 3, purchases: 2 }),
-      makeRow({ id: "row_2", creativeId: "creative_2", name: "A", spend: 150, roas: 1, purchases: 1 }),
+      makeRow({
+        creativeId: "creative_1",
+        name: "B",
+        spend: 50,
+        roas: 3,
+        purchases: 2,
+      }),
+      makeRow({
+        id: "row_2",
+        creativeId: "creative_2",
+        name: "A",
+        spend: 150,
+        roas: 1,
+        purchases: 1,
+      }),
     ];
     const decisions = new Map<string, DecisionOutput>([
-      ["creative_1", makeDecision({ creativeId: "creative_1", label: "scale", metrics: { spend: 50, purchases: 2, roas: 3, recent7dRoas: 3 } })],
-      ["creative_2", makeDecision({ creativeId: "creative_2", label: "cut", metrics: { spend: 150, purchases: 1, roas: 1, recent7dRoas: 1 } })],
+      [
+        "creative_1",
+        makeDecision({
+          creativeId: "creative_1",
+          label: "scale",
+          metrics: { spend: 50, purchases: 2, roas: 3, recent7dRoas: 3 },
+        }),
+      ],
+      [
+        "creative_2",
+        makeDecision({
+          creativeId: "creative_2",
+          label: "cut",
+          metrics: { spend: 150, purchases: 1, roas: 1, recent7dRoas: 1 },
+        }),
+      ],
     ]);
 
     expect(
@@ -295,13 +348,50 @@ describe("LaunchpadCreativeSelection", () => {
       }).map((row) => row.name),
     ).toEqual(["A", "B"]);
     expect(
-      buildLaunchpadSelectionSummary({ selectedCreatives: rows, decisionByCreativeId: decisions }),
+      buildLaunchpadSelectionSummary({
+        selectedCreatives: rows,
+        decisionByCreativeId: decisions,
+      }),
     ).toMatchObject({
       count: 2,
       totalSpend: 200,
       averageRoas: 1.5,
+      missingMetricCount: 0,
       scale: 1,
       cut: 1,
     });
+  });
+
+  it("withholds synthetic provider-result metrics instead of treating placeholders as zero", () => {
+    const pendingMetrics = makeRow({
+      id: "recent:ad_new",
+      creativeId: "creative_new",
+      metricsAvailability: "unavailable",
+      spend: 0,
+      roas: 0,
+      purchases: 0,
+    });
+    const summary = buildLaunchpadSelectionSummary({
+      selectedCreatives: [pendingMetrics],
+      decisionByCreativeId: new Map(),
+    });
+    expect(summary).toMatchObject({
+      count: 1,
+      totalSpend: null,
+      averageRoas: null,
+      missingMetricCount: 1,
+    });
+
+    const html = renderToStaticMarkup(
+      <LaunchpadCreativeSelection
+        rows={[pendingMetrics]}
+        selectedCreativeIds={[]}
+        decisionByCreativeId={new Map()}
+        initialStatusFilter="all"
+        onToggleCreative={() => undefined}
+      />,
+    );
+    expect(html).toContain("Metrics unavailable");
+    expect(html).not.toContain("$0.00");
   });
 });

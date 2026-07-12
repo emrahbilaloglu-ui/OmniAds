@@ -8,6 +8,7 @@ import {
   type CSSProperties,
 } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
@@ -29,6 +30,9 @@ import { usePersistentCreativeDateRange } from "@/hooks/use-persistent-date-rang
 import { PlanGate } from "@/components/pricing/PlanGate";
 import { useAppStore } from "@/store/app-store";
 import type { MetaCopyApiRow } from "@/app/api/meta/copies/route";
+import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
+import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
+import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
 import {
   mapApiRowToCopyRow,
   type CopyMotionRow,
@@ -41,6 +45,7 @@ interface MetaCopiesResponse {
   meta?: {
     unresolved_filtered_count?: number;
     generatedAt?: string;
+    provider_account_id?: string;
   };
 }
 
@@ -51,9 +56,6 @@ const COPY_GROUP_OPTIONS: Array<{ value: CreativeGroupBy; label: string }> = [
   { value: "adSet", label: "Ad Set" },
 ];
 
-const LIBRARY_HREF = "/platforms/meta/creatives?tab=library";
-const DECISIONS_HREF = "/platforms/meta";
-
 function hasMessage(payload: unknown): payload is { message: string } {
   if (!payload || typeof payload !== "object") return false;
   return "message" in payload && typeof payload.message === "string";
@@ -61,12 +63,14 @@ function hasMessage(payload: unknown): payload is { message: string } {
 
 async function fetchCopyRows(params: {
   businessId: string;
+  providerAccountId: string;
   start: string;
   end: string;
   groupBy: "copy" | "adName" | "campaign" | "adSet";
 }): Promise<MetaCopiesResponse> {
   const query = new URLSearchParams({
     businessId: params.businessId,
+    providerAccountId: params.providerAccountId,
     start: params.start,
     end: params.end,
     groupBy: params.groupBy,
@@ -166,11 +170,14 @@ function exportCopiesCsv(rows: CopyMotionRow[], defaultCurrency: string | null) 
 }
 
 export default function CopiesPage() {
+  const searchParams = useSearchParams();
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
-  const businesses = useAppStore((state) => state.businesses);
   const businessId = selectedBusinessId ?? "";
-  const selectedBusinessCurrency =
-    businesses.find((business) => business.id === selectedBusinessId)?.currency ?? null;
+  const requestedProviderAccountId =
+    searchParams?.get("providerAccountId")?.trim() ?? "";
+  const [selectedProviderAccountId, setSelectedProviderAccountId] = useState(
+    requestedProviderAccountId,
+  );
 
   const [dateRangeValue, setDateRangeValue] = usePersistentCreativeDateRange();
   const [groupBy, setGroupBy] = useState<CreativeGroupBy>("copy");
@@ -192,12 +199,64 @@ export default function CopiesPage() {
       ? groupBy
       : "copy";
 
-  const copiesQuery = useQuery({
-    queryKey: ["copies-creatives", businessId, drStart, drEnd, copyApiGroupBy],
+  const providerAccountsQuery = useQuery({
+    queryKey: ["meta-provider-accounts", businessId],
     enabled: Boolean(selectedBusinessId),
+    queryFn: () => fetchMetaHistoryAccounts({ businessId }),
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+  const providerAccounts = providerAccountsQuery.data ?? [];
+  const providerAccountId =
+    (selectedProviderAccountId &&
+    providerAccounts.some((account) => account.id === selectedProviderAccountId)
+      ? selectedProviderAccountId
+      : "") ||
+    (providerAccounts.length === 1 ? providerAccounts[0]!.id : "");
+
+  useEffect(() => {
+    setSelectedProviderAccountId((current) => {
+      if (current && providerAccounts.some((account) => account.id === current)) {
+        return current;
+      }
+      if (
+        requestedProviderAccountId &&
+        providerAccounts.some((account) => account.id === requestedProviderAccountId)
+      ) {
+        return requestedProviderAccountId;
+      }
+      return "";
+    });
+  }, [businessId, providerAccounts, requestedProviderAccountId]);
+
+  const selectedProviderAccount = useMemo<MetaHistoryAccount | null>(
+    () =>
+      providerAccounts.find((account) => account.id === providerAccountId) ?? null,
+    [providerAccountId, providerAccounts],
+  );
+  const accountCurrency = selectedProviderAccount?.currency ?? null;
+  const hasExplicitAccountScope = Boolean(selectedBusinessId && providerAccountId);
+  const routeScope = { businessId, providerAccountId };
+  const libraryHref = buildMetaScopedHref(
+    "/platforms/meta/creatives?tab=library",
+    routeScope,
+  );
+  const decisionsHref = buildMetaScopedHref("/platforms/meta", routeScope);
+
+  const copiesQuery = useQuery({
+    queryKey: [
+      "copies-creatives",
+      businessId,
+      providerAccountId,
+      drStart,
+      drEnd,
+      copyApiGroupBy,
+    ],
+    enabled: hasExplicitAccountScope,
     queryFn: () =>
       fetchCopyRows({
         businessId,
+        providerAccountId,
         start: drStart,
         end: drEnd,
         groupBy: copyApiGroupBy,
@@ -208,8 +267,10 @@ export default function CopiesPage() {
   });
 
   const allRows = useMemo(() => {
-    return (copiesQuery.data?.rows ?? []).map(mapApiRowToCopyRow);
-  }, [copiesQuery.data?.rows]);
+    return (copiesQuery.data?.rows ?? [])
+      .map(mapApiRowToCopyRow)
+      .filter((row) => row.accountId === providerAccountId);
+  }, [copiesQuery.data?.rows, providerAccountId]);
 
   const filteredRows = useMemo(
     () => applyCreativeFilters(allRows, topFilters),
@@ -286,16 +347,24 @@ export default function CopiesPage() {
   };
 
   const handleCsvExport = () =>
-    exportCopiesCsv(filteredRows as CopyMotionRow[], selectedBusinessCurrency);
+    exportCopiesCsv(filteredRows as CopyMotionRow[], accountCurrency);
 
   const hasData =
-    !copiesQuery.isLoading && !copiesQuery.isError && filteredRows.length > 0;
+    hasExplicitAccountScope &&
+    !copiesQuery.isLoading &&
+    !copiesQuery.isError &&
+    filteredRows.length > 0;
 
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
   return (
     <PlanGate requiredPlan="growth">
-      <div className="ad-final" data-testid="copies-studio-page">
+      <div
+        className="ad-final"
+        data-testid="copies-studio-page"
+        data-copies-query-status={copiesQuery.status}
+        data-copies-fetch-status={copiesQuery.fetchStatus}
+      >
         {/* ===== Creative Studio header — two-layer chrome (context + mode switch) ===== */}
         <div
           style={{
@@ -323,15 +392,62 @@ export default function CopiesPage() {
               <h1 className="page-title">Creative Studio</h1>
             </div>
             <span
-              className="chip chip--info"
-              style={{ height: "auto", padding: "3px 10px" }}
+              className="chip"
+              style={{
+                height: "auto",
+                padding: "3px 10px",
+                border: "1px solid var(--border)",
+                color: "var(--muted)",
+              }}
             >
               Analysis only — decisions live in{" "}
-              <Link href={DECISIONS_HREF} style={{ color: "var(--brand)", fontWeight: 600 }}>
+              <Link href={decisionsHref} style={{ color: "var(--brand)", fontWeight: 600 }}>
                 Decisions
               </Link>
             </span>
             <div style={{ flex: 1 }} />
+            <label className="chip" style={{ height: 32, gap: 7 }}>
+              Ad account
+              <select
+                aria-label="Meta ad account for Copy analysis"
+                value={providerAccountId}
+                disabled={providerAccountsQuery.isLoading}
+                onChange={(event) => {
+                  const nextProviderAccountId = event.currentTarget.value;
+                  if (typeof window !== "undefined") {
+                    const url = new URL(window.location.href);
+                    if (nextProviderAccountId) {
+                      url.searchParams.set("providerAccountId", nextProviderAccountId);
+                    } else {
+                      url.searchParams.delete("providerAccountId");
+                    }
+                    window.history.replaceState(null, "", url);
+                  }
+                  setSelectedProviderAccountId(nextProviderAccountId);
+                }}
+                style={{
+                  maxWidth: 220,
+                  border: 0,
+                  background: "transparent",
+                  color: "var(--ink)",
+                  outline: "none",
+                }}
+              >
+                <option value="">
+                  {providerAccountsQuery.isLoading
+                    ? "Loading accounts"
+                    : providerAccounts.length === 0
+                      ? "No assigned account"
+                      : "Select account"}
+                </option>
+                {providerAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name ?? account.id}
+                    {account.currency ? ` · ${account.currency}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
             <div style={{ textAlign: "right", lineHeight: 1.5 }}>
               <div className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
                 window {drStart} → {drEnd}
@@ -352,19 +468,19 @@ export default function CopiesPage() {
               flexWrap: "wrap",
             }}
           >
-            <Link href={LIBRARY_HREF} style={modeTabStyle(false)}>
-              Library
+            <Link href={libraryHref} style={modeTabStyle(false)}>
+              Assets
             </Link>
             <span aria-current="page" style={modeTabStyle(true)}>
               Copy
             </span>
-            <Link href="/platforms/meta/landing-pages" style={modeTabStyle(false)}>
+            <Link href={buildMetaScopedHref("/platforms/meta/landing-pages", routeScope)} style={modeTabStyle(false)}>
               Landing pages
             </Link>
-            <Link href="/platforms/meta/creative-inbox" style={modeTabStyle(false)}>
+            <Link href={buildMetaScopedHref("/platforms/meta/creative-inbox", routeScope)} style={modeTabStyle(false)}>
               Inbox
             </Link>
-            <Link href="/platforms/meta/audiences" style={modeTabStyle(false)}>
+            <Link href={buildMetaScopedHref("/platforms/meta/audiences", routeScope)} style={modeTabStyle(false)}>
               Audiences
             </Link>
             <button
@@ -414,6 +530,15 @@ export default function CopiesPage() {
               </span>
             </span>
             <div style={{ flex: 1 }} />
+            {unresolvedFilteredCount > 0 ? (
+              <span
+                style={{ fontSize: 11, color: "var(--warn)" }}
+                data-testid="copies-data-meta"
+              >
+                {unresolvedFilteredCount} ad{unresolvedFilteredCount === 1 ? "" : "s"} hidden (copy
+                text could not be resolved)
+              </span>
+            ) : null}
             <button
               type="button"
               className="btn btn--sm"
@@ -432,42 +557,14 @@ export default function CopiesPage() {
             </button>
           </div>
 
-          {/* Context line — as-of + honest unresolved note */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              padding: "7px 16px",
-              borderTop: "1px solid var(--border)",
-              background: "var(--surface-2)",
-              flexWrap: "wrap",
-              fontSize: 11.5,
-            }}
-          >
-            <span style={{ color: "var(--muted)" }}>
-              Ranked by spend · account currency per row · missing renders as —
-            </span>
-            <div style={{ flex: 1 }} />
-            {unresolvedFilteredCount > 0 ? (
-              <span style={{ color: "var(--warn)" }} data-testid="copies-data-meta">
-                {unresolvedFilteredCount} ad{unresolvedFilteredCount === 1 ? "" : "s"} hidden (copy
-                text could not be resolved)
-              </span>
-            ) : (
-              <span style={{ color: "var(--muted-2)" }} data-testid="copies-data-meta">
-                all ads resolved to copy text
-              </span>
-            )}
-          </div>
         </div>
 
         {/* ===== Group-by + selected-copy cards (real briefing controls) ===== */}
-        <div style={{ marginTop: 14 }}>
+        {hasExplicitAccountScope ? <div style={{ marginTop: 14 }}>
           <CreativesTopSection
             showHeader={false}
-            title="Top copy"
-            description="Compare high-performing ad texts, isolate winning angles, and scale copy that drives efficient purchases."
+            title="Copy performance"
+            description="Compare measured ad-text outcomes by the selected scope. Copy rows do not receive winner or action labels without a server decision contract."
             dateRange={dateRangeValue}
             onDateRangeChange={setDateRangeValue}
             groupBy={groupBy}
@@ -479,16 +576,35 @@ export default function CopiesPage() {
             onSelectedMetricIdsChange={setTopMetricIds}
             selectedRows={topPanelRows}
             allRowsForHeatmap={filteredRows}
-            defaultCurrency={selectedBusinessCurrency}
+            defaultCurrency={accountCurrency}
             previewMode="copy"
             getPreviewCopyText={(row) => (row as CopyMotionRow).copyText}
             onOpenRow={(rowId) => setDetailRowId(rowId)}
             onShareExport={() => undefined}
             onCsvExport={handleCsvExport}
           />
-        </div>
+        </div> : null}
 
-        {copiesQuery.isLoading && (
+        {providerAccountsQuery.isError ? (
+          <div style={{ marginTop: 14 }}>
+            <ErrorState
+              title="Could not load Meta accounts"
+              description={
+                providerAccountsQuery.error instanceof Error
+                  ? providerAccountsQuery.error.message
+                  : "Assigned Meta accounts could not load."
+              }
+              onRetry={() => providerAccountsQuery.refetch()}
+            />
+          </div>
+        ) : !providerAccountsQuery.isLoading && !providerAccountId ? (
+          <div
+            className="rounded-[var(--r)] border border-[var(--warn-bd)] bg-[var(--warn-bg)] p-4 text-sm text-[var(--warn)]"
+            data-testid="copies-account-required"
+          >
+            Select one assigned Meta ad account. Copy metrics and currency remain withheld until the provider scope is explicit.
+          </div>
+        ) : copiesQuery.isLoading && (
           <div style={{ marginTop: 14 }}>
             <LoadingSkeleton rows={5} />
           </div>
@@ -508,7 +624,7 @@ export default function CopiesPage() {
           </div>
         )}
 
-        {!copiesQuery.isLoading && !copiesQuery.isError && filteredRows.length === 0 && (
+        {hasExplicitAccountScope && !copiesQuery.isLoading && !copiesQuery.isError && filteredRows.length === 0 && (
           <div style={{ marginTop: 14 }}>
             <EmptyState
               title="No copy performance data found for the selected range"
@@ -526,7 +642,7 @@ export default function CopiesPage() {
                 selectedMetricIds={topMetricIds}
                 onSelectedMetricIdsChange={setTopMetricIds}
                 selectedRowIds={selectionState.selectedRowIds}
-                defaultCurrency={selectedBusinessCurrency}
+                defaultCurrency={accountCurrency}
                 onToggleRow={toggleRowSelection}
                 onToggleAll={toggleAllRows}
                 onOpenRow={(rowId) => setDetailRowId(rowId)}
@@ -542,7 +658,7 @@ export default function CopiesPage() {
         {activeDetailRow ? (
           <CopyDetailDrawer
             row={activeDetailRow as CopyMotionRow}
-            defaultCurrency={selectedBusinessCurrency}
+            defaultCurrency={accountCurrency}
             onClose={() => setDetailRowId(null)}
           />
         ) : null}
@@ -550,7 +666,7 @@ export default function CopiesPage() {
         {compareOpen && canCompare ? (
           <CopyCompareOverlay
             rows={compareRows}
-            defaultCurrency={selectedBusinessCurrency}
+            defaultCurrency={accountCurrency}
             onClose={() => setCompareOpen(false)}
           />
         ) : null}
@@ -633,7 +749,7 @@ function CopyDetailDrawer({
       <button
         type="button"
         className="absolute inset-0"
-        style={{ background: "rgba(16,21,28,0.35)" }}
+        style={{ background: "rgba(16,18,22,0.4)" }}
         onClick={onClose}
         aria-label="Close drawer overlay"
       />
@@ -647,7 +763,7 @@ function CopyDetailDrawer({
           width: "min(380px, 92vw)",
           background: "var(--surface)",
           borderLeft: "1px solid var(--border-2)",
-          boxShadow: "0 1px 2px rgba(16,21,28,0.08)",
+          boxShadow: "var(--shadow-lg)",
           display: "flex",
           flexDirection: "column",
         }}
@@ -866,7 +982,7 @@ function CopyCompareOverlay({
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center"
-      style={{ background: "rgba(16,21,28,0.4)" }}
+      style={{ background: "rgba(16,18,22,0.4)" }}
       onClick={onClose}
       role="dialog"
       aria-modal="true"
@@ -878,7 +994,7 @@ function CopyCompareOverlay({
           background: "var(--surface)",
           border: "1px solid var(--border-2)",
           borderRadius: "var(--r-lg)",
-          boxShadow: "0 8px 24px -12px rgba(16,21,28,0.18)",
+          boxShadow: "var(--shadow-lg)",
           width: 900,
           maxWidth: "94vw",
           maxHeight: "88vh",

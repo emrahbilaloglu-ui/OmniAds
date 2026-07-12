@@ -15,6 +15,8 @@ export interface MetaCampaignLaneSignal {
   confidence: MetaCampaignLaneConfidence;
 }
 export interface MetaCampaignLaneFamilySummary {
+  accountId: string;
+  currency: string;
   family: MetaCampaignFamily;
   familyLabel: string;
   scalingCount: number;
@@ -37,7 +39,14 @@ function normalizeGoal(value: string | null | undefined) {
 
 type CampaignFamilyInput = Pick<
   MetaCampaignRow,
-  "optimizationGoal" | "customEventType" | "objective" | "purchases" | "revenue"
+  | "id"
+  | "accountId"
+  | "currency"
+  | "optimizationGoal"
+  | "customEventType"
+  | "objective"
+  | "purchases"
+  | "revenue"
 >;
 
 function familyFromFunnelCohort(cohort: MetaFunnelCohort): MetaCampaignFamily {
@@ -73,22 +82,29 @@ export function isScalingCampaignFamily(family: MetaCampaignFamily) {
 }
 
 export function comparableMetaIntentKey(row: CampaignFamilyInput) {
+  const accountId = normalizeGoal(row.accountId) || `missing:${row.id}`;
+  const currency = normalizeGoal(row.currency) || "unknown";
+  const scope = `account:${accountId}|currency:${currency}`;
   const customEventType = normalizeGoal(row.customEventType);
   if (customEventType) {
-    return `custom_event:${customEventType}`;
+    return `${scope}|custom_event:${customEventType}`;
   }
 
   const optimization = normalizeGoal(row.optimizationGoal);
   if (optimization) {
-    return `optimization:${optimization}`;
+    return `${scope}|optimization:${optimization}`;
   }
 
   const objective = normalizeGoal(row.objective);
   if (objective) {
-    return `objective:${objective}`;
+    return `${scope}|objective:${objective}`;
   }
 
-  return `family:${resolveMetaCampaignFamily(row)}`;
+  return `${scope}|family:${resolveMetaCampaignFamily(row)}`;
+}
+
+export function metaCampaignLaneGroupKey(row: CampaignFamilyInput) {
+  return comparableMetaIntentKey(row);
 }
 
 export function comparableMetaIntentLabel(row: CampaignFamilyInput) {
@@ -104,27 +120,64 @@ function averagePositive(values: number[]) {
   return filtered.reduce((sum, value) => sum + value, 0) / filtered.length;
 }
 
+function quantile(values: number[], q: number) {
+  const sorted = values
+    .filter((value) => Number.isFinite(value))
+    .sort((left, right) => left - right);
+  if (sorted.length === 0) return null;
+  const index = (sorted.length - 1) * q;
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  if (lower === upper) return sorted[lower];
+  return sorted[lower] + (sorted[upper] - sorted[lower]) * (index - lower);
+}
+
 function buildFamilyLaneAnalysis(family: MetaCampaignFamily, familyRows: MetaCampaignRow[]) {
-  const avgRoas = averagePositive(familyRows.map((row) => row.roas));
+  const totalSpend = familyRows.reduce((sum, row) => sum + Math.max(0, row.spend), 0);
+  const totalRevenue = familyRows.reduce((sum, row) => sum + Math.max(0, row.revenue), 0);
+  const avgRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
   const avgSpend = averagePositive(familyRows.map((row) => row.spend));
+  const upperRoasQuartile = quantile(familyRows.map((row) => row.roas), 0.75);
   const roasSpread =
     familyRows.length > 1
       ? Math.max(...familyRows.map((row) => row.roas)) - Math.min(...familyRows.map((row) => row.roas))
       : 0;
 
-  const strongRows = familyRows.filter(
-    (row) => row.purchases >= 10 && row.roas >= Math.max(avgRoas * 1.1, 2)
-  );
+  const peerRoas = (row: MetaCampaignRow) => {
+    const peers = familyRows.filter((candidate) => candidate.id !== row.id);
+    const spend = peers.reduce((sum, peer) => sum + Math.max(0, peer.spend), 0);
+    const revenue = peers.reduce(
+      (sum, peer) => sum + Math.max(0, peer.revenue),
+      0,
+    );
+    return spend > 0 ? revenue / spend : null;
+  };
+  const strongRows = familyRows.filter((row) => {
+    const benchmark = peerRoas(row);
+    return (
+      benchmark != null &&
+      benchmark > 0 &&
+      upperRoasQuartile != null &&
+      row.purchases >= 10 &&
+      row.roas >= benchmark * 1.1 &&
+      row.roas >= upperRoasQuartile
+    );
+  });
   const lowSignalRows = familyRows.filter(
     (row) => row.purchases < 8 || row.spend <= Math.max(avgSpend * 0.75, 0)
   );
-  const hardTestRows = familyRows.filter(
-    (row) => row.purchases < 5 && row.roas <= Math.max(avgRoas * 0.7, 1.2)
-  );
+  const hardTestRows = familyRows.filter((row) => {
+    const benchmark = peerRoas(row);
+    return (
+      benchmark != null &&
+      benchmark > 0 &&
+      row.purchases < 5 &&
+      row.roas <= benchmark * 0.7
+    );
+  });
   const validationRows = familyRows.filter((row) => {
     const hasMeaningfulSignal = row.purchases >= 8 || row.spend > Math.max(avgSpend * 0.75, 0);
-    const hasAcceptableRoas = row.roas >= Math.max(avgRoas * 0.9, 1.6);
-    return hasMeaningfulSignal && hasAcceptableRoas;
+    return hasMeaningfulSignal;
   });
 
   return {
@@ -141,16 +194,22 @@ function buildFamilyLaneAnalysis(family: MetaCampaignFamily, familyRows: MetaCam
 }
 
 export function buildMetaCampaignLaneSignals(rows: MetaCampaignRow[]) {
-  const grouped = new Map<MetaCampaignFamily, MetaCampaignRow[]>();
+  const grouped = new Map<
+    string,
+    { family: MetaCampaignFamily; rows: MetaCampaignRow[] }
+  >();
   for (const row of rows) {
     const family = resolveMetaCampaignFamily(row);
     if (!isScalingCampaignFamily(family) || row.status !== "ACTIVE") continue;
-    grouped.set(family, [...(grouped.get(family) ?? []), row]);
+    const key = metaCampaignLaneGroupKey(row);
+    const group = grouped.get(key) ?? { family, rows: [] };
+    group.rows.push(row);
+    grouped.set(key, group);
   }
 
   const laneMap = new Map<string, MetaCampaignLaneSignal>();
 
-  for (const [family, familyRows] of grouped) {
+  for (const { family, rows: familyRows } of grouped.values()) {
     if (familyRows.length < 2) continue;
 
     const { avgRoas, roasSpread, strongRows, lowSignalRows, hardTestRows, validationRows } =
@@ -215,15 +274,21 @@ export function buildMetaCampaignLaneSignals(rows: MetaCampaignRow[]) {
 
 export function buildMetaCampaignLaneSummary(rows: MetaCampaignRow[]) {
   const signals = buildMetaCampaignLaneSignals(rows);
-  const grouped = new Map<MetaCampaignFamily, MetaCampaignRow[]>();
+  const grouped = new Map<
+    string,
+    { family: MetaCampaignFamily; rows: MetaCampaignRow[] }
+  >();
   for (const row of rows) {
     const family = resolveMetaCampaignFamily(row);
     if (!isScalingCampaignFamily(family) || row.status !== "ACTIVE") continue;
-    grouped.set(family, [...(grouped.get(family) ?? []), row]);
+    const key = metaCampaignLaneGroupKey(row);
+    const group = grouped.get(key) ?? { family, rows: [] };
+    group.rows.push(row);
+    grouped.set(key, group);
   }
 
-  const summaries = new Map<MetaCampaignFamily, MetaCampaignLaneFamilySummary>();
-  for (const [family, familyRows] of grouped) {
+  const summaries = new Map<string, MetaCampaignLaneFamilySummary>();
+  for (const [key, { family, rows: familyRows }] of grouped) {
     const familySignals = familyRows
       .map((row) => signals.get(row.id))
       .filter((signal): signal is MetaCampaignLaneSignal => Boolean(signal));
@@ -233,7 +298,10 @@ export function buildMetaCampaignLaneSummary(rows: MetaCampaignRow[]) {
     const testCount = familySignals.filter((signal) => signal.lane === "Test").length;
     const unclassifiedCount = Math.max(familyRows.length - familySignals.length, 0);
 
-    summaries.set(family, {
+    const first = familyRows[0]!;
+    summaries.set(key, {
+      accountId: first.accountId,
+      currency: first.currency ?? "unknown",
       family,
       familyLabel: metaCampaignFamilyLabel(family),
       scalingCount,

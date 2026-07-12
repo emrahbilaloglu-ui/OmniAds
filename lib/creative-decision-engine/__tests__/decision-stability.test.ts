@@ -25,14 +25,14 @@ function runSequence(rawLabels: DecisionLabel[]): {
 describe("hard-label hysteresis (named live flip cases 2026-07-04..06)", () => {
   it("IwaStore 946471284944193: scale->keep->scale round trip is suppressed", () => {
     const { published, suppressedDays } = runSequence(["scale", "keep", "scale"]);
-    expect(published).toEqual(["scale", "scale", "scale"]);
-    expect(suppressedDays).toEqual([1]);
+    expect(published).toEqual(["keep", "keep", "keep"]);
+    expect(suppressedDays).toEqual([0, 2]);
   });
 
   it("TheSwaf 1962656064410174: cut->keep->cut round trip is suppressed", () => {
     const { published, suppressedDays } = runSequence(["cut", "keep", "cut"]);
-    expect(published).toEqual(["cut", "cut", "cut"]);
-    expect(suppressedDays).toEqual([1]);
+    expect(published).toEqual(["keep", "keep", "keep"]);
+    expect(suppressedDays).toEqual([0, 2]);
   });
 
   it("Tiles 25889037484086563: keep->cut->keep round trip is suppressed", () => {
@@ -41,14 +41,47 @@ describe("hard-label hysteresis (named live flip cases 2026-07-04..06)", () => {
     expect(suppressedDays).toEqual([1]);
   });
 
-  it("a genuine sustained hard transition confirms after exactly one held day", () => {
-    const { published } = runSequence(["cut", "keep", "keep", "keep"]);
-    expect(published).toEqual(["cut", "cut", "keep", "keep"]);
+  it("exits a previously published hard action immediately when current evidence becomes soft", () => {
+    const result = applyLabelHysteresis("keep", {
+      publishedLabel: "cut",
+      rawLabel: "cut",
+    });
+    expect(result).toEqual({
+      publishedLabel: "keep",
+      rawLabel: "keep",
+      suppressed: false,
+    });
   });
 
   it("entering a hard label also requires confirmation", () => {
     const { published } = runSequence(["keep", "cut", "cut"]);
     expect(published).toEqual(["keep", "keep", "cut"]);
+  });
+
+  it("treats refresh as a hard action that requires confirmation", () => {
+    const { published } = runSequence(["keep", "refresh", "refresh"]);
+    expect(published).toEqual(["keep", "keep", "refresh"]);
+  });
+
+  it("neutralizes a direct hard-action switch until the new action confirms", () => {
+    const first = applyLabelHysteresis("cut", {
+      publishedLabel: "scale",
+      rawLabel: "scale",
+    });
+    const second = applyLabelHysteresis("cut", {
+      publishedLabel: first.publishedLabel,
+      rawLabel: first.rawLabel,
+    });
+    expect([first.publishedLabel, second.publishedLabel]).toEqual(["keep", "cut"]);
+  });
+
+  it("publishes a safety diagnosis immediately instead of resurrecting the previous hard action", () => {
+    const result = applyLabelHysteresis("diagnose", {
+      publishedLabel: "scale",
+      rawLabel: "scale",
+    });
+    expect(result.publishedLabel).toBe("diagnose");
+    expect(result.suppressed).toBe(false);
   });
 
   it("soft-to-soft transitions publish immediately", () => {
@@ -61,19 +94,32 @@ describe("hard-label hysteresis (named live flip cases 2026-07-04..06)", () => {
     expect(suppressedDays).toEqual([]);
   });
 
-  it("no previous snapshot publishes the raw label (clean epoch start)", () => {
+  it("no previous snapshot holds a hard label at canonical keep", () => {
     const result = applyLabelHysteresis("cut", null);
-    expect(result.publishedLabel).toBe("cut");
-    expect(result.suppressed).toBe(false);
+    expect(result.publishedLabel).toBe("keep");
+    expect(result.rawLabel).toBe("cut");
+    expect(result.suppressed).toBe(true);
   });
 
-  it("old snapshots without raw_label fall back to published label memory", () => {
+  it("uses canonical keep rather than a previous diagnostic label for pending hard entry", () => {
+    const result = applyLabelHysteresis("scale", {
+      publishedLabel: "diagnose",
+      rawLabel: "diagnose",
+    });
+    expect(result).toEqual({
+      publishedLabel: "keep",
+      rawLabel: "scale",
+      suppressed: true,
+    });
+  });
+
+  it("old snapshots without raw_label still exit a hard action immediately", () => {
     const result = applyLabelHysteresis("keep", {
       publishedLabel: "cut",
       rawLabel: null,
     });
-    expect(result.publishedLabel).toBe("cut");
-    expect(result.suppressed).toBe(true);
+    expect(result.publishedLabel).toBe("keep");
+    expect(result.suppressed).toBe(false);
   });
 });
 
@@ -93,18 +139,47 @@ describe("stabilizeDecisionLabel", () => {
     generatedAt: "2026-07-06T00:00:00.000Z",
   };
 
-  it("keeps yesterday's label with a pending badge and reason prefix when suppressed", () => {
-    const { decision, rawLabel, suppressed } = stabilizeDecisionLabel(baseDecision, {
-      publishedLabel: "cut",
-      rawLabel: "cut",
+  it("publishes a non-hard pending state with held-action provenance", () => {
+    const scaleDecision: DecisionOutput = {
+      ...baseDecision,
+      label: "scale",
+      reason: "Winner evidence supports promotion.",
+    };
+    const { decision, rawLabel, suppressed } = stabilizeDecisionLabel(scaleDecision, {
+      publishedLabel: "keep",
+      rawLabel: "keep",
     });
     expect(suppressed).toBe(true);
-    expect(rawLabel).toBe("keep");
-    expect(decision.label).toBe("cut");
-    expect(decision.reason.startsWith("[Pending transition")).toBe(true);
+    expect(rawLabel).toBe("scale");
+    expect(decision.label).toBe("keep");
+    expect(decision.blockedActionType).toBe("scale");
+    expect(decision.reason).toContain("No hard action is published");
     expect(
       decision.badges.some((badge) => badge.type === "pending_transition"),
     ).toBe(true);
+  });
+
+  it("returns the complete current safety decision without hysteresis suppression", () => {
+    const safetyDecision: DecisionOutput = {
+      ...baseDecision,
+      label: "diagnose",
+      reason: "Policy review blocks performance action.",
+      badges: [
+        {
+          type: "policy_blocked",
+          label: "Policy block",
+          severity: "warning",
+        },
+      ],
+    };
+    const result = stabilizeDecisionLabel(safetyDecision, {
+      publishedLabel: "scale",
+      rawLabel: "scale",
+    });
+
+    expect(result.suppressed).toBe(false);
+    expect(result.decision).toBe(safetyDecision);
+    expect(result.decision.label).toBe("diagnose");
   });
 
   it("returns the decision untouched when not suppressed", () => {

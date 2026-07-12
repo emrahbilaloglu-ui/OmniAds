@@ -17,6 +17,13 @@ vi.mock("@/lib/meta/automation-write-guard", () => ({
   rejectIfMetaWritesBlocked: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/account-context", () => ({
+  getMetaAccountContext: vi.fn(),
+  normalizeMetaCurrencyCode: vi.fn((value: unknown) =>
+    typeof value === "string" && /^[A-Z]{3}$/.test(value) ? value : null,
+  ),
+}));
+
 vi.mock("@/lib/meta/ads-action-log", () => ({
   createMetaAdsActionLog: vi.fn(),
   completeMetaAdsActionLog: vi.fn(),
@@ -35,6 +42,7 @@ const access = await import("@/lib/access");
 const db = await import("@/lib/db");
 const integrations = await import("@/lib/integrations");
 const writeGuard = await import("@/lib/meta/automation-write-guard");
+const accountContext = await import("@/lib/meta/account-context");
 const logs = await import("@/lib/meta/ads-action-log");
 const writes = await import("@/lib/meta/ads-write");
 const campaignPause = await import("@/app/api/meta/campaigns/[campaignId]/pause/route");
@@ -64,6 +72,11 @@ describe("Meta entity write routes", () => {
       access_token: "token",
     } as never);
     vi.mocked(writeGuard.rejectIfMetaWritesBlocked).mockResolvedValue(null);
+    vi.mocked(accountContext.getMetaAccountContext).mockResolvedValue({
+      accountProfiles: {
+        act_1: { currency: "USD", timezone: null, name: "Account" },
+      },
+    } as never);
     vi.mocked(logs.hasRecentPendingMetaAdsAction).mockResolvedValue(false);
     vi.mocked(logs.createMetaAdsActionLog).mockResolvedValue({ id: "log_1" } as never);
     vi.mocked(logs.completeMetaAdsActionLog).mockResolvedValue({ id: "log_1" } as never);
@@ -262,6 +275,25 @@ describe("Meta entity write routes", () => {
     expect(payload.error.code).toBe("invalid_bid_unit");
     expect(writes.updateAdsetBidAmount).not.toHaveBeenCalled();
     expect(logs.createMetaAdsActionLog).not.toHaveBeenCalled();
+  });
+
+  it("rejects executable bid writes when account currency is unavailable", async () => {
+    vi.mocked(accountContext.getMetaAccountContext).mockResolvedValue({
+      accountProfiles: {
+        act_1: { currency: null, timezone: null, name: "Account" },
+      },
+    } as never);
+
+    const response = await applyBid.POST(
+      request({ businessId: "biz_1", bidAmountMinor: 2200, recId: "rec_bid" }),
+      { params: Promise.resolve({ adsetId: "adset_1" }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error.code).toBe("currency_unavailable");
+    expect(logs.createMetaAdsActionLog).not.toHaveBeenCalled();
+    expect(writes.updateAdsetBidAmount).not.toHaveBeenCalled();
   });
 
   it("passes dry-run bid writes through the entity action route", async () => {

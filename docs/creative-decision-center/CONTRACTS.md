@@ -167,6 +167,47 @@ interface CreativeDecisionConfig {
 }
 ```
 
+## Meta Decisions Read-Time Compatibility Projection (D035)
+
+The V2.1 adapter union above remains readable for historical snapshots. The
+current Meta Decisions server boundary must additionally discriminate an
+action from a blocked resolution:
+
+```ts
+type MetaDecisionState = "act" | "monitor" | "blocked" | "not_applicable";
+
+interface MetaDecisionResolution {
+  code: string;
+  category:
+    | "data"
+    | "tracking"
+    | "commercial_truth"
+    | "campaign_context"
+    | "delivery"
+    | "policy"
+    | "funnel"
+    | "system";
+  owner: "system" | "operator" | "integration";
+  label: string;
+  nextStep: string;
+}
+
+interface MetaDecisionClassificationProjection {
+  decisionState: MetaDecisionState;
+  heldAction: "scale" | "cut" | "refresh" | null;
+  legacyBuyerAction: CreativeDecisionCenterBuyerAction;
+  buyerAction: Exclude<
+    CreativeDecisionCenterBuyerAction,
+    "diagnose_data"
+  > | null;
+  resolution: MetaDecisionResolution | null;
+}
+```
+
+When `decisionState === "blocked"`, `buyerAction` must be null,
+`resolution` must be non-null, and no provider mutation may be exposed. The UI
+must not recreate this projection from raw labels, reason text, or badge copy.
+
 ## Constraints
 
 - Do not collapse `primaryDecision` and `buyerAction`.

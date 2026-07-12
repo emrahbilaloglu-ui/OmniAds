@@ -24,11 +24,12 @@ import {
   type MetaFunnelCohort,
 } from "@/lib/meta/funnel-cohort";
 import {
-  metaCutRoasCeiling,
+  metaCutRoasReviewCeiling,
   metaLossBudgetMaturity,
   metaScaleRoasFloor,
   type MetaCommercialTargets,
 } from "@/lib/meta/commercial-targets";
+import { enforceMetaCommercialActionAuthority } from "@/lib/meta/commercial-action-authority";
 import { withMetaAutomationReadiness } from "@/lib/meta/automation-readiness";
 import { emitEngagementAdsetScenario } from "@/lib/meta/scenario-emitters/engagement";
 import { emitLeadAdsetScenario } from "@/lib/meta/scenario-emitters/lead";
@@ -130,10 +131,67 @@ function textFromSignalRecord(
 }
 
 function blocksPurchaseHardAction(signals: MetaEntityDecisionSignal | null | undefined) {
-  if (!signals) return false;
+  if (!signals || signals.qualityStatus !== "ready") return true;
   if (signals.daysSinceSignificantEdit != null && signals.daysSinceSignificantEdit < 7) return true;
   if (signals.trackingQualityStatus === "lpv_drop_suspected") return true;
   return textFromSignalRecord(signals, "monthly_pacing", "status") === "overpaced";
+}
+
+type AdsetHardActionBlocker =
+  | "inactive_adset"
+  | "signal_quality_not_ready"
+  | "uncalibrated_context";
+
+function adsetHardActionBlocker(input: {
+  adset: MetaAdSetData;
+  signals: MetaEntityDecisionSignal | null | undefined;
+  context: MetaCalibrationContext | null;
+}): AdsetHardActionBlocker | null {
+  if (String(input.adset.status ?? "").toUpperCase() !== "ACTIVE") {
+    return "inactive_adset";
+  }
+  if (!input.signals || input.signals.qualityStatus !== "ready") {
+    return "signal_quality_not_ready";
+  }
+  if (input.context?.thresholds.source !== "calibrated") {
+    return "uncalibrated_context";
+  }
+  return null;
+}
+
+function hardActionBlockerMessage(blocker: AdsetHardActionBlocker) {
+  if (blocker === "inactive_adset") {
+    return "the ad set is not ACTIVE";
+  }
+  if (blocker === "signal_quality_not_ready") {
+    return "the entity signal pack is missing, stale, or incomplete";
+  }
+  return "the account or campaign comparison cohort is not calibrated";
+}
+
+function enforceAdsetHardActionAuthority(input: {
+  recommendation: MetaRecommendation;
+  adset: MetaAdSetData;
+  signals: MetaEntityDecisionSignal | null | undefined;
+  context: MetaCalibrationContext | null;
+}): MetaRecommendation {
+  if (input.recommendation.decisionState !== "act") {
+    return input.recommendation;
+  }
+  const blocker = adsetHardActionBlocker(input);
+  if (!blocker) return input.recommendation;
+  const message = hardActionBlockerMessage(blocker);
+  return {
+    ...input.recommendation,
+    decisionState: "watch",
+    stateReason: `Hard action blocked because ${message}.`,
+    recommendedAction: `Do not execute this change while ${message}. Re-evaluate after the authority condition is restored.`,
+    signalQuality: {
+      ...(input.recommendation.signalQuality ?? {}),
+      hard_action_authority: "blocked",
+      hard_action_blocker: blocker,
+    },
+  };
 }
 
 function confidence(input: {
@@ -252,7 +310,12 @@ export function buildMetaAdsetRecommendations(
       signals,
     });
     if (scenario) {
-      recommendations.push(scenario);
+      recommendations.push(enforceAdsetHardActionAuthority({
+        recommendation: scenario,
+        adset,
+        signals,
+        context,
+      }));
       continue;
     }
 
@@ -266,7 +329,12 @@ export function buildMetaAdsetRecommendations(
         signals,
       });
       if (midFunnelScenario) {
-        recommendations.push(midFunnelScenario);
+        recommendations.push(enforceAdsetHardActionAuthority({
+          recommendation: midFunnelScenario,
+          adset,
+          signals,
+          context,
+        }));
         continue;
       }
     }
@@ -281,7 +349,12 @@ export function buildMetaAdsetRecommendations(
         signals,
       });
       if (leadScenario) {
-        recommendations.push(leadScenario);
+        recommendations.push(enforceAdsetHardActionAuthority({
+          recommendation: leadScenario,
+          adset,
+          signals,
+          context,
+        }));
         continue;
       }
     }
@@ -296,7 +369,12 @@ export function buildMetaAdsetRecommendations(
         signals,
       });
       if (trafficScenario) {
-        recommendations.push(trafficScenario);
+        recommendations.push(enforceAdsetHardActionAuthority({
+          recommendation: trafficScenario,
+          adset,
+          signals,
+          context,
+        }));
         continue;
       }
     }
@@ -311,20 +389,28 @@ export function buildMetaAdsetRecommendations(
         signals,
       });
       if (engagementScenario) {
-        recommendations.push(engagementScenario);
+        recommendations.push(enforceAdsetHardActionAuthority({
+          recommendation: engagementScenario,
+          adset,
+          signals,
+          context,
+        }));
         continue;
       }
     }
 
     const scaleFloor = metaScaleRoasFloor(input.commercialTargets);
-    const cutCeiling = metaCutRoasCeiling(input.commercialTargets);
+    const cutCeiling = metaCutRoasReviewCeiling(input.commercialTargets);
     const scaleThreshold = scaleFloor ? (context ? Math.max(roas.p75, scaleFloor) : Math.max(roas.p75, scaleFloor)) : null;
     const weakThreshold = context ? roas.p25 : Math.max(roas.p25, 1.5);
-    const currency = (adset as MetaAdSetData & { currency?: string | null }).currency ?? null;
+    const currency =
+      (adset as MetaAdSetData & { currency?: string | null }).currency ?? null;
     const maturity = metaLossBudgetMaturity({
       targets: input.commercialTargets,
       accountCpaBaseline: cpa.p50,
-      currency,
+      calibratedHardCutSpend:
+        context?.thresholds.hardCutSpend ??
+        LEGACY_META_CALIBRATION_THRESHOLDS.hardCutSpend,
     });
     const severeLoser = Boolean(
       cutCeiling &&
@@ -332,13 +418,26 @@ export function buildMetaAdsetRecommendations(
       adset.roas < Math.min(roas.p10, cutCeiling) &&
       adset.spend >= maturity.spendThreshold,
     );
+    const hardActionBlocker = adsetHardActionBlocker({ adset, signals, context });
+    const roasSampleReady =
+      context != null && roas.sampleSize >= minRequiredSample(context);
+    const cpaSampleReady =
+      context != null && cpa.sampleSize >= minRequiredSample(context);
 
-    if (isPurchaseCohort(cohort) && hasRangeAlignedCohortConfig(adset) && !blocksPurchaseHardAction(signals)) {
+    if (
+      isPurchaseCohort(cohort) &&
+      hasRangeAlignedCohortConfig(adset) &&
+      hardActionBlocker === null &&
+      roasSampleReady &&
+      !blocksPurchaseHardAction(signals)
+    ) {
       if (
         scaleThreshold != null &&
+        cpaSampleReady &&
         adset.purchases >= 8 &&
         adset.roas >= scaleThreshold &&
-        (adset.cpa <= 0 || adset.cpa <= cpa.p75)
+        adset.cpa > 0 &&
+        adset.cpa <= cpa.p75
       ) {
         const confidenceResult = confidence({
           context,
@@ -391,7 +490,7 @@ export function buildMetaAdsetRecommendations(
           lens: "profitability",
           priority: severeLoser ? "high" : "medium",
           confidence: confidenceResult,
-          decisionState: severeLoser || confidenceResult.score >= META_CONFIDENCE_ACT_THRESHOLD ? "act" : "test",
+          decisionState: confidenceResult.score >= META_CONFIDENCE_ACT_THRESHOLD ? "act" : "test",
           decision: "Cut or cap this ad set",
           title: `${adset.name}: ad set is below the calibrated efficiency line`,
           why: "The ad set is consuming meaningful spend while trailing calibrated ROAS expectations.",
@@ -451,5 +550,11 @@ export function buildMetaAdsetRecommendations(
   return recommendations
     .sort((left, right) => (right.confidenceScore ?? 0) - (left.confidenceScore ?? 0))
     .slice(0, 250)
+    .map((recommendation) =>
+      enforceMetaCommercialActionAuthority(
+        recommendation,
+        input.commercialTargets,
+      ),
+    )
     .map(withMetaAutomationReadiness);
 }

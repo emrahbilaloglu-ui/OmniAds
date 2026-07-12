@@ -52,12 +52,12 @@ export function LandingPagesTableSection({
   const language = usePreferencesStore((state) => state.language);
   const columns = getColumns(language);
   return (
-    <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white ">
-      <div className="border-b border-neutral-200 bg-white px-5 py-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-neutral-500">
+    <section className="overflow-hidden rounded-[var(--r-lg,11px)] border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s2,#ffffff)] ">
+      <div className="border-b border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s2,#ffffff)] px-5 py-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--adc-ink3,#7d838c)]">
           {language === "tr" ? "Funnel Tablosu" : "Funnel Table"}
         </p>
-        <p className="mt-1 text-sm text-neutral-600">
+        <p className="mt-1 text-sm text-[var(--adc-ink3,#7d838c)]">
           {language === "tr"
             ? "Düşüşü, conversion oranlarını ve AI yorumlarını incelemek için bir landing page seçin."
             : "Click any landing page to inspect drop-offs, conversion rates, and AI commentary."}
@@ -66,9 +66,9 @@ export function LandingPagesTableSection({
 
       <div className="overflow-x-auto">
         <table className="min-w-[1500px] w-full text-sm">
-          <thead className="bg-neutral-50/90 text-neutral-600">
+          <thead className="bg-[var(--adc-s1,#f5f5f3)] text-[var(--adc-ink3,#7d838c)]">
             <tr>
-              <th className="sticky left-0 z-[1] min-w-[320px] border-r border-neutral-200 bg-neutral-50 px-5 py-3 text-left font-semibold">
+              <th className="sticky left-0 z-[1] min-w-[320px] border-r border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s1,#f5f5f3)] px-5 py-3 text-left font-semibold">
                 Landing Page
               </th>
               {columns.map((column) => {
@@ -84,7 +84,7 @@ export function LandingPagesTableSection({
                             active && sort.direction === "desc" ? "asc" : "desc",
                         })
                       }
-                      className="inline-flex items-center gap-1 text-neutral-600 transition hover:text-neutral-900"
+                      className="inline-flex items-center gap-1 text-[var(--adc-ink3,#7d838c)] transition hover:text-[var(--adc-ink,#1a1c1f)]"
                     >
                       {column.label}
                       {active ? (
@@ -107,27 +107,31 @@ export function LandingPagesTableSection({
                 <tr
                   key={row.path}
                   className={cn(
-                    "cursor-pointer border-t border-neutral-100 transition-colors hover:bg-neutral-50",
-                    selected && "bg-neutral-100"
+                    "cursor-pointer border-t border-[var(--adc-b1,#e4e4e0)] transition-colors hover:bg-[var(--adc-s1,#f5f5f3)]",
+                    selected && "bg-[var(--adc-s3,#ededea)]"
                   )}
                   onClick={() => onRowClick(row)}
                 >
-                  <td className="sticky left-0 z-[1] border-r border-neutral-100 bg-inherit px-5 py-4 align-top">
+                  <td className="sticky left-0 z-[1] border-r border-[var(--adc-b1,#e4e4e0)] bg-inherit px-5 py-4 align-top">
                     <div className="space-y-1">
-                      <p className="font-semibold text-neutral-900">{row.title}</p>
-                      <p className="font-mono text-xs text-neutral-500">{row.path}</p>
+                      <p className="font-semibold text-[var(--adc-ink,#1a1c1f)]">{row.title}</p>
+                      <p className="font-mono text-xs text-[var(--adc-ink3,#7d838c)]">{row.path}</p>
                       <div className="flex flex-wrap gap-2 pt-1">
-                        <span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[11px] font-medium text-neutral-700">
+                        <span className="rounded-full bg-[var(--adc-s3,#ededea)] px-2.5 py-1 text-[11px] font-medium text-[var(--adc-ink2,#4a4f56)]">
                           Session CVR {formatPercent(row.sessionToPurchaseRate)}
                         </span>
-                        <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700">
+                        <span className="rounded-full bg-[var(--adc-caution-bg,#faf2df)] px-2.5 py-1 text-[11px] font-medium text-[var(--adc-caution-fg,#86590a)]">
                           {language === "tr" ? "Kacak" : "Leak"} {getDropOffLabel(row.largestDropOffStep, language)}
                         </span>
                       </div>
                     </div>
                   </td>
                   {columns.map((column) => (
-                    <td key={column.key} className="px-3 py-4 text-right text-neutral-700">
+                    <td
+                      key={column.key}
+                      className="px-3 py-4 text-right font-mono text-[var(--adc-ink2,#4a4f56)]"
+                      style={{ fontFeatureSettings: "'tnum'" }}
+                    >
                       {column.render(row, currency)}
                     </td>
                   ))}

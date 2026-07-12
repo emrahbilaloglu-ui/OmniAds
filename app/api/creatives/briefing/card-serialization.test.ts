@@ -162,7 +162,17 @@ describe("card serialization", () => {
     });
   });
 
-  it("serializes stale evidence on cut cards without changing the server action", () => {
+  it("preserves stale commercial-target provenance for operator review", () => {
+    const card = cardForDecision({
+      decision: decision({ truthSource: "commercial_truth_stale" }),
+    });
+
+    expect(card.explainability?.thresholdProvenance?.source).toBe(
+      "operator_target_stale",
+    );
+  });
+
+  it("keeps a stale cut verdict visible but removes provider-write authority", () => {
     const card = cardForDecision({
       decision: decision({
         label: "cut",
@@ -184,9 +194,30 @@ describe("card serialization", () => {
     });
 
     expect(card.label).toBe("cut");
-    expect(card.primary).toEqual({ kind: "cut", label: "Cut" });
+    expect(card.primary).toEqual({ kind: "review", label: "Refresh evidence" });
     expect(card.badges).toContain("stale_evidence");
     expect(card.priorityScore?.inputs.severityWeight).toBeGreaterThan(1);
+  });
+
+  it("serves a pending hard entry as review-only", () => {
+    const card = cardForDecision({
+      decision: decision({
+        label: "keep",
+        blockedActionType: "scale",
+        badges: [
+          {
+            type: "pending_transition",
+            label: "Pending hard action",
+            severity: "info",
+          },
+        ],
+      }),
+    });
+
+    expect(card.primary).toEqual({
+      kind: "review",
+      label: "Review pending signal",
+    });
   });
 
   it("dual-writes decisionCenterRow and maps adapter scale execution to the legacy CTA field", () => {
@@ -206,6 +237,23 @@ describe("card serialization", () => {
 
     expect(card.decisionCenterRow).toBe(decisionCenterRow);
     expect(card.primary).toEqual({ kind: "promote", label: "Promote to main" });
+  });
+
+  it("serializes the shared server-owned creative assessment vocabulary", () => {
+    const card = cardForDecision({
+      decision: decision({
+        label: "scale",
+        truthSource: "commercial_truth",
+      }),
+    });
+
+    expect(card.assessment).toEqual({
+      value: "proven_winner",
+      label: "Proven winner",
+      tone: "pos",
+      blockerCode: null,
+      vocabularyVersion: "meta-decisions-classification-overlay.v2",
+    });
   });
 });
 

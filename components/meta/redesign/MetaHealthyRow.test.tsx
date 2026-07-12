@@ -8,6 +8,7 @@ describe("MetaHealthyRow", () => {
   it("renders compact stable entity metrics", () => {
     const html = renderToStaticMarkup(
       <MetaHealthyRow
+        moneyCurrency="USD"
         row={metaHealthy({
           optimizationGoal: "OFFSITE_CONVERSIONS",
           customEventType: "PURCHASE",
@@ -71,6 +72,7 @@ describe("MetaHealthyRow", () => {
   it("falls back to manual bid fields when display bid values are absent", () => {
     const html = renderToStaticMarkup(
       <MetaHealthyRow
+        moneyCurrency="USD"
         row={metaHealthy({
           optimizationGoal: "LINK_CLICK",
           customEventType: "ADD_TO_CART",
@@ -115,6 +117,7 @@ describe("MetaHealthyRow", () => {
   it("hides previous bid when the value did not change", () => {
     const html = renderToStaticMarkup(
       <MetaHealthyRow
+        moneyCurrency="USD"
         row={metaHealthy({
           bidStrategyLabel: "Cost Cap",
           bidValue: 3000,

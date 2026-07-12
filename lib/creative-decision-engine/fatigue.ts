@@ -1,5 +1,4 @@
 import {
-  FATIGUE_FREQUENCY_PRESSURE_THRESHOLD,
   FATIGUE_SIGNIFICANT_DECAY_THRESHOLD,
   FATIGUE_SPEND_CONCENTRATION_THRESHOLD,
   FATIGUE_STRONG_WINDOW_FALLBACK_ROAS,
@@ -38,6 +37,9 @@ export interface FatigueInput {
     last3?: HistoricalWindow | null;
     last7?: HistoricalWindow | null;
     last14?: HistoricalWindow | null;
+    /** Directly preceding disjoint comparison period. Callers must not
+     * synthesize this from cumulative rates without their denominators. */
+    prior14?: HistoricalWindow | null;
     last30?: HistoricalWindow | null;
     last90?: HistoricalWindow | null;
     allHistory?: HistoricalWindow | null;
@@ -46,6 +48,7 @@ export interface FatigueInput {
   // Pressure signals.
   spendConcentration: number | null;
   frequency: number | null;
+  frequencyPressureThreshold?: number | null;
 
   // Benchmark trend. Warehouse v3 Phase 2.1 passes null; later phases can wire
   // account benchmark trend logic without changing this helper.
@@ -57,13 +60,9 @@ export interface FatigueOutput {
   status: FatigueStatus;
   confidence: number;
   /**
-   * Shadow metric (not yet status-affecting): strong-window count over
-   * DISJOINT period bands derived from the cumulative windows. The live
-   * winnerMemory counts nested cumulative windows, so one strong stretch
-   * can satisfy the >=2 requirement by itself (math review 2026-07-02).
-   * Flipping status to this basis is a label-affecting change reserved for
-   * the next ENGINE_VERSION; until then both values are emitted so live
-   * divergence can be measured.
+   * Strong-window count over disjoint period bands derived from cumulative
+   * spend, purchase, and revenue totals. This is the authority basis for
+   * winnerMemory; nested cumulative windows are not independent evidence.
    */
   disjointStrongWindows: number;
   disjointWinnerMemory: boolean;
@@ -181,17 +180,6 @@ export function computeFatigue(input: FatigueInput): FatigueOutput {
     input.historicalWindows.allHistory,
   ].filter((window): window is HistoricalWindow => window != null);
 
-  const strongCount = eligibleWindows.filter(
-    (window) =>
-      isStrongHistoricalWindow(
-        window,
-        input.effectiveTargetRoas,
-        input.breakevenRoas,
-        winnerMemoryMinSpend,
-        winnerMemoryMinPurchases,
-      ),
-  ).length;
-  const nestedWinnerMemory = strongCount >= 2;
   const disjointStrongWindows = deriveDisjointWindows(
     input.historicalWindows,
   ).filter((window) =>
@@ -204,40 +192,58 @@ export function computeFatigue(input: FatigueInput): FatigueOutput {
     ),
   ).length;
   const disjointWinnerMemory = disjointStrongWindows >= 2;
-  // v-next: status uses the disjoint count - nested cumulative windows let
-  // one strong stretch satisfy the >=2 requirement by itself (37/1602 live
-  // creatives flipped the bit, every one nested->false). The nested value
-  // stays reported for comparability.
+  // Nested cumulative windows let one strong stretch satisfy the >=2 rule by
+  // itself; status and output both use the disjoint count.
   const winnerMemory = disjointWinnerMemory;
   // Decay baseline must clear the same spend/purchase floors as winner
   // memory: without a floor, a low-spend lucky window becomes the max-ROAS
   // baseline and ordinary mean reversion reads as decay (math review
   // 2026-07-02). If no window qualifies, decay is not assessable against a
   // trustworthy baseline.
+  const recentWindowCandidate = input.historicalWindows.last14 ?? null;
+  const clearsEvidenceFloor = (window: HistoricalWindow) =>
+    Number.isFinite(window.spend) &&
+    window.spend >= winnerMemoryMinSpend &&
+    Number.isFinite(window.purchases) &&
+    window.purchases >= winnerMemoryMinPurchases;
+  const recentWindow =
+    recentWindowCandidate && clearsEvidenceFloor(recentWindowCandidate)
+      ? recentWindowCandidate
+      : null;
+  const explicitPriorWindow = input.historicalWindows.prior14 ?? null;
   const baselineCandidates = eligibleWindows.filter(
     (window) =>
-      Number.isFinite(window.spend) &&
-      window.spend >= winnerMemoryMinSpend &&
-      Number.isFinite(window.purchases) &&
-      window.purchases >= winnerMemoryMinPurchases,
+      window !== recentWindowCandidate && clearsEvidenceFloor(window),
   );
-  const bestWindow =
-    [...baselineCandidates].sort((a, b) => b.roas - a.roas)[0] ?? null;
+  // When a recent 14-day endpoint exists, only a directly preceding disjoint
+  // period is a valid decay baseline. Comparing recent14 with overlapping
+  // last30/90 maxima labels recovery from an old peak as fatigue. If the
+  // disjoint period is unavailable, decay is deliberately not assessable.
+  const bestWindow = recentWindow
+    ? explicitPriorWindow && clearsEvidenceFloor(explicitPriorWindow)
+      ? explicitPriorWindow
+      : null
+    : [...baselineCandidates].sort((a, b) => b.roas - a.roas)[0] ?? null;
+
+  const currentCtr = recentWindow?.ctr ?? input.ctr;
+  const currentClickToPurchaseRate =
+    recentWindow?.clickToPurchaseRate ?? input.clickToPurchaseRate;
+  const currentRoas = recentWindow?.roas ?? input.roas;
 
   const ctrDecay =
-    bestWindow && bestWindow.ctr > 0 && input.ctr != null
-      ? (bestWindow.ctr - input.ctr) / bestWindow.ctr
+    bestWindow && bestWindow.ctr > 0 && currentCtr != null
+      ? (bestWindow.ctr - currentCtr) / bestWindow.ctr
       : null;
   const clickToPurchaseDecay =
     bestWindow &&
     bestWindow.clickToPurchaseRate > 0 &&
-    input.clickToPurchaseRate != null
-      ? (bestWindow.clickToPurchaseRate - input.clickToPurchaseRate) /
+    currentClickToPurchaseRate != null
+      ? (bestWindow.clickToPurchaseRate - currentClickToPurchaseRate) /
         bestWindow.clickToPurchaseRate
       : null;
   const roasDecay =
-    bestWindow && bestWindow.roas > 0 && input.roas != null
-      ? (bestWindow.roas - input.roas) / bestWindow.roas
+    bestWindow && bestWindow.roas > 0 && currentRoas != null
+      ? (bestWindow.roas - currentRoas) / bestWindow.roas
       : null;
 
   const decaySignals = [ctrDecay, clickToPurchaseDecay, roasDecay].filter(
@@ -254,13 +260,17 @@ export function computeFatigue(input: FatigueInput): FatigueOutput {
       ? 1
       : 0) +
     (input.frequency != null &&
-    input.frequency >= FATIGUE_FREQUENCY_PRESSURE_THRESHOLD
+    input.frequencyPressureThreshold != null &&
+    Number.isFinite(input.frequencyPressureThreshold) &&
+    input.frequencyPressureThreshold > 0 &&
+    input.frequency >= input.frequencyPressureThreshold
       ? 1
       : 0);
 
   const benchmarkWeakening =
     input.benchmarkRoasStatus === "worse" &&
     input.benchmarkClickToPurchaseStatus === "worse";
+  const hasFatiguePressure = pressureSignals >= 1 || benchmarkWeakening;
 
   let status: FatigueStatus = "none";
   if (!winnerMemory && eligibleWindows.length === 0) {
@@ -268,18 +278,19 @@ export function computeFatigue(input: FatigueInput): FatigueOutput {
   } else if (
     !winnerMemory &&
     significantDecayCount >= 2 &&
-    (pressureSignals >= 1 || benchmarkWeakening)
+    hasFatiguePressure
   ) {
     status = "watch";
   } else if (
     winnerMemory &&
     significantDecayCount >= 2 &&
-    (pressureSignals >= 1 || benchmarkWeakening)
+    hasFatiguePressure
   ) {
     status = "fatigued";
   } else if (
     winnerMemory &&
-    (significantDecayCount >= 1 || benchmarkWeakening)
+    hasFatiguePressure &&
+    significantDecayCount >= 1
   ) {
     status = "watch";
   }
@@ -304,7 +315,11 @@ export function computeFatigue(input: FatigueInput): FatigueOutput {
     );
   }
   if (input.frequency !== null) {
-    evidence.push(`Frequency ${input.frequency.toFixed(2)}.`);
+    evidence.push(
+      input.frequencyPressureThreshold != null
+        ? `Frequency ${input.frequency.toFixed(2)} vs account p75 ${input.frequencyPressureThreshold.toFixed(2)}.`
+        : `Frequency ${input.frequency.toFixed(2)}; account-relative pressure threshold unavailable.`,
+    );
   }
 
   const missingContext: string[] = [];
@@ -312,11 +327,19 @@ export function computeFatigue(input: FatigueInput): FatigueOutput {
     missingContext.push("Historical winner window unavailable");
   } else if (bestWindow === null) {
     missingContext.push(
-      "No historical window clears the winner-memory spend/purchase floor; decay not assessable",
+      recentWindow
+        ? "Directly preceding disjoint window unavailable or below evidence floor; decay not assessable"
+        : "No historical window clears the winner-memory spend/purchase floor; decay not assessable",
     );
   }
   if (input.frequency == null) {
     missingContext.push("Frequency unavailable");
+  } else if (
+    input.frequencyPressureThreshold == null ||
+    !Number.isFinite(input.frequencyPressureThreshold) ||
+    input.frequencyPressureThreshold <= 0
+  ) {
+    missingContext.push("Account-relative frequency pressure threshold unavailable");
   }
 
   let confidence = 0.48;
@@ -336,7 +359,7 @@ export function computeFatigue(input: FatigueInput): FatigueOutput {
     roasDecay: roundMetric(roasDecay, 4),
     spendConcentration: roundMetric(input.spendConcentration, 4),
     frequencyPressure: roundMetric(input.frequency, 4),
-    winnerMemory: nestedWinnerMemory,
+    winnerMemory,
     evidence: evidence.slice(0, 4),
     missingContext,
   };

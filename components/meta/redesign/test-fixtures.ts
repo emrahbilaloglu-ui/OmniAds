@@ -134,6 +134,7 @@ export function metaPulse(overrides: Partial<MetaPulsePayload> = {}): MetaPulseP
     seasonalRegime: "normalized",
     engineLastRun: "2026-05-07T03:00:00.000Z",
     engineVersion: "v3.6.0-meta-taxonomy",
+    currency: "USD",
     trackingHealth: { status: "healthy", detail: "Tracking signal is stable." },
     ...overrides,
   };

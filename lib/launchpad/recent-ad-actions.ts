@@ -23,7 +23,7 @@ export function resolveLaunchpadAdActionId(row: MetaCreativeRow) {
 export function applyRecentAdActionsToRows(
   rows: MetaCreativeRow[],
   actions: LaunchpadRecentAdAction[],
-  currency: string,
+  currency: string | null,
   options: { surface?: "resulting_ads" | "source_creatives" } = {},
 ) {
   if (actions.length === 0) return rows;
@@ -38,7 +38,8 @@ export function applyRecentAdActionsToRows(
   const sourceByCreativeId = new Map<string, MetaCreativeRow>();
   const sourceByAdId = new Map<string, MetaCreativeRow>();
   rows.forEach((row) => {
-    if (!sourceByCreativeId.has(row.creativeId)) sourceByCreativeId.set(row.creativeId, row);
+    if (!sourceByCreativeId.has(row.creativeId))
+      sourceByCreativeId.set(row.creativeId, row);
     const adId = resolveLaunchpadAdActionId(row);
     if (adId && !sourceByAdId.has(adId)) sourceByAdId.set(adId, row);
   });
@@ -48,12 +49,11 @@ export function applyRecentAdActionsToRows(
     const action = actionByAdId.get(adId);
     if (!action) return row;
     seenAdIds.add(action.resultingAdId);
-    const source =
-      action.sourceAdId
-        ? sourceByAdId.get(action.sourceAdId) ?? null
-        : action.creativeId
-          ? sourceByCreativeId.get(action.creativeId) ?? null
-          : null;
+    const source = action.sourceAdId
+      ? (sourceByAdId.get(action.sourceAdId) ?? null)
+      : action.creativeId
+        ? (sourceByCreativeId.get(action.creativeId) ?? null)
+        : null;
     const sourceDisplayName = source?.name ?? action.sourceName ?? null;
     return {
       ...row,
@@ -73,21 +73,24 @@ export function applyRecentAdActionsToRows(
   });
   const syntheticRows = actions.flatMap((action): MetaCreativeRow[] => {
     if (!action.resultingAdId || seenAdIds.has(action.resultingAdId)) return [];
-    const source =
-      action.sourceAdId
-        ? sourceByAdId.get(action.sourceAdId) ?? null
-        : action.creativeId
-          ? sourceByCreativeId.get(action.creativeId) ?? null
-          : null;
+    const source = action.sourceAdId
+      ? (sourceByAdId.get(action.sourceAdId) ?? null)
+      : action.creativeId
+        ? (sourceByCreativeId.get(action.creativeId) ?? null)
+        : null;
     if (!source && !action.creativeId && !action.sourceName) return [];
-    const creativeId = action.creativeId ?? source?.creativeId ?? action.resultingAdId;
+    const creativeId =
+      action.creativeId ?? source?.creativeId ?? action.resultingAdId;
     const sourceDisplayName = source?.name ?? action.sourceName ?? null;
     return [
       {
         ...(source ?? {
           id: `recent:${action.resultingAdId}`,
           creativeId,
-          name: sourceDisplayName ?? action.adName ?? `Meta ad ${action.resultingAdId}`,
+          name:
+            sourceDisplayName ??
+            action.adName ??
+            `Meta ad ${action.resultingAdId}`,
           associatedAdsCount: 1,
           accountId: action.accountId,
           accountName: null,
@@ -145,8 +148,12 @@ export function applyRecentAdActionsToRows(
         }),
         id: `recent:${action.resultingAdId}`,
         realAdId: action.resultingAdId,
+        metricsAvailability: "unavailable",
         creativeId,
-        name: sourceDisplayName ?? action.adName ?? `Meta ad ${action.resultingAdId}`,
+        name:
+          sourceDisplayName ??
+          action.adName ??
+          `Meta ad ${action.resultingAdId}`,
         accountId: action.accountId ?? source?.accountId ?? null,
         campaignId: action.targetCampaignId,
         campaignName: action.targetCampaignName,
@@ -199,7 +206,7 @@ export function applyRecentAdActionsToRows(
 function applyRecentSourceCreativeActionsToRows(
   rows: MetaCreativeRow[],
   actions: LaunchpadRecentAdAction[],
-  currency: string,
+  currency: string | null,
 ) {
   const actionBySourceAdId = new Map(
     actions
@@ -208,7 +215,8 @@ function applyRecentSourceCreativeActionsToRows(
   );
   const sourceByCreativeId = new Map<string, MetaCreativeRow>();
   rows.forEach((row) => {
-    if (!sourceByCreativeId.has(row.creativeId)) sourceByCreativeId.set(row.creativeId, row);
+    if (!sourceByCreativeId.has(row.creativeId))
+      sourceByCreativeId.set(row.creativeId, row);
   });
 
   const seenSourceAdIds = new Set<string>();
@@ -238,9 +246,12 @@ function applyRecentSourceCreativeActionsToRows(
     if (!sourceAdId || seenSourceAdIds.has(sourceAdId)) return [];
     if (!action.creativeId && !action.sourceName) return [];
 
-    const source = action.creativeId ? sourceByCreativeId.get(action.creativeId) ?? null : null;
+    const source = action.creativeId
+      ? (sourceByCreativeId.get(action.creativeId) ?? null)
+      : null;
     const creativeId = action.creativeId ?? source?.creativeId ?? sourceAdId;
-    const sourceDisplayName = action.sourceName ?? source?.name ?? `Meta ad ${sourceAdId}`;
+    const sourceDisplayName =
+      action.sourceName ?? source?.name ?? `Meta ad ${sourceAdId}`;
 
     return [
       {
@@ -277,6 +288,7 @@ function applyRecentSourceCreativeActionsToRows(
           launchDate: action.requestedAt.slice(0, 10),
           tags: [],
           aiTags: {},
+          metricsAvailability: "unavailable" as const,
           spend: 0,
           purchaseValue: 0,
           roas: 0,

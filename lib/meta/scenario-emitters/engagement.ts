@@ -8,6 +8,11 @@ import {
   META_RECOMMENDATION_ENGINE_VERSION,
   type MetaRecommendation,
 } from "@/lib/meta/recommendations";
+import {
+  evaluateCohortEvidence,
+  hasCohortFatigueEvidence,
+  type CohortEvidenceProfile,
+} from "@/lib/meta/scenario-emitters/cohort-evidence";
 import type { AdsetScenarioInput } from "@/lib/meta/scenario-emitters/high-priority";
 import {
   percentileRank,
@@ -38,18 +43,6 @@ function fmtPercent(value: number) {
 
 function fmtScore(value: number) {
   return `${Math.round(value * 100)}%`;
-}
-
-function confidenceFromScore(score: number): MetaRecommendation["confidence"] {
-  if (score >= 0.85 || score <= 0.15) return "high";
-  if ((score >= 0.7 && score < 0.85) || (score > 0.15 && score <= 0.3)) {
-    return "medium";
-  }
-  return "low";
-}
-
-function confidenceScoreFromScore(score: number) {
-  return r2(score >= 0.5 ? score : 1 - score);
 }
 
 function numberField(adset: MetaAdSetData, key: keyof MetaAdSetData) {
@@ -84,20 +77,6 @@ function ageDays(input: AdsetScenarioInput) {
   return null;
 }
 
-function spendMaturityFloor(input: AdsetScenarioInput) {
-  const metrics = input.context?.thresholds.metrics as
-    | Record<string, MetaMetricPercentiles | undefined>
-    | undefined;
-  const spendThreshold = metrics?.spend_28d;
-  return spendThreshold ? spendThreshold.p50 * 0.3 : 0;
-}
-
-function isMature(input: AdsetScenarioInput) {
-  const age = ageDays(input);
-  if (age == null || age < 14) return false;
-  return input.adset.spend >= spendMaturityFloor(input);
-}
-
 function frequencyValue(input: AdsetScenarioInput) {
   const signalFrequency = input.signals?.frequencyP80;
   if (typeof signalFrequency === "number" && Number.isFinite(signalFrequency)) {
@@ -107,10 +86,11 @@ function frequencyValue(input: AdsetScenarioInput) {
 }
 
 function hasFatigue(input: AdsetScenarioInput) {
-  const frequencyThreshold =
-    threshold(input, "freq_14d")?.p75 ??
-    LEGACY_META_CALIBRATION_THRESHOLDS.metrics.freq_14d.p75;
-  return frequencyValue(input) > frequencyThreshold;
+  return hasCohortFatigueEvidence({
+    context: input.context,
+    frequency: frequencyValue(input),
+    ctrDecayPct: input.signals?.ctrDecayPct,
+  });
 }
 
 function baseEngagementRecommendation(input: {
@@ -126,6 +106,7 @@ function baseEngagementRecommendation(input: {
   recommendedAction: string;
   expectedImpact: string;
   score: number;
+  evidenceProfile: CohortEvidenceProfile;
   evidence: MetaRecommendation["evidence"];
   targetValue?: unknown;
 }): MetaRecommendation {
@@ -141,8 +122,8 @@ function baseEngagementRecommendation(input: {
     decisionLabel: input.decisionLabel,
     lens: input.lens,
     priority: input.priority,
-    confidence: confidenceFromScore(input.score),
-    confidenceScore: confidenceScoreFromScore(input.score),
+    confidence: input.evidenceProfile.confidence,
+    confidenceScore: input.evidenceProfile.confidenceScore,
     confidenceReason: null,
     decisionState: input.decisionState,
     decision: input.title,
@@ -200,8 +181,14 @@ export function emitEngagementAdsetScenario(input: AdsetScenarioInput): MetaReco
   const hasQualityCalibration = qualityRank != null;
   const score = r2(hasQualityCalibration ? (0.6 * costRank) + (0.4 * qualityRank) : 0.5);
   const currency = (input.adset as MetaAdSetData & { currency?: string | null }).currency ?? null;
-  const mature = isMature(input);
   const age = ageDays(input);
+  const evidenceProfile = evaluateCohortEvidence({
+    context: input.context,
+    score,
+    eventCount: postEngagement,
+    spend: input.adset.spend,
+    ageDays: age,
+  });
   const evidence: MetaRecommendation["evidence"] = [
     { label: "Engagement score", value: fmtScore(score), tone: score >= 0.7 ? "positive" : score < 0.3 ? "warning" : "neutral" },
     { label: "Cost / engagement", value: fmtCurrency(Number.isFinite(costPerEngagement) ? costPerEngagement : null, currency), tone: costRank >= 0.7 ? "positive" : costRank <= 0.3 ? "warning" : "neutral" },
@@ -233,11 +220,12 @@ export function emitEngagementAdsetScenario(input: AdsetScenarioInput): MetaReco
       expectedImpact: "Avoids scaling or cutting from cost-only engagement evidence.",
       evidence,
       score,
+      evidenceProfile,
       targetValue,
     });
   }
 
-  if (score >= 0.7 && mature) {
+  if (score >= 0.7 && evidenceProfile.scaleMature) {
     return baseEngagementRecommendation({
       scenarioType: "scenario_eg1_engagement_efficient_scale",
       decisionLabel: "scale",
@@ -252,14 +240,14 @@ export function emitEngagementAdsetScenario(input: AdsetScenarioInput): MetaReco
       expectedImpact: "More engagement volume while staying inside cohort-calibrated cost and quality bands.",
       evidence,
       score,
+      evidenceProfile,
       targetValue,
     });
   }
 
   if (
     score < 0.3 &&
-    mature &&
-    input.adset.spend > (input.context?.thresholds.hardCutSpend ?? LEGACY_META_CALIBRATION_THRESHOLDS.hardCutSpend)
+    evidenceProfile.cutMature
   ) {
     return baseEngagementRecommendation({
       scenarioType: "scenario_eg3_engagement_inefficient_cut",
@@ -275,6 +263,7 @@ export function emitEngagementAdsetScenario(input: AdsetScenarioInput): MetaReco
       expectedImpact: "Stops spend from compounding into low-quality engagement.",
       evidence,
       score,
+      evidenceProfile,
       targetValue,
     });
   }
@@ -297,12 +286,12 @@ export function emitEngagementAdsetScenario(input: AdsetScenarioInput): MetaReco
         { label: "Frequency", value: String(r2(frequencyValue(input))), tone: "warning" },
       ],
       score,
+      evidenceProfile,
       targetValue,
     });
   }
 
-  if (score >= 0.5) {
-    return baseEngagementRecommendation({
+  return baseEngagementRecommendation({
       scenarioType: "scenario_eg2_engagement_steady_keep",
       decisionLabel: "keep",
       decisionState: "watch",
@@ -316,9 +305,7 @@ export function emitEngagementAdsetScenario(input: AdsetScenarioInput): MetaReco
       expectedImpact: "Preserves useful engagement volume while avoiding premature budget moves.",
       evidence,
       score,
+      evidenceProfile,
       targetValue,
-    });
-  }
-
-  return null;
+  });
 }

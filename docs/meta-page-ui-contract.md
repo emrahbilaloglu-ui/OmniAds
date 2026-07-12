@@ -38,7 +38,7 @@ Page shell:
   (with the right-aligned `MetaAsOfCluster`), queue-scope note, banners, lane
   tabs, filter bar, then a `[MetaScopeRail | queue column | inspector]` content
   row where the queue column carries the inline `FinalMetaPulse` strip, inline
-  `ReadinessNotice`, and the lane content + bulk bar; plus
+  `MetaWorkspacePostureBanners`, and the lane content + bulk bar; plus
   modals/drawers/overlays.
 
 Components (all under `components/meta/redesign/`):
@@ -47,8 +47,9 @@ Components (all under `components/meta/redesign/`):
   horizontal row: entity name + level, up to three descriptor chips (capped,
   `+N` overflow), the server decision label, a money-at-stake line (spend +
   ROAS vs the pulse `targetRoas`, from structured `rec.metrics` only — never a
-  projection, missing renders as an em dash), one confidence band pill carrying
-  the server score, one honest primary (server `actionKind` verb), and an
+  projection, missing renders as an em dash), one qualitative confidence band
+  pill with no numeric confidence on the card, one honest primary (server
+  `actionKind` verb), and an
   overflow menu (Let cook 24h, Compare, Copy entity ID, and Ads Manager only
   when a real permalink is supplied). Secondary metrics and the full evidence
   live in the inspector, not the row. Clicking the row opens the inspector.
@@ -175,18 +176,18 @@ Money is currency-aware: `formatMoney` (`MetaPlatformPage.tsx:839-854`) uses
 `account-pulse/route.ts:495`) first, then the business `currency` prop, and
 only falls back to the legacy USD-style formatter when both are unknown.
 
-### ReadinessNotice (`MetaPlatformPage.tsx:633`)
+### MetaWorkspacePostureBanners
 
-Amber remediation banner rendered under the pulse when any of:
+Server-composed posture rows rendered under the pulse when the workspace
+reports an active truth, safety, or readiness condition, including:
 
-- `labelCoverage` has unlabeled active campaigns → button opens the label
-  modal;
-- `targetAnchor.configured === false` → link to `/commercial-truth`;
-- `snapshotHealth.status !== "fresh"` → "Refresh decisions now" button calling
-  the same run-now endpoint as the topbar, with snapshot-age chip and
-  `staleReason` text.
+- snapshot or data-readiness degradation;
+- tracking write-gate posture;
+- reviewer read-only posture;
+- environment or business kill-switch engagement.
 
-Hidden entirely when all three are healthy.
+The stack consumes server-owned banner ids and severity. Dismissing a tracking
+banner affects presentation only and never changes the write gate.
 
 ### Tracking posture banner vs write gate — deliberately separate
 
@@ -424,8 +425,9 @@ renders all of them together:
   time — a cache-age stamp, NOT an ingest-freshness claim; the two
   semantics are deliberately distinct.
 
-The ReadinessNotice remediates the snapshot side (run-now); the sync side
-has no page-level remediation control.
+The workspace posture stack explains snapshot/readiness state. Snapshot refresh
+remains a separate guarded topbar command; the sync side has no page-level
+remediation control.
 
 ## Server-owned action presentation
 

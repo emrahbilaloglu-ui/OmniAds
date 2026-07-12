@@ -856,7 +856,6 @@ export function AssetLibrarySection({
         expiration: "7",
         metrics: shareMetricKeys,
         includeNotes: false,
-        passwordProtection: false,
         audience: shareAudience,
         presetId: sharePreset.id,
         presetLabel: sharePreset.title,

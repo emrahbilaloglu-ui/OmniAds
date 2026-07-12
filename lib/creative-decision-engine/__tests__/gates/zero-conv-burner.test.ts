@@ -30,21 +30,19 @@ describe("zeroConvBurnerGate", () => {
     expect(output.confidence).toBe(80);
   });
 
-  it("cuts zero-purchase creatives with sustained burn when delivery status is unknown", () => {
-    const output = terminalOutput(
-      zeroConvBurnerGate(
-        makeGateContext({
-          input: makeCreativeInput({
-            effectiveStatus: null,
-            purchases: 0,
-            spend: 300,
-            ageDays: 14,
-          }),
+  it("does not grant cut authority when delivery status is unknown", () => {
+    const result = zeroConvBurnerGate(
+      makeGateContext({
+        input: makeCreativeInput({
+          effectiveStatus: null,
+          purchases: 0,
+          spend: 300,
+          ageDays: 14,
         }),
-      ),
+      }),
     );
 
-    expect(output.label).toBe("cut");
+    expect(result.kind).toBe("advance");
   });
 
   it("advances zero-purchase creatives below minimum spend", () => {

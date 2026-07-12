@@ -265,6 +265,7 @@ function expectNoUndefinedFields(input: CreativeInput) {
     "businessId",
     "campaignId",
     "objective",
+    "contextGrain",
     "effectiveCohort",
     "spend",
     "purchases",

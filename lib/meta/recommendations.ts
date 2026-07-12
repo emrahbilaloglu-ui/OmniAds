@@ -21,6 +21,7 @@ import {
   comparableMetaIntentLabel,
   isScalingCampaignFamily,
   metaCampaignFamilyLabel,
+  metaCampaignLaneGroupKey,
   resolveMetaCampaignFamily,
   type MetaCampaignFamily,
   type MetaCampaignLaneFamilySummary,
@@ -40,11 +41,12 @@ import {
   type MetaFunnelCohort,
 } from "@/lib/meta/funnel-cohort";
 import {
-  metaCutRoasCeiling,
+  metaCutRoasReviewCeiling,
   metaLossBudgetMaturity,
   metaScaleRoasFloor,
   type MetaCommercialTargets,
 } from "@/lib/meta/commercial-targets";
+import { enforceMetaCommercialActionAuthority } from "@/lib/meta/commercial-action-authority";
 import {
   deriveMetaAutomationReadiness,
   type MetaAutomationReadiness,
@@ -274,6 +276,17 @@ export interface MetaRecommendation {
   /** Server-owned row presentation fields for the Decisions reference row.
    * These are display affordances only; buyer actions still come from actionKind. */
   rowPresentation?: MetaRecommendationRowPresentation;
+  /** Account-scoped provider configuration joined at read time. Decisions UI
+   * renders this authority directly and never infers ownership from labels. */
+  entityConfiguration?: {
+    source: "account_scoped_campaign_row" | "account_scoped_adset_row";
+    budgetOwner: "campaign" | "adset" | "mixed" | "unknown";
+    budgetMode: "campaign_budget" | "adset_budget" | "mixed" | "unknown";
+    controlOwner: "campaign" | "adset" | "mixed" | "unknown";
+    status: string | null;
+    optimizationGoal: string | null;
+    bidStrategyType: string | null;
+  };
   /** Structured numeric metrics for compare/bulk math; display strings in
    * evidence[] are presentation-only and must never be parsed back. */
   metrics?: {
@@ -339,7 +352,8 @@ export interface MetaRecommendationsResponse {
   analysisSource?: MetaRecommendationAnalysisSource;
 }
 
-export const META_RECOMMENDATION_ENGINE_VERSION = "v1.0.0";
+export const META_RECOMMENDATION_ENGINE_VERSION =
+  "v1.1.0-decision-safety";
 
 export interface MetaCalibrationContext {
   thresholds: MetaCalibrationThresholds;
@@ -478,7 +492,7 @@ function localizeMetaRecommendation(recommendation: MetaRecommendation, language
         : recommendation.type === "seasonal_regime_shift"
           ? "Temel karar, seçili aralığı normal çalışma hali saymak yerine normalize baz ve peak dönemini birlikte degerlendiriyor."
           : recommendation.type === "bid_band_from_history"
-            ? "Temel karar, teklif bandini 7/14/30/90/geçmiş verimlilik pencerelerinden turetiyor."
+            ? "Temel karar, teklif bandini birbirinden bağımsız tarih segmentlerinden turetiyor."
             : recommendation.timeframeContext.coreVerdict,
     selectedRangeOverlay:
       recommendation.type === "seasonal_regime_shift"
@@ -783,23 +797,84 @@ export interface MetaRecommendationWindows {
   allHistory: MetaCampaignRow[];
 }
 
-interface CampaignWindowSnapshot {
-  selected: MetaCampaignRow;
-  previousSelected?: MetaCampaignRow;
+export interface MetaCampaignCumulativeSnapshot {
   last3?: MetaCampaignRow;
   last7?: MetaCampaignRow;
   last14?: MetaCampaignRow;
   last30?: MetaCampaignRow;
   last90?: MetaCampaignRow;
+}
+
+interface CampaignWindowSnapshot extends MetaCampaignCumulativeSnapshot {
+  selected: MetaCampaignRow;
+  previousSelected?: MetaCampaignRow;
   allHistory?: MetaCampaignRow;
 }
 
-interface WeightedCampaignSnapshot {
+export interface WeightedCampaignSnapshot {
   roas: number;
   spend: number;
   revenue: number;
   purchases: number;
   cpa: number;
+}
+
+export const META_HISTORY_RECENCY_HALF_LIFE_DAYS = 14;
+
+const META_HISTORY_ADDITIVE_FIELDS = [
+  "spend",
+  "purchases",
+  "revenue",
+  "impressions",
+  "clicks",
+  "outboundClicks",
+  "landingPageViews",
+  "addToCart",
+  "addToCartValue",
+  "initiateCheckout",
+  "initiateCheckoutValue",
+  "leads",
+  "leadsValue",
+  "registrationsCompleted",
+  "registrationsCompletedValue",
+  "searches",
+  "searchesValue",
+  "addPaymentInfo",
+  "addPaymentInfoValue",
+  "pageLikes",
+  "postEngagement",
+  "postReactions",
+  "postComments",
+  "postShares",
+  "messagingConversationsStarted",
+  "appInstalls",
+  "contentViews",
+  "contentViewsValue",
+  "videoViews3s",
+  "videoViews15s",
+  "videoViews25",
+  "videoViews50",
+  "videoViews75",
+  "videoViews95",
+  "videoViews100",
+] as const satisfies readonly (keyof MetaCampaignRow)[];
+
+type MetaHistoryAdditiveField = (typeof META_HISTORY_ADDITIVE_FIELDS)[number];
+type MetaHistoryAdditiveMetrics = Pick<MetaCampaignRow, MetaHistoryAdditiveField>;
+
+export interface MetaCampaignDisjointSegment extends MetaHistoryAdditiveMetrics {
+  label: "days_0_3" | "days_4_7" | "days_8_14" | "days_15_30" | "days_31_90";
+  startDay: number;
+  endDay: number;
+  midpointDay: number;
+  sourceWindow: "last3" | "last7" | "last14" | "last30" | "last90";
+  id: string;
+  accountId: string;
+  currency: string | null;
+  bidStrategyType: string | null;
+  roas: number;
+  cpa: number;
+  costPerLead: number;
 }
 
 interface ScalingStructureSnapshot {
@@ -876,7 +951,12 @@ export function calculateMetaStatisticalConfidence(
       : input.metricValue > 0
         ? 1
         : 0;
-  let score = clamp(0.4 + 0.3 * sampleFactor + 0.3 * magnitudeFactor);
+  // Magnitude is only informative to the extent that the comparison cohort
+  // is populated. With zero sample support, even an extreme point estimate
+  // remains low-confidence instead of receiving a free +0.30 boost.
+  let score = clamp(
+    0.4 + 0.3 * sampleFactor + 0.3 * sampleFactor * magnitudeFactor,
+  );
   let reason: MetaStatisticalConfidenceResult["reason"];
 
   if (input.level === "campaign" && input.ageDays != null && input.ageDays < 7) {
@@ -885,7 +965,6 @@ export function calculateMetaStatisticalConfidence(
   }
 
   if (input.severeLoser) {
-    score = Math.max(score, 0.7);
     reason = "severe_loser_bypass";
   }
 
@@ -1167,8 +1246,39 @@ function comparablePeerRows(selectedRows: MetaCampaignRow[], row: MetaCampaignRo
   return selectedRows.filter((candidate) => comparableMetaIntentKey(candidate) === key);
 }
 
+function comparableWindows(
+  input: MetaRecommendationWindows,
+  row: MetaCampaignRow,
+): MetaRecommendationWindows {
+  const key = comparableMetaIntentKey(row);
+  const filter = (rows: MetaCampaignRow[]) =>
+    rows.filter((candidate) => comparableMetaIntentKey(candidate) === key);
+  return {
+    selected: filter(input.selected),
+    previousSelected: filter(input.previousSelected),
+    last3: filter(input.last3),
+    last7: filter(input.last7),
+    last14: filter(input.last14),
+    last30: filter(input.last30),
+    last90: filter(input.last90),
+    allHistory: filter(input.allHistory),
+  };
+}
+
+function accountCurrencyScopeKey(row: MetaCampaignRow) {
+  const accountId = row.accountId?.trim().toLowerCase() || `missing:${row.id}`;
+  const currency = row.currency?.trim().toUpperCase() || "UNKNOWN";
+  return `${accountId}|${currency}`;
+}
+
 function buildScalingStructureSnapshot(windows: CampaignWindowSnapshot[]): ScalingStructureSnapshot | null {
-  const grouped = new Map<MetaCampaignFamily, Array<{ row: MetaCampaignRow; core: WeightedCampaignSnapshot }>>();
+  const grouped = new Map<
+    string,
+    {
+      family: MetaCampaignFamily;
+      entries: Array<{ row: MetaCampaignRow; core: WeightedCampaignSnapshot }>;
+    }
+  >();
   const selectedRows = windows.map((window) => window.selected);
   const laneSummaries = buildMetaCampaignLaneSummary(selectedRows);
   for (const window of windows) {
@@ -1176,11 +1286,14 @@ function buildScalingStructureSnapshot(windows: CampaignWindowSnapshot[]): Scali
     const family = resolveMetaCampaignFamily(row);
     if (!isScalingCampaignFamily(family) || !isActiveCampaign(row)) continue;
     const core = buildWeightedCampaignSnapshot(window);
-    grouped.set(family, [...(grouped.get(family) ?? []), { row, core }]);
+    const key = metaCampaignLaneGroupKey(row);
+    const group = grouped.get(key) ?? { family, entries: [] };
+    group.entries.push({ row, core });
+    grouped.set(key, group);
   }
 
   const candidates = [...grouped.entries()]
-    .map(([family, entries]) => {
+    .map(([groupKey, { family, entries }]) => {
       const avgRoas = average(entries.map(({ core }) => core.roas).filter((value) => value > 0));
       const avgSpend = average(entries.map(({ core }) => core.spend).filter((value) => value > 0));
       const strongRows = entries
@@ -1199,12 +1312,12 @@ function buildScalingStructureSnapshot(windows: CampaignWindowSnapshot[]): Scali
         strongRows,
         weakRows,
         lowSignalRows,
-        laneSummary: laneSummaries.get(family) ?? null,
+        laneSummary: laneSummaries.get(groupKey) ?? null,
         score:
           strongRows.length * 3 +
           lowSignalRows.length * 2 +
           weakRows.length +
-          (laneSummaries.get(family)?.validationCount ?? 0),
+          (laneSummaries.get(groupKey)?.validationCount ?? 0),
       };
     })
     .filter((candidate) => candidate.activeRows.length >= 2)
@@ -1218,6 +1331,10 @@ function buildDeploymentFamilyContext(
   creativeIntelligence: MetaCreativeIntelligenceSummary | null | undefined
 ): DeploymentFamilyContext | null {
   if (!creativeIntelligence) return null;
+  const providerAccountIds = new Set(
+    selectedRows.map((row) => row.accountId).filter(Boolean),
+  );
+  if (providerAccountIds.size !== 1) return null;
 
   const grouped = new Map<MetaCampaignFamily, MetaCampaignRow[]>();
   for (const row of selectedRows) {
@@ -1701,34 +1818,131 @@ function sortWeight(input: MetaRecommendation) {
   return decisionWeight + priorityWeight + confidenceWeight + lensWeight;
 }
 
-function buildHistoricalSupport(window: CampaignWindowSnapshot, evaluator: (row: MetaCampaignRow) => boolean) {
-  const matches = [window.last3, window.last7, window.last14, window.last30, window.last90, window.allHistory].filter(
-    (row): row is MetaCampaignRow => Boolean(row)
+const META_HISTORY_WINDOW_SPECS = [
+  { label: "days_0_3", startDay: 0, endDay: 3, sourceWindow: "last3" },
+  { label: "days_4_7", startDay: 4, endDay: 7, sourceWindow: "last7" },
+  { label: "days_8_14", startDay: 8, endDay: 14, sourceWindow: "last14" },
+  { label: "days_15_30", startDay: 15, endDay: 30, sourceWindow: "last30" },
+  { label: "days_31_90", startDay: 31, endDay: 90, sourceWindow: "last90" },
+] as const;
+
+function metaHistoryDelta(
+  current: MetaCampaignRow,
+  previous: MetaCampaignRow | undefined,
+): MetaHistoryAdditiveMetrics | null {
+  if (
+    previous &&
+    (current.id !== previous.id ||
+      current.accountId !== previous.accountId ||
+      current.currency !== previous.currency)
+  ) {
+    return null;
+  }
+
+  const entries: Array<[MetaHistoryAdditiveField, number]> = [];
+  for (const field of META_HISTORY_ADDITIVE_FIELDS) {
+    const currentValue = current[field];
+    const previousValue = previous?.[field] ?? 0;
+    if (
+      !Number.isFinite(currentValue) ||
+      !Number.isFinite(previousValue) ||
+      currentValue < 0 ||
+      previousValue < 0
+    ) {
+      return null;
+    }
+    const delta = currentValue - previousValue;
+    const tolerance = 1e-6 * Math.max(1, Math.abs(currentValue), Math.abs(previousValue));
+    if (delta < -tolerance) {
+      return null;
+    }
+    entries.push([field, Math.abs(delta) <= tolerance ? 0 : delta]);
+  }
+  return Object.fromEntries(entries) as MetaHistoryAdditiveMetrics;
+}
+
+/**
+ * Converts cumulative Meta windows into one contiguous chain of independent evidence.
+ * A missing or non-monotonic window closes the chain; older cumulative rows never
+ * substitute for the broken recent evidence. allHistory is intentionally excluded
+ * because its duration and launch boundary are not available here.
+ */
+export function deriveMetaCampaignDisjointSegments(
+  window: MetaCampaignCumulativeSnapshot,
+): MetaCampaignDisjointSegment[] {
+  const segments: MetaCampaignDisjointSegment[] = [];
+  let previous: MetaCampaignRow | undefined;
+
+  for (const spec of META_HISTORY_WINDOW_SPECS) {
+    const current = window[spec.sourceWindow];
+    if (!current) break;
+    const metrics = metaHistoryDelta(current, previous);
+    if (!metrics) break;
+
+    const hasEvidence = META_HISTORY_ADDITIVE_FIELDS.some((field) => metrics[field] > 0);
+    if (hasEvidence) {
+      segments.push({
+        ...metrics,
+        label: spec.label,
+        startDay: spec.startDay,
+        endDay: spec.endDay,
+        midpointDay: (spec.startDay + spec.endDay) / 2,
+        sourceWindow: spec.sourceWindow,
+        id: current.id,
+        accountId: current.accountId,
+        currency: current.currency,
+        bidStrategyType: current.bidStrategyType,
+        roas: metrics.spend > 0 ? metrics.revenue / metrics.spend : 0,
+        cpa: metrics.purchases > 0 ? metrics.spend / metrics.purchases : 0,
+        costPerLead: metrics.leads > 0 ? metrics.spend / metrics.leads : 0,
+      });
+    }
+    previous = current;
+  }
+
+  return segments;
+}
+
+/** Exponential recency policy, not a performance threshold. */
+export function metaHistoryRecencyWeight(
+  midpointDay: number,
+  halfLifeDays = META_HISTORY_RECENCY_HALF_LIFE_DAYS,
+) {
+  if (!Number.isFinite(midpointDay) || midpointDay < 0) return 0;
+  if (!Number.isFinite(halfLifeDays) || halfLifeDays <= 0) return 0;
+  return Math.exp((-Math.LN2 * midpointDay) / halfLifeDays);
+}
+
+function weightedDisjointTotals(segments: MetaCampaignDisjointSegment[]) {
+  return segments.reduce(
+    (totals, segment) => {
+      const weight = metaHistoryRecencyWeight(segment.midpointDay);
+      totals.spend += segment.spend * weight;
+      totals.revenue += segment.revenue * weight;
+      totals.purchases += segment.purchases * weight;
+      totals.leads += segment.leads * weight;
+      return totals;
+    },
+    { spend: 0, revenue: 0, purchases: 0, leads: 0 },
   );
-  const supportCount = matches.filter(evaluator).length;
+}
+
+export function buildHistoricalSupport(
+  window: MetaCampaignCumulativeSnapshot,
+  evaluator: (segment: MetaCampaignDisjointSegment) => boolean,
+) {
+  const segments = deriveMetaCampaignDisjointSegments(window);
   return {
-    supportCount,
-    total: matches.length,
+    supportCount: segments.filter(evaluator).length,
+    total: segments.length,
   };
 }
 
-function buildWeightedCampaignSnapshot(window: CampaignWindowSnapshot): WeightedCampaignSnapshot {
-  const windows: Array<{ weight: number; row: MetaCampaignRow }> = [];
-  const push = (weight: number, row: MetaCampaignRow | undefined) => {
-    if (!row) return;
-    windows.push({ weight, row });
-  };
-
-  push(0.18, window.selected);
-  push(0.24, window.last3);
-  push(0.22, window.last7);
-  push(0.18, window.last14);
-  push(0.10, window.last30);
-  push(0.05, window.last90);
-  push(0.03, window.allHistory);
-
-  const totalWeight = windows.reduce((sum, item) => sum + item.weight, 0);
-  if (totalWeight <= 0) {
+export function buildWeightedCampaignSnapshot(
+  window: MetaCampaignCumulativeSnapshot & { selected: MetaCampaignRow },
+): WeightedCampaignSnapshot {
+  const segments = deriveMetaCampaignDisjointSegments(window);
+  if (segments.length === 0) {
     return {
       roas: window.selected.roas,
       spend: window.selected.spend,
@@ -1738,47 +1952,39 @@ function buildWeightedCampaignSnapshot(window: CampaignWindowSnapshot): Weighted
     };
   }
 
-  const weighted = (picker: (row: MetaCampaignRow) => number) =>
-    windows.reduce((sum, item) => sum + picker(item.row) * item.weight, 0) / totalWeight;
-
+  const totals = weightedDisjointTotals(segments);
   return {
-    roas: weighted((row) => row.roas),
-    spend: weighted((row) => row.spend),
-    revenue: weighted((row) => row.revenue),
-    purchases: weighted((row) => row.purchases),
-    cpa: weighted((row) => row.cpa),
+    roas: totals.spend > 0 ? totals.revenue / totals.spend : 0,
+    spend: totals.spend,
+    revenue: totals.revenue,
+    purchases: totals.purchases,
+    cpa: totals.purchases > 0 ? totals.spend / totals.purchases : 0,
   };
 }
 
 function seasonalitySignal(window: CampaignWindowSnapshot) {
-  const baseline = average(
-    [window.last14?.roas, window.last30?.roas, window.last90?.roas, window.allHistory?.roas].filter(
-      (value): value is number => typeof value === "number" && Number.isFinite(value)
-    )
-  );
-  if (!baseline || baseline <= 0) {
+  const segments = deriveMetaCampaignDisjointSegments(window);
+  if (segments.length < 2) {
+    return { flag: "none" as const, note: null };
+  }
+  const totals = weightedDisjointTotals(segments);
+  const baseline = totals.spend > 0 ? totals.revenue / totals.spend : 0;
+  if (baseline <= 0) {
     return { flag: "none" as const, note: null };
   }
 
   const roasDelta = Math.abs(window.selected.roas - baseline) / baseline;
-  const spendBaseline = average(
-    [window.last14?.spend, window.last30?.spend, window.last90?.spend, window.allHistory?.spend].filter(
-      (value): value is number => typeof value === "number" && Number.isFinite(value)
-    )
-  );
-  const spendDelta = spendBaseline > 0 ? Math.abs(window.selected.spend - spendBaseline) / spendBaseline : 0;
-
-  if (roasDelta >= 0.8 || spendDelta >= 1.2) {
+  if (roasDelta >= 0.8) {
     return {
       flag: "strong" as const,
-      note: "Selected period diverges sharply from longer-term performance; likely seasonal or promotional behavior.",
+      note: "Selected period diverges sharply from independent historical segments; likely seasonal or promotional behavior.",
     };
   }
 
-  if (roasDelta >= 0.4 || spendDelta >= 0.6) {
+  if (roasDelta >= 0.4) {
     return {
       flag: "possible" as const,
-      note: "Selected period is directionally different from longer-term performance; validate before broad changes.",
+      note: "Selected period is directionally different from independent historical segments; validate before broad changes.",
     };
   }
 
@@ -1849,26 +2055,56 @@ function accountMetrics(rows: MetaCampaignRow[]) {
   };
 }
 
-function accountAov(rows: MetaCampaignRow[]) {
-  const revenue = rows.reduce((sum, row) => sum + row.revenue, 0);
-  const purchases = rows.reduce((sum, row) => sum + row.purchases, 0);
-  return purchases > 0 ? revenue / purchases : 0;
+function aggregateHistoryRows(rows: MetaCampaignRow[]): MetaCampaignRow | undefined {
+  const representative = rows[0];
+  if (!representative) return undefined;
+  const scopes = new Set(rows.map((row) => `${row.accountId}|${row.currency ?? "UNKNOWN"}`));
+  if (scopes.size !== 1) return undefined;
+
+  const metrics = Object.fromEntries(
+    META_HISTORY_ADDITIVE_FIELDS.map((field) => [
+      field,
+      rows.reduce((sum, row) => sum + row[field], 0),
+    ]),
+  ) as MetaHistoryAdditiveMetrics;
+
+  return {
+    ...representative,
+    ...metrics,
+    id: "__account_history__",
+    name: "Account history",
+    roas: metrics.spend > 0 ? metrics.revenue / metrics.spend : 0,
+    cpa: metrics.purchases > 0 ? metrics.spend / metrics.purchases : 0,
+    costPerLead: metrics.leads > 0 ? metrics.spend / metrics.leads : 0,
+  };
+}
+
+function accountDisjointSegments(input: MetaRecommendationWindows) {
+  return deriveMetaCampaignDisjointSegments({
+    last3: aggregateHistoryRows(input.last3),
+    last7: aggregateHistoryRows(input.last7),
+    last14: aggregateHistoryRows(input.last14),
+    last30: aggregateHistoryRows(input.last30),
+    last90: aggregateHistoryRows(input.last90),
+  });
 }
 
 function historicalBidCandidates(input: MetaRecommendationWindows) {
-  return [input.last7, input.last14, input.last30, input.last90, input.allHistory]
-    .map((rows) => {
-      const metrics = accountMetrics(rows);
-      const aov = accountAov(rows);
-      if (metrics.roas <= 0 || aov <= 0) return null;
-      return (aov / metrics.roas) * 100;
+  return accountDisjointSegments(input)
+    .map((segment) => {
+      if (segment.roas <= 0 || segment.purchases <= 0) return null;
+      const aov = segment.revenue / segment.purchases;
+      return (aov / segment.roas) * 100;
     })
-    .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+    .filter(
+      (value): value is number =>
+        typeof value === "number" && Number.isFinite(value) && value > 0,
+    );
 }
 
 function historicalRoasRange(input: MetaRecommendationWindows) {
-  const candidates = [input.last7, input.last14, input.last30, input.last90, input.allHistory]
-    .map((rows) => accountMetrics(rows).roas)
+  const candidates = accountDisjointSegments(input)
+    .map((segment) => segment.roas)
     .filter((value) => Number.isFinite(value) && value > 0)
     .map((value) => r2(value));
 
@@ -2040,36 +2276,41 @@ function describeOperatingMode(input: {
 
 function buildSeasonalContext(input: MetaRecommendationWindows): MetaSeasonalContext {
   const selected = accountMetrics(input.selected);
-  const windows = [
-    { label: "last 7d", metrics: accountMetrics(input.last7) },
-    { label: "last 14d", metrics: accountMetrics(input.last14) },
-    { label: "last 30d", metrics: accountMetrics(input.last30) },
-    { label: "last 90d", metrics: accountMetrics(input.last90) },
-    { label: "history", metrics: accountMetrics(input.allHistory) },
-  ].filter((item) => item.metrics.spend > 0 || item.metrics.revenue > 0);
+  const segments = accountDisjointSegments(input);
+  if (segments.length < 2) {
+    return {
+      state: "normalized",
+      note: "Fewer than two independent historical segments are available, so no seasonal regime is asserted.",
+      peakWindowLabel: null,
+      selectedRoas: selected.roas,
+      baselineRoas: 0,
+      peakRoas: selected.roas,
+    };
+  }
 
-  const baselineCandidates = [accountMetrics(input.last30), accountMetrics(input.last90), accountMetrics(input.allHistory)]
-    .filter((item) => item.spend > 0 || item.revenue > 0);
-  const baselineRoas = average(baselineCandidates.map((item) => item.roas).filter((value) => value > 0));
-  const peakWindow = [...windows].sort((a, b) => b.metrics.roas - a.metrics.roas)[0];
-  const peakRoas = peakWindow?.metrics.roas ?? selected.roas;
+  const baselineTotals = weightedDisjointTotals(segments);
+  const baselineRoas = baselineTotals.spend > 0
+    ? baselineTotals.revenue / baselineTotals.spend
+    : 0;
+  const peakWindow = [...segments].sort((a, b) => b.roas - a.roas)[0];
+  const peakRoas = peakWindow?.roas ?? selected.roas;
 
   if (peakRoas > Math.max(baselineRoas * 1.3, 0) && selected.roas < peakRoas * 0.78 && selected.roas <= baselineRoas * 1.05) {
     return {
       state: "post_peak",
       note: "High-demand performance has cooled and current economics now look closer to post-peak normalization.",
-      peakWindowLabel: peakWindow?.label ?? null,
+      peakWindowLabel: peakWindow?.label.replaceAll("_", " ") ?? null,
       selectedRoas: selected.roas,
       baselineRoas,
       peakRoas,
     };
   }
 
-  if (selected.roas > Math.max(baselineRoas * 1.25, 0) && selected.spend > average(baselineCandidates.map((item) => item.spend)) * 1.15) {
+  if (baselineRoas > 0 && selected.roas > baselineRoas * 1.25) {
     return {
       state: "peak",
       note: "Selected range still behaves like a high-demand window and should not be treated as the stable baseline.",
-      peakWindowLabel: peakWindow?.label ?? null,
+      peakWindowLabel: peakWindow?.label.replaceAll("_", " ") ?? null,
       selectedRoas: selected.roas,
       baselineRoas,
       peakRoas,
@@ -2080,7 +2321,7 @@ function buildSeasonalContext(input: MetaRecommendationWindows): MetaSeasonalCon
     return {
       state: "unstable",
       note: "Current economics are weaker than both recent and longer-term baselines; this looks like real deterioration rather than normal seasonality.",
-      peakWindowLabel: peakWindow?.label ?? null,
+      peakWindowLabel: peakWindow?.label.replaceAll("_", " ") ?? null,
       selectedRoas: selected.roas,
       baselineRoas,
       peakRoas,
@@ -2090,7 +2331,7 @@ function buildSeasonalContext(input: MetaRecommendationWindows): MetaSeasonalCon
   return {
     state: "normalized",
     note: "Selected range is directionally aligned with the account's normalized baseline.",
-    peakWindowLabel: peakWindow?.label ?? null,
+    peakWindowLabel: peakWindow?.label.replaceAll("_", " ") ?? null,
     selectedRoas: selected.roas,
     baselineRoas,
     peakRoas,
@@ -2257,7 +2498,7 @@ function maybeBidBandRecommendation(
     decisionState: "act",
     decision: "Use historical efficiency bands instead of single-point bid guesses",
     title: "Historical bid bands define the safer operating zone",
-    why: "Bid decisions are more stable when they are anchored to multi-window AOV and ROAS bands rather than a single recent datapoint.",
+    why: "Bid decisions are more stable when they are anchored to independent historical AOV and ROAS segments rather than repeated cumulative snapshots.",
     summary: defensiveBand
       ? `Defensive bid band is ${defensiveBand}${scaleBand ? ` and scale bid band is ${scaleBand}` : ""}.`
       : `Suggested Target ROAS operating band is ${roasBand}.`,
@@ -2271,9 +2512,9 @@ function maybeBidBandRecommendation(
       ...(roasBand ? [{ label: "ROAS band", value: roasBand, tone: "positive" as const }] : []),
     ],
     timeframeContext: buildTimeframeContext(
-      "Core verdict derives bid bands from weighted 7/14/30/90/history efficiency windows.",
+      "Core verdict derives bid bands from recency-weighted independent efficiency segments.",
       "Selected range is only used to validate whether the current period is behaving above or below that core band.",
-      "The engine uses multi-window AOV and ROAS ranges to avoid relying on a single seasonal datapoint.",
+      "The engine uses disjoint AOV and ROAS segments to avoid counting the same event more than once.",
       seasonalContext.state === "peak" ? "possible" : "none",
       seasonalContext.state === "post_peak"
         ? "Bands are especially useful here because post-peak economics usually compress relative to the seasonal high."
@@ -2372,7 +2613,7 @@ function maybeOptimizationRecommendation(window: CampaignWindowSnapshot): MetaRe
       timeframeContext: buildTimeframeContext(
         "Core verdict says the campaign is already deep enough in the funnel to justify a lower-funnel objective test.",
         `Selected range currently reads ${fmtRoas(row.roas)} ROAS on ${row.purchases} purchases.`,
-        `Historical support found in ${support.supportCount}/${support.total || 1} longer windows.`,
+        `Historical support found in ${support.supportCount}/${support.total} independent segments.`,
         seasonality.flag,
         seasonality.note
       ),
@@ -2407,7 +2648,7 @@ function maybeOptimizationRecommendation(window: CampaignWindowSnapshot): MetaRe
       timeframeContext: buildTimeframeContext(
         "Core verdict says lead quality economics are not strong enough for clean scaling.",
         `Selected range currently reads ${fmtCurrency(row.costPerLead, row.currency === "TRY" ? "₺" : row.currency === "EUR" ? "€" : "$")} per lead.`,
-        `Historical support found in ${support.supportCount}/${support.total || 1} longer windows.`,
+        `Historical support found in ${support.supportCount}/${support.total} independent segments.`,
         seasonality.flag,
         seasonality.note
       ),
@@ -2471,7 +2712,7 @@ function maybeBidRecommendation(
           ? `Core ROAS is ${fmtRoas(core.roas)} against a ${fmtRoas(targetBidValue)} target.`
           : suggestedRoasText
             ? `Current Target ROAS value is not readable in campaign config, but historical account performance supports a working ROAS target range of ${suggestedRoasText}.`
-            : `Current Target ROAS value is not readable in campaign config, so target guidance is being inferred from multi-window account performance.`,
+            : `Current Target ROAS value is not readable in campaign config, so target guidance is being inferred from independent account-history segments.`,
       recommendedAction: action,
       expectedImpact:
         typeof targetBidValue === "number" && row.roas > targetBidValue
@@ -2495,8 +2736,8 @@ function maybeBidRecommendation(
         "Core verdict compares weighted ROAS behavior to the configured ROAS target.",
         `Selected range currently reads ${fmtRoas(row.roas)} ROAS${typeof targetBidValue === "number" ? ` against a ${fmtRoas(targetBidValue)} target` : ""}.`,
         suggestedRoasText
-          ? `Historical confirmation found in ${support.supportCount}/${support.total || 1} longer windows. Suggested ROAS target range is derived from 7/14/30/90/history account ROAS windows.`
-          : `Historical confirmation found in ${support.supportCount}/${support.total || 1} longer windows.`,
+          ? `Historical confirmation found in ${support.supportCount}/${support.total} independent segments. Suggested ROAS target range is derived from disjoint account-history segments.`
+          : `Historical confirmation found in ${support.supportCount}/${support.total} independent segments.`,
         seasonality.flag,
         seasonality.note
       ),
@@ -2561,8 +2802,8 @@ function maybeBidRecommendation(
         "Core verdict reads weighted performance against a constrained bid strategy.",
         `Selected range currently reads ${fmtRoas(row.roas)} ROAS on ${fmtCurrency(row.spend, bidCurrencySymbol)} spend.`,
         suggestedBidText
-          ? `Historical support found in ${support.supportCount}/${support.total || 1} longer windows. Suggested bid range is derived from 7/14/30/90/history AOV and ROAS windows.`
-          : `Historical support found in ${support.supportCount}/${support.total || 1} longer windows.`,
+          ? `Historical support found in ${support.supportCount}/${support.total} independent segments. Suggested bid range is derived from disjoint AOV and ROAS history.`
+          : `Historical support found in ${support.supportCount}/${support.total} independent segments.`,
         seasonality.flag,
         seasonality.note
       ),
@@ -2611,7 +2852,7 @@ function maybeBidRecommendation(
       timeframeContext: buildTimeframeContext(
         "Core verdict says a fully open bid strategy is not protecting efficiency well enough.",
         `Selected range currently reads ${fmtRoas(row.roas)} ROAS against a peer benchmark of ${fmtRoas(accountRoas)}.`,
-        `Historical support found in ${support.supportCount}/${support.total || 1} longer windows.`,
+        `Historical support found in ${support.supportCount}/${support.total} independent segments.`,
         seasonality.flag,
         seasonality.note
       ),
@@ -2693,9 +2934,9 @@ function maybeVolumeScaleRecommendation(
       ...commercialTargetEvidence(commercialTargets, row.currency === "TRY" ? "₺" : row.currency === "EUR" ? "€" : "$"),
     ],
     timeframeContext: buildTimeframeContext(
-      "Core verdict says scale economics are healthy across weighted recent-to-historical windows.",
+      "Core verdict says scale economics are healthy across recency-weighted independent history segments.",
       `Selected range currently reads ${fmtRoas(row.roas)} ROAS and ${String(row.purchases)} purchases.`,
-      `Historical support found in ${support.supportCount}/${support.total || 1} longer windows.`,
+      `Historical support found in ${support.supportCount}/${support.total} independent segments.`,
       seasonality.flag,
       seasonality.note
     ),
@@ -2722,7 +2963,7 @@ function maybeProfitabilityRecommendation(
   const core = buildWeightedCampaignSnapshot(window);
   const roasThresholds = thresholdMetric(calibrationContext, "roas_28d");
   const cpaThresholds = thresholdMetric(calibrationContext, "cpa_28d");
-  const cutCeiling = metaCutRoasCeiling(commercialTargets);
+  const cutCeiling = metaCutRoasReviewCeiling(commercialTargets);
   if (!cutCeiling) return null;
   const totalSelectedSpend = selectedRows.reduce((sum, campaign) => sum + campaign.spend, 0);
   const totalSelectedPurchases = selectedRows.reduce((sum, campaign) => sum + campaign.purchases, 0);
@@ -2735,7 +2976,7 @@ function maybeProfitabilityRecommendation(
   const maturity = metaLossBudgetMaturity({
     targets: commercialTargets,
     accountCpaBaseline,
-    currency: row.currency,
+    calibratedHardCutSpend: hardCutSpend(calibrationContext),
   });
   if (!maturity || core.spend < maturity.spendThreshold) return null;
   const weakRoasThreshold = calibrationContext
@@ -2781,7 +3022,7 @@ function maybeProfitabilityRecommendation(
     timeframeContext: buildTimeframeContext(
       "Core verdict says profitability is weaker than the comparable optimization cohort.",
       `Selected range currently reads ${fmtRoas(row.roas)} ROAS on ${fmtCurrency(row.spend, row.currency === "TRY" ? "₺" : row.currency === "EUR" ? "€" : "$")} spend.`,
-      `Historical weakness confirmed in ${support.supportCount}/${support.total || 1} longer windows.`,
+      `Historical weakness confirmed in ${support.supportCount}/${support.total} independent segments.`,
       seasonality.flag,
       seasonality.note
     ),
@@ -2827,8 +3068,11 @@ function maybeAccountBudgetShift(
   const eligibleGroups = [...comparableGroups.entries()]
     .filter(([, rows]) => {
       if (rows.length < 2) return false;
-      const family = resolveMetaCampaignFamily(rows[0]?.row ?? windows[0].selected);
-      return laneSummaries.get(family)?.eligibleForBudgetShift ?? false;
+      const representative = rows[0]?.row ?? windows[0].selected;
+      return (
+        laneSummaries.get(metaCampaignLaneGroupKey(representative))
+          ?.eligibleForBudgetShift ?? false
+      );
     })
     .map(([group, rows]) => ({
       group,
@@ -3064,71 +3308,115 @@ export function buildMetaRecommendations(input: {
       recommendations: [],
     };
   }
-  const selectedAccount = accountMetrics(selectedRows);
   const taxonomyContext = buildRecommendationTaxonomyContext(selectedRows);
-  const suggestedBidRange = historicalBidRange(purchaseWindows);
-  const suggestedRoasRange = historicalRoasRange(purchaseWindows);
-  const seasonalContext = buildSeasonalContext(purchaseWindows);
-  const scalingStructureSnapshot = buildScalingStructureSnapshot(windows);
+  const accountLevelContextSafe =
+    new Set(selectedRows.map(accountCurrencyScopeKey)).size === 1;
+  const suggestedBidRange = accountLevelContextSafe
+    ? historicalBidRange(purchaseWindows)
+    : null;
+  const suggestedRoasRange = accountLevelContextSafe
+    ? historicalRoasRange(purchaseWindows)
+    : null;
+  const seasonalContext = accountLevelContextSafe
+    ? buildSeasonalContext(purchaseWindows)
+    : null;
+  const scalingStructureSnapshot = accountLevelContextSafe
+    ? buildScalingStructureSnapshot(windows)
+    : null;
 
   const recommendations: MetaRecommendation[] = [...purchaseDownshiftScenarios];
 
-  const seasonalRecommendation = maybeSeasonalRegimeRecommendation(purchaseWindows, seasonalContext);
+  const seasonalRecommendation = seasonalContext
+    ? maybeSeasonalRegimeRecommendation(purchaseWindows, seasonalContext)
+    : null;
   if (seasonalRecommendation) recommendations.push(seasonalRecommendation);
 
-  const historicalBidRegimeRecommendation = maybeHistoricalBidRegimeRecommendation(
-    selectedRows,
-    input.historicalBidRegimes,
-    seasonalContext
-  );
+  const historicalBidRegimeRecommendation = seasonalContext
+    ? maybeHistoricalBidRegimeRecommendation(
+        selectedRows,
+        input.historicalBidRegimes,
+        seasonalContext,
+      )
+    : null;
   if (historicalBidRegimeRecommendation) recommendations.push(historicalBidRegimeRecommendation);
 
-  const bidBandRecommendation = maybeBidBandRecommendation(
-    selectedRows,
-    suggestedBidRange,
-    suggestedRoasRange,
-    seasonalContext
-  );
+  const bidBandRecommendation = seasonalContext
+    ? maybeBidBandRecommendation(
+        selectedRows,
+        suggestedBidRange,
+        suggestedRoasRange,
+        seasonalContext,
+      )
+    : null;
   if (bidBandRecommendation) recommendations.push(bidBandRecommendation);
 
-  const rebuildRecommendation = maybeRebuildRecommendation(
-    selectedRows,
-    input.historicalBidRegimes,
-    seasonalContext,
-    suggestedBidRange
-  );
+  const rebuildRecommendation = seasonalContext
+    ? maybeRebuildRecommendation(
+        selectedRows,
+        input.historicalBidRegimes,
+        seasonalContext,
+        suggestedBidRange,
+      )
+    : null;
   if (rebuildRecommendation) recommendations.push(rebuildRecommendation);
 
-  const geoClusterRecommendation = maybeGeoClusterRecommendation(
-    input.breakdowns,
-    scalingStructureSnapshot,
-    input.creativeIntelligence
-  );
+  const geoClusterRecommendation = accountLevelContextSafe
+    ? maybeGeoClusterRecommendation(
+        input.breakdowns,
+        scalingStructureSnapshot,
+        input.creativeIntelligence,
+      )
+    : null;
   if (geoClusterRecommendation) recommendations.push(geoClusterRecommendation);
 
-  const scalingStructureRecommendation = maybeScalingStructureRecommendation(
-    scalingStructureSnapshot,
-    seasonalContext,
-    input.creativeIntelligence
-  ) ?? maybeFallbackScalingStructureRecommendation(selectedRows, seasonalContext, input.creativeIntelligence);
+  const scalingStructureRecommendation = seasonalContext
+    ? maybeScalingStructureRecommendation(
+        scalingStructureSnapshot,
+        seasonalContext,
+        input.creativeIntelligence,
+      ) ??
+      maybeFallbackScalingStructureRecommendation(
+        selectedRows,
+        seasonalContext,
+        input.creativeIntelligence,
+      )
+    : null;
   if (scalingStructureRecommendation) recommendations.push(scalingStructureRecommendation);
 
-  const creativeTestRecommendation = maybeCreativeTestStructureRecommendation(
-    scalingStructureSnapshot,
-    geoClusterRecommendation,
-    input.creativeIntelligence
-  ) ?? maybeFallbackCreativeTestStructureRecommendation(selectedRows, input.creativeIntelligence);
+  const creativeTestRecommendation = accountLevelContextSafe
+    ? maybeCreativeTestStructureRecommendation(
+        scalingStructureSnapshot,
+        geoClusterRecommendation,
+        input.creativeIntelligence,
+      ) ??
+      maybeFallbackCreativeTestStructureRecommendation(
+        selectedRows,
+        input.creativeIntelligence,
+      )
+    : null;
   if (creativeTestRecommendation) recommendations.push(creativeTestRecommendation);
 
-  const winnerPromotionRecommendation = maybeWinnerPromotionRecommendation(
-    scalingStructureSnapshot,
-    input.creativeIntelligence
-  ) ?? maybeFallbackWinnerPromotionRecommendation(selectedRows, input.creativeIntelligence);
+  const winnerPromotionRecommendation = accountLevelContextSafe
+    ? maybeWinnerPromotionRecommendation(
+        scalingStructureSnapshot,
+        input.creativeIntelligence,
+      ) ??
+      maybeFallbackWinnerPromotionRecommendation(
+        selectedRows,
+        input.creativeIntelligence,
+      )
+    : null;
   if (winnerPromotionRecommendation) recommendations.push(winnerPromotionRecommendation);
 
   for (const campaignWindow of windows) {
     const peerRows = comparablePeerRows(selectedRows, campaignWindow.selected);
     const peerMetrics = accountMetrics(peerRows);
+    const peerWindowSet = comparableWindows(
+      purchaseWindows,
+      campaignWindow.selected,
+    );
+    const peerSuggestedBidRange = historicalBidRange(peerWindowSet);
+    const peerSuggestedRoasRange = historicalRoasRange(peerWindowSet);
     const calibrationContext =
       input.calibrationContextByCampaignId?.[campaignWindow.selected.id] ??
       input.calibrationContext ??
@@ -3157,17 +3445,17 @@ export function buildMetaRecommendations(input: {
 
     const bid = maybeBidRecommendation(
       campaignWindow,
-      selectedAccount.roas,
-      suggestedBidRange,
-      suggestedRoasRange,
+      peerMetrics.roas,
+      peerSuggestedBidRange,
+      peerSuggestedRoasRange,
       calibrationContext,
     );
     if (bid) recommendations.push(bid);
 
     const volume = maybeVolumeScaleRecommendation(
       campaignWindow,
-      peerMetrics.roas || selectedAccount.roas,
-      peerMetrics.cpa || selectedAccount.cpa,
+      peerMetrics.roas,
+      peerMetrics.cpa,
       calibrationContext,
       input.commercialTargets ?? null,
     );
@@ -3175,7 +3463,7 @@ export function buildMetaRecommendations(input: {
 
     const profitability = maybeProfitabilityRecommendation(
       campaignWindow,
-      peerMetrics.roas || selectedAccount.roas,
+      peerMetrics.roas,
       peerRows,
       calibrationContext,
       input.commercialTargets ?? null,
@@ -3183,12 +3471,20 @@ export function buildMetaRecommendations(input: {
     if (profitability) recommendations.push(profitability);
   }
 
-  const accountBudgetShift = maybeAccountBudgetShift(windows, recommendations);
+  const accountBudgetShift = accountLevelContextSafe
+    ? maybeAccountBudgetShift(windows, recommendations)
+    : null;
   if (accountBudgetShift) recommendations.push(accountBudgetShift);
 
   const stampedRecommendations = recommendations
     .map((recommendation) =>
       enrichRecommendationTaxonomy(recommendation, taxonomyContext),
+    )
+    .map((recommendation) =>
+      enforceMetaCommercialActionAuthority(
+        recommendation,
+        input.commercialTargets,
+      ),
     )
     .map(stampRecommendation);
   const dedupedBase = stampedRecommendations

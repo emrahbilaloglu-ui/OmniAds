@@ -30,6 +30,60 @@ export function scopeGate(ctx: GateContext): GateResult {
     };
   }
 
+  const contextGrain = ctx.input.contextGrain;
+  if (contextGrain !== undefined) {
+    const requiredCounts = [
+      contextGrain.providerAccountCount,
+      contextGrain.campaignCount,
+      contextGrain.adsetCount,
+      contextGrain.optimizationContextCount,
+      contextGrain.objectiveCount,
+    ];
+    const identityUnavailable =
+      contextGrain.contextIdentityUnknown ||
+      requiredCounts.some(
+        (count) => !Number.isInteger(count) || count <= 0,
+      );
+
+    if (identityUnavailable) {
+      return {
+        kind: "terminal",
+        output: finalizeDecision(
+          ctxWithDefaults,
+          "out_of_scope",
+          "decision context identity unavailable; evaluate at ad grain",
+        ),
+      };
+    }
+
+    if (requiredCounts.some((count) => count > 1)) {
+      return {
+        kind: "terminal",
+        output: finalizeDecision(
+          ctxWithDefaults,
+          "out_of_scope",
+          "mixed decision context; evaluate at ad grain",
+        ),
+      };
+    }
+  }
+
+  if (
+    ctx.input.effectiveCohort === "unknown" ||
+    (contextGrain !== undefined &&
+      (ctx.input.effectiveCohort === null ||
+        ctx.input.effectiveCohort === undefined))
+  ) {
+    return {
+      kind: "terminal",
+      output: finalizeDecision(
+        ctxWithDefaults,
+        "out_of_scope",
+        "mixed/unresolved optimization cohort; purchase decision engine does not evaluate it.",
+      ),
+    };
+  }
+
   if (
     ctx.input.effectiveCohort != null &&
     ctx.input.effectiveCohort !== "purchase"

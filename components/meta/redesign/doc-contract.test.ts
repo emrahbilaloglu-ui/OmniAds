@@ -86,12 +86,16 @@ describe("meta page UI contract doc stays consistent with code", () => {
     for (const symbol of [
       "isTrackingWriteBlocked",
       "FinalMetaPulse",
-      "ReadinessNotice",
+      "MetaWorkspacePostureBanners",
       "mid_confidence",
     ]) {
       expect(doc, `doc must document ${symbol}`).toContain(symbol);
     }
-    for (const symbol of ["isTrackingWriteBlocked", "FinalMetaPulse", "ReadinessNotice"]) {
+    for (const symbol of [
+      "isTrackingWriteBlocked",
+      "FinalMetaPulse",
+      "MetaWorkspacePostureBanners",
+    ]) {
       expect(page, `page must still define/use ${symbol}`).toContain(symbol);
     }
   });

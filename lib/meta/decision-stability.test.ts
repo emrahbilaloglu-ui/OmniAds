@@ -33,10 +33,18 @@ function rec(overrides: Partial<MetaRecommendation> = {}): MetaRecommendation {
 }
 
 describe("applyMetaStateHysteresis", () => {
-  it("publishes the raw state when there is no previous snapshot", () => {
+  it("holds a first-ever hard action at test until a second snapshot confirms it", () => {
     expect(applyMetaStateHysteresis("act", null)).toEqual({
-      publishedState: "act",
+      publishedState: "test",
       rawState: "act",
+      suppressed: true,
+    });
+  });
+
+  it("publishes a first-ever soft state immediately", () => {
+    expect(applyMetaStateHysteresis("watch", null)).toEqual({
+      publishedState: "watch",
+      rawState: "watch",
       suppressed: false,
     });
   });
@@ -53,10 +61,10 @@ describe("applyMetaStateHysteresis", () => {
     ).toEqual({ publishedState: "watch", rawState: "watch", suppressed: false });
   });
 
-  it("suppresses the first act->non-act flip and holds the previous state", () => {
+  it("publishes an act->non-act safety exit immediately", () => {
     expect(
       applyMetaStateHysteresis("watch", { publishedState: "act", rawState: "act" }),
-    ).toEqual({ publishedState: "act", rawState: "watch", suppressed: true });
+    ).toEqual({ publishedState: "watch", rawState: "watch", suppressed: false });
   });
 
   it("suppresses the first non-act->act flip", () => {
@@ -92,21 +100,21 @@ describe("stabilizeMetaRecommendations", () => {
     scopeId: recommendation.campaignId ?? "unknown",
   });
 
-  it("stamps stability memory on every recommendation", () => {
+  it("stamps stability memory and holds a first-ever hard action at test", () => {
     const { recommendations, suppressedCount } = stabilizeMetaRecommendations({
       recommendations: [rec()],
       previousByKey: new Map(),
       scopeFor,
     });
-    expect(suppressedCount).toBe(0);
-    expect(recommendations[0]?.decisionState).toBe("act");
+    expect(suppressedCount).toBe(1);
+    expect(recommendations[0]?.decisionState).toBe("test");
     expect(recommendations[0]?.signalQuality?.stability).toEqual({
       raw_decision_state: "act",
-      suppressed: false,
+      suppressed: true,
     });
   });
 
-  it("holds the previous state and prefixes the state reason when suppressed", () => {
+  it("publishes a hard-action exit immediately", () => {
     const key = metaStabilityKey({
       scopeType: "campaign",
       scopeId: "cmp_1",
@@ -117,15 +125,31 @@ describe("stabilizeMetaRecommendations", () => {
       previousByKey: new Map([[key, { publishedState: "act", rawState: "act" }]]),
       scopeFor,
     });
+    expect(suppressedCount).toBe(0);
+    expect(recommendations[0]?.decisionState).toBe("watch");
+    expect(recommendations[0]?.stateReason).toBe("raw reason");
+    expect(recommendations[0]?.signalQuality?.stability).toEqual({
+      raw_decision_state: "watch",
+      suppressed: false,
+    });
+  });
+
+  it("holds a soft-to-hard entry and prefixes the state reason", () => {
+    const key = metaStabilityKey({
+      scopeType: "campaign",
+      scopeId: "cmp_1",
+      recType: "bid_efficiency",
+    });
+    const { recommendations, suppressedCount } = stabilizeMetaRecommendations({
+      recommendations: [rec({ stateReason: "raw reason" })],
+      previousByKey: new Map([[key, { publishedState: "watch", rawState: "watch" }]]),
+      scopeFor,
+    });
     expect(suppressedCount).toBe(1);
-    expect(recommendations[0]?.decisionState).toBe("act");
+    expect(recommendations[0]?.decisionState).toBe("watch");
     expect(recommendations[0]?.stateReason).toBe(
       `${META_PENDING_TRANSITION_REASON_PREFIX}raw reason`,
     );
-    expect(recommendations[0]?.signalQuality?.stability).toEqual({
-      raw_decision_state: "watch",
-      suppressed: true,
-    });
   });
 
   it("preserves existing signalQuality fields when stamping stability", () => {
@@ -136,7 +160,7 @@ describe("stabilizeMetaRecommendations", () => {
     });
     expect(recommendations[0]?.signalQuality).toEqual({
       sample: "thin",
-      stability: { raw_decision_state: "act", suppressed: false },
+      stability: { raw_decision_state: "act", suppressed: true },
     });
   });
 });

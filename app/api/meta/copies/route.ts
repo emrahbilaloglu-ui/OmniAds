@@ -2,9 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { requireBusinessAccess } from "@/lib/access";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
-import { getDemoMetaCopies } from "@/lib/demo-business";
+import { getDemoMetaCopies, getDemoProviderAccounts } from "@/lib/demo-business";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
 import { hasCopyContent } from "@/lib/meta/creatives-copy";
+import {
+  buildMetaCreativesAccountScopeMetadata,
+  resolveMetaCreativesAccountScope,
+} from "@/lib/meta/creatives-warehouse";
 
 type CopyGroupBy = "copy" | "adName" | "campaign" | "adSet";
 type CopySortKey = "roas" | "spend" | "ctrAll" | "purchaseValue";
@@ -79,6 +83,7 @@ interface MetaCopiesApiResponse {
     unresolved_filtered_count: number;
     source_rows_count: number;
     returned_rows_count: number;
+    provider_account_id: string;
     /** As-of stamp for this payload; the page renders it so cached
      * route-report data carries a visible age. */
     generatedAt: string;
@@ -244,12 +249,13 @@ function aggregateRows(rows: MetaCopyApiRow[], groupBy: CopyGroupBy): MetaCopyAp
 
   const groups = new Map<string, MetaCopyApiRow[]>();
   for (const row of rows) {
-    const key =
+    const groupIdentity =
       groupBy === "copy"
         ? row.normalized_copy_key ?? `unresolved:${row.id}`
         : groupBy === "campaign"
         ? row.campaign_id ?? row.campaign_name ?? `campaign:${row.id}`
         : row.adset_id ?? row.adset_name ?? `adset:${row.id}`;
+    const key = `${row.account_id ?? "account-missing"}:${row.currency ?? "currency-missing"}:${groupIdentity}`;
     const bucket = groups.get(key) ?? [];
     bucket.push(row);
     groups.set(key, bucket);
@@ -353,6 +359,7 @@ function sortRows(rows: MetaCopyApiRow[], sort: CopySortKey): MetaCopyApiRow[] {
 async function fetchCopiesCreativePayload(input: {
   request: NextRequest;
   businessId: string;
+  providerAccountId: string;
   start: string;
   end: string;
   format: "all" | "image" | "video";
@@ -364,6 +371,7 @@ async function fetchCopiesCreativePayload(input: {
     request: input.request,
     requestStartedAt: Date.now(),
     businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
     mediaMode: "metadata",
     groupBy: "adName",
     format: input.format,
@@ -406,6 +414,7 @@ function shouldAttemptCopiesRecovery(input: {
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const businessId = params.get("businessId")?.trim() ?? "";
+  const providerAccountId = params.get("providerAccountId")?.trim() ?? "";
   const start = params.get("start")?.trim() ?? "";
   const end = params.get("end")?.trim() ?? "";
   const groupByParam = (params.get("groupBy")?.trim() ?? "copy") as CopyGroupBy;
@@ -425,16 +434,52 @@ export async function GET(request: NextRequest) {
       { status: 400 }
     );
   }
+  if (!providerAccountId) {
+    return NextResponse.json(
+      {
+        error: "missing_provider_account_id",
+        message: "providerAccountId is required for Meta copy analysis.",
+      },
+      { status: 400 },
+    );
+  }
   const access = await requireBusinessAccess({ request, businessId, minRole: "guest" });
   if ("error" in access) return access.error;
   if (await isDemoBusiness(businessId)) {
-    return NextResponse.json(getDemoMetaCopies());
+    const accountScope = resolveMetaCreativesAccountScope({
+      assignedAccountIds: getDemoProviderAccounts("meta").map((account) => account.id),
+      requestedProviderAccountId: providerAccountId,
+    });
+    if (!accountScope.ok) {
+      return NextResponse.json(
+        {
+          status: accountScope.status,
+          rows: [],
+          ...buildMetaCreativesAccountScopeMetadata(accountScope),
+        },
+        { status: accountScope.status === "account_not_assigned" ? 403 : 400 },
+      );
+    }
+    const demoPayload = getDemoMetaCopies();
+    return NextResponse.json({
+      ...demoPayload,
+      rows: demoPayload.rows.filter(
+        (row) => row.account_id === accountScope.providerAccountId,
+      ),
+      meta: {
+        ...demoPayload.meta,
+        provider_account_id: accountScope.providerAccountId,
+        generatedAt: new Date().toISOString(),
+      },
+      ...buildMetaCreativesAccountScopeMetadata(accountScope),
+    });
   }
 
   const formatFilter = (format as "all" | "image" | "video") || "all";
   const initialCreativePayload = await fetchCopiesCreativePayload({
     request,
     businessId,
+    providerAccountId,
     start,
     end,
     format: formatFilter,
@@ -443,7 +488,12 @@ export async function GET(request: NextRequest) {
     enableCreativeBasicsFallback: false,
   });
 
-  const initialSourceRows = Array.isArray(initialCreativePayload?.rows) ? initialCreativePayload.rows : [];
+  if (initialCreativePayload?.status === "account_not_assigned") {
+    return NextResponse.json(initialCreativePayload, { status: 403 });
+  }
+  const initialSourceRows = Array.isArray(initialCreativePayload?.rows)
+    ? initialCreativePayload.rows.filter((row) => row.account_id === providerAccountId)
+    : [];
   const initialMapped = initialSourceRows.map(mapCreativeRowToCopyRow);
   const initialEligible = initialMapped.filter(isCopyEligible);
   const recoveryReason = shouldAttemptCopiesRecovery({
@@ -460,6 +510,7 @@ export async function GET(request: NextRequest) {
     const recoveredPayload = await fetchCopiesCreativePayload({
       request,
       businessId,
+      providerAccountId,
       start,
       end,
       format: formatFilter,
@@ -469,7 +520,9 @@ export async function GET(request: NextRequest) {
     });
     if (recoveredPayload?.status === "ok") {
       creativePayload = recoveredPayload;
-      const recoveredRows = Array.isArray(recoveredPayload.rows) ? recoveredPayload.rows : [];
+      const recoveredRows = Array.isArray(recoveredPayload.rows)
+        ? recoveredPayload.rows.filter((row) => row.account_id === providerAccountId)
+        : [];
       const recoveredEligible = recoveredRows
         .map(mapCreativeRowToCopyRow)
         .filter(isCopyEligible);
@@ -477,7 +530,9 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const sourceRows = Array.isArray(creativePayload?.rows) ? creativePayload.rows : [];
+  const sourceRows = Array.isArray(creativePayload?.rows)
+    ? creativePayload.rows.filter((row) => row.account_id === providerAccountId)
+    : [];
   const mapped = sourceRows.map(mapCreativeRowToCopyRow);
   const sourceRowById = new Map(sourceRows.map((row) => [row.id, row]));
   const eligible = mapped.filter(isCopyEligible);
@@ -530,6 +585,7 @@ export async function GET(request: NextRequest) {
       unresolved_filtered_count: unresolvedFilteredCount,
       source_rows_count: sourceRows.length,
       returned_rows_count: sorted.length,
+      provider_account_id: providerAccountId,
       generatedAt: new Date().toISOString(),
       recoveryAttempted,
       recoveryRecovered,

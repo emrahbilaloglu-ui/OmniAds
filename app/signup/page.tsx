@@ -242,7 +242,7 @@ function SignupPageFallback() {
       title="Loading sign up..."
       description="Preparing invite and auth context."
     >
-      <div className="h-2 rounded-full bg-neutral-100" />
+      <div className="h-2 rounded-full bg-[var(--adc-s3,#ededea)]" />
     </AuthSurface>
   );
 }

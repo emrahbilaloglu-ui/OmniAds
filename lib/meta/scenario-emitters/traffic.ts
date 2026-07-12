@@ -8,6 +8,11 @@ import {
   META_RECOMMENDATION_ENGINE_VERSION,
   type MetaRecommendation,
 } from "@/lib/meta/recommendations";
+import {
+  evaluateCohortEvidence,
+  hasCohortFatigueEvidence,
+  type CohortEvidenceProfile,
+} from "@/lib/meta/scenario-emitters/cohort-evidence";
 import type { AdsetScenarioInput } from "@/lib/meta/scenario-emitters/high-priority";
 import {
   percentileRank,
@@ -40,18 +45,6 @@ function fmtPercent(value: number) {
 
 function fmtScore(value: number) {
   return `${Math.round(value * 100)}%`;
-}
-
-function confidenceFromScore(score: number): MetaRecommendation["confidence"] {
-  if (score >= 0.85 || score <= 0.15) return "high";
-  if ((score >= 0.7 && score < 0.85) || (score > 0.15 && score <= 0.3)) {
-    return "medium";
-  }
-  return "low";
-}
-
-function confidenceScoreFromScore(score: number) {
-  return r2(score >= 0.5 ? score : 1 - score);
 }
 
 function numberField(adset: MetaAdSetData, key: keyof MetaAdSetData) {
@@ -113,30 +106,16 @@ function ageDays(input: AdsetScenarioInput) {
   return null;
 }
 
-function spendMaturityFloor(input: AdsetScenarioInput) {
-  const metrics = input.context?.thresholds.metrics as
-    | Record<string, MetaMetricPercentiles | undefined>
-    | undefined;
-  const spendThreshold = metrics?.spend_28d;
-  return spendThreshold ? spendThreshold.p50 * 0.3 : 0;
-}
-
-function isMature(input: AdsetScenarioInput) {
-  const age = ageDays(input);
-  if (age == null || age < 14) return false;
-  return input.adset.spend >= spendMaturityFloor(input);
-}
-
 function adsetFrequency(adset: MetaAdSetData) {
   return numberField(adset, "frequency");
 }
 
 function hasFatigue(input: AdsetScenarioInput) {
-  const ctrThreshold = threshold(input, "ctr_28d");
-  if (!ctrThreshold) return false;
-  const frequencyThreshold = threshold(input, "freq_14d")?.p75 ?? 2.5;
-  return adsetFrequency(input.adset) > frequencyThreshold ||
-    (input.adset.ctr > 0 && input.adset.ctr < ctrThreshold.p25);
+  return hasCohortFatigueEvidence({
+    context: input.context,
+    frequency: adsetFrequency(input.adset),
+    ctrDecayPct: input.signals?.ctrDecayPct,
+  });
 }
 
 function baseTrafficRecommendation(input: {
@@ -152,6 +131,7 @@ function baseTrafficRecommendation(input: {
   recommendedAction: string;
   expectedImpact: string;
   score: number;
+  evidenceProfile: CohortEvidenceProfile;
   evidence: MetaRecommendation["evidence"];
   targetValue?: unknown;
 }): MetaRecommendation {
@@ -167,8 +147,8 @@ function baseTrafficRecommendation(input: {
     decisionLabel: input.decisionLabel,
     lens: input.lens,
     priority: input.priority,
-    confidence: confidenceFromScore(input.score),
-    confidenceScore: confidenceScoreFromScore(input.score),
+    confidence: input.evidenceProfile.confidence,
+    confidenceScore: input.evidenceProfile.confidenceScore,
     confidenceReason: null,
     decisionState: input.decisionState,
     decision: input.title,
@@ -220,8 +200,14 @@ export function emitTrafficAdsetScenario(input: AdsetScenarioInput): MetaRecomme
 
   const score = r2(ctrRank == null ? primaryRank : (0.7 * primaryRank) + (0.3 * ctrRank));
   const currency = (input.adset as MetaAdSetData & { currency?: string | null }).currency ?? null;
-  const mature = isMature(input);
   const age = ageDays(input);
+  const evidenceProfile = evaluateCohortEvidence({
+    context: input.context,
+    score,
+    eventCount: count,
+    spend: input.adset.spend,
+    ageDays: age,
+  });
   const event = primaryEvent(metric);
   const evidence: MetaRecommendation["evidence"] = [
     { label: "Traffic score", value: fmtScore(score), tone: score >= 0.7 ? "positive" : score < 0.3 ? "warning" : "neutral" },
@@ -239,7 +225,7 @@ export function emitTrafficAdsetScenario(input: AdsetScenarioInput): MetaRecomme
     age_days: age,
   };
 
-  if (score >= 0.7 && mature) {
+  if (score >= 0.7 && evidenceProfile.scaleMature) {
     return baseTrafficRecommendation({
       scenarioType: "scenario_t1_traffic_efficient_scale",
       decisionLabel: "scale",
@@ -254,14 +240,14 @@ export function emitTrafficAdsetScenario(input: AdsetScenarioInput): MetaRecomme
       expectedImpact: "More traffic volume while staying inside cohort-calibrated cost and CTR bands.",
       evidence,
       score,
+      evidenceProfile,
       targetValue,
     });
   }
 
   if (
     score < 0.3 &&
-    mature &&
-    input.adset.spend > (input.context?.thresholds.hardCutSpend ?? LEGACY_META_CALIBRATION_THRESHOLDS.hardCutSpend)
+    evidenceProfile.cutMature
   ) {
     return baseTrafficRecommendation({
       scenarioType: "scenario_t3_traffic_inefficient_cut",
@@ -277,6 +263,7 @@ export function emitTrafficAdsetScenario(input: AdsetScenarioInput): MetaRecomme
       expectedImpact: "Stops spend from compounding into low-quality traffic.",
       evidence,
       score,
+      evidenceProfile,
       targetValue,
     });
   }
@@ -299,12 +286,12 @@ export function emitTrafficAdsetScenario(input: AdsetScenarioInput): MetaRecomme
         { label: "Frequency", value: String(r2(adsetFrequency(input.adset))), tone: "warning" },
       ],
       score,
+      evidenceProfile,
       targetValue,
     });
   }
 
-  if (score >= 0.5) {
-    return baseTrafficRecommendation({
+  return baseTrafficRecommendation({
       scenarioType: "scenario_t2_traffic_steady_keep",
       decisionLabel: "keep",
       decisionState: "watch",
@@ -318,9 +305,7 @@ export function emitTrafficAdsetScenario(input: AdsetScenarioInput): MetaRecomme
       expectedImpact: "Preserves useful traffic volume while avoiding premature budget moves.",
       evidence,
       score,
+      evidenceProfile,
       targetValue,
-    });
-  }
-
-  return null;
+  });
 }

@@ -8,6 +8,12 @@ import {
   type MetaAdsWriteContext,
 } from "@/lib/meta/ads-write";
 
+vi.mock("@/lib/meta/automation-control-plane", () => ({
+  getMetaWriteBlockState: vi.fn(),
+}));
+
+const controlPlane = await import("@/lib/meta/automation-control-plane");
+
 const ctx: MetaAdsWriteContext = {
   businessId: "172d0ab8-495b-4679-a4c6-ffa404c389d3",
   providerAccountId: "act_123",
@@ -26,6 +32,11 @@ describe("Meta ads write client", () => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
     vi.stubGlobal("fetch", vi.fn());
+    vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({
+      blocked: false,
+      reason: null,
+      message: null,
+    });
   });
 
   it("pauseAd writes status and verifies the ad status", async () => {
@@ -134,6 +145,34 @@ describe("Meta ads write client", () => {
 
     expect(result).toMatchObject({ ok: true, verifiedStatus: "PAUSED" });
     expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("halts a rate-limit retry when the business kill switch engages", async () => {
+    vi.mocked(controlPlane.getMetaWriteBlockState)
+      .mockResolvedValueOnce({ blocked: false, reason: null, message: null })
+      .mockResolvedValueOnce({
+        blocked: true,
+        reason: "business_kill_switch",
+        message: "Owner stopped Meta writes.",
+      });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(
+        { error: { code: 17, message: "(#17) User request limit reached" } },
+        { status: 429 },
+      ),
+    );
+
+    const result = await pauseAd(ctx, "ad_1");
+
+    expect(result).toMatchObject({
+      ok: false,
+      httpStatus: 503,
+      error: {
+        code: "kill_switch_engaged",
+        message: "Owner stopped Meta writes.",
+      },
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("resumeCampaign writes ACTIVE and verifies the campaign status", async () => {
@@ -249,7 +288,6 @@ describe("Meta ads write client", () => {
     const result = await duplicateAd(ctx, {
       adId: "ad_1",
       targetAdsetId: "adset_2",
-      activateAfterCreate: false,
       dryRun: true,
     });
 
@@ -303,7 +341,6 @@ describe("Meta ads write client", () => {
     const result = await duplicateAd(ctx, {
       adId: "ad_1",
       targetAdsetId: "adset_2",
-      activateAfterCreate: false,
     });
 
     expect(result).toMatchObject({
@@ -379,7 +416,6 @@ describe("Meta ads write client", () => {
       adId: "ad_1",
       targetAdsetId: "adset_2",
       name: "Source Ad added",
-      activateAfterCreate: false,
       copyMode: "rebuild_creative",
     });
 
@@ -426,7 +462,6 @@ describe("Meta ads write client", () => {
     const result = await duplicateAd(ctx, {
       adId: "ad_1",
       targetAdsetId: "adset_2",
-      activateAfterCreate: false,
     });
 
     expect(result).toMatchObject({
@@ -461,7 +496,6 @@ describe("Meta ads write client", () => {
     const result = await duplicateAd(ctx, {
       adId: "ad_1",
       targetAdsetId: "adset_2",
-      activateAfterCreate: false,
     });
 
     expect(result).toMatchObject({
@@ -503,7 +537,6 @@ describe("Meta ads write client", () => {
     const result = await duplicateAd(ctx, {
       adId: "ad_1",
       targetAdsetId: "adset_2",
-      activateAfterCreate: false,
     });
 
     expect(result).toMatchObject({
@@ -549,14 +582,13 @@ describe("Meta ads write client", () => {
     const result = await duplicateAd(ctx, {
       adId: "ad_1",
       targetAdsetId: "adset_2",
-      activateAfterCreate: false,
     });
 
     expect(result).toMatchObject({ ok: true, newAdId: "ad_copy_1" });
     expect(fetch).toHaveBeenCalledTimes(4);
   });
 
-  it("duplicateAd sends ACTIVE when activateAfterCreate is true", async () => {
+  it("duplicateAd hardcodes PAUSED for custom-name creates", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(
         jsonResponse({
@@ -570,8 +602,8 @@ describe("Meta ads write client", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           id: "ad_copy_1",
-          status: "ACTIVE",
-          effective_status: "ACTIVE",
+          status: "PAUSED",
+          effective_status: "PAUSED",
           adset_id: "adset_2",
           creative: { id: "creative_1" },
         }),
@@ -581,16 +613,15 @@ describe("Meta ads write client", () => {
       adId: "ad_1",
       targetAdsetId: "adset_2",
       name: "Custom copy",
-      activateAfterCreate: true,
     });
 
     expect(result).toMatchObject({
       ok: true,
       newAdId: "ad_copy_1",
-      verifiedStatus: "ACTIVE",
+      verifiedStatus: "PAUSED",
     });
     const body = vi.mocked(fetch).mock.calls[1]?.[1]?.body as URLSearchParams;
     expect(body.get("name")).toBe("Custom copy");
-    expect(body.get("status")).toBe("ACTIVE");
+    expect(body.get("status")).toBe("PAUSED");
   });
 });

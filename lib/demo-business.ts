@@ -1559,9 +1559,18 @@ export function getDemoMetaCreatives() {
   const rows = base.map((p, i) => {
     const scenario = scenarios[i]!;
     const isVideo = scenario.format === "video";
+    const adId = `m-ad-${i + 1}`;
+    const clicks = Math.max(
+      scenario.linkClicks,
+      Math.round((scenario.impressions * scenario.ctrAll) / 100),
+    );
+    const landingPageViews = Math.round(scenario.linkClicks * 0.82);
+    const initiateCheckout = Math.round(scenario.addToCart * 0.48);
     return {
-      id: `m-ad-${i + 1}`,
+      id: adId,
       creative_id: `m-cr-${i + 1}`,
+      real_ad_id: adId,
+      associated_ads_count: 1,
       account_id: "act_210009998877",
       account_name: "UrbanTrail DTC",
       campaign_id: scenario.campaignId,
@@ -1588,7 +1597,7 @@ export function getDemoMetaCreatives() {
       preview_state: "preview",
       preview: { render_mode: "image", image_url: p.image_url, video_url: null, poster_url: p.image_url, source: "image_url", is_catalog: false },
       launch_date: scenario.launchDate,
-      tags: scenario.tags,
+      tags: [...scenario.tags],
       ai_tags: {
         assetType: [isVideo ? "video_style" : "static_image"],
         visualFormat: [isVideo ? "lifestyle" : "product_focus"],
@@ -1606,6 +1615,11 @@ export function getDemoMetaCreatives() {
       creative_secondary_type: null,
       creative_secondary_label: null,
       classification_signals: null,
+      effective_status: i === 5 ? "PAUSED" : "ACTIVE",
+      objective: "OUTCOME_SALES",
+      optimization_goal: "OFFSITE_CONVERSIONS",
+      attribution_setting: "7d_click_1d_view",
+      bid_strategy: "LOWEST_COST_WITHOUT_CAP",
       spend: scenario.spend,
       purchase_value: scenario.purchaseValue,
       roas: scenario.roas,
@@ -1615,11 +1629,23 @@ export function getDemoMetaCreatives() {
       ctr_all: scenario.ctrAll,
       purchases: scenario.purchases,
       impressions: scenario.impressions,
+      clicks,
       link_clicks: scenario.linkClicks,
+      landing_page_views: landingPageViews,
       add_to_cart: scenario.addToCart,
+      initiate_checkout: initiateCheckout,
+      leads: 0,
+      messages: 0,
       thumbstop: scenario.thumbstop,
-      click_to_atc: scenario.linkClicks > 0 ? scenario.addToCart / scenario.linkClicks : 0,
-      atc_to_purchase: scenario.addToCart > 0 ? scenario.purchases / scenario.addToCart : 0,
+      click_to_atc:
+        scenario.linkClicks > 0
+          ? (scenario.addToCart / scenario.linkClicks) * 100
+          : 0,
+      atc_to_purchase:
+        scenario.addToCart > 0
+          ? (scenario.purchases / scenario.addToCart) * 100
+          : 0,
+      frequency: Number((1.2 + i * 0.14).toFixed(2)),
       video25: scenario.video25,
       video50: scenario.video50,
       video75: scenario.video75,

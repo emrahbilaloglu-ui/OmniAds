@@ -1,4 +1,10 @@
-import { expect, test, type APIRequestContext, type BrowserContext, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type BrowserContext,
+  type Page,
+} from "@playwright/test";
 import bcrypt from "bcryptjs";
 import { Client } from "pg";
 import { seedReviewerAccount } from "../helpers/reviewer-auth";
@@ -8,7 +14,8 @@ const SMOKE_UUID = "00000000-0000-4000-8000-000000000000";
 // Single source of truth for the request contexts' base URL. Mirrors the value
 // playwright.full-ui-redesign.config.ts derives, avoiding the untyped
 // testInfo.config.use access (FullConfig does not expose `use` in its types).
-const SMOKE_BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3107";
+const SMOKE_BASE_URL =
+  process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3107";
 const ADMIN_EMAIL = "full-ui-admin@adsecute.local";
 const ADMIN_PASSWORD = "FullUiRedesignSmoke!2026";
 
@@ -37,6 +44,7 @@ const DASHBOARD_ROUTES = [
   "/integrations",
   "/integrations/callback/meta?status=success&returnTo=/integrations",
   "/platforms/meta",
+  "/platforms/meta/history",
   "/platforms/meta/creatives",
   "/platforms/meta/copies",
   "/platforms/meta/landing-pages",
@@ -90,12 +98,42 @@ const ADMIN_ROUTES = [
 const SCREENSHOT_ROUTES = [
   { actor: "public", path: "/login", name: "login" },
   { actor: "dashboard", path: "/platforms/meta", name: "meta-decisions" },
-  { actor: "dashboard", path: "/platforms/meta/creatives", name: "creative-studio" },
+  { actor: "dashboard", path: "/platforms/meta/history", name: "meta-history" },
+  {
+    actor: "dashboard",
+    path: "/platforms/meta/creatives",
+    name: "creative-studio",
+  },
+  { actor: "dashboard", path: "/platforms/meta/copies", name: "studio-copy" },
+  {
+    actor: "dashboard",
+    path: "/platforms/meta/landing-pages",
+    name: "studio-landing-pages",
+  },
+  {
+    actor: "dashboard",
+    path: "/platforms/meta/creative-inbox",
+    name: "studio-inbox",
+  },
+  {
+    actor: "dashboard",
+    path: "/platforms/meta/audiences",
+    name: "studio-audiences",
+  },
   { actor: "dashboard", path: "/platforms/meta/launchpad", name: "launchpad" },
-  { actor: "dashboard", path: "/platforms/meta/automation", name: "automation" },
+  {
+    actor: "dashboard",
+    path: "/platforms/meta/automation",
+    name: "automation",
+  },
   { actor: "dashboard", path: "/reports", name: "reports" },
   { actor: "dashboard", path: "/settings", name: "settings" },
   { actor: "admin", path: "/admin", name: "admin" },
+  {
+    actor: "admin",
+    path: "/admin/discounts/new",
+    name: "admin-discount-new",
+  },
 ] as const;
 
 const VISUAL_ONLY = process.env.FULL_UI_SMOKE_VISUAL_ONLY === "1";
@@ -109,11 +147,14 @@ const SELECTED_SCREENSHOT_NAMES = new Set(
 const ACTIVE_SCREENSHOT_ROUTES =
   SELECTED_SCREENSHOT_NAMES.size === 0
     ? SCREENSHOT_ROUTES
-    : SCREENSHOT_ROUTES.filter((shot) => SELECTED_SCREENSHOT_NAMES.has(shot.name));
+    : SCREENSHOT_ROUTES.filter((shot) =>
+        SELECTED_SCREENSHOT_NAMES.has(shot.name),
+      );
 
 async function seedAdminAccount(): Promise<SmokeActor> {
   const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) throw new Error("DATABASE_URL is required for full UI smoke admin seed.");
+  if (!databaseUrl)
+    throw new Error("DATABASE_URL is required for full UI smoke admin seed.");
 
   const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 12);
   const client = new Client({ connectionString: databaseUrl });
@@ -149,9 +190,13 @@ async function seedAdminAccount(): Promise<SmokeActor> {
 
 async function seedMetaDecisionDemoData() {
   const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) throw new Error("DATABASE_URL is required for full UI smoke decision seed.");
+  if (!databaseUrl)
+    throw new Error(
+      "DATABASE_URL is required for full UI smoke decision seed.",
+    );
 
   const snapshotDate = new Date().toISOString().slice(0, 10);
+  const providerAccountId = "act_210009998877";
   const campaignId = "m-c1";
   const adsetId = "m-as-2";
   const recommendation = {
@@ -172,9 +217,11 @@ async function seedMetaDecisionDemoData() {
     decision: "Cut candidate",
     title: "Prospecting Hook Tests is below the commercial floor",
     why: "Spend is material while ROAS remains under the account target.",
-    summary: "The ad set has enough spend and purchase evidence to review for pause.",
+    summary:
+      "The ad set has enough spend and purchase evidence to review for pause.",
     recommendedAction: "Pause adset",
-    expectedImpact: "Stops current waste while evidence is rechecked in the inspector.",
+    expectedImpact:
+      "Stops current waste while evidence is rechecked in the inspector.",
     evidence: [
       { label: "Spend", value: "$1,180", tone: "neutral" },
       { label: "ROAS", value: "2.36x", tone: "warning" },
@@ -183,13 +230,15 @@ async function seedMetaDecisionDemoData() {
     timeframeContext: {
       coreVerdict: "Below target with material spend.",
       selectedRangeOverlay: "28d demo smoke row for visual verification.",
-      historicalSupport: "Seeded for UI smoke only; production data is not touched.",
+      historicalSupport:
+        "Seeded for UI smoke only; production data is not touched.",
       seasonalityFlag: "none",
       note: null,
     },
     targetValue: { action: "pause", spend: 1180, roas: 2.36 },
     proposedAction: { kind: "pause" },
-    predictiveOverlay: "Decision row is present to verify reference-fidelity screenshots.",
+    predictiveOverlay:
+      "Decision row is present to verify reference-fidelity screenshots.",
     engineVersion: "v3-full-ui-smoke",
     evidenceTrail: {
       roas_history: [3.1, 2.8, 2.36],
@@ -208,6 +257,108 @@ async function seedMetaDecisionDemoData() {
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
   try {
+    const providerAccount = await client.query<{ id: string }>(
+      `INSERT INTO provider_accounts (
+         provider,
+         external_account_id,
+         account_name,
+         currency,
+         timezone,
+         updated_at
+       ) VALUES ('meta', $1, 'UrbanTrail DTC', 'USD', 'America/Los_Angeles', now())
+       ON CONFLICT (provider, external_account_id)
+       DO UPDATE SET
+         account_name = EXCLUDED.account_name,
+         currency = EXCLUDED.currency,
+         timezone = EXCLUDED.timezone,
+         updated_at = now()
+       RETURNING id::text AS id`,
+      [providerAccountId],
+    );
+    await client.query(
+      `INSERT INTO business_provider_accounts (
+         business_id,
+         provider,
+         provider_account_ref_id,
+         provider_account_id,
+         position,
+         updated_at
+       ) VALUES ($1, 'meta', $2::uuid, $3, 0, now())
+       ON CONFLICT (business_id, provider, provider_account_ref_id)
+       DO UPDATE SET
+         provider_account_id = EXCLUDED.provider_account_id,
+         position = 0,
+         updated_at = now()`,
+      [DEMO_BUSINESS_ID, providerAccount.rows[0]!.id, providerAccountId],
+    );
+    await client.query(
+      `INSERT INTO meta_account_daily (
+         business_id,
+         provider_account_id,
+         date,
+         account_name,
+         account_timezone,
+         account_currency,
+         spend,
+         impressions,
+         clicks,
+         conversions,
+         revenue,
+         roas,
+         updated_at
+       ) VALUES (
+         $1, $2, $3::date, 'UrbanTrail DTC', 'America/Los_Angeles', 'USD',
+         1180, 82000, 2460, 28, 2784.8, 2.36, now()
+       )
+       ON CONFLICT (business_id, provider_account_id, date)
+       DO UPDATE SET
+         account_name = EXCLUDED.account_name,
+         account_timezone = EXCLUDED.account_timezone,
+         account_currency = EXCLUDED.account_currency,
+         spend = EXCLUDED.spend,
+         impressions = EXCLUDED.impressions,
+         clicks = EXCLUDED.clicks,
+         conversions = EXCLUDED.conversions,
+         revenue = EXCLUDED.revenue,
+         roas = EXCLUDED.roas,
+         updated_at = now()`,
+      [DEMO_BUSINESS_ID, providerAccountId, snapshotDate],
+    );
+    await client.query(
+      `INSERT INTO meta_campaign_dimensions (
+         business_id,
+         provider_account_id,
+         campaign_id,
+         campaign_name_current,
+         campaign_status,
+         updated_at
+       ) VALUES ($1, $2, $3, 'Backpack Video Ads', 'ACTIVE', now())
+       ON CONFLICT (business_id, provider_account_id, campaign_id)
+       DO UPDATE SET
+         campaign_name_current = EXCLUDED.campaign_name_current,
+         campaign_status = EXCLUDED.campaign_status,
+         updated_at = now()`,
+      [DEMO_BUSINESS_ID, providerAccountId, campaignId],
+    );
+    await client.query(
+      `INSERT INTO meta_adset_dimensions (
+         business_id,
+         provider_account_id,
+         campaign_id,
+         adset_id,
+         adset_name_current,
+         adset_status,
+         updated_at
+       ) VALUES ($1, $2, $3, $4, 'Prospecting Hook Tests', 'ACTIVE', now())
+       ON CONFLICT (business_id, provider_account_id, adset_id)
+       DO UPDATE SET
+         campaign_id = EXCLUDED.campaign_id,
+         adset_name_current = EXCLUDED.adset_name_current,
+         adset_status = EXCLUDED.adset_status,
+         updated_at = now()`,
+      [DEMO_BUSINESS_ID, providerAccountId, campaignId, adsetId],
+    );
+
     await client.query(
       `INSERT INTO meta_campaign_labels (
          business_id,
@@ -230,7 +381,7 @@ async function seedMetaDecisionDemoData() {
          source = EXCLUDED.source,
          labeled_by = EXCLUDED.labeled_by,
          updated_at = now()`,
-      [DEMO_BUSINESS_ID, campaignId, "demo-meta-1", "Backpack Video Ads"],
+      [DEMO_BUSINESS_ID, campaignId, providerAccountId, "Backpack Video Ads"],
     );
 
     await client.query(
@@ -326,35 +477,18 @@ async function seedMetaDecisionDemoData() {
 }
 
 async function signIn(page: Page, actor: SmokeActor) {
-  await page.goto("/login", { waitUntil: "domcontentloaded" });
-  const loginResponse = await page.evaluate(
-    async ({ email, password }) => {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ email, password }),
-      });
-      return {
-        ok: response.ok,
-        status: response.status,
-        text: await response.text(),
-      };
-    },
-    actor,
-  );
-
-  expect(loginResponse, `login failed for ${actor.email}`).toMatchObject({ ok: true });
+  // BrowserContext.request shares its cookie jar with every page in the
+  // context. Authenticating here avoids a pending /login UI redirect racing
+  // the representative route navigation.
+  const loginResponse = await page.request.post("/api/auth/login", {
+    data: actor,
+  });
+  expect(
+    loginResponse.ok(),
+    `login failed for ${actor.email}: ${loginResponse.status()} ${await loginResponse.text()}`,
+  ).toBe(true);
   await expect
-    .poll(async () =>
-      page.evaluate(async () => {
-        const response = await fetch("/api/auth/me", {
-          credentials: "include",
-          cache: "no-store",
-        });
-        return response.status;
-      }),
-    )
+    .poll(async () => (await page.request.get("/api/auth/me")).status())
     .toBe(200);
 }
 
@@ -362,26 +496,41 @@ async function signInRequest(context: APIRequestContext, actor: SmokeActor) {
   const response = await context.post("/api/auth/login", {
     data: actor,
   });
-  expect(response.ok(), `request login failed for ${actor.email}: ${response.status()}`).toBe(true);
+  expect(
+    response.ok(),
+    `request login failed for ${actor.email}: ${response.status()}`,
+  ).toBe(true);
 }
 
-async function assertRouteResponseHealthy(context: APIRequestContext, path: string) {
+async function assertRouteResponseHealthy(
+  context: APIRequestContext,
+  path: string,
+) {
   const response = await context.get(path, {
     maxRedirects: 5,
     timeout: 60_000,
   });
-  expect(response.status(), `${path} returned ${response.status()}`).toBeLessThan(500);
+  expect(
+    response.status(),
+    `${path} returned ${response.status()}`,
+  ).toBeLessThan(500);
   const contentType = response.headers()["content-type"] ?? "";
   if (contentType.includes("text/html")) {
     const body = await response.text();
-    expect(body, `${path} server HTML still exposes old Pulse product language`).not.toMatch(/\bPulse\b/);
+    expect(
+      body,
+      `${path} server HTML still exposes old Pulse product language`,
+    ).not.toMatch(/\bPulse\b/);
     expect(body, `${path} server HTML rendered a fatal app error`).not.toMatch(
       /Application error|Unhandled Runtime Error|Hydration failed/i,
     );
   }
 }
 
-async function smokeRouteResponses(context: APIRequestContext, routes: readonly string[]) {
+async function smokeRouteResponses(
+  context: APIRequestContext,
+  routes: readonly string[],
+) {
   for (const route of routes) {
     await assertRouteResponseHealthy(context, route);
   }
@@ -391,22 +540,33 @@ async function assertRouteHealthy(page: Page, path: string) {
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
 
-  const response = await page.goto(path, { waitUntil: "domcontentloaded", timeout: 90_000 });
+  const response = await page.goto(path, {
+    waitUntil: "domcontentloaded",
+    timeout: 90_000,
+  });
   const status = response?.status() ?? 200;
   expect(status, `${path} returned ${status}`).toBeLessThan(500);
 
   await page.waitForTimeout(250);
   await expect(page.locator("body"), `${path} body`).toBeVisible();
 
-  const bodyText = await page.locator("body").innerText({ timeout: 10_000 }).catch(() => "");
+  const bodyText = await page
+    .locator("body")
+    .innerText({ timeout: 10_000 })
+    .catch(() => "");
   expect(bodyText, `${path} rendered a client/runtime crash`).not.toMatch(
     /Application error|Unhandled Runtime Error|Hydration failed/i,
   );
-  expect(bodyText, `${path} still exposes old Pulse product language`).not.toMatch(/\bPulse\b/);
+  expect(
+    bodyText,
+    `${path} still exposes old Pulse product language`,
+  ).not.toMatch(/\bPulse\b/);
 
   const overflow = await page.evaluate(() => ({
     body: document.body.scrollWidth - document.body.clientWidth,
-    document: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    document:
+      document.documentElement.scrollWidth -
+      document.documentElement.clientWidth,
   }));
   expect(
     Math.max(overflow.body, overflow.document),
@@ -429,37 +589,181 @@ async function waitForDashboardWorkspaceReady(page: Page, path: string) {
     return;
   }
 
-  await expect(page.getByTestId("business-guard-loading"), `${path} business guard`).toHaveCount(0, {
+  await expect(
+    page.getByTestId("business-guard-loading"),
+    `${path} business guard`,
+  ).toHaveCount(0, {
     timeout: 30_000,
   });
-  await expect(page.getByText(/Loading workspace/i), `${path} workspace loader`).toHaveCount(0, {
+  await expect(
+    page.getByText(/Loading workspace/i),
+    `${path} workspace loader`,
+  ).toHaveCount(0, {
     timeout: 30_000,
   });
   if (path === "/platforms/meta") {
-    const viewportWidth = page.viewportSize()?.width ?? 1440;
-    if (viewportWidth >= 900) {
-      await expect(page.getByTestId("meta-overnight-digest"), `${path} decisions digest`).toBeVisible({
-        timeout: 30_000,
-      });
-      await expect(page.getByText(/Action Now/i).first(), `${path} action queue`).toBeVisible({
-        timeout: 30_000,
-      });
-    } else {
-      await expect(page.locator(".meta-mobile-decision-stage"), `${path} mobile read-only surface`).toBeVisible({
-        timeout: 30_000,
-      });
-      await expect(page.getByText(/Writes are desktop-only/i), `${path} mobile write suppression`).toBeVisible({
-        timeout: 30_000,
-      });
+    const decisions = page.getByTestId("meta-decisions-v2");
+    await expect(decisions, `${path} responsive Decisions workspace`).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(decisions, `${path} server-composed workspace query`).toHaveAttribute(
+      "data-workspace-query-status",
+      /success|error/,
+      { timeout: 120_000 },
+    );
+    await expect(decisions, `${path} provider write suppression`).toHaveAttribute(
+      "data-provider-writes",
+      "none",
+    );
+    await expect(
+      page.getByText(/Loading decision workspace/i),
+      `${path} decision loading state`,
+    ).toHaveCount(0, { timeout: 30_000 });
+    await expect(
+      page.getByRole("tab", { name: /Structure/i }),
+      `${path} Structure layer`,
+    ).toBeVisible();
+    await expect(
+      page.getByRole("tab", { name: /Ads/i }),
+      `${path} Ads layer`,
+    ).toBeVisible();
+  } else if (path === "/platforms/meta/history") {
+    await expect(
+      page.getByLabel("Meta account for History"),
+      `${path} explicit provider account`,
+    ).toHaveValue("act_210009998877", { timeout: 30_000 });
+    await expect(page.getByTestId("meta-history-page"), `${path} history state`).toHaveAttribute(
+      "data-history-state",
+      /ready|error/,
+      { timeout: 30_000 },
+    );
+  } else if (path === "/platforms/meta/creatives") {
+    const studio = page.getByTestId("creative-studio-os");
+    await expect(studio, `${path} Studio operating surface`).toBeVisible({
+      timeout: 30_000,
+    });
+    const studioAccount = studio.getByRole("button", {
+      name: "Meta ad account for Creative Studio",
+    });
+    await expect(studioAccount, `${path} explicit provider account`).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(studioAccount).toContainText("act_210009998877");
+    const studioPage = page.getByTestId("creative-studio-page");
+    await expect(studioPage, `${path} creative query`).toHaveAttribute(
+      "data-creatives-query-status",
+      "success",
+      { timeout: 30_000 },
+    );
+    await expect(studioPage, `${path} creative fetch`).toHaveAttribute(
+      "data-creatives-fetch-status",
+      "idle",
+      { timeout: 30_000 },
+    );
+    await expect(
+      page.getByTestId("loading-skeleton"),
+      `${path} page loading skeletons`,
+    ).toHaveCount(0, { timeout: 30_000 });
+    await expect(studio).toHaveAttribute("data-responsive-studio", "true");
+    await expect(studio).toHaveAttribute("data-provider-writes", "none");
+    await expect(studio.getByText("$840.00", { exact: true })).toBeVisible();
+    await expect(studio.getByText("4.00x", { exact: true })).toBeVisible();
+
+    const studioImages = studio.locator(".studio-table-media img");
+    const studioImageCount = await studioImages.count();
+    for (let index = 0; index < studioImageCount; index += 1) {
+      await studioImages.nth(index).scrollIntoViewIfNeeded();
     }
-  } else if (path === "/platforms/meta/automation" || path === "/platforms/meta/launchpad") {
+    if (studioImageCount > 0) {
+      await expect
+        .poll(
+          () =>
+            studioImages.evaluateAll(
+              (images) =>
+                images.filter(
+                  (image) =>
+                    (image as HTMLImageElement).complete &&
+                    (image as HTMLImageElement).naturalWidth > 0,
+                ).length,
+            ),
+          {
+            message: `${path} did not render every visible creative asset`,
+            timeout: 30_000,
+          },
+        )
+        .toBe(studioImageCount);
+      await studio.locator(".studio-table-scroll").evaluate((element) => {
+        element.scrollTop = 0;
+        element.scrollLeft = 0;
+      });
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
+    }
+  } else if (path === "/platforms/meta/copies") {
+    await expect(
+      page.getByLabel("Meta ad account for Copy analysis"),
+      `${path} explicit provider account`,
+    ).toHaveValue("act_210009998877", { timeout: 30_000 });
+    const copiesPage = page.getByTestId("copies-studio-page");
+    await expect(copiesPage, `${path} copies query`).toHaveAttribute(
+      "data-copies-query-status",
+      /success|error/,
+      { timeout: 30_000 },
+    );
+    await expect(copiesPage, `${path} copies fetch`).toHaveAttribute(
+      "data-copies-fetch-status",
+      "idle",
+      { timeout: 30_000 },
+    );
+    await expect(page.getByTestId("loading-skeleton"), `${path} loading skeletons`).toHaveCount(0, {
+      timeout: 30_000,
+    });
+  } else if (path === "/platforms/meta/landing-pages") {
+    await expect(
+      page.getByTestId("landing-pages-studio-page"),
+      `${path} landing source state`,
+    ).toHaveAttribute("data-landing-state", /integration_required|ready|error/, {
+      timeout: 30_000,
+    });
+  } else if (path === "/platforms/meta/creative-inbox") {
+    await expect(
+      page.getByLabel("Select Meta account for Creative Inbox"),
+      `${path} explicit provider account`,
+    ).toHaveValue("act_210009998877", { timeout: 30_000 });
+    await expect(
+      page.getByTestId("creative-inbox-studio-page"),
+      `${path} inbox state`,
+    ).toHaveAttribute("data-inbox-state", /ready|error/, { timeout: 30_000 });
+  } else if (path === "/platforms/meta/audiences") {
+    await expect(page.getByTestId("audience-readiness-ledger"), `${path} readiness ledger`).toBeVisible({
+      timeout: 30_000,
+    });
+  } else if (
+    path === "/platforms/meta/automation" ||
+    path === "/platforms/meta/launchpad"
+  ) {
     const viewportWidth = page.viewportSize()?.width ?? 1440;
-    if (viewportWidth < 900) {
-      const testId = path.endsWith("/automation") ? "meta-mobile-automation" : "meta-mobile-launchpad";
-      await expect(page.getByTestId(testId), `${path} page-owned mobile read-only surface`).toBeVisible({
+    if (viewportWidth <= 720) {
+      const testId = path.endsWith("/automation")
+        ? "meta-mobile-automation"
+        : "meta-mobile-launchpad";
+      const readOnlyCopy = path.endsWith("/automation")
+        ? /Read-only status/i
+        : /Launchpad · read-only/i;
+      await expect(
+        page.getByTestId(testId),
+        `${path} page-owned mobile read-only surface`,
+      ).toBeVisible({
         timeout: 30_000,
       });
-      await expect(page.getByText(/Mobile is read-only/i), `${path} mobile write suppression`).toBeVisible({
+      await expect(
+        page.getByText(readOnlyCopy),
+        `${path} mobile write suppression`,
+      ).toBeVisible({
         timeout: 30_000,
       });
     }
@@ -480,13 +784,73 @@ async function assertRepresentativeVisualSettled(page: Page, path: string) {
 
   await expect
     .poll(
-      async () => page.locator("body").innerText({ timeout: 10_000 }).catch(() => ""),
+      async () =>
+        page
+          .locator("body")
+          .innerText({ timeout: 10_000 })
+          .catch(() => ""),
       {
         message: `${path} representative screenshot still contains generic loading copy; render a truthful loaded empty/data state before screenshotting`,
         timeout: 30_000,
       },
     )
-    .not.toMatch(/\bLoading\b|briefing loading|queue is loading|Waiting for .* payload/i);
+    .not.toMatch(
+      /\bLoading\b|briefing loading|queue is loading|Waiting for .* payload/i,
+    );
+}
+
+async function assertDarkConsoleContrast(page: Page, path: string) {
+  const logo = page
+    .locator('.ad-console-topbar img[alt="Adsecute logo"]')
+    .first();
+  if (await logo.isVisible().catch(() => false)) {
+    await expect
+      .poll(() => logo.evaluate((element) => getComputedStyle(element).filter), {
+        message: `${path} leaves the black Adsecute mark unadjusted on the dark topbar`,
+        timeout: 10_000,
+      })
+      .not.toBe("none");
+  }
+
+  const primaryActions = page.locator(".ad-final .btn--primary:visible");
+  if ((await primaryActions.count()) === 0) return;
+
+  const contrastRatios = await primaryActions.evaluateAll((elements) => {
+    const rgb = (value: string) => {
+      const channels = value.match(/[\d.]+/g)?.slice(0, 3).map(Number) ?? [];
+      if (channels.length !== 3) return null;
+      return channels.map((channel) => channel / 255);
+    };
+    const luminance = (channels: number[]) =>
+      channels
+        .map((channel) =>
+          channel <= 0.04045
+            ? channel / 12.92
+            : ((channel + 0.055) / 1.055) ** 2.4,
+        )
+        .reduce(
+          (sum, channel, index) =>
+            sum + channel * ([0.2126, 0.7152, 0.0722][index] ?? 0),
+          0,
+        );
+
+    return elements.map((element) => {
+      const style = getComputedStyle(element);
+      const foreground = rgb(style.color);
+      const background = rgb(style.backgroundColor);
+      if (!foreground || !background) return 0;
+      const light = Math.max(luminance(foreground), luminance(background));
+      const dark = Math.min(luminance(foreground), luminance(background));
+      return (light + 0.05) / (dark + 0.05);
+    });
+  });
+
+  expect(
+    Math.min(...contrastRatios),
+    `${path} dark primary action contrast ratios: ${contrastRatios
+      .map((ratio) => ratio.toFixed(2))
+      .join(", ")}`,
+  ).toBeGreaterThanOrEqual(4.5);
 }
 
 async function smokeRoutes(context: BrowserContext, routes: readonly string[]) {
@@ -501,8 +865,20 @@ async function smokeRoutes(context: BrowserContext, routes: readonly string[]) {
 }
 
 test.describe("full UI redesign route and visual smoke", () => {
-  test("covers every in-scope route and captures representative visuals", async ({ page, playwright }, testInfo) => {
+  test("covers every in-scope route and captures representative visuals", async ({
+    page,
+    playwright,
+  }, testInfo) => {
     test.setTimeout(900_000);
+
+    const darkProject = testInfo.project.name.endsWith("-dark");
+    if (darkProject) {
+      await page.context().addInitScript(() => {
+        const enableDark = () => document.documentElement?.classList.add("dark");
+        enableDark();
+        document.addEventListener("DOMContentLoaded", enableDark, { once: true });
+      });
+    }
 
     const reviewerSeed = await seedReviewerAccount();
     const reviewer = {
@@ -513,9 +889,15 @@ test.describe("full UI redesign route and visual smoke", () => {
     const admin = await seedAdminAccount();
 
     if (testInfo.project.name === "full-ui-desktop" && !VISUAL_ONLY) {
-      const publicRequest = await playwright.request.newContext({ baseURL: SMOKE_BASE_URL });
-      const dashboardRequest = await playwright.request.newContext({ baseURL: SMOKE_BASE_URL });
-      const adminRequest = await playwright.request.newContext({ baseURL: SMOKE_BASE_URL });
+      const publicRequest = await playwright.request.newContext({
+        baseURL: SMOKE_BASE_URL,
+      });
+      const dashboardRequest = await playwright.request.newContext({
+        baseURL: SMOKE_BASE_URL,
+      });
+      const adminRequest = await playwright.request.newContext({
+        baseURL: SMOKE_BASE_URL,
+      });
       try {
         await smokeRouteResponses(publicRequest, PUBLIC_ROUTES);
         await signInRequest(dashboardRequest, reviewer);
@@ -541,52 +923,232 @@ test.describe("full UI redesign route and visual smoke", () => {
         await assertRouteHealthy(shotPage, shot.path);
         await waitForDashboardWorkspaceReady(shotPage, shot.path);
         await assertRepresentativeVisualSettled(shotPage, shot.path);
+        if (darkProject && shot.actor !== "public") {
+          await expect
+            .poll(
+              () =>
+                shotPage.locator(".ad-console-shell").evaluate((element) =>
+                  getComputedStyle(element).getPropertyValue("--adc-s1").trim(),
+                ),
+              {
+                message: `${shot.path} did not activate the dark console token set`,
+                timeout: 10_000,
+              },
+            )
+            .toBe("#111315");
+          await assertDarkConsoleContrast(shotPage, shot.path);
+        }
         await shotPage.screenshot({
-          path: testInfo.outputPath(`${testInfo.project.name}-${shot.name}.png`),
+          path: testInfo.outputPath(
+            `${testInfo.project.name}-${shot.name}.png`,
+          ),
           fullPage: true,
         });
-        if (shot.name === "meta-decisions" && testInfo.project.name === "full-ui-desktop") {
-          const digestToggle = shotPage.getByRole("button", { name: /Since last snapshot/i });
-          await expect(digestToggle, "Meta Decisions digest toggle").toBeVisible({
-            timeout: 30_000,
+
+        const advancedCalendarTestId =
+          shot.name === "meta-decisions"
+            ? "meta-decisions-date-range-picker-trigger"
+            : shot.name === "creative-studio"
+              ? "creative-studio-date-range-picker-trigger"
+              : null;
+        if (advancedCalendarTestId) {
+          const calendarTrigger = shotPage.getByTestId(advancedCalendarTestId);
+          const calendarRoot = shotPage.getByTestId(
+            advancedCalendarTestId.replace(/-trigger$/, ""),
+          );
+          await expect(calendarTrigger, `${shot.name} advanced calendar trigger`).toBeVisible();
+          await expect(calendarRoot).toHaveAttribute("data-hydrated", "true");
+          await calendarTrigger.click();
+          await expect(
+            shotPage.getByText("Quick Select", { exact: true }),
+            `${shot.name} quick ranges`,
+          ).toBeVisible();
+          const visibleCalendars = shotPage.locator(
+            'section[aria-label$=" calendar"]:visible',
+          );
+          await expect(visibleCalendars).toHaveCount(
+            testInfo.project.name === "full-ui-mobile" ? 1 : 2,
+          );
+          await expect
+            .poll(() =>
+              shotPage.evaluate(
+                () => document.documentElement.scrollWidth <= window.innerWidth,
+              ),
+            )
+            .toBe(true);
+          await shotPage.screenshot({
+            path: testInfo.outputPath(
+              `${testInfo.project.name}-${shot.name}-calendar.png`,
+            ),
+            fullPage: true,
           });
-          await digestToggle.click();
-          await expect(shotPage.getByText(/Label flips:/i), "Meta Decisions digest label details").toBeVisible();
-          await expect(shotPage.getByText(/Actions:/i), "Meta Decisions digest action details").toBeVisible();
-          await expect(shotPage.getByText(/Deferrals due back:/i), "Meta Decisions digest deferral details").toBeVisible();
-          await digestToggle.click();
-          const evidenceTrigger = shotPage.getByRole("button", { name: /Open evidence/i }).first();
-          await expect(evidenceTrigger, "Meta Decisions evidence affordance").toBeVisible({
+          await shotPage.keyboard.press("Escape");
+        }
+
+        const singleDatePickerTestId =
+          shot.name === "meta-history"
+            ? "meta-history-from-date-trigger"
+            : shot.name === "admin-discount-new"
+              ? "discount-valid-from-trigger"
+              : null;
+        if (singleDatePickerTestId) {
+          const dateTrigger = shotPage.getByTestId(singleDatePickerTestId);
+          const datePickerRoot = shotPage.getByTestId(
+            singleDatePickerTestId.replace(/-trigger$/, ""),
+          );
+          await expect(dateTrigger, `${shot.name} date picker trigger`).toBeVisible();
+          await expect(datePickerRoot).toHaveAttribute("data-hydrated", "true");
+          await dateTrigger.click();
+          await expect(
+            shotPage.locator('section[aria-label$=" calendar"]:visible'),
+            `${shot.name} calendar`,
+          ).toHaveCount(1);
+          await expect
+            .poll(() =>
+              shotPage.evaluate(
+                () => document.documentElement.scrollWidth <= window.innerWidth,
+              ),
+            )
+            .toBe(true);
+          await shotPage.screenshot({
+            path: testInfo.outputPath(
+              `${testInfo.project.name}-${shot.name}-calendar.png`,
+            ),
+            fullPage: true,
+          });
+          await shotPage.keyboard.press("Escape");
+        }
+
+        if (
+          shot.name === "meta-decisions" &&
+          testInfo.project.name === "full-ui-desktop"
+        ) {
+          const primarySidebar = shotPage.locator("[data-shell-sidebar]");
+          await expect(
+            primarySidebar,
+            "Meta Decisions must keep the single global application sidebar",
+          ).toHaveCount(1);
+          await expect
+            .poll(() => primarySidebar.evaluate((element) => element.getBoundingClientRect().width))
+            .toBe(196);
+
+          const collapseNavigation = shotPage.getByRole("button", {
+            name: "Collapse navigation",
+          });
+          await expect(collapseNavigation).toBeVisible();
+          await collapseNavigation.click();
+          await expect
+            .poll(() => primarySidebar.evaluate((element) => element.getBoundingClientRect().width))
+            .toBe(56);
+          await expect(shotPage.getByRole("button", { name: "Expand navigation" })).toBeVisible();
+          await shotPage.screenshot({
+            path: testInfo.outputPath(
+              `${testInfo.project.name}-${shot.name}-navigation-collapsed.png`,
+            ),
+            fullPage: true,
+          });
+          await shotPage.getByRole("button", { name: "Expand navigation" }).click();
+          await expect
+            .poll(() => primarySidebar.evaluate((element) => element.getBoundingClientRect().width))
+            .toBe(196);
+
+          const evidenceTrigger = shotPage
+            .getByTestId("structure-decision-list")
+            .locator("button[data-child]")
+            .first();
+          await expect(
+            evidenceTrigger,
+            "Meta Decisions evidence affordance",
+          ).toBeVisible({
             timeout: 30_000,
           });
           await evidenceTrigger.click();
-          await expect(shotPage.locator('[data-drawer="meta-drill"]'), "Meta Decisions inspector").toBeVisible({
+          await expect(
+            shotPage.getByRole("complementary", { name: "Decision inspector" }),
+            "Meta Decisions inspector",
+          ).toBeVisible({
             timeout: 30_000,
           });
-          await expect(shotPage.locator('[data-inspector-section="raw-json"]'), "Meta Decisions raw JSON section").toBeVisible();
+          await shotPage.getByRole("button", { name: /How this was decided/i }).click();
+          await expect(
+            shotPage.getByText("Raw engine label"),
+            "Meta Decisions versioned engine evidence",
+          ).toBeVisible();
           await shotPage.screenshot({
-            path: testInfo.outputPath(`${testInfo.project.name}-${shot.name}-inspector.png`),
+            path: testInfo.outputPath(
+              `${testInfo.project.name}-${shot.name}-inspector.png`,
+            ),
             fullPage: true,
           });
-        } else if (shot.name === "meta-decisions" && testInfo.project.name === "full-ui-mobile") {
-          const mobileEvidenceTrigger = shotPage.getByRole("button", { name: /Read evidence/i }).first();
-          await expect(mobileEvidenceTrigger, "Meta Decisions mobile evidence affordance").toBeVisible({
+        } else if (
+          shot.name === "meta-decisions" &&
+          testInfo.project.name === "full-ui-mobile"
+        ) {
+          const mobileEvidenceTrigger = shotPage
+            .getByTestId("structure-decision-list")
+            .locator("button[data-child]")
+            .first();
+          await expect(
+            mobileEvidenceTrigger,
+            "Meta Decisions mobile evidence affordance",
+          ).toBeVisible({
             timeout: 30_000,
           });
           await mobileEvidenceTrigger.click();
-          await expect(shotPage.getByTestId("meta-mobile-evidence"), "Meta Decisions mobile evidence view").toBeVisible({
+          await expect(
+            shotPage.getByRole("complementary", { name: "Decision inspector" }),
+            "Meta Decisions mobile evidence view",
+          ).toBeVisible({
             timeout: 30_000,
           });
-          await expect(shotPage.getByText(/Act on desktop/i), "Meta Decisions mobile desktop-only notice").toBeVisible();
+          await expect(
+            shotPage.getByText("Action blocked", { exact: true }),
+            "Meta Decisions mobile write suppression",
+          ).toBeVisible();
+        } else if (shot.name === "creative-studio") {
+          const usageTrigger = shotPage
+            .getByTitle("Open exact ad usage performance")
+            .first();
+          await expect(usageTrigger, "Creative Studio exact-ad usage trigger").toBeVisible();
+          await usageTrigger.click();
+          const usageDrawer = shotPage.getByRole("complementary", {
+            name: "Creative ad usage performance",
+          });
+          await expect(usageDrawer, "Creative Studio exact-ad usage drawer").toBeVisible({
+            timeout: 30_000,
+          });
+          await expect(
+            usageDrawer.getByText("Ad m-ad-1", { exact: true }),
+            "Creative Studio verified ad identity",
+          ).toBeVisible({ timeout: 30_000 });
+          await shotPage.screenshot({
+            path: testInfo.outputPath(
+              `${testInfo.project.name}-${shot.name}-usage.png`,
+            ),
+            fullPage: true,
+          });
         } else if (
           (shot.name === "automation" || shot.name === "launchpad") &&
           testInfo.project.name === "full-ui-mobile"
         ) {
-          const testId = shot.name === "automation" ? "meta-mobile-automation" : "meta-mobile-launchpad";
-          await expect(shotPage.getByTestId(testId), `${shot.name} mobile read-only surface`).toBeVisible({
+          const testId =
+            shot.name === "automation"
+              ? "meta-mobile-automation"
+              : "meta-mobile-launchpad";
+          const readOnlyCopy =
+            shot.name === "automation"
+              ? /Read-only status/i
+              : /Launchpad · read-only/i;
+          await expect(
+            shotPage.getByTestId(testId),
+            `${shot.name} mobile read-only surface`,
+          ).toBeVisible({
             timeout: 30_000,
           });
-          await expect(shotPage.getByText(/Mobile is read-only/i), `${shot.name} mobile desktop-only notice`).toBeVisible();
+          await expect(
+            shotPage.getByText(readOnlyCopy),
+            `${shot.name} mobile desktop-only notice`,
+          ).toBeVisible();
         }
       } finally {
         await shotPage.close();

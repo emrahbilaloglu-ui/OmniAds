@@ -33,11 +33,15 @@ export const NON_TRANSLATABLE_TERMS = [
   "CTA",
 ] as const;
 
-export function isAppLanguage(value: string | null | undefined): value is AppLanguage {
+export function isAppLanguage(
+  value: string | null | undefined,
+): value is AppLanguage {
   return value === "en" || value === "tr";
 }
 
-export function getLanguageFromCookieValue(value: string | null | undefined): AppLanguage {
+export function getLanguageFromCookieValue(
+  value: string | null | undefined,
+): AppLanguage {
   return "en";
 }
 
@@ -79,7 +83,9 @@ export function getNativeNarrativeStyleInstruction(_language: AppLanguage) {
 }
 
 export function getCanonicalMetricLabel(label: string) {
-  const exactMatch = NON_TRANSLATABLE_TERMS.find((term) => term.toLowerCase() === label.toLowerCase());
+  const exactMatch = NON_TRANSLATABLE_TERMS.find(
+    (term) => term.toLowerCase() === label.toLowerCase(),
+  );
   return exactMatch ?? label;
 }
 
@@ -121,6 +127,7 @@ export const translations = {
       aiVisibility: "AI Visibility",
       seoIntelligence: "SEO Intelligence",
       creatives: "Creatives",
+      creativeStudio: "Creative Studio",
       landingPages: "Landing Pages",
       copies: "Copies",
       audiences: "Audiences",
@@ -194,16 +201,19 @@ export const translations = {
     },
     settings: {
       languageTitle: "Language",
-      languageDescription: "Choose the language used in supported Adsecute screens.",
+      languageDescription:
+        "Choose the language used in supported Adsecute screens.",
       languageLabel: "App language",
-      languageHint: "This preference is saved to your account and synced through a cookie for faster rendering.",
+      languageHint:
+        "This preference is saved to your account and synced through a cookie for faster rendering.",
       saveLanguage: "Apply language",
       languageSaved: "Language updated.",
     },
     aiBrief: {
       title: "Today's AI Brief",
       errorPrefix: "Could not load AI daily brief.",
-      empty: "No AI brief available yet. Once the scheduled AI run completes, this section will populate automatically.",
+      empty:
+        "No AI brief available yet. Once the scheduled AI run completes, this section will populate automatically.",
       insightDate: "Insight date",
       opportunities: "Opportunities",
       risks: "Risks",
@@ -212,8 +222,10 @@ export const translations = {
     landingPages: {
       aiInsight: "AI Insight",
       uxAudit: "UX Audit",
-      uxAuditDescription: "UX findings, friction points, and improvement opportunities for this landing page.",
-      runAuditPrompt: "Run AI when you want a focused UX audit for this landing page.",
+      uxAuditDescription:
+        "UX findings, friction points, and improvement opportunities for this landing page.",
+      runAuditPrompt:
+        "Run AI when you want a focused UX audit for this landing page.",
       runAudit: "Run UX audit",
       auditLoadError: "UX audit could not be loaded for this page.",
       retryAudit: "Retry UX audit",
@@ -231,17 +243,23 @@ export const translations = {
       risks: "Risks",
       noStrongAdvantages: "No strong advantages stand out yet.",
       noDominantIssue: "No single issue dominates this page right now.",
-      noUnusualRisks: "No unusual risks surfaced beyond normal optimization variance.",
+      noUnusualRisks:
+        "No unusual risks surfaced beyond normal optimization variance.",
       trafficQuality: "Traffic quality",
       discovery: "Discovery",
       intent: "Intent",
       checkout: "Checkout",
       revenueEfficiency: "Revenue efficiency",
-      trafficQualityDescription: "Measures engagement depth and browsing quality.",
-      discoveryDescription: "Shows how well sessions move into product exploration.",
-      intentDescription: "Shows whether product views turn into add-to-cart intent.",
-      checkoutDescription: "Captures momentum from cart into completed checkout.",
-      revenueEfficiencyDescription: "Combines purchase efficiency with order value quality.",
+      trafficQualityDescription:
+        "Measures engagement depth and browsing quality.",
+      discoveryDescription:
+        "Shows how well sessions move into product exploration.",
+      intentDescription:
+        "Shows whether product views turn into add-to-cart intent.",
+      checkoutDescription:
+        "Captures momentum from cart into completed checkout.",
+      revenueEfficiencyDescription:
+        "Combines purchase efficiency with order value quality.",
     },
     creativeDetail: {
       aiInterpretation: "AI strategy interpretation",
@@ -257,8 +275,10 @@ export const translations = {
       title: "Recommendations",
       loading: "Building multi-window recommendations...",
       loadError: "Could not build recommendations right now.",
-      noStrongSignal: "Multi-window engine does not see a strong intervention signal yet.",
-      validatedAgainst: "Multi-window Meta decision engine validated against selected range + 3/7/14/30/90/history.",
+      noStrongSignal:
+        "Multi-window engine does not see a strong intervention signal yet.",
+      validatedAgainst:
+        "Multi-window Meta decision engine validated against selected range + 3/7/14/30/90/history.",
       conservativeRules: "Conservative rules",
       accountSummary: "Account Summary",
       operatingMode: "Operating Mode",
@@ -289,15 +309,18 @@ export const translations = {
       cards: "cards",
       card: "card",
       operatingModel: "Operating Model",
-      operatingModelDescription: "Seasonality, regime fit, and rebuild direction.",
+      operatingModelDescription:
+        "Seasonality, regime fit, and rebuild direction.",
       bidding: "Bidding",
       biddingDescription: "Bid method, safer ranges, and constraint changes.",
       scaling: "Scaling",
       scalingDescription: "Scale candidates and controlled budget expansion.",
       budgetAllocation: "Budget Allocation",
-      budgetAllocationDescription: "Where budget should concentrate inside comparable cohorts.",
+      budgetAllocationDescription:
+        "Where budget should concentrate inside comparable cohorts.",
       structure: "Structure",
-      structureDescription: "Campaign lanes, creative deployment, and geo shape.",
+      structureDescription:
+        "Campaign lanes, creative deployment, and geo shape.",
       lensVolume: "Volume",
       lensProfitability: "Profitability",
       lensStructure: "Structure",

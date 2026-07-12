@@ -1,4 +1,9 @@
-import type { MetaAdsWriteContext, MetaAdsWriteError, MetaAdsWriteFailure } from "@/lib/meta/ads-write";
+import {
+  getMetaAdsWriteBlockFailure,
+  type MetaAdsWriteContext,
+  type MetaAdsWriteError,
+  type MetaAdsWriteFailure,
+} from "@/lib/meta/ads-write";
 
 type MetaFetchMethod = "GET" | "POST";
 
@@ -223,6 +228,14 @@ async function metaFetchWithRateLimitRetry(input: {
   body?: URLSearchParams;
   fields?: string;
 }) {
+  const initialBlock = await getMetaAdsWriteBlockFailure(input.ctx);
+  if (initialBlock) {
+    return {
+      response: null,
+      payload: null,
+      error: initialBlock.error,
+    };
+  }
   const first = await metaFetch(input);
   if (
     first.response &&
@@ -230,6 +243,14 @@ async function metaFetchWithRateLimitRetry(input: {
     isRateLimitPayload(first.payload)
   ) {
     await delay(RATE_LIMIT_RETRY_MS);
+    const retryBlock = await getMetaAdsWriteBlockFailure(input.ctx);
+    if (retryBlock) {
+      return {
+        response: null,
+        payload: null,
+        error: retryBlock.error,
+      };
+    }
     return metaFetch(input);
   }
   return first;
@@ -359,7 +380,7 @@ export async function createCampaign(
   if (write.error) {
     return {
       ok: false,
-      httpStatus: 502,
+      httpStatus: write.error.code === "kill_switch_engaged" ? 503 : 502,
       error: write.error,
       responsePayload: write.payload,
     };
@@ -444,7 +465,7 @@ export async function createAdSet(
   if (write.error) {
     return {
       ok: false,
-      httpStatus: 502,
+      httpStatus: write.error.code === "kill_switch_engaged" ? 503 : 502,
       error: write.error,
       responsePayload: write.payload,
     };
@@ -551,7 +572,7 @@ export async function createAd(
   if (write.error) {
     return {
       ok: false,
-      httpStatus: 502,
+      httpStatus: write.error.code === "kill_switch_engaged" ? 503 : 502,
       error: write.error,
       responsePayload: write.payload,
     };

@@ -21,9 +21,21 @@ describe("meta automation control plane", () => {
   });
 
   it("normalizes the global Meta write kill switch like the UI banner", () => {
-    expect(isGlobalMetaAdsWriteKillSwitchEngaged({ META_ADS_WRITE_KILL_SWITCH: " true " } as never)).toBe(true);
-    expect(isGlobalMetaAdsWriteKillSwitchEngaged({ META_ADS_WRITE_KILL_SWITCH: "YES" } as never)).toBe(true);
-    expect(isGlobalMetaAdsWriteKillSwitchEngaged({ META_ADS_WRITE_KILL_SWITCH: "0" } as never)).toBe(false);
+    expect(
+      isGlobalMetaAdsWriteKillSwitchEngaged({
+        META_ADS_WRITE_KILL_SWITCH: " true ",
+      } as never),
+    ).toBe(true);
+    expect(
+      isGlobalMetaAdsWriteKillSwitchEngaged({
+        META_ADS_WRITE_KILL_SWITCH: "YES",
+      } as never),
+    ).toBe(true);
+    expect(
+      isGlobalMetaAdsWriteKillSwitchEngaged({
+        META_ADS_WRITE_KILL_SWITCH: "0",
+      } as never),
+    ).toBe(false);
   });
 
   it("returns persisted controls, promotion records, and activity without claiming auto execution", async () => {
@@ -88,17 +100,86 @@ describe("meta automation control plane", () => {
       ]);
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 
-    const payload = await getMetaAutomationControlPlane({ businessId: BUSINESS_ID });
+    const payload = await getMetaAutomationControlPlane({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+    });
 
     expect(payload.contractVersion).toBe("meta-automation-control-plane.v1");
+    expect(payload.providerAccountId).toBe("act_1");
     expect(payload.businessControl.source).toBe("persisted");
     expect(payload.businessControl.guardrails.dailyAutoActionCap).toBe(4);
-    expect(payload.businessControl.guardrails.perActionSpendCeilingMinor).toBe(7500);
+    expect(payload.businessControl.guardrails.perActionSpendCeilingMinor).toBe(
+      7500,
+    );
     expect(payload.businessControl.guardrails.maxBudgetIncreasePct).toBe(10);
     expect(payload.promotionRecords).toHaveLength(1);
-    expect(payload.activityLedger[0]?.message).toBe("Meta write blocked by kill switch.");
+    expect(payload.activityLedger[0]?.message).toBe(
+      "Meta write blocked by kill switch.",
+    );
     expect(payload.execution.autoExecutionAllowed).toBe(false);
-    expect(payload.execution.blockedReasons).toContain("dry_run_only_guardrail");
+    expect(payload.execution.blockedReasons).toContain(
+      "dry_run_only_guardrail",
+    );
+    expect(sql.mock.calls.flat()).toContain("act_1");
+    const actionLedgerQuery = String(sql.mock.calls[3]?.[0] ?? "");
+    expect(actionLedgerQuery).not.toMatch(/\baccount_id\s*=/);
+    expect(actionLedgerQuery).toContain("meta_ad_dimensions");
+    expect(actionLedgerQuery).toContain("meta_campaign_dimensions");
+    expect(actionLedgerQuery).toContain("meta_adset_dimensions");
+    expect(actionLedgerQuery).toContain("meta_launch_intents");
+  });
+
+  it("keeps account-scoped action activity when the optional LaunchIntent table is not migrated", async () => {
+    const missingLaunchIntents = Object.assign(
+      new Error('relation "meta_launch_intents" does not exist'),
+      { code: "42P01" },
+    );
+    const sql = vi.fn(async (parts: TemplateStringsArray) => {
+      const query = Array.from(parts).join("?");
+      if (query.includes("FROM meta_automation_business_controls")) return [];
+      if (query.includes("FROM meta_automation_promotion_records")) return [];
+      if (query.includes("FROM meta_automation_activity_ledger")) return [];
+      if (query.includes("meta_launch_intents")) throw missingLaunchIntents;
+      if (query.includes("FROM meta_ads_action_log")) {
+        return [
+          {
+            id: "log_fallback",
+            action: "pause",
+            status: "success",
+            error_code: null,
+            error_message: null,
+            requested_at: "2026-07-11T09:00:00.000Z",
+            payload_request: { endpoint: "/ad_iwa" },
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const payload = await getMetaAutomationControlPlane({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_iwa",
+    });
+
+    expect(payload.activityLedger).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "meta-action-log_fallback",
+          message: "Meta pause completed.",
+        }),
+      ]),
+    );
+    const actionQueries = sql.mock.calls
+      .map((call) => Array.from(call[0] as TemplateStringsArray).join("?"))
+      .filter((query) => query.includes("FROM meta_ads_action_log"));
+    expect(actionQueries).toHaveLength(2);
+    expect(actionQueries[0]).toContain("meta_launch_intents");
+    expect(actionQueries[1]).not.toContain("meta_launch_intents");
+    expect(actionQueries[1]).toContain("meta_ad_dimensions");
+    expect(actionQueries[1]).toContain("meta_campaign_dimensions");
+    expect(actionQueries[1]).toContain("meta_adset_dimensions");
   });
 
   it("engages the business kill switch and records an activity row", async () => {
@@ -158,7 +239,9 @@ describe("meta automation control plane", () => {
 
   it("fails closed when business kill-switch state cannot be verified", async () => {
     vi.stubEnv("META_AUTOMATION_WRITE_GUARD_TEST_READS", "1");
-    const dbError = Object.assign(new Error("database unavailable"), { code: "57P01" });
+    const dbError = Object.assign(new Error("database unavailable"), {
+      code: "57P01",
+    });
     const sql = vi.fn().mockRejectedValueOnce(dbError);
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 
@@ -166,19 +249,27 @@ describe("meta automation control plane", () => {
 
     expect(block).toMatchObject({
       blocked: true,
-      reason: "business_kill_switch",
-      message: "Meta writes are temporarily blocked because automation control state could not be verified.",
+      reason: "control_state_unavailable",
+      message:
+        "Meta writes are temporarily blocked because automation control state could not be verified.",
     });
   });
 
-  it("keeps the business guard open before the automation control table is migrated", async () => {
+  it("fails closed when the automation control table is unavailable", async () => {
     vi.stubEnv("META_AUTOMATION_WRITE_GUARD_TEST_READS", "1");
-    const missingTable = Object.assign(new Error("relation does not exist"), { code: "42P01" });
+    const missingTable = Object.assign(new Error("relation does not exist"), {
+      code: "42P01",
+    });
     const sql = vi.fn().mockRejectedValueOnce(missingTable);
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 
     const block = await getMetaWriteBlockState({ businessId: BUSINESS_ID });
 
-    expect(block).toEqual({ blocked: false, reason: null, message: null });
+    expect(block).toMatchObject({
+      blocked: true,
+      reason: "control_state_unavailable",
+      message:
+        "Meta writes are temporarily blocked because automation control state could not be verified.",
+    });
   });
 });

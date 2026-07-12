@@ -1,7 +1,9 @@
 import type { DecisionLabel } from "@/components/common/briefing/types";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import type { MetaLaunchMode } from "@/components/meta/redesign/types";
-import { formatCurrency as legacyFormatCurrency } from "@/lib/briefing/utils";
+import { normalizeCurrencyCode } from "@/components/creatives/money";
+
+export const CURRENCY_UNAVAILABLE_LABEL = "Currency unavailable";
 
 export function scopeIdForRec(rec: MetaRecommendation) {
   if (rec.level === "adset") return rec.adsetId ?? rec.id;
@@ -41,27 +43,27 @@ export function primaryLabelForRec(rec: MetaRecommendation) {
   return rec.primaryActionLabel ?? "Open drilldown";
 }
 
-// Currency-aware money formatting shared by the Meta Decision Center
-// surfaces: the ad-account currency from the pulse payload wins, then the
-// business currency prop; only when both are unknown do we fall back to the
-// legacy USD-style formatter. No silent "$" for non-USD accounts.
 export function formatMoney(
   value: number | null | undefined,
   currency: string | null | undefined,
 ) {
   if (value == null || !Number.isFinite(value)) return "—";
-  if (currency) {
+  const normalizedCurrency = normalizeCurrencyCode(currency);
+  if (normalizedCurrency) {
     try {
       return new Intl.NumberFormat("en-US", {
         style: "currency",
-        currency,
+        currency: normalizedCurrency,
         maximumFractionDigits: value >= 1000 ? 0 : 2,
       }).format(value);
     } catch {
-      return `${value.toLocaleString("en-US", { maximumFractionDigits: 2 })} ${currency}`;
+      // Fall through to the explicit unitless state.
     }
   }
-  return legacyFormatCurrency(value);
+  const unitless = value.toLocaleString("en-US", {
+    maximumFractionDigits: value >= 1000 ? 0 : 2,
+  });
+  return `${unitless} (${CURRENCY_UNAVAILABLE_LABEL})`;
 }
 
 export function evidenceValue(rec: MetaRecommendation, label: string) {
@@ -96,7 +98,7 @@ function positiveInteger(value: unknown) {
   return Number.isInteger(numeric) && numeric > 0 ? numeric : null;
 }
 
-export function proposedBidMinorForExecute(rec: MetaRecommendation) {
+function typedBidMinor(rec: MetaRecommendation) {
   if (rec.proposedAction?.kind === "apply_bid") {
     return positiveInteger(rec.proposedAction.bidAmountMinor);
   }
@@ -108,9 +110,17 @@ export function proposedBidMinorForExecute(rec: MetaRecommendation) {
   return positiveInteger(bid?.bidAmountMinor);
 }
 
+export function proposedBidMinorForExecute(
+  rec: MetaRecommendation,
+  currency?: string | null,
+) {
+  if (!normalizeCurrencyCode(currency)) return null;
+  return typedBidMinor(rec);
+}
+
 export function proposedBidDisplayValue(rec: MetaRecommendation) {
-  const executableMinor = proposedBidMinorForExecute(rec);
-  if (executableMinor) return executableMinor / 100;
+  const typedMinor = typedBidMinor(rec);
+  if (typedMinor) return typedMinor / 100;
   if (rec.targetValue && typeof rec.targetValue === "object" && !Array.isArray(rec.targetValue)) {
     const record = rec.targetValue as Record<string, unknown>;
     const value = Number(record.bidValue ?? record.bidAmount ?? record.proposedBidCap ?? NaN);

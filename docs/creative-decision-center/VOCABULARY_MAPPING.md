@@ -7,6 +7,10 @@ Status: initial framework. Some mappings are TODO until a full repo import/consu
 - `stable_winner` likely maps to `Protect` or `Scale` depending on maturity/confidence.
 - `fatigued_winner` likely maps to `Refresh`.
 - Delivery/policy problems should map to engine root `Diagnose` plus buyer actions `fix_delivery` / `fix_policy`.
+- D035 compatibility note: `diagnose_data` remains in the historical V2.1
+  adapter mapping below, but current Meta Decisions projects it to
+  `decisionState: blocked`, `buyerAction: null`, and a server-owned resolution.
+  It is not shown as an Act Now action.
 - `scale_review` should not become an engine `primaryDecision`; use `primaryDecision: Scale` + `actionability: review_only` or `review_required`.
 - `brief_variation` is not row-level.
 - `old-rule-challenger` is regression/challenger context, not user-facing authority.
@@ -47,4 +51,3 @@ Status: initial framework. Some mappings are TODO until a full repo import/consu
 | `scale_hard` | old-rule-challenger | Aggressive scale | Scale | performance | scale | review_only | deprecate | medium | Regression only. |
 | `pause` | old-rule-challenger | Stop/pause | Cut / Refresh | performance / fatigue | cut / refresh | review_only | deprecate | low | Regression only. |
 | `kill` | old-rule-challenger | Hard stop | Cut | performance | cut | review_only | deprecate | medium | Regression only. |
-

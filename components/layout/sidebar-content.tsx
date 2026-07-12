@@ -94,18 +94,21 @@ function L1NavItem({
   active,
   locked,
   isConsole = false,
+  collapsed = false,
   onNavigate,
 }: {
   item: ShellNavItem;
   active: boolean;
   locked: boolean;
   isConsole?: boolean;
+  collapsed?: boolean;
   onNavigate?: () => void;
 }) {
   const router = useRouter();
   const Icon = item.icon;
   const className = cn(
-    "flex items-center gap-2 pl-2.5 pr-2 py-1.5 rounded-md text-[13px] cursor-pointer",
+    "flex items-center gap-2 py-1.5 rounded-md text-[13px] cursor-pointer",
+    collapsed ? "justify-center px-2" : "pl-2.5 pr-2",
     active
       ? isConsole
         ? "bg-[var(--adc-s2)] border border-[var(--adc-b1)] text-[var(--adc-ink)] font-semibold"
@@ -117,8 +120,8 @@ function L1NavItem({
       <span className={cn("w-4 h-4 grid place-items-center", active ? (isConsole ? "text-[var(--adc-ink2)]" : "text-blue-600") : "text-neutral-500")}>
         <Icon className="h-[15px] w-[15px]" />
       </span>
-      <span>{item.label}</span>
-      {renderL1Trail(item, locked)}
+      {!collapsed ? <span>{item.label}</span> : null}
+      {!collapsed ? renderL1Trail(item, locked) : null}
     </>
   );
 
@@ -136,7 +139,14 @@ function L1NavItem({
   }
 
   return (
-    <Link href={item.href} className={className} onClick={onNavigate} data-l1={item.id}>
+    <Link
+      href={item.href}
+      className={className}
+      onClick={onNavigate}
+      data-l1={item.id}
+      title={collapsed ? item.label : undefined}
+      aria-label={collapsed ? item.label : undefined}
+    >
       {content}
     </Link>
   );
@@ -149,6 +159,7 @@ function L2NavItem({
   locked,
   accent,
   isConsole = false,
+  collapsed = false,
   onNavigate,
 }: {
   item: ShellNavItem;
@@ -157,6 +168,7 @@ function L2NavItem({
   locked: boolean;
   accent: PlatformAccent;
   isConsole?: boolean;
+  collapsed?: boolean;
   onNavigate?: () => void;
 }) {
   const router = useRouter();
@@ -165,12 +177,19 @@ function L2NavItem({
     isConsole
       ? "flex items-center gap-2 pr-2 py-1.5 rounded-md text-[13px] cursor-pointer"
       : "flex items-center gap-2 pr-2 py-1.5 rounded-r-md text-[13px] cursor-pointer",
+    collapsed ? "justify-center px-2" : "",
     active
       ? isConsole
-        ? "bg-[var(--adc-s2)] border border-[var(--adc-b1)] text-[var(--adc-ink)] font-semibold pl-[7px]"
+        ? cn(
+            "bg-[var(--adc-s2)] border border-[var(--adc-b1)] text-[var(--adc-ink)] font-semibold",
+            collapsed ? "pl-2" : "pl-[7px]",
+          )
         : L2_ACTIVE_ACCENT_CLASSES[accent]
       : isConsole
-        ? "text-[var(--adc-ink2)] hover:bg-[var(--adc-s3)] pl-[7px]"
+        ? cn(
+            "text-[var(--adc-ink2)] hover:bg-[var(--adc-s3)]",
+            collapsed ? "pl-2" : "pl-[7px]",
+          )
         : "text-neutral-700 hover:bg-neutral-50 border-l-[3px] border-l-transparent pl-[7px]",
     dimmed ? "opacity-50" : ""
   );
@@ -179,16 +198,16 @@ function L2NavItem({
       <span className={cn("w-4 h-4 grid place-items-center", active ? (isConsole ? "text-[var(--adc-ink2)]" : "") : "text-neutral-500")}>
         <Icon className="h-[15px] w-[15px]" />
       </span>
-      <span>{item.label}</span>
-      {item.subStatus ? (
+      {!collapsed ? <span>{item.label}</span> : null}
+      {!collapsed && item.subStatus ? (
         <span className="ml-auto">
           <SubStatusBadge status={item.subStatus} />
         </span>
-      ) : locked ? (
+      ) : !collapsed && locked ? (
         <span className="ml-auto inline-flex items-center text-neutral-400">
           <Lock className="h-3 w-3" />
         </span>
-      ) : item.badge != null ? (
+      ) : !collapsed && item.badge != null ? (
         <span className="ml-auto text-[11px] font-mono tabular-nums text-neutral-500 px-1.5 py-0.5 bg-white border border-neutral-200 rounded-md">
           {item.badge}
         </span>
@@ -210,14 +229,34 @@ function L2NavItem({
   }
 
   return (
-    <Link href={item.href} className={className} onClick={onNavigate} data-l2={item.id}>
+    <Link
+      href={item.href}
+      className={className}
+      onClick={onNavigate}
+      data-l2={item.id}
+      title={collapsed ? item.label : undefined}
+      aria-label={collapsed ? item.label : undefined}
+    >
       {content}
     </Link>
   );
 }
 
-function SoonPlatformEmpty({ platformId }: { platformId: keyof typeof platformsRegistry }) {
+function SoonPlatformEmpty({
+  platformId,
+  collapsed = false,
+}: {
+  platformId: keyof typeof platformsRegistry;
+  collapsed?: boolean;
+}) {
   const platform = platformsRegistry[platformId];
+  if (collapsed) {
+    return (
+      <div className="mx-2 grid h-9 place-items-center" title={`${platform.name} not live yet`}>
+        <PlatformLogo platformId={platformId} size={18} />
+      </div>
+    );
+  }
   return (
     <div className="mx-2 my-1 rounded-lg border border-dashed border-neutral-300 bg-neutral-50/50 p-3 text-center">
       <div className="flex justify-center mb-1.5">
@@ -236,9 +275,11 @@ function SoonPlatformEmpty({ platformId }: { platformId: keyof typeof platformsR
 export function SidebarContent({
   onNavigate,
   variant = "legacy",
+  collapsed = false,
 }: {
   onNavigate?: () => void;
   variant?: "legacy" | "console";
+  collapsed?: boolean;
 }) {
   const pathname = usePathname();
   const language = usePreferencesStore((state) => state.language);
@@ -263,7 +304,10 @@ export function SidebarContent({
       className={cn(
         "h-full shrink-0 border-r flex flex-col",
         isConsole
-          ? "w-[196px] border-[var(--adc-b1)] bg-[var(--adc-s1)]"
+          ? cn(
+              collapsed ? "w-[56px]" : "w-[196px]",
+              "border-[var(--adc-b1)] bg-[var(--adc-s1)] transition-[width] duration-150",
+            )
           : "w-60 border-neutral-200 bg-white",
       )}
       data-shell-sidebar
@@ -281,7 +325,12 @@ export function SidebarContent({
       ) : null}
 
       <nav className={cn("flex-1 overflow-y-auto space-y-0.5", isConsole ? "py-3" : "py-2")}>
-        <div className="px-2 pt-1 pb-1 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold">
+        <div
+          className={cn(
+            "px-2 pt-1 pb-1 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold",
+            collapsed ? "sr-only" : "",
+          )}
+        >
           {t.navigation.workspace}
         </div>
         <div className="px-2 space-y-0.5">
@@ -292,6 +341,7 @@ export function SidebarContent({
               active={activeLayer === "L1" && isItemActive(item, pathname)}
               locked={isLocked(item, currentPlan, isDemo)}
               isConsole={isConsole}
+              collapsed={collapsed}
               onNavigate={onNavigate}
             />
           ))}
@@ -300,18 +350,43 @@ export function SidebarContent({
         <div className="my-2 mx-3 border-t border-neutral-200" />
 
         <div className="px-0">
-          <div className={cn("px-2 pt-1 pb-1 flex items-center gap-1.5", dimLayer2 ? "opacity-60" : "")}>
-            <span className="text-[10px] uppercase tracking-wider text-neutral-400 font-semibold">
+          <div
+            className={cn(
+              "px-2 pt-1 pb-1 flex items-center gap-1.5",
+              collapsed ? "justify-center" : "",
+              dimLayer2 ? "opacity-60" : ""
+            )}
+          >
+            <span
+              className={cn(
+                collapsed ? "sr-only" : "",
+                "text-[10px] uppercase tracking-wider text-neutral-400 font-semibold"
+              )}
+            >
               Platform
             </span>
-            <span className="text-neutral-300">·</span>
+            {!collapsed ? (
+              <span className="text-neutral-300">·</span>
+            ) : null}
             <PlatformLogo platformId={activePlatformId} size={14} />
-            <span className="text-[10.5px] font-semibold text-neutral-700">{platform.name}</span>
-            {dimLayer2 ? <span className="ml-auto text-[10px] text-neutral-400 italic">last viewed</span> : null}
+            <span
+              className={cn(
+                collapsed ? "sr-only" : "",
+                "text-[10.5px] font-semibold text-neutral-700"
+              )}
+            >
+              {platform.name}
+            </span>
+            {dimLayer2 && !collapsed ? (
+              <span className="ml-auto text-[10px] text-neutral-400 italic">last viewed</span>
+            ) : null}
           </div>
           <div className="space-y-0.5">
             {platform.status === "soon" || layer2Items.length === 0 ? (
-              <SoonPlatformEmpty platformId={activePlatformId} />
+              <SoonPlatformEmpty
+                platformId={activePlatformId}
+                collapsed={collapsed}
+              />
             ) : (
               layer2Items.map((item) => (
                 <L2NavItem
@@ -322,6 +397,7 @@ export function SidebarContent({
                   locked={isLocked(item, currentPlan, isDemo)}
                   accent={platform.accent}
                   isConsole={isConsole}
+                  collapsed={collapsed}
                   onNavigate={onNavigate}
                 />
               ))
@@ -331,7 +407,12 @@ export function SidebarContent({
 
         <div className="my-2 mx-3 border-t border-neutral-200" />
 
-        <div className="px-2 pt-1 pb-1 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold">
+        <div
+          className={cn(
+            "px-2 pt-1 pb-1 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold",
+            collapsed ? "sr-only" : "",
+          )}
+        >
           {t.navigation.manage}
         </div>
         <div className="px-2 space-y-0.5">
@@ -342,6 +423,7 @@ export function SidebarContent({
               active={activeLayer === "L3" && isItemActive(item, pathname)}
               locked={isLocked(item, currentPlan, isDemo)}
               isConsole={isConsole}
+              collapsed={collapsed}
               onNavigate={onNavigate}
             />
           ))}

@@ -15,6 +15,13 @@ const reviewerMock = vi.hoisted(() => ({
 const dbMock = vi.hoisted(() => ({
   getDb: vi.fn(),
 }));
+const assignmentsMock = vi.hoisted(() => ({
+  getProviderAccountAssignments: vi.fn(),
+}));
+const readModelMock = vi.hoisted(() => ({
+  buildUnavailableMetaDecisionsWorkspaceReadModel: vi.fn(),
+  readMetaDecisionsWorkspaceReadModel: vi.fn(),
+}));
 
 vi.mock("@/lib/auth", () => ({
   getSessionFromRequest: authMock.getSessionFromRequest,
@@ -30,6 +37,17 @@ vi.mock("@/lib/reviewer-access", () => ({
 
 vi.mock("@/lib/db", () => ({
   getDb: dbMock.getDb,
+}));
+
+vi.mock("@/lib/provider-account-assignments", () => ({
+  getProviderAccountAssignments: assignmentsMock.getProviderAccountAssignments,
+}));
+
+vi.mock("@/lib/meta/decisions-workspace-read-model", () => ({
+  buildUnavailableMetaDecisionsWorkspaceReadModel:
+    readModelMock.buildUnavailableMetaDecisionsWorkspaceReadModel,
+  readMetaDecisionsWorkspaceReadModel:
+    readModelMock.readMetaDecisionsWorkspaceReadModel,
 }));
 
 function jsonResponse(payload: unknown, status = 200) {
@@ -59,11 +77,29 @@ function mockDigestSql(input?: {
 
 describe("GET /api/meta/decisions-workspace", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     authMock.getSessionFromRequest.mockResolvedValue(null);
     accessMock.findMembership.mockResolvedValue(null);
     reviewerMock.isReviewerEmail.mockReturnValue(false);
+    assignmentsMock.getProviderAccountAssignments.mockResolvedValue(null);
+    readModelMock.buildUnavailableMetaDecisionsWorkspaceReadModel.mockImplementation(
+      (input: { businessId: string; providerAccountId: string | null; code: string; message: string }) => ({
+        contractVersion: "meta-decisions-workspace.read.v1",
+        status: "unavailable",
+        scope: {
+          businessId: input.businessId,
+          providerAccountId: input.providerAccountId,
+        },
+        unavailable: { code: input.code, message: input.message },
+      }),
+    );
+    readModelMock.readMetaDecisionsWorkspaceReadModel.mockResolvedValue({
+      contractVersion: "meta-decisions-workspace.read.v1",
+      status: "available",
+      scope: { businessId: "biz_1", providerAccountId: "act_1" },
+    });
     dbMock.getDb.mockImplementation(() => {
       throw new Error("db unavailable in this unit test");
     });
@@ -79,6 +115,144 @@ describe("GET /api/meta/decisions-workspace", () => {
     expect(response.status).toBe(400);
     expect(payload.error).toBe("businessId is required");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the canonical read model unavailable until providerAccountId is explicit", async () => {
+    const pulse = metaPulse();
+    const lanes = metaLanePayload();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        const pathname = new URL(String(url)).pathname;
+        if (pathname === "/api/meta/account-pulse") return jsonResponse(pulse);
+        if (pathname === "/api/meta/lane-classify") return jsonResponse(lanes);
+        return jsonResponse({ error: "unexpected" }, 404);
+      }),
+    );
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/decisions-workspace?businessId=biz_1"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.decisionReadModel).toMatchObject({
+      contractVersion: "meta-decisions-workspace.read.v1",
+      status: "unavailable",
+      scope: { providerAccountId: null },
+      unavailable: { code: "provider_account_required" },
+    });
+    expect(assignmentsMock.getProviderAccountAssignments).not.toHaveBeenCalled();
+    expect(readModelMock.readMetaDecisionsWorkspaceReadModel).not.toHaveBeenCalled();
+  });
+
+  it("validates and forwards providerAccountId before reading the account-scoped model", async () => {
+    assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
+      id: "assignment_1",
+      business_id: "biz_1",
+      provider: "meta",
+      account_ids: ["act_1"],
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:00.000Z",
+    });
+    const pulse = metaPulse();
+    const lanes = metaLanePayload();
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      const requestUrl = new URL(String(url));
+      expect(requestUrl.searchParams.get("providerAccountId")).toBe("act_1");
+      if (requestUrl.pathname === "/api/meta/account-pulse") return jsonResponse(pulse);
+      if (requestUrl.pathname === "/api/meta/lane-classify") return jsonResponse(lanes);
+      return jsonResponse({ error: "unexpected" }, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/decisions-workspace?businessId=biz_1&providerAccountId=act_1&adLimit=120",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(assignmentsMock.getProviderAccountAssignments).toHaveBeenCalledWith("biz_1", "meta");
+    expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenCalledWith({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      adCandidateLimit: 120,
+    });
+    expect(payload.decisionReadModel).toMatchObject({
+      status: "available",
+      scope: { businessId: "biz_1", providerAccountId: "act_1" },
+    });
+  });
+
+  it("aligns downstream evidence reads to the latest account-scoped decision snapshot", async () => {
+    assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
+      id: "assignment_1",
+      business_id: "biz_1",
+      provider: "meta",
+      account_ids: ["act_1"],
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:00.000Z",
+    });
+    const sql = mockDigestSql();
+    Object.assign(sql, {
+      query: vi.fn().mockResolvedValue([{ latest_as_of: "2026-07-10" }]),
+    });
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      const requestUrl = new URL(String(url));
+      expect(requestUrl.searchParams.get("endDate")).toBe("2026-07-10");
+      if (requestUrl.pathname === "/api/meta/account-pulse") return jsonResponse(metaPulse());
+      if (requestUrl.pathname === "/api/meta/lane-classify") return jsonResponse(metaLanePayload());
+      return jsonResponse({ error: "unexpected" }, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/decisions-workspace?businessId=biz_1&providerAccountId=act_1",
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect((sql as typeof sql & { query: ReturnType<typeof vi.fn> }).query).toHaveBeenCalledWith(
+      expect.stringContaining("engine_v3_decision_snapshots_daily"),
+      ["biz_1", "act_1"],
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects provider accounts that are not assigned to the business", async () => {
+    assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
+      id: "assignment_1",
+      business_id: "biz_1",
+      provider: "meta",
+      account_ids: ["act_other"],
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:00.000Z",
+    });
+    const pulse = metaPulse();
+    const lanes = metaLanePayload();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        const pathname = new URL(String(url)).pathname;
+        if (pathname === "/api/meta/account-pulse") return jsonResponse(pulse);
+        if (pathname === "/api/meta/lane-classify") return jsonResponse(lanes);
+        return jsonResponse({ error: "unexpected" }, 404);
+      }),
+    );
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/decisions-workspace?businessId=biz_1&providerAccountId=act_1",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(payload.error).toBe("provider_account_not_assigned");
+    expect(readModelMock.readMetaDecisionsWorkspaceReadModel).not.toHaveBeenCalled();
   });
 
   it("forwards query and auth context, then composes queue groups and action states", async () => {

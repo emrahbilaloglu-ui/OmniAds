@@ -638,6 +638,7 @@ export function anomalyMatchesStatusFilter(
 
 export async function readMetaAnomaliesForBusiness(input: {
   businessId: string;
+  providerAccountId?: string | null;
   activeOnly?: boolean;
   /** Scope the anomaly snapshot to the selected range: the newest anomaly
    * snapshot at or before this date. Without it a historical range would
@@ -699,9 +700,41 @@ export async function readMetaAnomaliesForBusiness(input: {
       rec_type ASC
   `) as SnapshotAnomalyRow[];
 
+  const providerAccountId = input.providerAccountId?.trim() || null;
+  let allowedCampaignIds: Set<string> | null = null;
+  let allowedAdsetIds: Set<string> | null = null;
+  if (providerAccountId) {
+    const [campaigns, adsets] = await Promise.all([
+      sql`
+        SELECT DISTINCT campaign_id
+        FROM meta_campaign_dimensions
+        WHERE business_id = ${input.businessId}
+          AND provider_account_id = ${providerAccountId}
+      ` as Promise<Array<{ campaign_id: string }>>,
+      sql`
+        SELECT DISTINCT adset_id
+        FROM meta_adset_dimensions
+        WHERE business_id = ${input.businessId}
+          AND provider_account_id = ${providerAccountId}
+      ` as Promise<Array<{ adset_id: string }>>,
+    ]);
+    allowedCampaignIds = new Set(campaigns.map((row) => row.campaign_id));
+    allowedAdsetIds = new Set(adsets.map((row) => row.adset_id));
+  }
+
   const statusFilter = input.statusFilter ?? null;
   const anomalies = rows
     .map(hydrateAnomaly)
+    .filter((anomaly) => {
+      if (!providerAccountId) return true;
+      if (anomaly.scopeType === "campaign") {
+        return allowedCampaignIds?.has(anomaly.scopeId) === true;
+      }
+      if (anomaly.scopeType === "adset") {
+        return allowedAdsetIds?.has(anomaly.scopeId) === true;
+      }
+      return anomaly.scopeId === providerAccountId;
+    })
     .filter((anomaly) => statusFilter === null || anomalyMatchesStatusFilter(anomaly, statusFilter));
   return {
     anomalies,

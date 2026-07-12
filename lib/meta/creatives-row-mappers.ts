@@ -119,9 +119,10 @@ export function parsePurchaseRoas(roas: MetaActionValue[] | undefined): number {
 }
 
 export function parseLeadCount(actions: MetaActionValue[] | undefined): number {
+  // Studio's Lead Gen preset is explicitly website-only. Generic `lead` and
+  // `onsite_conversion.lead` can include Meta Instant Form leads, so they are
+  // excluded instead of being silently mixed with pixel-reported site leads.
   return parseActionAny(actions, [
-    "lead",
-    "onsite_conversion.lead",
     "offsite_conversion.fb_pixel_lead",
     "offsite_conversion_fb_pixel_lead",
   ]);
@@ -129,8 +130,8 @@ export function parseLeadCount(actions: MetaActionValue[] | undefined): number {
 
 export function parseMessagingConversationCount(actions: MetaActionValue[] | undefined): number {
   return parseActionAny(actions, [
-    "onsite_conversion.messaging_conversation_started_7d",
     "onsite_conversion.total_messaging_connection",
+    "onsite_conversion.messaging_conversation_started_7d",
     "messaging_conversation_started_7d",
   ]);
 }

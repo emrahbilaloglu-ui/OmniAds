@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeFunnelDiagnosis } from "../funnel";
+import { assessQualityOnly, computeFunnelDiagnosis } from "../funnel";
 import type { FormatFunnelBaseline } from "../types";
 import {
   makeAccountDecisionProfile,
@@ -134,7 +134,7 @@ describe("computeFunnelDiagnosis", () => {
     const result = diagnose({
       creative: {
         creativeFormat: "video",
-        ctr: 1.5,
+        ctr: 1,
         thumbstop: 30,
         purchases: 16,
       },
@@ -156,7 +156,7 @@ describe("computeFunnelDiagnosis", () => {
     const result = diagnose({
       creative: {
         creativeFormat: "image",
-        ctr: 1,
+        ctr: 0.9,
         thumbstop: 30,
         purchases: 16,
       },
@@ -205,5 +205,60 @@ describe("computeFunnelDiagnosis", () => {
         weakFunnelRate: 0.35,
       }).primaryWeakStage,
     ).toBe("none");
+  });
+
+  it("does not call a tiny account-P25 miss materially weak", () => {
+    const result = diagnose({
+      creative: {
+        linkClicks: 10_000,
+        landingPageViews: 3_006,
+        addToCart: 1_000,
+        initiateCheckout: 500,
+        purchases: 200,
+        ctr: 1.5,
+        thumbstop: 30,
+      },
+      byFormat: {
+        overall: baseline({
+          linkToLpvP25: 30.84,
+          linkToLpvP50: 50,
+        }),
+      },
+    });
+
+    expect(result.primaryWeakStage).toBe("none");
+  });
+});
+
+describe("assessQualityOnly", () => {
+  it("does not lose confidence when compatible scored evidence is added", () => {
+    const profile = makeAccountDecisionProfile();
+    const funnelCalibration = makeAccountFunnelCalibration();
+    const base = {
+      ctr: 1.2,
+      cpm: 12,
+      impressions: 10_000,
+      linkClicks: 100,
+      landingPageViews: 75,
+      initiateCheckout: null,
+      creativeFormat: null,
+    };
+    const withoutMidFunnel = assessQualityOnly({
+      creative: makeCreativeInput({ ...base, addToCart: null }),
+      funnelCalibration,
+      profile,
+    });
+    const withCompatibleMidFunnel = assessQualityOnly({
+      creative: makeCreativeInput({ ...base, addToCart: 12 }),
+      funnelCalibration,
+      profile,
+    });
+
+    expect(withCompatibleMidFunnel.score).toBeCloseTo(
+      withoutMidFunnel.score ?? 0,
+    );
+    expect(withCompatibleMidFunnel.confidence).toBeGreaterThanOrEqual(
+      withoutMidFunnel.confidence,
+    );
   });
 });

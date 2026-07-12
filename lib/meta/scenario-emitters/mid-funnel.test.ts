@@ -61,7 +61,10 @@ function adset(overrides: Partial<MetaAdSetData> = {}): MetaAdSetData {
   };
 }
 
-function signal(ageDays = 20): MetaEntityDecisionSignal {
+function signal(
+  ageDays = 20,
+  overrides: Partial<MetaEntityDecisionSignal> = {},
+): MetaEntityDecisionSignal {
   return {
     businessId: "biz_1",
     providerAccountId: "act_1",
@@ -79,6 +82,7 @@ function signal(ageDays = 20): MetaEntityDecisionSignal {
     ctrDecayPct: null,
     sourceJson: { age_days: ageDays },
     qualityStatus: "ready",
+    ...overrides,
   };
 }
 
@@ -96,6 +100,27 @@ describe("emitMidFunnelAdsetScenario", () => {
     expect(rec?.cohort).toBe("mid_funnel");
   });
 
+  it("keeps an efficient one-event mid_funnel row on watch", () => {
+    const rec = emitMidFunnelAdsetScenario({
+      adset: adset({
+        spend: context.thresholds.metrics.cost_per_atc_28d.p10,
+        addToCart: 1,
+        purchases: 1,
+        impressions: 10,
+      }),
+      context,
+      cohort: "mid_funnel",
+      signals: signal(20),
+    });
+
+    expect(rec?.type).toBe("scenario_m2_mid_funnel_steady_keep");
+    expect(rec?.decisionLabel).toBe("keep");
+    expect(rec?.decisionState).toBe("watch");
+    expect((rec?.targetValue as { score?: number } | undefined)?.score).toBe(0.95);
+    expect(rec?.confidence).toBe("low");
+    expect(rec?.confidenceScore).toBe(0.55625);
+  });
+
   it("emits M3 cut for an inefficient mature mid_funnel adset above hard-cut spend", () => {
     const rec = emitMidFunnelAdsetScenario({
       adset: adset({ spend: 1000, addToCart: 25, purchases: 0, impressions: 10000, ctr: 2 }),
@@ -108,6 +133,32 @@ describe("emitMidFunnelAdsetScenario", () => {
     expect(rec?.decisionLabel).toBe("cut");
     expect(rec?.confidence).toBe("high");
     expect(rec?.confidenceScore).toBeGreaterThanOrEqual(0.7);
+  });
+
+  it("suppresses mid_funnel recommendations when event data is missing", () => {
+    const rec = emitMidFunnelAdsetScenario({
+      adset: adset({ spend: 1000, addToCart: null, purchases: 0, impressions: 10000 }),
+      context,
+      cohort: "mid_funnel",
+      signals: signal(20),
+    });
+
+    expect(rec).toBeNull();
+  });
+
+  it("can cut when observed mid_funnel event data is truly zero", () => {
+    const rec = emitMidFunnelAdsetScenario({
+      adset: adset({ spend: 1000, addToCart: 0, purchases: 0, impressions: 10000 }),
+      context,
+      cohort: "mid_funnel",
+      signals: signal(20),
+    });
+
+    expect(rec?.type).toBe("scenario_m3_mid_funnel_inefficient_cut");
+    expect(rec?.decisionLabel).toBe("cut");
+    expect(rec?.decisionState).toBe("act");
+    expect(rec?.confidence).toBe("high");
+    expect(rec?.confidenceScore).toBe(0.99);
   });
 
   it("emits M2 keep for a steady mid_funnel score", () => {
@@ -127,7 +178,7 @@ describe("emitMidFunnelAdsetScenario", () => {
       adset: adset({ spend: 400, addToCart: 20, purchases: 0, impressions: 1000, frequency: 4, ctr: 0.5 }),
       context,
       cohort: "mid_funnel",
-      signals: signal(3),
+      signals: signal(3, { ctrDecayPct: -20 }),
     });
 
     expect(rec?.type).toBe("scenario_m4_mid_funnel_refresh");

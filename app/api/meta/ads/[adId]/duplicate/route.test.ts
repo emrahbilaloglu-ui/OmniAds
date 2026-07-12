@@ -45,7 +45,6 @@ function duplicateBody(overrides: Record<string, unknown> = {}) {
   return {
     businessId: BUSINESS_ID,
     targetAdsetId: "adset_2",
-    activateAfterCreate: false,
     ...overrides,
   };
 }
@@ -145,6 +144,21 @@ describe("POST /api/meta/ads/[adId]/duplicate", () => {
     expect(access.requireBusinessAccess).not.toHaveBeenCalled();
   });
 
+  it("rejects legacy ACTIVE-create requests before logging or calling Meta", async () => {
+    const response = await POST(
+      request(duplicateBody({ activateAfterCreate: true })),
+      params(),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error.code).toBe("active_create_not_supported");
+    expect(access.requireBusinessAccess).not.toHaveBeenCalled();
+    expect(actionLog.resolveMetaAdActionTarget).not.toHaveBeenCalled();
+    expect(actionLog.createMetaAdsActionLog).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("returns 404 when the ad is not found locally", async () => {
     vi.mocked(actionLog.resolveMetaAdActionTarget).mockResolvedValue({
       ok: false,
@@ -174,7 +188,6 @@ describe("POST /api/meta/ads/[adId]/duplicate", () => {
       businessId: BUSINESS_ID,
       adId: "ad_1",
       targetAdsetId: "adset_2",
-      statusOption: "PAUSED",
       sinceMinutes: 10,
     });
     expect(actionLog.createMetaAdsActionLog).not.toHaveBeenCalled();
@@ -257,7 +270,7 @@ describe("POST /api/meta/ads/[adId]/duplicate", () => {
     );
 
     const response = await POST(
-      request(duplicateBody({ dryRun: true })),
+      request(duplicateBody({ activateAfterCreate: false, dryRun: true })),
       params(),
     );
     const payload = await response.json();
@@ -272,6 +285,7 @@ describe("POST /api/meta/ads/[adId]/duplicate", () => {
       wouldHaveWritten: {
         method: "POST",
         path: "act_123/ads",
+        body: expect.objectContaining({ status: "PAUSED" }),
       },
     });
     expect(fetch).toHaveBeenCalledTimes(1);

@@ -356,6 +356,7 @@ present and only as a literal-union/nullable membership test; no
 cross-field semantic policy lives in the validator.
 
 Rejected alternatives:
+
 - Expand `CreativeDecisionCenterBuyerAction` with `promote_to_main`,
   `scale_budget`, `controlled_scale`. That would silently change the
   `actionBoard` shape, break PR4 contract symmetry between row buyerAction and
@@ -447,6 +448,7 @@ any non-allowlisted file under `app/` or `components/` from importing
 `@/lib/creative-decision-center`.
 
 Rejected alternatives:
+
 - Always emit `decisionCenter` on every response. That would change the
   default response shape and force consumers to decide what to do with
   empty rows, which is policy by another name.
@@ -635,13 +637,13 @@ future page/family shape.
 
 Required data mapping:
 
-| aggregate action | code-level required data keys | DATA_READINESS source row |
-| --- | --- | --- |
-| `brief_variation` | `family_winner_fatigue`, `backup_variant_status`, `creative_supply_backlog` | family winner/fatigue, no backup, backlog/supply |
-| `creative_supply_warning` | `creative_supply_backlog`, `recent_launches`, `production_state` | creative supply/backlog/winner gap |
-| `winner_gap` | `last_winner_date`, `historical_snapshot_window` | last winner date |
-| `fatigue_cluster` | `fatigue_trend_window`, `cluster_definition`, `performance_trend` | top N fatigue proof |
-| `unused_approved_creatives` | `creative_review_status`, `delivery_proof`, `lifetime_delivery` | approved status + no delivery |
+| aggregate action            | code-level required data keys                                               | DATA_READINESS source row                        |
+| --------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------ |
+| `brief_variation`           | `family_winner_fatigue`, `backup_variant_status`, `creative_supply_backlog` | family winner/fatigue, no backup, backlog/supply |
+| `creative_supply_warning`   | `creative_supply_backlog`, `recent_launches`, `production_state`            | creative supply/backlog/winner gap               |
+| `winner_gap`                | `last_winner_date`, `historical_snapshot_window`                            | last winner date                                 |
+| `fatigue_cluster`           | `fatigue_trend_window`, `cluster_definition`, `performance_trend`           | top N fatigue proof                              |
+| `unused_approved_creatives` | `creative_review_status`, `delivery_proof`, `lifetime_delivery`             | approved status + no delivery                    |
 
 Scope: the builder imports only contract types, emits only
 `CreativeDecisionCenterAggregateDecision[]`, strips any row-only fields by
@@ -1045,6 +1047,14 @@ Rejected alternatives:
   during incidents, but the decision contract must stay correct even when a
   source row is stale.
 
+Implementation addendum (2026-07-12): remove the later 7-day hard-action label
+cliff. It contradicted this decision by converting a visible mature stop-loss
+`cut` into `diagnose` at hour 169. The existing source-freshness boundary now
+does both jobs: stale/unknown evidence caps confidence and blocks performance
+execution authority, while a severe stop-loss verdict remains `cut` with
+`blockedActionType=cut`. Stale `scale` and `refresh` remain non-hard published
+labels with their intended action preserved as held provenance.
+
 ## D033 — Replace Manual Campaign Labeling With Automatic Campaign Context
 
 Decision: manual Campaign Labeling must stop being an operator-required
@@ -1158,3 +1168,361 @@ Implementation landed behind the kill switch with zero default behavior change:
   bump `ENGINE_VERSION`, promote guard-level context tests into canonical
   golden cases, run >=7 days of live shadow, and keep rollback via
   `CAMPAIGN_CONTEXT_MODE=legacy_labels`.
+
+## D034 - Reduce Decision Authority When Commercial Targets Are Stale
+
+Decision: a configured commercial target remains inspectable after it becomes
+stale, but it must not retain the same decision authority as a recently
+confirmed target. A target is fresh for 30 days from its persisted
+`updated_at`. A positive target older than 30 days, or one whose update time is
+unknown, is resolved as `commercial_truth_stale`, receives the visible
+`Target stale - reduced authority` badge and a 15-point confidence penalty,
+and makes target-derived hard actions ineligible. Fresh targets preserve the
+existing `commercial_truth` behavior unchanged.
+
+Reason: business economics can change independently of Meta performance. A
+historical ROAS target is still useful context and should not disappear, but a
+hard scale or cut based on an unconfirmed commercial assumption is false
+precision. Treating an unknown timestamp as fresh would silently grant full
+authority to legacy rows that cannot prove recency.
+
+Implementation contract:
+
+- `resolveBusinessTargetPackFreshness` is the shared 30-day clock for engine,
+  Meta account pulse, and commercial-target adapters.
+- Resolver inputs carry `commercialTargetFreshness`; persisted or derived
+  profiles expose the same provenance through
+  `quality.commercialTruthFreshness`.
+- The target value and target-relative math remain visible for diagnosis.
+- Freshness affects authority, not the target number: no fallback target is
+  fabricated and no stale target is silently replaced by an account baseline.
+- Any behavior-changing rollout uses a new `ENGINE_VERSION` so prior snapshots
+  remain readable and reversible.
+
+Rejected alternatives:
+
+- Hide or delete stale targets. That removes useful operator context and makes
+  the reason for reduced authority opaque.
+- Treat an unknown update time as fresh for compatibility. That grants hard
+  action authority without evidence.
+- Let each UI surface decide its own freshness threshold. That would create
+  inconsistent authority and a second decision layer outside the server.
+- Fall back silently to the account baseline whenever a configured target is
+  stale. That changes the economic yardstick without an explicit operator
+  decision.
+
+Golden coverage: GC-077 through GC-079 lock fresh, stale, and unknown target
+freshness behavior. Gate and account-profile tests additionally lock the badge,
+confidence delta, and hard-action eligibility boundaries.
+
+## D035 - Serve Diagnose As A Resolution State, Not A Buyer Decision
+
+Decision: persisted `diagnose` and adapter-level `diagnose_data` remain readable
+for engine and snapshot compatibility, but the Meta Decisions server contract
+must not present `diagnose_data` as a buyer action. The account-scoped read
+model converts it into `decisionState: blocked`, a nullable `buyerAction`, and
+a deterministic, server-owned `resolution`. Known engine decisions keep
+`decisionState: act` or `monitor`; `out_of_scope` becomes `not_applicable`.
+
+Reason: `diagnose_data` currently represents several different conditions:
+missing evidence, automatic campaign-context uncertainty, tracking faults,
+funnel bottlenecks, and unknown adapter fallbacks. Ranking all of them as Act
+Now and labeling them "Investigate Data" or "Cannot Assess" turns a safety
+fallback into a vague pseudo-decision. It also hides valid `keep` and
+`test_more` states behind an assessment classifier that never classified them.
+
+Meta Decisions compatibility contract:
+
+- `legacyBuyerAction` preserves the adapter output for audit and old snapshot
+  interpretation.
+- `buyerAction` is null when `decisionState` is `blocked` or
+  `not_applicable`; blocked rows are never apply-eligible.
+- A blocked row must carry a versioned `resolution` with `code`, `category`,
+  `owner`, `label`, and `nextStep` produced from persisted badges and blockers.
+- Delivery, policy, tracking, landing-page, checkout, campaign-context, and
+  freshness states use distinct resolution codes. UI must not infer them from
+  reason text.
+- `test_more` is assessed as Learning; ordinary `keep` as Stable; generic
+  `refresh` as Refresh Candidate; known funnel diagnoses as Funnel Bottleneck.
+  "Cannot Assess" is not a valid label for these known states.
+- The Meta OS UI has separate Act Now, Needs Resolution, and Monitoring lanes.
+  A layer remembers its own lane and falls back to a non-empty lane when its
+  selected lane has no rows.
+- Automatic campaign role remains the default. A system-owned campaign-context
+  resolution may expose an explicit Main/Test/Mixed correction for authorized
+  users; the correction is optional, audited, and never inferred in the UI.
+- Exact-ad candidate selection runs after server semantic classification. A
+  bounded response must reserve representation for every non-empty lane before
+  filling remaining capacity by priority; confidence-only pre-capping is
+  forbidden.
+- Candidate receipts expose pre-cap and selected counts by lane, plus explicit
+  ambiguous, unresolved-identity, and not-applicable counts.
+- The first response remains bounded at 60 exact ads. An explicit Show More
+  command asks the server to expand the same deterministic ordering in 60-row
+  increments, capped at 300; the client never appends or re-ranks raw rows.
+
+Compatibility and scope:
+
+- No historical snapshot label is rewritten and no decision formula changes.
+- The engine may continue persisting `diagnose` until a separately versioned
+  engine-output migration is approved. The Meta read-time projection is the
+  compatibility boundary for current and old rows.
+- New snapshots persist nullable `blocked_action_type` audit metadata so a
+  context-held Scale, Cut, or Refresh signal survives the DB round-trip. Old
+  rows remain readable; `stop_loss_review` is the only safe legacy fallback for
+  a held Cut, and no free-form reason text is parsed.
+- A future engine contract may persist the full resolution directly, but the UI
+  must consume the same discriminated server contract rather than inspecting
+  raw labels.
+
+Rejected alternatives:
+
+- Rename `diagnose_data` to a friendlier action. This preserves the semantic
+  error: missing authority is still not a buyer decision.
+- Parse free-form reason strings in the UI. That creates an untested second
+  resolver and breaks as copy changes.
+- Remove ambiguous creative-to-ad omissions. Creative-grain metrics cannot be
+  copied to an arbitrary ad when multiple ads share the creative.
+- Increase the candidate cap without changing ordering. A larger
+  confidence-only cap can still starve an urgent or blocked lane on a larger
+  account.
+
+## D036 - Safety-Dominant Hard-Action Hysteresis
+
+Decision: hard-action hysteresis is asymmetric. Exiting a `scale`, `cut`, or
+`refresh` decision into any soft, blocked, or not-applicable state publishes
+the current guarded decision immediately. Entering a hard action still
+requires two consecutive evaluations. A direct switch between hard actions is
+neutralized to `keep` for the pending evaluation and confirms only if the new
+hard action repeats. Pending output carries `blockedActionType` for the raw
+hard action and an explicit statement that no hard action is currently
+published.
+
+Reason: the previous label-only implementation could combine yesterday's
+`scale` or `cut` label with today's opposite reason, badges, confidence, and
+safety blockers. It could therefore resurrect an action that policy, delivery,
+commercial-truth freshness, campaign-context, or data-health logic had already
+blocked. Hysteresis is allowed to reduce noisy action entry; it is not allowed
+to outrank safety or create a hybrid decision tuple.
+
+Implementation contract:
+
+- The canonical hard-action set is `scale`, `cut`, and `refresh`.
+- Hard-to-soft and soft-to-soft transitions publish immediately.
+- Soft-to-hard and hard-to-different-hard transitions require the raw hard
+  action to repeat on the next evaluation.
+- A first-ever hard observation also publishes canonical `keep`; a missing or
+  unreadable baseline never grants bootstrap hard-action authority.
+- Every pending hard entry publishes `keep`, never the previous hard or soft
+  verdict. This prevents diagnostic/action hybrid tuples.
+- Pending decisions are non-executable and retain the intended hard action only
+  as `blockedActionType`/raw-label audit metadata.
+- The decisions producer and live briefing route must use the identical helper.
+- Hysteresis memory is read at the same account or campaign scope as the
+  decision profile that produced the current verdict.
+- Stale or pending hard verdicts may remain visible for review, but briefing
+  serialization must expose a review CTA and never a provider-write CTA.
+- Any rollout uses a new `ENGINE_VERSION`; prior snapshots remain readable.
+
+Rejected alternatives:
+
+- Republish the previous hard label with today's decision payload. This is the
+  unsafe hybrid behavior being removed.
+- Delay safety exits for a second evaluation. A stale, policy-blocked, or
+  no-delivery signal must remove hard-action authority immediately.
+- Remove hysteresis entirely. Requiring confirmation before a new hard action
+  still reduces boundary noise without preserving obsolete authority.
+
+## D037 - Separate Performance Decay From Audience Fatigue
+
+Decision: `watch` and `fatigued` require audience-pressure evidence or a
+benchmark-relative weakening signal in addition to metric decay. Winner memory
+plus one or more declining performance metrics is not sufficient by itself.
+When a floor-clearing recent 14-day window is available, decay comparisons use
+that recent window instead of the overlapping 28-day cumulative metric; an
+improving recent period cannot be labeled fatigued merely because an older
+cumulative maximum was higher.
+
+Reason: the previous final branch classified former winners as fatigue-watch
+with no pressure evidence. Read-only historical inspection found 1,033 stored
+watch rows across engine versions, all below frequency 2.5 and with a maximum
+frequency of 1.70. In the active lifecycle path spend concentration and
+benchmark trends are not populated, so these rows were performance-decay
+observations mislabeled as audience fatigue. The overlapping-window maximum
+could additionally call a recovering recent period fatigued.
+
+Implementation contract:
+
+- `fatigued` requires winner memory, at least two material decay signals, and
+  exposure pressure or benchmark weakening.
+- `watch` requires pressure/benchmark evidence plus either composite decay for
+  a non-winner or at least one decay signal for a former winner.
+- Decay without pressure leaves fatigue status `none`; lifecycle position may
+  still communicate decline.
+- A recent window is used as the comparison endpoint only when it clears the
+  same spend and purchase floors as winner memory.
+- When recent14 is available, decay is computed only against an explicit,
+  directly preceding disjoint period. Overlapping cumulative last30/90 maxima
+  are not valid fatigue baselines; missing prior-period rates fail closed.
+- Runtime hydration materializes that direct `prior14` period from daily facts;
+  it is not reconstructed by subtracting rates without denominators.
+- Frequency pressure is relative to the current account's 28-day creative
+  distribution (P75, minimum eight creatives), never a global 2.5 cliff. The
+  stored daily-frequency average remains supporting evidence rather than a
+  standalone proof of cross-day unique reach.
+- Benchmark weakening can establish pressure but cannot substitute for a
+  material CTR, click-to-purchase, or ROAS decay signal.
+- The published `winnerMemory` field and status both use disjoint strong-window
+  evidence; nested cumulative windows remain unsuitable as independent votes.
+- This is a behavior-changing release and shares the new D036 engine epoch.
+
+## D038 - Make Funnel Diagnosis Material And Economically Subordinate
+
+Decision: a funnel stage is weak only below both the account lower quartile and
+the risk-preset fraction of the account median:
+`weak_threshold = min(Q25, weak_multiplier * Q50)` when both are available.
+Landing-page or checkout evidence cannot terminally replace the decision when
+the ad's `ROAS / target_ROAS >= 0.85`; it remains a visible secondary badge and
+downstream economic gates decide whether the result is Keep, Winner, or another
+economically authorized state. Funnel evidence may still explain improvement
+opportunity, but it cannot turn observed target-beating economics into generic
+indecision.
+
+Reason: comparing a rate directly with P25 made an arbitrarily small miss a
+terminal diagnosis. Live evidence included a target-beating ad whose
+Link-to-LPV rate was 30.06% against a 30.84% P25. The old ordering erased the
+stronger commercial result and converted a useful diagnostic into indecision.
+The new rule stays account-relative, uses the configured risk posture, and
+keeps causal funnel evidence without letting it contradict observed economics.
+
+## D039 - Separate Growth Targets From Loss Boundaries
+
+Decision: a campaign/ad-set budget expansion requires a fresh explicit target
+ROAS; a hard economic cut requires a fresh explicit break-even ROAS. The engine
+must not manufacture either boundary by multiplying the other. Loss-budget
+maturity is `max(calibrated_hard_cut_spend, CPA_baseline * risk_multiplier)`.
+The risk multiplier is an explicit operator posture; currency-specific fixed
+spend floors are forbidden.
+
+Relative CPL, cost-per-ATC, CPC, or engagement rank may identify a review
+candidate, but it cannot authorize a spend change until the commercial target
+contract models that same optimization outcome. A fresh purchase target does
+not become a goal-specific upper-funnel target by implication.
+
+Reason: `break_even_roas * 1.15` did not define an acceptable growth return,
+and `target_roas * 0.75` did not prove a loss. `TRY 1500 / EUR 50 / default 50`
+also changed authority by currency rather than account economics. Relative
+winner identification may still operate below the business target, but that is
+a portfolio role or promotion candidate, not automatic budget scale.
+
+## D040 - Fail Closed At Mixed Creative Context Grain
+
+Decision: a creative aggregate is decision-eligible only when its positive-
+spend source rows resolve to exactly one provider account, campaign, ad set,
+optimization context, objective, and funnel cohort. Missing identity or any
+mixture emits `out_of_scope`; no dominant-spend percentage may select one
+context on behalf of the rest.
+
+Reason: one creative can be reused across countries, objectives, campaigns,
+ad sets, and ads. Attaching the aggregate result to the latest context produces
+confident but wrong actions. The current guard is intentionally conservative;
+the durable solution is native ad-grain inputs with creative-level portfolio
+rollups kept separate from execution authority.
+
+## D041 - Use Independent Evidence In Structure Decisions
+
+Decision: cumulative `3/7/14/30/90d` campaign windows are converted into
+disjoint `0-3 / 4-7 / 8-14 / 15-30 / 31-90` bands before weighted history is
+computed. `w_i = 2^(-midpoint_i / 14)`, weighted ROAS is
+`sum(w_i * revenue_i) / sum(w_i * spend_i)`, and weighted CPA is
+`sum(w_i * spend_i) / sum(w_i * purchases_i)`. A non-monotonic cumulative
+chain stops at the first invalid band; older windows cannot compensate.
+
+Actual maturity uses observed `firstDeliveryDate`, distinct `activeDayCount`,
+and as-of calendar age: `age = min(explicitAge, activeDays, calendarAge)`.
+Comparisons are isolated by provider account, currency, funnel intent, campaign
+lane, and compatible bid/optimization context. Hard actions require current
+active delivery, calibrated sample readiness, fresh commercial authority, and
+the action-specific safety gate.
+
+Reason: nested windows are not independent votes, a one-day campaign is not
+90 days old because a `last90` row exists, and cross-account/currency peers do
+not define a coherent threshold.
+
+## D042 - Gate Every Funnel Percentile By Its Own Sample
+
+Decision: each funnel P25/P50 value is emitted only when that metric itself has
+at least 20 non-null creative observations. A dense CTR population cannot lend
+its sample count to sparse click-to-purchase, checkout, or landing-page rates.
+
+Reason: percentile availability is metric-specific. Reusing a shared sample
+count made one-row downstream rates look calibrated. Twenty is a minimum
+estimation-safety policy, not a performance threshold; a future weighted
+calibration may replace it with effective sample size.
+
+## D043 - Make Historical Inputs Bitemporal And Generation-Complete
+
+Decision: commercial targets are append-only `upsert/delete` versions and are
+read with both `effective_at <= cutoff` and `recorded_at <= cutoff`. No mutable
+current target may be projected backward and no synthetic pre-history backfill
+is allowed. A date-only decision `asOf` resolves to the scheduled `03:00Z`
+producer cutoff; an explicit timestamp preserves that exact instant. Raw Meta
+snapshot reconstruction accepts only exact-day rows fetched
+by cutoff, segments repeated fetches at each terminal cursor, selects the latest
+generation without falling back to an older complete one, and evaluates
+duplicates/conflicts only within that generation.
+
+Missing exact-day scopes, incomplete generations, or missing ad/adset/campaign
+identity produce `unknown`, never `pass`. Source windows that merely span the
+decision date are rejection inventory, not decision evidence.
+
+## D044 - Keep Measurement Claims Below Their Evidence Ceiling
+
+Decision: hard-action ECE is computed on hard-known outcomes only, and recall
+uses a dated opportunity set rather than counting only emitted decisions.
+Historical replay must report PIT fidelity, unknown/censored outcomes, source
+mode, and action-policy contamination. Distribution-derived confidence is not
+called calibrated probability until accrued outcomes feed the confidence model
+and action/treatment logging permits a causal or controlled-canary evaluation.
+
+Reason: replaying labels over restated facts can expose formula behavior and
+authority collapse, but it cannot establish counterfactual lift. A 9.5 claim
+therefore requires zero future leakage, complete input manifests, calibrated
+hard-action precision/recall/ECE, and live controlled evidence; deterministic
+tests alone cannot satisfy that bar.
+
+## D045 - Revalidate Commercial Authority At Generation And Serve Time
+
+Decision: dated Meta Structure snapshot generation reads the append-only target
+pack at that date's exact `03:00Z` producer cutoff. Serving a persisted snapshot
+revalidates every spend-changing recommendation against the current target pack;
+a now-stale, deleted, missing, or objective-incompatible target immediately
+demotes the recommendation to review-only and removes `proposedAction` and
+`targetValue`.
+
+Creative/Ads hard-action eligibility uses the same action-specific separation:
+`scale` requires a fresh explicit target ROAS and `cut` requires a fresh explicit
+break-even ROAS. A fresh target CPA can define an observation/spend unit, but it
+cannot authorize either ROAS action by itself. Refresh eligibility remains a
+separate non-budget action gate.
+
+Reason: target authority is time-dependent. Projecting today's mutable target
+into an older snapshot is future leakage, while continuing to serve yesterday's
+`act` after the target expired or was deleted preserves authority that no longer
+exists. A generic high-confidence spend unit is not a substitute for the
+economic boundary of the specific action.
+
+## D046 - Treat A Durable Terminal Raw Cursor As Fetch Completion
+
+Decision: a checkpoint with `nextPageUrl = null` is terminal and must never fall
+through to the first-page URL. The first-page URL is used only when no checkpoint
+exists. Raw page indexes are partition-global, so a post-fetch checkpoint's next
+index is `last_page_index + 1`, not the number of pages in the selected fetch
+generation. Restore validates one latest generation, exact durable row count,
+cursor equality, contiguous indexes from that generation's own origin, and
+refuses fallback to an older complete generation.
+
+Reason: repeated terminal polls can share a partition/run while page indexes
+continue globally. Re-fetching page one after restoring a completed generation
+double-counts metrics and then creates a checkpoint/raw mismatch. Counting pages
+also fails whenever the generation begins at a non-zero global index.

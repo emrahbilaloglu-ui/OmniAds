@@ -13,7 +13,6 @@ import { usePreferencesStore } from "@/store/preferences-store";
 import { ProductSection } from "@/components/ui/product-surface";
 import {
   WorkspacePill,
-  WorkspaceStat,
   WorkspaceSurface,
 } from "@/components/workspace/workspace-surface";
 
@@ -114,13 +113,13 @@ export default function ReportsPage() {
       eyebrow={language === "tr" ? "Ozel Raporlama" : "Reports"}
       title={
         language === "tr"
-          ? `${business?.name ?? "bu iş"} için tek tıkla raporlar oluşturun`
-          : `Build one-click reports for ${business?.name ?? "this business"}`
+          ? business?.name ? `Raporlar · ${business.name}` : "Raporlar"
+          : business?.name ? `Reports · ${business.name}` : "Reports"
       }
       description={
         language === "tr"
-          ? "Her iş altında tekrar kullanılabilir rapor formatları kaydedin, bir template ile başlayın, sonra çıktıyı public link olarak paylaşın veya tablo widget'larını CSV olarak dışa aktarın."
-          : "Save reusable report formats under each business, start from a template, then share the final output as a public link or export table widgets as CSV."
+          ? "Rapor formatlarını kaydedin, paylaşın veya CSV olarak dışa aktarın."
+          : "Save report formats, share as a link, or export tables as CSV."
       }
       meta={<WorkspacePill tone="info">saved & templates</WorkspacePill>}
       actions={
@@ -134,24 +133,26 @@ export default function ReportsPage() {
         <ProductSection
           title={language === "tr" ? "Kayitli Raporlar" : "Saved Reports"}
           description={language === "tr" ? "Kayitli her rapor aktif ise aittir." : "Every saved report belongs to the active business."}
-          actions={actionMessage ? <p className="text-sm text-neutral-500">{actionMessage}</p> : null}
+          actions={actionMessage ? <p className="text-[12px] text-[var(--adc-ink3)]">{actionMessage}</p> : null}
         >
-          <div className="mt-3 flex flex-wrap gap-2">
-            <input
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder={language === "tr" ? "Raporlarda ara..." : "Search reports..."}
-              className="h-8 min-w-[220px] rounded-[6px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2.5 text-[12.5px] text-[var(--adc-ink)] outline-none focus:border-[var(--adc-b2)]"
-            />
-            <select
-              value={sortMode}
-              onChange={(event) => setSortMode(event.target.value as "recent" | "name")}
-              className="h-8 rounded-[6px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2.5 text-[12.5px] text-[var(--adc-ink)] outline-none focus:border-[var(--adc-b2)]"
-            >
-              <option value="recent">{language === "tr" ? "Sirala: Son güncellenen" : "Sort: Recently updated"}</option>
-              <option value="name">{language === "tr" ? "Sirala: Ad" : "Sort: Name"}</option>
-            </select>
-          </div>
+          {reports.length > 5 ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder={language === "tr" ? "Raporlarda ara..." : "Search reports..."}
+                className="h-8 min-w-[220px] rounded-[6px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2.5 text-[12.5px] text-[var(--adc-ink)] outline-none focus:border-[var(--adc-b2)]"
+              />
+              <select
+                value={sortMode}
+                onChange={(event) => setSortMode(event.target.value as "recent" | "name")}
+                className="h-8 rounded-[6px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2.5 text-[12.5px] text-[var(--adc-ink)] outline-none focus:border-[var(--adc-b2)]"
+              >
+                <option value="recent">{language === "tr" ? "Sirala: Son güncellenen" : "Sort: Recently updated"}</option>
+                <option value="name">{language === "tr" ? "Sirala: Ad" : "Sort: Name"}</option>
+              </select>
+            </div>
+          ) : null}
 
           {reportsQuery.isLoading ? (
             <div className="mt-4 rounded-[8px] border border-dashed border-[var(--adc-b2)] bg-[var(--adc-s1)] p-6 text-[12px] text-[var(--adc-ink3)]">
@@ -231,7 +232,7 @@ export default function ReportsPage() {
               <Link
                 key={template.id}
                 href={`/reports/new?template=${template.id}`}
-                className="rounded-[10px] border border-dashed border-[var(--adc-b2)] bg-[var(--adc-s2)] p-4 transition hover:border-[var(--adc-b2)] hover:bg-[var(--adc-s1)]"
+                className="rounded-[10px] border border-dashed border-[var(--adc-b1)] bg-[var(--adc-s2)] p-4 transition hover:border-[var(--adc-b2)] hover:bg-[var(--adc-s1)]"
               >
                 <div className="flex items-start justify-between gap-3">
                   <span className="rounded-[4px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-normal text-[var(--adc-ink3)]">
@@ -242,12 +243,9 @@ export default function ReportsPage() {
                 <TemplateMiniPreview definition={template.definition} className="mt-6" />
                 <h3 className="mt-4 text-[13px] font-semibold text-[var(--adc-ink)]">{template.name}</h3>
                 <p className="mt-1 text-[11.5px] leading-5 text-[var(--adc-ink3)]">{template.description}</p>
-                <WorkspaceStat
-                  label="Output"
-                  value={`${template.definition.widgets.length} widgets`}
-                  detail="share link · CSV tables · print"
-                  className="mt-3"
-                />
+                <p className="mt-3 text-[11px] text-[var(--adc-ink3)]">
+                  {template.definition.widgets.length} widgets · share link · CSV · print
+                </p>
               </Link>
             ))}
           </div>

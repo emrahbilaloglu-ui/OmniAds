@@ -15,6 +15,7 @@ import {
   UPSERT_CONTEXT_QUERY,
 } from "@/lib/creative-decision-engine/jobs/campaign-context-job";
 import { readPreviousPublishedLabels } from "@/lib/creative-decision-engine/decision-stability";
+import { WarehouseDataSource } from "@/lib/creative-decision-engine/data-source";
 import { ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 
 function snapshotRow(input: {
@@ -23,6 +24,8 @@ function snapshotRow(input: {
   asOfDate: string;
   label: string;
   rawLabel: string;
+  truthSource?: "commercial_truth" | "commercial_truth_stale";
+  blockedActionType?: "scale" | "cut" | "refresh" | null;
 }) {
   return {
     business_ref_id: input.businessRefId,
@@ -35,7 +38,7 @@ function snapshotRow(input: {
     label: input.label,
     raw_label: input.rawLabel,
     confidence: 70,
-    truth_source: "commercial_truth",
+    truth_source: input.truthSource ?? "commercial_truth",
     effective_target_roas: 2,
     ratio_to_target: 0.5,
     badges: [],
@@ -45,6 +48,7 @@ function snapshotRow(input: {
     roas: 1,
     recent7d_roas: null,
     label_transform: null,
+    blocked_action_type: input.blockedActionType ?? null,
     job_run_id: null,
     lifecycle_row_id: null,
     calibration_row_id: null,
@@ -68,6 +72,8 @@ async function main() {
         asOfDate: "2026-07-01",
         label: "cut",
         rawLabel: "keep",
+        truthSource: "commercial_truth_stale",
+        blockedActionType: "cut",
       }),
     ]),
   ]);
@@ -82,6 +88,17 @@ async function main() {
   if (!memory || memory.publishedLabel !== "cut" || memory.rawLabel !== "keep") {
     throw new Error(
       `hysteresis seam FAILED: expected published=cut raw=keep, got ${JSON.stringify(memory ?? null)}`,
+    );
+  }
+  const [heldActionRow] = await db.query<{ blocked_action_type: string | null }>(
+    `SELECT blocked_action_type
+     FROM engine_v3_decision_snapshots_daily
+     WHERE business_ref_id = $1::uuid AND creative_id = 'seam-creative'`,
+    [businessRefId],
+  );
+  if (heldActionRow?.blocked_action_type !== "cut") {
+    throw new Error(
+      `snapshot metadata seam FAILED: expected blocked_action_type=cut, got ${JSON.stringify(heldActionRow ?? null)}`,
     );
   }
 
@@ -122,7 +139,7 @@ async function main() {
   }
 
   console.log(
-    "[seam-check] PASS: snapshot write -> readPreviousPublishedLabels round-trips label, raw_label, strict-before-asOf, and rerun upsert.",
+    "[seam-check] PASS: snapshot write accepts commercial_truth_stale and readPreviousPublishedLabels round-trips label, raw_label, blocked_action_type, strict-before-asOf, and rerun upsert.",
   );
 
   // --- Campaign-context hysteresis state seam: the exact class that broke
@@ -175,6 +192,116 @@ async function main() {
   }
   console.log(
     "[seam-check] PASS: context hysteresis state round-trips through the real table with counters intact; conflict confirmation survives persistence.",
+  );
+
+  // Runtime decision-math seam: target truth must come from bitemporal history,
+  // fatigue must compare the latest 14 days with the directly preceding 14,
+  // and raw frequency pressure must be account-relative rather than a global
+  // 2.5 cliff.
+  const ownerId = randomUUID();
+  await db.query(
+    `INSERT INTO users (id, name, email, password_hash)
+     VALUES ($1::uuid, 'Decision Seam', $2, 'not-used')`,
+    [ownerId, `decision-seam-${ownerId}@example.test`],
+  );
+  await db.query(
+    `INSERT INTO businesses (id, name, owner_id, currency)
+     VALUES ($1::uuid, 'Decision Seam', $2::uuid, 'USD')`,
+    [businessRefId, ownerId],
+  );
+  await db.query(
+    `INSERT INTO business_target_pack_history (
+       business_id, business_ref_id, target_roas, break_even_roas,
+       default_risk_posture, operation, effective_at, recorded_at
+     ) VALUES
+       ($1::uuid, $1::uuid, 2.0, 1.5, 'balanced', 'upsert',
+        '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z'),
+       ($1::uuid, $1::uuid, 9.0, 8.0, 'balanced', 'upsert',
+        '2026-07-06T00:00:00Z', '2026-07-06T00:00:00Z')`,
+    [businessRefId],
+  );
+  await db.query(
+    `INSERT INTO meta_creative_daily (
+       business_id, business_ref_id, provider_account_id, date,
+       campaign_id, adset_id, ad_id, creative_id, creative_name,
+       account_timezone, account_currency, spend, impressions, clicks,
+       conversions, revenue, roas, ctr, link_clicks, frequency,
+       effective_status, objective, optimization_goal, payload_json,
+       first_seen_at, first_spend_at
+     )
+     SELECT
+       $1::text, $1::uuid, 'act_seam', day::date,
+       CASE creative_no WHEN 1 THEN 'campaign-a' ELSE 'campaign-' || creative_no::text END,
+       CASE creative_no WHEN 1 THEN 'adset-a' ELSE 'adset-' || creative_no::text END,
+       CASE creative_no WHEN 1 THEN 'ad-a' ELSE 'ad-' || creative_no::text END,
+       CASE creative_no WHEN 1 THEN 'creative-a' ELSE 'creative-' || creative_no::text END,
+       CASE creative_no WHEN 1 THEN 'Creative A' ELSE 'Creative ' || creative_no::text END,
+       'UTC', 'USD', 20, 1000,
+       CASE
+         WHEN creative_no = 1 AND day < '2026-06-22'::date THEN 30
+         WHEN creative_no = 1 THEN 10
+         ELSE 25
+       END,
+       CASE
+         WHEN creative_no = 1 AND day < '2026-06-22'::date THEN 2
+         WHEN creative_no = 1 THEN 1
+         ELSE 2
+       END,
+       CASE
+         WHEN creative_no = 1 AND day < '2026-06-22'::date THEN 120
+         WHEN creative_no = 1 THEN 40
+         ELSE 100
+       END,
+       0, NULL,
+       CASE
+         WHEN creative_no = 1 AND day < '2026-06-22'::date THEN 30
+         WHEN creative_no = 1 THEN 10
+         ELSE 25
+       END,
+       CASE creative_no WHEN 1 THEN 1.2 ELSE 4.0 END,
+       'ACTIVE', 'OUTCOME_SALES', 'OFFSITE_CONVERSIONS',
+       '{"custom_event_type":"PURCHASE","format":"video"}'::jsonb,
+       '2026-06-08T00:00:00Z', '2026-06-08T00:00:00Z'
+     FROM generate_series('2026-06-08'::date, '2026-07-05'::date, '1 day') day
+     CROSS JOIN generate_series(1, 8) creative_no`,
+    [businessRefId],
+  );
+
+  const warehouse = new WarehouseDataSource();
+  const targetPack = await warehouse.getBusinessTargetPack({
+    businessId: businessRefId,
+    asOf: "2026-07-05",
+  });
+  if (targetPack?.targetRoas !== 2 || targetPack.breakEvenRoas !== 1.5) {
+    throw new Error(
+      `target-history seam FAILED: future target leaked into 2026-07-05 (${JSON.stringify(targetPack)})`,
+    );
+  }
+  const creative = await warehouse.getCreativeInput({
+    businessId: businessRefId,
+    creativeId: "creative-a",
+    asOf: "2026-07-05",
+  });
+  if (!creative) {
+    throw new Error("runtime decision seam FAILED: creative-a did not hydrate");
+  }
+  if (creative.fatigueStatus !== "none") {
+    throw new Error(
+      `runtime decision seam FAILED: account-relative frequency falsely produced fatigue=${creative.fatigueStatus}`,
+    );
+  }
+  if (
+    creative.contextGrain?.providerAccountCount !== 1 ||
+    creative.contextGrain.campaignCount !== 1 ||
+    creative.contextGrain.adsetCount !== 1 ||
+    creative.contextGrain.optimizationContextCount !== 1
+  ) {
+    throw new Error(
+      `runtime decision seam FAILED: pure context grain did not survive hydration (${JSON.stringify(creative.contextGrain)})`,
+    );
+  }
+  console.log(
+    "[seam-check] PASS: bitemporal target cutoff, disjoint prior14 hydration, account-relative frequency pressure, and pure context grain execute against real PostgreSQL.",
   );
   await resetDbClientCache();
 }

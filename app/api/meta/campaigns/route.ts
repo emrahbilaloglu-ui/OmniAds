@@ -11,6 +11,10 @@ export interface MetaCampaignRow {
   status: string;
   statusUpdatedAt?: string | null;
   objective?: string | null;
+  firstDeliveryDate?: string | null;
+  activeDayCount?: number | null;
+  ageDays?: number | null;
+  asOfDate?: string | null;
   budgetLevel: "campaign" | "adset" | null;
   spend: number;
   purchases: number;
@@ -77,7 +81,7 @@ export interface MetaCampaignRow {
   videoViews95: number;
   videoViews100: number;
   costPerVideoView: number;
-  currency: string;
+  currency: string | null;
   optimizationGoal: string | null;
   customEventType?: string | null;
   isCustomEventTypeMixed?: boolean;

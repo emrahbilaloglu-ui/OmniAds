@@ -1,7 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowRight, Copy, MoreHorizontal, Pause, Play, Sliders, ExternalLink } from "lucide-react";
+import {
+  ArrowRight,
+  Copy,
+  MoreHorizontal,
+  Pause,
+  Play,
+  Sliders,
+  ExternalLink,
+} from "lucide-react";
 import { DeferChip, DeferTooltip } from "@/components/common/briefing";
 import { cn } from "@/lib/utils";
 import type { MetaAnomaly } from "@/lib/meta/anomalies";
@@ -17,6 +25,7 @@ import {
 } from "@/components/meta/redesign/meta-card-utils";
 
 interface MetaActionCardProps {
+  layout?: "row" | "board";
   moneyCurrency?: string | null;
   /** Server pulse target ROAS for this business — a ratio, currency-agnostic.
    * Used only to state ROAS-vs-target on the money line; never a projection. */
@@ -30,7 +39,11 @@ interface MetaActionCardProps {
   deferred?: boolean;
   responseState?: "acted" | "deferred" | "ignored" | null;
   primaryPending?: boolean;
-  actionFeedback?: { tone: "success" | "error" | "info"; title: string; detail?: string | null } | null;
+  actionFeedback?: {
+    tone: "success" | "error" | "info";
+    title: string;
+    detail?: string | null;
+  } | null;
   readOnlyReason?: string | null;
   /** Accepted for call-site compatibility; the row no longer surfaces the
    * window inline (secondary metrics live in the evidence inspector). */
@@ -55,14 +68,19 @@ const TONE_INK: Record<Tone, string> = {
   muted: "var(--muted)",
 };
 
-function confidenceBand(rec: MetaRecommendation): { label: string; level: 1 | 2 | 3 } {
+function confidenceBand(rec: MetaRecommendation): {
+  label: string;
+  level: 1 | 2 | 3;
+} {
   if (rec.confidence === "high") return { label: "High", level: 3 };
   if (rec.confidence === "medium") return { label: "Medium", level: 2 };
   return { label: "Low", level: 1 };
 }
 
 function compactLabel(value: string) {
-  return value.replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  return value
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 // Styling a server-provided decision label with a tone is presentation only;
@@ -71,7 +89,16 @@ function compactLabel(value: string) {
 function decisionLabelTone(label: string): Tone {
   if (label === "cut" || label === "below_breakeven") return "danger";
   if (label === "scale" || label === "keep") return "ok";
-  if (["test_more", "refresh", "review_adsets", "review_placements", "learning"].includes(label)) return "warn";
+  if (
+    [
+      "test_more",
+      "refresh",
+      "review_adsets",
+      "review_placements",
+      "learning",
+    ].includes(label)
+  )
+    return "warn";
   if (label === "tune" || label === "switch" || label === "swap") return "info";
   return "ink";
 }
@@ -81,7 +108,9 @@ function decisionLabelText(label: string) {
   if (label === "test_more") return "Fresh test";
   if (label === "review_adsets") return "Review ad sets";
   if (label === "review_placements") return "Review placements";
-  return label.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  return label
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function responseStateLabel(responseState: "acted" | "deferred" | "ignored") {
@@ -92,16 +121,28 @@ function responseStateLabel(responseState: "acted" | "deferred" | "ignored") {
 
 function completedPrimaryLabel(rec: MetaRecommendation) {
   if (rec.type === "adset_cut_spend") return "Paused";
-  if (rec.type === "bid_strategy_fit" || rec.type === "bid_value_guidance" || rec.type === "bid_band_from_history") return "Applied";
+  if (
+    rec.type === "bid_strategy_fit" ||
+    rec.type === "bid_value_guidance" ||
+    rec.type === "bid_band_from_history"
+  )
+    return "Applied";
   return "Acted";
 }
 
-function canResumeCompletedPrimary(rec: MetaRecommendation, primaryCompleted: boolean) {
+function canResumeCompletedPrimary(
+  rec: MetaRecommendation,
+  primaryCompleted: boolean,
+) {
   if (!primaryCompleted) return false;
   const subtype = (rec.operatorResponseSubtype ?? "").toLowerCase();
-  const pauseLike = subtype.includes("pause") || (!subtype && rec.type === "adset_cut_spend");
+  const pauseLike =
+    subtype.includes("pause") || (!subtype && rec.type === "adset_cut_spend");
   if (!pauseLike) return false;
-  return (rec.level === "adset" && Boolean(rec.adsetId)) || (rec.level === "campaign" && Boolean(rec.campaignId));
+  return (
+    (rec.level === "adset" && Boolean(rec.adsetId)) ||
+    (rec.level === "campaign" && Boolean(rec.campaignId))
+  );
 }
 
 function resumePrimaryLabel(rec: MetaRecommendation) {
@@ -135,11 +176,26 @@ function evidenceAgeLabel(rec: MetaRecommendation) {
 }
 
 function PrimaryIcon({ rec }: { rec: MetaRecommendation }) {
-  if (rec.type === "adset_cut_spend") return <Pause className="inline-block shrink-0" size={13} aria-hidden="true" />;
-  if (rec.type === "bid_strategy_fit" || rec.type === "bid_value_guidance" || rec.type === "bid_band_from_history") {
-    return <Sliders className="inline-block shrink-0" size={13} aria-hidden="true" />;
+  if (rec.type === "adset_cut_spend")
+    return (
+      <Pause className="inline-block shrink-0" size={13} aria-hidden="true" />
+    );
+  if (
+    rec.type === "bid_strategy_fit" ||
+    rec.type === "bid_value_guidance" ||
+    rec.type === "bid_band_from_history"
+  ) {
+    return (
+      <Sliders className="inline-block shrink-0" size={13} aria-hidden="true" />
+    );
   }
-  return <ArrowRight className="inline-block shrink-0" size={13} aria-hidden="true" />;
+  return (
+    <ArrowRight
+      className="inline-block shrink-0"
+      size={13}
+      aria-hidden="true"
+    />
+  );
 }
 
 /**
@@ -156,7 +212,8 @@ function moneyAtStake(
   const roas = rec.metrics?.roas;
   const hasSpend = typeof spend === "number" && Number.isFinite(spend);
   const hasRoas = typeof roas === "number" && Number.isFinite(roas);
-  if (!hasSpend && !hasRoas) return { text: "—", tone: "muted", hasMetric: false };
+  if (!hasSpend && !hasRoas)
+    return { text: "—", tone: "muted", hasMetric: false };
 
   const parts: string[] = [];
   if (hasSpend) parts.push(formatMoney(spend as number, currency));
@@ -175,13 +232,12 @@ function moneyAtStake(
 
 function ConfidenceBandPill({ rec }: { rec: MetaRecommendation }) {
   const band = confidenceBand(rec);
-  const score = rec.confidenceScore;
   const bars = [4, 7, 10];
   return (
     <span
       className="meta-confidence-band"
       data-confidence-band={band.label.toLowerCase()}
-      aria-label={`Evidence confidence ${band.label}${score != null ? ` ${score.toFixed(2)}` : ""}`}
+      aria-label={`Evidence confidence ${band.label}`}
     >
       <span className="meta-confidence-band__bars" aria-hidden="true">
         {bars.map((h, i) => (
@@ -195,7 +251,6 @@ function ConfidenceBandPill({ rec }: { rec: MetaRecommendation }) {
         ))}
       </span>
       {band.label}
-      {score != null ? <span>{score.toFixed(2)}</span> : null}
     </span>
   );
 }
@@ -222,7 +277,13 @@ function MetaRowSignal({ rec }: { rec: MetaRecommendation }) {
         aria-label={presentation.shieldLabel ?? "Operator protection active"}
         title={presentation.shieldLabel ?? "Operator protection active"}
       >
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          aria-hidden="true"
+        >
           <path
             d="M12 3L20 6V11C20 16 16.5 19.5 12 21C7.5 19.5 4 16 4 11V6L12 3Z"
             stroke="currentColor"
@@ -233,7 +294,13 @@ function MetaRowSignal({ rec }: { rec: MetaRecommendation }) {
       </span>
     );
   }
-  return <span className="meta-row__signal" data-row-signal="none" aria-hidden="true" />;
+  return (
+    <span
+      className="meta-row__signal"
+      data-row-signal="none"
+      aria-hidden="true"
+    />
+  );
 }
 
 function QuietChip({
@@ -267,6 +334,7 @@ function QuietChip({
 }
 
 export function MetaActionCard({
+  layout = "row",
   moneyCurrency,
   targetRoas,
   adsManagerHref,
@@ -290,7 +358,11 @@ export function MetaActionCard({
 
   if (anomaly) {
     return (
-      <article className="meta-row" data-card="anomaly" data-anomaly-id={anomaly.id}>
+      <article
+        className="meta-row"
+        data-card="anomaly"
+        data-anomaly-id={anomaly.id}
+      >
         <div className="meta-row__lead" aria-hidden="true">
           <span className="meta-row__glyph meta-row__glyph--anomaly" />
         </div>
@@ -311,7 +383,9 @@ export function MetaActionCard({
             <QuietChip tone="warn">{anomaly.scopeType}</QuietChip>
           </div>
           <div className="meta-row__sub">
-            <span style={{ color: "var(--warn)", fontWeight: 600 }}>Anomaly · diagnose first</span>
+            <span style={{ color: "var(--warn)", fontWeight: 600 }}>
+              Anomaly · diagnose first
+            </span>
             <span className="meta-row__stake meta-row__stake--muted">
               {anomaly.scopeLabel} · severity {anomaly.severity}
             </span>
@@ -327,7 +401,11 @@ export function MetaActionCard({
             }}
           >
             Open diagnostic
-            <ArrowRight className="inline-block shrink-0" size={13} aria-hidden="true" />
+            <ArrowRight
+              className="inline-block shrink-0"
+              size={13}
+              aria-hidden="true"
+            />
           </button>
         </div>
         {anomaly.diagnosticLadder?.length ? (
@@ -347,11 +425,24 @@ export function MetaActionCard({
   if (!rec) return null;
 
   const id = rec.id;
+  const boardLayout = layout === "board";
   const label = decisionLabelForRec(rec);
   const labelTone = decisionLabelTone(label);
   const scopeName = scopeNameForRec(rec);
-  const effectiveResponseState = responseState ?? (deferred ? "deferred" : null);
+  const effectiveResponseState =
+    responseState ?? (deferred ? "deferred" : null);
   const stake = moneyAtStake(rec, targetRoas, moneyCurrency);
+  const spend = rec.metrics?.spend;
+  const boardSpend =
+    typeof spend === "number" && Number.isFinite(spend)
+      ? formatMoney(spend, moneyCurrency)
+      : "—";
+  const roas = rec.metrics?.roas;
+  const cpa = rec.metrics?.cpa;
+  const boardMetricSummary = [
+    `ROAS ${typeof roas === "number" && Number.isFinite(roas) ? `${roas.toFixed(2)}×` : "—"}`,
+    `CPA ${typeof cpa === "number" && Number.isFinite(cpa) ? formatMoney(cpa, moneyCurrency) : "—"}`,
+  ].join(" · ");
   const actionAuthority = actionAuthorityForRec(rec);
   const rowPresentation = rec.rowPresentation ?? null;
   const readOnlyMode = Boolean(readOnlyReason);
@@ -361,22 +452,43 @@ export function MetaActionCard({
       : actionAuthority;
   const evidenceAge = evidenceAgeLabel(rec);
 
-  const chips: Array<{ key: string; text: string; tone?: Tone; cohort?: string }> = [];
-  if (rec.campaignRole) chips.push({ key: "role", text: compactLabel(rec.campaignRole) });
-  if (rec.bidRegime) chips.push({ key: "bid", text: compactLabel(rec.bidRegime), tone: "warn" });
+  const chips: Array<{
+    key: string;
+    text: string;
+    tone?: Tone;
+    cohort?: string;
+  }> = [];
+  if (rec.campaignRole)
+    chips.push({ key: "role", text: compactLabel(rec.campaignRole) });
+  if (rec.bidRegime)
+    chips.push({ key: "bid", text: compactLabel(rec.bidRegime), tone: "warn" });
   if (rec.cohort && rec.cohort !== "purchase") {
-    chips.push({ key: "cohort", text: compactLabel(rec.cohort), cohort: rec.cohort });
+    chips.push({
+      key: "cohort",
+      text: compactLabel(rec.cohort),
+      cohort: rec.cohort,
+    });
   }
   const visibleChips = chips.slice(0, 3);
   const overflowChips = chips.length - visibleChips.length;
 
-  const canDefer = !readOnlyMode && Boolean(onDefer) && effectiveResponseState !== "deferred";
+  const canDefer =
+    !readOnlyMode && Boolean(onDefer) && effectiveResponseState !== "deferred";
   const watchPrimaryDefers = rec.decisionState === "watch" && canDefer;
-  const primaryActionLabel = readOnlyMode ? "Review evidence" : watchPrimaryDefers ? "Let cook" : primaryLabelForRec(rec);
+  const primaryActionLabel = readOnlyMode
+    ? "Review evidence"
+    : watchPrimaryDefers
+      ? "Let cook"
+      : primaryLabelForRec(rec);
   const primaryCompleted = effectiveResponseState === "acted";
-  const primaryCanResume = !readOnlyMode && Boolean(onResume) && canResumeCompletedPrimary(rec, primaryCompleted);
+  const primaryCanResume =
+    !readOnlyMode &&
+    Boolean(onResume) &&
+    canResumeCompletedPrimary(rec, primaryCompleted);
   const primaryDisabledForContract =
-    !readOnlyMode && launchModeForRec(rec) === "apply_bid" && proposedBidMinorForExecute(rec) == null;
+    !readOnlyMode &&
+    launchModeForRec(rec) === "apply_bid" &&
+    proposedBidMinorForExecute(rec, moneyCurrency) == null;
 
   const openDrill = () => onOpenDrill?.(rec);
   const copyEntityId = () => {
@@ -388,8 +500,14 @@ export function MetaActionCard({
 
   return (
     <article
-      className={cn("meta-row", selected ? "meta-row--selected" : "", deferred ? "meta-row--deferred" : "")}
+      className={cn(
+        "meta-row",
+        boardLayout && "meta-row--board",
+        selected ? "meta-row--selected" : "",
+        deferred ? "meta-row--deferred" : "",
+      )}
       data-card="meta-action"
+      data-layout={layout}
       data-rec-id={id}
     >
       {onSelect ? (
@@ -401,14 +519,24 @@ export function MetaActionCard({
             aria-label={`Select ${scopeName}`}
             onChange={(event) => onSelect(id, event.currentTarget.checked)}
           />
-          <span className={cn("check", selected ? "on" : "")} aria-hidden="true" />
+          <span
+            className={cn("check", selected ? "on" : "")}
+            aria-hidden="true"
+          />
         </label>
       ) : (
-        <div className="meta-row__lead meta-row__lead--empty" aria-hidden="true" />
+        <div
+          className="meta-row__lead meta-row__lead--empty"
+          aria-hidden="true"
+        />
       )}
       <MetaRowSignal rec={rec} />
       {rowPresentation?.thumbLabel ? (
-        <span className="meta-row__thumb" data-row-thumb={rowPresentation.thumbLabel} aria-label={`Creative preview ${rowPresentation.thumbLabel}`}>
+        <span
+          className="meta-row__thumb"
+          data-row-thumb={rowPresentation.thumbLabel}
+          aria-label={`Creative preview ${rowPresentation.thumbLabel}`}
+        >
           <span>{rowPresentation.thumbLabel}</span>
         </span>
       ) : null}
@@ -427,9 +555,14 @@ export function MetaActionCard({
         }}
       >
         <div className="meta-row__name-line">
-          <span className="meta-row__name" title={scopeName}>{scopeName}</span>
+          <span className="meta-row__name" title={scopeName}>
+            {scopeName}
+          </span>
           {rowPresentation?.accountBadge ? (
-            <span className="meta-row__account" title={`Meta account ${rowPresentation.accountBadge}`}>
+            <span
+              className="meta-row__account"
+              title={`Meta account ${rowPresentation.accountBadge}`}
+            >
               {rowPresentation.accountBadge}
             </span>
           ) : null}
@@ -439,7 +572,11 @@ export function MetaActionCard({
             data-action-authority={displayedActionAuthority.kind}
             data-action-kind={rec.actionKind ?? "review_drill"}
             data-read-only-action={readOnlyMode ? "true" : "false"}
-            title={readOnlyMode ? readOnlyReason ?? "Current viewer is read-only." : "Server-owned actionKind; the UI does not infer buyer action."}
+            title={
+              readOnlyMode
+                ? (readOnlyReason ?? "Current viewer is read-only.")
+                : "Server-owned actionKind; the UI does not infer buyer action."
+            }
           >
             {displayedActionAuthority.label}
           </span>
@@ -450,7 +587,10 @@ export function MetaActionCard({
           ))}
           {overflowChips > 0 ? <QuietChip>+{overflowChips}</QuietChip> : null}
           {effectiveResponseState ? (
-            <span className="meta-row__response" data-operator-response={effectiveResponseState}>
+            <span
+              className="meta-row__response"
+              data-operator-response={effectiveResponseState}
+            >
               {responseStateLabel(effectiveResponseState)}
             </span>
           ) : null}
@@ -463,13 +603,22 @@ export function MetaActionCard({
           >
             {decisionLabelText(label)}
           </span>
-          <span
-            className={cn("meta-row__stake", !stake.hasMetric ? "meta-row__stake--muted" : "")}
-            data-money-at-stake
-            style={{ color: TONE_INK[stake.tone] }}
-          >
-            {stake.text}
-          </span>
+          {boardLayout ? (
+            <span className="meta-row__metric-summary">
+              {boardMetricSummary}
+            </span>
+          ) : (
+            <span
+              className={cn(
+                "meta-row__stake",
+                !stake.hasMetric ? "meta-row__stake--muted" : "",
+              )}
+              data-money-at-stake
+              style={{ color: TONE_INK[stake.tone] }}
+            >
+              {stake.text}
+            </span>
+          )}
           {rowPresentation?.autoBadge ? (
             <span
               className="meta-row__auto"
@@ -481,7 +630,9 @@ export function MetaActionCard({
               auto
             </span>
           ) : null}
-          {evidenceAge ? <span className="meta-row__evidence-age">{evidenceAge}</span> : null}
+          {evidenceAge ? (
+            <span className="meta-row__evidence-age">{evidenceAge}</span>
+          ) : null}
           <span className="meta-row__evidence-link">Read evidence →</span>
           {deferred ? (
             <DeferChip
@@ -492,15 +643,38 @@ export function MetaActionCard({
             />
           ) : null}
         </div>
+        {boardLayout ? (
+          <p className="meta-row__why" title={rec.why}>
+            {rec.why ||
+              rec.summary ||
+              "Evidence is available in the decision inspector."}
+          </p>
+        ) : null}
       </div>
 
       <div className="meta-row__actions">
+        {boardLayout ? (
+          <span className="meta-row__spend-anchor" data-spend-anchor>
+            <small>Spend</small>
+            <b>{boardSpend}</b>
+          </span>
+        ) : null}
         <ConfidenceBandPill rec={rec} />
         <button
           type="button"
           className="btn btn--primary"
-          disabled={primaryPending || primaryDisabledForContract || (primaryCompleted && !primaryCanResume)}
-          title={readOnlyMode ? readOnlyReason ?? "Current viewer is read-only." : primaryDisabledForContract ? "No executable bid value - open evidence" : undefined}
+          disabled={
+            primaryPending ||
+            primaryDisabledForContract ||
+            (primaryCompleted && !primaryCanResume)
+          }
+          title={
+            readOnlyMode
+              ? (readOnlyReason ?? "Current viewer is read-only.")
+              : primaryDisabledForContract
+                ? "No executable bid value - open evidence"
+                : undefined
+          }
           onClick={(event) => {
             event.stopPropagation();
             if (readOnlyMode) return onOpenDrill?.(rec);
@@ -509,7 +683,15 @@ export function MetaActionCard({
             return onPrimary?.(rec);
           }}
         >
-          {primaryCanResume ? <Play className="inline-block shrink-0" size={13} aria-hidden="true" /> : <PrimaryIcon rec={rec} />}
+          {primaryCanResume ? (
+            <Play
+              className="inline-block shrink-0"
+              size={13}
+              aria-hidden="true"
+            />
+          ) : (
+            <PrimaryIcon rec={rec} />
+          )}
           {primaryPending
             ? "Working..."
             : primaryCanResume
@@ -528,12 +710,20 @@ export function MetaActionCard({
             setMenuOpen((open) => !open);
           }}
         >
-          <MoreHorizontal className="inline-block shrink-0" size={15} aria-hidden="true" />
+          <MoreHorizontal
+            className="inline-block shrink-0"
+            size={15}
+            aria-hidden="true"
+          />
         </button>
       </div>
 
       {menuOpen ? (
-        <div className="meta-row__menu" role="menu" onClick={(event) => event.stopPropagation()}>
+        <div
+          className="meta-row__menu"
+          role="menu"
+          onClick={(event) => event.stopPropagation()}
+        >
           {canDefer ? (
             <DeferTooltip>
               <button
@@ -572,11 +762,24 @@ export function MetaActionCard({
               onClick={() => setMenuOpen(false)}
             >
               Open in Ads Manager
-              <ExternalLink className="inline-block shrink-0" size={12} aria-hidden="true" />
+              <ExternalLink
+                className="inline-block shrink-0"
+                size={12}
+                aria-hidden="true"
+              />
             </a>
           ) : null}
-          <button type="button" className="meta-row__menu-item" role="menuitem" onClick={copyEntityId}>
-            <Copy className="inline-block shrink-0" size={12} aria-hidden="true" />
+          <button
+            type="button"
+            className="meta-row__menu-item"
+            role="menuitem"
+            onClick={copyEntityId}
+          >
+            <Copy
+              className="inline-block shrink-0"
+              size={12}
+              aria-hidden="true"
+            />
             Copy entity ID
           </button>
         </div>
@@ -590,14 +793,19 @@ export function MetaActionCard({
 
       {actionFeedback ? (
         <div
-          className={cn("meta-action-feedback meta-row__feedback", `meta-action-feedback--${actionFeedback.tone}`)}
+          className={cn(
+            "meta-action-feedback meta-row__feedback",
+            `meta-action-feedback--${actionFeedback.tone}`,
+          )}
           role="status"
           data-meta-action-feedback={actionFeedback.tone}
         >
           <span className="dot" aria-hidden="true" />
           <span>
             <b>{actionFeedback.title}</b>
-            {actionFeedback.detail ? <small>{actionFeedback.detail}</small> : null}
+            {actionFeedback.detail ? (
+              <small>{actionFeedback.detail}</small>
+            ) : null}
           </span>
         </div>
       ) : null}

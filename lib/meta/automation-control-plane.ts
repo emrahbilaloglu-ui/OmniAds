@@ -1,10 +1,7 @@
 import { getDb } from "@/lib/db";
 
 export type MetaAutomationReadinessControlTier =
-  | "read_only"
-  | "manual_review"
-  | "backtest_candidate"
-  | "auto_execute";
+  "read_only" | "manual_review" | "backtest_candidate" | "auto_execute";
 
 export interface MetaAutomationGuardrails {
   dailyAutoActionCap: number;
@@ -54,7 +51,8 @@ export interface MetaAutomationActivityItem {
   source: "automation_ledger" | "meta_action_log";
 }
 
-export type MetaAutomationDecisionType = "pause" | "bid" | "budget" | "creative";
+export type MetaAutomationDecisionType =
+  "pause" | "bid" | "budget" | "creative";
 export type MetaAutomationDecisionMode = "manual" | "semi_auto" | "auto";
 
 export interface MetaAutomationDecisionTypeMode {
@@ -72,11 +70,18 @@ export const META_AUTOMATION_DECISION_TYPES: MetaAutomationDecisionType[] = [
   "budget",
   "creative",
 ];
-const META_AUTOMATION_DECISION_MODES: MetaAutomationDecisionMode[] = ["manual", "semi_auto", "auto"];
+const META_AUTOMATION_DECISION_MODES: MetaAutomationDecisionMode[] = [
+  "manual",
+  "semi_auto",
+  "auto",
+];
 
 export interface MetaAutomationControlPlane {
   contractVersion: "meta-automation-control-plane.v1";
   businessId: string;
+  /** Explicit provider account used to scope provider-action evidence.
+   * Business controls and STOP state remain business-wide. */
+  providerAccountId: string | null;
   globalKillSwitch: {
     engaged: boolean;
     reason: "META_ADS_WRITE_KILL_SWITCH" | null;
@@ -97,7 +102,11 @@ export interface MetaAutomationControlPlane {
 
 export interface MetaWriteBlockState {
   blocked: boolean;
-  reason: "META_ADS_WRITE_KILL_SWITCH" | "business_kill_switch" | null;
+  reason:
+    | "META_ADS_WRITE_KILL_SWITCH"
+    | "business_kill_switch"
+    | "control_state_unavailable"
+    | null;
   message: string | null;
 }
 
@@ -176,7 +185,9 @@ function toCurrencyOrNull(value: unknown) {
   return /^[A-Z]{3}$/.test(normalized) ? normalized : null;
 }
 
-function toNotificationPolicy(value: unknown): MetaAutomationGuardrails["notificationPolicy"] {
+function toNotificationPolicy(
+  value: unknown,
+): MetaAutomationGuardrails["notificationPolicy"] {
   return value === "none" ? "none" : "every_auto_action";
 }
 
@@ -242,11 +253,15 @@ export function isTruthyControlValue(value: string | undefined | null) {
   return normalized === "1" || normalized === "true" || normalized === "yes";
 }
 
-export function isGlobalMetaAdsWriteKillSwitchEngaged(env: NodeJS.ProcessEnv = process.env) {
+export function isGlobalMetaAdsWriteKillSwitchEngaged(
+  env: NodeJS.ProcessEnv = process.env,
+) {
   return isTruthyControlValue(env.META_ADS_WRITE_KILL_SWITCH);
 }
 
-function defaultBusinessControl(businessId: string): MetaAutomationBusinessControl {
+function defaultBusinessControl(
+  businessId: string,
+): MetaAutomationBusinessControl {
   return {
     businessId,
     killSwitchEngaged: false,
@@ -260,7 +275,10 @@ function defaultBusinessControl(businessId: string): MetaAutomationBusinessContr
   };
 }
 
-function mapControlRow(row: ControlDbRow | undefined, businessId: string): MetaAutomationBusinessControl {
+function mapControlRow(
+  row: ControlDbRow | undefined,
+  businessId: string,
+): MetaAutomationBusinessControl {
   if (!row) return defaultBusinessControl(businessId);
   return {
     businessId,
@@ -307,7 +325,11 @@ function mapActionLog(row: ActionLogDbRow): MetaAutomationActivityItem {
     id: `meta-action-${row.id}`,
     activityType: `meta_${row.action}`,
     severity:
-      row.error_code === "kill_switch_engaged" ? "warning" : failed ? "danger" : "success",
+      row.error_code === "kill_switch_engaged"
+        ? "warning"
+        : failed
+          ? "danger"
+          : "success",
     message:
       row.error_code === "kill_switch_engaged"
         ? "Meta write blocked by kill switch."
@@ -376,22 +398,116 @@ async function readActivityLedger(businessId: string) {
   return rows.map(mapActivity);
 }
 
-async function readRecentActionLedger(businessId: string) {
+async function readRecentActionLedger(
+  businessId: string,
+  providerAccountId: string | null,
+) {
   const sql = getDb();
-  const rows = (await sql`
-    SELECT id, action, status, error_code, error_message, requested_at, payload_request
-    FROM meta_ads_action_log
-    WHERE business_id = ${businessId}
-      AND status IN ('success', 'failure', 'silent_failure')
-    ORDER BY requested_at DESC
-    LIMIT 20
-  `) as ActionLogDbRow[];
+  let rows: ActionLogDbRow[];
+  try {
+    rows = (await sql`
+      SELECT
+        log.id,
+        log.action,
+        log.status,
+        log.error_code,
+        log.error_message,
+        log.requested_at,
+        log.payload_request
+      FROM meta_ads_action_log log
+      WHERE log.business_id = ${businessId}
+        AND log.status IN ('success', 'failure', 'silent_failure')
+        AND (
+          ${providerAccountId}::text IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM meta_ad_dimensions dimension
+            WHERE dimension.business_id::text = ${businessId}
+              AND dimension.provider_account_id = ${providerAccountId}
+              AND dimension.ad_id IN (log.ad_id, log.resulting_ad_id)
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM meta_campaign_dimensions dimension
+            WHERE dimension.business_id::text = ${businessId}
+              AND dimension.provider_account_id = ${providerAccountId}
+              AND dimension.campaign_id = log.ad_id
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM meta_adset_dimensions dimension
+            WHERE dimension.business_id::text = ${businessId}
+              AND dimension.provider_account_id = ${providerAccountId}
+              AND dimension.adset_id = log.ad_id
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM meta_launch_intents intent
+            WHERE intent.business_id = log.business_id
+              AND intent.provider_account_id = ${providerAccountId}
+              AND intent.id::text = COALESCE(
+                log.launch_intent_id::text,
+                log.payload_request->>'launch_intent_id'
+              )
+          )
+        )
+      ORDER BY log.requested_at DESC
+      LIMIT 20
+    `) as ActionLogDbRow[];
+  } catch (error) {
+    if (!isUndefinedTableError(error)) throw error;
+
+    // LaunchIntent is an additive lineage source. Older schemas must still show
+    // account-scoped campaign, ad set and ad actions instead of dropping the
+    // entire activity ledger because this optional table is not migrated yet.
+    rows = (await sql`
+      SELECT
+        log.id,
+        log.action,
+        log.status,
+        log.error_code,
+        log.error_message,
+        log.requested_at,
+        log.payload_request
+      FROM meta_ads_action_log log
+      WHERE log.business_id = ${businessId}
+        AND log.status IN ('success', 'failure', 'silent_failure')
+        AND (
+          ${providerAccountId}::text IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM meta_ad_dimensions dimension
+            WHERE dimension.business_id::text = ${businessId}
+              AND dimension.provider_account_id = ${providerAccountId}
+              AND dimension.ad_id IN (log.ad_id, log.resulting_ad_id)
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM meta_campaign_dimensions dimension
+            WHERE dimension.business_id::text = ${businessId}
+              AND dimension.provider_account_id = ${providerAccountId}
+              AND dimension.campaign_id = log.ad_id
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM meta_adset_dimensions dimension
+            WHERE dimension.business_id::text = ${businessId}
+              AND dimension.provider_account_id = ${providerAccountId}
+              AND dimension.adset_id = log.ad_id
+          )
+        )
+      ORDER BY log.requested_at DESC
+      LIMIT 20
+    `) as ActionLogDbRow[];
+  }
   return rows.map(mapActionLog);
 }
 
 function normalizeKillSwitchReason(value: unknown) {
   const reason = typeof value === "string" ? value.trim() : "";
-  return reason.slice(0, 500) || "Operator stopped all Meta writes from Automation.";
+  return (
+    reason.slice(0, 500) || "Operator stopped all Meta writes from Automation."
+  );
 }
 
 export async function engageMetaAutomationKillSwitch(input: {
@@ -526,7 +642,9 @@ function defaultDecisionTypeModes(): MetaAutomationDecisionTypeMode[] {
   }));
 }
 
-async function readDecisionTypeModes(businessId: string): Promise<MetaAutomationDecisionTypeMode[]> {
+async function readDecisionTypeModes(
+  businessId: string,
+): Promise<MetaAutomationDecisionTypeMode[]> {
   const sql = getDb();
   const rows = (await sql`
     SELECT decision_type, mode, lock_reason, updated_at, updated_by
@@ -576,7 +694,9 @@ export async function setMetaAutomationDecisionTypeMode(input: {
   const businessId = input.businessId.trim();
   const sql = getDb();
   const reason =
-    typeof input.reason === "string" ? input.reason.trim().slice(0, 500) || null : null;
+    typeof input.reason === "string"
+      ? input.reason.trim().slice(0, 500) || null
+      : null;
   const priorRows = (await sql`
     SELECT mode FROM meta_automation_decision_type_modes
     WHERE business_id = ${businessId} AND decision_type = ${input.decisionType}
@@ -618,20 +738,30 @@ export async function setMetaAutomationDecisionTypeMode(input: {
 
 export async function getMetaAutomationControlPlane(input: {
   businessId: string;
+  providerAccountId?: string | null;
   env?: NodeJS.ProcessEnv;
 }): Promise<MetaAutomationControlPlane> {
   const businessId = input.businessId.trim();
+  const providerAccountId = input.providerAccountId?.trim() || null;
   const env = input.env ?? process.env;
   const globalKillSwitchEngaged = isGlobalMetaAdsWriteKillSwitchEngaged(env);
   const businessControl = await safeRead(
     () => readBusinessControl(businessId),
     defaultBusinessControl(businessId),
   );
-  const [promotionRecords, automationActivity, actionActivity, decisionTypeModes] = await Promise.all([
+  const [
+    promotionRecords,
+    automationActivity,
+    actionActivity,
+    decisionTypeModes,
+  ] = await Promise.all([
     safeRead(() => readPromotionRecords(businessId), []),
     safeRead(() => readActivityLedger(businessId), []),
-    safeRead(() => readRecentActionLedger(businessId), []),
-    safeRead(() => readDecisionTypeModes(businessId), defaultDecisionTypeModes()),
+    safeRead(() => readRecentActionLedger(businessId, providerAccountId), []),
+    safeRead(
+      () => readDecisionTypeModes(businessId),
+      defaultDecisionTypeModes(),
+    ),
   ]);
   const blockedReasons = [
     globalKillSwitchEngaged ? "META_ADS_WRITE_KILL_SWITCH" : null,
@@ -643,6 +773,7 @@ export async function getMetaAutomationControlPlane(input: {
   return {
     contractVersion: "meta-automation-control-plane.v1",
     businessId,
+    providerAccountId,
     globalKillSwitch: {
       engaged: globalKillSwitchEngaged,
       reason: globalKillSwitchEngaged ? "META_ADS_WRITE_KILL_SWITCH" : null,
@@ -655,12 +786,16 @@ export async function getMetaAutomationControlPlane(input: {
         businessControl.autoExecutionEnabled &&
         businessControl.readinessTier === "auto_execute" &&
         !businessControl.guardrails.dryRunOnly,
-      writeEndpointsBlocked: globalKillSwitchEngaged || businessControl.killSwitchEngaged,
+      writeEndpointsBlocked:
+        globalKillSwitchEngaged || businessControl.killSwitchEngaged,
       blockedReasons,
     },
     promotionRecords,
     activityLedger: [...automationActivity, ...actionActivity]
-      .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
+      .sort(
+        (left, right) =>
+          Date.parse(right.createdAt) - Date.parse(left.createdAt),
+      )
       .slice(0, 30),
     decisionTypeModes,
   };
@@ -684,31 +819,25 @@ export async function getMetaWriteBlockState(input: {
     return { blocked: false, reason: null, message: null };
   }
 
-  const control = await safeRead(
-    async () => {
-      try {
-        return await readBusinessControl(input.businessId.trim());
-      } catch (error) {
-        if (isUndefinedTableError(error)) {
-          return defaultBusinessControl(input.businessId.trim());
-        }
-        return {
-          ...defaultBusinessControl(input.businessId.trim()),
-          killSwitchEngaged: true,
-          killSwitchReason:
-            "Meta writes are temporarily blocked because automation control state could not be verified.",
-          source: "default" as const,
-        };
-      }
-    },
-    defaultBusinessControl(input.businessId.trim()),
-  );
+  let control: MetaAutomationBusinessControl;
+  try {
+    control = await readBusinessControl(input.businessId.trim());
+  } catch {
+    return {
+      blocked: true,
+      reason: "control_state_unavailable",
+      message:
+        "Meta writes are temporarily blocked because automation control state could not be verified.",
+    };
+  }
   if (!control.killSwitchEngaged) {
     return { blocked: false, reason: null, message: null };
   }
   return {
     blocked: true,
     reason: "business_kill_switch",
-    message: control.killSwitchReason || "Meta writes are disabled by business kill switch.",
+    message:
+      control.killSwitchReason ||
+      "Meta writes are disabled by business kill switch.",
   };
 }

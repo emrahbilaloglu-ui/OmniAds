@@ -49,9 +49,12 @@ const DEFAULT_BUSINESS_SCOPE = "enabled";
 const DEFAULT_FIDELITY_DATES = ["2026-07-03", "2026-07-04"];
 const OUTCOME_WINDOWS = [7, 14] as const;
 const HARD_LABELS = new Set<DecisionLabel>(["cut", "scale", "refresh"]);
-// Hysteresis hard boundary (decision-stability.ts). Narrower than HARD_LABELS:
-// refresh does not require two-evaluation confirmation.
-const HYSTERESIS_HARD_LABELS = new Set<DecisionLabel>(["cut", "scale"]);
+// Hysteresis hard boundary must remain identical to decision-stability.ts.
+const HYSTERESIS_HARD_LABELS = new Set<DecisionLabel>([
+  "cut",
+  "scale",
+  "refresh",
+]);
 const DEFENSIBLE_EPISODE_THRESHOLD = 30;
 const DIRECTIONAL_EPISODE_THRESHOLD = 10;
 
@@ -1795,11 +1798,11 @@ function renderMarkdown(report: ReplayReport) {
   lines.push("## Verdict Boundary");
   lines.push("");
   lines.push(
-    "This is a read-only historical replay/backtest of the current decision engine over existing warehouse data. It is not evidence that the production scheduler actually ran for 35 inclusive asOf dates / 34 elapsed historical days, and it is not causal proof that an operator would have achieved these outcomes.",
+    `This is a read-only historical replay/backtest of the current decision engine over existing warehouse data. It is not evidence that the production scheduler actually ran for ${report.dateCount} inclusive asOf dates / ${Math.max(0, report.dateCount - 1)} elapsed historical days, and it is not causal proof that an operator would have achieved these outcomes.`,
   );
   lines.push("");
   lines.push(
-    "The useful question answered here is narrower: if today's current engine had evaluated each historical asOf date, what labels would it have emitted, and what non-causal forward outcome proxy is visible for windows that are already closed by 2026-07-05?",
+    `The useful question answered here is narrower: if today's current engine had evaluated each historical asOf date, what labels would it have emitted, and what non-causal forward outcome proxy is visible for windows that are already closed by ${report.evaluationCeiling}?`,
   );
   lines.push("");
   lines.push("## Live/Write Safety");
@@ -2054,7 +2057,7 @@ function renderMarkdown(report: ReplayReport) {
   lines.push("## Outcome Episode Summary");
   lines.push("");
   lines.push(
-    "`open_window` is not `unknown`: open means the 7d/14d forward window has not closed by 2026-07-05. `unknown` means the window is closed but the classifier cannot infer outcome, most commonly zero forward spend or missing target. Precision/missed-opportunity proxy below is episode-deduped, not daily-row counted.",
+    `\`open_window\` is not \`unknown\`: open means the 7d/14d forward window has not closed by ${report.evaluationCeiling}. \`unknown\` means the window is closed but the classifier cannot infer outcome, most commonly zero forward spend or missing target. Precision/missed-opportunity proxy below is episode-deduped, not daily-row counted.`,
   );
   lines.push("");
   lines.push(
@@ -2735,10 +2738,10 @@ async function main() {
       "This replay uses the current engine path and does not create a standalone decision core.",
       "Historical freshness mode normalizes freshness to isolate formula behavior; it is analysis-only and not exact production runtime behavior.",
       "June dates can be runtime SQL fallback if no current-version lifecycle rows existed yet; they must not be compared as equal to lifecycle-informed July production rows.",
-      "Outcome windows after 2026-06-28 for 7d and after 2026-06-21 for 14d are marked open_window under the 2026-07-05 ceiling.",
+      `Outcome windows after ${addDays(args.evaluationCeiling, -7)} for 7d and after ${addDays(args.evaluationCeiling, -14)} for 14d are marked open_window under the ${args.evaluationCeiling} ceiling.`,
       "Closed-window unknown is distinct from open_window and commonly means zero forward spend; it is not counted as a failed hard decision.",
       "Outcome precision/missed-opportunity values are non-causal proxies because historical forward spend was affected by real operator/platform decisions.",
-      "Targets are read from current business target packs; target history is not versioned in this replay.",
+      "Targets are read from append-only bitemporal target history at each date-only 03:00Z producer cutoff; dates before history begins remain target-unknown and cannot gain target-derived hard authority.",
       "Outcome/calibration cells use the guard-applied surfaced decision.label; blockedActionType is reported separately and is not reclassified as a surfaced hard outcome.",
       "Hard and non-hard positive polarity is never pooled.",
       "Hysteresis is simulated with a clean per-business epoch at startDate and in-memory day-over-day chaining; production chains through persisted raw_label snapshots but applies identical rules.",

@@ -32,11 +32,9 @@ import {
   PulseStrip,
   TrackingBlockerBanner,
   TrackingConfirmModal,
-  computeRangeFromPreset,
   deriveTileFormat,
   deriveTileShape,
   type BulkAction,
-  type DateRangeValue,
   type PhonePreviewPlacement,
 } from "@/components/common/briefing";
 import type { LaunchpadOverlayMode } from "@/components/common/briefing/LaunchpadOverlay";
@@ -115,12 +113,14 @@ import {
   type ShareMetricKey,
 } from "@/components/creatives/shareCreativeTypes";
 import {
-  HtmlDateRangePicker,
-  rangeForWindow,
-  windowLabel,
-  type HtmlDateRangeValue,
-  type HtmlDateWindowKey,
-} from "@/components/common/briefing/HtmlDateRangePicker";
+  DateRangePicker,
+  dateWindowLabel,
+  dateWindowToRangeValue,
+  normalizeDateWindowBounds,
+  rangeValueToDateWindow,
+  type DateWindowKey,
+  type DateWindowValue,
+} from "@/components/date-range/DateRangePicker";
 
 type LaneCollapseState = Record<
   Extract<LaneKey, "action" | "watching" | "healthy">,
@@ -820,9 +820,9 @@ function supportedShareMetrics(metricIds: string[]): ShareMetricKey[] {
   return selected.length > 0 ? selected : ["spend", "roas", "cpa", "ctrAll"];
 }
 
-function creativeDateRangeFromParams(params: URLSearchParams | null, todayIso: string): HtmlDateRangeValue {
+function creativeDateRangeFromParams(params: URLSearchParams | null, todayIso: string): DateWindowValue {
   const rawWindow = params?.get("window");
-  const windowKey: HtmlDateWindowKey =
+  const windowKey: DateWindowKey =
     rawWindow === "7d" || rawWindow === "14d" || rawWindow === "28d" || rawWindow === "90d"
       ? rawWindow
       : rawWindow === "today" || rawWindow === "yesterday" || rawWindow === "this_month" || rawWindow === "last_month" || rawWindow === "custom"
@@ -832,10 +832,17 @@ function creativeDateRangeFromParams(params: URLSearchParams | null, todayIso: s
     const start = params?.get("start") ?? "";
     const end = params?.get("end") ?? "";
     if (/^\d{4}-\d{2}-\d{2}$/.test(start) && /^\d{4}-\d{2}-\d{2}$/.test(end)) {
-      return { window: "custom", start, end };
+      return normalizeDateWindowBounds(
+        { window: "custom", start, end },
+        { maxDate: todayIso },
+      );
     }
   }
-  return rangeForWindow(windowKey, new Date(`${todayIso}T00:00:00`));
+  return rangeValueToDateWindow(
+    dateWindowToRangeValue({ window: windowKey, start: "", end: "" }),
+    todayIso,
+    { includeCurrentDay: true },
+  );
 }
 
 function assetMetricIdsFromPresetParam(value: string | null | undefined) {
@@ -1352,9 +1359,19 @@ export function CreativesBriefingPage() {
     () => getTodayIsoForTimeZone(activeBusiness?.timezone ?? "UTC"),
     [activeBusiness?.timezone],
   );
-  const [dateRange, setDateRange] = useState<HtmlDateRangeValue>(() =>
+  const [dateRange, setDateRange] = useState<DateWindowValue>(() =>
     creativeDateRangeFromParams(searchParams, todayIso),
   );
+  useEffect(() => {
+    setDateRange((current) => {
+      if (current.window === "custom") return current;
+      return rangeValueToDateWindow(
+        dateWindowToRangeValue({ window: current.window, start: "", end: "" }),
+        todayIso,
+        { includeCurrentDay: true },
+      );
+    });
+  }, [todayIso]);
   const sevenDayStart = useMemo(() => addDaysToIso(todayIso, -6), [todayIso]);
   const libraryStart = dateRange.start;
   const libraryEnd = dateRange.end;
@@ -1780,7 +1797,7 @@ export function CreativesBriefingPage() {
   }, []);
 
   const handleDateRangeApply = useCallback(
-    (nextRange: HtmlDateRangeValue) => {
+    (nextRange: DateWindowValue) => {
       setDateRange(nextRange);
       const params = new URLSearchParams(
         typeof window === "undefined" ? (searchParams?.toString() ?? "") : window.location.search,
@@ -2212,7 +2229,34 @@ export function CreativesBriefingPage() {
             <button type="button" className={`tab ${workspaceMode === "briefing" ? "active" : ""}`} style={{ padding: "8px 14px" }} onClick={() => handleWorkspaceModeChange("briefing")}>Briefing</button>
             <button type="button" className={`tab ${workspaceMode === "library" ? "active" : ""}`} style={{ padding: "8px 14px" }} onClick={() => handleWorkspaceModeChange("library")}>Asset Library</button>
           </div>
-          <HtmlDateRangePicker value={dateRange} onApply={handleDateRangeApply} />
+          <DateRangePicker
+            value={dateWindowToRangeValue(dateRange)}
+            onChange={(next) =>
+              handleDateRangeApply(
+                rangeValueToDateWindow(next, todayIso, {
+                  includeCurrentDay: true,
+                }),
+              )
+            }
+            label="Creative date range"
+            testId="creative-date-range-picker"
+            showComparisonTrigger={false}
+            rangePresets={[
+              "today",
+              "yesterday",
+              "7d",
+              "14d",
+              "28d",
+              "90d",
+              "thisMonth",
+              "lastMonth",
+              "custom",
+            ]}
+            referenceDate={todayIso}
+            timeZoneLabel={activeBusiness?.timezone ?? "UTC"}
+            includeCurrentDayInRollingRanges
+            align="end"
+          />
           <span className={`chip ${trackingAnomalyActive ? "chip--action" : "chip--healthy"}`}><span className="dot" />{trackingAnomalyActive ? "Action gated" : "Meta connected"}</span>
         </div>
       </div>
@@ -2412,10 +2456,12 @@ export function CreativesBriefingPage() {
               onOpenRow={setLibraryHighlightedRowId}
               onCompareRows={handleCompareLibraryRows}
               onShareRows={handleShareLibraryRows}
-              dateRangeLabel={windowLabel(dateRange.window)}
+              dateRangeLabel={dateWindowLabel(dateRange.window)}
               dateRangeDetail={`${libraryStart} - ${libraryEnd}`}
               onDateRangeClick={() => {
-                const trigger = document.querySelector<HTMLButtonElement>(".date-picker-wrap .date-chip");
+                const trigger = document.querySelector<HTMLButtonElement>(
+                  '[data-testid="creative-date-range-picker-trigger"]',
+                );
                 trigger?.click();
               }}
               onSortedRowsChange={(rows: MetaCreativeRow[]) => {

@@ -1,30 +1,51 @@
-import { ArrowRight, Clock3, Network, ShieldCheck, UsersRound } from "lucide-react";
-import Link from "next/link";
+"use client";
 
-const audienceModules = [
+import { ArrowRight, Clock3, FileLock2, ShieldCheck, UsersRound } from "lucide-react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
+
+const audienceReadiness = [
   {
-    title: "Cohort map",
-    status: "Not live",
-    description:
-      "Segment growth, overlap, and fatigue signals will appear here only after the audience intelligence service is connected.",
+    contract: "Provider account scope",
+    status: "Required",
+    evidence: "No audience route contract supplies an explicit providerAccountId.",
   },
   {
-    title: "Seed quality",
-    status: "Waiting on data",
-    description:
-      "Lookalike and retargeting seeds need matched source events before this surface can score them honestly.",
+    contract: "Audience identity",
+    status: "Required",
+    evidence: "Audience ids, types, and source lineage are not available to this surface.",
   },
   {
-    title: "Exclusion health",
-    status: "Planned",
-    description:
-      "Audience conflict checks will flag duplicated reach and stale exclusions without rewriting campaign rules.",
+    contract: "Matched-event coverage",
+    status: "Required",
+    evidence: "Seed match rate and source-event coverage are not available.",
+  },
+  {
+    contract: "Overlap and exclusion freshness",
+    status: "Required",
+    evidence: "No server read model currently proves overlap or exclusion recency.",
+  },
+  {
+    contract: "Audience decision producer",
+    status: "Not proposed",
+    evidence: "No server buyerAction, confidence, or execution contract exists for audiences.",
   },
 ];
 
 export default function MetaAudiencesPage() {
+  const searchParams = useSearchParams();
+  const routeScope = {
+    businessId: searchParams?.get("businessId")?.trim() ?? "",
+    providerAccountId: searchParams?.get("providerAccountId")?.trim() ?? "",
+  };
+
   return (
-    <main className="ad-final px-4 py-4" data-testid="audiences-studio-page">
+    <main
+      className="ad-final px-4 py-4"
+      data-testid="audiences-studio-page"
+      data-audience-state="contract_blocked"
+    >
       <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4">
         <header className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--surface)]">
           <div className="flex flex-col gap-3 border-b border-[var(--border)] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
@@ -43,39 +64,58 @@ export default function MetaAudiencesPage() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Link className="btn btn--sm" href="/platforms/meta/creatives">Library</Link>
-              <Link className="btn btn--sm" href="/platforms/meta/copies">Copy</Link>
-              <Link className="btn btn--sm" href="/platforms/meta/landing-pages">Landing pages</Link>
-              <Link className="btn btn--sm" href="/platforms/meta/creative-inbox">Inbox</Link>
+              <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta/creatives", routeScope)}>Assets</Link>
+              <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta/copies", routeScope)}>Copy</Link>
+              <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta/landing-pages", routeScope)}>Landing pages</Link>
+              <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta/creative-inbox", routeScope)}>Inbox</Link>
               <span className="btn btn--sm btn--primary" aria-current="page">Audiences</span>
             </div>
           </div>
         </header>
 
         <section className="grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
-          <div className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--surface)] p-4">
+          <div className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--surface)]" data-testid="audience-readiness-ledger">
             <div className="flex items-start justify-between gap-4">
-              <div>
+              <div className="px-4 py-3">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
-                  Readiness
+                  Readiness ledger
                 </div>
-                <div className="mt-1 text-[28px] font-semibold tabular-nums text-[var(--ink)]">--</div>
+                <h2 className="mt-1 text-[15px] font-semibold text-[var(--ink)]">No live audience contract</h2>
               </div>
-              <span className="chip chip--ghost">No live audience score</span>
+              <span className="chip chip--warn mr-4 mt-3">All gates closed</span>
             </div>
-            <p className="mt-4 max-w-3xl text-[13px] leading-5 text-[var(--muted)]">
-              The UI does not show placeholder reach, match-rate, overlap, or revenue values. Those
-              fields require backend evidence before they can be useful to an operator.
-            </p>
-            <div className="mt-5 grid gap-3 md:grid-cols-3">
-              {audienceModules.map((module) => (
-                <article key={module.title} className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--surface-2)] p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <h2 className="text-[14px] font-semibold text-[var(--ink)]">{module.title}</h2>
-                    <span className="chip chip--ghost">{module.status}</span>
+            <div className="hidden overflow-x-auto border-t border-[var(--border)] md:block">
+              <div className="min-w-[620px]">
+                <div className="grid grid-cols-[minmax(160px,0.8fr)_110px_minmax(260px,1.4fr)] gap-3 bg-[var(--surface-2)] px-4 py-2 text-[10px] font-semibold uppercase text-[var(--muted)]">
+                  <span>Contract</span><span>State</span><span>Current evidence</span>
+                </div>
+                {audienceReadiness.map((item) => (
+                  <div key={item.contract} className="grid grid-cols-[minmax(160px,0.8fr)_110px_minmax(260px,1.4fr)] gap-3 border-t border-[var(--border)] px-4 py-3 text-[12px]">
+                    <strong className="font-semibold text-[var(--ink)]">{item.contract}</strong>
+                    <span className="text-[var(--warn)]">{item.status}</span>
+                    <span className="text-[var(--muted)]">{item.evidence}</span>
                   </div>
-                  <p className="mt-3 text-[12.5px] leading-5 text-[var(--muted)]">{module.description}</p>
-                </article>
+                ))}
+              </div>
+            </div>
+            <div className="grid border-t border-[var(--border)] md:hidden">
+              {audienceReadiness.map((item) => (
+                <div
+                  key={item.contract}
+                  className="grid gap-2 border-t border-[var(--border)] px-4 py-4 first:border-t-0"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <strong className="text-[12.5px] font-semibold text-[var(--ink)]">
+                      {item.contract}
+                    </strong>
+                    <span className="shrink-0 text-[11.5px] font-medium text-[var(--warn)]">
+                      {item.status}
+                    </span>
+                  </div>
+                  <p className="text-[12px] leading-5 text-[var(--muted)]">
+                    {item.evidence}
+                  </p>
+                </div>
               ))}
             </div>
           </div>
@@ -91,21 +131,21 @@ export default function MetaAudiencesPage() {
             </p>
             <div className="mt-4 flex flex-col gap-2">
               <Link
-                href="/platforms/meta/creatives"
+                href={buildMetaScopedHref("/platforms/meta/creatives", routeScope)}
                 className="group btn justify-between"
               >
                 Review creative evidence
                 <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" aria-hidden="true" />
               </Link>
               <Link
-                href="/platforms/meta"
+                href={buildMetaScopedHref("/platforms/meta", routeScope)}
                 className="group btn justify-between"
               >
                 Open Decisions
                 <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" aria-hidden="true" />
               </Link>
               <Link
-                href="/platforms/meta/launchpad"
+                href={buildMetaScopedHref("/platforms/meta/launchpad", routeScope)}
                 className="group btn justify-between"
               >
                 Build in Launchpad
@@ -113,8 +153,8 @@ export default function MetaAudiencesPage() {
               </Link>
             </div>
             <div className="mt-4 rounded-[var(--r)] border border-[var(--border)] bg-[var(--surface-2)] px-3 py-3 text-[12px] leading-5 text-[var(--muted)]">
-              <Network className="mr-2 inline h-3.5 w-3.5 text-[var(--muted)]" aria-hidden="true" />
-              Cross-audience totals stay blank until the data contract exists.
+              <FileLock2 className="mr-2 inline h-3.5 w-3.5 text-[var(--muted)]" aria-hidden="true" />
+              Reach, match rate, overlap, revenue, and recommendations stay absent until server evidence exists.
             </div>
           </aside>
         </section>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Trophy, ChevronDown, ChevronRight, X, Search, Plus, SlidersHorizontal, LayoutGrid, Ellipsis, Check, Copy, FileDown, Link2 } from "lucide-react";
+import { Trophy, ChevronDown, ChevronRight, X, Search, Plus, SlidersHorizontal, Check, Copy, FileDown, Link2 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
@@ -517,30 +517,6 @@ export function CreativesTopSection({
           <div className="min-w-0 flex-1">
             <MetricSelectorBar selectedMetricIds={selectedMetricIds} onChange={onSelectedMetricIdsChange} />
           </div>
-
-          <div className="hidden items-center gap-1.5 sm:flex">
-            <button
-              type="button"
-              aria-label="Workspace layout"
-              className="rounded-md border p-1.5 text-muted-foreground hover:text-foreground"
-            >
-              <LayoutGrid className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              aria-label="Workspace settings"
-              className="rounded-md border p-1.5 text-muted-foreground hover:text-foreground"
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              aria-label="Workspace more"
-              className="rounded-md border p-1.5 text-muted-foreground hover:text-foreground"
-            >
-              <Ellipsis className="h-4 w-4" />
-            </button>
-          </div>
         </div>
 
         <PreviewStrip
@@ -796,7 +772,7 @@ function AddFilterDropdown({
                 <button
                   type="button"
                   onClick={addRule}
-                  className="inline-flex h-10 items-center justify-center rounded-lg border border-neutral-900 bg-neutral-900 px-4 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-60"
+                  className="inline-flex h-10 items-center justify-center rounded-lg border border-[var(--adc-ink,#1a1c1f)] bg-[var(--adc-ink,#1a1c1f)] px-4 text-sm font-medium text-[var(--adc-s2,#fff)] hover:bg-[var(--adc-ink2,#4a4f56)] disabled:opacity-60"
                   disabled={!query.trim()}
                 >
                   Add
@@ -943,8 +919,8 @@ function TopExportDropdown({
             </div>
           )}
 
-          {shareError ? <p className="mt-2 text-[11px] text-red-600">{shareError}</p> : null}
-          {csvError ? <p className="mt-1 text-[11px] text-red-600">{csvError}</p> : null}
+          {shareError ? <p className="mt-2 text-[11px] text-[var(--adc-danger-fg,#a6224a)]">{shareError}</p> : null}
+          {csvError ? <p className="mt-1 text-[11px] text-[var(--adc-danger-fg,#a6224a)]">{csvError}</p> : null}
         </div>
       )}
     </div>
@@ -1069,7 +1045,7 @@ function MetricSelectorBar({ selectedMetricIds, onChange }: { selectedMetricIds:
                     <span
                       className={cn(
                         "inline-flex h-4 w-4 items-center justify-center rounded-sm border",
-                        isSelected ? "border-emerald-500 bg-emerald-500/15 text-emerald-700" : "border-muted-foreground/40 text-transparent"
+                        isSelected ? "border-[var(--adc-pos-bd,#bfdfd1)] bg-[var(--adc-pos-bg,#e9f4ef)] text-[var(--adc-pos-fg,#0b6b4f)]" : "border-muted-foreground/40 text-transparent"
                       )}
                     >
                       <Check className="h-3 w-3" />

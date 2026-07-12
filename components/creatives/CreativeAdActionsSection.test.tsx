@@ -210,32 +210,32 @@ describe("CreativeAdActionsSection", () => {
     ).toBe(true);
   });
 
-  it("renders the simplified duplicate modal without ad-level budget input", () => {
+  it("renders the PAUSED-only duplicate modal without activation or budget controls", () => {
     const html = renderSection(makeRow(), { initialDuplicateOpen: true });
 
     expect(html).toContain("Duplicate to campaign");
     expect(html).toContain("Target campaign");
     expect(html).toContain("Target ad set");
     expect(html).toContain("Name override");
-    expect(html).toContain("Activate immediately");
+    expect(html).not.toContain("Activate immediately");
+    expect(html).not.toContain("activateAfterCreate");
     expect(html).not.toContain("Daily budget");
     expect(html).not.toContain("dailyBudgetMinor");
   });
 
-  it("builds duplicate mutation payload without dailyBudgetMinor", () => {
+  it("builds a duplicate mutation payload without ACTIVE-create options", () => {
     const payload = buildDuplicateActionBody({
       businessId: "biz_1",
       targetAdsetId: "adset_2",
       nameOverride: "  Source copy  ",
-      activateAfterCreate: false,
     });
 
     expect(payload).toEqual({
       businessId: "biz_1",
       targetAdsetId: "adset_2",
       name: "Source copy",
-      activateAfterCreate: false,
     });
+    expect(payload).not.toHaveProperty("activateAfterCreate");
     expect(payload).not.toHaveProperty("dailyBudgetMinor");
   });
 

@@ -7,9 +7,10 @@ vi.mock("@/components/business/BusinessEmptyState", () => ({
   BusinessEmptyState: () => React.createElement("div", null, "business-empty"),
 }));
 
-vi.mock("@/components/meta/redesign/MetaPlatformPage", () => ({
-  MetaPlatformPage: (props: { businessId: string; businessName?: string | null }) =>
-    React.createElement("div", null, `meta-platform:${props.businessId}:${props.businessName ?? ""}`),
+// The route now supersedes MetaPlatformPage with the Meta OS DecisionsOsView.
+vi.mock("@/components/meta/os/DecisionsOsView", () => ({
+  DecisionsOsView: (props: { businessId: string; businessName?: string | null }) =>
+    React.createElement("div", null, `decisions-os:${props.businessId}:${props.businessName ?? ""}`),
 }));
 
 vi.mock("@/store/app-store", () => ({
@@ -21,7 +22,7 @@ vi.mock("@/store/app-store", () => ({
 }));
 
 describe("MetaPage", () => {
-  it("renders the redesigned Meta platform page for the selected business", () => {
-    expect(renderToStaticMarkup(<MetaPage />)).toContain("meta-platform:biz_1:TheSwaf");
+  it("renders the Meta OS decisions view for the selected business", () => {
+    expect(renderToStaticMarkup(<MetaPage />)).toContain("decisions-os:biz_1:TheSwaf");
   });
 });

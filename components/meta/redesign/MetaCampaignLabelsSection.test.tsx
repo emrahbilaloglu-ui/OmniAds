@@ -61,8 +61,10 @@ vi.mock("@tanstack/react-query", () => ({
   useQuery: (input: { queryKey: unknown[] }) => {
     state.queryKeys.push(input.queryKey);
     const key = String(input.queryKey[0]);
-    if (key === "meta-campaigns-for-labels") return queryState({ rows: state.campaigns });
-    if (key === "meta-campaign-labels") return queryState({ labels: state.labels });
+    if (key === "meta-campaigns-for-labels")
+      return queryState({ rows: state.campaigns });
+    if (key === "meta-campaign-labels")
+      return queryState({ labels: state.labels });
     return queryState(null);
   },
 }));
@@ -99,16 +101,22 @@ describe("MetaCampaignLabelsSection", () => {
   });
 
   it("renders active campaigns with current label state", () => {
-    const html = renderToStaticMarkup(<MetaCampaignLabelsSection businessId="biz_1" />);
+    const html = renderToStaticMarkup(
+      <MetaCampaignLabelsSection businessId="biz_1" />,
+    );
 
     expect(html).toContain("data-meta-campaign-labels-section");
     expect(html).toContain("Main ASC");
     expect(html).toContain("Creative Test");
     expect(html).not.toContain("Paused Campaign");
-    expect(html).toContain("1 unlabeled");
+    expect(html).toContain("Context corrections");
+    expect(html).toContain("1 unresolved");
     expect(html).toContain('data-campaign-kind="main"');
     expect(html).toContain('data-campaign-kind="unlabeled"');
-    expect(state.queryKeys).toContainEqual(["meta-campaigns-for-labels", "biz_1"]);
+    expect(state.queryKeys).toContainEqual([
+      "meta-campaigns-for-labels",
+      "biz_1",
+    ]);
   });
 
   it("still renders recent campaigns when no campaign is active", () => {
@@ -123,12 +131,18 @@ describe("MetaCampaignLabelsSection", () => {
       },
     ];
 
-    const html = renderToStaticMarkup(<MetaCampaignLabelsSection businessId="biz_1" />);
+    const html = renderToStaticMarkup(
+      <MetaCampaignLabelsSection businessId="biz_1" />,
+    );
 
     expect(html).toContain("data-meta-campaign-labels-section");
     expect(html).toContain("Paused Campaign");
     expect(html).toContain("No active campaigns were returned");
     expect(html).toContain("1 recent");
-    expect(state.queryKeys).toContainEqual(["meta-campaign-labels", "biz_1", "cmp_paused"]);
+    expect(state.queryKeys).toContainEqual([
+      "meta-campaign-labels",
+      "biz_1",
+      "cmp_paused",
+    ]);
   });
 });

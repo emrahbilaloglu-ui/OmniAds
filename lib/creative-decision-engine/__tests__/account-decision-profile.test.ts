@@ -97,7 +97,14 @@ class ProfileDataSource implements CreativeDecisionDataSource {
   }
 
   async getBusinessTargetPack(): Promise<BusinessTargetPack | null> {
-    return this.targetPack;
+    return this.targetPack
+      ? {
+          ...this.targetPack,
+          updatedAt:
+            this.targetPack.updatedAt ?? "2026-05-04T02:00:00.000Z",
+          freshness: this.targetPack.freshness ?? "fresh",
+        }
+      : null;
   }
 
   async getDecisionCalibrationProfile(): Promise<DecisionCalibrationProfileConfig | null> {
@@ -164,6 +171,118 @@ describe("resolveAccountDecisionProfile", () => {
       5,
     );
     expect(profile.hardActionEligibility.scale).toBe(true);
+  });
+
+  it("keeps stale target math inspectable but blocks hard-action eligibility", async () => {
+    const profile = await resolveAccountDecisionProfile({
+      businessId: "00000000-0000-4000-8000-000000000501",
+      asOf: "2026-05-04",
+      dataSource: new ProfileDataSource({
+        targetCpa: 100,
+        targetRoas: 2.2,
+        breakEvenCpa: 130,
+        breakEvenRoas: 1.7,
+        operatorAovAssumption: null,
+        defaultRiskPosture: "balanced",
+        freshness: "stale",
+        updatedAt: "2026-03-01T00:00:00.000Z",
+      }),
+      flags: makeFlags({ shadowOnly: false }),
+    });
+
+    expect(profile.spendUnit).toBe(100);
+    expect(profile.spendUnitConfidence).toBe("low");
+    expect(profile.spendUnitEvidence.warnings).toContain(
+      "commercial_target_stale",
+    );
+    expect(profile.hardActionEligibility).toMatchObject({
+      scale: false,
+      cut: false,
+      refresh: false,
+    });
+    expect(profile.quality).toMatchObject({
+      commercialTruthReady: false,
+      commercialTruthFreshness: "stale",
+      thresholdQuality: "degraded",
+    });
+  });
+
+  it("requires action-specific ROAS anchors even when target CPA is fresh", async () => {
+    const profile = await resolveAccountDecisionProfile({
+      businessId: "00000000-0000-4000-8000-000000000511",
+      asOf: "2026-05-04",
+      dataSource: new ProfileDataSource({
+        targetCpa: 100,
+        targetRoas: null,
+        breakEvenCpa: 130,
+        breakEvenRoas: null,
+        operatorAovAssumption: null,
+        defaultRiskPosture: "balanced",
+      }),
+      flags: makeFlags({ shadowOnly: false }),
+    });
+
+    expect(profile.spendUnitSource).toBe("target_cpa");
+    expect(profile.hardActionEligibility).toMatchObject({
+      scale: false,
+      cut: false,
+      refresh: true,
+      reasons: {
+        scale: "fresh explicit target ROAS is required for scale authority",
+        cut: "fresh explicit break-even ROAS is required for cut authority",
+      },
+    });
+    expect(profile.quality.commercialTruthReady).toBe(false);
+  });
+
+  it("does not let a growth target authorize economic cut", async () => {
+    const profile = await resolveAccountDecisionProfile({
+      businessId: "00000000-0000-4000-8000-000000000512",
+      asOf: "2026-05-04",
+      dataSource: new ProfileDataSource({
+        targetCpa: 100,
+        targetRoas: 2.2,
+        breakEvenCpa: null,
+        breakEvenRoas: null,
+        operatorAovAssumption: null,
+        defaultRiskPosture: "balanced",
+      }),
+      flags: makeFlags({ shadowOnly: false }),
+    });
+
+    expect(profile.hardActionEligibility).toMatchObject({
+      scale: true,
+      cut: false,
+      refresh: true,
+    });
+    expect(profile.hardActionEligibility.reasons?.cut).toBe(
+      "fresh explicit break-even ROAS is required for cut authority",
+    );
+  });
+
+  it("does not let a loss boundary authorize scale", async () => {
+    const profile = await resolveAccountDecisionProfile({
+      businessId: "00000000-0000-4000-8000-000000000513",
+      asOf: "2026-05-04",
+      dataSource: new ProfileDataSource({
+        targetCpa: 100,
+        targetRoas: null,
+        breakEvenCpa: 130,
+        breakEvenRoas: 1.7,
+        operatorAovAssumption: null,
+        defaultRiskPosture: "balanced",
+      }),
+      flags: makeFlags({ shadowOnly: false }),
+    });
+
+    expect(profile.hardActionEligibility).toMatchObject({
+      scale: false,
+      cut: true,
+      refresh: true,
+    });
+    expect(profile.hardActionEligibility.reasons?.scale).toBe(
+      "fresh explicit target ROAS is required for scale authority",
+    );
   });
 
   it("precomputes kind-segmented calibration while keeping canonical thresholds unchanged", async () => {

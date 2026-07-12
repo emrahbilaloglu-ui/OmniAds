@@ -4,6 +4,7 @@ import { useDeferredValue, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useAppStore } from "@/store/app-store";
 import { usePreferencesStore } from "@/store/preferences-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
@@ -30,6 +31,7 @@ import {
   sortLandingPageRows,
   type LandingPageSortState,
 } from "@/components/landing-pages/support";
+import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
 
 interface AnalyticsApiErrorPayload {
   error?: string;
@@ -73,12 +75,16 @@ function formatAnalyticsErrorMessage(error: unknown, fallback: string): string {
 }
 
 export default function LandingPagesPage() {
+  const searchParams = useSearchParams();
   const language = usePreferencesStore((state) => state.language);
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businessId = selectedBusinessId ?? "";
   const selectedBusinessCurrency =
     businesses.find((business) => business.id === selectedBusinessId)?.currency ?? null;
+  const providerAccountId =
+    searchParams?.get("providerAccountId")?.trim() ?? "";
+  const routeScope = { businessId, providerAccountId };
   const domains = useIntegrationsStore((state) =>
     selectedBusinessId ? state.domainsByBusinessId[selectedBusinessId] : undefined
   );
@@ -149,9 +155,13 @@ export default function LandingPagesPage() {
 
   if (showBootstrapGuard) {
     return (
-      <div className="ad-final px-4 py-4" data-testid="landing-pages-studio-page">
+      <div
+        className="ad-final px-4 py-4"
+        data-testid="landing-pages-studio-page"
+        data-landing-state="loading"
+      >
         <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4">
-        <LandingPageHeader propertyName={undefined} />
+        <LandingPageHeader propertyName={undefined} routeScope={routeScope} />
         <LoadingSkeleton rows={5} />
         </div>
       </div>
@@ -160,9 +170,13 @@ export default function LandingPagesPage() {
 
   if (!ga4Connected) {
     return (
-      <div className="ad-final px-4 py-4" data-testid="landing-pages-studio-page">
+      <div
+        className="ad-final px-4 py-4"
+        data-testid="landing-pages-studio-page"
+        data-landing-state="integration_required"
+      >
         <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4">
-        <LandingPageHeader propertyName={undefined} />
+        <LandingPageHeader propertyName={undefined} routeScope={routeScope} />
         <IntegrationEmptyState
           providerLabel="GA4"
           status={ga4View.status === "action_required" ? "error" : "disconnected"}
@@ -176,38 +190,29 @@ export default function LandingPagesPage() {
 
   return (
     <PlanGate requiredPlan="growth">
-      <div className="ad-final px-4 py-4" data-testid="landing-pages-studio-page">
+      <div
+        className="ad-final px-4 py-4"
+        data-testid="landing-pages-studio-page"
+        data-landing-state={query.isLoading ? "loading" : query.isError ? "error" : "ready"}
+      >
       <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4">
-        <LandingPageHeader propertyName={query.data?.meta.propertyName} />
+        <LandingPageHeader
+          propertyName={query.data?.meta.propertyName}
+          routeScope={routeScope}
+        />
 
-        <section className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--surface)] p-4">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="max-w-2xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-neutral-500">
-                {language === "tr" ? "Landing Page Performance" : "Landing Page Performance"}
-              </p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-neutral-950">
-                {language === "tr" ? "GA4 funnel diagnostigi: oturum girişinden tamamlanan purchase'a" : "GA4 funnel diagnostics from session entry to completed purchase"}
-              </h2>
-              <p className="mt-2 text-sm leading-6 text-neutral-600">
-                {language === "tr" ? "GA4 kanıtıyla landing page girişlerini, funnel sürtünmesini ve satın alma sonucunu inceler. Bu yüzey analiz içindir; reklam aksiyonları Decisions veya Launchpad içinde kalır." : "Inspect landing-page entry quality, funnel friction, and purchase outcomes from GA4 evidence. This surface is analysis-only; ad actions stay in Decisions or Launchpad."}
-              </p>
-            </div>
-
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <DateRangePicker value={dateRange} onChange={setDateRange} />
-              <label className="relative block min-w-[260px]">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
-                <input
-                  value={searchTerm}
-                  onChange={(event) => setSearchTerm(event.target.value)}
-                  placeholder={language === "tr" ? "Sayfa yolunda ara" : "Search page path"}
-                  className="h-10 w-full rounded-md border border-neutral-200 bg-white pl-9 pr-3 text-sm text-neutral-900 outline-none transition focus:border-neutral-400"
-                />
-              </label>
-            </div>
-          </div>
-        </section>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+          <DateRangePicker value={dateRange} onChange={setDateRange} />
+          <label className="relative block min-w-[260px]">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--adc-ink3,#7d838c)]" />
+            <input
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder={language === "tr" ? "Sayfa yolunda ara" : "Search page path"}
+              className="h-10 w-full rounded-md border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s2,#ffffff)] pl-9 pr-3 text-sm text-[var(--adc-ink,#1a1c1f)] outline-none transition focus:border-[var(--adc-focus,#1e62d0)]"
+            />
+          </label>
+        </div>
 
         {query.isLoading ? (
           <LoadingSkeleton rows={6} />
@@ -266,7 +271,13 @@ export default function LandingPagesPage() {
   );
 }
 
-function LandingPageHeader({ propertyName }: { propertyName?: string }) {
+function LandingPageHeader({
+  propertyName,
+  routeScope,
+}: {
+  propertyName?: string;
+  routeScope: { businessId: string; providerAccountId: string };
+}) {
   return (
     <header className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--surface)]">
       <div className="flex flex-col gap-3 border-b border-[var(--border)] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
@@ -275,7 +286,7 @@ function LandingPageHeader({ propertyName }: { propertyName?: string }) {
           <div className="mt-0.5 flex flex-wrap items-center gap-2">
             <h1 className="page-title">Landing Pages</h1>
             <span className="chip chip--info">
-              Analysis only - decisions live in <Link href="/platforms/meta">Decisions</Link>
+              Analysis only - decisions live in <Link href={buildMetaScopedHref("/platforms/meta", routeScope)}>Decisions</Link>
             </span>
           </div>
           <p className="mt-1 max-w-3xl text-[13px] text-[var(--muted)]">
@@ -284,11 +295,11 @@ function LandingPageHeader({ propertyName }: { propertyName?: string }) {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link className="btn btn--sm" href="/platforms/meta/creatives">Library</Link>
-          <Link className="btn btn--sm" href="/platforms/meta/copies">Copy</Link>
+          <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta/creatives", routeScope)}>Assets</Link>
+          <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta/copies", routeScope)}>Copy</Link>
           <span className="btn btn--sm btn--primary" aria-current="page">Landing pages</span>
-          <Link className="btn btn--sm" href="/platforms/meta/creative-inbox">Inbox</Link>
-          <Link className="btn btn--sm" href="/platforms/meta/audiences">Audiences</Link>
+          <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta/creative-inbox", routeScope)}>Inbox</Link>
+          <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta/audiences", routeScope)}>Audiences</Link>
         </div>
       </div>
     </header>

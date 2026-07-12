@@ -1,3 +1,5 @@
+import { getMetaWriteBlockState } from "@/lib/meta/automation-control-plane";
+
 export interface MetaAdsWriteContext {
   businessId: string;
   providerAccountId: string;
@@ -96,6 +98,27 @@ function killSwitchFailure(): MetaAdsWriteFailure {
     responsePayload: null,
     verificationPayload: null,
   };
+}
+
+export async function getMetaAdsWriteBlockFailure(
+  ctx: MetaAdsWriteContext,
+): Promise<MetaAdsWriteFailure | null> {
+  const block = await getMetaWriteBlockState({ businessId: ctx.businessId });
+  if (!block.blocked) return null;
+  return {
+    ok: false,
+    httpStatus: 503,
+    error: {
+      code: "kill_switch_engaged",
+      message: block.message ?? "Meta writes are disabled by kill switch.",
+    },
+    responsePayload: null,
+    verificationPayload: null,
+  };
+}
+
+function metaWriteErrorStatus(error: MetaAdsWriteError) {
+  return error.code === "kill_switch_engaged" ? 503 : 502;
 }
 
 function dryRunPayload(wouldHaveWritten: MetaAdsWouldHaveWritten) {
@@ -371,7 +394,7 @@ async function buildRecreatedCreative(input: {
   if (write.error) {
     return {
       ok: false,
-      httpStatus: 502,
+      httpStatus: metaWriteErrorStatus(write.error),
       error: write.error,
       responsePayload: write.payload,
     };
@@ -440,6 +463,14 @@ async function metaFetchWithRateLimitRetry(input: {
   body?: URLSearchParams;
   fields?: string;
 }) {
+  const initialBlock = await getMetaAdsWriteBlockFailure(input.ctx);
+  if (initialBlock) {
+    return {
+      response: null,
+      payload: null,
+      error: initialBlock.error,
+    };
+  }
   const first = await metaFetch(input);
   if (
     first.response &&
@@ -447,6 +478,14 @@ async function metaFetchWithRateLimitRetry(input: {
     isRateLimitPayload(first.payload)
   ) {
     await delay(RATE_LIMIT_RETRY_MS);
+    const retryBlock = await getMetaAdsWriteBlockFailure(input.ctx);
+    if (retryBlock) {
+      return {
+        response: null,
+        payload: null,
+        error: retryBlock.error,
+      };
+    }
     return metaFetch(input);
   }
   return first;
@@ -612,7 +651,7 @@ async function updateEntityStatus(
   if (write.error) {
     return {
       ok: false,
-      httpStatus: 502,
+      httpStatus: metaWriteErrorStatus(write.error),
       error: write.error,
       responsePayload: write.payload,
     };
@@ -715,7 +754,7 @@ async function updateAdStatus(
   if (write.error) {
     return {
       ok: false,
-      httpStatus: 502,
+      httpStatus: metaWriteErrorStatus(write.error),
       error: write.error,
       responsePayload: write.payload,
     };
@@ -865,7 +904,7 @@ export async function updateAdsetBidAmount(
   if (write.error) {
     return {
       ok: false,
-      httpStatus: 502,
+      httpStatus: metaWriteErrorStatus(write.error),
       error: write.error,
       responsePayload: write.payload,
     };
@@ -924,7 +963,6 @@ type MetaAdDuplicateInput = {
   adId: string;
   targetAdsetId: string;
   name?: string;
-  activateAfterCreate: boolean;
   copyMode?: MetaAdDuplicateCopyMode;
   dryRun?: boolean;
 };
@@ -1008,7 +1046,7 @@ export async function duplicateAd(
     };
   }
 
-  const statusOption = input.activateAfterCreate ? "ACTIVE" : "PAUSED";
+  const statusOption = "PAUSED";
   const sourceName = readStringField(sourceAd.payload, "name");
   const name =
     typeof input.name === "string" && input.name.trim().length > 0
@@ -1078,7 +1116,7 @@ export async function duplicateAd(
   if (write.error) {
     return {
       ok: false,
-      httpStatus: 502,
+      httpStatus: metaWriteErrorStatus(write.error),
       error: write.error,
       responsePayload: write.payload,
     };

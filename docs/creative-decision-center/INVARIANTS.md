@@ -5,6 +5,23 @@ These rules are hard gates for V2.1.
 ## Required Invariants
 
 - UI must not compute `buyerAction`.
+- Meta Decisions must never present legacy `diagnose_data` as an Act Now buyer
+  action. Its server projection is `decisionState: blocked`,
+  `buyerAction: null`, and a non-null versioned resolution.
+- UI must not derive a blocked resolution from free-form reason text, raw
+  labels, badges, or metrics. It renders the server-produced resolution.
+- Persisted `diagnose` remains readable for historical compatibility; a
+  presentation change must not rewrite old snapshots.
+- A campaign-context-held Scale, Cut, or Refresh signal must round-trip through
+  nullable snapshot `blocked_action_type`; consumers must not recover it by
+  parsing free-form reason text.
+- Known `test_more`, `keep`, `refresh`, funnel, and out-of-scope states must not
+  fall through to a generic "Cannot Assess" assessment.
+- Exact-ad candidate caps must run after server state/action classification and
+  must preserve representation for every non-empty Act Now, Needs Resolution,
+  and Monitoring lane.
+- Creative decisions with ambiguous multi-ad identity remain withheld until an
+  ad-grain producer exists; they must never be attached to an arbitrary ad.
 - No row-level `brief_variation`.
 - No `fix_delivery` without active status + no spend/impression proof.
 - No `fix_policy` without review/effective/disapproval/limited proof.
@@ -14,8 +31,46 @@ These rules are hard gates for V2.1.
   actionability.
 - Stale source evidence must hard-veto scale because scale requires fresh
   recent-hold proof.
+- Freshness may block execution authority but must not erase a severe stop-loss
+  verdict. There is no second 7-day label cliff: the source freshness boundary
+  caps confidence and serves the held action as review-only.
 - No hard cut for new launch unless maturity threshold is met or severe-loss rule is explicit.
 - No high-confidence scale when benchmark/target is missing.
+- A configured commercial target older than 30 days must remain visible but
+  must resolve as `commercial_truth_stale`, reduce confidence, and block
+  target-derived hard actions until reconfirmed.
+- A configured commercial target with unknown update time is stale-equivalent;
+  unknown recency must never be interpreted as fresh commercial truth.
+- UI surfaces must consume server-provided commercial-target freshness and
+  authority. They must not recompute the 30-day boundary or restore a blocked
+  buyer action client-side.
+- Hysteresis may delay entry into `scale`, `cut`, or `refresh`, but it must
+  never republish an earlier hard action after the current guarded decision has
+  exited to a soft, blocked, or not-applicable state. A pending hard transition
+  must publish a non-hard label with `blockedActionType` provenance and an
+  explicit no-action reason; label, reason, badges, and served action must not
+  form a hybrid decision.
+- Creative fatigue requires either valid exposure pressure or benchmark-relative
+  weakening in addition to performance decay. Performance decay without that
+  evidence belongs to lifecycle/performance state, not fatigue. A recent
+  floor-clearing period that is non-declining versus its older comparison
+  period must not be labeled `fatigued`.
+- Frequency pressure must be account-relative (28-day creative P75 with at
+  least eight observations). A global frequency cliff or a creative's own
+  single-row percentile must not authorize fatigue.
+- When recent14 exists, creative fatigue decay must use the directly preceding
+  disjoint prior14 period. Overlapping cumulative rates are not a substitute.
+- A funnel rate must be materially weak relative to the account distribution,
+  not merely epsilon-below P25. Landing/checkout evidence remains secondary
+  when `ROAS / target_ROAS >= 0.85`; it must not erase a Keep or Winner verdict.
+- Every funnel percentile must clear its own metric sample floor. Sample depth
+  from CTR must not authorize a sparse downstream conversion-rate percentile.
+- Quality-only confidence is information-monotone: adding a compatible scored
+  component cannot reduce confidence. Unscored denominators must not enter the
+  confidence aggregate.
+- Messaging/conversation optimization is not post-engagement. Until dedicated
+  conversation totals and calibration exist, unrelated post-engagement metrics
+  must never authorize messaging scale or cut.
 - Cut maturity must use commercial loss-budget spend, not winner-pool purchase depth.
 - Scale spend maturity must use the same commercial loss-budget spend as cut.
 - Scale must additionally require purchase depth and recent performance hold;
@@ -39,10 +94,49 @@ These rules are hard gates for V2.1.
   generic maturity gate.
 - Policy and delivery blockers override performance.
 - Campaign/adset paused must not become `fix_delivery`.
+- Unknown delivery status must not be treated as active delivery or increase
+  hard-action authority; it resolves as an explicit data blocker.
 - Missing required data must produce `diagnose_data` or confidence cap.
 - Aggregate decisions must not attach to a random `creativeId`.
 - Same input/config/version must produce deterministic output.
 - No hard-coded thresholds scattered inside resolver.
+- Budget scale requires a fresh explicit target ROAS; break-even alone must not
+  be multiplied into a synthetic growth target. Economic cut requires a fresh
+  explicit break-even ROAS; target ROAS alone must not be multiplied into a
+  synthetic loss boundary.
+- Creative/Ads `scale` and `cut` hard eligibility follow the same action-specific
+  ROAS anchors. A fresh target CPA may size evidence but cannot authorize either
+  ROAS action by itself.
+- A dated Structure snapshot must use the target version visible at its exact
+  producer cutoff. A persisted spend-changing recommendation must be rechecked
+  against current commercial authority when served; stale, deleted, missing, or
+  objective-incompatible authority is review-only with no proposed mutation.
+- A purchase target must not authorize CPL, cost-per-ATC, CPC, or engagement
+  spend changes. Until goal-specific commercial anchors exist, those relative
+  Structure candidates are review-only even when their cohort rank is strong.
+- Loss maturity is the maximum of account-calibrated hard-cut spend and the
+  CPA baseline times explicit risk posture. Currency-specific absolute floors
+  must not grant or withhold decision authority.
+- Positive-spend creative rows spanning more than one provider account,
+  campaign, ad set, optimization context, objective, or funnel cohort are
+  `out_of_scope` until an ad-grain producer exists. Majority-spend context
+  selection is forbidden.
+- Structure history must use disjoint reconstructed time bands. Nested
+  cumulative windows cannot count as independent confirmations.
+- A durable terminal raw cursor (`nextPageUrl = null`) ends fetch. It must not
+  restart page one, and post-fetch checkpoint progression is based on the
+  partition-global `last_page_index + 1`, never generation length.
+- Structure maturity must be bounded by observed first delivery, distinct
+  active days, and as-of calendar age; a window label never proves age.
+- Structure peer baselines must not cross provider account, currency, funnel
+  intent, campaign lane, or incompatible bid/optimization contexts.
+- Historical target reads require both effective-time and recorded-time cutoff.
+  Mutable current targets must not be projected backward, and pre-history
+  remains unknown. Date-only decision replay uses the scheduled 03:00Z producer
+  cutoff; same-day target versions recorded later cannot enter that decision.
+- Raw snapshot PIT reconstruction must select the latest exact-day generation
+  at cutoff without falling back to an older complete generation. Missing
+  scopes or identities remain `unknown`, never `pass`.
 - Kind-aware baseline selection must be all-or-nothing per decision: a decision
   uses either a kind-selected profile view or the canonical `all` profile, never
   a mixed per-gate blend.
@@ -67,13 +161,21 @@ These rules are hard gates for V2.1.
 
 ## Metamorphic Tests
 
-| Change                              | Expected behavior                                                                    |
-| ----------------------------------- | ------------------------------------------------------------------------------------ |
-| dataFreshness becomes stale         | stop-loss confidence is capped; mature severe losers may stay `cut`; scale is blocked |
-| benchmarkReliability strong -> weak | confidence goes down                                                                 |
-| campaignStatus active -> paused     | `fix_delivery` disappears                                                            |
-| reviewStatus -> disapproved         | policy overrides performance                                                         |
-| launch age under threshold          | hard scale/cut becomes `watch_launch` / `test_more` unless maturity threshold is met |
+| Change                              | Expected behavior                                                                      |
+| ----------------------------------- | -------------------------------------------------------------------------------------- |
+| dataFreshness becomes stale         | stop-loss confidence is capped; mature severe losers may stay `cut`; scale is blocked  |
+| benchmarkReliability strong -> weak | confidence goes down                                                                   |
+| campaignStatus active -> paused     | `fix_delivery` disappears                                                              |
+| reviewStatus -> disapproved         | policy overrides performance                                                           |
+| launch age under threshold          | hard scale/cut becomes `watch_launch` / `test_more` unless maturity threshold is met   |
+| commercial target fresh -> stale    | target stays visible; confidence falls; target-derived hard actions become review-only |
+| commercial target timestamp missing | same authority reduction as stale, never fresh-by-default                              |
+| only break-even ROAS becomes known  | portfolio comparison may improve; campaign budget scale stays blocked                  |
+| only target ROAS becomes known      | target-relative context appears; economic cut stays blocked without break-even          |
+| creative reused in second ad set    | aggregate action authority falls to out-of-scope; confidence must not increase          |
+| nested 30d window is added          | independent Structure evidence count does not increase                                  |
+| frequency 3.0, account P75 3.5      | frequency does not establish fatigue pressure                                           |
+| future target version is inserted   | earlier as-of replay remains byte-equivalent                                             |
 
 ## Test Placement
 

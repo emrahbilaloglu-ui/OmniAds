@@ -461,8 +461,8 @@ describe("applyPostProcess - lifecycle awareness", () => {
   });
 });
 
-describe("finalizeDecision - stale hard-action ceiling (v-next, label-active)", () => {
-  const finalizeWith = (label: "cut" | "keep", freshnessHours: number) =>
+describe("finalizeDecision - stale hard-action authority", () => {
+  const finalizeWith = (label: DecisionLabel, freshnessHours: number | null) =>
     finalizeDecision(
       makeGateContext({
         input: makeCreativeInput({ dataFreshnessHours: freshnessHours }),
@@ -473,19 +473,45 @@ describe("finalizeDecision - stale hard-action ceiling (v-next, label-active)", 
       "test reason",
     );
 
-  it("demotes hard labels computed from very stale data to diagnose", () => {
+  it("keeps a stale stop-loss verdict visible but records it as held", () => {
     const decision = finalizeWith("cut", 20 * 24);
-    expect(decision.label).toBe("diagnose");
-    expect(decision.reason.startsWith("[stale ceiling")).toBe(true);
+    expect(decision.label).toBe("cut");
+    expect(decision.blockedActionType).toBe("cut");
+    expect(decision.confidence).toBeLessThanOrEqual(65);
+    expect(decision.badges.some((b) => b.type === "stale_evidence")).toBe(
+      true,
+    );
     expect(
       decision.badges.some((b) => b.type === "stale_hard_ceiling_advisory"),
     ).toBe(true);
   });
 
-  it("leaves fresh data and soft labels untouched", () => {
-    expect(finalizeWith("cut", 24).label).toBe("cut");
+  it.each(["scale", "refresh"] as const)(
+    "holds stale %s without publishing a hard label",
+    (label) => {
+      const decision = finalizeWith(label, 20 * 24);
+      expect(decision.label).toBe("keep");
+      expect(decision.blockedActionType).toBe(label);
+      expect(decision.reason).toContain("fresh data required");
+    },
+  );
+
+  it("treats unknown freshness as stale-equivalent for hard authority", () => {
+    const decision = finalizeWith("cut", null);
+    expect(decision.label).toBe("cut");
+    expect(decision.blockedActionType).toBe("cut");
+    expect(
+      decision.badges.some((badge) => badge.type === "unknown_freshness"),
+    ).toBe(true);
+  });
+
+  it("leaves fresh hard labels and stale soft labels untouched", () => {
+    const fresh = finalizeWith("cut", 24);
+    expect(fresh.label).toBe("cut");
+    expect(fresh.blockedActionType).toBeNull();
     const soft = finalizeWith("keep", 20 * 24);
     expect(soft.label).toBe("keep");
+    expect(soft.blockedActionType).toBeNull();
     expect(
       soft.badges.some((b) => b.type === "stale_hard_ceiling_advisory"),
     ).toBe(false);

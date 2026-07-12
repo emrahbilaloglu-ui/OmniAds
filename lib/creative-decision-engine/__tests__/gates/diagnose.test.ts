@@ -33,6 +33,64 @@ function terminalOutput(result: ReturnType<typeof diagnoseGate>) {
 }
 
 describe("diagnoseGate", () => {
+  it("diagnoses unknown delivery status instead of allowing performance actions", () => {
+    const output = terminalOutput(
+      diagnoseGate(
+        resolvedContext({
+          effectiveStatus: null,
+          purchases: 0,
+          spend: 300,
+          ageDays: 14,
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("diagnose");
+    expect(output.reason).toContain("Delivery status is unavailable");
+    expect(output.badges).toContainEqual({
+      type: "delivery_status_unknown",
+      label: "Delivery status unavailable",
+      severity: "warning",
+    });
+  });
+
+  it("preserves explicit policy proof when delivery status is unknown", () => {
+    const output = terminalOutput(
+      diagnoseGate(
+        resolvedContext({
+          effectiveStatus: null,
+          policyReason: "Creative has prohibited claims",
+          spend: 300,
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("diagnose");
+    expect(output.reason).toContain("Policy reject");
+    expect(output.badges).toContainEqual(
+      expect.objectContaining({ type: "policy_blocked" }),
+    );
+    expect(output.badges).not.toContainEqual(
+      expect.objectContaining({ type: "delivery_status_unknown" }),
+    );
+  });
+
+  it("preserves disapproved review proof when delivery status is unknown", () => {
+    const output = terminalOutput(
+      diagnoseGate(
+        resolvedContext({
+          effectiveStatus: null,
+          reviewStatus: "DISAPPROVED",
+          spend: 300,
+        }),
+      ),
+    );
+
+    expect(output.badges).toContainEqual(
+      expect.objectContaining({ type: "policy_blocked" }),
+    );
+  });
+
   it("adds a warning but does not diagnose active creatives with no recent spend", () => {
     const result = diagnoseGate(
       resolvedContext({
@@ -289,15 +347,16 @@ describe("diagnoseGate", () => {
   it("diagnoses landing-page funnel issues when add-to-cart collapses after clicks", () => {
     const output = terminalOutput(
       diagnoseGate(
-      resolvedContext({
-        spend: 500,
-        impressions: 5000,
-        linkClicks: 100,
-        landingPageViews: 80,
-        addToCart: 0,
-        initiateCheckout: 0,
-        purchases: 0,
-      }),
+        resolvedContext({
+          spend: 500,
+          roas: 1,
+          impressions: 5000,
+          linkClicks: 100,
+          landingPageViews: 80,
+          addToCart: 0,
+          initiateCheckout: 0,
+          purchases: 0,
+        }),
       ),
     );
 
@@ -316,6 +375,7 @@ describe("diagnoseGate", () => {
         resolvedContext({
           objective: "OUTCOME_SALES",
           spend: 500,
+          roas: 1,
           impressions: 5000,
           linkClicks: 100,
           landingPageViews: 80,
@@ -334,6 +394,54 @@ describe("diagnoseGate", () => {
       severity: "warning",
     });
     expect(output.confidence).toBe(70);
+  });
+
+  it("keeps funnel weakness secondary when ROAS is inside the economic keep band", () => {
+    const result = diagnoseGate(
+      resolvedContext({
+        spend: 500,
+        roas: 2.1,
+        targetRoas: 2.2,
+        impressions: 5000,
+        linkClicks: 100,
+        landingPageViews: 80,
+        addToCart: 0,
+        initiateCheckout: 0,
+        purchases: 4,
+      }),
+    );
+
+    expect(result.kind).toBe("advance");
+    if (result.kind === "advance") {
+      expect(result.context.badges).toContainEqual({
+        type: "landing_page_issue",
+        label: "Landing page issue",
+        severity: "warning",
+      });
+    }
+  });
+
+  it("keeps funnel weakness secondary when economic evidence is in the scale zone", () => {
+    const result = diagnoseGate(
+      resolvedContext({
+        spend: 500,
+        roas: 3.3,
+        targetRoas: 2.2,
+        impressions: 5000,
+        linkClicks: 100,
+        landingPageViews: 80,
+        addToCart: 0,
+        initiateCheckout: 0,
+        purchases: 20,
+      }),
+    );
+
+    expect(result.kind).toBe("advance");
+    if (result.kind === "advance") {
+      expect(result.context.badges).toContainEqual(
+        expect.objectContaining({ type: "landing_page_issue" }),
+      );
+    }
   });
 
   it("advances healthy creatives", () => {

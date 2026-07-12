@@ -90,25 +90,67 @@ function resolveWhat(row: ActionLogFeedRow, actionClass: string): string {
 
 export async function buildBuyerClientActions({
   businessId,
+  providerAccountId,
   sinceDays = 30,
   limit = 10,
 }: {
   businessId: string;
+  providerAccountId: string;
   sinceDays?: number;
   limit?: number;
 }): Promise<SharedClientAction[]> {
   const trimmedBusinessId = businessId.trim();
-  if (!trimmedBusinessId) return [];
+  const trimmedProviderAccountId = providerAccountId.trim();
+  if (!trimmedBusinessId || !trimmedProviderAccountId) return [];
 
   const rows = await safeReadRows(async () => {
     const sql = getDb();
     return (await sql`
-      SELECT id, action, status, creative_id, requested_at, payload_request
-      FROM meta_ads_action_log
-      WHERE business_id = ${trimmedBusinessId}
-        AND status IN ('success', 'failure', 'silent_failure')
-        AND requested_at > NOW() - (${sinceDays}||' days')::interval
-      ORDER BY requested_at DESC
+      SELECT
+        log.id,
+        log.action,
+        log.status,
+        log.creative_id,
+        log.requested_at,
+        log.payload_request
+      FROM meta_ads_action_log log
+      WHERE log.business_id = ${trimmedBusinessId}
+        AND log.status IN ('success', 'failure', 'silent_failure')
+        AND (
+          EXISTS (
+            SELECT 1
+            FROM meta_ad_dimensions dimension
+            WHERE dimension.business_id::text = ${trimmedBusinessId}
+              AND dimension.provider_account_id = ${trimmedProviderAccountId}
+              AND dimension.ad_id IN (log.ad_id, log.resulting_ad_id)
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM meta_campaign_dimensions dimension
+            WHERE dimension.business_id::text = ${trimmedBusinessId}
+              AND dimension.provider_account_id = ${trimmedProviderAccountId}
+              AND dimension.campaign_id = log.ad_id
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM meta_adset_dimensions dimension
+            WHERE dimension.business_id::text = ${trimmedBusinessId}
+              AND dimension.provider_account_id = ${trimmedProviderAccountId}
+              AND dimension.adset_id = log.ad_id
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM meta_launch_intents intent
+            WHERE intent.business_id = log.business_id
+              AND intent.provider_account_id = ${trimmedProviderAccountId}
+              AND intent.id::text = COALESCE(
+                log.launch_intent_id::text,
+                log.payload_request->>'launch_intent_id'
+              )
+          )
+        )
+        AND log.requested_at > NOW() - (${sinceDays}||' days')::interval
+      ORDER BY log.requested_at DESC
       LIMIT 30
     `) as ActionLogFeedRow[];
   });

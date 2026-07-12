@@ -59,7 +59,52 @@ const {
   getMetaWarehouseCampaignTable,
   getMetaWarehouseBreakdowns,
   getMetaWarehouseCountryBreakdowns,
+  rebuildAccountRowsFromCampaignRows,
 } = await import("@/lib/meta/serving");
+
+function metaCampaignDailyRow(overrides: Record<string, unknown> = {}) {
+  return {
+    businessId: "biz-1",
+    providerAccountId: "act_1",
+    date: "2026-04-01",
+    campaignId: "cmp-1",
+    campaignNameCurrent: "Campaign 1",
+    campaignNameHistorical: "Campaign 1",
+    campaignStatus: "ACTIVE",
+    objective: "OUTCOME_SALES",
+    buyingType: "AUCTION",
+    optimizationGoal: "Purchase",
+    customEventType: "PURCHASE",
+    bidStrategyType: null,
+    bidStrategyLabel: null,
+    manualBidAmount: null,
+    bidValue: null,
+    bidValueFormat: null,
+    dailyBudget: null,
+    lifetimeBudget: null,
+    isBudgetMixed: false,
+    isConfigMixed: false,
+    isOptimizationGoalMixed: false,
+    isCustomEventTypeMixed: false,
+    isBidStrategyMixed: false,
+    isBidValueMixed: false,
+    accountTimezone: "UTC",
+    accountCurrency: "USD",
+    spend: 0,
+    impressions: 0,
+    clicks: 0,
+    reach: 0,
+    frequency: null,
+    conversions: 0,
+    revenue: 0,
+    roas: 0,
+    cpa: null,
+    ctr: null,
+    cpc: null,
+    sourceSnapshotId: null,
+    ...overrides,
+  };
+}
 
 describe("meta historical serving", () => {
   beforeEach(() => {
@@ -109,7 +154,7 @@ describe("meta historical serving", () => {
         isBidStrategyMixed: false,
         isBidValueMixed: false,
         accountTimezone: "UTC",
-        accountCurrency: "USD",
+        accountCurrency: "TRY",
         spend: 20,
         impressions: 100,
         clicks: 4,
@@ -148,9 +193,58 @@ describe("meta historical serving", () => {
       objective: "OUTCOME_SALES",
       spend: 20,
       revenue: 50,
+      currency: "TRY",
       previousDailyBudget: null,
     });
     warn.mockRestore();
+  });
+
+  it("derives as-of-safe campaign delivery depth from distinct daily delivery rows", async () => {
+    vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([
+      metaCampaignDailyRow({ date: "2026-04-01" }),
+      metaCampaignDailyRow({ date: "2026-04-03", impressions: 100 }),
+      metaCampaignDailyRow({ date: "2026-04-10", spend: 20 }),
+      metaCampaignDailyRow({ date: "2026-04-10", impressions: 50 }),
+      metaCampaignDailyRow({ date: "2026-05-01", spend: 100 }),
+    ] as never);
+
+    const rows = await getMetaWarehouseCampaignTable({
+      businessId: "biz-1",
+      startDate: "2026-04-01",
+      endDate: "2026-04-30",
+    });
+
+    expect(rows[0]).toMatchObject({
+      firstDeliveryDate: "2026-04-03",
+      activeDayCount: 2,
+      ageDays: 28,
+      asOfDate: "2026-04-30",
+    });
+  });
+
+  it("fails closed when a repair would create a financial row without currency", () => {
+    expect(() =>
+      rebuildAccountRowsFromCampaignRows({
+        campaignRows: [
+          {
+            businessId: "biz-1",
+            providerAccountId: "act_1",
+            date: "2026-04-03",
+            accountTimezone: "UTC",
+            accountCurrency: null,
+            spend: 20,
+            impressions: 100,
+            clicks: 4,
+            reach: 90,
+            conversions: 2,
+            revenue: 50,
+            sourceSnapshotId: null,
+            sourceRunId: null,
+            truthVersion: 1,
+          },
+        ] as never,
+      })
+    ).toThrow("meta_currency_unavailable:account_rebuild:act_1:2026-04-03");
   });
 
   it("keeps ad set table rows when optional enrichment queries fail", async () => {

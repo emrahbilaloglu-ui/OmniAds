@@ -30,6 +30,10 @@ describe("LaunchpadOverlay", () => {
     // Honesty: with no real bid data on the item, the title carries no fabricated cap
     // (the old "$22"/"$18" placeholders are gone).
     expect(html).toContain("Apply bid cap");
+    expect(html).toContain("Stored LaunchIntent unavailable");
+    expect(html).toContain("legacy URL prefill only");
+    expect(html).toContain("Open manual setup");
+    expect(html).not.toContain("highest weighted-ROAS adset family");
     expect(html).not.toContain("$22");
     expect(html).not.toContain("$18");
   });

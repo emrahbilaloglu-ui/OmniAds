@@ -29,7 +29,7 @@ import { getProviderLabel } from "@/components/integrations/oauth";
 import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 import { isDemoBusinessId } from "@/lib/demo-business";
 import { usePreferencesStore } from "@/store/preferences-store";
-import { ArrowRight, CheckCircle2, Layers3, Link2, Sparkles } from "lucide-react";
+import { ArrowRight, CheckCircle2, Link2, Sparkles } from "lucide-react";
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import type { ShopifyStatusResponse } from "@/lib/shopify/status";
@@ -716,7 +716,7 @@ export default function IntegrationsPage() {
                     .map((item) => (
                       <Badge
                         key={item.provider}
-                        className="border border-emerald-200 bg-emerald-50 text-emerald-700"
+                        className="border border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]"
                       >
                         <CheckCircle2 className="h-3 w-3" />
                         {getProviderLabel(item.provider)}
@@ -725,13 +725,6 @@ export default function IntegrationsPage() {
                 </div>
               }
             >
-              <div className="mb-3 flex items-center gap-2 text-[12px] text-[var(--adc-ink3)]">
-                  <div className="flex items-center gap-2">
-                    <Layers3 className="h-4 w-4 text-[var(--adc-ink3)]" />
-                    <span>Provider group</span>
-                  </div>
-              </div>
-
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {cards.map((item) => (
                   <IntegrationsCard

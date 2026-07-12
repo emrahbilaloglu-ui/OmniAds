@@ -21,6 +21,12 @@ function truthBadge(
         label: "Truth: thin account baseline (P60)",
         severity: "warning",
       };
+    case "commercial_truth_stale":
+      return {
+        type: "truth_commercial_stale",
+        label: "Target stale - reduced authority",
+        severity: "warning",
+      };
     case "global_default":
       return {
         type: "truth_global_default",
@@ -39,7 +45,13 @@ export function targetResolutionGate(ctx: GateContext): GateResult {
 
   if (isFinitePositive(ctx.input.targetRoas)) {
     effectiveTargetRoas = ctx.input.targetRoas;
-    truthSource = "commercial_truth";
+    if (ctx.input.commercialTargetFreshness === "fresh") {
+      truthSource = "commercial_truth";
+    } else {
+      truthSource = "commercial_truth_stale";
+      badge = truthBadge(truthSource);
+      confidenceDelta = -15;
+    }
   } else if (
     calibration.matureCreativeCount >= 30 &&
     isFinitePositive(calibration.roasP75)

@@ -11,6 +11,7 @@ export type MetaLaunchDraftPayload = MetaLaunchPayload | MetaAddToExistingPayloa
 export interface MetaLaunchTemplateRow {
   id: string;
   businessId: string;
+  providerAccountId: string;
   name: string;
   description: string | null;
   payload: MetaLaunchPayload;
@@ -22,6 +23,7 @@ export interface MetaLaunchTemplateRow {
 export interface MetaLaunchDraftRow {
   id: string;
   businessId: string;
+  providerAccountId: string;
   name: string;
   payload: MetaLaunchDraftPayload;
   status: "draft" | "queued" | "launched" | "failed";
@@ -34,6 +36,7 @@ export interface MetaLaunchDraftRow {
 type TemplateDbRow = {
   id: string;
   business_id: string;
+  provider_account_id: string;
   name: string;
   description: string | null;
   payload_json: unknown;
@@ -45,6 +48,7 @@ type TemplateDbRow = {
 type DraftDbRow = {
   id: string;
   business_id: string;
+  provider_account_id: string;
   name: string;
   payload_json: unknown;
   status: "draft" | "queued" | "launched" | "failed";
@@ -58,6 +62,7 @@ function mapTemplate(row: TemplateDbRow): MetaLaunchTemplateRow {
   return {
     id: row.id,
     businessId: row.business_id,
+    providerAccountId: row.provider_account_id,
     name: row.name,
     description: row.description,
     payload: normalizeMetaLaunchPayload(row.payload_json),
@@ -84,6 +89,7 @@ function mapDraft(row: DraftDbRow): MetaLaunchDraftRow {
   return {
     id: row.id,
     businessId: row.business_id,
+    providerAccountId: row.provider_account_id,
     name: row.name,
     payload: normalizeDraftPayload(row.payload_json),
     status: row.status,
@@ -96,12 +102,14 @@ function mapDraft(row: DraftDbRow): MetaLaunchDraftRow {
 
 export async function listManualMetaLaunchTemplates(input: {
   businessId: string;
+  providerAccountId: string;
 }): Promise<MetaLaunchTemplateRow[]> {
   const sql = getDb();
   const rows = (await sql`
     SELECT *
     FROM meta_launch_templates
     WHERE business_id = ${input.businessId}
+      AND provider_account_id = ${input.providerAccountId}
       AND source = 'manual'
     ORDER BY updated_at DESC
     LIMIT 50
@@ -111,6 +119,7 @@ export async function listManualMetaLaunchTemplates(input: {
 
 export async function createManualMetaLaunchTemplate(input: {
   businessId: string;
+  providerAccountId: string;
   name: string;
   description?: string | null;
   payload: unknown;
@@ -121,6 +130,7 @@ export async function createManualMetaLaunchTemplate(input: {
   const rows = (await sql`
     INSERT INTO meta_launch_templates (
       business_id,
+      provider_account_id,
       name,
       description,
       payload_json,
@@ -128,6 +138,7 @@ export async function createManualMetaLaunchTemplate(input: {
       created_by
     ) VALUES (
       ${input.businessId},
+      ${input.providerAccountId},
       ${input.name},
       ${input.description ?? null},
       ${JSON.stringify(payload)}::jsonb,
@@ -143,12 +154,14 @@ export async function createManualMetaLaunchTemplate(input: {
 
 export async function deleteManualMetaLaunchTemplate(input: {
   businessId: string;
+  providerAccountId: string;
   id: string;
 }): Promise<boolean> {
   const sql = getDb();
   const rows = (await sql`
     DELETE FROM meta_launch_templates
     WHERE business_id = ${input.businessId}
+      AND provider_account_id = ${input.providerAccountId}
       AND id = ${input.id}
       AND source = 'manual'
     RETURNING id
@@ -158,12 +171,14 @@ export async function deleteManualMetaLaunchTemplate(input: {
 
 export async function listMetaLaunchDrafts(input: {
   businessId: string;
+  providerAccountId: string;
 }): Promise<MetaLaunchDraftRow[]> {
   const sql = getDb();
   const rows = (await sql`
     SELECT *
     FROM meta_launch_drafts
     WHERE business_id = ${input.businessId}
+      AND provider_account_id = ${input.providerAccountId}
       AND status IN ('draft', 'failed')
     ORDER BY updated_at DESC
     LIMIT 50
@@ -173,6 +188,7 @@ export async function listMetaLaunchDrafts(input: {
 
 export async function upsertMetaLaunchDraft(input: {
   businessId: string;
+  providerAccountId: string;
   id?: string | null;
   name: string;
   payload: unknown;
@@ -189,18 +205,21 @@ export async function upsertMetaLaunchDraft(input: {
           status = 'draft',
           updated_at = NOW()
         WHERE business_id = ${input.businessId}
+          AND provider_account_id = ${input.providerAccountId}
           AND id = ${input.id}
         RETURNING *
       `) as DraftDbRow[])
     : ((await sql`
         INSERT INTO meta_launch_drafts (
           business_id,
+          provider_account_id,
           name,
           payload_json,
           status,
           created_by
         ) VALUES (
           ${input.businessId},
+          ${input.providerAccountId},
           ${input.name},
           ${JSON.stringify(payload)}::jsonb,
           'draft',
@@ -215,12 +234,14 @@ export async function upsertMetaLaunchDraft(input: {
 
 export async function deleteMetaLaunchDraft(input: {
   businessId: string;
+  providerAccountId: string;
   id: string;
 }): Promise<boolean> {
   const sql = getDb();
   const rows = (await sql`
     DELETE FROM meta_launch_drafts
     WHERE business_id = ${input.businessId}
+      AND provider_account_id = ${input.providerAccountId}
       AND id = ${input.id}
     RETURNING id
   `) as Array<{ id: string }>;
@@ -229,6 +250,7 @@ export async function deleteMetaLaunchDraft(input: {
 
 export async function listRecentMetaLaunchTemplates(input: {
   businessId: string;
+  providerAccountId: string;
 }): Promise<MetaLaunchTemplateRow[]> {
   const sql = getDb();
   const rows = (await sql`
@@ -256,18 +278,22 @@ export async function listRecentMetaLaunchTemplates(input: {
         LIMIT 1
       ) cfg ON TRUE
       WHERE dim.business_id = ${input.businessId}
+        AND dim.provider_account_id = ${input.providerAccountId}
         AND cfg.objective = 'OUTCOME_SALES'
+        AND COALESCE(cfg.daily_budget, cfg.lifetime_budget) > 0
       ORDER BY dim.updated_at DESC
       LIMIT 5
     ),
     adset_counts AS (
-      SELECT campaign_id, COUNT(DISTINCT adset_id)::int AS adset_count
+      SELECT provider_account_id, campaign_id, COUNT(DISTINCT adset_id)::int AS adset_count
       FROM meta_adset_dimensions
       WHERE business_id = ${input.businessId}
-      GROUP BY campaign_id
+        AND provider_account_id = ${input.providerAccountId}
+      GROUP BY provider_account_id, campaign_id
     )
     SELECT
       recent.business_id,
+      recent.provider_account_id,
       recent.campaign_id AS id,
       recent.campaign_name AS name,
       recent.updated_at,
@@ -278,10 +304,13 @@ export async function listRecentMetaLaunchTemplates(input: {
       recent.bid_value_format,
       COALESCE(counts.adset_count, 1) AS adset_count
     FROM recent_campaigns recent
-    LEFT JOIN adset_counts counts ON counts.campaign_id = recent.campaign_id
+    LEFT JOIN adset_counts counts
+      ON counts.provider_account_id = recent.provider_account_id
+     AND counts.campaign_id = recent.campaign_id
     ORDER BY recent.updated_at DESC
   `) as Array<{
     business_id: string;
+    provider_account_id: string;
     id: string;
     name: string;
     updated_at: string;
@@ -294,9 +323,7 @@ export async function listRecentMetaLaunchTemplates(input: {
   }>;
 
   return rows.map((row) => {
-    const hasCampaignBudget =
-      row.daily_budget !== null || row.lifetime_budget !== null;
-    const amount = Number(row.daily_budget ?? row.lifetime_budget ?? 0);
+    const amount = Number(row.daily_budget ?? row.lifetime_budget);
     const payload = normalizeMetaLaunchPayload({
       campaign: {
         name: `${row.name} (template)`,
@@ -304,7 +331,7 @@ export async function listRecentMetaLaunchTemplates(input: {
         specialAdCategories: [],
       },
       budget: {
-        mode: hasCampaignBudget ? "CBO" : "ABO",
+        mode: "CBO",
         schedule: row.lifetime_budget !== null ? "lifetime" : "daily",
         amountMinor: Math.max(0, Math.round(amount * 100)),
         bidStrategy:
@@ -332,23 +359,15 @@ export async function listRecentMetaLaunchTemplates(input: {
           advantagePlacements: true,
         },
         attributionSpec: [{ eventType: "CLICK_THROUGH", windowDays: 7 }],
-        budget: hasCampaignBudget
-          ? null
-          : {
-              mode: "ABO",
-              schedule: "daily",
-              amountMinor: 0,
-              bidStrategy: "LOWEST_COST_WITHOUT_CAP",
-            },
+        budget: null,
       })),
     });
     return {
       id: row.id,
       businessId: row.business_id,
+      providerAccountId: row.provider_account_id,
       name: row.name,
-      description: `${row.adset_count} ad set${row.adset_count === 1 ? "" : "s"} - ${
-        hasCampaignBudget ? "CBO" : "ABO"
-      }`,
+      description: `${row.adset_count} ad set${row.adset_count === 1 ? "" : "s"} - CBO`,
       payload,
       source: "auto_recent",
       createdAt: row.updated_at,

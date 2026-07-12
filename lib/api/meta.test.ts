@@ -61,6 +61,7 @@ const configuration = await import("@/lib/meta/configuration");
 const {
   getAdSets,
   getCampaigns,
+  resolveMetaCurrencyForAccount,
   syncMetaAccountBreakdownWarehouseDay,
   syncMetaAccountCoreWarehouseDay,
 } = await import("@/lib/api/meta");
@@ -154,6 +155,126 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       };
     });
     vi.unstubAllGlobals();
+  });
+
+  it("fails closed before core warehouse work when account currency is unavailable", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      syncMetaAccountCoreWarehouseDay({
+        credentials: {
+          businessId: "biz-1",
+          accessToken: "token-1",
+          accountIds: ["act_1"],
+          currency: null,
+          accountProfiles: {
+            act_1: { currency: null, timezone: "UTC", name: "Account 1" },
+          },
+        },
+        accountId: "act_1",
+        day: "2026-04-03",
+        partitionId: "partition-1",
+        workerId: "worker-1",
+        leaseEpoch: 1,
+        attemptCount: 1,
+      })
+    ).rejects.toThrow("meta_currency_unavailable:core_warehouse:act_1");
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(warehouse.upsertMetaAccountDailyRows).not.toHaveBeenCalled();
+    expect(warehouse.upsertMetaCampaignDailyRows).not.toHaveBeenCalled();
+    expect(warehouse.upsertMetaAdSetDailyRows).not.toHaveBeenCalled();
+    expect(warehouse.upsertMetaAdDailyRows).not.toHaveBeenCalled();
+  });
+
+  it("never borrows the primary account currency for a secondary account", () => {
+    const credentials = {
+      businessId: "biz-1",
+      accessToken: "token-1",
+      accountIds: ["act_primary", "act_secondary"],
+      currency: "TRY",
+      accountProfiles: {
+        act_primary: { currency: "TRY", timezone: "UTC", name: "Primary" },
+        act_secondary: { currency: null, timezone: "UTC", name: "Secondary" },
+      },
+    };
+
+    expect(resolveMetaCurrencyForAccount(credentials, "act_primary")).toBe("TRY");
+    expect(resolveMetaCurrencyForAccount(credentials, "act_secondary")).toBeNull();
+  });
+
+  it("does not refetch ad insights after restoring a completed terminal generation", async () => {
+    vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue({
+      phase: "bulk_upsert",
+      pageIndex: 39,
+      nextPageUrl: null,
+      providerCursor: null,
+      rowsFetched: 0,
+      startedAt: "2026-04-03T03:00:00.000Z",
+    } as never);
+    vi.mocked(warehouse.listMetaRawSnapshotsForRun).mockResolvedValue([
+      {
+        id: "raw-page-38",
+        page_index: 38,
+        payload_json: [],
+        provider_cursor: null,
+        provider_http_status: 200,
+        status: "fetched",
+        fetched_at: "2026-04-03T03:00:01.000Z",
+      },
+    ] as never);
+
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes("/insights") && url.includes("level=account")) {
+        return new Response(JSON.stringify({ data: [{ spend: "0" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.includes("/campaigns") || url.includes("/adsets")) {
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`Unexpected refetch URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await syncMetaAccountCoreWarehouseDay({
+      credentials: {
+        businessId: "biz-1",
+        accessToken: "token-1",
+        accountIds: ["act_1"],
+        currency: "USD",
+        accountProfiles: {
+          act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
+        },
+      },
+      accountId: "act_1",
+      day: "2026-04-03",
+      partitionId: "partition-terminal-resume",
+      workerId: "worker-1",
+      leaseEpoch: 12,
+      attemptCount: 2,
+      leaseMinutes: 15,
+    });
+
+    expect(
+      vi.mocked(warehouse.persistMetaRawSnapshot).mock.calls.filter(
+        ([payload]) =>
+          payload.partitionId === "partition-terminal-resume" &&
+          payload.entityScope === "ad",
+      ),
+    ).toHaveLength(0);
+    expect(
+      fetchMock.mock.calls.some(
+        ([url]) =>
+          String(url).includes("/insights") &&
+          !String(url).includes("level=account"),
+      ),
+    ).toBe(false);
   });
 
   it("persists campaign config snapshots during core warehouse sync", async () => {

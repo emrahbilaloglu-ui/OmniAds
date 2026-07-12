@@ -87,7 +87,6 @@ export function CreativeAdActionsSection({
   const [selectedCampaignId, setSelectedCampaignId] = useState("");
   const [selectedAdsetId, setSelectedAdsetId] = useState("");
   const [nameOverride, setNameOverride] = useState(`${row.name} (copy)`);
-  const [activateAfterCreate, setActivateAfterCreate] = useState(false);
   const [duplicateProgress, setDuplicateProgress] = useState<DuplicateProgress>("idle");
   const [duplicateMessage, setDuplicateMessage] = useState<string | null>(null);
   const [duplicateResult, setDuplicateResult] = useState<{
@@ -114,7 +113,6 @@ export function CreativeAdActionsSection({
     setSelectedCampaignId("");
     setSelectedAdsetId("");
     setNameOverride(`${row.name} (copy)`);
-    setActivateAfterCreate(false);
   }, [row.effectiveStatus, adId, row.name]);
 
   useEffect(() => {
@@ -224,7 +222,6 @@ export function CreativeAdActionsSection({
         businessId,
         targetAdsetId: selectedAdsetId,
         nameOverride,
-        activateAfterCreate,
       }),
     });
     window.clearTimeout(verifyingTimer);
@@ -444,18 +441,6 @@ export function CreativeAdActionsSection({
                 />
               </label>
 
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={activateAfterCreate}
-                  onChange={(event) => setActivateAfterCreate(event.target.checked)}
-                  className="h-4 w-4 rounded border-neutral-300"
-                />
-                <span className="text-sm font-medium text-neutral-700">
-                  Activate immediately
-                </span>
-              </label>
-
               {duplicateMessage ? (
                 <div className={duplicateProgressClassName(duplicateProgress)}>
                   {duplicateProgress === "success" ? (
@@ -551,14 +536,12 @@ export function buildDuplicateActionBody(input: {
   businessId: string;
   targetAdsetId: string;
   nameOverride: string;
-  activateAfterCreate: boolean;
 }) {
   const name = input.nameOverride.trim();
   return {
     businessId: input.businessId,
     targetAdsetId: input.targetAdsetId,
     name: name || undefined,
-    activateAfterCreate: input.activateAfterCreate,
   };
 }
 

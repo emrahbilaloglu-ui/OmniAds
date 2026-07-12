@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/db";
+import { resolveBusinessTargetPackFreshness } from "@/lib/business-commercial";
 import {
   resolveMetaFunnelCohort,
   type MetaFunnelCohort,
@@ -9,6 +10,10 @@ import {
   freshDataLayerHealth,
   STALE_TIER_WARNING_MAX_HOURS,
 } from "./data-health";
+import {
+  FATIGUE_FREQUENCY_PRESSURE_QUANTILE,
+  MIN_CAMPAIGN_CALIBRATION_SAMPLE,
+} from "./config-values";
 import { computeFatigue, type HistoricalWindow } from "./fatigue";
 import {
   computeMetaAttributedAov,
@@ -21,6 +26,7 @@ import {
   type AccountFunnelCalibration,
   type CalibrationCampaignKind,
   type CampaignObjective,
+  type CommercialTargetFreshness,
   type CreativeFormat,
   type CreativeInput,
   type DataHealth,
@@ -64,6 +70,8 @@ export interface BusinessTargetPack {
   breakEvenRoas: number | null;
   operatorAovAssumption: number | null;
   defaultRiskPosture: EngineRiskPreset | null;
+  updatedAt?: string | null;
+  freshness?: CommercialTargetFreshness;
 }
 
 export interface DecisionCalibrationProfileConfig {
@@ -176,6 +184,7 @@ export interface CreativeDecisionDataSource {
   /** Commercial truth used by the account-relative threshold resolver. */
   getBusinessTargetPack(input: {
     businessId: string;
+    asOf?: string;
   }): Promise<BusinessTargetPack | null>;
 
   /** Optional operator profile with preset and multiplier overrides. */
@@ -231,6 +240,7 @@ export class MockDataSource implements CreativeDecisionDataSource {
       fatigueStatus: "none",
       targetRoas: 2.2,
       breakevenRoas: 1.71,
+      commercialTargetFreshness: "fresh",
       lifecyclePosition: "plateau",
       daysSincePeak: 5,
       peakRoas30d: 3.4,
@@ -473,7 +483,12 @@ export class MockDataSource implements CreativeDecisionDataSource {
     };
   }
 
-  async getBusinessTargetPack(): Promise<BusinessTargetPack | null> {
+  async getBusinessTargetPack(input?: {
+    businessId: string;
+    asOf?: string;
+  }): Promise<BusinessTargetPack | null> {
+    const referenceTime = resolveTargetReferenceTime(input?.asOf);
+    if (referenceTime === null) return null;
     return {
       targetCpa: null,
       targetRoas: 2.2,
@@ -481,6 +496,8 @@ export class MockDataSource implements CreativeDecisionDataSource {
       breakEvenRoas: 1.71,
       operatorAovAssumption: null,
       defaultRiskPosture: "balanced",
+      updatedAt: referenceTime.toISOString(),
+      freshness: "fresh",
     };
   }
 
@@ -603,6 +620,12 @@ type CreativeHydrationRow = Record<string, unknown> & {
   creative_id: unknown;
   creative_name: unknown;
   effective_cohort_inputs: unknown;
+  provider_account_count: unknown;
+  campaign_count: unknown;
+  adset_count: unknown;
+  optimization_context_count: unknown;
+  objective_count: unknown;
+  context_identity_unknown: unknown;
   spend: unknown;
   purchases: unknown;
   purchase_value: unknown;
@@ -612,6 +635,7 @@ type CreativeHydrationRow = Record<string, unknown> & {
   cpa: unknown;
   ctr: unknown;
   frequency: unknown;
+  frequency_pressure_threshold: unknown;
   recent_spend: unknown;
   recent_purchases: unknown;
   recent_impressions: unknown;
@@ -632,6 +656,7 @@ type CreativeHydrationRow = Record<string, unknown> & {
   data_freshness_hours: unknown;
   target_roas: unknown;
   break_even_roas: unknown;
+  target_pack_updated_at: unknown;
   cpm: unknown;
   outbound_clicks: unknown;
   landing_page_views: unknown;
@@ -743,6 +768,7 @@ type BusinessTargetPackRow = Record<string, unknown> & {
   break_even_roas: unknown;
   aov_assumption: unknown;
   default_risk_posture: unknown;
+  updated_at: unknown;
 };
 
 type DecisionCalibrationProfileRow = Record<string, unknown> & {
@@ -764,6 +790,12 @@ type LifecycleTableHydrationRow = Record<string, unknown> & {
   campaign_id: unknown;
   objective: unknown;
   effective_cohort_inputs: unknown;
+  provider_account_count: unknown;
+  campaign_count: unknown;
+  adset_count: unknown;
+  optimization_context_count: unknown;
+  objective_count: unknown;
+  context_identity_unknown: unknown;
   spend: unknown;
   purchases: unknown;
   purchase_value: unknown;
@@ -793,6 +825,7 @@ type LifecycleTableHydrationRow = Record<string, unknown> & {
   fatigue_status: unknown;
   target_roas: unknown;
   break_even_roas: unknown;
+  target_pack_updated_at: unknown;
   lifecycle_position: unknown;
   days_since_peak: unknown;
   peak_roas_30d: unknown;
@@ -941,13 +974,44 @@ cumulative AS (
     AND d.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
   GROUP BY d.creative_id
 ),
-cohort_sources AS (
-  -- SQL collects spend-weighted adset goal inputs; TypeScript applies the shared cohort resolver.
+frequency_population AS (
   SELECT
     d.creative_id,
-    COALESCE(a.optimization_goal, d.optimization_goal) AS optimization_goal,
-    a.custom_event_type AS custom_event_type,
-    SUM(d.spend) AS spend
+    AVG(d.frequency) FILTER (WHERE d.frequency > 0) AS frequency
+  FROM meta_creative_daily d
+  WHERE d.business_ref_id = $1::uuid
+    AND d.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
+  GROUP BY d.creative_id
+),
+frequency_benchmark AS (
+  SELECT
+    CASE WHEN COUNT(*) >= ${MIN_CAMPAIGN_CALIBRATION_SAMPLE}
+      THEN percentile_cont(${FATIGUE_FREQUENCY_PRESSURE_QUANTILE})
+        WITHIN GROUP (ORDER BY frequency)
+    END AS frequency_p75
+  FROM frequency_population
+  WHERE frequency IS NOT NULL
+    AND frequency > 0
+),
+decision_context_sources AS (
+  -- Keep every positive-spend context from the exact 28d metric source. The
+  -- engine must not attach one latest campaign/adset identity to a mixed rollup.
+  SELECT
+    d.creative_id,
+    NULLIF(BTRIM(d.provider_account_id), '') AS provider_account_id,
+    NULLIF(BTRIM(d.campaign_id), '') AS campaign_id,
+    NULLIF(BTRIM(d.adset_id), '') AS adset_id,
+    COALESCE(
+      NULLIF(BTRIM(a.optimization_goal), ''),
+      NULLIF(BTRIM(d.optimization_goal), '')
+    ) AS optimization_goal,
+    COALESCE(
+      NULLIF(BTRIM(a.custom_event_type), ''),
+      NULLIF(BTRIM(d.payload_json->>'customEventType'), ''),
+      NULLIF(BTRIM(d.payload_json->>'custom_event_type'), '')
+    ) AS custom_event_type,
+    NULLIF(BTRIM(d.objective), '') AS objective,
+    d.spend
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
   LEFT JOIN meta_adset_daily a
@@ -958,10 +1022,38 @@ cohort_sources AS (
   WHERE d.business_ref_id = $1::uuid
     AND d.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
     AND d.spend > 0
+),
+context_grain AS (
+  SELECT
+    creative_id,
+    COUNT(DISTINCT provider_account_id) AS provider_account_count,
+    COUNT(DISTINCT campaign_id) AS campaign_count,
+    COUNT(DISTINCT adset_id) AS adset_count,
+    COUNT(DISTINCT (optimization_goal, custom_event_type)) FILTER (
+      WHERE optimization_goal IS NOT NULL OR custom_event_type IS NOT NULL
+    ) AS optimization_context_count,
+    COUNT(DISTINCT objective) AS objective_count,
+    BOOL_OR(
+      provider_account_id IS NULL
+      OR campaign_id IS NULL
+      OR adset_id IS NULL
+      OR (optimization_goal IS NULL AND custom_event_type IS NULL)
+      OR objective IS NULL
+    ) AS context_identity_unknown
+  FROM decision_context_sources
+  GROUP BY creative_id
+),
+cohort_sources AS (
+  SELECT
+    creative_id,
+    optimization_goal,
+    custom_event_type,
+    SUM(spend) AS spend
+  FROM decision_context_sources
   GROUP BY
-    d.creative_id,
-    COALESCE(a.optimization_goal, d.optimization_goal),
-    a.custom_event_type
+    creative_id,
+    optimization_goal,
+    custom_event_type
 ),
 cohort_inputs AS (
   SELECT
@@ -1064,11 +1156,10 @@ last_spend AS (
   GROUP BY d.creative_id
 ),
 target_pack AS (
-  SELECT target_roas, break_even_roas
-  FROM business_target_packs
-  WHERE business_id = $1::uuid
-  ORDER BY updated_at DESC
-  LIMIT 1
+  SELECT
+    $5::double precision AS target_roas,
+    $6::double precision AS break_even_roas,
+    $7::timestamptz AS target_pack_updated_at
 ),
 historical_source AS (
   SELECT
@@ -1085,6 +1176,7 @@ historical_source AS (
   CROSS JOIN LATERAL (
     VALUES
       ('last14', d.date BETWEEN ($2::date - INTERVAL '13 days') AND $2::date),
+      ('prior14', d.date BETWEEN ($2::date - INTERVAL '27 days') AND ($2::date - INTERVAL '14 days')),
       ('last30', d.date BETWEEN ($2::date - INTERVAL '29 days') AND $2::date),
       ('last90', d.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date),
       ('allHistory', d.date <= $2::date)
@@ -1122,6 +1214,13 @@ historical AS (
     MAX(click_to_purchase_rate) FILTER (WHERE window_key = 'last14') AS last14_click_to_purchase_rate,
     MAX(purchases) FILTER (WHERE window_key = 'last14') AS last14_purchases,
 
+    MAX(row_count) FILTER (WHERE window_key = 'prior14') AS prior14_row_count,
+    MAX(spend) FILTER (WHERE window_key = 'prior14') AS prior14_spend,
+    MAX(ctr) FILTER (WHERE window_key = 'prior14') AS prior14_ctr,
+    MAX(roas) FILTER (WHERE window_key = 'prior14') AS prior14_roas,
+    MAX(click_to_purchase_rate) FILTER (WHERE window_key = 'prior14') AS prior14_click_to_purchase_rate,
+    MAX(purchases) FILTER (WHERE window_key = 'prior14') AS prior14_purchases,
+
     MAX(row_count) FILTER (WHERE window_key = 'last30') AS last30_row_count,
     MAX(spend) FILTER (WHERE window_key = 'last30') AS last30_spend,
     MAX(ctr) FILTER (WHERE window_key = 'last30') AS last30_ctr,
@@ -1156,6 +1255,7 @@ SELECT
   c.cpa,
   c.ctr,
   c.frequency,
+  fb.frequency_p75 AS frequency_pressure_threshold,
   r.spend AS recent_spend,
   r.purchases AS recent_purchases,
   r.impressions AS recent_impressions,
@@ -1165,6 +1265,12 @@ SELECT
   m.effective_status,
   m.objective,
   ci.effective_cohort_inputs,
+  cg.provider_account_count,
+  cg.campaign_count,
+  cg.adset_count,
+  cg.optimization_context_count,
+  cg.objective_count,
+  cg.context_identity_unknown,
   m.campaign_id,
   m.creative_name,
   m.first_seen_at,
@@ -1192,12 +1298,19 @@ SELECT
   ls.last_spend_date,
   tp.target_roas,
   tp.break_even_roas,
+  tp.target_pack_updated_at,
   h.last14_row_count,
   h.last14_spend,
   h.last14_ctr,
   h.last14_roas,
   h.last14_click_to_purchase_rate,
   h.last14_purchases,
+  h.prior14_row_count,
+  h.prior14_spend,
+  h.prior14_ctr,
+  h.prior14_roas,
+  h.prior14_click_to_purchase_rate,
+  h.prior14_purchases,
   h.last30_row_count,
   h.last30_spend,
   h.last30_ctr,
@@ -1217,10 +1330,12 @@ SELECT
   h.all_history_click_to_purchase_rate,
   h.all_history_purchases
 FROM cumulative c
+CROSS JOIN frequency_benchmark fb
 LEFT JOIN recent r USING (creative_id)
 LEFT JOIN recent_24h r24 USING (creative_id)
 LEFT JOIN latest_meta m USING (creative_id)
 LEFT JOIN cohort_inputs ci USING (creative_id)
+LEFT JOIN context_grain cg USING (creative_id)
 LEFT JOIN last_spend ls USING (creative_id)
 LEFT JOIN target_pack tp ON true
 LEFT JOIN historical h USING (creative_id)
@@ -1229,11 +1344,7 @@ ORDER BY c.spend DESC, c.creative_id ASC
 
 const ACCOUNT_CALIBRATION_QUERY = `
 WITH target_pack AS (
-  SELECT target_roas
-  FROM business_target_packs
-  WHERE business_id = $2::uuid
-  ORDER BY updated_at DESC
-  LIMIT 1
+  SELECT $3::double precision AS target_roas
 ),
 per_creative_raw AS (
   SELECT
@@ -1558,13 +1669,25 @@ recent_24h AS (
     AND d.date = $2::date
   GROUP BY d.creative_id
 ),
-cohort_sources AS (
-  -- SQL collects spend-weighted adset goal inputs; TypeScript applies the shared cohort resolver.
+decision_context_sources AS (
+  -- Recompute decision grain from the exact 28d source even when metrics come
+  -- from lifecycle snapshots; lifecycle's latest context is not authoritative.
   SELECT
     d.creative_id,
-    COALESCE(a.optimization_goal, d.optimization_goal) AS optimization_goal,
-    a.custom_event_type AS custom_event_type,
-    SUM(d.spend) AS spend
+    NULLIF(BTRIM(d.provider_account_id), '') AS provider_account_id,
+    NULLIF(BTRIM(d.campaign_id), '') AS campaign_id,
+    NULLIF(BTRIM(d.adset_id), '') AS adset_id,
+    COALESCE(
+      NULLIF(BTRIM(a.optimization_goal), ''),
+      NULLIF(BTRIM(d.optimization_goal), '')
+    ) AS optimization_goal,
+    COALESCE(
+      NULLIF(BTRIM(a.custom_event_type), ''),
+      NULLIF(BTRIM(d.payload_json->>'customEventType'), ''),
+      NULLIF(BTRIM(d.payload_json->>'custom_event_type'), '')
+    ) AS custom_event_type,
+    NULLIF(BTRIM(d.objective), '') AS objective,
+    d.spend
   FROM meta_creative_daily d
   INNER JOIN lifecycle_rows l ON l.creative_id = d.creative_id
   LEFT JOIN meta_adset_daily a
@@ -1575,10 +1698,38 @@ cohort_sources AS (
   WHERE d.business_ref_id = $1::uuid
     AND d.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
     AND d.spend > 0
+),
+context_grain AS (
+  SELECT
+    creative_id,
+    COUNT(DISTINCT provider_account_id) AS provider_account_count,
+    COUNT(DISTINCT campaign_id) AS campaign_count,
+    COUNT(DISTINCT adset_id) AS adset_count,
+    COUNT(DISTINCT (optimization_goal, custom_event_type)) FILTER (
+      WHERE optimization_goal IS NOT NULL OR custom_event_type IS NOT NULL
+    ) AS optimization_context_count,
+    COUNT(DISTINCT objective) AS objective_count,
+    BOOL_OR(
+      provider_account_id IS NULL
+      OR campaign_id IS NULL
+      OR adset_id IS NULL
+      OR (optimization_goal IS NULL AND custom_event_type IS NULL)
+      OR objective IS NULL
+    ) AS context_identity_unknown
+  FROM decision_context_sources
+  GROUP BY creative_id
+),
+cohort_sources AS (
+  SELECT
+    creative_id,
+    optimization_goal,
+    custom_event_type,
+    SUM(spend) AS spend
+  FROM decision_context_sources
   GROUP BY
-    d.creative_id,
-    COALESCE(a.optimization_goal, d.optimization_goal),
-    a.custom_event_type
+    creative_id,
+    optimization_goal,
+    custom_event_type
 ),
 cohort_inputs AS (
   SELECT
@@ -1594,11 +1745,10 @@ cohort_inputs AS (
   GROUP BY creative_id
 ),
 target_pack AS (
-  SELECT target_roas, break_even_roas
-  FROM business_target_packs
-  WHERE business_id = $1::uuid
-  ORDER BY updated_at DESC
-  LIMIT 1
+  SELECT
+    $6::double precision AS target_roas,
+    $7::double precision AS break_even_roas,
+    $8::timestamptz AS target_pack_updated_at
 )
 SELECT
   l.creative_id,
@@ -1606,6 +1756,12 @@ SELECT
   l.campaign_id,
   l.objective,
   ci.effective_cohort_inputs,
+  cg.provider_account_count,
+  cg.campaign_count,
+  cg.adset_count,
+  cg.optimization_context_count,
+  cg.objective_count,
+  cg.context_identity_unknown,
   l.spend_28d AS spend,
   l.purchases_28d AS purchases,
   l.purchase_value_28d AS purchase_value,
@@ -1660,11 +1816,13 @@ SELECT
   l.conversion_rate_ranking,
   l.creative_format,
   target_pack.target_roas,
-  target_pack.break_even_roas
+  target_pack.break_even_roas,
+  target_pack.target_pack_updated_at
 FROM lifecycle_rows l
 LEFT JOIN latest_meta USING (creative_id)
 LEFT JOIN recent_24h r24 USING (creative_id)
 LEFT JOIN cohort_inputs ci USING (creative_id)
+LEFT JOIN context_grain cg USING (creative_id)
 LEFT JOIN target_pack ON true
 ORDER BY l.spend_28d DESC NULLS LAST, l.creative_id ASC
 `;
@@ -1725,11 +1883,18 @@ SELECT
   break_even_cpa,
   break_even_roas,
   aov_assumption,
-  default_risk_posture
-FROM business_target_packs
-WHERE business_id = $1::uuid
-ORDER BY updated_at DESC
-LIMIT 1
+  default_risk_posture,
+  effective_at AS updated_at
+FROM (
+  SELECT *
+  FROM business_target_pack_history
+  WHERE business_id = $1::uuid
+    AND effective_at <= $2::timestamptz
+    AND recorded_at <= $2::timestamptz
+  ORDER BY effective_at DESC, recorded_at DESC, id DESC
+  LIMIT 1
+) target_history
+WHERE operation = 'upsert'
 `;
 
 const READ_DECISION_CALIBRATION_PROFILE_QUERY = `
@@ -1797,33 +1962,25 @@ export function resolveEffectiveCreativeCohort(
     customEventType?: string | null;
   }>,
 ): MetaFunnelCohort | null {
-  const spendByCohort = new Map<MetaFunnelCohort, number>();
-  let totalSpend = 0;
+  const cohorts = new Set<MetaFunnelCohort>();
+  let hasPositiveSpend = false;
 
   for (const row of rows) {
     const spend = row.spend ?? 0;
     if (!Number.isFinite(spend) || spend <= 0) continue;
 
-    const cohort = resolveMetaFunnelCohort({
-      optimizationGoal: row.optimizationGoal,
-      customEventType: row.customEventType,
-    });
-    totalSpend += spend;
-    spendByCohort.set(cohort, (spendByCohort.get(cohort) ?? 0) + spend);
+    hasPositiveSpend = true;
+    cohorts.add(
+      resolveMetaFunnelCohort({
+        optimizationGoal: row.optimizationGoal,
+        customEventType: row.customEventType,
+      }),
+    );
   }
 
-  if (totalSpend <= 0 || spendByCohort.size === 0) return null;
-
-  let leader: MetaFunnelCohort = "unknown";
-  let leaderSpend = 0;
-  for (const [cohort, spend] of spendByCohort) {
-    if (spend > leaderSpend) {
-      leader = cohort;
-      leaderSpend = spend;
-    }
-  }
-
-  return leaderSpend / totalSpend < 0.6 ? "unknown" : leader;
+  if (!hasPositiveSpend || cohorts.size === 0) return null;
+  if (cohorts.size > 1) return "unknown";
+  return cohorts.values().next().value ?? "unknown";
 }
 
 function toEffectiveCreativeCohort(value: unknown): MetaFunnelCohort | null {
@@ -1857,6 +2014,46 @@ function toEffectiveCreativeCohort(value: unknown): MetaFunnelCohort | null {
   });
 
   return resolveEffectiveCreativeCohort(rows);
+}
+
+function toCreativeDecisionContextGrain(
+  row: Pick<
+    CreativeHydrationRow,
+    | "provider_account_count"
+    | "campaign_count"
+    | "adset_count"
+    | "optimization_context_count"
+    | "objective_count"
+    | "context_identity_unknown"
+  >,
+): NonNullable<CreativeInput["contextGrain"]> {
+  const rawCounts = [
+    toIntegerOrNull(row.provider_account_count),
+    toIntegerOrNull(row.campaign_count),
+    toIntegerOrNull(row.adset_count),
+    toIntegerOrNull(row.optimization_context_count),
+    toIntegerOrNull(row.objective_count),
+  ] as const;
+  const malformedCount = rawCounts.some((count) => count === null || count < 0);
+  const [
+    providerAccountCount,
+    campaignCount,
+    adsetCount,
+    optimizationContextCount,
+    objectiveCount,
+  ] = rawCounts.map((count) => (count !== null && count >= 0 ? count : 0));
+
+  return {
+    providerAccountCount,
+    campaignCount,
+    adsetCount,
+    optimizationContextCount,
+    objectiveCount,
+    contextIdentityUnknown:
+      malformedCount ||
+      row.context_identity_unknown == null ||
+      toBoolean(row.context_identity_unknown),
+  };
 }
 
 function toEngineRiskPreset(value: unknown): EngineRiskPreset | null {
@@ -1917,6 +2114,16 @@ function toIsoTimestampOrNull(value: unknown): string | null {
   if (!trimmed) return null;
   const parsed = new Date(trimmed);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function resolveTargetReferenceTime(asOf?: string): Date | null {
+  if (asOf === undefined) return new Date();
+  const normalized = asOf.trim();
+  if (!normalized) return null;
+  const referenceTime = /^\d{4}-\d{2}-\d{2}$/.test(normalized)
+    ? new Date(`${normalized}T03:00:00.000Z`)
+    : new Date(normalized);
+  return Number.isFinite(referenceTime.getTime()) ? referenceTime : null;
 }
 
 function toCampaignObjective(value: unknown): CampaignObjective | null {
@@ -2140,6 +2347,7 @@ function calculateClickToPurchaseRate(input: {
 function mapCreativeHydrationRow(input: {
   row: CreativeHydrationRow;
   businessId: string;
+  asOf: string;
 }): CreativeInput | null {
   const creativeId = toStringOrNull(input.row.creative_id);
   if (creativeId === null) return null;
@@ -2163,12 +2371,16 @@ function mapCreativeHydrationRow(input: {
     breakevenRoas,
     historicalWindows: {
       last14: toHistoricalWindow(input.row, "last14"),
+      prior14: toHistoricalWindow(input.row, "prior14"),
       last30: toHistoricalWindow(input.row, "last30"),
       last90: toHistoricalWindow(input.row, "last90"),
       allHistory: toHistoricalWindow(input.row, "all_history"),
     },
     spendConcentration: null,
     frequency,
+    frequencyPressureThreshold: toNumberOrNull(
+      input.row.frequency_pressure_threshold,
+    ),
     benchmarkRoasStatus: null,
     benchmarkClickToPurchaseStatus: null,
   });
@@ -2179,6 +2391,7 @@ function mapCreativeHydrationRow(input: {
     businessId: input.businessId,
     campaignId: toStringOrNull(input.row.campaign_id),
     objective: toCampaignObjective(input.row.objective),
+    contextGrain: toCreativeDecisionContextGrain(input.row),
     effectiveCohort: toEffectiveCreativeCohort(
       input.row.effective_cohort_inputs,
     ),
@@ -2210,6 +2423,10 @@ function mapCreativeHydrationRow(input: {
     fatigueStatus: fatigue.status,
     targetRoas,
     breakevenRoas,
+    commercialTargetFreshness: resolveBusinessTargetPackFreshness(
+      toIsoTimestampOrNull(input.row.target_pack_updated_at),
+      resolveTargetReferenceTime(input.asOf) ?? new Date(Number.NaN),
+    ),
     lifecyclePosition: null,
     daysSincePeak: null,
     peakRoas30d: null,
@@ -2239,6 +2456,7 @@ function mapCreativeHydrationRow(input: {
 function mapLifecycleHydrationRow(input: {
   row: LifecycleTableHydrationRow;
   businessId: string;
+  asOf: string;
 }): CreativeInput | null {
   const creativeId = toStringOrNull(input.row.creative_id);
   if (creativeId === null) return null;
@@ -2259,6 +2477,7 @@ function mapLifecycleHydrationRow(input: {
     businessId: input.businessId,
     campaignId: toStringOrNull(input.row.campaign_id),
     objective: toCampaignObjective(input.row.objective),
+    contextGrain: toCreativeDecisionContextGrain(input.row),
     effectiveCohort: toEffectiveCreativeCohort(
       input.row.effective_cohort_inputs,
     ),
@@ -2290,6 +2509,10 @@ function mapLifecycleHydrationRow(input: {
     fatigueStatus: toFatigueStatus(input.row.fatigue_status),
     targetRoas: toNumberOrNull(input.row.target_roas),
     breakevenRoas: toNumberOrNull(input.row.break_even_roas),
+    commercialTargetFreshness: resolveBusinessTargetPackFreshness(
+      toIsoTimestampOrNull(input.row.target_pack_updated_at),
+      resolveTargetReferenceTime(input.asOf) ?? new Date(Number.NaN),
+    ),
     lifecyclePosition: toLifecyclePosition(input.row.lifecycle_position),
     daysSincePeak: toIntegerOrNull(input.row.days_since_peak),
     peakRoas30d: toNumberOrNull(input.row.peak_roas_30d),
@@ -2444,9 +2667,9 @@ function buildWarehouseDataLayerHealth(input: {
 }
 
 /**
- * Production warehouse implementation backed by meta_creative_daily and
- * business_target_packs. The engine still consumes the same CreativeInput
- * contract as MockDataSource.
+ * Production warehouse implementation backed by meta_creative_daily and the
+ * append-only business target history. The engine still consumes the same
+ * CreativeInput contract as MockDataSource.
  */
 export class WarehouseDataSource implements CreativeDecisionDataSource {
   private lastCalibrationMetadata: CalibrationReadMetadata | null = null;
@@ -2459,9 +2682,22 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
     const creativeIds = input.creativeIds ?? [];
     if (input.creativeIds && input.creativeIds.length === 0) return [];
 
+    const targetPack = await this.getBusinessTargetPack({
+      businessId: input.businessId,
+      asOf: input.asOf,
+    });
+
     const rows = await getDb().query<CreativeHydrationRow>(
       HYDRATE_CREATIVE_INPUTS_QUERY,
-      [input.businessId, input.asOf, creativeIds, input.creativeIds != null],
+      [
+        input.businessId,
+        input.asOf,
+        creativeIds,
+        input.creativeIds != null,
+        targetPack?.targetRoas ?? null,
+        targetPack?.breakEvenRoas ?? null,
+        targetPack?.updatedAt ?? null,
+      ],
     );
 
     return rows
@@ -2469,6 +2705,7 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
         mapCreativeHydrationRow({
           row,
           businessId: input.businessId,
+          asOf: input.asOf,
         }),
       )
       .filter((creative): creative is CreativeInput => creative !== null);
@@ -2484,6 +2721,10 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
 
     let rows: LifecycleTableHydrationRow[];
     try {
+      const targetPack = await this.getBusinessTargetPack({
+        businessId: input.businessId,
+        asOf: input.asOf,
+      });
       rows = await getDb().query<LifecycleTableHydrationRow>(
         READ_LIFECYCLE_CREATIVE_INPUTS_QUERY,
         [
@@ -2492,6 +2733,9 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
           creativeIds,
           input.creativeIds != null,
           ENGINE_VERSION,
+          targetPack?.targetRoas ?? null,
+          targetPack?.breakEvenRoas ?? null,
+          targetPack?.updatedAt ?? null,
         ],
       );
     } catch {
@@ -2503,6 +2747,7 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
         mapLifecycleHydrationRow({
           row,
           businessId: input.businessId,
+          asOf: input.asOf,
         }),
       )
       .filter((creative): creative is CreativeInput => creative !== null);
@@ -2677,9 +2922,14 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
     const computedAt = new Date().toISOString();
     let row: CalibrationRow | undefined;
     try {
+      const targetPack = await this.getBusinessTargetPack({
+        businessId: input.businessId,
+        asOf: input.asOf,
+      });
       [row] = await getDb().query<CalibrationRow>(ACCOUNT_CALIBRATION_QUERY, [
         input.asOf,
         input.businessId,
+        targetPack?.targetRoas ?? null,
       ]);
     } catch (error) {
       const sourceMaxUpdatedAt = await this.fetchSourceMaxUpdatedAt(
@@ -3105,12 +3355,15 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
 
   async getBusinessTargetPack(input: {
     businessId: string;
+    asOf?: string;
   }): Promise<BusinessTargetPack | null> {
+    const referenceTime = resolveTargetReferenceTime(input.asOf);
+    if (referenceTime === null) return null;
     let row: BusinessTargetPackRow | undefined;
     try {
       [row] = await getDb().query<BusinessTargetPackRow>(
         READ_BUSINESS_TARGET_PACK_QUERY,
-        [input.businessId],
+        [input.businessId, referenceTime.toISOString()],
       );
     } catch {
       return null;
@@ -3124,6 +3377,11 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
       breakEvenRoas: toNumberOrNull(row.break_even_roas),
       operatorAovAssumption: toNumberOrNull(row.aov_assumption),
       defaultRiskPosture: toEngineRiskPreset(row.default_risk_posture),
+      updatedAt: toIsoTimestampOrNull(row.updated_at),
+      freshness: resolveBusinessTargetPackFreshness(
+        toIsoTimestampOrNull(row.updated_at),
+        referenceTime,
+      ),
     };
   }
 

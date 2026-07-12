@@ -3,17 +3,17 @@
 // Port of the CDC discipline in
 // lib/creative-decision-engine/decision-stability.ts: boundaries that are
 // re-estimated daily make decisions round-trip across consecutive snapshots,
-// and every act<->non-act flip churns the Action Now lane. Rule: a
-// transition that crosses the act boundary publishes only after the new raw
-// state holds for two consecutive snapshots; the suppressed day republishes
-// the previous published state with a pending-transition state reason.
-// test<->watch transitions publish immediately.
+// and every non-act->act flip churns the Action Now lane. Rule: entering the
+// hard action state requires two consecutive snapshots. Leaving act is
+// safety-dominant and publishes immediately; stale evidence must never keep a
+// previous hard action alive. test<->watch transitions also publish
+// immediately.
 //
 // Memory rides in signal_quality.stability (jsonb already round-tripped by
 // the snapshot writer/reader), so no schema change is required. Snapshots
 // written before this field existed fall back to the published state as the
-// raw state - the first flip after rollout is therefore suppressed for one
-// day, which is the conservative side of the rule.
+// raw state. A first-ever hard action is published as test for one snapshot,
+// then becomes act only if the same raw decision repeats.
 //
 // Deliberate non-goal: a recommendation that disappears from one snapshot
 // to the next is NOT republished from memory. Meta v1 emits recommendations
@@ -37,7 +37,7 @@ export interface StateHysteresisResult {
 const VALID_STATES: ReadonlySet<string> = new Set(["act", "test", "watch"]);
 
 export const META_PENDING_TRANSITION_REASON_PREFIX =
-  "[Pending transition - held at previous decision state] ";
+  "[Pending hard action confirmation] ";
 
 function isHardState(state: MetaDecisionState) {
   return state === "act";
@@ -48,16 +48,19 @@ export function applyMetaStateHysteresis(
   previous: PreviousPublishedState | null | undefined,
 ): StateHysteresisResult {
   if (!previous) {
-    return { publishedState: rawState, rawState, suppressed: false };
+    return rawState === "act"
+      ? { publishedState: "test", rawState, suppressed: true }
+      : { publishedState: rawState, rawState, suppressed: false };
   }
   if (rawState === previous.publishedState) {
     return { publishedState: rawState, rawState, suppressed: false };
   }
-  const crossesHardBoundary =
-    isHardState(rawState) || isHardState(previous.publishedState);
-  if (!crossesHardBoundary) {
+  // Hard-action exits and all soft-state transitions are immediate. Holding
+  // yesterday's act after today's evidence says test/watch is unsafe.
+  if (!isHardState(rawState)) {
     return { publishedState: rawState, rawState, suppressed: false };
   }
+  // The only delayed boundary is non-act -> act.
   const previousRaw = previous.rawState ?? previous.publishedState;
   if (rawState === previousRaw) {
     // Second consecutive snapshot with the same new state: confirmed.
@@ -148,8 +151,9 @@ export async function readPreviousMetaDecisionStates(input: {
 /**
  * Applies act-boundary hysteresis to a batch of recommendations. Every
  * returned recommendation carries signalQuality.stability with the raw
- * state (the memory for tomorrow's confirmation rule); suppressed ones
- * publish the previous state and prefix their stateReason.
+ * state (the memory for tomorrow's confirmation rule); suppressed hard
+ * entries publish the previous soft state, or test on the first-ever row,
+ * and prefix their stateReason.
  */
 export function stabilizeMetaRecommendations(input: {
   recommendations: MetaRecommendation[];

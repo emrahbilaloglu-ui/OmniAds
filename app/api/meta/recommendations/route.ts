@@ -4,7 +4,9 @@ import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getDemoMetaBreakdowns, getDemoMetaCampaigns } from "@/lib/demo-business";
 import { getMetaBreakdownsForRange } from "@/lib/meta/breakdowns-source";
 import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
-import { readMetaDecisionSnapshotForRange } from "@/lib/meta/snapshot";
+import {
+  readMetaDecisionSnapshotForRange as readLatestMetaDecisionSnapshot,
+} from "@/lib/meta/snapshot";
 import {
   buildMetaRecommendations,
   type MetaRecommendationAnalysisSource,
@@ -145,7 +147,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (!live) {
-    const snapshotPayload = await readMetaDecisionSnapshotForRange({
+    const snapshotPayload = await readLatestMetaDecisionSnapshot({
       businessId,
       startDate,
       endDate,

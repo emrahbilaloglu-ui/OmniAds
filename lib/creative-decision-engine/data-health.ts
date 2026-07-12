@@ -22,22 +22,30 @@ export {
  * - <= 36h -> "none"
  * - <= 72h -> "warning"
  * - > 72h -> "disabled"
- * - null -> "none" (unknown freshness assumed fresh for Phase 3.0)
+ * - null -> "unknown"
  */
 export function classifyStaleTier(
   sourceFreshnessHours: number | null,
 ): StaleTier {
-  if (sourceFreshnessHours == null) return "none";
+  if (sourceFreshnessHours == null) return "unknown";
   if (sourceFreshnessHours <= STALE_TIER_NONE_MAX_HOURS) return "none";
   if (sourceFreshnessHours <= STALE_TIER_WARNING_MAX_HOURS) return "warning";
   return "disabled";
 }
 
-/** Worst tier across an array of layers. Severity order: none < warning < disabled. */
+/** Worst tier across layers. Severity order: none < warning < unknown < disabled. */
 export function worstStaleTier(tiers: StaleTier[]): StaleTier {
   if (tiers.includes("disabled")) return "disabled";
+  if (tiers.includes("unknown")) return "unknown";
   if (tiers.includes("warning")) return "warning";
   return "none";
+}
+
+export type StaleTierDisplay = Exclude<StaleTier, "unknown">;
+
+/** Unknown freshness is visually warning-equivalent without changing its contract tier. */
+export function staleTierForDisplay(tier: StaleTier): StaleTierDisplay {
+  return tier === "unknown" ? "warning" : tier;
 }
 
 /** Compose a DataHealth from per-layer inputs. */
@@ -96,10 +104,7 @@ export function buildDataLayerHealth(input: {
   };
 }
 
-/**
- * Optimistic default used when no real freshness info is available
- * (MockDataSource or the Phase 3.0 -> 3.1 transition window).
- */
+/** Explicit fresh fixture used by MockDataSource; never use for unknown watermarks. */
 export function freshDataLayerHealth(asOfDate: string): DataLayerHealth {
   return {
     asOfDate,

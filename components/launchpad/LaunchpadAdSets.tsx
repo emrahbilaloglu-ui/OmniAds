@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Copy, Plus, Trash2 } from "lucide-react";
 import type { LaunchpadBudgetState } from "@/components/launchpad/LaunchpadBudget";
+import { formatMoney } from "@/components/meta/redesign/meta-card-utils";
 import type { MetaBidStrategy } from "@/lib/meta/launch-write";
 import {
   ATTRIBUTION_DIMENSIONS,
@@ -110,6 +111,7 @@ export function LaunchpadAdSets({
   businessId,
   campaignName,
   budget,
+  currency = null,
   onChange,
   pixelOptions,
 }: {
@@ -117,6 +119,7 @@ export function LaunchpadAdSets({
   businessId?: string;
   campaignName: string;
   budget: LaunchpadBudgetState;
+  currency?: string | null;
   onChange: (value: LaunchpadAdSetState[]) => void;
   pixelOptions?: LaunchpadPixelOption[];
 }) {
@@ -275,6 +278,7 @@ export function LaunchpadAdSets({
                 value={adSet.pixelId}
                 pixels={sortedPixels}
                 loading={pixelsLoading}
+                currency={currency}
                 onChange={(pixelId) => updateAdSet(index, { ...adSet, pixelId })}
               />
               <SelectField
@@ -496,22 +500,22 @@ function AttributionField({
   );
 }
 
-function formatPixelLabel(pixel: LaunchpadPixelOption) {
+function formatPixelLabel(pixel: LaunchpadPixelOption, currency: string | null) {
   const name = pixel.name ? `${pixel.name} / ` : "";
-  return `${name}${pixel.id} / 28d spend $${pixel.lastSpend28d.toLocaleString(undefined, {
-    maximumFractionDigits: 0,
-  })}`;
+  return `${name}${pixel.id} / 28d spend ${formatMoney(pixel.lastSpend28d, currency)}`;
 }
 
 function PixelField({
   value,
   pixels,
   loading,
+  currency,
   onChange,
 }: {
   value: string;
   pixels: LaunchpadPixelOption[];
   loading: boolean;
+  currency: string | null;
   onChange: (value: string) => void;
 }) {
   if (loading) {
@@ -541,7 +545,7 @@ function PixelField({
       <div className="space-y-1.5">
         <span className="text-[12px] font-medium text-[var(--ink-2)]">Pixel</span>
         <div className="flex h-10 items-center rounded-[6px] border border-[var(--border)] bg-[var(--surface-2)] px-3 text-[13px] text-[var(--ink)]">
-          {pixel ? formatPixelLabel(pixel) : value}
+          {pixel ? formatPixelLabel(pixel, currency) : value}
         </div>
       </div>
     );
@@ -557,7 +561,7 @@ function PixelField({
         <option value="">Choose pixel</option>
         {pixels.map((pixel) => (
           <option key={pixel.id} value={pixel.id}>
-            {formatPixelLabel(pixel)}
+            {formatPixelLabel(pixel, currency)}
             {pixel.isMostUsed ? " / most used" : ""}
           </option>
         ))}

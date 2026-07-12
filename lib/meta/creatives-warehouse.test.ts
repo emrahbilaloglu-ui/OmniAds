@@ -35,6 +35,7 @@ const requestModelStore = await import("@/lib/meta/request-model-store");
 const warehouse = await import("@/lib/meta/warehouse");
 const {
   getMetaCreativesWarehousePayload,
+  resolveMetaCreativesAccountScope,
   syncMetaCreativesWarehouseDay,
 } = await import("@/lib/meta/creatives-warehouse");
 
@@ -116,6 +117,78 @@ function buildProjectionRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function buildCreativeFactRow(overrides: Record<string, unknown> = {}) {
+  return {
+    businessId: "biz-1",
+    providerAccountId: "act_1",
+    date: "2026-04-03",
+    campaignId: "cmp-1",
+    adsetId: "adset-1",
+    adId: "ad-1",
+    creativeId: "crt-1",
+    creativeName: "Creative 1",
+    headline: null,
+    primaryText: null,
+    destinationUrl: null,
+    thumbnailUrl: null,
+    assetType: "image",
+    accountTimezone: "UTC",
+    accountCurrency: "USD",
+    spend: 25,
+    impressions: 100,
+    clicks: 4,
+    conversions: 2,
+    revenue: 50,
+    roas: 2,
+    ctr: 4,
+    cpc: 6.25,
+    linkClicks: 3,
+    landingPageViews: 3,
+    addToCart: 2,
+    initiateCheckout: 1,
+    sourceSnapshotId: null,
+    payloadJson: {},
+    ...overrides,
+  };
+}
+
+function buildAdFactRow(overrides: Record<string, unknown> = {}) {
+  return {
+    businessId: "biz-1",
+    providerAccountId: "act_1",
+    date: "2026-04-03",
+    campaignId: "cmp-1",
+    adsetId: "adset-1",
+    adId: "ad-1",
+    adNameCurrent: "Ad 1",
+    adNameHistorical: "Ad 1",
+    adStatus: "ACTIVE",
+    accountTimezone: "UTC",
+    accountCurrency: "USD",
+    spend: 12,
+    impressions: 80,
+    clicks: 3,
+    reach: 80,
+    frequency: null,
+    conversions: 1,
+    revenue: 24,
+    roas: 2,
+    cpa: 12,
+    ctr: 3.75,
+    cpc: 4,
+    linkClicks: 2,
+    outboundClicks: 2,
+    landingPageViews: 2,
+    addToCart: 1,
+    initiateCheckout: 1,
+    sourceSnapshotId: null,
+    truthState: "finalized",
+    truthVersion: 1,
+    payloadJson: {},
+    ...overrides,
+  };
+}
+
 describe("meta creatives warehouse", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -125,6 +198,153 @@ describe("meta creatives warehouse", () => {
     vi.mocked(warehouse.getMetaCreativeDailyRange).mockResolvedValue([] as never);
     vi.mocked(warehouse.getMetaCreativeMediaRange).mockResolvedValue([] as never);
     vi.mocked(cleanup.pruneMetaCreativeMediaOutsideRetention).mockResolvedValue(undefined as never);
+  });
+
+  it("auto-resolves only a single assigned account", () => {
+    expect(
+      resolveMetaCreativesAccountScope({ assignedAccountIds: ["act_1"] }),
+    ).toMatchObject({
+      ok: true,
+      providerAccountId: "act_1",
+      assignedAccountIds: ["act_1"],
+      resolution: "single_assigned_account",
+    });
+    expect(
+      resolveMetaCreativesAccountScope({
+        assignedAccountIds: ["act_1", "act_2"],
+      }),
+    ).toMatchObject({
+      ok: false,
+      status: "provider_account_required",
+      assignedAccountCount: 2,
+    });
+  });
+
+  it("fails closed for an unassigned explicit warehouse account", async () => {
+    vi.mocked(creativeFetchers.fetchAssignedAccountIds).mockResolvedValue(["act_1"]);
+
+    const payload = await getMetaCreativesWarehousePayload({
+      businessId: "biz-1",
+      providerAccountId: "act_other",
+      start: "2026-04-03",
+      end: "2026-04-03",
+      groupBy: "creative",
+      format: "all",
+      sort: "spend",
+      mediaMode: "metadata",
+    });
+
+    expect(payload).toMatchObject({
+      status: "account_not_assigned",
+      rows: [],
+      providerAccountId: "act_other",
+    });
+    expect(warehouse.getMetaCreativeDailyRange).not.toHaveBeenCalled();
+    expect(warehouse.getMetaAdDailyRange).not.toHaveBeenCalled();
+  });
+
+  it("passes one structured account filter to warehouse reads and drops foreign rows", async () => {
+    vi.mocked(creativeFetchers.fetchAssignedAccountIds).mockResolvedValue([
+      "act_1",
+      "act_2",
+    ]);
+    vi.mocked(warehouse.getMetaCreativeDailyRange).mockResolvedValue([
+      buildCreativeFactRow({
+        providerAccountId: "act_2",
+        adId: "ad-2",
+        creativeId: "crt-2",
+      }),
+      buildCreativeFactRow({
+        providerAccountId: "act_1",
+        adId: "foreign-ad",
+        creativeId: "foreign-crt",
+      }),
+    ] as never);
+    vi.mocked(requestModelStore.readMetaCreativeDimensions).mockResolvedValue(
+      new Map([
+        [
+          "crt-2",
+          {
+            projectionJson: buildProjectionRow({
+              id: "ad-2",
+              creative_id: "crt-2",
+              account_id: "act_2",
+            }),
+          },
+        ],
+      ]) as never,
+    );
+
+    const payload = await getMetaCreativesWarehousePayload({
+      businessId: "biz-1",
+      providerAccountId: "act_2",
+      start: "2026-04-03",
+      end: "2026-04-03",
+      groupBy: "creative",
+      format: "all",
+      sort: "spend",
+      mediaMode: "metadata",
+    });
+
+    expect(warehouse.getMetaCreativeDailyRange).toHaveBeenCalledWith({
+      businessId: "biz-1",
+      startDate: "2026-04-03",
+      endDate: "2026-04-03",
+      providerAccountIds: ["act_2"],
+    });
+    expect(payload).toMatchObject({
+      status: "ok",
+      providerAccountId: "act_2",
+      account_scope: {
+        status: "resolved",
+        resolution: "explicit",
+        assigned_account_count: 2,
+      },
+    });
+    expect(payload.rows).toHaveLength(1);
+    expect(payload.rows[0]).toMatchObject({
+      account_id: "act_2",
+      creative_id: "crt-2",
+    });
+  });
+
+  it("fails closed before creative financial rows are written without currency", async () => {
+    vi.mocked(creativesService.buildCreativesResponse).mockResolvedValue({
+      rows: [buildProjectionRow({ currency: null })],
+    } as never);
+
+    await expect(
+      syncMetaCreativesWarehouseDay({
+        businessId: "biz-1",
+        day: "2026-04-03",
+        accessToken: "token",
+        assignedAccountIds: ["act_1"],
+      })
+    ).rejects.toThrow("meta_currency_unavailable:creative_warehouse:act_1");
+
+    expect(warehouse.upsertMetaAdDailyRows).not.toHaveBeenCalled();
+    expect(warehouse.upsertMetaCreativeDailyRows).not.toHaveBeenCalled();
+    expect(warehouse.upsertMetaCreativeMediaRows).not.toHaveBeenCalled();
+  });
+
+  it("preserves genuine creative account currency in warehouse rows", async () => {
+    vi.mocked(creativesService.buildCreativesResponse).mockResolvedValue({
+      rows: [buildProjectionRow({ currency: "TRY" })],
+    } as never);
+
+    await syncMetaCreativesWarehouseDay({
+      businessId: "biz-1",
+      day: "2026-04-03",
+      accessToken: "token",
+      assignedAccountIds: ["act_1"],
+    });
+
+    expect(warehouse.upsertMetaAdDailyRows).toHaveBeenCalledWith([
+      expect.objectContaining({ accountCurrency: "TRY" }),
+    ]);
+    expect(warehouse.upsertMetaCreativeDailyRows).toHaveBeenCalledWith([
+      expect.objectContaining({ accountCurrency: "TRY" }),
+    ]);
   });
 
   it("persists full creative media at ad grain when a creative is reused", async () => {
@@ -550,6 +770,104 @@ describe("meta creatives warehouse", () => {
     });
   });
 
+  it("filters exact ad-group creative usage before retained media hydration", async () => {
+    vi.mocked(creativeFetchers.fetchAssignedAccountIds).mockResolvedValue([
+      "act_1",
+      "act_2",
+    ]);
+    vi.mocked(warehouse.getMetaAdDailyRange).mockResolvedValue([
+      buildAdFactRow({
+        providerAccountId: "act_1",
+        adId: "ad-foreign",
+        adNameCurrent: "Foreign Ad",
+      }),
+      buildAdFactRow({
+        providerAccountId: "act_2",
+        adId: "ad-selected",
+        adNameCurrent: "Selected Ad",
+      }),
+      buildAdFactRow({
+        providerAccountId: "act_2",
+        adId: "ad-other",
+        adNameCurrent: "Other Ad",
+      }),
+    ] as never);
+    vi.mocked(requestModelStore.readMetaAdDimensions).mockResolvedValue(
+      new Map([
+        [
+          "ad-foreign",
+          {
+            creativeId: "crt-target",
+            projectionJson: buildProjectionRow({
+              id: "ad-foreign",
+              creative_id: "crt-target",
+              account_id: "act_1",
+            }),
+          },
+        ],
+        [
+          "ad-selected",
+          {
+            creativeId: "crt-target",
+            projectionJson: buildProjectionRow({
+              id: "ad-selected",
+              creative_id: "crt-target",
+              account_id: "act_2",
+            }),
+          },
+        ],
+        [
+          "ad-other",
+          {
+            creativeId: "crt-other",
+            projectionJson: buildProjectionRow({
+              id: "ad-other",
+              creative_id: "crt-other",
+              account_id: "act_2",
+            }),
+          },
+        ],
+      ]) as never,
+    );
+
+    const payload = await getMetaCreativesWarehousePayload({
+      businessId: "biz-1",
+      providerAccountId: "act_2",
+      creativeId: "crt-target",
+      start: "2026-04-03",
+      end: "2026-04-03",
+      groupBy: "ad",
+      format: "all",
+      sort: "spend",
+      mediaMode: "full",
+    });
+
+    expect(warehouse.getMetaAdDailyRange).toHaveBeenCalledWith({
+      businessId: "biz-1",
+      startDate: "2026-04-03",
+      endDate: "2026-04-03",
+      providerAccountIds: ["act_2"],
+    });
+    expect(requestModelStore.readMetaAdDimensions).toHaveBeenCalledWith({
+      businessId: "biz-1",
+      adIds: ["ad-selected", "ad-other"],
+    });
+    expect(warehouse.getMetaCreativeMediaRange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerAccountIds: ["act_2"],
+        creativeIds: null,
+        adIds: ["ad-selected"],
+      }),
+    );
+    expect(payload.rows).toHaveLength(1);
+    expect(payload.rows[0]).toMatchObject({
+      id: "ad-selected",
+      account_id: "act_2",
+      creative_id: "crt-target",
+      name: "Selected Ad",
+    });
+  });
+
   it("builds ad-group payloads from ad dimensions instead of daily payloadJson", async () => {
     vi.mocked(warehouse.getMetaAdDailyRange).mockResolvedValue([
       {
@@ -851,6 +1169,7 @@ describe("meta creatives warehouse", () => {
       image_url: "https://example.com/media-image.jpg",
       preview_status: "ready",
     });
+    if (payload.status !== "ok") throw new Error("expected scoped warehouse payload");
     expect(payload.media_hydrated).toBe(true);
   });
 });

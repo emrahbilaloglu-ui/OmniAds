@@ -4,13 +4,13 @@ import { useMemo } from "react";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import type {
   SharePayload,
-  SharedCreative,
+  SharePayloadCreative,
   SharedClientAction,
 } from "./shareCreativeTypes";
 
 type ClientPanelLanguage = "tr" | "en";
 
-type PublicShareCreative = SharedCreative & {
+type PublicShareCreative = SharePayloadCreative & {
   mediaPreviewUrl?: string | null;
   cardPreviewUrl?: string | null;
   tableThumbnailUrl?: string | null;
@@ -23,6 +23,7 @@ type PublicShareCreative = SharedCreative & {
 const COPY = {
   tr: {
     badge: "Müşteri görünümü · salt okunur",
+    creatorBadge: "Kreatif görünümü · salt okunur",
     pdf: "PDF indir",
     fallbackBusiness: "Adsecute",
     title: "Reklam sonuçlarınız",
@@ -42,8 +43,11 @@ const COPY = {
       "Bu paylaşımda müşteri paneline uygun işlem geçmişi yok. Eksik aksiyon verisini uydurmuyoruz; yalnızca güvenle gösterilebilen kreatif özetlerini paylaşıyoruz.",
     outcomePending: "sonuç penceresi ayrıca doğrulanmalı",
     highlights: "Öne çıkan kreatifler",
+    creatorHighlights: "Paylaşılan kreatifler",
     highlightNote:
       "Yalnızca paylaşılan snapshot içinde yeterli harcama veya satış değeri bulunan kreatifler listelenir.",
+    creatorHighlightNote:
+      "Bu görünüm yalnızca kreatif sinyallerini içerir; mutlak finansal ve hacim metrikleri paylaşılmaz.",
     degradedNote:
       "Şeffaflık notu: ölçüm sinyali bu dönemde eksik veya gecikmeli olabilir. Eksik veri 0 gibi gösterilmez ve kalıcı sonuç yorumu yapılmaz.",
     multiCurrency:
@@ -53,9 +57,16 @@ const COPY = {
     footUnknown:
       "Bu panel yalnızca paylaşılan business kapsamındaki verileri gösterir. Snapshot para birimi taşımıyorsa değerler kaynak formatıyla sınırlıdır; eksik veri — olarak gösterilir, asla 0 değil. Sonuç ifadeleri korelasyon temellidir.",
     readOnly: "client view",
+    creatorReadOnly: "creative view",
+    ctrAll: "CTR",
+    linkCtr: "Link CTR",
+    thumbstop: "Thumbstop",
+    video100: "Video tamamlama",
+    creatorFoot: "Bu görünüm yalnızca paylaşılmış kreatif sinyallerini gösterir.",
   },
   en: {
     badge: "Client view · read-only",
+    creatorBadge: "Creative view · read-only",
     pdf: "Download PDF",
     fallbackBusiness: "Adsecute",
     title: "Your advertising results",
@@ -75,8 +86,11 @@ const COPY = {
       "This share does not include a client-safe action history. We do not invent missing action data; only creative summaries that can be shown safely are included.",
     outcomePending: "outcome window needs separate verification",
     highlights: "Creative highlights",
+    creatorHighlights: "Shared creatives",
     highlightNote:
       "Only creatives with enough spend or sales value inside this shared snapshot are listed.",
+    creatorHighlightNote:
+      "This view contains creative signals only; absolute financial and volume metrics are not shared.",
     degradedNote:
       "Transparency note: measurement signals may be missing or delayed for this period. Missing data is not shown as 0 and no permanent outcome claim is made.",
     multiCurrency:
@@ -86,6 +100,12 @@ const COPY = {
     footUnknown:
       "This panel shows only the shared business scope. If the snapshot does not carry currency metadata, values are limited to the source format; missing data renders as —, never 0. Outcome statements are correlational.",
     readOnly: "client view",
+    creatorReadOnly: "creative view",
+    ctrAll: "CTR",
+    linkCtr: "Link CTR",
+    thumbstop: "Thumbstop",
+    video100: "Video completion",
+    creatorFoot: "This view shows only the shared creative signals.",
   },
 } as const;
 
@@ -145,6 +165,12 @@ function formatRoas(value: number | null, language: ClientPanelLanguage) {
   return `${formatted}x`;
 }
 
+function formatRate(value: number, language: ClientPanelLanguage) {
+  return `${new Intl.NumberFormat(language === "tr" ? "tr-TR" : "en-US", {
+    maximumFractionDigits: 2,
+  }).format(value)}%`;
+}
+
 function sumMetric(creatives: PublicShareCreative[], key: "spend" | "purchaseValue") {
   const values = creatives
     .map((creative) => creative[key])
@@ -153,9 +179,15 @@ function sumMetric(creatives: PublicShareCreative[], key: "spend" | "purchaseVal
   return values.reduce((sum, value) => sum + value, 0);
 }
 
-function resolveBusinessLabel(payload: SharePayload, copy: typeof COPY.tr | typeof COPY.en) {
+function resolveBusinessLabel(
+  payload: SharePayload,
+  copy: typeof COPY.tr | typeof COPY.en,
+  allowBusinessIdFallback: boolean,
+) {
   if (payload.businessName?.trim()) return payload.businessName.trim();
-  if (payload.businessId?.trim()) return `Business ${payload.businessId.trim().slice(0, 6)}`;
+  if (allowBusinessIdFallback && payload.businessId?.trim()) {
+    return `Business ${payload.businessId.trim().slice(0, 6)}`;
+  }
   return copy.fallbackBusiness;
 }
 
@@ -193,12 +225,37 @@ function mediaAspectRatio(creative: PublicShareCreative): string {
   return "4 / 5";
 }
 
+function creatorSignalLine(
+  creative: PublicShareCreative,
+  language: ClientPanelLanguage,
+  copy: typeof COPY.tr | typeof COPY.en,
+) {
+  const signals: Array<{ label: string; value: unknown }> = [
+    { label: copy.ctrAll, value: creative.ctrAll },
+    { label: copy.linkCtr, value: creative.linkCtr },
+    { label: copy.thumbstop, value: creative.thumbstop },
+    { label: copy.video100, value: creative.video100 },
+  ];
+
+  return signals
+    .filter((signal): signal is { label: string; value: number } => isFiniteNumber(signal.value))
+    .slice(0, 3)
+    .map((signal) => `${signal.label} ${formatRate(signal.value, language)}`)
+    .join(" · ");
+}
+
 export function PublicCreativeSharePage({ payload, language = "tr" }: PublicCreativeSharePageProps) {
   const copy = COPY[language];
   const creatives = payload.creatives as PublicShareCreative[];
-  const currencyInfo = useMemo(() => resolveCurrency(payload, creatives), [payload, creatives]);
+  const isBuyer = typeof payload.audience === "undefined" || payload.audience === "buyer";
+  const currencyInfo = useMemo(
+    () => isBuyer
+      ? resolveCurrency(payload, creatives)
+      : { currency: null, known: false, canAggregate: false },
+    [payload, creatives, isBuyer],
+  );
   const totals = useMemo(() => {
-    if (!currencyInfo.canAggregate) {
+    if (!isBuyer || !currencyInfo.canAggregate) {
       return { spend: null, sales: null, roas: null };
     }
     const spend = sumMetric(creatives, "spend");
@@ -208,22 +265,26 @@ export function PublicCreativeSharePage({ payload, language = "tr" }: PublicCrea
       sales,
       roas: spend !== null && sales !== null && spend > 0 ? sales / spend : null,
     };
-  }, [creatives, currencyInfo.canAggregate]);
+  }, [creatives, currencyInfo.canAggregate, isBuyer]);
 
   const feed = useMemo(() => buildFeed(payload.clientActions, language), [payload.clientActions, language]);
 
   const highlights = useMemo(
-    () =>
-      [...creatives]
+    () => {
+      if (!isBuyer) return creatives.slice(0, 3);
+      return [...creatives]
         .sort((a, b) => (b.purchaseValue || b.spend || 0) - (a.purchaseValue || a.spend || 0))
-        .slice(0, 3),
-    [creatives],
+        .slice(0, 3);
+    },
+    [creatives, isBuyer],
   );
 
   const asOf = formatDateTime(payload.frozenAt ?? payload.createdAt, language);
   const periodLine = `${payload.dateRange} · ${copy.asOf} ${asOf} UTC ${copy.asOfSuffix}`.trim();
-  const businessLabel = resolveBusinessLabel(payload, copy);
-  const trackingDegraded = payload.trackingState === "tracking_degraded" || !currencyInfo.canAggregate;
+  const businessLabel = resolveBusinessLabel(payload, copy, isBuyer);
+  const trackingDegraded = isBuyer && (
+    payload.trackingState === "tracking_degraded" || !currencyInfo.canAggregate
+  );
 
   const printPdf = () => {
     if (typeof window !== "undefined") window.print();
@@ -234,12 +295,14 @@ export function PublicCreativeSharePage({ payload, language = "tr" }: PublicCrea
       <div className="ad-client-topbar">
         <div className="ad-client-mark" aria-hidden="true" />
         <div className="ad-client-business">{businessLabel}</div>
-        <span className="ad-client-pill">{copy.badge}</span>
+        <span className="ad-client-pill">{isBuyer ? copy.badge : copy.creatorBadge}</span>
         <div className="ad-client-spacer" />
         <button type="button" className="ad-client-outline-button" onClick={printPdf}>
           {copy.pdf}
         </button>
-        <span className="ad-client-email">{payload.clientEmail || copy.readOnly}</span>
+        <span className="ad-client-email">
+          {isBuyer ? payload.clientEmail || copy.readOnly : copy.creatorReadOnly}
+        </span>
       </div>
 
       <main className="ad-client-content">
@@ -254,91 +317,106 @@ export function PublicCreativeSharePage({ payload, language = "tr" }: PublicCrea
           </div>
         ) : null}
 
-        <section className="ad-client-kpi-grid" aria-label="Client KPI summary">
-          <div className="ad-client-card ad-client-kpi">
-            <p>{copy.spend}</p>
-            <strong>{formatMoney(totals.spend, currencyInfo.currency, language)}</strong>
-            <span>{currencyInfo.known ? `${copy.spendSubKnown} ${currencyInfo.currency ?? "—"}` : copy.spendSubUnknown}</span>
-          </div>
-          <div className="ad-client-card ad-client-kpi">
-            <p>{copy.returnLabel}</p>
-            <strong className="ad-client-positive">{formatRoas(totals.roas, language)}</strong>
-            <span>{copy.returnSub}</span>
-          </div>
-          <div className="ad-client-card ad-client-kpi">
-            <p>{copy.sales}</p>
-            <strong>{formatMoney(totals.sales, currencyInfo.currency, language)}</strong>
-            <span>{copy.salesSub}</span>
-          </div>
-        </section>
+        {isBuyer ? (
+          <>
+            <section className="ad-client-kpi-grid" aria-label="Client KPI summary">
+              <div className="ad-client-card ad-client-kpi">
+                <p>{copy.spend}</p>
+                <strong>{formatMoney(totals.spend, currencyInfo.currency, language)}</strong>
+                <span>{currencyInfo.known ? `${copy.spendSubKnown} ${currencyInfo.currency ?? "—"}` : copy.spendSubUnknown}</span>
+              </div>
+              <div className="ad-client-card ad-client-kpi">
+                <p>{copy.returnLabel}</p>
+                <strong className="ad-client-positive">{formatRoas(totals.roas, language)}</strong>
+                <span>{copy.returnSub}</span>
+              </div>
+              <div className="ad-client-card ad-client-kpi">
+                <p>{copy.sales}</p>
+                <strong>{formatMoney(totals.sales, currencyInfo.currency, language)}</strong>
+                <span>{copy.salesSub}</span>
+              </div>
+            </section>
+
+            <section>
+              <h2 className="ad-client-section-title">{copy.feedTitle}</h2>
+              {feed.length > 0 ? (
+                <div className="ad-client-feed">
+                  {feed.map((item) => (
+                    <article key={item.id} className="ad-client-card ad-client-feed-item">
+                      <div>
+                        <h3>{item.what}</h3>
+                        <time>{item.date}</time>
+                      </div>
+                      <p>{item.why}</p>
+                      {item.outcome ? <span data-tone={item.outcomeTone}>{item.outcome}</span> : null}
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="ad-client-card ad-client-empty">
+                  {payload.trackingState === "no_actions" ? copy.noActions : copy.missingActions}
+                </div>
+              )}
+            </section>
+          </>
+        ) : null}
 
         <section>
-          <h2 className="ad-client-section-title">{copy.feedTitle}</h2>
-          {feed.length > 0 ? (
-            <div className="ad-client-feed">
-              {feed.map((item) => (
-                <article key={item.id} className="ad-client-card ad-client-feed-item">
-                  <div>
-                    <h3>{item.what}</h3>
-                    <time>{item.date}</time>
-                  </div>
-                  <p>{item.why}</p>
-                  {item.outcome ? <span data-tone={item.outcomeTone}>{item.outcome}</span> : null}
-                </article>
-              ))}
-            </div>
-          ) : (
-            <div className="ad-client-card ad-client-empty">
-              {payload.trackingState === "no_actions" ? copy.noActions : copy.missingActions}
-            </div>
-          )}
-        </section>
-
-        <section>
-          <h2 className="ad-client-section-title ad-client-section-title-tight">{copy.highlights}</h2>
-          <p className="ad-client-section-note">{copy.highlightNote}</p>
+          <h2 className="ad-client-section-title ad-client-section-title-tight">
+            {isBuyer ? copy.highlights : copy.creatorHighlights}
+          </h2>
+          <p className="ad-client-section-note">
+            {isBuyer ? copy.highlightNote : copy.creatorHighlightNote}
+          </p>
           <div className="ad-client-highlight-grid">
-            {highlights.map((creative) => (
-              <article key={creative.id} className="ad-client-card ad-client-highlight">
-                <div className="ad-client-highlight-media" style={{ aspectRatio: mediaAspectRatio(creative) }}>
-                  <CreativeRenderSurface
-                    id={creative.id}
-                    name={creative.name}
-                    preview={creative.preview}
-                    size="card"
-                    mode="asset"
-                    assetFallbacks={[
-                      creative.mediaPreviewUrl,
-                      creative.cardPreviewUrl,
-                      creative.imageUrl,
-                      creative.preview?.image_url,
-                      creative.preview?.poster_url,
-                      creative.previewUrl,
-                      creative.cachedThumbnailUrl,
-                      creative.thumbnailUrl,
-                    ]}
-                  />
-                  <span>{mediaLabel(creative, language)}</span>
-                </div>
-                <div className="ad-client-highlight-body">
-                  <h3>{creative.name}</h3>
-                  <p>
-                    {formatMoney(currencyInfo.canAggregate ? creative.spend : null, currencyInfo.currency, language)}
-                    {" · "}
-                    {formatRoas(isFiniteNumber(creative.roas) ? creative.roas : null, language)}
-                  </p>
-                </div>
-              </article>
-            ))}
+            {highlights.map((creative) => {
+              const signalLine = isBuyer ? "" : creatorSignalLine(creative, language, copy);
+              return (
+                <article key={creative.id} className="ad-client-card ad-client-highlight">
+                  <div className="ad-client-highlight-media" style={{ aspectRatio: mediaAspectRatio(creative) }}>
+                    <CreativeRenderSurface
+                      id={creative.id}
+                      name={creative.name}
+                      preview={creative.preview}
+                      size="card"
+                      mode="asset"
+                      assetFallbacks={[
+                        creative.mediaPreviewUrl,
+                        creative.cardPreviewUrl,
+                        creative.imageUrl,
+                        creative.preview?.image_url,
+                        creative.preview?.poster_url,
+                        creative.previewUrl,
+                        creative.cachedThumbnailUrl,
+                        creative.thumbnailUrl,
+                      ]}
+                    />
+                    <span>{mediaLabel(creative, language)}</span>
+                  </div>
+                  <div className="ad-client-highlight-body">
+                    <h3>{creative.name}</h3>
+                    {isBuyer ? (
+                      <p>
+                        {formatMoney(currencyInfo.canAggregate ? creative.spend ?? null : null, currencyInfo.currency, language)}
+                        {" · "}
+                        {formatRoas(isFiniteNumber(creative.roas) ? creative.roas : null, language)}
+                      </p>
+                    ) : signalLine ? <p>{signalLine}</p> : null}
+                  </div>
+                </article>
+              );
+            })}
           </div>
         </section>
 
-        {payload.includeNotes && payload.note ? (
+        {isBuyer && payload.includeNotes && payload.note ? (
           <section className="ad-client-card ad-client-note">{payload.note}</section>
         ) : null}
 
         <footer className="ad-client-footer">
-          {currencyInfo.known ? copy.footKnown : copy.footUnknown}
+          {isBuyer
+            ? currencyInfo.known ? copy.footKnown : copy.footUnknown
+            : copy.creatorFoot}
         </footer>
       </main>
     </div>

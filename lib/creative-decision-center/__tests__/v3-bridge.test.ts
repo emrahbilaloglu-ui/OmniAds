@@ -80,13 +80,15 @@ describe("Creative Decision Center V3 bridge", () => {
     );
   });
 
-  it("maps every V3 label into a V2.1 row or explicit omission", () => {
+  it("maps every V3 label into a V2.1 compatibility row", () => {
     const cases = [
       { label: "scale", primaryDecision: "Scale" },
       { label: "cut", primaryDecision: "Cut" },
       { label: "refresh", primaryDecision: "Refresh" },
       { label: "test_more", primaryDecision: "Test More" },
       { label: "diagnose", primaryDecision: "Diagnose" },
+      { label: "keep", primaryDecision: "Protect" },
+      { label: "out_of_scope", primaryDecision: "Protect" },
     ] as const;
 
     for (const testCase of cases) {
@@ -105,23 +107,6 @@ describe("Creative Decision Center V3 bridge", () => {
       validateMappedBridge(result);
     }
 
-    const keep = bridgeV3DecisionToV21({
-      decision: makeV3Decision({ label: "keep", reason: "Hold steady." }),
-    });
-    expect(keep).toMatchObject({
-      kind: "omitted",
-      omitReason: "plain_keep_no_action",
-      sourceDecision: "v3:keep",
-    });
-
-    const outOfScope = bridgeV3DecisionToV21({
-      decision: makeV3Decision({ label: "out_of_scope" }),
-    });
-    expect(outOfScope).toMatchObject({
-      kind: "omitted",
-      omitReason: "out_of_scope",
-      sourceDecision: "v3:out_of_scope",
-    });
   });
 
   it("maps scale rows through the existing adapter execution CTAs", () => {
@@ -205,6 +190,26 @@ describe("Creative Decision Center V3 bridge", () => {
     expect(nearScale.engine.problemClass).toBe("insufficient_signal");
     expect(nearScale.engine.reasonTags).toContain("near_scale_blocked");
     validateMappedBridge(nearScale);
+
+    const pendingHardAction = requireMapped(
+      bridgeV3DecisionToV21({
+        decision: makeV3Decision({
+          label: "keep",
+          blockedActionType: "scale",
+          badges: [badge("pending_transition")],
+          reason:
+            "No hard action is published until the scale signal repeats.",
+        }),
+      }),
+    );
+    const pendingRow = validateMappedBridge(pendingHardAction);
+    expect(pendingHardAction.engine.primaryDecision).toBe("Test More");
+    expect(pendingHardAction.engine.actionability).toBe("review_only");
+    expect(pendingHardAction.engine.applyEligible).toBe(false);
+    expect(pendingHardAction.engine.reasonTags).toContain(
+      "pending_hard_action",
+    );
+    expect(pendingRow.buyerAction).toBe("test_more");
   });
 
   it("preserves labelTransform as sourceDecision instead of flattening to the final label", () => {
@@ -368,11 +373,12 @@ describe("Creative Decision Center V3 bridge", () => {
     expect(matureHigh.engine.priority).toBe("high");
   });
 
-  it("returns null adapter input for omitted decisions and filters them in bulk", () => {
-    const omitted = bridgeV3DecisionToAdapterInput({
+  it("preserves compatibility rows in single and bulk adapter inputs", () => {
+    const outOfScope = bridgeV3DecisionToAdapterInput({
       decision: makeV3Decision({ label: "out_of_scope" }),
     });
-    expect(omitted).toBeNull();
+    expect(outOfScope?.engine.primaryDecision).toBe("Protect");
+    expect(outOfScope?.sourceDecision).toBe("v3:out_of_scope");
 
     const inputs = bridgeV3DecisionsToAdapterInputs([
       { decision: makeV3Decision({ label: "keep" }) },
@@ -385,8 +391,11 @@ describe("Creative Decision Center V3 bridge", () => {
         context: { campaignKind: "main" },
       },
     ]);
-    expect(inputs).toHaveLength(1);
-    expect(inputs[0]?.engine.primaryDecision).toBe("Scale");
+    expect(inputs).toHaveLength(2);
+    expect(inputs.map((input) => input.engine.primaryDecision)).toEqual([
+      "Protect",
+      "Scale",
+    ]);
   });
 
   it("produces deterministic JSON for repeated calls", () => {

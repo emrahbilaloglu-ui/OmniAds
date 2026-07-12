@@ -1,20 +1,21 @@
 // Decision-label stability (hard-label hysteresis).
 //
-// Live evidence 2026-07-04..06 showed three creatives round-tripping hard
-// labels across consecutive days (IwaStore 946471284944193 scale->keep->scale,
-// TheSwaf 1962656064410174 cut->keep->cut, Tiles 25889037484086563
-// keep->cut->keep) because ratio/recent-hold boundaries are re-estimated
-// daily. Rule: a transition that crosses the hard-action boundary
-// (cut/scale on either side) publishes only after the new raw label holds for
-// two consecutive evaluations; the suppressed day republishes the previous
-// published label with a pending_transition badge. Soft<->soft transitions
-// publish immediately. The raw label is persisted alongside the published
-// label so the confirmation rule has one day of memory.
+// Live evidence 2026-07-04..06 showed hard-action round trips across adjacent
+// evaluations. D036 makes the stability rule asymmetric: leaving a hard action
+// is immediate so safety/authority exits can never resurrect yesterday's
+// action; entering a hard action requires two consecutive evaluations. A
+// direct hard-to-hard switch publishes a neutral pending state for one
+// evaluation. The raw label is persisted alongside the published label so the
+// confirmation rule has one evaluation of memory.
 import { getDb } from "@/lib/db";
 import { ENGINE_VERSION } from "./types";
 import type { DecisionBadge, DecisionLabel, DecisionOutput } from "./types";
 
-const HARD_LABELS: ReadonlySet<DecisionLabel> = new Set(["cut", "scale"]);
+const HARD_LABELS: ReadonlySet<DecisionLabel> = new Set([
+  "cut",
+  "refresh",
+  "scale",
+]);
 
 export interface PreviousPublishedLabel {
   publishedLabel: DecisionLabel;
@@ -36,23 +37,30 @@ export function applyLabelHysteresis(
   previous: PreviousPublishedLabel | null | undefined,
 ): LabelHysteresisResult {
   if (!previous) {
-    return { publishedLabel: rawLabel, rawLabel, suppressed: false };
+    return isHardLabel(rawLabel)
+      ? { publishedLabel: "keep", rawLabel, suppressed: true }
+      : { publishedLabel: rawLabel, rawLabel, suppressed: false };
   }
   if (rawLabel === previous.publishedLabel) {
     return { publishedLabel: rawLabel, rawLabel, suppressed: false };
   }
-  const crossesHardBoundary =
-    isHardLabel(rawLabel) || isHardLabel(previous.publishedLabel);
-  if (!crossesHardBoundary) {
+  // Safety and authority exits dominate stability: once today's guarded
+  // decision is soft, the earlier hard action loses authority immediately.
+  if (!isHardLabel(rawLabel)) {
     return { publishedLabel: rawLabel, rawLabel, suppressed: false };
   }
+
   const previousRaw = previous.rawLabel ?? previous.publishedLabel;
   if (rawLabel === previousRaw) {
     // Second consecutive evaluation with the same new label: confirmed.
     return { publishedLabel: rawLabel, rawLabel, suppressed: false };
   }
+
+  // Every unconfirmed hard entry uses one canonical, non-actionable tuple.
+  // Reusing diagnose/out_of_scope here would combine yesterday's verdict with
+  // today's hard-action evidence and create a semantically hybrid row.
   return {
-    publishedLabel: previous.publishedLabel,
+    publishedLabel: "keep",
     rawLabel,
     suppressed: true,
   };
@@ -61,7 +69,7 @@ export function applyLabelHysteresis(
 export const PENDING_TRANSITION_BADGE: DecisionBadge = {
   type: "pending_transition",
   label:
-    "Label transition pending - new signal must hold a second evaluation before the published decision changes",
+    "Hard action pending - the signal must hold a second evaluation before it is published",
   severity: "info",
 };
 
@@ -75,9 +83,10 @@ export function withPendingTransitionBadge(
 }
 
 /**
- * Applies hard-label hysteresis to a guarded decision. When suppressed, the
- * published decision keeps yesterday's label with a pending_transition badge
- * and the raw label is reported for persistence/audit.
+ * Applies hard-action hysteresis to a guarded decision. A suppressed hard
+ * entry publishes a non-hard state, keeps the intended action only as
+ * blockedActionType/rawLabel provenance, and explicitly says that no hard
+ * action is currently published.
  */
 export function stabilizeDecisionLabel(
   decision: DecisionOutput,
@@ -91,8 +100,9 @@ export function stabilizeDecisionLabel(
     decision: {
       ...decision,
       label: result.publishedLabel,
+      blockedActionType: result.rawLabel,
       badges: withPendingTransitionBadge(decision.badges),
-      reason: `[Pending transition - held at previous decision] ${decision.reason}`,
+      reason: `[Pending hard action: ${result.rawLabel}] No hard action is published until this signal repeats on the next evaluation. Current evidence: ${decision.reason}`,
     },
     rawLabel: result.rawLabel,
     suppressed: true,
@@ -110,10 +120,14 @@ export async function readPreviousPublishedLabels(input: {
   businessId: string;
   asOf: string;
   creativeIds: string[];
+  scopeType?: "account" | "campaign";
+  scopeId?: string;
 }): Promise<Map<string, PreviousPublishedLabel>> {
   if (input.creativeIds.length === 0) {
     return new Map();
   }
+  const scopeType = input.scopeType ?? "account";
+  const scopeId = input.scopeId ?? "*";
   const rows = await getDb().query<Row>(
     `
     SELECT DISTINCT ON (creative_id)
@@ -123,11 +137,18 @@ export async function readPreviousPublishedLabels(input: {
       AND engine_version = $2
       AND creative_id = ANY($3::text[])
       AND as_of_date < $4::date
-      AND scope_type = 'account'
-      AND scope_id = '*'
+      AND scope_type = $5
+      AND scope_id = $6
     ORDER BY creative_id, as_of_date DESC, computed_at DESC
     `,
-    [input.businessId, ENGINE_VERSION, input.creativeIds, input.asOf],
+    [
+      input.businessId,
+      ENGINE_VERSION,
+      input.creativeIds,
+      input.asOf,
+      scopeType,
+      scopeId,
+    ],
   );
   const map = new Map<string, PreviousPublishedLabel>();
   const validLabels: ReadonlySet<string> = new Set([

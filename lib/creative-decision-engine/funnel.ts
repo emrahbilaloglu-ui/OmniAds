@@ -111,6 +111,7 @@ function resolveBaseline(input: {
 }
 
 function weakThreshold(p25: number | null, p50: number | null, multiplier: number) {
+  if (p25 !== null && p50 !== null) return Math.min(p25, p50 * multiplier);
   if (p25 !== null) return p25;
   if (p50 !== null) return p50 * multiplier;
   return null;
@@ -489,10 +490,12 @@ export function assessQualityOnly(input: {
     name: string;
     weight: number;
     score: number | null;
+    denominatorConfidence: number;
   }> = [
     {
       name: "hook",
       weight: QUALITY_ONLY_COMPONENT_WEIGHTS.hook,
+      denominatorConfidence: upperConfidence,
       score: componentScore({
         value: creative.thumbstop,
         baseline: baseline.thumbstopP50,
@@ -502,6 +505,7 @@ export function assessQualityOnly(input: {
     {
       name: "ctr",
       weight: QUALITY_ONLY_COMPONENT_WEIGHTS.ctr,
+      denominatorConfidence: upperConfidence,
       score: componentScore({
         value: rates.ctr,
         baseline: baseline.ctrP50,
@@ -511,6 +515,7 @@ export function assessQualityOnly(input: {
     {
       name: "cpm_efficiency",
       weight: QUALITY_ONLY_COMPONENT_WEIGHTS.cpmEfficiency,
+      denominatorConfidence: upperConfidence,
       score: componentScore({
         value: creative.cpm,
         baseline: baseline.cpmP50,
@@ -521,6 +526,7 @@ export function assessQualityOnly(input: {
     {
       name: "click_to_lpv",
       weight: QUALITY_ONLY_COMPONENT_WEIGHTS.clickToLpv,
+      denominatorConfidence: clickConfidence,
       score: componentScore({
         value: rates.linkToLpvRate,
         baseline: baseline.linkToLpvP50,
@@ -530,6 +536,7 @@ export function assessQualityOnly(input: {
     {
       name: "lpv_to_atc",
       weight: QUALITY_ONLY_COMPONENT_WEIGHTS.lpvToAtc,
+      denominatorConfidence: lpvConfidence,
       score: componentScore({
         value: rates.lpvToAtcRate,
         baseline: baseline.lpvToAtcP50,
@@ -539,6 +546,7 @@ export function assessQualityOnly(input: {
     {
       name: "atc_to_ic",
       weight: QUALITY_ONLY_COMPONENT_WEIGHTS.atcToIc,
+      denominatorConfidence: atcConfidence,
       score: componentScore({
         value: rates.atcToIcRate,
         baseline: baseline.atcToIcP50,
@@ -550,7 +558,12 @@ export function assessQualityOnly(input: {
   const scoredComponents = components.filter(
     (
       component,
-    ): component is { name: string; weight: number; score: number } =>
+    ): component is {
+      name: string;
+      weight: number;
+      score: number;
+      denominatorConfidence: number;
+    } =>
       component.score !== null,
   );
   if (scoredComponents.length === 0) {
@@ -572,24 +585,23 @@ export function assessQualityOnly(input: {
       (sum, component) => sum + component.score * component.weight,
       0,
     ) / totalWeight;
-  const minimumDenominatorConfidence = Math.min(
-    ...[
-      upperConfidence,
-      clickConfidence,
-      lpvConfidence,
-      atcConfidence,
-    ].filter((value) => value > 0),
+  const configuredWeight = components.reduce(
+    (sum, component) => sum + component.weight,
+    0,
   );
+  const evidenceCoverage =
+    scoredComponents.reduce(
+      (sum, component) =>
+        sum + component.weight * component.denominatorConfidence,
+      0,
+    ) / configuredWeight;
 
   return {
     status: qualityStatus(score),
     score,
     confidence: Math.max(
       0.45,
-      Math.min(
-        0.85,
-        0.5 + minimumDenominatorConfidence * 0.2 + scoredComponents.length * 0.03,
-      ),
+      Math.min(0.85, 0.45 + evidenceCoverage * 0.4),
     ),
     evidence: scoredComponents.map(
       (component) => `${component.name} score ${component.score.toFixed(2)}x`,

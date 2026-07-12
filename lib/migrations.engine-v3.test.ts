@@ -34,7 +34,7 @@ const ENGINE_V3_COLUMN_COUNTS = {
   engine_v3_job_runs: 22,
   engine_v3_account_calibration_daily: 42,
   engine_v3_creative_lifecycle_daily: 62,
-  engine_v3_decision_snapshots_daily: 27,
+  engine_v3_decision_snapshots_daily: 28,
   engine_v3_decision_events: 17,
   engine_v3_decision_outcomes_daily: 27,
 } satisfies Record<(typeof ENGINE_V3_TABLES)[number], number>;
@@ -144,7 +144,15 @@ function countColumnDefinitions(statement: string) {
 }
 
 function engineStatements(queries: string[]) {
-  return queries.filter((query) => query.includes("engine_v3_"));
+  return queries.filter((query) => {
+    const statement = normalizeSql(query);
+    return ENGINE_V3_TABLES.some(
+      (tableName) =>
+        statement.includes(`CREATE TABLE IF NOT EXISTS ${tableName}`) ||
+        statement.includes(`ALTER TABLE ${tableName}`) ||
+        statement.includes(` ON ${tableName} `),
+    );
+  });
 }
 
 function precomputedEngineStatements(queries: string[]) {
@@ -190,8 +198,36 @@ describe("Engine v3 precomputed table migrations", () => {
     expect(normalizeSql(findCreateTableStatement(queries, "engine_v3_decision_snapshots_daily"))).toContain(
       normalizeSql("label_transform TEXT CHECK (label_transform IN ('test_cohort_refresh_to_cut'))"),
     );
+    expect(
+      normalizeSql(
+        findCreateTableStatement(queries, "engine_v3_decision_snapshots_daily"),
+      ),
+    ).toContain(
+      normalizeSql(
+        "blocked_action_type TEXT CHECK (blocked_action_type IN ('scale', 'cut', 'refresh'))",
+      ),
+    );
+    expect(
+      normalizeSql(
+        findCreateTableStatement(queries, "engine_v3_decision_snapshots_daily"),
+      ),
+    ).toContain(
+      normalizeSql(
+        "'commercial_truth', 'commercial_truth_stale', 'account_baseline'",
+      ),
+    );
     expect(joined).toContain(
       normalizeSql("ADD COLUMN IF NOT EXISTS label_transform TEXT CHECK (label_transform IN ('test_cohort_refresh_to_cut'))"),
+    );
+    expect(joined).toContain(
+      normalizeSql(
+        "ADD COLUMN IF NOT EXISTS blocked_action_type TEXT CHECK (blocked_action_type IN ('scale', 'cut', 'refresh'))",
+      ),
+    );
+    expect(joined).toContain(
+      normalizeSql(
+        "ADD CONSTRAINT engine_v3_decision_snapshots_daily_truth_source_check",
+      ),
     );
 
     for (const indexName of ENGINE_V3_INDEXES) {
@@ -275,5 +311,40 @@ describe("Engine v3 precomputed table migrations", () => {
 
     expect(addKindColumnsIndex).toBeGreaterThanOrEqual(0);
     expect(byKindIndexIndex).toBeGreaterThan(addKindColumnsIndex);
+  });
+});
+
+describe("business target pack history migrations", () => {
+  it("creates an append-only temporal table without inventing historical rows", async () => {
+    const queries = await collectMigrationQueries();
+    const createStatement = normalizeSql(
+      findCreateTableStatement(queries, "business_target_pack_history"),
+    );
+    const joined = normalizeSql(queries.join("\n"));
+
+    expect(createStatement).toContain(
+      "id UUID PRIMARY KEY DEFAULT gen_random_uuid()",
+    );
+    expect(createStatement).toContain(
+      "business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE",
+    );
+    expect(createStatement).toContain(
+      "business_ref_id UUID REFERENCES businesses(id) ON DELETE SET NULL",
+    );
+    expect(createStatement).toContain(
+      "operation TEXT NOT NULL CHECK (operation IN ('upsert', 'delete'))",
+    );
+    expect(createStatement).toContain("effective_at TIMESTAMPTZ NOT NULL");
+    expect(createStatement).toContain(
+      "recorded_at TIMESTAMPTZ NOT NULL DEFAULT now()",
+    );
+    expect(createStatement).toContain("CHECK (effective_at <= recorded_at)");
+    expect(joined).toContain(
+      normalizeSql(
+        "CREATE INDEX IF NOT EXISTS idx_business_target_pack_history_business_effective ON business_target_pack_history (business_id, effective_at DESC, recorded_at DESC, id DESC)",
+      ),
+    );
+    expect(joined).not.toContain("INSERT INTO business_target_pack_history");
+    expect(joined).not.toContain("operation = 'bootstrap'");
   });
 });

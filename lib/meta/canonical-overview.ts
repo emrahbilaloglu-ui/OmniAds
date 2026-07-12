@@ -191,11 +191,17 @@ export async function getMetaCanonicalOverviewTrends(input: {
   businessId: string;
   startDate: string;
   endDate: string;
+  providerAccountId?: string | null;
 }): Promise<MetaCanonicalOverviewTrends> {
   const assignment = await getProviderAccountAssignments(input.businessId, "meta").catch(
     () => null,
   );
-  const providerAccountIds = assignment?.account_ids ?? [];
+  const assignedProviderAccountIds = assignment?.account_ids ?? [];
+  const providerAccountIds = input.providerAccountId
+    ? assignedProviderAccountIds.filter(
+        (accountId) => accountId === input.providerAccountId,
+      )
+    : assignedProviderAccountIds;
   const [rangeContext, trends] = await Promise.all([
     getMetaRangePreparationContext(input),
     getMetaWarehouseTrends({

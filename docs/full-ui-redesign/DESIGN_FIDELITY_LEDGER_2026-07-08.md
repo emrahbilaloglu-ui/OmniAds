@@ -1,5 +1,13 @@
 # Design Fidelity Ledger — Adsecute Redesign vs Claude Design reference
 
+> Supersession note, 2026-07-10: the percentages in this file measure the
+> earlier ZIP wireframe direction as it existed on 2026-07-08. After structured
+> owner discovery and independent Codex/Claude review, authenticated Meta moved
+> to the product direction in `META_OS_JOINT_DECISION_2026-07-10.md`. Do not use
+> the old percentages as the current Meta OS completion score. Current local
+> implementation evidence is recorded in
+> `META_OS_LOCAL_IMPLEMENTATION_COMPLETION_2026-07-10.md`.
+
 _Generated 2026-07-08 by an adversarial code-vs-reference audit (8 parallel auditors). Source of truth: the Claude Design `.dc.html` reference set. This REPLACES the earlier route-coverage ledger's dishonest "covered" claims — "covered" there meant "route renders without crashing," NOT "matches the reference composition."_
 
 ## Blunt verdict: table-average reference fidelity ~**52%**. Nothing here is design-complete.
@@ -638,3 +646,42 @@ The prior green gates (typecheck/lint/vitest/Playwright smoke) only proved no-cr
 6. Continue token/density cleanup around the wizard internals (ad-set builder, target picker, and manage-existing review) so the whole flow reads as the dense 13px operator console.
 
 **Impl files:** `app/(dashboard)/platforms/meta/launchpad/page.tsx`, `components/launchpad/LaunchpadReview.tsx`, `components/launchpad/LaunchpadProgress.tsx`, `components/launchpad/LaunchpadCreativeSelection.tsx`, `app/globals.css`
+
+## 2026-07-10 Meta OS Supersession Addendum
+
+The earlier 52% table average remains a valid historical answer to a different
+question: “How closely did the 2026-07-08 code match the original ZIP?” It is
+not a current score for the owner-approved Meta Operating System.
+
+The current Meta design authority is, in order:
+
+1. `META_OS_OWNER_DISCOVERY_2026-07-10.md`
+2. `CODEX_META_OS_INDEPENDENT_STUDY_2026-07-10.md`
+3. `CLAUDE_META_OS_INDEPENDENT_STUDY_2026-07-10.md`
+4. `META_OS_JOINT_DECISION_2026-07-10.md`
+5. the clickable local implementation and its isolated screenshots
+
+Current design coverage now includes:
+
+- a calm 196px application rail and 46px global bar;
+- one server-authoritative Decisions queue with Integrity Fires, Money Moves,
+  and Creative Rotation sections;
+- a permanently reserved context/inspector zone at wide desktop and a
+  non-writing evidence surface on mobile;
+- an account-scoped, cursor-paginated History and explicit Historical Replay;
+- visual-first Creative Studio Assets plus account-scoped Copy, Landing Pages,
+  Inbox, Audiences readiness, winner eras, persisted Creative Briefs, and
+  privacy-projected creator sharing;
+- PAUSED-only Launchpad creation with immutable LaunchIntent lineage and
+  receipts;
+- Automation supervision with real stop authority and visibly locked promotion
+  or auto-execute controls;
+- semantic light/dark parity at 390/768/1280/1440/1728 with no horizontal body
+  overflow in the isolated visual matrix.
+
+The following are intentionally **not** claimed as current/live-wired design
+features: persisted per-grain risk production, persisted relative-promotion
+basis, budget mutation, staged ACTIVE activation, per-action automation
+promotion/auto-execution, and media upload processing. Their UI states are
+either absent or explicitly marked `Proposed/contract required`; this is a
+truth boundary, not a visual omission to be papered over with fixtures.

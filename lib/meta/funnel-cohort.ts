@@ -21,7 +21,7 @@ const EVENT_COHORTS: Record<string, MetaFunnelCohort> = {
   SUBMIT_APPLICATION: "lead",
   START_TRIAL: "lead",
   SUBSCRIBE: "lead",
-  CONTACT: "engagement",
+  CONTACT: "lead",
 };
 
 const OPTIMIZATION_GOAL_COHORTS: Record<string, MetaFunnelCohort> = {
@@ -45,11 +45,11 @@ const OPTIMIZATION_GOAL_COHORTS: Record<string, MetaFunnelCohort> = {
   POST_ENGAGEMENT: "engagement",
   PAGE_LIKES: "engagement",
   EVENT_RESPONSES: "engagement",
-  REPLIES: "engagement",
-  MESSAGING_PURCHASE_CONVERSION: "engagement",
-  CONVERSATIONS: "engagement",
-  MESSAGES: "engagement",
-  DERIVED_EVENTS: "engagement",
+  REPLIES: "unknown",
+  MESSAGING_PURCHASE_CONVERSION: "unknown",
+  CONVERSATIONS: "unknown",
+  MESSAGES: "unknown",
+  DERIVED_EVENTS: "unknown",
 };
 
 const OBJECTIVE_COHORTS: Record<string, MetaFunnelCohort> = {

@@ -43,13 +43,20 @@ function renderPage() {
 }
 
 describe("/platforms/meta/creatives page", () => {
-  it("renders the analysis-only Creative Studio library surface", () => {
+  it("renders the scoped Creative Studio OS surface", () => {
     const html = renderPage();
 
     expect(html).toContain("data-testid=\"creative-studio-page\"");
+    expect(html).toContain("data-testid=\"creative-studio-os\"");
     expect(html).toContain("Creative Studio");
-    expect(html).toContain("Analysis only");
-    expect(html).toContain("href=\"/platforms/meta\"");
+    // The Studio renders inside the app frame and owns no primary navigation.
+    // A fixed mobile drawer is allowed, but the route root itself is responsive.
+    expect(html).toContain('data-responsive-studio="true"');
+    expect(html).toContain('data-provider-writes="none"');
+    expect(html).not.toContain('aria-label="Primary"');
+    expect(html).not.toContain("data-studio-nav-rail");
+    // With no resolved provider account the surface withholds performance.
+    expect(html).toContain("data-testid=\"creative-studio-account-required\"");
     expect(html).not.toContain("creatives-briefing-page");
   });
 });

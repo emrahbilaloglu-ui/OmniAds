@@ -14,6 +14,7 @@ import type {
 import { DecisionLabelChip } from "@/components/common/briefing/DecisionLabelChip";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { staleTierForDisplay } from "@/lib/creative-decision-engine/data-health";
 import {
   DECISION_LABELS,
   LABEL_DISPLAY,
@@ -86,6 +87,10 @@ export function CreativeDecisionEngineV3Surface(
     return props.asOf ?? null;
   }, [props.asOf, props.decisions]);
 
+  const displayHealthTier = props.dataHealth
+    ? staleTierForDisplay(props.dataHealth.worstTier)
+    : null;
+
   if (!props.businessId || !props.flags?.enabled || !props.flags.surfaceVisible) {
     return null;
   }
@@ -109,16 +114,18 @@ export function CreativeDecisionEngineV3Surface(
             <span
               className={cn(
                 "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium",
-                props.dataHealth.worstTier === "warning"
+                displayHealthTier === "warning"
                   ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
                   : "bg-rose-500/15 text-rose-700 dark:text-rose-400",
               )}
               data-health-tier={props.dataHealth.worstTier}
               title={`Data health: ${props.dataHealth.worstTier} (calibration ${props.dataHealth.calibration.staleTier}, lifecycle ${props.dataHealth.lifecycle.staleTier}, decisions ${props.dataHealth.decisions.staleTier})`}
             >
-              {props.dataHealth.worstTier === "warning"
-                ? "data: stale"
-                : "data: degraded"}
+              {props.dataHealth.worstTier === "unknown"
+                ? "data: freshness unknown"
+                : displayHealthTier === "warning"
+                  ? "data: stale"
+                  : "data: degraded"}
             </span>
           )}
           {props.dataSource && (

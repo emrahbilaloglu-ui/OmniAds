@@ -56,6 +56,11 @@ import {
   upsertMetaBreakdownDailyRows,
   upsertMetaSyncPhaseTiming,
 } from "@/lib/meta/warehouse";
+import {
+  resolveMetaRawSnapshotFetchUrl,
+  resolveMetaRawSnapshotResumeState,
+  selectLatestMetaRawSnapshotGeneration,
+} from "@/lib/meta/raw-snapshot-generation";
 import type {
   MetaAccountDailyRow,
   MetaAdDailyRow,
@@ -73,7 +78,10 @@ import type {
 } from "@/lib/meta/warehouse-types";
 import { createMetaFinalizationCompletenessProof } from "@/lib/meta/finalization-proof";
 import { isMetaAuthoritativeFinalizationV2EnabledForBusiness } from "@/lib/meta/authoritative-finalization-config";
-import { getMetaAccountContext } from "@/lib/meta/account-context";
+import {
+  getMetaAccountContext,
+  normalizeMetaCurrencyCode,
+} from "@/lib/meta/account-context";
 import { logRuntimeInfo, logRuntimeWarn } from "@/lib/runtime-logging";
 
 // ── Core metric interface ─────────────────────────────────────────────────────
@@ -84,13 +92,13 @@ import { logRuntimeInfo, logRuntimeWarn } from "@/lib/runtime-logging";
  * display layer. The raw numbers here are already rounded to 2 decimal places.
  */
 export interface MetaMetricsData {
-  spend: number;       // USD, rounded to 2 dp
+  spend: number;       // account currency, rounded to 2 dp
   purchases: number;   // integer count
-  revenue: number;     // USD, rounded to 2 dp
+  revenue: number;     // account currency, rounded to 2 dp
   roas: number;        // ratio, rounded to 2 dp
-  cpa: number;         // USD per purchase, rounded to 2 dp
+  cpa: number;         // account currency per purchase, rounded to 2 dp
   ctr: number;         // percent (e.g. 1.23 = 1.23%), rounded to 2 dp
-  cpm: number;         // USD per 1000 impressions, rounded to 2 dp
+  cpm: number;         // account currency per 1000 impressions, rounded to 2 dp
   impressions: number; // integer count
   clicks: number;      // integer count
 }
@@ -251,8 +259,8 @@ export interface MetaAdSetData extends MetaMetricsData {
   status: string;
   statusUpdatedAt?: string | null;
   budgetLevel?: "campaign" | "adset" | null;
-  dailyBudget: number | null;    // USD, null when lifetime budget is used
-  lifetimeBudget: number | null; // USD, null when daily budget is used
+  dailyBudget: number | null;    // account currency, null when lifetime budget is used
+  lifetimeBudget: number | null; // account currency, null when daily budget is used
   optimizationGoal: string | null;
   customEventType?: string | null;
   pixelId?: string | null;
@@ -433,15 +441,42 @@ export interface MetaCredentials {
   businessId: string;
   accessToken: string;
   accountIds: string[];
-  currency: string; // ISO 4217 code from the primary ad account (e.g. "USD", "EUR", "TRY")
+  currency: string | null; // ISO 4217 code from the primary ad account
   accountProfiles: Record<
     string,
     {
-      currency: string;
+      currency: string | null;
       timezone: string | null;
       name: string | null;
     }
   >;
+}
+
+export function resolveMetaCurrencyForAccount(
+  credentials: MetaCredentials,
+  accountId: string
+): string | null {
+  const profileCurrency = normalizeMetaCurrencyCode(
+    credentials.accountProfiles[accountId]?.currency
+  );
+  if (profileCurrency) return profileCurrency;
+
+  const primaryAccountId = credentials.accountIds[0] ?? null;
+  return accountId === primaryAccountId
+    ? normalizeMetaCurrencyCode(credentials.currency)
+    : null;
+}
+
+function requireMetaCurrencyForWarehouseWrite(
+  credentials: MetaCredentials,
+  accountId: string,
+  surface: string
+): string {
+  const currency = resolveMetaCurrencyForAccount(credentials, accountId);
+  if (!currency) {
+    throw new Error(`meta_currency_unavailable:${surface}:${accountId}`);
+  }
+  return currency;
 }
 
 const META_ACCOUNT_PROFILE_TIMEOUT_MS = 8_000;
@@ -486,7 +521,7 @@ export async function resolveMetaCredentials(
     businessId,
     accessToken,
     accountIds,
-    currency: context?.currency ?? "USD",
+    currency: normalizeMetaCurrencyCode(context?.currency),
     accountProfiles: context?.accountProfiles ?? {},
   };
 }
@@ -1033,7 +1068,10 @@ async function recordMetaRawSnapshot(input: {
     startDate: normalizedSince,
     endDate: normalizedUntil,
     accountTimezone: profile?.timezone ?? null,
-    accountCurrency: profile?.currency ?? input.credentials.currency,
+    accountCurrency: resolveMetaCurrencyForAccount(
+      input.credentials,
+      input.accountId
+    ),
     payloadJson: input.payload,
     payloadHash: buildMetaRawSnapshotHash({
       businessId: input.credentials.businessId,
@@ -1612,6 +1650,11 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
 }) : Promise<MetaBulkCoreSyncResult> {
   const normalizedDay = normalizeMetaApiDate(input.day);
   const profile = input.credentials.accountProfiles[input.accountId];
+  const accountCurrency = requireMetaCurrencyForWarehouseWrite(
+    input.credentials,
+    input.accountId,
+    "core_warehouse"
+  );
   const accountToday = getTodayIsoForTimeZone(profile?.timezone ?? "UTC");
   const truthState =
     input.truthState ?? (normalizedDay === accountToday ? "provisional" : "finalized");
@@ -1669,13 +1712,19 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     day: normalizedDay,
     stage: "syncMetaAccountCoreWarehouseDay.restore_raw_pages",
     run: async () => {
-      restoredPages = input.freshStart
+      const observedPages = input.freshStart
         ? []
         : await listMetaRawSnapshotsForRun({
             partitionId: input.partitionId,
             endpointName,
             runId: sourceRunId,
           });
+      restoredPages = selectLatestMetaRawSnapshotGeneration(observedPages);
+      const restoreState = resolveMetaRawSnapshotResumeState({
+        pages: restoredPages,
+        checkpoint,
+      });
+      restoredPages = restoreState.pages;
       for (const rawPage of restoredPages) {
         const payload = Array.isArray(rawPage.payload_json)
           ? (rawPage.payload_json as RawAdInsight[])
@@ -1691,15 +1740,20 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     },
   });
 
-  let nextPageUrl: string | null =
-    checkpoint?.nextPageUrl ??
-    buildMetaBulkCoreInsightsUrl({
+  let nextPageUrl: string | null = resolveMetaRawSnapshotFetchUrl({
+    checkpoint,
+    initialPageUrl: buildMetaBulkCoreInsightsUrl({
       accountId: input.accountId,
       accessToken: input.credentials.accessToken,
       since: normalizedDay,
       until: normalizedDay,
-    });
-  let pageIndex = checkpoint?.pageIndex ?? restoredPages.length;
+    }),
+  });
+  const restoreState = resolveMetaRawSnapshotResumeState({
+    pages: restoredPages,
+    checkpoint,
+  });
+  let pageIndex = restoreState.nextPageIndex;
   let throttleCount = 0;
   let lastUsagePercent = 0;
   const coreCheckpointStartedAt = checkpoint?.startedAt ?? new Date().toISOString();
@@ -2077,7 +2131,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           isBidStrategyMixed: false,
           isBidValueMixed: false,
           accountTimezone: profile?.timezone ?? "UTC",
-          accountCurrency: profile?.currency ?? input.credentials.currency,
+          accountCurrency,
           spend: value.spend,
           impressions: value.impressions,
           clicks: value.clicks,
@@ -2128,7 +2182,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
             isBidStrategyMixed: false,
             isBidValueMixed: false,
             accountTimezone: profile?.timezone ?? "UTC",
-            accountCurrency: profile?.currency ?? input.credentials.currency,
+            accountCurrency,
             spend: value.spend,
             impressions: value.impressions,
             clicks: value.clicks,
@@ -2165,7 +2219,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           adNameHistorical: value.name ?? null,
           adStatus: null,
           accountTimezone: profile?.timezone ?? "UTC",
-          accountCurrency: profile?.currency ?? input.credentials.currency,
+          accountCurrency,
           spend: value.spend,
           impressions: value.impressions,
           clicks: value.clicks,
@@ -2194,7 +2248,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           date: normalizedDay,
           accountName: profile?.name ?? null,
           accountTimezone: profile?.timezone ?? "UTC",
-          accountCurrency: profile?.currency ?? input.credentials.currency,
+          accountCurrency,
           sourceSnapshotId,
           truthState,
           truthVersion: 1,
@@ -3376,6 +3430,11 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
   const checkpointScope = `breakdown:${input.breakdowns}`;
   const sourceRunId = input.partitionId;
   const profile = input.credentials.accountProfiles[input.accountId];
+  const accountCurrency = requireMetaCurrencyForWarehouseWrite(
+    input.credentials,
+    input.accountId,
+    "breakdown_warehouse"
+  );
   const authoritativeFinalizationV2Enabled =
     isMetaAuthoritativeFinalizationV2EnabledForBusiness(
       input.credentials.businessId,
@@ -3553,7 +3612,7 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
     providerAccountId: input.accountId,
     date: normalizedDay,
     accountTimezone: profile?.timezone ?? "UTC",
-    accountCurrency: profile?.currency ?? input.credentials.currency,
+    accountCurrency,
     breakdownType,
     rows: restoredRows,
     sourceRunId,
@@ -4274,6 +4333,11 @@ export async function getCampaigns(
             isSingleDayWindow(normalizedSince, normalizedUntil) &&
             normalizedDate === accountToday
           ) {
+            const accountCurrency = requireMetaCurrencyForWarehouseWrite(
+              credentials,
+              accountId,
+              "campaign_daily"
+            );
             const singleDayRows = allRows.filter(
               (row) => row.accountId === accountId
             );
@@ -4302,8 +4366,7 @@ export async function getCampaigns(
                 isBidStrategyMixed: Boolean(row.isBidStrategyMixed),
                 isBidValueMixed: Boolean(row.isBidValueMixed),
                 accountTimezone: profile?.timezone ?? "UTC",
-                accountCurrency:
-                  profile?.currency ?? credentials.currency ?? "USD",
+                accountCurrency,
                 spend: row.spend,
                 impressions: row.impressions,
                 clicks: row.clicks,
@@ -4325,8 +4388,7 @@ export async function getCampaigns(
                 date: normalizedDate,
                 accountName: profile?.name ?? null,
                 accountTimezone: profile?.timezone ?? "UTC",
-                accountCurrency:
-                  profile?.currency ?? credentials.currency ?? "USD",
+                accountCurrency,
                 spend: r2(
                   singleDayRows.reduce((sum, row) => sum + row.spend, 0)
                 ),
@@ -4454,14 +4516,21 @@ export async function getAdSets(
   since: string,
   until: string,
   businessId?: string,
-  includePrev = false
+  includePrev = false,
+  providerAccountIds?: string[] | null,
 ): Promise<MetaAdSetData[]> {
   const normalizedSince = normalizeMetaApiDate(since);
   const normalizedUntil = normalizeMetaApiDate(until);
   const results: MetaAdSetData[] = [];
+  const requestedAccountIds = providerAccountIds
+    ? new Set(providerAccountIds.filter(Boolean))
+    : null;
+  const targetAccountIds = requestedAccountIds
+    ? credentials.accountIds.filter((accountId) => requestedAccountIds.has(accountId))
+    : credentials.accountIds;
 
   await Promise.all(
-    credentials.accountIds.map(async (accountId) => {
+    targetAccountIds.map(async (accountId) => {
       // Fetch adset metadata (status, budget) scoped to the campaign
       const statusUrl = new URL(
         `https://graph.facebook.com/v25.0/${accountId}/adsets`
@@ -4702,6 +4771,11 @@ export async function getAdSets(
         if (isSingleDayWindow(normalizedSince, normalizedUntil)) {
           const profile = credentials.accountProfiles[accountId];
           const normalizedDate = normalizedSince;
+          const accountCurrency = requireMetaCurrencyForWarehouseWrite(
+            credentials,
+            accountId,
+            "adset_daily"
+          );
           const singleDayRows = results.filter((row) => row.accountId === accountId);
           await upsertMetaAdSetDailyRows(
             singleDayRows.map((row) => ({
@@ -4714,7 +4788,7 @@ export async function getAdSets(
               adsetNameHistorical: row.name,
               adsetStatus: row.status,
               accountTimezone: profile?.timezone ?? "UTC",
-              accountCurrency: profile?.currency ?? credentials.currency ?? "USD",
+              accountCurrency,
               spend: row.spend,
               impressions: row.impressions,
               clicks: row.clicks,

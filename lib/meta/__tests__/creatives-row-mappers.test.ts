@@ -9,6 +9,8 @@ import {
   hasSuspiciousMissingCatalogRevenueMetrics,
   hasSuspiciousMissingFunnelMetrics,
   mergeCreativeData,
+  parseLeadCount,
+  parseMessagingConversationCount,
   toRawRow,
 } from "@/lib/meta/creatives-row-mappers";
 import type { RawCreativeRow } from "@/lib/meta/creatives-types";
@@ -117,6 +119,33 @@ function mapInsight(overrides: Parameters<typeof toRawRow>[0]) {
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
+
+describe("lead and messaging metrics", () => {
+  it("counts only website pixel leads and excludes Meta onsite lead forms", () => {
+    const actions = [
+      { action_type: "lead", value: "12" },
+      { action_type: "onsite_conversion.lead", value: "8" },
+      { action_type: "offsite_conversion.fb_pixel_lead", value: "5" },
+    ];
+
+    expect(parseLeadCount(actions)).toBe(5);
+  });
+
+  it("uses the total messaging connection metric before channel aliases", () => {
+    const actions = [
+      {
+        action_type: "onsite_conversion.total_messaging_connection",
+        value: "9",
+      },
+      {
+        action_type: "onsite_conversion.messaging_conversation_started_7d",
+        value: "7",
+      },
+    ];
+
+    expect(parseMessagingConversationCount(actions)).toBe(9);
+  });
+});
 
 describe("r2", () => {
   it("rounds to 2 decimal places", () => {

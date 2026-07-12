@@ -11,7 +11,12 @@ const state = vi.hoisted(() => ({
   plan: "growth",
   selectedBusinessId: "biz_1",
   businesses: [
-    { id: "biz_1", name: "TheSwaf", currency: "USD", timezone: "Europe/Istanbul" },
+    {
+      id: "biz_1",
+      name: "TheSwaf",
+      currency: "USD",
+      timezone: "Europe/Istanbul",
+    },
     {
       id: "demo",
       name: "Demo Co.",
@@ -47,7 +52,7 @@ vi.mock("@/store/app-store", () => ({
       workspaceResolved: boolean;
       selectedBusinessId: string;
       businesses: typeof state.businesses;
-    }) => unknown
+    }) => unknown,
   ) =>
     selector({
       hasHydrated: true,
@@ -74,8 +79,36 @@ describe("phase shell redesign", () => {
     expect(html).toContain("Platform");
     expect(html).toContain("Manage");
     expect(html).toContain("Meta");
+    expect(html).toContain("Creative Studio");
     expect(html).toContain("/platforms/meta/creatives");
+    expect(html).not.toContain(">Copies<");
+    expect(html).not.toContain(">Landing Pages<");
     expect(html).not.toContain("v3.4.1");
+  });
+
+  it("keeps the primary sidebar available in a compact icon mode", () => {
+    state.pathname = "/platforms/meta";
+    const html = renderToStaticMarkup(
+      <SidebarContent variant="console" collapsed />,
+    );
+
+    expect(html).toContain("w-[56px]");
+    expect(html).toContain('aria-label="Decisions"');
+    expect(html).toContain('title="Creative Studio"');
+    expect(html).toContain("/platforms/meta/automation");
+  });
+
+  it("keeps the existing expanded console navigation unchanged by the compact mode", () => {
+    state.pathname = "/platforms/meta";
+    const html = renderToStaticMarkup(<SidebarContent variant="console" />);
+
+    expect(html).toContain("w-[196px]");
+    expect(html).not.toContain("w-[56px]");
+    expect(html).toContain("Workspace");
+    expect(html).toContain("Platform");
+    expect(html).toContain("Manage");
+    expect(html).toContain('data-l2="pulse"');
+    expect(html).toContain("h-[15px] w-[15px]");
   });
 
   it("keeps the sidebar desktop-only so mobile Meta pages retain usable width", () => {
@@ -129,9 +162,8 @@ describe("phase shell redesign", () => {
     expect(html).toContain("ad-console-brand");
     expect(html).toContain("ad-console-business");
     expect(html).toContain("ad-console-platform");
-    expect(html).toContain("ad-console-mobile-readonly");
-    expect(html).toContain("Adsecute · mobile read-only");
-    expect(html).toContain("Writes stay on desktop");
+    expect(html).not.toContain("ad-console-mobile-readonly");
+    expect(html).not.toContain("Adsecute · mobile read-only");
     expect(html).toContain('data-mobile-surface="none"');
     expect(html).toContain("Meta body");
     expect(html).not.toContain("Meta decisions mobile read-only");
@@ -152,8 +184,32 @@ describe("phase shell redesign", () => {
       );
 
       expect(html).toContain('data-mobile-surface="none"');
-      expect(html).toContain(mobileNote);
+      expect(html).not.toContain(mobileNote);
       expect(html).toContain(`${pathname} body`);
+      expect(html).not.toContain("Meta evidence mobile read-only");
+    }
+  });
+
+  it("keeps every Studio and History mobile route on its real responsive surface", () => {
+    for (const pathname of [
+      "/platforms/meta/history",
+      "/platforms/meta/creatives",
+      "/platforms/meta/copies",
+      "/platforms/meta/landing-pages",
+      "/platforms/meta/creative-inbox",
+      "/platforms/meta/audiences",
+    ]) {
+      state.pathname = pathname;
+      state.selectedBusinessId = "biz_1";
+
+      const html = renderToStaticMarkup(
+        <DashboardFrame userName="Shopify App Reviewer">
+          <div>{pathname} responsive body</div>
+        </DashboardFrame>,
+      );
+
+      expect(html).toContain('data-mobile-surface="none"');
+      expect(html).toContain(`${pathname} responsive body`);
       expect(html).not.toContain("Meta evidence mobile read-only");
     }
   });

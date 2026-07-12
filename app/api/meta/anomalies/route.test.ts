@@ -10,16 +10,22 @@ vi.mock("@/lib/meta/anomalies", () => ({
   readMetaAnomaliesForBusiness: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/creatives-fetchers", () => ({
+  fetchAssignedAccountIds: vi.fn(),
+}));
+
 const access = await import("@/lib/access");
 const anomalies = await import("@/lib/meta/anomalies");
+const fetchers = await import("@/lib/meta/creatives-fetchers");
 
 describe("GET /api/meta/anomalies", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(access.requireBusinessAccess).mockResolvedValue({
       session: {} as never,
-      membership: {} as never,
+      membership: { businessId: "biz_1" } as never,
     });
+    vi.mocked(fetchers.fetchAssignedAccountIds).mockResolvedValue(["act_1"]);
     vi.mocked(anomalies.readMetaAnomaliesForBusiness).mockResolvedValue({
       snapshotDate: "2026-05-06",
       count: 1,
@@ -69,6 +75,7 @@ describe("GET /api/meta/anomalies", () => {
     });
     expect(anomalies.readMetaAnomaliesForBusiness).toHaveBeenCalledWith({
       businessId: "biz_1",
+      providerAccountId: "act_1",
       activeOnly: true,
       endDate: null,
       statusFilter: null,
@@ -87,6 +94,7 @@ describe("GET /api/meta/anomalies", () => {
     });
     expect(anomalies.readMetaAnomaliesForBusiness).toHaveBeenCalledWith({
       businessId: "biz_1",
+      providerAccountId: "act_1",
       activeOnly: false,
       endDate: null,
       statusFilter: null,
@@ -159,6 +167,41 @@ describe("GET /api/meta/anomalies", () => {
     );
     expect(anomalies.readMetaAnomaliesForBusiness).toHaveBeenCalledWith(
       expect.objectContaining({ statusFilter: "active" }),
+    );
+  });
+
+  it("requires an explicit account for a multi-account business", async () => {
+    vi.mocked(fetchers.fetchAssignedAccountIds).mockResolvedValue([
+      "act_1",
+      "act_2",
+    ]);
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/anomalies?businessId=biz_1"),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: "provider_account_required",
+    });
+    expect(anomalies.readMetaAnomaliesForBusiness).not.toHaveBeenCalled();
+  });
+
+  it("threads an assigned explicit provider account into the read", async () => {
+    vi.mocked(fetchers.fetchAssignedAccountIds).mockResolvedValue([
+      "act_1",
+      "act_2",
+    ]);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/anomalies?businessId=biz_1&providerAccountId=act_2",
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(anomalies.readMetaAnomaliesForBusiness).toHaveBeenCalledWith(
+      expect.objectContaining({ providerAccountId: "act_2" }),
     );
   });
 });

@@ -79,6 +79,8 @@ function makeSqlMock(input: {
   adsetRows?: Array<Record<string, unknown>>;
   adRows?: Array<Record<string, unknown>>;
   snapshotRows?: Array<Record<string, unknown>>;
+  campaignDimensionRows?: Array<{ campaign_id: string }>;
+  adsetDimensionRows?: Array<{ adset_id: string }>;
 }) {
   const tag = vi.fn((strings: TemplateStringsArray) => {
     const text = strings.join("?");
@@ -100,6 +102,12 @@ function makeSqlMock(input: {
     }
     if (text.includes("FROM meta_decision_snapshots_daily")) {
       return Promise.resolve(input.snapshotRows ?? []);
+    }
+    if (text.includes("FROM meta_campaign_dimensions")) {
+      return Promise.resolve(input.campaignDimensionRows ?? []);
+    }
+    if (text.includes("FROM meta_adset_dimensions")) {
+      return Promise.resolve(input.adsetDimensionRows ?? []);
     }
     return Promise.resolve([]);
   }) as unknown as ReturnType<typeof db.getDb>;
@@ -350,6 +358,45 @@ describe("meta anomalies", () => {
       diagnostics: ["Ad 1: REJECTED"],
       diagnosticLadder: [{ step: 1, label: "Tracking", detail: "Check events." }],
     });
+  });
+
+  it("withholds persisted anomalies outside the explicit provider account", async () => {
+    const snapshotRow = (scopeType: "campaign" | "adset", scopeId: string) => ({
+      snapshot_date: "2026-05-06",
+      rec_id: `${scopeType}-${scopeId}`,
+      rec_type: scopeType === "campaign" ? "roas_drop_sudden" : "policy_block",
+      scope_type: scopeType,
+      scope_id: scopeId,
+      severity: "high",
+      evidence: { anomaly: { scopeLabel: scopeId } },
+      recommended_action: "Review",
+      reasoning: "Detected.",
+      diagnostics: [],
+      detected_at: "2026-05-06T10:00:00.000Z",
+      resolved_at: null,
+    });
+    vi.mocked(db.getDb).mockReturnValue(
+      makeSqlMock({
+        snapshotRows: [
+          snapshotRow("campaign", "cmp_allowed"),
+          snapshotRow("campaign", "cmp_other"),
+          snapshotRow("adset", "adset_allowed"),
+          snapshotRow("adset", "adset_other"),
+        ],
+        campaignDimensionRows: [{ campaign_id: "cmp_allowed" }],
+        adsetDimensionRows: [{ adset_id: "adset_allowed" }],
+      }),
+    );
+
+    const result = await readMetaAnomaliesForBusiness({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+    });
+
+    expect(result.anomalies.map((item) => item.scopeId)).toEqual([
+      "cmp_allowed",
+      "adset_allowed",
+    ]);
   });
 
   it("captures the entity status observed at detection time", async () => {

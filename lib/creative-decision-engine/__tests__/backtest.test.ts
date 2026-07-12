@@ -83,6 +83,43 @@ describe("summarizeDecisionBacktest", () => {
     expect(summary.highSeverityMissedOpportunityRate).toBe(0);
   });
 
+  it("excludes unknown and inconclusive hard outcomes from judged precision", () => {
+    const summary = summarizeDecisionBacktest({
+      rows: [
+        { creativeId: "tp", asOfDate: "2026-05-04", label: "cut", confidence: 90, realizedOutcome: "positive" },
+        { creativeId: "fp", asOfDate: "2026-05-04", label: "scale", confidence: 80, realizedOutcome: "negative" },
+        { creativeId: "unknown", asOfDate: "2026-05-04", label: "cut", confidence: 70, realizedOutcome: "unknown" },
+        { creativeId: "neutral", asOfDate: "2026-05-04", label: "refresh", confidence: 60, realizedOutcome: "neutral" },
+      ],
+      coverage: {
+        activeCreativeCount: 4,
+        snapshotRowCount: 4,
+        staleSnapshotCount: 0,
+        conflictingSnapshotCount: 0,
+      },
+    });
+
+    expect(summary.hardActionPrecision).toBe(0.5);
+    expect(summary.hardActionKnownSampleSize).toBe(2);
+  });
+
+  it("excludes out-of-scope rows from the recall opportunity set", () => {
+    const summary = summarizeDecisionBacktest({
+      rows: [
+        { creativeId: "tp", asOfDate: "2026-05-04", label: "cut", confidence: 90, realizedOutcome: "positive" },
+        { creativeId: "excluded", asOfDate: "2026-05-04", label: "out_of_scope", confidence: 0, realizedOutcome: "positive" },
+      ],
+      coverage: {
+        activeCreativeCount: 2,
+        snapshotRowCount: 2,
+        staleSnapshotCount: 0,
+        conflictingSnapshotCount: 0,
+      },
+    });
+
+    expect(summary.hardActionRecall).toBe(1);
+  });
+
   it("segments realized outcome metrics by decision label and decision week", () => {
     const segments = summarizeDecisionBacktestByLabelAndWeek({
       rows: [
@@ -167,6 +204,46 @@ describe("summarizeDecisionBacktest", () => {
       }),
     ]);
   });
+
+  it("computes segment recall from the complete weekly opportunity set", () => {
+    const rows = [
+      ...Array.from({ length: 30 }, (_, index) => ({
+        creativeId: `cut-${index}`,
+        asOfDate: "2026-05-05",
+        label: "cut" as const,
+        confidence: 90,
+        realizedOutcome: "positive" as const,
+      })),
+      ...Array.from({ length: 30 }, (_, index) => ({
+        creativeId: `miss-${index}`,
+        asOfDate: "2026-05-05",
+        label: "keep" as const,
+        confidence: 60,
+        realizedOutcome: "positive" as const,
+      })),
+    ];
+    const segments = summarizeDecisionBacktestByLabelAndWeek({
+      rows,
+      coverage: {
+        activeCreativeCount: 60,
+        snapshotRowCount: 60,
+        staleSnapshotCount: 0,
+        conflictingSnapshotCount: 0,
+      },
+      minSegmentSampleSize: 30,
+    });
+
+    const cut = segments.find((segment) => segment.label === "cut");
+    const keep = segments.find((segment) => segment.label === "keep");
+    expect(cut).toMatchObject({
+      hardActionPrecision: 1,
+      hardActionRecall: 0.5,
+      hardActionRecallScope: "week_opportunity_set",
+      hardActionRecallSampleSize: 60,
+      hardActionRecallReliable: true,
+    });
+    expect(keep?.hardActionRecall).toBe(0.5);
+  });
 });
 
 describe("computeExpectedCalibrationError", () => {
@@ -233,6 +310,27 @@ describe("computeExpectedCalibrationError", () => {
         },
       ]),
     ).toBeNull();
+  });
+
+  it("uses actual confidence and excludes inconclusive hard outcomes", () => {
+    expect(
+      computeExpectedCalibrationError([
+        {
+          creativeId: "correct",
+          asOfDate: "2026-05-03",
+          label: "cut",
+          confidence: 81,
+          realizedOutcome: "positive",
+        },
+        {
+          creativeId: "inconclusive",
+          asOfDate: "2026-05-03",
+          label: "scale",
+          confidence: 99,
+          realizedOutcome: "neutral",
+        },
+      ]),
+    ).toBe(0.19);
   });
 });
 

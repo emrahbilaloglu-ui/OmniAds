@@ -12,7 +12,7 @@ export function LoadingSkeleton({
   description,
 }: LoadingSkeletonProps) {
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" data-testid="loading-skeleton">
       {(title || description) && (
         <div className="rounded-xl border border-neutral-200 bg-white p-4">
           {title && <p className="text-sm font-medium">{title}</p>}

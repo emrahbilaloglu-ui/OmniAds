@@ -9,7 +9,7 @@ import { useIntegrationsStore } from "@/store/integrations-store";
 import { usePreferencesStore } from "@/store/preferences-store";
 import { clearAuthScopedClientState } from "@/lib/client-auth-state";
 import { isDemoBusinessId } from "@/lib/demo-business";
-import { PRICING_PLANS, PLAN_ORDER, type PlanId } from "@/lib/pricing/plans";
+import { type PlanId } from "@/lib/pricing/plans";
 import {
   ConfirmOverlay,
   SettingsActionRow,
@@ -18,12 +18,10 @@ import {
   SettingsInput,
   SettingsSection,
   SettingsSelect,
-  SettingsStat,
 } from "@/components/settings/settings-section";
 import { StateBanner } from "@/components/ui/product-surface";
 import {
   WorkspaceAnchorNav,
-  WorkspacePill,
   WorkspaceSurface,
 } from "@/components/workspace/workspace-surface";
 import {
@@ -99,7 +97,6 @@ export default function SettingsPage() {
     source?: string | null;
   } | null>(null);
   const [billingLoading, setBillingLoading] = useState(false);
-  const [billingChanging, setBillingChanging] = useState(false);
 
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [savingWorkspace, setSavingWorkspace] = useState(false);
@@ -514,36 +511,6 @@ export default function SettingsPage() {
     }
   }
 
-  async function handlePlanChange(planId: PlanId) {
-    if (!selectedBusinessId) return;
-    if (isDemoBusinessId(selectedBusinessId)) {
-      setToast({ type: "success", message: "Billing changes are disabled for the demo workspace." });
-      return;
-    }
-    setBillingChanging(true);
-    try {
-      const response = await fetch("/api/billing", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ businessId: selectedBusinessId, planId }),
-      });
-      const data = await response.json().catch(() => null) as { confirmationUrl?: string; error?: string } | null;
-      if (!response.ok) {
-        throw new Error(data?.error ?? "Could not change plan.");
-      }
-      if (data?.confirmationUrl) {
-        window.location.href = data.confirmationUrl;
-      } else {
-        await loadBilling();
-        setToast({ type: "success", message: "Plan updated successfully." });
-      }
-    } catch (err: unknown) {
-      setToast({ type: "error", message: err instanceof Error ? err.message : "Could not change plan." });
-    } finally {
-      setBillingChanging(false);
-    }
-  }
-
   function handleOpenShopifyBilling() {
     if (!billing?.connected) return;
     if (!billing.managedPricingUrl) {
@@ -580,14 +547,6 @@ export default function SettingsPage() {
       title="Settings"
       description="Manage your account, workspace operations, integrations, preferences, and security from one place."
       width="narrow"
-      meta={<WorkspacePill tone="neutral">business identity · account · data</WorkspacePill>}
-      actions={
-        <div className="grid gap-3 sm:grid-cols-3">
-          <SettingsStat label="Workspace" value={activeBusiness.name} />
-          <SettingsStat label="Team members" value={String(totalMembers)} />
-          <SettingsStat label="Connected apps" value={String(connectedIntegrations.length)} tone="positive" />
-        </div>
-      }
     >
 
       {toast ? (
@@ -609,111 +568,30 @@ export default function SettingsPage() {
       >
         {billingLoading ? (
           <p className="text-sm text-[var(--adc-ink3)]">Loading subscription details...</p>
-        ) : (
-          <div className="space-y-5">
-            {/* Current plan summary */}
-            <div className="rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] p-4">
-              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-sm font-semibold">
-                    {billing ? billing.planName : "Starter"} plan
-                    {billing?.monthlyPrice === 0 ? " — Free" : billing ? ` — $${billing.monthlyPrice}/month` : ""}
-                  </p>
-                  {billing?.connected && billing.storeName ? (
-                    <p className="mt-0.5 text-xs text-[var(--adc-ink3)]">
-                      Billed via Shopify store: {billing.storeName}
-                    </p>
-                  ) : billing?.managedPricingUrl ? (
-                    <p className="mt-0.5 text-xs text-[var(--adc-ink3)]">
-                      Billing is available in Shopify for this connected workspace.
-                    </p>
-                  ) : (
-                    <p className="mt-0.5 text-xs text-[var(--adc-ink3)]">
-                      Connect your Shopify store to manage billing.
-                    </p>
-                  )}
-                </div>
-                <div className="flex flex-col items-start gap-2 sm:items-end">
-                  <Badge variant="secondary" className="self-start sm:self-auto">
-                    {billing?.status === "active" ? "Active" : billing?.status ?? "Active"}
-                  </Badge>
-                  {billing?.managedPricingUrl ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={handleOpenShopifyBilling}
-                      disabled={billingChanging}
-                    >
-                      {billingChanging ? "Opening Shopify..." : "Open Shopify billing"}
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
+        ) : billing?.managedPricingUrl ? (
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-semibold">{billing.planName} plan</p>
+              <Badge variant="secondary">
+                {billing.status === "active" ? "Active" : billing.status ?? "Active"}
+              </Badge>
             </div>
-
-            {/* Plan comparison */}
-            {billing?.managedPricingUrl ? (
-              <div>
-                {isDemoWorkspace ? (
-                  <div className="mb-3 rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-[var(--adc-ink3)]">
-                    Demo workspace billing is fixture-backed. Plan changes are disabled here so the review flow stays stable.
-                  </div>
-                ) : (
-                  <div className="mb-3 rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-[var(--adc-ink3)]">
-                    Plan changes are handled on Shopify&apos;s hosted pricing page. The buttons below open Shopify so the merchant can choose and approve the final plan there.
-                  </div>
-                )}
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  {PLAN_ORDER.map((planId) => {
-                    const plan = PRICING_PLANS[planId];
-                    const isCurrent = billing.planId === planId;
-                    const displayPrice = plan.monthlyPrice === 0 ? "Free" : `$${plan.monthlyPrice}/mo`;
-                    const subPrice = plan.yearlyPrice ? `$${plan.yearlyPrice}/yr` : null;
-                    return (
-                      <div
-                        key={planId}
-                        className={`rounded-xl border p-3 ${isCurrent ? "border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)]" : "border-[var(--adc-b1)] bg-[var(--adc-s2)]"}`}
-                      >
-                        <p className="text-sm font-semibold">{plan.name}</p>
-                        <p className="mt-0.5 text-sm text-[var(--adc-ink3)]">{displayPrice}</p>
-                        {subPrice && <p className="text-xs text-[var(--adc-info-fg)]">{subPrice}</p>}
-                        {plan.trialDays > 0 && (
-                          <p className="text-xs text-[var(--adc-pos-fg)]">{plan.trialDays}-day trial</p>
-                        )}
-                        <div className="mt-3">
-                          {isCurrent ? (
-                            <span className="text-xs text-[var(--adc-info-fg)] font-medium">Current plan</span>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="w-full text-xs"
-                              disabled={billingChanging || isDemoWorkspace}
-                              onClick={() => void handlePlanChange(planId)}
-                            >
-                              {isDemoWorkspace
-                                ? "Locked in demo"
-                                : billingChanging
-                                  ? "Opening Shopify..."
-                                  : "Manage in Shopify"}
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-[var(--adc-ink3)]">
-                Connect a Shopify store from the{" "}
-                <a href="/integrations" className="text-[var(--adc-info-fg)] hover:underline">
-                  Integrations
-                </a>{" "}
-                page to manage your subscription.
-              </p>
-            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleOpenShopifyBilling}
+            >
+              Open Shopify billing ↗
+            </Button>
           </div>
+        ) : (
+          <p className="text-sm text-[var(--adc-ink3)]">
+            Connect a Shopify store from the{" "}
+            <a href="/integrations" className="text-[var(--adc-info-fg)] hover:underline">
+              Integrations
+            </a>{" "}
+            page to manage your subscription.
+          </p>
         )}
       </SettingsSection>
 
@@ -731,7 +609,7 @@ export default function SettingsPage() {
             />
           </SettingsField>
           <SettingsField label="Default timezone">
-            <div className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm">
+            <div className="rounded-md border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-3 py-2 text-sm">
               <div className="font-medium">{workspaceTimezoneLabel}</div>
               <div className="mt-1 text-xs text-[var(--adc-ink3)]">
                 Source: {workspaceTimezoneSourceLabel}. Managed automatically from Shopify first, then GA4.

@@ -14,7 +14,11 @@ import { getDemoMetaAdSets } from "@/lib/demo-business";
 import type { MetaEvidenceSource } from "@/lib/meta/operator-policy";
 
 export interface MetaAdSetsSourceResult {
-  status?: "ok" | "not_connected";
+  status?:
+    | "ok"
+    | "no_accounts_assigned"
+    | "account_not_assigned"
+    | "not_connected";
   rows: MetaAdSetData[];
   isPartial?: boolean;
   notReadyReason?: string | null;
@@ -23,6 +27,7 @@ export interface MetaAdSetsSourceResult {
 
 export async function getMetaAdSetsForRange(input: {
   businessId: string;
+  accountId?: string | null;
   campaignId?: string | null;
   campaignIds?: string[] | null;
   startDate?: string | null;
@@ -41,10 +46,18 @@ export async function getMetaAdSetsForRange(input: {
       ) as string[],
     ),
   );
+  let targetAccountIds: string[] | null = null;
   const filterAdSetRows = (rows: MetaAdSetData[]) => {
-    if (requestedCampaignIds.length === 0) return rows;
+    const accountScopedRows = targetAccountIds
+      ? rows.filter(
+          (row) =>
+            typeof row.accountId === "string" &&
+            targetAccountIds!.includes(row.accountId),
+        )
+      : rows;
+    if (requestedCampaignIds.length === 0) return accountScopedRows;
     const requested = new Set(requestedCampaignIds);
-    return rows.filter((row) => requested.has(row.campaignId));
+    return accountScopedRows.filter((row) => requested.has(row.campaignId));
   };
 
   if (await isDemoBusiness(input.businessId)) {
@@ -70,6 +83,29 @@ export async function getMetaAdSetsForRange(input: {
     "meta",
   ).catch(() => null);
   const providerAccountIds = assignment?.account_ids ?? [];
+  if (providerAccountIds.length === 0) {
+    return {
+      status: "no_accounts_assigned",
+      rows: [],
+      isPartial: false,
+      notReadyReason: "No Meta ad account is assigned to this workspace.",
+      evidenceSource: "unknown",
+    };
+  }
+  targetAccountIds =
+    input.accountId && input.accountId !== "all"
+      ? providerAccountIds.filter((accountId) => accountId === input.accountId)
+      : providerAccountIds;
+  if (targetAccountIds.length === 0) {
+    return {
+      status: "account_not_assigned",
+      rows: [],
+      isPartial: false,
+      notReadyReason:
+        "The requested Meta ad account is not assigned to this workspace.",
+      evidenceSource: "unknown",
+    };
+  }
   const rangeContext = await getMetaRangePreparationContext({
     businessId: input.businessId,
     startDate: resolvedStart,
@@ -105,6 +141,7 @@ export async function getMetaAdSetsForRange(input: {
         startDate: resolvedStart,
         endDate: resolvedEnd,
         includePrev: input.includePrev,
+        providerAccountIds: targetAccountIds,
       });
       const filteredLiveRows = filterAdSetRows(liveRows);
       return {
@@ -134,6 +171,7 @@ export async function getMetaAdSetsForRange(input: {
         startDate: resolvedStart,
         endDate: resolvedEnd,
         includePrev: input.includePrev,
+        providerAccountIds: targetAccountIds,
       });
       const filteredLiveRows = filterAdSetRows(liveRows);
       return {
@@ -162,7 +200,7 @@ export async function getMetaAdSetsForRange(input: {
         requestedCampaignIds.length === 1 ? requestedCampaignIds[0] : null,
       campaignIds:
         requestedCampaignIds.length > 0 ? requestedCampaignIds : null,
-      providerAccountIds,
+      providerAccountIds: targetAccountIds,
       includePrev: input.includePrev,
       includePrevBudget: input.includePrevBudget,
     });
@@ -231,7 +269,7 @@ export async function getMetaAdSetsForRange(input: {
           requestedCampaignIds.length === 1 ? requestedCampaignIds[0] : null,
         campaignIds:
           requestedCampaignIds.length > 0 ? requestedCampaignIds : null,
-        providerAccountIds,
+        providerAccountIds: targetAccountIds,
         includePrev: input.includePrev,
         includePrevBudget: input.includePrevBudget,
       });

@@ -10,6 +10,11 @@ import {
 } from "@/lib/meta/recommendations";
 import type { AdsetScenarioInput } from "@/lib/meta/scenario-emitters/high-priority";
 import {
+  evaluateCohortEvidence,
+  hasCohortFatigueEvidence,
+  type CohortEvidenceProfile,
+} from "@/lib/meta/scenario-emitters/cohort-evidence";
+import {
   percentileRank,
   percentileRankInverted,
 } from "@/lib/meta/scenario-emitters/scoring-utils";
@@ -38,18 +43,6 @@ function fmtPercent(value: number) {
 
 function fmtScore(value: number) {
   return `${Math.round(value * 100)}%`;
-}
-
-function confidenceFromScore(score: number): MetaRecommendation["confidence"] {
-  if (score >= 0.85 || score <= 0.15) return "high";
-  if ((score >= 0.7 && score < 0.85) || (score > 0.15 && score <= 0.3)) {
-    return "medium";
-  }
-  return "low";
-}
-
-function confidenceScoreFromScore(score: number) {
-  return r2(score >= 0.5 ? score : 1 - score);
 }
 
 function numberField(adset: MetaAdSetData, key: keyof MetaAdSetData) {
@@ -84,32 +77,16 @@ function ageDays(input: AdsetScenarioInput) {
   return null;
 }
 
-function spendMaturityFloor(input: AdsetScenarioInput) {
-  const metrics = input.context?.thresholds.metrics as
-    | Record<string, MetaMetricPercentiles | undefined>
-    | undefined;
-  const spendThreshold = metrics?.spend_28d;
-  return spendThreshold ? spendThreshold.p50 * 0.3 : 0;
-}
-
-function isMature(input: AdsetScenarioInput) {
-  const age = ageDays(input);
-  if (age == null || age < 14) return false;
-  return input.adset.spend >= spendMaturityFloor(input);
-}
-
 function adsetFrequency(adset: MetaAdSetData) {
   return numberField(adset, "frequency");
 }
 
 function hasFatigue(input: AdsetScenarioInput) {
-  const frequencyThreshold = threshold(input, "freq_14d")?.p75 ?? 2.5;
-  const ctrThreshold =
-    threshold(input, "ctr_28d")?.p25 ??
-    LEGACY_META_CALIBRATION_THRESHOLDS.metrics.ctr_28d.p25;
-  const frequencyFatigue = adsetFrequency(input.adset) > frequencyThreshold;
-  const ctrFatigue = input.adset.ctr > 0 && input.adset.ctr < ctrThreshold;
-  return frequencyFatigue || ctrFatigue;
+  return hasCohortFatigueEvidence({
+    context: input.context,
+    frequency: adsetFrequency(input.adset),
+    ctrDecayPct: input.signals?.ctrDecayPct,
+  });
 }
 
 function baseLeadRecommendation(input: {
@@ -125,6 +102,7 @@ function baseLeadRecommendation(input: {
   recommendedAction: string;
   expectedImpact: string;
   score: number;
+  evidenceProfile: CohortEvidenceProfile;
   evidence: MetaRecommendation["evidence"];
   targetValue?: unknown;
 }): MetaRecommendation {
@@ -140,8 +118,8 @@ function baseLeadRecommendation(input: {
     decisionLabel: input.decisionLabel,
     lens: input.lens,
     priority: input.priority,
-    confidence: confidenceFromScore(input.score),
-    confidenceScore: confidenceScoreFromScore(input.score),
+    confidence: input.evidenceProfile.confidence,
+    confidenceScore: input.evidenceProfile.confidenceScore,
     confidenceReason: null,
     decisionState: input.decisionState,
     decision: input.title,
@@ -202,8 +180,14 @@ export function emitLeadAdsetScenario(input: AdsetScenarioInput): MetaRecommenda
       : baseRank,
   );
   const currency = (input.adset as MetaAdSetData & { currency?: string | null }).currency ?? null;
-  const mature = isMature(input);
   const age = ageDays(input);
+  const evidenceProfile = evaluateCohortEvidence({
+    context: input.context,
+    score,
+    eventCount: leads,
+    spend: input.adset.spend,
+    ageDays: age,
+  });
   const evidence: MetaRecommendation["evidence"] = [
     { label: "Lead score", value: fmtScore(score), tone: score >= 0.7 ? "positive" : score < 0.3 ? "warning" : "neutral" },
     { label: "Cost / lead", value: fmtCurrency(Number.isFinite(costPerLead) ? costPerLead : null, currency), tone: baseRank >= 0.7 ? "positive" : baseRank <= 0.3 ? "warning" : "neutral" },
@@ -230,7 +214,7 @@ export function emitLeadAdsetScenario(input: AdsetScenarioInput): MetaRecommenda
     age_days: age,
   };
 
-  if (score >= 0.7 && mature) {
+  if (score >= 0.7 && evidenceProfile.scaleMature) {
     return baseLeadRecommendation({
       scenarioType: "scenario_l1_lead_efficient_scale",
       decisionLabel: "scale",
@@ -245,14 +229,14 @@ export function emitLeadAdsetScenario(input: AdsetScenarioInput): MetaRecommenda
       expectedImpact: "More lead volume while staying inside cohort-calibrated CPL bands.",
       evidence,
       score,
+      evidenceProfile,
       targetValue,
     });
   }
 
   if (
     score < 0.3 &&
-    mature &&
-    input.adset.spend > (input.context?.thresholds.hardCutSpend ?? LEGACY_META_CALIBRATION_THRESHOLDS.hardCutSpend)
+    evidenceProfile.cutMature
   ) {
     return baseLeadRecommendation({
       scenarioType: "scenario_l3_lead_inefficient_cut",
@@ -268,6 +252,7 @@ export function emitLeadAdsetScenario(input: AdsetScenarioInput): MetaRecommenda
       expectedImpact: "Stops spend from compounding into weak lead acquisition.",
       evidence,
       score,
+      evidenceProfile,
       targetValue,
     });
   }
@@ -291,12 +276,12 @@ export function emitLeadAdsetScenario(input: AdsetScenarioInput): MetaRecommenda
         { label: "CTR", value: fmtPercent(input.adset.ctr), tone: "warning" },
       ],
       score,
+      evidenceProfile,
       targetValue,
     });
   }
 
-  if (score >= 0.5) {
-    return baseLeadRecommendation({
+  return baseLeadRecommendation({
       scenarioType: "scenario_l2_lead_steady_keep",
       decisionLabel: "keep",
       decisionState: "watch",
@@ -310,9 +295,7 @@ export function emitLeadAdsetScenario(input: AdsetScenarioInput): MetaRecommenda
       expectedImpact: "Preserves useful lead volume while avoiding premature budget moves.",
       evidence,
       score,
+      evidenceProfile,
       targetValue,
-    });
-  }
-
-  return null;
+  });
 }

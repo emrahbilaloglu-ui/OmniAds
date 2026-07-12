@@ -100,6 +100,7 @@ interface DecisionSnapshotPayloadRow {
   roas: number | null;
   recent7d_roas: number | null;
   label_transform: DecisionLabelTransform | null;
+  blocked_action_type: "scale" | "cut" | "refresh" | null;
   job_run_id: string;
   lifecycle_row_id: string | null;
   calibration_row_id: string | null;
@@ -166,6 +167,7 @@ WITH payload AS (
     roas double precision,
     recent7d_roas double precision,
     label_transform text,
+    blocked_action_type text,
     job_run_id uuid,
     lifecycle_row_id uuid,
     calibration_row_id uuid,
@@ -193,6 +195,7 @@ INSERT INTO engine_v3_decision_snapshots_daily (
   roas,
   recent7d_roas,
   label_transform,
+  blocked_action_type,
   job_run_id,
   lifecycle_row_id,
   calibration_row_id,
@@ -219,6 +222,7 @@ SELECT
   roas,
   recent7d_roas,
   label_transform,
+  blocked_action_type,
   job_run_id,
   lifecycle_row_id,
   calibration_row_id,
@@ -242,6 +246,7 @@ DO UPDATE SET
   roas = EXCLUDED.roas,
   recent7d_roas = EXCLUDED.recent7d_roas,
   label_transform = EXCLUDED.label_transform,
+  blocked_action_type = EXCLUDED.blocked_action_type,
   job_run_id = EXCLUDED.job_run_id,
   lifecycle_row_id = EXCLUDED.lifecycle_row_id,
   calibration_row_id = EXCLUDED.calibration_row_id,
@@ -806,6 +811,12 @@ function toSnapshotPayloadRow(input: {
     roas: input.creativeInput.roas,
     recent7d_roas: input.creativeInput.recent7dRoas,
     label_transform: input.decision.labelTransform ?? null,
+    blocked_action_type:
+      input.decision.blockedActionType === "scale" ||
+      input.decision.blockedActionType === "cut" ||
+      input.decision.blockedActionType === "refresh"
+        ? input.decision.blockedActionType
+        : null,
     job_run_id: input.jobRunId,
     lifecycle_row_id: input.lifecycleRowId,
     calibration_row_id: input.calibrationRowId,

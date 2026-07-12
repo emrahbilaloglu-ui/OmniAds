@@ -96,24 +96,41 @@ describe("creative-decision-engine v3 - data source", () => {
   });
 
   describe("resolveEffectiveCreativeCohort", () => {
-    it("returns purchase when purchase adsets dominate spend", () => {
+    it("returns unknown for a 95/5 purchase and traffic mix", () => {
       expect(
         resolveEffectiveCreativeCohort([
           {
-            spend: 800,
+            spend: 950,
             optimizationGoal: "OFFSITE_CONVERSIONS",
             customEventType: "PURCHASE",
           },
           {
-            spend: 100,
-            optimizationGoal: "THRUPLAY",
+            spend: 50,
+            optimizationGoal: "LINK_CLICKS",
             customEventType: null,
+          },
+        ]),
+      ).toBe("unknown");
+    });
+
+    it("returns purchase when different goals resolve to the same cohort", () => {
+      expect(
+        resolveEffectiveCreativeCohort([
+          {
+            spend: 800,
+            optimizationGoal: "PURCHASE",
+            customEventType: "PURCHASE",
+          },
+          {
+            spend: 200,
+            optimizationGoal: "VALUE",
+            customEventType: "VALUE",
           },
         ]),
       ).toBe("purchase");
     });
 
-    it("returns unknown when no cohort has at least 60% spend share", () => {
+    it("returns unknown whenever positive-spend rows resolve to different cohorts", () => {
       expect(
         resolveEffectiveCreativeCohort([
           {

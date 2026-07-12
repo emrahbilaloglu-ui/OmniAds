@@ -17,6 +17,7 @@ import {
 import {
   SHARE_METRIC_KEYS,
   type ShareMetricKey,
+  type SharePayloadCreative,
   type SharedCreative,
   type SharedCreativeAnalysis,
 } from "@/components/creatives/shareCreativeTypes";
@@ -30,6 +31,12 @@ import type {
 export interface MetaCreativesResponse {
   status?: string;
   message?: string;
+  providerAccountId?: string | null;
+  account_scope?: {
+    status: "resolved" | "blocked";
+    resolution: string;
+    assigned_account_count: number;
+  };
   rows: MetaCreativeApiRow[];
   media_mode?: "metadata" | "full";
   media_hydrated?: boolean;
@@ -226,6 +233,34 @@ export function toSharedCreative(
     watchScore: scoredRow.watchScore ?? null,
     creativeScoreGap: readSharedCreativeScoreGap(scoredRow),
     analysis: analysis ?? null,
+  };
+}
+
+export function toCreatorTier0SharedCreative(row: MetaCreativeRow): SharePayloadCreative {
+  const creative = toSharedCreative(row);
+  return {
+    id: creative.id,
+    name: creative.name,
+    format: creative.format,
+    previewState: creative.previewState,
+    isCatalog: creative.isCatalog,
+    previewUrl: creative.previewUrl,
+    imageUrl: creative.imageUrl,
+    thumbnailUrl: creative.thumbnailUrl,
+    mediaPreviewUrl: creative.mediaPreviewUrl,
+    cardPreviewUrl: creative.cardPreviewUrl,
+    tableThumbnailUrl: creative.tableThumbnailUrl,
+    cachedThumbnailUrl: creative.cachedThumbnailUrl,
+    preview: creative.preview,
+    launchDate: creative.launchDate,
+    tags: [],
+    ctrAll: creative.ctrAll,
+    linkCtr: creative.linkCtr,
+    thumbstop: creative.thumbstop,
+    video25: creative.video25,
+    video50: creative.video50,
+    video75: creative.video75,
+    video100: creative.video100,
   };
 }
 
@@ -468,6 +503,8 @@ async function fetchCreativesLikeResponse(
   path: string,
   params: {
     businessId: string;
+    providerAccountId?: string;
+    creativeId?: string;
     start: string;
     end: string;
     groupBy: "adName" | "ad" | "creative" | "adSet";
@@ -484,6 +521,13 @@ async function fetchCreativesLikeResponse(
     format: params.format,
     sort: params.sort,
   });
+
+  if (params.providerAccountId?.trim()) {
+    query.set("providerAccountId", params.providerAccountId.trim());
+  }
+  if (params.creativeId?.trim()) {
+    query.set("creativeId", params.creativeId.trim());
+  }
 
   if (params.mediaMode) {
     query.set("mediaMode", params.mediaMode);
@@ -506,11 +550,20 @@ async function fetchCreativesLikeResponse(
     throw new Error("Invalid creatives response received from backend.");
   }
 
+  if (
+    params.providerAccountId?.trim() &&
+    (payload as MetaCreativesResponse).providerAccountId !== params.providerAccountId.trim()
+  ) {
+    throw new Error("Creative account scope did not match the requested Meta account.");
+  }
+
   return payload as MetaCreativesResponse;
 }
 
 export async function fetchMetaCreatives(params: {
   businessId: string;
+  providerAccountId?: string;
+  creativeId?: string;
   start: string;
   end: string;
   groupBy: "adName" | "ad" | "creative" | "adSet";
@@ -526,6 +579,8 @@ export async function fetchMetaCreatives(params: {
 
 export async function fetchMetaCreativesHistory(params: {
   businessId: string;
+  providerAccountId?: string;
+  creativeId?: string;
   start: string;
   end: string;
   groupBy: "adName" | "ad" | "creative" | "adSet";
@@ -633,6 +688,39 @@ function safeNullableNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+const REQUIRED_CREATIVE_METRIC_FIELDS = [
+  "spend",
+  "purchase_value",
+  "roas",
+  "cpa",
+  "clicks",
+  "cpc_link",
+  "cpm",
+  "ctr_all",
+  "purchases",
+  "impressions",
+  "link_clicks",
+  "landing_page_views",
+  "add_to_cart",
+  "initiate_checkout",
+  "thumbstop",
+  "click_to_atc",
+  "atc_to_purchase",
+  "leads",
+  "messages",
+  "video25",
+  "video50",
+  "video75",
+  "video100",
+] as const;
+
+function hasCompleteCreativeMetricPayload(row: MetaCreativeApiRow) {
+  const source = row as MetaCreativeApiRow & Record<string, unknown>;
+  return REQUIRED_CREATIVE_METRIC_FIELDS.every(
+    (field) => safeNullableNumber(source[field]) !== null,
+  );
+}
+
 function safeBoolean(value: unknown) {
   if (typeof value === "boolean") return value;
   if (typeof value === "string") {
@@ -698,6 +786,7 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
   const clickToAddToCart = safeNumber(row.click_to_atc);
   const clickToPurchase = linkClicks > 0 ? (purchases / linkClicks) * 100 : 0;
   const linkCtr = impressions > 0 ? (linkClicks / impressions) * 100 : 0;
+  const associatedAdsCount = safeNullableNumber(row.associated_ads_count);
 
   const uiRow: MetaCreativeRow = {
     id,
@@ -711,7 +800,9 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     headlineVariants: safeStringArray(row.headline_variants),
     descriptionVariants: safeStringArray(row.description_variants),
     name,
-    associatedAdsCount: Math.max(1, Math.round(safeNumber(row.associated_ads_count, 1))),
+    associatedAdsCount:
+      associatedAdsCount === null ? 0 : Math.max(0, Math.round(associatedAdsCount)),
+    associatedAdsCountAvailable: associatedAdsCount !== null,
     accountId: nullableString(row.account_id),
     accountName: nullableString(row.account_name),
     campaignId: nullableString(row.campaign_id),
@@ -719,6 +810,10 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     adSetId: nullableString(row.adset_id),
     adSetName: nullableString(row.adset_name),
     effectiveStatus: nullableString(row.effective_status),
+    objective: nullableString(row.objective),
+    optimizationGoal: nullableString(row.optimization_goal),
+    attributionSetting: nullableString(row.attribution_setting),
+    bidStrategy: nullableString(row.bid_strategy),
     currency: nullableString(row.currency),
     format: safeString(row.format, "image") as MetaCreativeRow["format"],
     creativeType: legacyCreativeType,
@@ -752,6 +847,9 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     launchDate: safeString(row.launch_date),
     tags: safeStringArray(row.tags),
     aiTags: safeAiTags(row.ai_tags),
+    metricsAvailability: hasCompleteCreativeMetricPayload(row)
+      ? "available"
+      : "unavailable",
     spend: safeNumber(row.spend),
     purchaseValue: safeNumber(row.purchase_value),
     roas: safeNumber(row.roas),
@@ -770,6 +868,7 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     initiateCheckout: safeNumber(row.initiate_checkout),
     leads: safeNumber(row.leads),
     messages: safeNumber(row.messages),
+    thruplayActions: safeNumber(row.thruplay_actions),
     thumbstop: safeNumber(row.thumbstop),
     clickToAddToCart,
     clickToPurchase,

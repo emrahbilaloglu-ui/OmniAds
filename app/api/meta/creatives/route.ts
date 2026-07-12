@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { requireBusinessAccess } from "@/lib/access";
-import { getDemoMetaCreatives } from "@/lib/demo-business";
+import { getDemoMetaCreatives, getDemoProviderAccounts } from "@/lib/demo-business";
 import type { FormatFilter, GroupBy, SortKey } from "@/lib/meta/creatives-types";
 export type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import { toISODate, nDaysAgo } from "@/lib/meta/creatives-row-mappers";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
+import {
+  buildMetaCreativesAccountScopeMetadata,
+  resolveMetaCreativesAccountScope,
+} from "@/lib/meta/creatives-warehouse";
 import { logPerfEvent } from "@/lib/perf";
 
 function getDateSpanDays(start: string, end: string) {
@@ -15,10 +19,18 @@ function getDateSpanDays(start: string, end: string) {
   return Math.floor((endMs - startMs) / 86_400_000) + 1;
 }
 
+function accountScopeHttpStatus(status: unknown) {
+  if (status === "account_not_assigned") return 403;
+  if (status === "provider_account_required") return 400;
+  return 200;
+}
+
 export async function GET(request: NextRequest) {
   const requestStartedAt = Date.now();
   const params = request.nextUrl.searchParams;
   const businessId = params.get("businessId");
+  const providerAccountId = params.get("providerAccountId")?.trim() || null;
+  const creativeId = params.get("creativeId")?.trim() || null;
   const detailPreviewCreativeId = params.get("detailPreviewCreativeId")?.trim() ?? "";
   const mediaMode = params.get("mediaMode") === "metadata" ? "metadata" : "full";
   const enableFullMediaHydration = mediaMode === "full";
@@ -69,13 +81,39 @@ export async function GET(request: NextRequest) {
   if ("error" in access) return access.error;
 
   if (await isDemoBusiness(businessId)) {
-    return NextResponse.json(getDemoMetaCreatives());
+    const demoPayload = getDemoMetaCreatives();
+    const accountScope = resolveMetaCreativesAccountScope({
+      assignedAccountIds: getDemoProviderAccounts("meta").map((account) => account.id),
+      requestedProviderAccountId: providerAccountId,
+    });
+    if (!accountScope.ok) {
+      return NextResponse.json(
+        {
+          status: accountScope.status,
+          rows: [],
+          ...buildMetaCreativesAccountScopeMetadata(accountScope),
+        },
+        { status: accountScopeHttpStatus(accountScope.status) },
+      );
+    }
+    const accountScopedRows = demoPayload.rows.filter(
+      (row) => row.account_id === accountScope.providerAccountId,
+    );
+    return NextResponse.json({
+      ...demoPayload,
+      rows: creativeId
+        ? accountScopedRows.filter((row) => row.creative_id === creativeId)
+        : accountScopedRows,
+      ...buildMetaCreativesAccountScopeMetadata(accountScope),
+    });
   }
 
   const result = await getMetaCreativesApiPayload({
     request,
     requestStartedAt,
     businessId,
+    providerAccountId,
+    creativeId,
     mediaMode,
     groupBy,
     format,
@@ -100,6 +138,11 @@ export async function GET(request: NextRequest) {
   });
   logPerfEvent("meta_creatives_route", {
     businessId,
+    providerAccountId:
+      "providerAccountId" in result && typeof result.providerAccountId === "string"
+        ? result.providerAccountId
+        : providerAccountId,
+    creativeId,
     start,
     end,
     dateSpanDays: getDateSpanDays(start, end),
@@ -120,5 +163,7 @@ export async function GET(request: NextRequest) {
         : null,
     durationMs: Date.now() - requestStartedAt,
   });
-  return NextResponse.json(result);
+  return NextResponse.json(result, {
+    status: accountScopeHttpStatus(result.status),
+  });
 }

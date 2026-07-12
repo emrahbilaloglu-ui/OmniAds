@@ -24,7 +24,7 @@ describe("DateRangePicker", () => {
 
     expect(html).toContain("May 3");
     expect(html).toContain("May 16");
-    expect(html).toContain("Last 14d");
+    expect(html).toContain("Last 14 days");
     expect(html).toContain('aria-expanded="false"');
     expect(html).not.toContain('role="dialog"');
   });
@@ -37,8 +37,8 @@ describe("DateRangePicker", () => {
       />,
     );
 
-    expect(html).toContain("May 3 – May 16");
-    expect(html).toContain("· 14d");
+    expect(html).toContain("May 3 - May 16");
+    expect(html).toContain("14 days");
   });
 });
 

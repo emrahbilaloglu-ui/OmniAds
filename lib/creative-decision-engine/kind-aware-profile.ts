@@ -47,7 +47,6 @@ function hasUsableFunnelBaseline(
 }
 
 function selectKindFunnelCalibration(input: {
-  canonical: AccountFunnelCalibration;
   kindSpecific: AccountFunnelCalibration | null | undefined;
   creativeFormat: CreativeFormat | null;
 }): AccountFunnelCalibration | null {
@@ -64,9 +63,7 @@ function selectKindFunnelCalibration(input: {
     return null;
   }
 
-  const byFormat: AccountFunnelCalibration["byFormat"] = {
-    ...input.canonical.byFormat,
-  };
+  const byFormat: AccountFunnelCalibration["byFormat"] = {};
 
   for (const [formatKey, baseline] of Object.entries(kindSpecific.byFormat)) {
     if (hasUsableFunnelBaseline(baseline)) {
@@ -102,7 +99,6 @@ export function selectKindAwareDecisionProfile(
   const hardActionEligibility =
     profile.hardActionEligibilityByKind?.[campaignKind] ?? null;
   const funnelCalibration = selectKindFunnelCalibration({
-    canonical: profile.funnelCalibration,
     kindSpecific: profile.funnelCalibrationByKind?.[campaignKind] ?? null,
     creativeFormat: input.creativeFormat,
   });

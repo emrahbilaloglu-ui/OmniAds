@@ -147,7 +147,7 @@ export function ConfirmOverlay({
   const language = usePreferencesStore((state) => state.language);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/35 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(16,18,22,0.4)] p-4">
       <div className="w-full max-w-md rounded-[10px] border border-[var(--adc-b2)] bg-[var(--adc-s2)] p-5 shadow-lg">
         <div className="space-y-2">
           <h3 className="text-[15px] font-semibold tracking-normal text-[var(--adc-ink)]">{title}</h3>

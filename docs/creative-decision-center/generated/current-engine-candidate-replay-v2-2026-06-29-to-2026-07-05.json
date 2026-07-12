@@ -1,0 +1,4758 @@
+{
+  "contractVersion": "adsecute.current-engine-historical-replay.v2",
+  "generatedAt": "2026-07-12T02:17:13.640Z",
+  "currentDate": "2026-07-12",
+  "readOnly": true,
+  "mutatesData": false,
+  "manualCronPosted": false,
+  "providerWrites": false,
+  "engineVersion": "v3-2026-07-12-safety-dominant-hysteresis",
+  "classifierVersion": "creative-outcome-classifier.v2",
+  "startDate": "2026-06-29",
+  "endDate": "2026-07-05",
+  "evaluationCeiling": "2026-07-12",
+  "freshnessMode": "historical",
+  "businessesRequested": [
+    "Grandmix",
+    "IwaStore",
+    "TheSwaf"
+  ],
+  "businessesFound": 3,
+  "dateCount": 7,
+  "fidelityDates": [
+    "2026-07-03",
+    "2026-07-04"
+  ],
+  "liveStatus": {
+    "attempted": true,
+    "source": "live_db_tunnel",
+    "tunnelHost": "127.0.0.1",
+    "tunnelPort": 15432,
+    "readOnly": true,
+    "tables": [
+      "businesses",
+      "business_engine_v3_flags",
+      "business_target_packs",
+      "business_decision_calibration_profiles",
+      "engine_v3_account_calibration_daily",
+      "engine_v3_creative_lifecycle_daily",
+      "engine_v3_decision_snapshots_daily",
+      "meta_campaign_labels",
+      "meta_creative_daily"
+    ]
+  },
+  "methodLimits": [
+    "This replay uses the current engine path and does not create a standalone decision core.",
+    "Historical freshness mode normalizes freshness to isolate formula behavior; it is analysis-only and not exact production runtime behavior.",
+    "June dates can be runtime SQL fallback if no current-version lifecycle rows existed yet; they must not be compared as equal to lifecycle-informed July production rows.",
+    "Outcome windows after 2026-07-05 for 7d and after 2026-06-28 for 14d are marked open_window under the 2026-07-12 ceiling.",
+    "Closed-window unknown is distinct from open_window and commonly means zero forward spend; it is not counted as a failed hard decision.",
+    "Outcome precision/missed-opportunity values are non-causal proxies because historical forward spend was affected by real operator/platform decisions.",
+    "Targets are read from append-only bitemporal target history at each date-only 03:00Z producer cutoff; dates before history begins remain target-unknown and cannot gain target-derived hard authority.",
+    "Outcome/calibration cells use the guard-applied surfaced decision.label; blockedActionType is reported separately and is not reclassified as a surfaced hard outcome.",
+    "Hard and non-hard positive polarity is never pooled.",
+    "Hysteresis is simulated with a clean per-business epoch at startDate and in-memory day-over-day chaining; production chains through persisted raw_label snapshots but applies identical rules.",
+    "Suppressed-day published decisions keep the raw decision's confidence and metrics, matching production stabilizeDecisionLabel.",
+    "Matched suppressed-day scoring is the primary hold-vs-flip evidence: identical creative/asOf/window on both sides, so censoring and anchoring are symmetric by construction.",
+    "Episode-level raw-vs-published cells are secondary context: published sequences re-segment runs, anchor confirmed hard transitions one day later (their windows exclude the trigger day and can cross the evaluation ceiling), and zero-forward-spend unknown-censoring selects different known sets per stream under the historically executed operator actions (off-policy).",
+    "Delay exposure sums the NEXT adjacent day's spend on suppressed days (cut and scale separately); it is exposure under historical operator policy, not realized savings or a bound.",
+    "Suppression resolutions: confirmed/reverted require a next-calendar-day observation; gap_return, exited_universe and replay_end carry no next-day claim. Universe exit after a suppressed raw cut often means the creative genuinely died - exits are therefore reported, not folded into reverted.",
+    "Published period-2 round-trips are structurally zero under hysteresis and are not evidence; the reversal-within-3-observations metric is the fair oscillation comparison.",
+    "Replay hard-transition counts are not directly comparable to production decision_changed telemetry (different dedupe surface and universe scoping); use them for raw-vs-published deltas within this replay only.",
+    "Raw hard transitions on a creative's final observed day cannot be suppressed-and-confirmed inside the window (right-edge censoring modestly favors the published stream; replay_end counts quantify it).",
+    "Fidelity vs persisted snapshots is vacuous for the current ENGINE_VERSION (no persisted rows exist yet); fidelity rows validate the replay pipeline against prior-version dates only.",
+    "The published stream re-executes the same outcome-aggregate queries as the raw stream; results are expected identical but mid-run warehouse drift is theoretically possible.",
+    "The dedupe comparator was corrected in v2 to match production (highest-priority computation wins); v1 replay artifacts used an inverted comparator and are not comparable."
+  ],
+  "dayResults": [
+    {
+      "status": "ok",
+      "business": {
+        "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+        "name": "Grandmix",
+        "isDemoBusiness": false
+      },
+      "asOfDate": "2026-06-29",
+      "sourceMode": {
+        "mode": "runtime_sql_fallback",
+        "lifecycleRows": 0,
+        "sameDayLifecycleRows": 0,
+        "latestLifecycleAsOfDate": null,
+        "calibrationRows": 0,
+        "sameDayCalibrationRows": 0,
+        "latestCalibrationAsOfDate": null
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": 123.89611111111111,
+        "spendUnitSource": "account_history",
+        "spendUnitConfidence": "low",
+        "commercialMaturitySpend": 247.79222222222222,
+        "hardCutSpend": 619.4805555555556,
+        "bottomQuartileRatio": null,
+        "severeLoserRatio": null,
+        "scaleMinPurchases": 1,
+        "winnerPurchaseP50": null,
+        "matureCreativeCount": 70,
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline account_history has low confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "cut": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "refresh": "threshold baseline account_history has low confidence (meta AOV ready)"
+          }
+        }
+      },
+      "dataHealth": {
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "worstTier": "disabled",
+        "degraded": true
+      },
+      "decisionCount": 82,
+      "inputCount": 82,
+      "labels": {
+        "out_of_scope": 33,
+        "test_more": 49
+      }
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+        "name": "Grandmix",
+        "isDemoBusiness": false
+      },
+      "asOfDate": "2026-06-30",
+      "sourceMode": {
+        "mode": "runtime_sql_fallback",
+        "lifecycleRows": 0,
+        "sameDayLifecycleRows": 0,
+        "latestLifecycleAsOfDate": null,
+        "calibrationRows": 0,
+        "sameDayCalibrationRows": 0,
+        "latestCalibrationAsOfDate": null
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": 122.43000000000002,
+        "spendUnitSource": "account_history",
+        "spendUnitConfidence": "low",
+        "commercialMaturitySpend": 244.86000000000004,
+        "hardCutSpend": 612.1500000000001,
+        "bottomQuartileRatio": null,
+        "severeLoserRatio": null,
+        "scaleMinPurchases": 1,
+        "winnerPurchaseP50": null,
+        "matureCreativeCount": 71,
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline account_history has low confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "cut": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "refresh": "threshold baseline account_history has low confidence (meta AOV ready)"
+          }
+        }
+      },
+      "dataHealth": {
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "worstTier": "disabled",
+        "degraded": true
+      },
+      "decisionCount": 82,
+      "inputCount": 82,
+      "labels": {
+        "out_of_scope": 33,
+        "test_more": 49
+      }
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+        "name": "Grandmix",
+        "isDemoBusiness": false
+      },
+      "asOfDate": "2026-07-01",
+      "sourceMode": {
+        "mode": "runtime_sql_fallback",
+        "lifecycleRows": 0,
+        "sameDayLifecycleRows": 0,
+        "latestLifecycleAsOfDate": null,
+        "calibrationRows": 0,
+        "sameDayCalibrationRows": 0,
+        "latestCalibrationAsOfDate": null
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": 122.43000000000002,
+        "spendUnitSource": "account_history",
+        "spendUnitConfidence": "low",
+        "commercialMaturitySpend": 244.86000000000004,
+        "hardCutSpend": 612.1500000000001,
+        "bottomQuartileRatio": null,
+        "severeLoserRatio": null,
+        "scaleMinPurchases": 1,
+        "winnerPurchaseP50": null,
+        "matureCreativeCount": 71,
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline account_history has low confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "cut": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "refresh": "threshold baseline account_history has low confidence (meta AOV ready)"
+          }
+        }
+      },
+      "dataHealth": {
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "worstTier": "disabled",
+        "degraded": true
+      },
+      "decisionCount": 82,
+      "inputCount": 82,
+      "labels": {
+        "out_of_scope": 33,
+        "test_more": 49
+      }
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+        "name": "Grandmix",
+        "isDemoBusiness": false
+      },
+      "asOfDate": "2026-07-02",
+      "sourceMode": {
+        "mode": "runtime_sql_fallback",
+        "lifecycleRows": 0,
+        "sameDayLifecycleRows": 0,
+        "latestLifecycleAsOfDate": null,
+        "calibrationRows": 0,
+        "sameDayCalibrationRows": 0,
+        "latestCalibrationAsOfDate": null
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": 126.939,
+        "spendUnitSource": "account_history",
+        "spendUnitConfidence": "low",
+        "commercialMaturitySpend": 253.878,
+        "hardCutSpend": 634.6949999999999,
+        "bottomQuartileRatio": null,
+        "severeLoserRatio": null,
+        "scaleMinPurchases": 1,
+        "winnerPurchaseP50": null,
+        "matureCreativeCount": 71,
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline account_history has low confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "cut": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "refresh": "threshold baseline account_history has low confidence (meta AOV ready)"
+          }
+        }
+      },
+      "dataHealth": {
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "worstTier": "disabled",
+        "degraded": true
+      },
+      "decisionCount": 82,
+      "inputCount": 82,
+      "labels": {
+        "out_of_scope": 33,
+        "test_more": 49
+      }
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+        "name": "Grandmix",
+        "isDemoBusiness": false
+      },
+      "asOfDate": "2026-07-03",
+      "sourceMode": {
+        "mode": "runtime_sql_fallback",
+        "lifecycleRows": 0,
+        "sameDayLifecycleRows": 0,
+        "latestLifecycleAsOfDate": null,
+        "calibrationRows": 0,
+        "sameDayCalibrationRows": 0,
+        "latestCalibrationAsOfDate": null
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": 117.70636363636359,
+        "spendUnitSource": "account_history",
+        "spendUnitConfidence": "low",
+        "commercialMaturitySpend": 235.41272727272718,
+        "hardCutSpend": 588.5318181818179,
+        "bottomQuartileRatio": null,
+        "severeLoserRatio": null,
+        "scaleMinPurchases": 1,
+        "winnerPurchaseP50": null,
+        "matureCreativeCount": 71,
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline account_history has low confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "cut": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "refresh": "threshold baseline account_history has low confidence (meta AOV ready)"
+          }
+        }
+      },
+      "dataHealth": {
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "worstTier": "disabled",
+        "degraded": true
+      },
+      "decisionCount": 71,
+      "inputCount": 71,
+      "labels": {
+        "out_of_scope": 33,
+        "test_more": 37,
+        "diagnose": 1
+      }
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+        "name": "Grandmix",
+        "isDemoBusiness": false
+      },
+      "asOfDate": "2026-07-04",
+      "sourceMode": {
+        "mode": "runtime_sql_fallback",
+        "lifecycleRows": 0,
+        "sameDayLifecycleRows": 0,
+        "latestLifecycleAsOfDate": null,
+        "calibrationRows": 0,
+        "sameDayCalibrationRows": 0,
+        "latestCalibrationAsOfDate": null
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": 120.02500000000002,
+        "spendUnitSource": "account_history",
+        "spendUnitConfidence": "low",
+        "commercialMaturitySpend": 240.05000000000004,
+        "hardCutSpend": 600.1250000000001,
+        "bottomQuartileRatio": null,
+        "severeLoserRatio": null,
+        "scaleMinPurchases": 1,
+        "winnerPurchaseP50": null,
+        "matureCreativeCount": 72,
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline account_history has low confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "cut": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "refresh": "threshold baseline account_history has low confidence (meta AOV ready)"
+          }
+        }
+      },
+      "dataHealth": {
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "worstTier": "disabled",
+        "degraded": true
+      },
+      "decisionCount": 92,
+      "inputCount": 92,
+      "labels": {
+        "out_of_scope": 33,
+        "test_more": 59
+      }
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+        "name": "Grandmix",
+        "isDemoBusiness": false
+      },
+      "asOfDate": "2026-07-05",
+      "sourceMode": {
+        "mode": "runtime_sql_fallback",
+        "lifecycleRows": 0,
+        "sameDayLifecycleRows": 0,
+        "latestLifecycleAsOfDate": null,
+        "calibrationRows": 0,
+        "sameDayCalibrationRows": 0,
+        "latestCalibrationAsOfDate": null
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": 118.52208333333331,
+        "spendUnitSource": "account_history",
+        "spendUnitConfidence": "low",
+        "commercialMaturitySpend": 237.04416666666663,
+        "hardCutSpend": 592.6104166666665,
+        "bottomQuartileRatio": null,
+        "severeLoserRatio": null,
+        "scaleMinPurchases": 1,
+        "winnerPurchaseP50": null,
+        "matureCreativeCount": 74,
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline account_history has low confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "cut": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "refresh": "threshold baseline account_history has low confidence (meta AOV ready)"
+          }
+        }
+      },
+      "dataHealth": {
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "worstTier": "disabled",
+        "degraded": true
+      },
+      "decisionCount": 111,
+      "inputCount": 111,
+      "labels": {
+        "out_of_scope": 33,
+        "test_more": 78
+      }
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+        "name": "IwaStore",
+        "isDemoBusiness": false
+      },
+      "asOfDate": "2026-06-29",
+      "sourceMode": {
+        "mode": "runtime_sql_fallback",
+        "lifecycleRows": 0,
+        "sameDayLifecycleRows": 0,
+        "latestLifecycleAsOfDate": null,
+        "calibrationRows": 0,
+        "sameDayCalibrationRows": 0,
+        "latestCalibrationAsOfDate": null
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": 36.445,
+        "spendUnitSource": "account_history",
+        "spendUnitConfidence": "low",
+        "commercialMaturitySpend": 72.89,
+        "hardCutSpend": 182.225,
+        "bottomQuartileRatio": null,
+        "severeLoserRatio": null,
+        "scaleMinPurchases": 1,
+        "winnerPurchaseP50": null,
+        "matureCreativeCount": 47,
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline account_history has low confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "cut": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "refresh": "threshold baseline account_history has low confidence (meta AOV ready)"
+          }
+        }
+      },
+      "dataHealth": {
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "worstTier": "disabled",
+        "degraded": true
+      },
+      "decisionCount": 47,
+      "inputCount": 47,
+      "labels": {
+        "test_more": 34,
+        "out_of_scope": 5,
+        "diagnose": 5,
+        "keep": 3
+      }
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+        "name": "IwaStore",
+        "isDemoBusiness": false
+      },
+      "asOfDate": "2026-06-30",
+      "sourceMode": {
+        "mode": "runtime_sql_fallback",
+        "lifecycleRows": 0,
+        "sameDayLifecycleRows": 0,
+        "latestLifecycleAsOfDate": null,
+        "calibrationRows": 0,
+        "sameDayCalibrationRows": 0,
+        "latestCalibrationAsOfDate": null
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": 38.29799999999999,
+        "spendUnitSource": "account_history",
+        "spendUnitConfidence": "low",
+        "commercialMaturitySpend": 76.59599999999998,
+        "hardCutSpend": 191.48999999999995,
+        "bottomQuartileRatio": null,
+        "severeLoserRatio": null,
+        "scaleMinPurchases": 1,
+        "winnerPurchaseP50": null,
+        "matureCreativeCount": 49,
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline account_history has low confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "cut": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "refresh": "threshold baseline account_history has low confidence (meta AOV ready)"
+          }
+        }
+      },
+      "dataHealth": {
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "worstTier": "disabled",
+        "degraded": true
+      },
+      "decisionCount": 59,
+      "inputCount": 59,
+      "labels": {
+        "test_more": 43,
+        "out_of_scope": 5,
+        "diagnose": 8,
+        "keep": 3
+      }
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+        "name": "IwaStore",
+        "isDemoBusiness": false
+      },
+      "asOfDate": "2026-07-01",
+      "sourceMode": {
+        "mode": "runtime_sql_fallback",
+        "lifecycleRows": 0,
+        "sameDayLifecycleRows": 0,
+        "latestLifecycleAsOfDate": null,
+        "calibrationRows": 0,
+        "sameDayCalibrationRows": 0,
+        "latestCalibrationAsOfDate": null
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": 37.59347402597403,
+        "spendUnitSource": "account_history",
+        "spendUnitConfidence": "low",
+        "commercialMaturitySpend": 75.18694805194806,
+        "hardCutSpend": 187.96737012987018,
+        "bottomQuartileRatio": null,
+        "severeLoserRatio": null,
+        "scaleMinPurchases": 1,
+        "winnerPurchaseP50": null,
+        "matureCreativeCount": 58,
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline account_history has low confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "cut": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "refresh": "threshold baseline account_history has low confidence (meta AOV ready)"
+          }
+        }
+      },
+      "dataHealth": {
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "worstTier": "disabled",
+        "degraded": true
+      },
+      "decisionCount": 80,
+      "inputCount": 80,
+      "labels": {
+        "test_more": 53,
+        "diagnose": 17,
+        "keep": 4,
+        "out_of_scope": 6
+      }
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+        "name": "IwaStore",
+        "isDemoBusiness": false
+      },
+      "asOfDate": "2026-07-02",
+      "sourceMode": {
+        "mode": "runtime_sql_fallback",
+        "lifecycleRows": 0,
+        "sameDayLifecycleRows": 0,
+        "latestLifecycleAsOfDate": null,
+        "calibrationRows": 0,
+        "sameDayCalibrationRows": 0,
+        "latestCalibrationAsOfDate": null
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": 37.95000000000001,
+        "spendUnitSource": "account_history",
+        "spendUnitConfidence": "low",
+        "commercialMaturitySpend": 75.90000000000002,
+        "hardCutSpend": 189.75000000000006,
+        "bottomQuartileRatio": null,
+        "severeLoserRatio": null,
+        "scaleMinPurchases": 1,
+        "winnerPurchaseP50": null,
+        "matureCreativeCount": 61,
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline account_history has low confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "cut": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "refresh": "threshold baseline account_history has low confidence (meta AOV ready)"
+          }
+        }
+      },
+      "dataHealth": {
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "worstTier": "disabled",
+        "degraded": true
+      },
+      "decisionCount": 87,
+      "inputCount": 87,
+      "labels": {
+        "test_more": 60,
+        "diagnose": 17,
+        "keep": 4,
+        "out_of_scope": 6
+      }
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+        "name": "IwaStore",
+        "isDemoBusiness": false
+      },
+      "asOfDate": "2026-07-03",
+      "sourceMode": {
+        "mode": "runtime_sql_fallback",
+        "lifecycleRows": 0,
+        "sameDayLifecycleRows": 0,
+        "latestLifecycleAsOfDate": null,
+        "calibrationRows": 0,
+        "sameDayCalibrationRows": 0,
+        "latestCalibrationAsOfDate": null
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": 38.908333333333324,
+        "spendUnitSource": "account_history",
+        "spendUnitConfidence": "low",
+        "commercialMaturitySpend": 77.81666666666665,
+        "hardCutSpend": 194.54166666666663,
+        "bottomQuartileRatio": null,
+        "severeLoserRatio": null,
+        "scaleMinPurchases": 1,
+        "winnerPurchaseP50": null,
+        "matureCreativeCount": 64,
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline account_history has low confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "cut": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "refresh": "threshold baseline account_history has low confidence (meta AOV ready)"
+          }
+        }
+      },
+      "dataHealth": {
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "worstTier": "disabled",
+        "degraded": true
+      },
+      "decisionCount": 90,
+      "inputCount": 90,
+      "labels": {
+        "test_more": 72,
+        "out_of_scope": 6,
+        "diagnose": 8,
+        "keep": 4
+      }
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+        "name": "IwaStore",
+        "isDemoBusiness": false
+      },
+      "asOfDate": "2026-07-04",
+      "sourceMode": {
+        "mode": "runtime_sql_fallback",
+        "lifecycleRows": 0,
+        "sameDayLifecycleRows": 0,
+        "latestLifecycleAsOfDate": null,
+        "calibrationRows": 0,
+        "sameDayCalibrationRows": 0,
+        "latestCalibrationAsOfDate": null
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": 42.05,
+        "spendUnitSource": "account_history",
+        "spendUnitConfidence": "low",
+        "commercialMaturitySpend": 84.1,
+        "hardCutSpend": 210.25,
+        "bottomQuartileRatio": null,
+        "severeLoserRatio": null,
+        "scaleMinPurchases": 1,
+        "winnerPurchaseP50": null,
+        "matureCreativeCount": 69,
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline account_history has low confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "cut": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "refresh": "threshold baseline account_history has low confidence (meta AOV ready)"
+          }
+        }
+      },
+      "dataHealth": {
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "worstTier": "disabled",
+        "degraded": true
+      },
+      "decisionCount": 90,
+      "inputCount": 90,
+      "labels": {
+        "test_more": 76,
+        "out_of_scope": 6,
+        "diagnose": 6,
+        "keep": 2
+      }
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+        "name": "IwaStore",
+        "isDemoBusiness": false
+      },
+      "asOfDate": "2026-07-05",
+      "sourceMode": {
+        "mode": "runtime_sql_fallback",
+        "lifecycleRows": 0,
+        "sameDayLifecycleRows": 0,
+        "latestLifecycleAsOfDate": null,
+        "calibrationRows": 0,
+        "sameDayCalibrationRows": 0,
+        "latestCalibrationAsOfDate": null
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": 42.05,
+        "spendUnitSource": "account_history",
+        "spendUnitConfidence": "low",
+        "commercialMaturitySpend": 84.1,
+        "hardCutSpend": 210.25,
+        "bottomQuartileRatio": null,
+        "severeLoserRatio": null,
+        "scaleMinPurchases": 1,
+        "winnerPurchaseP50": null,
+        "matureCreativeCount": 69,
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline account_history has low confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "cut": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "refresh": "threshold baseline account_history has low confidence (meta AOV ready)"
+          }
+        }
+      },
+      "dataHealth": {
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "worstTier": "disabled",
+        "degraded": true
+      },
+      "decisionCount": 92,
+      "inputCount": 92,
+      "labels": {
+        "test_more": 76,
+        "out_of_scope": 6,
+        "diagnose": 7,
+        "keep": 3
+      }
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+        "name": "TheSwaf",
+        "isDemoBusiness": false
+      },
+      "asOfDate": "2026-06-29",
+      "sourceMode": {
+        "mode": "runtime_sql_fallback",
+        "lifecycleRows": 0,
+        "sameDayLifecycleRows": 0,
+        "latestLifecycleAsOfDate": null,
+        "calibrationRows": 0,
+        "sameDayCalibrationRows": 0,
+        "latestCalibrationAsOfDate": null
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": 154.4,
+        "spendUnitSource": "account_history",
+        "spendUnitConfidence": "low",
+        "commercialMaturitySpend": 308.8,
+        "hardCutSpend": 772,
+        "bottomQuartileRatio": null,
+        "severeLoserRatio": null,
+        "scaleMinPurchases": 1,
+        "winnerPurchaseP50": null,
+        "matureCreativeCount": 109,
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline account_history has low confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "cut": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "refresh": "threshold baseline account_history has low confidence (meta AOV ready)"
+          }
+        }
+      },
+      "dataHealth": {
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "worstTier": "disabled",
+        "degraded": true
+      },
+      "decisionCount": 125,
+      "inputCount": 125,
+      "labels": {
+        "test_more": 73,
+        "out_of_scope": 47,
+        "keep": 4,
+        "diagnose": 1
+      }
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+        "name": "TheSwaf",
+        "isDemoBusiness": false
+      },
+      "asOfDate": "2026-06-30",
+      "sourceMode": {
+        "mode": "runtime_sql_fallback",
+        "lifecycleRows": 0,
+        "sameDayLifecycleRows": 0,
+        "latestLifecycleAsOfDate": null,
+        "calibrationRows": 0,
+        "sameDayCalibrationRows": 0,
+        "latestCalibrationAsOfDate": null
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": 152.40625,
+        "spendUnitSource": "account_history",
+        "spendUnitConfidence": "low",
+        "commercialMaturitySpend": 304.8125,
+        "hardCutSpend": 762.03125,
+        "bottomQuartileRatio": null,
+        "severeLoserRatio": null,
+        "scaleMinPurchases": 1,
+        "winnerPurchaseP50": null,
+        "matureCreativeCount": 110,
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline account_history has low confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "cut": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "refresh": "threshold baseline account_history has low confidence (meta AOV ready)"
+          }
+        }
+      },
+      "dataHealth": {
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "worstTier": "disabled",
+        "degraded": true
+      },
+      "decisionCount": 124,
+      "inputCount": 124,
+      "labels": {
+        "test_more": 73,
+        "out_of_scope": 47,
+        "keep": 3,
+        "diagnose": 1
+      }
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+        "name": "TheSwaf",
+        "isDemoBusiness": false
+      },
+      "asOfDate": "2026-07-01",
+      "sourceMode": {
+        "mode": "runtime_sql_fallback",
+        "lifecycleRows": 0,
+        "sameDayLifecycleRows": 0,
+        "latestLifecycleAsOfDate": null,
+        "calibrationRows": 0,
+        "sameDayCalibrationRows": 0,
+        "latestCalibrationAsOfDate": null
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": 154.4,
+        "spendUnitSource": "account_history",
+        "spendUnitConfidence": "low",
+        "commercialMaturitySpend": 308.8,
+        "hardCutSpend": 772,
+        "bottomQuartileRatio": null,
+        "severeLoserRatio": null,
+        "scaleMinPurchases": 1,
+        "winnerPurchaseP50": null,
+        "matureCreativeCount": 109,
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline account_history has low confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "cut": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "refresh": "threshold baseline account_history has low confidence (meta AOV ready)"
+          }
+        }
+      },
+      "dataHealth": {
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "worstTier": "disabled",
+        "degraded": true
+      },
+      "decisionCount": 120,
+      "inputCount": 120,
+      "labels": {
+        "test_more": 67,
+        "out_of_scope": 46,
+        "keep": 6,
+        "diagnose": 1
+      }
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+        "name": "TheSwaf",
+        "isDemoBusiness": false
+      },
+      "asOfDate": "2026-07-02",
+      "sourceMode": {
+        "mode": "runtime_sql_fallback",
+        "lifecycleRows": 0,
+        "sameDayLifecycleRows": 0,
+        "latestLifecycleAsOfDate": null,
+        "calibrationRows": 0,
+        "sameDayCalibrationRows": 0,
+        "latestCalibrationAsOfDate": null
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": 152.40625,
+        "spendUnitSource": "account_history",
+        "spendUnitConfidence": "low",
+        "commercialMaturitySpend": 304.8125,
+        "hardCutSpend": 762.03125,
+        "bottomQuartileRatio": null,
+        "severeLoserRatio": null,
+        "scaleMinPurchases": 1,
+        "winnerPurchaseP50": null,
+        "matureCreativeCount": 110,
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline account_history has low confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "cut": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "refresh": "threshold baseline account_history has low confidence (meta AOV ready)"
+          }
+        }
+      },
+      "dataHealth": {
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "worstTier": "disabled",
+        "degraded": true
+      },
+      "decisionCount": 116,
+      "inputCount": 116,
+      "labels": {
+        "test_more": 58,
+        "out_of_scope": 52,
+        "diagnose": 1,
+        "keep": 5
+      }
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+        "name": "TheSwaf",
+        "isDemoBusiness": false
+      },
+      "asOfDate": "2026-07-03",
+      "sourceMode": {
+        "mode": "runtime_sql_fallback",
+        "lifecycleRows": 0,
+        "sameDayLifecycleRows": 0,
+        "latestLifecycleAsOfDate": null,
+        "calibrationRows": 0,
+        "sameDayCalibrationRows": 0,
+        "latestCalibrationAsOfDate": null
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": 155.23666666666665,
+        "spendUnitSource": "account_history",
+        "spendUnitConfidence": "low",
+        "commercialMaturitySpend": 310.4733333333333,
+        "hardCutSpend": 776.1833333333333,
+        "bottomQuartileRatio": null,
+        "severeLoserRatio": null,
+        "scaleMinPurchases": 1,
+        "winnerPurchaseP50": null,
+        "matureCreativeCount": 109,
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline account_history has low confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "cut": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "refresh": "threshold baseline account_history has low confidence (meta AOV ready)"
+          }
+        }
+      },
+      "dataHealth": {
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "worstTier": "disabled",
+        "degraded": true
+      },
+      "decisionCount": 114,
+      "inputCount": 114,
+      "labels": {
+        "test_more": 58,
+        "out_of_scope": 50,
+        "diagnose": 1,
+        "keep": 5
+      }
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+        "name": "TheSwaf",
+        "isDemoBusiness": false
+      },
+      "asOfDate": "2026-07-04",
+      "sourceMode": {
+        "mode": "runtime_sql_fallback",
+        "lifecycleRows": 0,
+        "sameDayLifecycleRows": 0,
+        "latestLifecycleAsOfDate": null,
+        "calibrationRows": 0,
+        "sameDayCalibrationRows": 0,
+        "latestCalibrationAsOfDate": null
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": 155.23666666666665,
+        "spendUnitSource": "account_history",
+        "spendUnitConfidence": "low",
+        "commercialMaturitySpend": 310.4733333333333,
+        "hardCutSpend": 776.1833333333333,
+        "bottomQuartileRatio": null,
+        "severeLoserRatio": null,
+        "scaleMinPurchases": 1,
+        "winnerPurchaseP50": null,
+        "matureCreativeCount": 109,
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline account_history has low confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "cut": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "refresh": "threshold baseline account_history has low confidence (meta AOV ready)"
+          }
+        }
+      },
+      "dataHealth": {
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "worstTier": "disabled",
+        "degraded": true
+      },
+      "decisionCount": 110,
+      "inputCount": 110,
+      "labels": {
+        "test_more": 58,
+        "out_of_scope": 46,
+        "diagnose": 1,
+        "keep": 5
+      }
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+        "name": "TheSwaf",
+        "isDemoBusiness": false
+      },
+      "asOfDate": "2026-07-05",
+      "sourceMode": {
+        "mode": "runtime_sql_fallback",
+        "lifecycleRows": 0,
+        "sameDayLifecycleRows": 0,
+        "latestLifecycleAsOfDate": null,
+        "calibrationRows": 0,
+        "sameDayCalibrationRows": 0,
+        "latestCalibrationAsOfDate": null
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": 155.9375,
+        "spendUnitSource": "account_history",
+        "spendUnitConfidence": "low",
+        "commercialMaturitySpend": 311.875,
+        "hardCutSpend": 779.6875,
+        "bottomQuartileRatio": null,
+        "severeLoserRatio": null,
+        "scaleMinPurchases": 1,
+        "winnerPurchaseP50": null,
+        "matureCreativeCount": 109,
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline account_history has low confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "cut": "threshold baseline account_history has low confidence (meta AOV ready)",
+            "refresh": "threshold baseline account_history has low confidence (meta AOV ready)"
+          }
+        }
+      },
+      "dataHealth": {
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "worstTier": "disabled",
+        "degraded": true
+      },
+      "decisionCount": 110,
+      "inputCount": 110,
+      "labels": {
+        "test_more": 58,
+        "out_of_scope": 46,
+        "diagnose": 1,
+        "keep": 5
+      }
+    }
+  ],
+  "dateSummaries": [
+    {
+      "asOfDate": "2026-06-29",
+      "successfulBusinesses": 3,
+      "failedBusinesses": 0,
+      "decisionRows": 254,
+      "labels": {
+        "out_of_scope": 85,
+        "test_more": 156,
+        "diagnose": 6,
+        "keep": 7
+      },
+      "sourceModes": {
+        "runtime_sql_fallback": 3
+      }
+    },
+    {
+      "asOfDate": "2026-06-30",
+      "successfulBusinesses": 3,
+      "failedBusinesses": 0,
+      "decisionRows": 265,
+      "labels": {
+        "out_of_scope": 85,
+        "test_more": 165,
+        "diagnose": 9,
+        "keep": 6
+      },
+      "sourceModes": {
+        "runtime_sql_fallback": 3
+      }
+    },
+    {
+      "asOfDate": "2026-07-01",
+      "successfulBusinesses": 3,
+      "failedBusinesses": 0,
+      "decisionRows": 282,
+      "labels": {
+        "out_of_scope": 85,
+        "test_more": 169,
+        "diagnose": 18,
+        "keep": 10
+      },
+      "sourceModes": {
+        "runtime_sql_fallback": 3
+      }
+    },
+    {
+      "asOfDate": "2026-07-02",
+      "successfulBusinesses": 3,
+      "failedBusinesses": 0,
+      "decisionRows": 285,
+      "labels": {
+        "out_of_scope": 91,
+        "test_more": 167,
+        "diagnose": 18,
+        "keep": 9
+      },
+      "sourceModes": {
+        "runtime_sql_fallback": 3
+      }
+    },
+    {
+      "asOfDate": "2026-07-03",
+      "successfulBusinesses": 3,
+      "failedBusinesses": 0,
+      "decisionRows": 275,
+      "labels": {
+        "out_of_scope": 89,
+        "test_more": 167,
+        "diagnose": 10,
+        "keep": 9
+      },
+      "sourceModes": {
+        "runtime_sql_fallback": 3
+      }
+    },
+    {
+      "asOfDate": "2026-07-04",
+      "successfulBusinesses": 3,
+      "failedBusinesses": 0,
+      "decisionRows": 292,
+      "labels": {
+        "out_of_scope": 85,
+        "test_more": 193,
+        "diagnose": 7,
+        "keep": 7
+      },
+      "sourceModes": {
+        "runtime_sql_fallback": 3
+      }
+    },
+    {
+      "asOfDate": "2026-07-05",
+      "successfulBusinesses": 3,
+      "failedBusinesses": 0,
+      "decisionRows": 313,
+      "labels": {
+        "out_of_scope": 85,
+        "test_more": 212,
+        "diagnose": 8,
+        "keep": 8
+      },
+      "sourceModes": {
+        "runtime_sql_fallback": 3
+      }
+    }
+  ],
+  "businessSummaries": [
+    {
+      "business": {
+        "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+        "name": "Grandmix",
+        "isDemoBusiness": false
+      },
+      "datesProcessed": 7,
+      "failedDays": 0,
+      "decisionRows": 602,
+      "uniqueCreatives": 123,
+      "labels": {
+        "out_of_scope": 231,
+        "test_more": 370,
+        "diagnose": 1
+      },
+      "hardRows": 0,
+      "blockedRows": 0,
+      "sourceModeDays": {
+        "runtime_sql_fallback": 7
+      },
+      "profileRanges": {
+        "spendUnit": {
+          "min": 117.70636363636359,
+          "max": 126.939
+        },
+        "commercialMaturitySpend": {
+          "min": 235.41272727272718,
+          "max": 253.878
+        },
+        "hardCutSpend": {
+          "min": 588.5318181818179,
+          "max": 634.6949999999999
+        },
+        "scaleMinPurchases": {
+          "min": 1,
+          "max": 1
+        },
+        "matureCreativeCount": {
+          "min": 70,
+          "max": 74
+        }
+      },
+      "outcomeCells": [
+        {
+          "windowDays": 7,
+          "label": "diagnose",
+          "hardClass": "non_hard",
+          "openWindowRows": 0,
+          "closedDailyRows": 1,
+          "episodes": 1,
+          "knownEpisodes": 0,
+          "unknownEpisodes": 1,
+          "positive": 0,
+          "negative": 0,
+          "neutral": 0,
+          "zeroForwardSpendUnknownEpisodes": 1,
+          "positiveRateKnown": null,
+          "reliability": "insufficient"
+        },
+        {
+          "windowDays": 7,
+          "label": "out_of_scope",
+          "hardClass": "non_hard",
+          "openWindowRows": 0,
+          "closedDailyRows": 231,
+          "episodes": 33,
+          "knownEpisodes": 0,
+          "unknownEpisodes": 33,
+          "positive": 0,
+          "negative": 0,
+          "neutral": 0,
+          "zeroForwardSpendUnknownEpisodes": 0,
+          "positiveRateKnown": null,
+          "reliability": "insufficient"
+        },
+        {
+          "windowDays": 7,
+          "label": "test_more",
+          "hardClass": "non_hard",
+          "openWindowRows": 0,
+          "closedDailyRows": 370,
+          "episodes": 90,
+          "knownEpisodes": 71,
+          "unknownEpisodes": 19,
+          "positive": 67,
+          "negative": 0,
+          "neutral": 4,
+          "zeroForwardSpendUnknownEpisodes": 19,
+          "positiveRateKnown": 0.9437,
+          "reliability": "defensible"
+        },
+        {
+          "windowDays": 14,
+          "label": "diagnose",
+          "hardClass": "non_hard",
+          "openWindowRows": 1,
+          "closedDailyRows": 0,
+          "episodes": 0,
+          "knownEpisodes": 0,
+          "unknownEpisodes": 0,
+          "positive": 0,
+          "negative": 0,
+          "neutral": 0,
+          "zeroForwardSpendUnknownEpisodes": 0,
+          "positiveRateKnown": null,
+          "reliability": "insufficient"
+        },
+        {
+          "windowDays": 14,
+          "label": "out_of_scope",
+          "hardClass": "non_hard",
+          "openWindowRows": 231,
+          "closedDailyRows": 0,
+          "episodes": 0,
+          "knownEpisodes": 0,
+          "unknownEpisodes": 0,
+          "positive": 0,
+          "negative": 0,
+          "neutral": 0,
+          "zeroForwardSpendUnknownEpisodes": 0,
+          "positiveRateKnown": null,
+          "reliability": "insufficient"
+        },
+        {
+          "windowDays": 14,
+          "label": "test_more",
+          "hardClass": "non_hard",
+          "openWindowRows": 370,
+          "closedDailyRows": 0,
+          "episodes": 0,
+          "knownEpisodes": 0,
+          "unknownEpisodes": 0,
+          "positive": 0,
+          "negative": 0,
+          "neutral": 0,
+          "zeroForwardSpendUnknownEpisodes": 0,
+          "positiveRateKnown": null,
+          "reliability": "insufficient"
+        }
+      ],
+      "calibration": [
+        {
+          "windowDays": 7,
+          "hardClass": "non_hard",
+          "bucket": "60_69",
+          "episodes": 124,
+          "knownEpisodes": 71,
+          "positive": 67,
+          "observedPositiveRate": 0.9437,
+          "averageConfidence": 0.6,
+          "absoluteGap": 0.3437
+        }
+      ],
+      "detailedCalibration": [
+        {
+          "windowDays": 7,
+          "sourceMode": "runtime_sql_fallback",
+          "label": "diagnose",
+          "hardClass": "non_hard",
+          "bucket": "60_69",
+          "episodes": 1,
+          "knownEpisodes": 0,
+          "unknownEpisodes": 1,
+          "positive": 0,
+          "negative": 0,
+          "neutral": 0,
+          "observedPositiveRate": null,
+          "averageConfidence": null,
+          "absoluteGap": null,
+          "reliability": "insufficient",
+          "positiveMeaning": "non_hard_missed_hard_action_proxy"
+        },
+        {
+          "windowDays": 7,
+          "sourceMode": "runtime_sql_fallback",
+          "label": "test_more",
+          "hardClass": "non_hard",
+          "bucket": "60_69",
+          "episodes": 90,
+          "knownEpisodes": 71,
+          "unknownEpisodes": 19,
+          "positive": 67,
+          "negative": 0,
+          "neutral": 4,
+          "observedPositiveRate": 0.9437,
+          "averageConfidence": 0.6,
+          "absoluteGap": 0.3437,
+          "reliability": "defensible",
+          "positiveMeaning": "non_hard_missed_hard_action_proxy"
+        },
+        {
+          "windowDays": 7,
+          "sourceMode": "runtime_sql_fallback",
+          "label": "out_of_scope",
+          "hardClass": "non_hard",
+          "bucket": "60_69",
+          "episodes": 33,
+          "knownEpisodes": 0,
+          "unknownEpisodes": 33,
+          "positive": 0,
+          "negative": 0,
+          "neutral": 0,
+          "observedPositiveRate": null,
+          "averageConfidence": null,
+          "absoluteGap": null,
+          "reliability": "insufficient",
+          "positiveMeaning": "non_hard_missed_hard_action_proxy"
+        }
+      ],
+      "fidelity": [
+        {
+          "business": {
+            "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+            "name": "Grandmix",
+            "isDemoBusiness": false
+          },
+          "asOfDate": "2026-07-03",
+          "sourceMode": "runtime_sql_fallback",
+          "replayRows": 71,
+          "snapshotRows": 0,
+          "commonRows": 0,
+          "labelMatches": 0,
+          "labelConfidenceMatches": 0,
+          "labelMatchRate": null,
+          "labelConfidenceMatchRate": null,
+          "replayOnlyRows": 71,
+          "snapshotOnlyRows": 0,
+          "samples": [
+            {
+              "creativeId": "1002617308929281",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "mixed decision context; evaluate at ad grain",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1003770772089284",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "mixed decision context; evaluate at ad grain",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1005337862441315",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "mixed decision context; evaluate at ad grain",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1008549465472004",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "mixed decision context; evaluate at ad grain",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1009827774896101",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $5 < $235 loss-budget floor, 0 purchases, age 1d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1010946998578771",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $58 < $235 loss-budget floor, 0 purchases, age 1d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1012777161360911",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $3 < $235 loss-budget floor, 0 purchases, age 1d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1020070427050295",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $15 < $235 loss-budget floor, 0 purchases, age 1d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1024616573428480",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $82 < $235 loss-budget floor, 0 purchases, age 1d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1025822163460162",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "mixed decision context; evaluate at ad grain",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1068268059100740",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $16 < $235 loss-budget floor, 0 purchases, age 1d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1186862256977827",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "mixed decision context; evaluate at ad grain",
+              "snapshotReason": null
+            }
+          ]
+        },
+        {
+          "business": {
+            "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+            "name": "Grandmix",
+            "isDemoBusiness": false
+          },
+          "asOfDate": "2026-07-04",
+          "sourceMode": "runtime_sql_fallback",
+          "replayRows": 92,
+          "snapshotRows": 0,
+          "commonRows": 0,
+          "labelMatches": 0,
+          "labelConfidenceMatches": 0,
+          "labelMatchRate": null,
+          "labelConfidenceMatchRate": null,
+          "replayOnlyRows": 92,
+          "snapshotOnlyRows": 0,
+          "samples": [
+            {
+              "creativeId": "1002617308929281",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "mixed decision context; evaluate at ad grain",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1003770772089284",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "mixed decision context; evaluate at ad grain",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1005337862441315",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "mixed decision context; evaluate at ad grain",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1008549465472004",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "mixed decision context; evaluate at ad grain",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1009827774896101",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $5 < $240 loss-budget floor, 0 purchases, age 2d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1010946998578771",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $58 < $240 loss-budget floor, 0 purchases, age 2d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1012777161360911",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $3 < $240 loss-budget floor, 0 purchases, age 2d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1020070427050295",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $15 < $240 loss-budget floor, 0 purchases, age 2d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1024616573428480",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $82 < $240 loss-budget floor, 0 purchases, age 2d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1025822163460162",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "mixed decision context; evaluate at ad grain",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1028255766263061",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $7 < $240 loss-budget floor, 0 purchases, age 0d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1068268059100740",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $16 < $240 loss-budget floor, 0 purchases, age 2d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            }
+          ]
+        }
+      ],
+      "riskHints": [
+        "no_hard_actions_in_replay_window",
+        "raw_wall_clock_freshness_was_stale_or_degraded",
+        "runtime_sql_fallback_days_not_equivalent_to_lifecycle_informed_production"
+      ],
+      "samples": {
+        "hardRows": [],
+        "outcomeEpisodes": [
+          {
+            "business": {
+              "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+              "name": "Grandmix",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-07-03",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "2257729818314797",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 3.043361419214697,
+            "baselineSpend": 2.45,
+            "baselinePurchases": 0,
+            "baselineRoas": 0,
+            "outcomeSpend": 371.71,
+            "outcomePurchases": 1,
+            "outcomeRevenue": 179,
+            "outcomeRoas": 0.48155820397621807,
+            "asOfDateSpend": 2.45,
+            "episodeKey": "5dbc7147-f051-4681-a4d6-20617170074f::2257729818314797::7::2026-07-03::test_more"
+          },
+          {
+            "business": {
+              "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+              "name": "Grandmix",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-07-05",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "1504818567511615",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 3.3163278447511018,
+            "baselineSpend": 22.42,
+            "baselinePurchases": 0,
+            "baselineRoas": 0,
+            "outcomeSpend": 363.32,
+            "outcomePurchases": 1,
+            "outcomeRevenue": 215.1,
+            "outcomeRoas": 0.5920400748651327,
+            "asOfDateSpend": 22.42,
+            "episodeKey": "5dbc7147-f051-4681-a4d6-20617170074f::1504818567511615::7::2026-07-05::test_more"
+          },
+          {
+            "business": {
+              "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+              "name": "Grandmix",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-07-04",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "2733360953731132",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 3.1088667951657607,
+            "baselineSpend": 11.61,
+            "baselinePurchases": 0,
+            "baselineRoas": 0,
+            "outcomeSpend": 278.80999999999995,
+            "outcomePurchases": 2,
+            "outcomeRevenue": 372.78,
+            "outcomeRoas": 1.3370395609913563,
+            "asOfDateSpend": 11.61,
+            "episodeKey": "5dbc7147-f051-4681-a4d6-20617170074f::2733360953731132::7::2026-07-04::test_more"
+          },
+          {
+            "business": {
+              "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+              "name": "Grandmix",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-06-29",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "1548668237040903",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 3.325089880922877,
+            "baselineSpend": 152.76999999999998,
+            "baselinePurchases": 1,
+            "baselineRoas": 1.976958826994829,
+            "outcomeSpend": 245.57,
+            "outcomePurchases": 2,
+            "outcomeRevenue": 337.1,
+            "outcomeRoas": 1.3727246813535856,
+            "asOfDateSpend": 99.71,
+            "episodeKey": "5dbc7147-f051-4681-a4d6-20617170074f::1548668237040903::7::2026-06-29::test_more"
+          },
+          {
+            "business": {
+              "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+              "name": "Grandmix",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-07-05",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "2062535954331110",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 3.3163278447511018,
+            "baselineSpend": 7.33,
+            "baselinePurchases": 0,
+            "baselineRoas": 0,
+            "outcomeSpend": 240,
+            "outcomePurchases": 2,
+            "outcomeRevenue": 390.1,
+            "outcomeRoas": 1.6254166666666667,
+            "asOfDateSpend": 7.33,
+            "episodeKey": "5dbc7147-f051-4681-a4d6-20617170074f::2062535954331110::7::2026-07-05::test_more"
+          },
+          {
+            "business": {
+              "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+              "name": "Grandmix",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-07-04",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "1515764536690624",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 3.1088667951657607,
+            "baselineSpend": 5.62,
+            "baselinePurchases": 0,
+            "baselineRoas": 0,
+            "outcomeSpend": 180,
+            "outcomePurchases": 1,
+            "outcomeRevenue": 282.12,
+            "outcomeRoas": 1.5673333333333335,
+            "asOfDateSpend": 5.62,
+            "episodeKey": "5dbc7147-f051-4681-a4d6-20617170074f::1515764536690624::7::2026-07-04::test_more"
+          },
+          {
+            "business": {
+              "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+              "name": "Grandmix",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-07-05",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "1411899924098370",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 3.3163278447511018,
+            "baselineSpend": 6.22,
+            "baselinePurchases": 0,
+            "baselineRoas": 0,
+            "outcomeSpend": 128.06,
+            "outcomePurchases": 1,
+            "outcomeRevenue": 251.1,
+            "outcomeRoas": 1.9607996251756987,
+            "asOfDateSpend": 6.22,
+            "episodeKey": "5dbc7147-f051-4681-a4d6-20617170074f::1411899924098370::7::2026-07-05::test_more"
+          },
+          {
+            "business": {
+              "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+              "name": "Grandmix",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-07-05",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "1994245131214531",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 3.3163278447511018,
+            "baselineSpend": 7.75,
+            "baselinePurchases": 0,
+            "baselineRoas": 0,
+            "outcomeSpend": 111.69,
+            "outcomePurchases": 0,
+            "outcomeRevenue": 0,
+            "outcomeRoas": 0,
+            "asOfDateSpend": 7.75,
+            "episodeKey": "5dbc7147-f051-4681-a4d6-20617170074f::1994245131214531::7::2026-07-05::test_more"
+          },
+          {
+            "business": {
+              "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+              "name": "Grandmix",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-06-29",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "970098709321843",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 3.325089880922877,
+            "baselineSpend": 81.4,
+            "baselinePurchases": 0,
+            "baselineRoas": 0,
+            "outcomeSpend": 100.71000000000001,
+            "outcomePurchases": 0,
+            "outcomeRevenue": 0,
+            "outcomeRoas": 0,
+            "asOfDateSpend": 48.38,
+            "episodeKey": "5dbc7147-f051-4681-a4d6-20617170074f::970098709321843::7::2026-06-29::test_more"
+          },
+          {
+            "business": {
+              "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+              "name": "Grandmix",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-06-29",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "1351988990223478",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 3.325089880922877,
+            "baselineSpend": 83.22,
+            "baselinePurchases": 0,
+            "baselineRoas": 0,
+            "outcomeSpend": 94.32,
+            "outcomePurchases": 0,
+            "outcomeRevenue": 0,
+            "outcomeRoas": 0,
+            "asOfDateSpend": 30.7,
+            "episodeKey": "5dbc7147-f051-4681-a4d6-20617170074f::1351988990223478::7::2026-06-29::test_more"
+          },
+          {
+            "business": {
+              "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+              "name": "Grandmix",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-06-29",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "1265467295473629",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 3.325089880922877,
+            "baselineSpend": 58.33,
+            "baselinePurchases": 0,
+            "baselineRoas": 0,
+            "outcomeSpend": 89.66,
+            "outcomePurchases": 0,
+            "outcomeRevenue": 0,
+            "outcomeRoas": 0,
+            "asOfDateSpend": 36.77,
+            "episodeKey": "5dbc7147-f051-4681-a4d6-20617170074f::1265467295473629::7::2026-06-29::test_more"
+          },
+          {
+            "business": {
+              "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+              "name": "Grandmix",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-07-04",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "1028255766263061",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 3.1088667951657607,
+            "baselineSpend": 7.25,
+            "baselinePurchases": 0,
+            "baselineRoas": 0,
+            "outcomeSpend": 83.61,
+            "outcomePurchases": 0,
+            "outcomeRevenue": 0,
+            "outcomeRoas": 0,
+            "asOfDateSpend": 7.25,
+            "episodeKey": "5dbc7147-f051-4681-a4d6-20617170074f::1028255766263061::7::2026-07-04::test_more"
+          }
+        ],
+        "fidelityMismatches": [
+          {
+            "creativeId": "1002617308929281",
+            "replayLabel": "out_of_scope",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "mixed decision context; evaluate at ad grain",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1003770772089284",
+            "replayLabel": "out_of_scope",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "mixed decision context; evaluate at ad grain",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1005337862441315",
+            "replayLabel": "out_of_scope",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "mixed decision context; evaluate at ad grain",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1008549465472004",
+            "replayLabel": "out_of_scope",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "mixed decision context; evaluate at ad grain",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1009827774896101",
+            "replayLabel": "test_more",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "Below commercial maturity (28d spend $5 < $235 loss-budget floor, 0 purchases, age 1d) — let the creative accumulate signal.",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1010946998578771",
+            "replayLabel": "test_more",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "Below commercial maturity (28d spend $58 < $235 loss-budget floor, 0 purchases, age 1d) — let the creative accumulate signal.",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1012777161360911",
+            "replayLabel": "test_more",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "Below commercial maturity (28d spend $3 < $235 loss-budget floor, 0 purchases, age 1d) — let the creative accumulate signal.",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1020070427050295",
+            "replayLabel": "test_more",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "Below commercial maturity (28d spend $15 < $235 loss-budget floor, 0 purchases, age 1d) — let the creative accumulate signal.",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1024616573428480",
+            "replayLabel": "test_more",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "Below commercial maturity (28d spend $82 < $235 loss-budget floor, 0 purchases, age 1d) — let the creative accumulate signal.",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1025822163460162",
+            "replayLabel": "out_of_scope",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "mixed decision context; evaluate at ad grain",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1068268059100740",
+            "replayLabel": "test_more",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "Below commercial maturity (28d spend $16 < $235 loss-budget floor, 0 purchases, age 1d) — let the creative accumulate signal.",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1186862256977827",
+            "replayLabel": "out_of_scope",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "mixed decision context; evaluate at ad grain",
+            "snapshotReason": null
+          }
+        ]
+      }
+    },
+    {
+      "business": {
+        "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+        "name": "IwaStore",
+        "isDemoBusiness": false
+      },
+      "datesProcessed": 7,
+      "failedDays": 0,
+      "decisionRows": 545,
+      "uniqueCreatives": 92,
+      "labels": {
+        "test_more": 414,
+        "out_of_scope": 40,
+        "diagnose": 68,
+        "keep": 23
+      },
+      "hardRows": 0,
+      "blockedRows": 0,
+      "sourceModeDays": {
+        "runtime_sql_fallback": 7
+      },
+      "profileRanges": {
+        "spendUnit": {
+          "min": 36.445,
+          "max": 42.05
+        },
+        "commercialMaturitySpend": {
+          "min": 72.89,
+          "max": 84.1
+        },
+        "hardCutSpend": {
+          "min": 182.225,
+          "max": 210.25
+        },
+        "scaleMinPurchases": {
+          "min": 1,
+          "max": 1
+        },
+        "matureCreativeCount": {
+          "min": 47,
+          "max": 69
+        }
+      },
+      "outcomeCells": [
+        {
+          "windowDays": 7,
+          "label": "diagnose",
+          "hardClass": "non_hard",
+          "openWindowRows": 0,
+          "closedDailyRows": 68,
+          "episodes": 22,
+          "knownEpisodes": 14,
+          "unknownEpisodes": 8,
+          "positive": 12,
+          "negative": 0,
+          "neutral": 2,
+          "zeroForwardSpendUnknownEpisodes": 8,
+          "positiveRateKnown": 0.8571,
+          "reliability": "directional"
+        },
+        {
+          "windowDays": 7,
+          "label": "keep",
+          "hardClass": "non_hard",
+          "openWindowRows": 0,
+          "closedDailyRows": 23,
+          "episodes": 7,
+          "knownEpisodes": 6,
+          "unknownEpisodes": 1,
+          "positive": 5,
+          "negative": 0,
+          "neutral": 1,
+          "zeroForwardSpendUnknownEpisodes": 1,
+          "positiveRateKnown": 0.8333,
+          "reliability": "insufficient"
+        },
+        {
+          "windowDays": 7,
+          "label": "out_of_scope",
+          "hardClass": "non_hard",
+          "openWindowRows": 0,
+          "closedDailyRows": 40,
+          "episodes": 6,
+          "knownEpisodes": 0,
+          "unknownEpisodes": 6,
+          "positive": 0,
+          "negative": 0,
+          "neutral": 0,
+          "zeroForwardSpendUnknownEpisodes": 1,
+          "positiveRateKnown": null,
+          "reliability": "insufficient"
+        },
+        {
+          "windowDays": 7,
+          "label": "test_more",
+          "hardClass": "non_hard",
+          "openWindowRows": 0,
+          "closedDailyRows": 414,
+          "episodes": 79,
+          "knownEpisodes": 55,
+          "unknownEpisodes": 24,
+          "positive": 47,
+          "negative": 0,
+          "neutral": 8,
+          "zeroForwardSpendUnknownEpisodes": 24,
+          "positiveRateKnown": 0.8545,
+          "reliability": "defensible"
+        },
+        {
+          "windowDays": 14,
+          "label": "diagnose",
+          "hardClass": "non_hard",
+          "openWindowRows": 68,
+          "closedDailyRows": 0,
+          "episodes": 0,
+          "knownEpisodes": 0,
+          "unknownEpisodes": 0,
+          "positive": 0,
+          "negative": 0,
+          "neutral": 0,
+          "zeroForwardSpendUnknownEpisodes": 0,
+          "positiveRateKnown": null,
+          "reliability": "insufficient"
+        },
+        {
+          "windowDays": 14,
+          "label": "keep",
+          "hardClass": "non_hard",
+          "openWindowRows": 23,
+          "closedDailyRows": 0,
+          "episodes": 0,
+          "knownEpisodes": 0,
+          "unknownEpisodes": 0,
+          "positive": 0,
+          "negative": 0,
+          "neutral": 0,
+          "zeroForwardSpendUnknownEpisodes": 0,
+          "positiveRateKnown": null,
+          "reliability": "insufficient"
+        },
+        {
+          "windowDays": 14,
+          "label": "out_of_scope",
+          "hardClass": "non_hard",
+          "openWindowRows": 40,
+          "closedDailyRows": 0,
+          "episodes": 0,
+          "knownEpisodes": 0,
+          "unknownEpisodes": 0,
+          "positive": 0,
+          "negative": 0,
+          "neutral": 0,
+          "zeroForwardSpendUnknownEpisodes": 0,
+          "positiveRateKnown": null,
+          "reliability": "insufficient"
+        },
+        {
+          "windowDays": 14,
+          "label": "test_more",
+          "hardClass": "non_hard",
+          "openWindowRows": 414,
+          "closedDailyRows": 0,
+          "episodes": 0,
+          "knownEpisodes": 0,
+          "unknownEpisodes": 0,
+          "positive": 0,
+          "negative": 0,
+          "neutral": 0,
+          "zeroForwardSpendUnknownEpisodes": 0,
+          "positiveRateKnown": null,
+          "reliability": "insufficient"
+        }
+      ],
+      "calibration": [
+        {
+          "windowDays": 7,
+          "hardClass": "non_hard",
+          "bucket": "50_59",
+          "episodes": 24,
+          "knownEpisodes": 14,
+          "positive": 12,
+          "observedPositiveRate": 0.8571,
+          "averageConfidence": 0.55,
+          "absoluteGap": 0.3071
+        },
+        {
+          "windowDays": 7,
+          "hardClass": "non_hard",
+          "bucket": "60_69",
+          "episodes": 90,
+          "knownEpisodes": 61,
+          "positive": 52,
+          "observedPositiveRate": 0.8525,
+          "averageConfidence": 0.6,
+          "absoluteGap": 0.2525
+        }
+      ],
+      "detailedCalibration": [
+        {
+          "windowDays": 7,
+          "sourceMode": "runtime_sql_fallback",
+          "label": "diagnose",
+          "hardClass": "non_hard",
+          "bucket": "50_59",
+          "episodes": 22,
+          "knownEpisodes": 14,
+          "unknownEpisodes": 8,
+          "positive": 12,
+          "negative": 0,
+          "neutral": 2,
+          "observedPositiveRate": 0.8571,
+          "averageConfidence": 0.55,
+          "absoluteGap": 0.3071,
+          "reliability": "directional",
+          "positiveMeaning": "non_hard_missed_hard_action_proxy"
+        },
+        {
+          "windowDays": 7,
+          "sourceMode": "runtime_sql_fallback",
+          "label": "test_more",
+          "hardClass": "non_hard",
+          "bucket": "50_59",
+          "episodes": 2,
+          "knownEpisodes": 0,
+          "unknownEpisodes": 2,
+          "positive": 0,
+          "negative": 0,
+          "neutral": 0,
+          "observedPositiveRate": null,
+          "averageConfidence": null,
+          "absoluteGap": null,
+          "reliability": "insufficient",
+          "positiveMeaning": "non_hard_missed_hard_action_proxy"
+        },
+        {
+          "windowDays": 7,
+          "sourceMode": "runtime_sql_fallback",
+          "label": "test_more",
+          "hardClass": "non_hard",
+          "bucket": "60_69",
+          "episodes": 77,
+          "knownEpisodes": 55,
+          "unknownEpisodes": 22,
+          "positive": 47,
+          "negative": 0,
+          "neutral": 8,
+          "observedPositiveRate": 0.8545,
+          "averageConfidence": 0.6,
+          "absoluteGap": 0.2545,
+          "reliability": "defensible",
+          "positiveMeaning": "non_hard_missed_hard_action_proxy"
+        },
+        {
+          "windowDays": 7,
+          "sourceMode": "runtime_sql_fallback",
+          "label": "keep",
+          "hardClass": "non_hard",
+          "bucket": "60_69",
+          "episodes": 7,
+          "knownEpisodes": 6,
+          "unknownEpisodes": 1,
+          "positive": 5,
+          "negative": 0,
+          "neutral": 1,
+          "observedPositiveRate": 0.8333,
+          "averageConfidence": 0.6,
+          "absoluteGap": 0.2333,
+          "reliability": "insufficient",
+          "positiveMeaning": "non_hard_missed_hard_action_proxy"
+        },
+        {
+          "windowDays": 7,
+          "sourceMode": "runtime_sql_fallback",
+          "label": "out_of_scope",
+          "hardClass": "non_hard",
+          "bucket": "60_69",
+          "episodes": 6,
+          "knownEpisodes": 0,
+          "unknownEpisodes": 6,
+          "positive": 0,
+          "negative": 0,
+          "neutral": 0,
+          "observedPositiveRate": null,
+          "averageConfidence": null,
+          "absoluteGap": null,
+          "reliability": "insufficient",
+          "positiveMeaning": "non_hard_missed_hard_action_proxy"
+        }
+      ],
+      "fidelity": [
+        {
+          "business": {
+            "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+            "name": "IwaStore",
+            "isDemoBusiness": false
+          },
+          "asOfDate": "2026-07-03",
+          "sourceMode": "runtime_sql_fallback",
+          "replayRows": 90,
+          "snapshotRows": 0,
+          "commonRows": 0,
+          "labelMatches": 0,
+          "labelConfidenceMatches": 0,
+          "labelMatchRate": null,
+          "labelConfidenceMatchRate": null,
+          "replayOnlyRows": 90,
+          "snapshotOnlyRows": 0,
+          "samples": [
+            {
+              "creativeId": "1003444735733770",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $7 < $78 loss-budget floor, 0 purchases, age 0d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1016479011077401",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $0 < $78 loss-budget floor, 0 purchases, age 0d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1020781523695732",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $0 < $78 loss-budget floor, 0 purchases, age 1d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1025468773398763",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "[soft-only - cut blocked] ROAS 0.82 (28d) = 14% of target after $276 spend (28d) — clear loser at scale. (threshold baseline account_history has low confidence (meta AOV ready))",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1028452980202623",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "[soft-only - cut blocked] ROAS 1.94 (28d) = 33% of target after $150 spend (28d) — loss-budget maturity reached at $78; cut underperforming creative. (threshold baseline account_history has low confidence (meta AOV ready))",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1033784855709309",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $13 < $78 loss-budget floor, 0 purchases, age 0d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1037962691982511",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $0 < $78 loss-budget floor, 0 purchases, age 2d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1038055285394393",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $51 < $78 loss-budget floor, 0 purchases, age 0d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1038550568592146",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "[soft-only - cut blocked] ROAS 2.91 (28d) = 49% of target after $134 spend (28d) — loss-budget maturity reached at $78; cut underperforming creative. (threshold baseline account_history has low confidence (meta AOV ready))",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1050560790774455",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $4 < $78 loss-budget floor, 0 purchases, age 0d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1157254709850013",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "[soft-only - cut blocked] ROAS 3.86 (28d) = 65% of target after $141 spend (28d) — loss-budget maturity reached at $78; cut underperforming creative. (threshold baseline account_history has low confidence (meta AOV ready))",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1230828315767797",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Creative runs in mid_funnel adsets; purchase decision engine does not evaluate it.",
+              "snapshotReason": null
+            }
+          ]
+        },
+        {
+          "business": {
+            "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+            "name": "IwaStore",
+            "isDemoBusiness": false
+          },
+          "asOfDate": "2026-07-04",
+          "sourceMode": "runtime_sql_fallback",
+          "replayRows": 90,
+          "snapshotRows": 0,
+          "commonRows": 0,
+          "labelMatches": 0,
+          "labelConfidenceMatches": 0,
+          "labelMatchRate": null,
+          "labelConfidenceMatchRate": null,
+          "replayOnlyRows": 90,
+          "snapshotOnlyRows": 0,
+          "samples": [
+            {
+              "creativeId": "1003444735733770",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $7 < $84 loss-budget floor, 0 purchases, age 0d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1016479011077401",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $0 < $84 loss-budget floor, 0 purchases, age 1d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1020781523695732",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $0 < $84 loss-budget floor, 0 purchases, age 2d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1025468773398763",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "[soft-only - cut blocked] ROAS 0.82 (28d) = 14% of target after $276 spend (28d) — clear loser at scale. (threshold baseline account_history has low confidence (meta AOV ready))",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1028452980202623",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "[soft-only - cut blocked] ROAS 2.51 (28d) = 44% of target after $186 spend (28d) — loss-budget maturity reached at $84; cut underperforming creative. (threshold baseline account_history has low confidence (meta AOV ready))",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1033784855709309",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $23 < $84 loss-budget floor, 1 purchases, age 0d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1037962691982511",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $0 < $84 loss-budget floor, 0 purchases, age 3d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1038055285394393",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $64 < $84 loss-budget floor, 1 purchases, age 0d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1038550568592146",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "[soft-only - cut blocked] ROAS 2.15 (28d) = 37% of target after $181 spend (28d) — loss-budget maturity reached at $84; cut underperforming creative. (threshold baseline account_history has low confidence (meta AOV ready))",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1050560790774455",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $4 < $84 loss-budget floor, 0 purchases, age 1d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1157254709850013",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "[soft-only - cut blocked] ROAS 3.89 (28d) = 67% of target after $140 spend (28d) — loss-budget maturity reached at $84; cut underperforming creative. (threshold baseline account_history has low confidence (meta AOV ready))",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1230828315767797",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Creative runs in mid_funnel adsets; purchase decision engine does not evaluate it.",
+              "snapshotReason": null
+            }
+          ]
+        }
+      ],
+      "riskHints": [
+        "no_hard_actions_in_replay_window",
+        "raw_wall_clock_freshness_was_stale_or_degraded",
+        "runtime_sql_fallback_days_not_equivalent_to_lifecycle_informed_production"
+      ],
+      "samples": {
+        "hardRows": [],
+        "outcomeEpisodes": [
+          {
+            "business": {
+              "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+              "name": "IwaStore",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-07-02",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "2038272963464339",
+            "label": "diagnose",
+            "hardClass": "non_hard",
+            "confidence": 55,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 5.768572447402829,
+            "baselineSpend": 121.05,
+            "baselinePurchases": 1,
+            "baselineRoas": 0.8802147872779843,
+            "outcomeSpend": 947.4599999999999,
+            "outcomePurchases": 12,
+            "outcomeRevenue": 1812.38,
+            "outcomeRoas": 1.9128828657674206,
+            "asOfDateSpend": 121.05,
+            "episodeKey": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2::2038272963464339::7::2026-07-02::diagnose"
+          },
+          {
+            "business": {
+              "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+              "name": "IwaStore",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-07-01",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "2266296250855098",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 5.760121852097176,
+            "baselineSpend": 142.43,
+            "baselinePurchases": 1,
+            "baselineRoas": 0.703924734957523,
+            "outcomeSpend": 890.4,
+            "outcomePurchases": 10,
+            "outcomeRevenue": 1503.8200000000002,
+            "outcomeRoas": 1.68892632524708,
+            "asOfDateSpend": 142.43,
+            "episodeKey": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2::2266296250855098::7::2026-07-01::test_more"
+          },
+          {
+            "business": {
+              "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+              "name": "IwaStore",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-07-03",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "3931469937157981",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 5.937941585936686,
+            "baselineSpend": 236.40999999999997,
+            "baselinePurchases": 6,
+            "baselineRoas": 2.8815193942726625,
+            "outcomeSpend": 827.94,
+            "outcomePurchases": 7,
+            "outcomeRevenue": 935.72,
+            "outcomeRoas": 1.130178515351354,
+            "asOfDateSpend": 96.56,
+            "episodeKey": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2::3931469937157981::7::2026-07-03::test_more"
+          },
+          {
+            "business": {
+              "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+              "name": "IwaStore",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-07-03",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "2038272963464339",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 5.937941585936686,
+            "baselineSpend": 305.08,
+            "baselinePurchases": 2,
+            "baselineRoas": 0.7098138193260785,
+            "outcomeSpend": 766.8,
+            "outcomePurchases": 11,
+            "outcomeRevenue": 1702.38,
+            "outcomeRoas": 2.2201095461658844,
+            "asOfDateSpend": 184.03,
+            "episodeKey": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2::2038272963464339::7::2026-07-03::test_more"
+          },
+          {
+            "business": {
+              "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+              "name": "IwaStore",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-07-03",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "1340184707529372",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 5.937941585936686,
+            "baselineSpend": 265.73,
+            "baselinePurchases": 3,
+            "baselineRoas": 1.426447898242577,
+            "outcomeSpend": 757.38,
+            "outcomePurchases": 4,
+            "outcomeRevenue": 812.93,
+            "outcomeRoas": 1.0733449523356835,
+            "asOfDateSpend": 25.99,
+            "episodeKey": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2::1340184707529372::7::2026-07-03::test_more"
+          },
+          {
+            "business": {
+              "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+              "name": "IwaStore",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-07-01",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "3931469937157981",
+            "label": "diagnose",
+            "hardClass": "non_hard",
+            "confidence": 55,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 5.760121852097176,
+            "baselineSpend": 62.14,
+            "baselinePurchases": 2,
+            "baselineRoas": 2.913582233665916,
+            "outcomeSpend": 718.8,
+            "outcomePurchases": 10,
+            "outcomeRevenue": 1377.06,
+            "outcomeRoas": 1.9157762938230385,
+            "asOfDateSpend": 62.14,
+            "episodeKey": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2::3931469937157981::7::2026-07-01::diagnose"
+          },
+          {
+            "business": {
+              "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+              "name": "IwaStore",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-06-30",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "1340184707529372",
+            "label": "diagnose",
+            "hardClass": "non_hard",
+            "confidence": 55,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 6.297049362614671,
+            "baselineSpend": 88.33,
+            "baselinePurchases": 0,
+            "baselineRoas": 0,
+            "outcomeSpend": 650.94,
+            "outcomePurchases": 6,
+            "outcomeRevenue": 1100.31,
+            "outcomeRoas": 1.6903401235136877,
+            "asOfDateSpend": 88.33,
+            "episodeKey": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2::1340184707529372::7::2026-06-30::diagnose"
+          },
+          {
+            "business": {
+              "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+              "name": "IwaStore",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-06-30",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "1737346164109012",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 6.297049362614671,
+            "baselineSpend": 34.98,
+            "baselinePurchases": 0,
+            "baselineRoas": 0,
+            "outcomeSpend": 599.7099999999999,
+            "outcomePurchases": 12,
+            "outcomeRevenue": 1633.26,
+            "outcomeRoas": 2.7234163178869792,
+            "asOfDateSpend": 34.98,
+            "episodeKey": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2::1737346164109012::7::2026-06-30::test_more"
+          },
+          {
+            "business": {
+              "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+              "name": "IwaStore",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-07-01",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "1737346164109012",
+            "label": "keep",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 5.760121852097176,
+            "baselineSpend": 84.22999999999999,
+            "baselinePurchases": 3,
+            "baselineRoas": 4.5511100557995965,
+            "outcomeSpend": 584.74,
+            "outcomePurchases": 9,
+            "outcomeRevenue": 1249.92,
+            "outcomeRoas": 2.137565413688135,
+            "asOfDateSpend": 49.25,
+            "episodeKey": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2::1737346164109012::7::2026-07-01::keep"
+          },
+          {
+            "business": {
+              "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+              "name": "IwaStore",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-07-02",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "1737346164109012",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 5.768572447402829,
+            "baselineSpend": 158.24,
+            "baselinePurchases": 5,
+            "baselineRoas": 3.9890040444893833,
+            "outcomeSpend": 574.98,
+            "outcomePurchases": 7,
+            "outcomeRevenue": 1002.04,
+            "outcomeRoas": 1.742738877874013,
+            "asOfDateSpend": 74.01,
+            "episodeKey": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2::1737346164109012::7::2026-07-02::test_more"
+          },
+          {
+            "business": {
+              "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+              "name": "IwaStore",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-07-05",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "1340184707529372",
+            "label": "diagnose",
+            "hardClass": "non_hard",
+            "confidence": 55,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 5.768572447402829,
+            "baselineSpend": 472.35,
+            "baselinePurchases": 6,
+            "baselineRoas": 2.3294379167989834,
+            "outcomeSpend": 550.76,
+            "outcomePurchases": 1,
+            "outcomeRevenue": 91.67,
+            "outcomeRoas": 0.16644273367710075,
+            "asOfDateSpend": 114.86,
+            "episodeKey": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2::1340184707529372::7::2026-07-05::diagnose"
+          },
+          {
+            "business": {
+              "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+              "name": "IwaStore",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-07-04",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "1888743981790432",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 5.768572447402829,
+            "baselineSpend": 283.92999999999995,
+            "baselinePurchases": 7,
+            "baselineRoas": 3.584369386820696,
+            "outcomeSpend": 406.09999999999997,
+            "outcomePurchases": 4,
+            "outcomeRevenue": 454.23,
+            "outcomeRoas": 1.118517606500862,
+            "asOfDateSpend": 54.2,
+            "episodeKey": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2::1888743981790432::7::2026-07-04::test_more"
+          }
+        ],
+        "fidelityMismatches": [
+          {
+            "creativeId": "1003444735733770",
+            "replayLabel": "test_more",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "Below commercial maturity (28d spend $7 < $78 loss-budget floor, 0 purchases, age 0d) — let the creative accumulate signal.",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1016479011077401",
+            "replayLabel": "test_more",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "Below commercial maturity (28d spend $0 < $78 loss-budget floor, 0 purchases, age 0d) — let the creative accumulate signal.",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1020781523695732",
+            "replayLabel": "test_more",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "Below commercial maturity (28d spend $0 < $78 loss-budget floor, 0 purchases, age 1d) — let the creative accumulate signal.",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1025468773398763",
+            "replayLabel": "test_more",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "[soft-only - cut blocked] ROAS 0.82 (28d) = 14% of target after $276 spend (28d) — clear loser at scale. (threshold baseline account_history has low confidence (meta AOV ready))",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1028452980202623",
+            "replayLabel": "test_more",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "[soft-only - cut blocked] ROAS 1.94 (28d) = 33% of target after $150 spend (28d) — loss-budget maturity reached at $78; cut underperforming creative. (threshold baseline account_history has low confidence (meta AOV ready))",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1033784855709309",
+            "replayLabel": "test_more",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "Below commercial maturity (28d spend $13 < $78 loss-budget floor, 0 purchases, age 0d) — let the creative accumulate signal.",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1037962691982511",
+            "replayLabel": "test_more",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "Below commercial maturity (28d spend $0 < $78 loss-budget floor, 0 purchases, age 2d) — let the creative accumulate signal.",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1038055285394393",
+            "replayLabel": "test_more",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "Below commercial maturity (28d spend $51 < $78 loss-budget floor, 0 purchases, age 0d) — let the creative accumulate signal.",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1038550568592146",
+            "replayLabel": "test_more",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "[soft-only - cut blocked] ROAS 2.91 (28d) = 49% of target after $134 spend (28d) — loss-budget maturity reached at $78; cut underperforming creative. (threshold baseline account_history has low confidence (meta AOV ready))",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1050560790774455",
+            "replayLabel": "test_more",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "Below commercial maturity (28d spend $4 < $78 loss-budget floor, 0 purchases, age 0d) — let the creative accumulate signal.",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1157254709850013",
+            "replayLabel": "test_more",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "[soft-only - cut blocked] ROAS 3.86 (28d) = 65% of target after $141 spend (28d) — loss-budget maturity reached at $78; cut underperforming creative. (threshold baseline account_history has low confidence (meta AOV ready))",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1230828315767797",
+            "replayLabel": "out_of_scope",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "Creative runs in mid_funnel adsets; purchase decision engine does not evaluate it.",
+            "snapshotReason": null
+          }
+        ]
+      }
+    },
+    {
+      "business": {
+        "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+        "name": "TheSwaf",
+        "isDemoBusiness": false
+      },
+      "datesProcessed": 7,
+      "failedDays": 0,
+      "decisionRows": 819,
+      "uniqueCreatives": 125,
+      "labels": {
+        "test_more": 445,
+        "out_of_scope": 334,
+        "keep": 33,
+        "diagnose": 7
+      },
+      "hardRows": 0,
+      "blockedRows": 0,
+      "sourceModeDays": {
+        "runtime_sql_fallback": 7
+      },
+      "profileRanges": {
+        "spendUnit": {
+          "min": 152.40625,
+          "max": 155.9375
+        },
+        "commercialMaturitySpend": {
+          "min": 304.8125,
+          "max": 311.875
+        },
+        "hardCutSpend": {
+          "min": 762.03125,
+          "max": 779.6875
+        },
+        "scaleMinPurchases": {
+          "min": 1,
+          "max": 1
+        },
+        "matureCreativeCount": {
+          "min": 109,
+          "max": 110
+        }
+      },
+      "outcomeCells": [
+        {
+          "windowDays": 7,
+          "label": "diagnose",
+          "hardClass": "non_hard",
+          "openWindowRows": 0,
+          "closedDailyRows": 7,
+          "episodes": 1,
+          "knownEpisodes": 0,
+          "unknownEpisodes": 1,
+          "positive": 0,
+          "negative": 0,
+          "neutral": 0,
+          "zeroForwardSpendUnknownEpisodes": 1,
+          "positiveRateKnown": null,
+          "reliability": "insufficient"
+        },
+        {
+          "windowDays": 7,
+          "label": "keep",
+          "hardClass": "non_hard",
+          "openWindowRows": 0,
+          "closedDailyRows": 33,
+          "episodes": 7,
+          "knownEpisodes": 7,
+          "unknownEpisodes": 0,
+          "positive": 7,
+          "negative": 0,
+          "neutral": 0,
+          "zeroForwardSpendUnknownEpisodes": 0,
+          "positiveRateKnown": 1,
+          "reliability": "insufficient"
+        },
+        {
+          "windowDays": 7,
+          "label": "out_of_scope",
+          "hardClass": "non_hard",
+          "openWindowRows": 0,
+          "closedDailyRows": 334,
+          "episodes": 47,
+          "knownEpisodes": 0,
+          "unknownEpisodes": 47,
+          "positive": 0,
+          "negative": 0,
+          "neutral": 0,
+          "zeroForwardSpendUnknownEpisodes": 47,
+          "positiveRateKnown": null,
+          "reliability": "insufficient"
+        },
+        {
+          "windowDays": 7,
+          "label": "test_more",
+          "hardClass": "non_hard",
+          "openWindowRows": 0,
+          "closedDailyRows": 445,
+          "episodes": 75,
+          "knownEpisodes": 31,
+          "unknownEpisodes": 44,
+          "positive": 27,
+          "negative": 0,
+          "neutral": 4,
+          "zeroForwardSpendUnknownEpisodes": 44,
+          "positiveRateKnown": 0.871,
+          "reliability": "defensible"
+        },
+        {
+          "windowDays": 14,
+          "label": "diagnose",
+          "hardClass": "non_hard",
+          "openWindowRows": 7,
+          "closedDailyRows": 0,
+          "episodes": 0,
+          "knownEpisodes": 0,
+          "unknownEpisodes": 0,
+          "positive": 0,
+          "negative": 0,
+          "neutral": 0,
+          "zeroForwardSpendUnknownEpisodes": 0,
+          "positiveRateKnown": null,
+          "reliability": "insufficient"
+        },
+        {
+          "windowDays": 14,
+          "label": "keep",
+          "hardClass": "non_hard",
+          "openWindowRows": 33,
+          "closedDailyRows": 0,
+          "episodes": 0,
+          "knownEpisodes": 0,
+          "unknownEpisodes": 0,
+          "positive": 0,
+          "negative": 0,
+          "neutral": 0,
+          "zeroForwardSpendUnknownEpisodes": 0,
+          "positiveRateKnown": null,
+          "reliability": "insufficient"
+        },
+        {
+          "windowDays": 14,
+          "label": "out_of_scope",
+          "hardClass": "non_hard",
+          "openWindowRows": 334,
+          "closedDailyRows": 0,
+          "episodes": 0,
+          "knownEpisodes": 0,
+          "unknownEpisodes": 0,
+          "positive": 0,
+          "negative": 0,
+          "neutral": 0,
+          "zeroForwardSpendUnknownEpisodes": 0,
+          "positiveRateKnown": null,
+          "reliability": "insufficient"
+        },
+        {
+          "windowDays": 14,
+          "label": "test_more",
+          "hardClass": "non_hard",
+          "openWindowRows": 445,
+          "closedDailyRows": 0,
+          "episodes": 0,
+          "knownEpisodes": 0,
+          "unknownEpisodes": 0,
+          "positive": 0,
+          "negative": 0,
+          "neutral": 0,
+          "zeroForwardSpendUnknownEpisodes": 0,
+          "positiveRateKnown": null,
+          "reliability": "insufficient"
+        }
+      ],
+      "calibration": [
+        {
+          "windowDays": 7,
+          "hardClass": "non_hard",
+          "bucket": "50_59",
+          "episodes": 9,
+          "knownEpisodes": 0,
+          "positive": 0,
+          "observedPositiveRate": null,
+          "averageConfidence": null,
+          "absoluteGap": null
+        },
+        {
+          "windowDays": 7,
+          "hardClass": "non_hard",
+          "bucket": "60_69",
+          "episodes": 121,
+          "knownEpisodes": 38,
+          "positive": 34,
+          "observedPositiveRate": 0.8947,
+          "averageConfidence": 0.6,
+          "absoluteGap": 0.2947
+        }
+      ],
+      "detailedCalibration": [
+        {
+          "windowDays": 7,
+          "sourceMode": "runtime_sql_fallback",
+          "label": "diagnose",
+          "hardClass": "non_hard",
+          "bucket": "50_59",
+          "episodes": 1,
+          "knownEpisodes": 0,
+          "unknownEpisodes": 1,
+          "positive": 0,
+          "negative": 0,
+          "neutral": 0,
+          "observedPositiveRate": null,
+          "averageConfidence": null,
+          "absoluteGap": null,
+          "reliability": "insufficient",
+          "positiveMeaning": "non_hard_missed_hard_action_proxy"
+        },
+        {
+          "windowDays": 7,
+          "sourceMode": "runtime_sql_fallback",
+          "label": "test_more",
+          "hardClass": "non_hard",
+          "bucket": "50_59",
+          "episodes": 8,
+          "knownEpisodes": 0,
+          "unknownEpisodes": 8,
+          "positive": 0,
+          "negative": 0,
+          "neutral": 0,
+          "observedPositiveRate": null,
+          "averageConfidence": null,
+          "absoluteGap": null,
+          "reliability": "insufficient",
+          "positiveMeaning": "non_hard_missed_hard_action_proxy"
+        },
+        {
+          "windowDays": 7,
+          "sourceMode": "runtime_sql_fallback",
+          "label": "test_more",
+          "hardClass": "non_hard",
+          "bucket": "60_69",
+          "episodes": 67,
+          "knownEpisodes": 31,
+          "unknownEpisodes": 36,
+          "positive": 27,
+          "negative": 0,
+          "neutral": 4,
+          "observedPositiveRate": 0.871,
+          "averageConfidence": 0.6,
+          "absoluteGap": 0.271,
+          "reliability": "defensible",
+          "positiveMeaning": "non_hard_missed_hard_action_proxy"
+        },
+        {
+          "windowDays": 7,
+          "sourceMode": "runtime_sql_fallback",
+          "label": "keep",
+          "hardClass": "non_hard",
+          "bucket": "60_69",
+          "episodes": 7,
+          "knownEpisodes": 7,
+          "unknownEpisodes": 0,
+          "positive": 7,
+          "negative": 0,
+          "neutral": 0,
+          "observedPositiveRate": 1,
+          "averageConfidence": 0.6,
+          "absoluteGap": 0.4,
+          "reliability": "insufficient",
+          "positiveMeaning": "non_hard_missed_hard_action_proxy"
+        },
+        {
+          "windowDays": 7,
+          "sourceMode": "runtime_sql_fallback",
+          "label": "out_of_scope",
+          "hardClass": "non_hard",
+          "bucket": "60_69",
+          "episodes": 47,
+          "knownEpisodes": 0,
+          "unknownEpisodes": 47,
+          "positive": 0,
+          "negative": 0,
+          "neutral": 0,
+          "observedPositiveRate": null,
+          "averageConfidence": null,
+          "absoluteGap": null,
+          "reliability": "insufficient",
+          "positiveMeaning": "non_hard_missed_hard_action_proxy"
+        }
+      ],
+      "fidelity": [
+        {
+          "business": {
+            "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+            "name": "TheSwaf",
+            "isDemoBusiness": false
+          },
+          "asOfDate": "2026-07-03",
+          "sourceMode": "runtime_sql_fallback",
+          "replayRows": 114,
+          "snapshotRows": 0,
+          "commonRows": 0,
+          "labelMatches": 0,
+          "labelConfidenceMatches": 0,
+          "labelMatchRate": null,
+          "labelConfidenceMatchRate": null,
+          "replayOnlyRows": 114,
+          "snapshotOnlyRows": 0,
+          "samples": [
+            {
+              "creativeId": "1000844809459077",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "[soft-only - cut blocked] ROAS 0.78 (28d) = 36% of target after $711 spend (28d) — loss-budget maturity reached at $310; cut underperforming creative. (threshold baseline account_history has low confidence (meta AOV ready))",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1002443442283933",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "mixed decision context; evaluate at ad grain",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1007048011875307",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "[soft-only - cut blocked] ROAS 0.00 (28d) = 0% of target after $678 spend (28d) — loss-budget maturity reached at $310; cut underperforming creative. (threshold baseline account_history has low confidence (meta AOV ready))",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1008302678413358",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "mixed decision context; evaluate at ad grain",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1014356057726711",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $262 < $310 loss-budget floor, 1 purchases) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1018252307526601",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "mixed decision context; evaluate at ad grain",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1023264806904899",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $51 < $310 loss-budget floor, 0 purchases, age 17d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1023932563648623",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $3 < $310 loss-budget floor, 0 purchases, age 2d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1030352566602424",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "mixed decision context; evaluate at ad grain",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1031796332841133",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "[soft-only - cut blocked] ROAS 0.48 (28d) = 22% of target after $312 spend (28d) — loss-budget maturity reached at $310; cut underperforming creative. (threshold baseline account_history has low confidence (meta AOV ready))",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1033614439176557",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "mixed decision context; evaluate at ad grain",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1111657292040172",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "decision context identity unavailable; evaluate at ad grain",
+              "snapshotReason": null
+            }
+          ]
+        },
+        {
+          "business": {
+            "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+            "name": "TheSwaf",
+            "isDemoBusiness": false
+          },
+          "asOfDate": "2026-07-04",
+          "sourceMode": "runtime_sql_fallback",
+          "replayRows": 110,
+          "snapshotRows": 0,
+          "commonRows": 0,
+          "labelMatches": 0,
+          "labelConfidenceMatches": 0,
+          "labelMatchRate": null,
+          "labelConfidenceMatchRate": null,
+          "replayOnlyRows": 110,
+          "snapshotOnlyRows": 0,
+          "samples": [
+            {
+              "creativeId": "1000844809459077",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "[soft-only - cut blocked] ROAS 1.00 (28d) = 46% of target after $725 spend (28d) — loss-budget maturity reached at $310; cut underperforming creative. (threshold baseline account_history has low confidence (meta AOV ready))",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1002443442283933",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "mixed decision context; evaluate at ad grain",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1007048011875307",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "[soft-only - cut blocked] ROAS 0.00 (28d) = 0% of target after $721 spend (28d) — loss-budget maturity reached at $310; cut underperforming creative. (threshold baseline account_history has low confidence (meta AOV ready))",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1008302678413358",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "mixed decision context; evaluate at ad grain",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1014356057726711",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $262 < $310 loss-budget floor, 1 purchases) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1018252307526601",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "mixed decision context; evaluate at ad grain",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1023264806904899",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $51 < $310 loss-budget floor, 0 purchases, age 18d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1023932563648623",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "Below commercial maturity (28d spend $3 < $310 loss-budget floor, 0 purchases, age 0d) — let the creative accumulate signal.",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1030352566602424",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "mixed decision context; evaluate at ad grain",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1031796332841133",
+              "replayLabel": "test_more",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "[soft-only - cut blocked] ROAS 0.48 (28d) = 22% of target after $312 spend (28d) — loss-budget maturity reached at $310; cut underperforming creative. (threshold baseline account_history has low confidence (meta AOV ready))",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1033614439176557",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "mixed decision context; evaluate at ad grain",
+              "snapshotReason": null
+            },
+            {
+              "creativeId": "1293016656251330",
+              "replayLabel": "out_of_scope",
+              "snapshotLabel": null,
+              "replayConfidence": 60,
+              "snapshotConfidence": null,
+              "replayReason": "mixed decision context; evaluate at ad grain",
+              "snapshotReason": null
+            }
+          ]
+        }
+      ],
+      "riskHints": [
+        "no_hard_actions_in_replay_window",
+        "raw_wall_clock_freshness_was_stale_or_degraded",
+        "runtime_sql_fallback_days_not_equivalent_to_lifecycle_informed_production"
+      ],
+      "samples": {
+        "hardRows": [],
+        "outcomeEpisodes": [
+          {
+            "business": {
+              "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+              "name": "TheSwaf",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-06-29",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "1345674994165648",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "medium",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 2.258781528394898,
+            "baselineSpend": 9836.800000000001,
+            "baselinePurchases": 76,
+            "baselineRoas": 1.1477614671437864,
+            "outcomeSpend": 3127.3,
+            "outcomePurchases": 20,
+            "outcomeRevenue": 2850.63,
+            "outcomeRoas": 0.9115307133949413,
+            "asOfDateSpend": 656.83,
+            "episodeKey": "172d0ab8-495b-4679-a4c6-ffa404c389d3::1345674994165648::7::2026-06-29::test_more"
+          },
+          {
+            "business": {
+              "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+              "name": "TheSwaf",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-06-29",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "3041651776171249",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "medium",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 2.258781528394898,
+            "baselineSpend": 5744.879999999999,
+            "baselinePurchases": 28,
+            "baselineRoas": 0.6981834259375306,
+            "outcomeSpend": 2401.18,
+            "outcomePurchases": 17,
+            "outcomeRevenue": 2438.8999999999996,
+            "outcomeRoas": 1.0157089431029742,
+            "asOfDateSpend": 380.33,
+            "episodeKey": "172d0ab8-495b-4679-a4c6-ffa404c389d3::3041651776171249::7::2026-06-29::test_more"
+          },
+          {
+            "business": {
+              "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+              "name": "TheSwaf",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-06-29",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "2061803274760111",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 2.258781528394898,
+            "baselineSpend": 86.69000000000001,
+            "baselinePurchases": 0,
+            "baselineRoas": 0,
+            "outcomeSpend": 1661.56,
+            "outcomePurchases": 13,
+            "outcomeRevenue": 1958.42,
+            "outcomeRoas": 1.1786634247333831,
+            "asOfDateSpend": 0.77,
+            "episodeKey": "172d0ab8-495b-4679-a4c6-ffa404c389d3::2061803274760111::7::2026-06-29::test_more"
+          },
+          {
+            "business": {
+              "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+              "name": "TheSwaf",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-06-29",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "1546542256949523",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "high",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 2.258781528394898,
+            "baselineSpend": 1732.33,
+            "baselinePurchases": 6,
+            "baselineRoas": 0.4693101198963246,
+            "outcomeSpend": 1497.6100000000001,
+            "outcomePurchases": 8,
+            "outcomeRevenue": 1682,
+            "outcomeRoas": 1.1231228423955502,
+            "asOfDateSpend": 93.78,
+            "episodeKey": "172d0ab8-495b-4679-a4c6-ffa404c389d3::1546542256949523::7::2026-06-29::test_more"
+          },
+          {
+            "business": {
+              "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+              "name": "TheSwaf",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-07-01",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "2061803274760111",
+            "label": "keep",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 2.2206691070060445,
+            "baselineSpend": 457.67,
+            "baselinePurchases": 5,
+            "baselineRoas": 1.754539296873293,
+            "outcomeSpend": 1290.58,
+            "outcomePurchases": 8,
+            "outcomeRevenue": 1155.42,
+            "outcomeRoas": 0.8952718932572953,
+            "asOfDateSpend": 335.48,
+            "episodeKey": "172d0ab8-495b-4679-a4c6-ffa404c389d3::2061803274760111::7::2026-07-01::keep"
+          },
+          {
+            "business": {
+              "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+              "name": "TheSwaf",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-07-01",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "1377865124404006",
+            "label": "keep",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "high",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 2.2206691070060445,
+            "baselineSpend": 1059.66,
+            "baselinePurchases": 10,
+            "baselineRoas": 3.930222901685446,
+            "outcomeSpend": 986.29,
+            "outcomePurchases": 2,
+            "outcomeRevenue": 339,
+            "outcomeRoas": 0.3437122955722962,
+            "asOfDateSpend": 224.53,
+            "episodeKey": "172d0ab8-495b-4679-a4c6-ffa404c389d3::1377865124404006::7::2026-07-01::keep"
+          },
+          {
+            "business": {
+              "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+              "name": "TheSwaf",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-06-29",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "1631905067884325",
+            "label": "keep",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "medium",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 2.258781528394898,
+            "baselineSpend": 2482.1000000000004,
+            "baselinePurchases": 10,
+            "baselineRoas": 2.5130655493332257,
+            "outcomeSpend": 968.97,
+            "outcomePurchases": 5,
+            "outcomeRevenue": 760,
+            "outcomeRoas": 0.7843380084006728,
+            "asOfDateSpend": 138.42,
+            "episodeKey": "172d0ab8-495b-4679-a4c6-ffa404c389d3::1631905067884325::7::2026-06-29::keep"
+          },
+          {
+            "business": {
+              "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+              "name": "TheSwaf",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-07-02",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "2061803274760111",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 2.2492534230476844,
+            "baselineSpend": 823.84,
+            "baselinePurchases": 7,
+            "baselineRoas": 1.3097203340454457,
+            "outcomeSpend": 924.41,
+            "outcomePurchases": 6,
+            "outcomeRevenue": 879.42,
+            "outcomeRoas": 0.9513311193085319,
+            "asOfDateSpend": 366.17,
+            "episodeKey": "172d0ab8-495b-4679-a4c6-ffa404c389d3::2061803274760111::7::2026-07-02::test_more"
+          },
+          {
+            "business": {
+              "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+              "name": "TheSwaf",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-06-29",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "913690625083809",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "low",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 2.258781528394898,
+            "baselineSpend": 3554.01,
+            "baselinePurchases": 10,
+            "baselineRoas": 0.619415814812001,
+            "outcomeSpend": 872.97,
+            "outcomePurchases": 0,
+            "outcomeRevenue": 0,
+            "outcomeRoas": 0,
+            "asOfDateSpend": 286.15,
+            "episodeKey": "172d0ab8-495b-4679-a4c6-ffa404c389d3::913690625083809::7::2026-06-29::test_more"
+          },
+          {
+            "business": {
+              "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+              "name": "TheSwaf",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-06-29",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "1751801452484886",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "medium",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 2.258781528394898,
+            "baselineSpend": 1637.6299999999997,
+            "baselinePurchases": 9,
+            "baselineRoas": 1.1126933434292243,
+            "outcomeSpend": 690.77,
+            "outcomePurchases": 2,
+            "outcomeRevenue": 340,
+            "outcomeRoas": 0.49220435166553267,
+            "asOfDateSpend": 130.63,
+            "episodeKey": "172d0ab8-495b-4679-a4c6-ffa404c389d3::1751801452484886::7::2026-06-29::test_more"
+          },
+          {
+            "business": {
+              "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+              "name": "TheSwaf",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-06-29",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "1007048011875307",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 2.258781528394898,
+            "baselineSpend": 322.98999999999995,
+            "baselinePurchases": 0,
+            "baselineRoas": 0,
+            "outcomeSpend": 432.72999999999996,
+            "outcomePurchases": 0,
+            "outcomeRevenue": 0,
+            "outcomeRoas": 0,
+            "asOfDateSpend": 55.45,
+            "episodeKey": "172d0ab8-495b-4679-a4c6-ffa404c389d3::1007048011875307::7::2026-06-29::test_more"
+          },
+          {
+            "business": {
+              "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+              "name": "TheSwaf",
+              "isDemoBusiness": false
+            },
+            "asOfDate": "2026-06-29",
+            "sourceMode": "runtime_sql_fallback",
+            "creativeId": "1338454571581641",
+            "label": "test_more",
+            "hardClass": "non_hard",
+            "confidence": 60,
+            "windowDays": 7,
+            "status": "known",
+            "realizedOutcome": "positive",
+            "severity": "critical",
+            "rule": "non_hard_missed_cut_opportunity",
+            "effectiveTargetRoas": 2.258781528394898,
+            "baselineSpend": 399.25,
+            "baselinePurchases": 3,
+            "baselineRoas": 1.0824546023794615,
+            "outcomeSpend": 412.45,
+            "outcomePurchases": 3,
+            "outcomeRevenue": 556.46,
+            "outcomeRoas": 1.3491574736331677,
+            "asOfDateSpend": 32.69,
+            "episodeKey": "172d0ab8-495b-4679-a4c6-ffa404c389d3::1338454571581641::7::2026-06-29::test_more"
+          }
+        ],
+        "fidelityMismatches": [
+          {
+            "creativeId": "1000844809459077",
+            "replayLabel": "test_more",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "[soft-only - cut blocked] ROAS 0.78 (28d) = 36% of target after $711 spend (28d) — loss-budget maturity reached at $310; cut underperforming creative. (threshold baseline account_history has low confidence (meta AOV ready))",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1002443442283933",
+            "replayLabel": "out_of_scope",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "mixed decision context; evaluate at ad grain",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1007048011875307",
+            "replayLabel": "test_more",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "[soft-only - cut blocked] ROAS 0.00 (28d) = 0% of target after $678 spend (28d) — loss-budget maturity reached at $310; cut underperforming creative. (threshold baseline account_history has low confidence (meta AOV ready))",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1008302678413358",
+            "replayLabel": "out_of_scope",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "mixed decision context; evaluate at ad grain",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1014356057726711",
+            "replayLabel": "test_more",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "Below commercial maturity (28d spend $262 < $310 loss-budget floor, 1 purchases) — let the creative accumulate signal.",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1018252307526601",
+            "replayLabel": "out_of_scope",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "mixed decision context; evaluate at ad grain",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1023264806904899",
+            "replayLabel": "test_more",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "Below commercial maturity (28d spend $51 < $310 loss-budget floor, 0 purchases, age 17d) — let the creative accumulate signal.",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1023932563648623",
+            "replayLabel": "test_more",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "Below commercial maturity (28d spend $3 < $310 loss-budget floor, 0 purchases, age 2d) — let the creative accumulate signal.",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1030352566602424",
+            "replayLabel": "out_of_scope",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "mixed decision context; evaluate at ad grain",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1031796332841133",
+            "replayLabel": "test_more",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "[soft-only - cut blocked] ROAS 0.48 (28d) = 22% of target after $312 spend (28d) — loss-budget maturity reached at $310; cut underperforming creative. (threshold baseline account_history has low confidence (meta AOV ready))",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1033614439176557",
+            "replayLabel": "out_of_scope",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "mixed decision context; evaluate at ad grain",
+            "snapshotReason": null
+          },
+          {
+            "creativeId": "1111657292040172",
+            "replayLabel": "out_of_scope",
+            "snapshotLabel": null,
+            "replayConfidence": 60,
+            "snapshotConfidence": null,
+            "replayReason": "decision context identity unavailable; evaluate at ad grain",
+            "snapshotReason": null
+          }
+        ]
+      }
+    }
+  ],
+  "stabilitySummary": {
+    "hysteresisEpoch": "clean_epoch_per_business_at_start_date",
+    "perBusiness": [
+      {
+        "business": {
+          "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+          "name": "Grandmix"
+        },
+        "observations": 602,
+        "rawHardTransitions": 0,
+        "publishedHardTransitions": 0,
+        "rawHardRoundTrips": 0,
+        "rawHardReversalsWithin3": 0,
+        "publishedHardReversalsWithin3": 0,
+        "suppressedDays": 0,
+        "suppressionResolutions": {},
+        "cutDelaySuppressedDays": 0,
+        "cutDelayForwardSpend": 0,
+        "scaleDelaySuppressedDays": 0,
+        "scaleDelayForwardSpend": 0
+      },
+      {
+        "business": {
+          "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+          "name": "IwaStore"
+        },
+        "observations": 545,
+        "rawHardTransitions": 0,
+        "publishedHardTransitions": 0,
+        "rawHardRoundTrips": 0,
+        "rawHardReversalsWithin3": 0,
+        "publishedHardReversalsWithin3": 0,
+        "suppressedDays": 0,
+        "suppressionResolutions": {},
+        "cutDelaySuppressedDays": 0,
+        "cutDelayForwardSpend": 0,
+        "scaleDelaySuppressedDays": 0,
+        "scaleDelayForwardSpend": 0
+      },
+      {
+        "business": {
+          "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+          "name": "TheSwaf"
+        },
+        "observations": 819,
+        "rawHardTransitions": 0,
+        "publishedHardTransitions": 0,
+        "rawHardRoundTrips": 0,
+        "rawHardReversalsWithin3": 0,
+        "publishedHardReversalsWithin3": 0,
+        "suppressedDays": 0,
+        "suppressionResolutions": {},
+        "cutDelaySuppressedDays": 0,
+        "cutDelayForwardSpend": 0,
+        "scaleDelaySuppressedDays": 0,
+        "scaleDelayForwardSpend": 0
+      }
+    ],
+    "global": {
+      "observations": 1966,
+      "rawHardTransitions": 0,
+      "publishedHardTransitions": 0,
+      "rawHardRoundTrips": 0,
+      "rawHardReversalsWithin3": 0,
+      "publishedHardReversalsWithin3": 0,
+      "suppressedDays": 0,
+      "suppressionResolutions": {},
+      "cutDelaySuppressedDays": 0,
+      "cutDelayForwardSpend": 0,
+      "scaleDelaySuppressedDays": 0,
+      "scaleDelayForwardSpend": 0
+    },
+    "matchedSuppression": [
+      {
+        "windowDays": 7,
+        "suppressedDays": 0,
+        "scoredDays": 0,
+        "holdRight": 0,
+        "flipRight": 0,
+        "neutralOrUnknown": 0,
+        "openWindow": 0,
+        "pairOutcomes": {}
+      },
+      {
+        "windowDays": 14,
+        "suppressedDays": 0,
+        "scoredDays": 0,
+        "holdRight": 0,
+        "flipRight": 0,
+        "neutralOrUnknown": 0,
+        "openWindow": 0,
+        "pairOutcomes": {}
+      }
+    ],
+    "suppressionSamples": [],
+    "rawOutcomeCells": [
+      {
+        "windowDays": 7,
+        "label": "diagnose",
+        "hardClass": "non_hard",
+        "openWindowRows": 0,
+        "closedDailyRows": 76,
+        "episodes": 24,
+        "knownEpisodes": 14,
+        "unknownEpisodes": 10,
+        "positive": 12,
+        "negative": 0,
+        "neutral": 2,
+        "zeroForwardSpendUnknownEpisodes": 10,
+        "positiveRateKnown": 0.8571,
+        "reliability": "directional"
+      },
+      {
+        "windowDays": 7,
+        "label": "keep",
+        "hardClass": "non_hard",
+        "openWindowRows": 0,
+        "closedDailyRows": 56,
+        "episodes": 14,
+        "knownEpisodes": 13,
+        "unknownEpisodes": 1,
+        "positive": 12,
+        "negative": 0,
+        "neutral": 1,
+        "zeroForwardSpendUnknownEpisodes": 1,
+        "positiveRateKnown": 0.9231,
+        "reliability": "directional"
+      },
+      {
+        "windowDays": 7,
+        "label": "out_of_scope",
+        "hardClass": "non_hard",
+        "openWindowRows": 0,
+        "closedDailyRows": 605,
+        "episodes": 86,
+        "knownEpisodes": 0,
+        "unknownEpisodes": 86,
+        "positive": 0,
+        "negative": 0,
+        "neutral": 0,
+        "zeroForwardSpendUnknownEpisodes": 48,
+        "positiveRateKnown": null,
+        "reliability": "insufficient"
+      },
+      {
+        "windowDays": 7,
+        "label": "test_more",
+        "hardClass": "non_hard",
+        "openWindowRows": 0,
+        "closedDailyRows": 1229,
+        "episodes": 244,
+        "knownEpisodes": 157,
+        "unknownEpisodes": 87,
+        "positive": 141,
+        "negative": 0,
+        "neutral": 16,
+        "zeroForwardSpendUnknownEpisodes": 87,
+        "positiveRateKnown": 0.8981,
+        "reliability": "defensible"
+      },
+      {
+        "windowDays": 14,
+        "label": "diagnose",
+        "hardClass": "non_hard",
+        "openWindowRows": 76,
+        "closedDailyRows": 0,
+        "episodes": 0,
+        "knownEpisodes": 0,
+        "unknownEpisodes": 0,
+        "positive": 0,
+        "negative": 0,
+        "neutral": 0,
+        "zeroForwardSpendUnknownEpisodes": 0,
+        "positiveRateKnown": null,
+        "reliability": "insufficient"
+      },
+      {
+        "windowDays": 14,
+        "label": "keep",
+        "hardClass": "non_hard",
+        "openWindowRows": 56,
+        "closedDailyRows": 0,
+        "episodes": 0,
+        "knownEpisodes": 0,
+        "unknownEpisodes": 0,
+        "positive": 0,
+        "negative": 0,
+        "neutral": 0,
+        "zeroForwardSpendUnknownEpisodes": 0,
+        "positiveRateKnown": null,
+        "reliability": "insufficient"
+      },
+      {
+        "windowDays": 14,
+        "label": "out_of_scope",
+        "hardClass": "non_hard",
+        "openWindowRows": 605,
+        "closedDailyRows": 0,
+        "episodes": 0,
+        "knownEpisodes": 0,
+        "unknownEpisodes": 0,
+        "positive": 0,
+        "negative": 0,
+        "neutral": 0,
+        "zeroForwardSpendUnknownEpisodes": 0,
+        "positiveRateKnown": null,
+        "reliability": "insufficient"
+      },
+      {
+        "windowDays": 14,
+        "label": "test_more",
+        "hardClass": "non_hard",
+        "openWindowRows": 1229,
+        "closedDailyRows": 0,
+        "episodes": 0,
+        "knownEpisodes": 0,
+        "unknownEpisodes": 0,
+        "positive": 0,
+        "negative": 0,
+        "neutral": 0,
+        "zeroForwardSpendUnknownEpisodes": 0,
+        "positiveRateKnown": null,
+        "reliability": "insufficient"
+      }
+    ],
+    "publishedOutcomeCells": [
+      {
+        "windowDays": 7,
+        "label": "diagnose",
+        "hardClass": "non_hard",
+        "openWindowRows": 0,
+        "closedDailyRows": 76,
+        "episodes": 24,
+        "knownEpisodes": 14,
+        "unknownEpisodes": 10,
+        "positive": 12,
+        "negative": 0,
+        "neutral": 2,
+        "zeroForwardSpendUnknownEpisodes": 10,
+        "positiveRateKnown": 0.8571,
+        "reliability": "directional"
+      },
+      {
+        "windowDays": 7,
+        "label": "keep",
+        "hardClass": "non_hard",
+        "openWindowRows": 0,
+        "closedDailyRows": 56,
+        "episodes": 14,
+        "knownEpisodes": 13,
+        "unknownEpisodes": 1,
+        "positive": 12,
+        "negative": 0,
+        "neutral": 1,
+        "zeroForwardSpendUnknownEpisodes": 1,
+        "positiveRateKnown": 0.9231,
+        "reliability": "directional"
+      },
+      {
+        "windowDays": 7,
+        "label": "out_of_scope",
+        "hardClass": "non_hard",
+        "openWindowRows": 0,
+        "closedDailyRows": 605,
+        "episodes": 86,
+        "knownEpisodes": 0,
+        "unknownEpisodes": 86,
+        "positive": 0,
+        "negative": 0,
+        "neutral": 0,
+        "zeroForwardSpendUnknownEpisodes": 48,
+        "positiveRateKnown": null,
+        "reliability": "insufficient"
+      },
+      {
+        "windowDays": 7,
+        "label": "test_more",
+        "hardClass": "non_hard",
+        "openWindowRows": 0,
+        "closedDailyRows": 1229,
+        "episodes": 244,
+        "knownEpisodes": 157,
+        "unknownEpisodes": 87,
+        "positive": 141,
+        "negative": 0,
+        "neutral": 16,
+        "zeroForwardSpendUnknownEpisodes": 87,
+        "positiveRateKnown": 0.8981,
+        "reliability": "defensible"
+      },
+      {
+        "windowDays": 14,
+        "label": "diagnose",
+        "hardClass": "non_hard",
+        "openWindowRows": 76,
+        "closedDailyRows": 0,
+        "episodes": 0,
+        "knownEpisodes": 0,
+        "unknownEpisodes": 0,
+        "positive": 0,
+        "negative": 0,
+        "neutral": 0,
+        "zeroForwardSpendUnknownEpisodes": 0,
+        "positiveRateKnown": null,
+        "reliability": "insufficient"
+      },
+      {
+        "windowDays": 14,
+        "label": "keep",
+        "hardClass": "non_hard",
+        "openWindowRows": 56,
+        "closedDailyRows": 0,
+        "episodes": 0,
+        "knownEpisodes": 0,
+        "unknownEpisodes": 0,
+        "positive": 0,
+        "negative": 0,
+        "neutral": 0,
+        "zeroForwardSpendUnknownEpisodes": 0,
+        "positiveRateKnown": null,
+        "reliability": "insufficient"
+      },
+      {
+        "windowDays": 14,
+        "label": "out_of_scope",
+        "hardClass": "non_hard",
+        "openWindowRows": 605,
+        "closedDailyRows": 0,
+        "episodes": 0,
+        "knownEpisodes": 0,
+        "unknownEpisodes": 0,
+        "positive": 0,
+        "negative": 0,
+        "neutral": 0,
+        "zeroForwardSpendUnknownEpisodes": 0,
+        "positiveRateKnown": null,
+        "reliability": "insufficient"
+      },
+      {
+        "windowDays": 14,
+        "label": "test_more",
+        "hardClass": "non_hard",
+        "openWindowRows": 1229,
+        "closedDailyRows": 0,
+        "episodes": 0,
+        "knownEpisodes": 0,
+        "unknownEpisodes": 0,
+        "positive": 0,
+        "negative": 0,
+        "neutral": 0,
+        "zeroForwardSpendUnknownEpisodes": 0,
+        "positiveRateKnown": null,
+        "reliability": "insufficient"
+      }
+    ],
+    "rawCalibrationCells": [
+      {
+        "windowDays": 7,
+        "hardClass": "non_hard",
+        "bucket": "50_59",
+        "episodes": 33,
+        "knownEpisodes": 14,
+        "positive": 12,
+        "observedPositiveRate": 0.8571,
+        "averageConfidence": 0.55,
+        "absoluteGap": 0.3071
+      },
+      {
+        "windowDays": 7,
+        "hardClass": "non_hard",
+        "bucket": "60_69",
+        "episodes": 335,
+        "knownEpisodes": 170,
+        "positive": 153,
+        "observedPositiveRate": 0.9,
+        "averageConfidence": 0.6,
+        "absoluteGap": 0.3
+      }
+    ],
+    "publishedCalibrationCells": [
+      {
+        "windowDays": 7,
+        "hardClass": "non_hard",
+        "bucket": "50_59",
+        "episodes": 33,
+        "knownEpisodes": 14,
+        "positive": 12,
+        "observedPositiveRate": 0.8571,
+        "averageConfidence": 0.55,
+        "absoluteGap": 0.3071
+      },
+      {
+        "windowDays": 7,
+        "hardClass": "non_hard",
+        "bucket": "60_69",
+        "episodes": 335,
+        "knownEpisodes": 170,
+        "positive": 153,
+        "observedPositiveRate": 0.9,
+        "averageConfidence": 0.6,
+        "absoluteGap": 0.3
+      }
+    ]
+  },
+  "globalSummary": {
+    "decisionRows": 1966,
+    "uniqueCreatives": 340,
+    "labels": {
+      "out_of_scope": 605,
+      "test_more": 1229,
+      "diagnose": 76,
+      "keep": 56
+    },
+    "sourceModeDays": {
+      "runtime_sql_fallback": 21
+    },
+    "openWindowRows": 1966,
+    "closedDailyRows": 1966,
+    "episodes": 368,
+    "knownEpisodes": 184,
+    "unknownEpisodes": 184
+  }
+}

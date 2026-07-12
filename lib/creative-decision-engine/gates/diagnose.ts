@@ -7,6 +7,7 @@ import { computeFunnelDiagnosis } from "../funnel";
 import {
   STALE_SOURCE_UPDATED_AT_HOURS,
   STALE_TIER_NONE_MAX_HOURS,
+  TARGET_BAND_MIN_RATIO,
 } from "../config-values";
 import type { DecisionBadge } from "../types";
 
@@ -116,6 +117,59 @@ function isVerifiedNoDelivery24h(ctx: GateContext) {
 export function diagnoseGate(ctx: GateContext): GateResult {
   ctx = withFreshnessEvidence(ctx);
   const spend = ctx.input.spend;
+  const policyReason =
+    ctx.input.disapprovalReason?.trim() ||
+    ctx.input.limitedReason?.trim() ||
+    ctx.input.policyReason?.trim() ||
+    "";
+  const reviewStatus = ctx.input.reviewStatus?.trim() ?? "";
+  const hasPolicyProof =
+    ctx.input.effectiveStatus === "REJECTED" ||
+    hasText(policyReason) ||
+    reviewStatusIsPolicyBlocked(reviewStatus);
+
+  // Explicit policy proof is stronger than a missing delivery-status join.
+  // Keep the actionable resolution instead of masking it as generic unknown.
+  if (hasPolicyProof) {
+    return terminal(
+      {
+        ...ctx,
+        badges: [
+          ...ctx.badges,
+          {
+            type: "policy_blocked",
+            label:
+              policyReason.length > 0
+                ? `Policy/review block: ${policyReason}`
+                : "Policy/review block detected",
+            severity: "warning",
+          },
+        ],
+      },
+      policyReason.length > 0
+        ? `Policy reject: ${policyReason}`
+        : "Policy rejection detected — review and resubmit.",
+      75,
+    );
+  }
+
+  if (!normalizedStatus(ctx.input.effectiveStatus)) {
+    return terminal(
+      {
+        ...ctx,
+        badges: [
+          ...ctx.badges,
+          {
+            type: "delivery_status_unknown",
+            label: "Delivery status unavailable",
+            severity: "warning",
+          },
+        ],
+      },
+      "Delivery status is unavailable; resolve the current ad, ad set, and campaign state before applying a performance action.",
+      55,
+    );
+  }
 
   if (isVerifiedNoDelivery24h(ctx)) {
     return terminal(
@@ -161,40 +215,6 @@ export function diagnoseGate(ctx: GateContext): GateResult {
     };
   }
 
-  const policyReason =
-    ctx.input.disapprovalReason?.trim() ||
-    ctx.input.limitedReason?.trim() ||
-    ctx.input.policyReason?.trim() ||
-    "";
-  const reviewStatus = ctx.input.reviewStatus?.trim() ?? "";
-  const hasPolicyProof =
-    ctx.input.effectiveStatus === "REJECTED" ||
-    hasText(policyReason) ||
-    reviewStatusIsPolicyBlocked(reviewStatus);
-
-  if (hasPolicyProof) {
-    return terminal(
-      {
-        ...ctx,
-        badges: [
-          ...ctx.badges,
-          {
-            type: "policy_blocked",
-            label:
-              policyReason.length > 0
-                ? `Policy/review block: ${policyReason}`
-                : "Policy/review block detected",
-            severity: "warning",
-          },
-        ],
-      },
-      policyReason.length > 0
-        ? `Policy reject: ${policyReason}`
-        : "Policy rejection detected — review and resubmit.",
-      75,
-    );
-  }
-
   const funnelDiagnosis = computeFunnelDiagnosis({
     creative: ctx.input,
     funnelCalibration: ctx.profile.funnelCalibration,
@@ -220,11 +240,19 @@ export function diagnoseGate(ctx: GateContext): GateResult {
             severity: "warning",
           };
 
+    const contextWithFunnelEvidence = {
+      ...ctx,
+      badges: [...ctx.badges, badge],
+    };
+    if (
+      ctx.ratioToTarget !== null &&
+      ctx.ratioToTarget >= TARGET_BAND_MIN_RATIO
+    ) {
+      return { kind: "advance", context: contextWithFunnelEvidence };
+    }
+
     return terminal(
-      {
-        ...ctx,
-        badges: [...ctx.badges, badge],
-      },
+      contextWithFunnelEvidence,
       `${badge.label}: ${funnelDiagnosis.evidence.join(
         "; ",
       )}. This is a funnel-step diagnosis, not proof that the creative itself is the problem.`,

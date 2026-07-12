@@ -23,18 +23,17 @@ const RUNTIME_DIRS = [
   "scripts/creative-decision-center",
 ];
 /**
- * PR7A allowlist: the briefing API route consumes the snapshot builder to
- * emit the additive `decisionCenter` response shape behind an explicit
- * `?decisionCenter=1` flag. The briefing response type imports
- * `DecisionCenterSnapshot` as a type-only contract so callers can read it
- * without forcing UI consumption. The matching test mirrors the same set so
- * route-test stubs survive the isolation sweep. Every other file under
- * RUNTIME_DIRS must keep its hands off the center module.
+ * Runtime allowlist: the briefing API owns the established Decision Center
+ * response, while the canonical Meta Decisions server read model may reuse
+ * the same bridge/adapter under the Phase 1 joint ruling. No UI component is
+ * added here. Every other file under RUNTIME_DIRS remains isolated.
  */
 const ALLOWED_RUNTIME_IMPORTERS = new Set<string>([
   "app/api/creatives/briefing/route.ts",
   "app/api/creatives/briefing/route.test.ts",
   "components/creatives/briefing/types.ts",
+  "lib/meta/decisions-workspace-read-model.ts",
+  "lib/meta/decisions-workspace-read-model.test.ts",
 ]);
 
 function listFiles(dir: string): string[] {
@@ -113,7 +112,7 @@ describe("Creative Decision Center PR4 module isolation", () => {
     );
   });
 
-  it("is not imported by active runtime or probe paths outside the PR7A allowlist", () => {
+  it("is not imported by active runtime or probe paths outside the runtime allowlist", () => {
     const files = RUNTIME_DIRS.flatMap(listFiles).filter((path) =>
       /\.(ts|tsx|mts|cts)$/.test(path),
     );
@@ -125,7 +124,7 @@ describe("Creative Decision Center PR4 module isolation", () => {
     expect(matches).toEqual([]);
   });
 
-  it("keeps every PR7A allowlisted runtime importer on disk so the test can detect drift", () => {
+  it("keeps every allowlisted runtime importer on disk so the test can detect drift", () => {
     for (const path of ALLOWED_RUNTIME_IMPORTERS) {
       expect(existsSync(path), `missing allowlisted importer: ${path}`).toBe(true);
     }

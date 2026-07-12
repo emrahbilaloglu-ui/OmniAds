@@ -1,9 +1,14 @@
 import {
   DATE_RANGE_PICKER_INTERNALS,
   DEFAULT_DATE_RANGE,
+  DatePicker,
+  dateWindowToRangeValue,
+  getDerivedComparisonRange,
   getPresetDates,
   getPresetDatesForReferenceDate,
   getPickerKeyboardAction,
+  getTodayIsoForTimeZone,
+  rangeValueToDateWindow,
   resolveRangeCalendarDateClick,
   resolveRangePresetSelection,
 } from "@/components/date-range/DateRangePicker";
@@ -149,10 +154,76 @@ describe("DateRangePicker quick-apply behavior", () => {
       end: "2026-05-02",
     });
   });
+
+  it("supports Meta 28-day and month-to-date windows through the selected account day", () => {
+    expect(
+      getPresetDatesForReferenceDate("28d", "2026-07-12", "", "", {
+        includeCurrentDay: true,
+      })
+    ).toEqual({ start: "2026-06-15", end: "2026-07-12" });
+    expect(getPresetDatesForReferenceDate("thisMonth", "2026-07-12")).toEqual({
+      start: "2026-07-01",
+      end: "2026-07-12",
+    });
+  });
+
+  it("falls back to UTC instead of crashing on an invalid persisted timezone", () => {
+    vi.setSystemTime(new Date("2026-07-12T23:30:00.000Z"));
+    expect(getTodayIsoForTimeZone("Invalid/Persisted_Zone")).toBe("2026-07-12");
+  });
+
+  it("round-trips legacy window values through the canonical picker contract", () => {
+    const standard = dateWindowToRangeValue({
+      window: "last_month",
+      start: "2026-06-01",
+      end: "2026-06-30",
+    });
+    expect(standard.rangePreset).toBe("lastMonth");
+    expect(
+      rangeValueToDateWindow(standard, "2026-07-12", {
+        includeCurrentDay: true,
+      })
+    ).toEqual({ window: "last_month", start: "2026-06-01", end: "2026-06-30" });
+  });
 });
 
-describe("DateRangePicker compact layout", () => {
-  it("renders the primary custom picker with a single month and compact chrome", () => {
+describe("DateRangePicker calendar comparison math", () => {
+  it("shifts calendar months with end-of-month clamping instead of subtracting 30 days", () => {
+    expect(
+      getDerivedComparisonRange(
+        "2026-03-01",
+        "2026-03-31",
+        "previousMonth",
+        "",
+        ""
+      )
+    ).toEqual({ start: "2026-02-01", end: "2026-02-28" });
+  });
+
+  it("handles leap-day year comparisons and weekday-matched year comparisons separately", () => {
+    expect(
+      getDerivedComparisonRange(
+        "2024-02-01",
+        "2024-02-29",
+        "previousYear",
+        "",
+        ""
+      )
+    ).toEqual({ start: "2023-02-01", end: "2023-02-28" });
+    expect(
+      getDerivedComparisonRange(
+        "2026-07-06",
+        "2026-07-12",
+        "previousYearMatch",
+        "",
+        ""
+      )
+    ).toEqual({ start: "2025-07-07", end: "2025-07-13" });
+  });
+});
+
+describe("DateRangePicker advanced layout", () => {
+  it("renders the primary custom picker with two desktop months and compact chrome", () => {
     const markup = renderToStaticMarkup(
       createElement(DATE_RANGE_PICKER_INTERNALS.RangePanel, {
         draft: {
@@ -175,14 +246,15 @@ describe("DateRangePicker compact layout", () => {
     expect(markup).toContain("Europe/Istanbul");
     expect(markup).toContain("Cancel");
     expect(markup).toContain("Apply");
-    expect(markup.match(/aria-label=\"March 2026 calendar\"/g)?.length ?? 0).toBe(1);
+    expect(markup).toContain('aria-label="February 2026 calendar"');
+    expect(markup).toContain('aria-label="March 2026 calendar"');
     expect(markup).not.toContain("Selection Summary");
     expect(markup).not.toContain(">Start<");
     expect(markup).not.toContain(">End<");
     expect(markup).not.toContain(">Window<");
   });
 
-  it("renders the comparison custom picker with a single month and compact footer", () => {
+  it("renders the comparison custom picker with two desktop months and compact footer", () => {
     const markup = renderToStaticMarkup(
       createElement(DATE_RANGE_PICKER_INTERNALS.ComparisonPanel, {
         draft: {
@@ -205,9 +277,26 @@ describe("DateRangePicker compact layout", () => {
     expect(markup).toContain("Compare To");
     expect(markup).toContain("Cancel");
     expect(markup).toContain("Apply");
-    expect(markup.match(/aria-label=\"February 2026 calendar\"/g)?.length ?? 0).toBe(1);
+    expect(markup).toContain('aria-label="January 2026 calendar"');
+    expect(markup).toContain('aria-label="February 2026 calendar"');
     expect(markup).not.toContain("Selected Comparison");
     expect(markup).not.toContain(">Start<");
     expect(markup).not.toContain(">End<");
+  });
+
+  it("renders the shared single-date trigger without a native date input", () => {
+    const markup = renderToStaticMarkup(
+      createElement(DatePicker, {
+        value: "2026-07-12",
+        onChange: () => undefined,
+        label: "Snapshot date",
+        referenceDate: "2026-07-12",
+        maxDate: "2026-07-12",
+      })
+    );
+
+    expect(markup).toContain("Snapshot date");
+    expect(markup).toContain("July 12, 2026");
+    expect(markup).not.toContain('type="date"');
   });
 });

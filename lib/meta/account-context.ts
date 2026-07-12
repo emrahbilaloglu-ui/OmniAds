@@ -8,9 +8,18 @@ const META_ACCOUNT_CONTEXT_CACHE_TTL_MS = Math.max(
   Number(process.env.META_ACCOUNT_CONTEXT_CACHE_TTL_MS ?? 60_000) || 60_000
 );
 const META_ACCOUNT_PROFILE_TIMEOUT_MS = 8_000;
+const META_CURRENCY_CODE_REGEX = /^[A-Z]{3}$/;
+
+export function normalizeMetaCurrencyCode(
+  value: string | null | undefined
+): string | null {
+  if (typeof value !== "string") return null;
+  const currency = value.trim().toUpperCase();
+  return META_CURRENCY_CODE_REGEX.test(currency) ? currency : null;
+}
 
 export interface MetaAccountProfileContext {
-  currency: string;
+  currency: string | null;
   timezone: string | null;
   name: string | null;
 }
@@ -22,7 +31,7 @@ export interface MetaAccountContext {
   accountIds: string[];
   primaryAccountId: string | null;
   primaryAccountTimezone: string | null;
-  currency: string;
+  currency: string | null;
   accountProfiles: Record<string, MetaAccountProfileContext>;
 }
 
@@ -31,7 +40,7 @@ function shouldBypassMetaAccountContextCache() {
 }
 
 function buildMetaAccountContextCacheKey(businessId: string) {
-  return `meta-account-context:v1:${businessId}`;
+  return `meta-account-context:v2:${businessId}`;
 }
 
 async function fetchMetaAccountProfile(
@@ -46,19 +55,19 @@ async function fetchMetaAccountProfile(
       cache: "no-store",
       signal: AbortSignal.timeout(META_ACCOUNT_PROFILE_TIMEOUT_MS),
     });
-    if (!res.ok) return { currency: "USD", timezone: null, name: null };
+    if (!res.ok) return { currency: null, timezone: null, name: null };
     const json = (await res.json()) as {
       currency?: string;
       name?: string;
       timezone_name?: string;
     };
     return {
-      currency: json.currency ?? "USD",
+      currency: normalizeMetaCurrencyCode(json.currency),
       timezone: json.timezone_name ?? null,
       name: json.name ?? null,
     };
   } catch {
-    return { currency: "USD", timezone: null, name: null };
+    return { currency: null, timezone: null, name: null };
   }
 }
 
@@ -78,7 +87,7 @@ async function loadMetaAccountContext(businessId: string): Promise<MetaAccountCo
     (snapshot?.accounts ?? []).map((account) => [
       account.id,
       {
-        currency: account.currency ?? "USD",
+        currency: normalizeMetaCurrencyCode(account.currency),
         timezone: account.timezone ?? null,
         name: account.name ?? null,
       } satisfies MetaAccountProfileContext,
@@ -99,7 +108,7 @@ async function loadMetaAccountContext(businessId: string): Promise<MetaAccountCo
           return [
             accountId,
             snapshotProfile ?? {
-              currency: "USD",
+              currency: null,
               timezone: null,
               name: null,
             },
@@ -109,7 +118,7 @@ async function loadMetaAccountContext(businessId: string): Promise<MetaAccountCo
         return [
           accountId,
           {
-            currency: liveProfile.currency ?? snapshotProfile?.currency ?? "USD",
+            currency: liveProfile.currency ?? snapshotProfile?.currency ?? null,
             timezone: liveProfile.timezone ?? snapshotProfile?.timezone ?? null,
             name: liveProfile.name ?? snapshotProfile?.name ?? null,
           },
@@ -132,8 +141,8 @@ async function loadMetaAccountContext(businessId: string): Promise<MetaAccountCo
     primaryAccountId,
     primaryAccountTimezone,
     currency: primaryAccountId
-      ? accountProfiles[primaryAccountId]?.currency ?? "USD"
-      : "USD",
+      ? accountProfiles[primaryAccountId]?.currency ?? null
+      : null,
     accountProfiles,
   };
 }

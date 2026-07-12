@@ -61,21 +61,24 @@ These cases must become executable fixtures before resolver behavior changes. Do
 | GC-054  | scale-ready winner in an explicit Test campaign                                                                        | Scale                   | promote_to_main     | review_only           | performance          | high                 | high                   | strong_relative_winner                  | mature           | diagnose_data                     |
 | GC-055  | scale-ready winner in an explicit Main campaign                                                                        | Scale                   | scale_budget        | review_only           | performance          | high                 | high                   | strong_relative_winner                  | mature           | diagnose_data                     |
 | GC-056  | scale-ready winner in an explicit Mixed campaign                                                                       | Scale                   | controlled_scale    | review_only           | performance          | high                 | high                   | strong_relative_winner                  | mature           | diagnose_data                     |
-| GC-057  | stale source evidence with a severe scaled stop-loss loser                                                              | Cut                     | cut                 | review_only           | performance          | high                 | medium                 | stale_stop_loss_review                  | mature           | diagnose_data                     |
-| GC-058  | stale source evidence with a sustained loser past commercial maturity                                                   | Cut                     | cut                 | review_only           | performance          | high                 | medium                 | stale_sustained_loser                   | mature           | diagnose_data                     |
-| GC-059  | cut-zone creative has enough recent spend and recent 7d ROAS above target                                               | Keep                    | review              | review_only           | performance          | high                 | high                   | recovery_hold                          | mature           | diagnose_data                     |
+| GC-057  | stale source evidence with a severe scaled stop-loss loser                                                             | Cut                     | cut                 | review_only           | performance          | high                 | medium                 | stale_stop_loss_review                  | mature           | diagnose_data                     |
+| GC-058  | stale source evidence with a sustained loser past commercial maturity                                                  | Cut                     | cut                 | review_only           | performance          | high                 | medium                 | stale_sustained_loser                   | mature           | diagnose_data                     |
+| GC-059  | cut-zone creative has enough recent spend and recent 7d ROAS above target                                              | Keep                    | review              | review_only           | performance          | high                 | high                   | recovery_hold                           | mature           | diagnose_data                     |
 | GC-060  | scale-ready winner has unknown source freshness                                                                        | Keep                    | review              | review_only           | data_quality         | high                 | medium                 | unknown_freshness_scale_block           | mature           | diagnose_data                     |
-| GC-061  | funnel-step issue has unknown source freshness, so fresh proof is unavailable                                           | Keep                    | review              | review_only           | data_quality         | medium               | medium                 | unknown_freshness_funnel_proof_required | mature           | diagnose_data                     |
-| GC-062  | active creative has verified 0 spend and 0 impressions at 35h source freshness                                          | Diagnose                | fix_delivery        | diagnose              | delivery             | high                 | medium                 | active_no_spend_24h_fresh_boundary      | learning         | diagnose_data                     |
+| GC-061  | funnel-step issue has unknown source freshness, so fresh proof is unavailable                                          | Keep                    | review              | review_only           | data_quality         | medium               | medium                 | unknown_freshness_funnel_proof_required | mature           | diagnose_data                     |
+| GC-062  | active creative has verified 0 spend and 0 impressions at 35h source freshness                                         | Diagnose                | fix_delivery        | diagnose              | delivery             | high                 | medium                 | active_no_spend_24h_fresh_boundary      | learning         | diagnose_data                     |
 | GC-063  | 40h source freshness blocks no-delivery proof but mature severe loser math is present                                  | Cut                     | cut                 | review_only           | performance          | high                 | high                   | freshness_boundary_severe_cut           | mature           | diagnose_data                     |
 | GC-064  | 49h source freshness with a mature severe loser                                                                        | Cut                     | cut                 | review_only           | performance          | high                 | medium                 | stale_severe_cut_confidence_cap         | mature           | diagnose_data                     |
 | GC-065  | unknown source freshness with a mature severe loser                                                                    | Cut                     | cut                 | review_only           | performance          | high                 | medium                 | unknown_freshness_severe_cut_cap        | mature           | diagnose_data                     |
 | GC-066  | scale-ready winner has stale source freshness                                                                          | Keep                    | review              | review_only           | data_quality         | high                 | medium                 | stale_freshness_scale_block             | mature           | diagnose_data                     |
 | GC-067  | scale-ready winner has unknown source freshness as canonical scale blocker                                             | Keep                    | review              | review_only           | data_quality         | high                 | medium                 | unknown_freshness_scale_block           | mature           | diagnose_data                     |
 | GC-068  | funnel-step issue has unknown source freshness as canonical funnel blocker                                             | Keep                    | review              | review_only           | data_quality         | medium               | medium                 | unknown_freshness_funnel_proof_required | mature           | diagnose_data                     |
-| GC-069  | cut-zone creative has enough recent spend and recent 7d ROAS above target as canonical recovery hold                   | Keep                    | review              | review_only           | performance          | high                 | high                   | recovery_hold                          | mature           | diagnose_data                     |
+| GC-069  | cut-zone creative has enough recent spend and recent 7d ROAS above target as canonical recovery hold                   | Keep                    | review              | review_only           | performance          | high                 | high                   | recovery_hold                           | mature           | diagnose_data                     |
 | GC-070  | cut-zone creative has recent 7d ROAS above target but recent spend below the recovery sample threshold                 | Cut                     | cut                 | review_only           | performance          | high                 | medium                 | recovery_hold_spend_boundary            | mature           | diagnose_data                     |
 | GC-071  | cut-zone creative has enough recent spend but recent 7d ROAS equals target exactly                                     | Cut                     | cut                 | review_only           | performance          | high                 | medium                 | recovery_hold_strict_roas_boundary      | mature           | diagnose_data                     |
+| GC-077  | scale-ready winner uses a positive commercial target confirmed within the 30-day freshness window                      | Scale                   | scale               | review_only           | performance          | high                 | high                   | fresh_commercial_truth_unchanged        | mature           | diagnose_data                     |
+| GC-078  | scale-ready winner uses a positive commercial target last confirmed more than 30 days ago                              | Keep                    | review              | review_only           | data_quality         | high                 | medium                 | commercial_truth_stale_scale_block      | mature           | diagnose_data                     |
+| GC-079  | scale-ready winner uses a positive commercial target whose update time is unknown                                      | Keep                    | review              | review_only           | data_quality         | high                 | medium                 | commercial_truth_unknown_scale_block    | mature           | diagnose_data                     |
 
 ## Case Notes
 
@@ -190,6 +193,12 @@ These cases must become executable fixtures before resolver behavior changes. Do
 - GC-076 is reserved for report/harness policy coverage proving anachronistic
   target-history replay cannot justify production hard-action adoption; it is
   not a `decideCreative` fixture.
+- GC-077 proves a recently confirmed commercial target preserves the existing
+  hard scale behavior without a confidence penalty.
+- GC-078 proves a target older than 30 days remains visible in target-relative
+  math but blocks hard scale and carries reduced authority.
+- GC-079 proves an unknown target update time is stale-equivalent and never
+  restores hard scale authority by default.
 - P1b kind-segmented calibration was data-only. P1c consumes those
   baselines only through a strict profile selector: sufficient labeled kind
   data may change decisions; sparse, mixed-empty, or unlabeled rows must match
@@ -211,17 +220,60 @@ Each case chains `applyLabelHysteresis` day over day from a clean epoch; the
 executable lockstep lives in `golden-cases.test.ts` and parses this table.
 GS-001..003 are the live flip creatives observed on 2026-07-04..06.
 
-| Case    | Source                              | Raw sequence            | Published sequence      | Suppressed day indexes |
-|---------|-------------------------------------|-------------------------|-------------------------|------------------------|
-| GS-001  | IwaStore 946471284944193            | scale,keep,scale        | scale,scale,scale       | 1                      |
-| GS-002  | TheSwaf 1962656064410174            | cut,keep,cut            | cut,cut,cut             | 1                      |
-| GS-003  | Tiles 25889037484086563             | keep,cut,keep           | keep,keep,keep          | 1                      |
-| GS-004  | sustained transition confirms       | cut,keep,keep,keep      | cut,cut,keep,keep       | 1                      |
-| GS-005  | entering hard requires confirmation | keep,cut,cut            | keep,keep,cut           | 1                      |
-| GS-006  | soft-to-soft publishes immediately  | test_more,keep,diagnose | test_more,keep,diagnose | none                   |
+| Case   | Source                              | Raw sequence            | Published sequence      | Suppressed day indexes |
+| ------ | ----------------------------------- | ----------------------- | ----------------------- | ---------------------- |
+| GS-001 | IwaStore 946471284944193            | scale,keep,scale        | keep,keep,keep          | 0,2                    |
+| GS-002 | TheSwaf 1962656064410174            | cut,keep,cut            | keep,keep,keep          | 0,2                    |
+| GS-003 | Tiles 25889037484086563             | keep,cut,keep           | keep,keep,keep          | 1                      |
+| GS-004 | hard-action exit is immediate       | cut,keep,keep,keep      | keep,keep,keep,keep     | 0                      |
+| GS-005 | entering hard requires confirmation | keep,cut,cut            | keep,keep,cut           | 1                      |
+| GS-006 | soft-to-soft publishes immediately  | test_more,keep,diagnose | test_more,keep,diagnose | none                   |
+| GS-007 | hard-to-hard switch is neutralized  | scale,cut,cut           | keep,keep,cut           | 0,1                    |
+| GS-008 | safety diagnosis exits immediately  | scale,diagnose          | keep,diagnose           | 0                      |
 
-- A suppressed day republishes the previous published label with the
-  `pending_transition` badge; the raw label is persisted in `raw_label`.
+- A suppressed hard entry publishes the canonical non-actionable `keep` label
+  with the `pending_transition` badge; the intended hard label is persisted in
+  `raw_label`. This also applies when no previous evaluation exists.
 - Published period-2 hard round-trips are structurally impossible; the
   replay evidence for oscillation reduction is the reversal-within-3 metric
   (76 -> 20 over 2026-06-01..07-05).
+
+## Meta OS Resolution Golden Cases (MOG series)
+
+These cases lock the D035 read-time compatibility projection. They do not
+change persisted engine labels or formula outputs.
+
+| Case    | Persisted / adapter input                                      | Served state         | Served assessment          | Served action / resolution                 |
+| ------- | ---------------------------------------------------------------- | -------------------- | -------------------------- | ------------------------------------------ |
+| MOG-001 | `test_more` / `test_more`                                       | Monitoring           | Learning                   | Continue Test                              |
+| MOG-002 | `keep` / `protect`                                              | Monitoring           | Stable                     | Keep Running                               |
+| MOG-003 | `diagnose` / `diagnose_data` + campaign-context blocker         | Needs Resolution     | Decision Blocked           | Resolve Campaign Role                      |
+| MOG-004 | `diagnose` / `diagnose_data` + `landing_page_issue`             | Needs Resolution     | Funnel Bottleneck          | Fix Landing Page                           |
+| MOG-005 | `diagnose` / `diagnose_data` + `checkout_breakdown`             | Needs Resolution     | Funnel Bottleneck          | Fix Checkout                               |
+| MOG-006 | `diagnose` / `diagnose_data` + `tracking_anomaly`               | Needs Resolution     | Decision Blocked           | Repair Tracking                            |
+| MOG-007 | `out_of_scope` / compatibility fallback                         | Not Applicable       | Out of Scope               | no buyer action                            |
+| MOG-008 | 100 high-confidence Monitoring rows + lower-confidence `cut`    | Act row retained     | Underperformer             | Cut                                        |
+| MOG-009 | selected lane empty while another lane has rows                 | Non-empty lane shown | server assessment retained | no fabricated action                       |
+| MOG-010 | 140 eligible rows; explicit candidate limit grows 60 -> 120     | Same ordering expands| server assessment retained | first 60 remain stable                      |
+
+- MOG-003 through MOG-006 require `buyerAction: null`, a non-null resolution,
+  and no provider mutation.
+- MOG-008 requires lane-aware selection before the response cap; confidence
+  alone cannot remove the Act row.
+- MOG-009 is a UI state rule only. It may change the selected lane, never a
+  server decision or action.
+- MOG-010 requires server recomposition. The UI must not concatenate, re-rank,
+  or classify raw decisions locally.
+
+## Authority And Raw-Restore Regression Cases
+
+These are executable module/integration guards rather than `decideCreative`
+fixtures:
+
+| Case | Input | Required result | Executable proof |
+| ---- | ----- | --------------- | ---------------- |
+| AR-001 | Fresh target CPA, no target/break-even ROAS | `scale=false`, `cut=false`; refresh may remain eligible | `account-decision-profile.test.ts` |
+| AR-002 | Fresh target ROAS, missing break-even ROAS | scale may pass; cut is blocked | `account-decision-profile.test.ts` |
+| AR-003 | Fresh break-even ROAS, missing target ROAS | cut may pass; scale is blocked | `account-decision-profile.test.ts` |
+| AR-004 | Persisted spend action, current target stale | serve `watch`, strip proposed mutation | `snapshot.test.ts` |
+| AR-005 | Completed raw generation starts at global page 38 | next index is 39; page one is not fetched | `raw-snapshot-generation.test.ts`, `meta.test.ts` |

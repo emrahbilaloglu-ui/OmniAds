@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
 import { isDemoBusiness } from "@/lib/business-mode.server";
-import { getDemoMetaCreatives } from "@/lib/demo-business";
+import { getDemoMetaCreatives, getDemoProviderAccounts } from "@/lib/demo-business";
 import {
   decideCreative,
   ENGINE_VERSION,
@@ -26,11 +26,16 @@ import {
   stabilizeDecisionLabel,
 } from "@/lib/creative-decision-engine/decision-stability";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
+import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
+import {
+  buildMetaCreativesAccountScopeMetadata,
+  resolveMetaCreativesAccountScope,
+} from "@/lib/meta/creatives-warehouse";
 import {
   isInBriefing,
   parseBriefingStatusFilter,
 } from "@/lib/meta/briefing-filter";
-import { nDaysAgo, toISODate } from "@/lib/meta/creatives-row-mappers";
+import { toISODate } from "@/lib/meta/creatives-row-mappers";
 import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import { readTriageState } from "@/lib/triage-events";
 import {
@@ -76,6 +81,14 @@ import type {
 export const dynamic = "force-dynamic";
 
 type BriefingLane = "action" | "watching" | "healthy";
+
+type BriefSourceSnapshotRow = {
+  id: string;
+  creative_id: string;
+  engine_version: string;
+  as_of_date: string;
+  label: string;
+};
 
 const DECISION_CENTER_OBSERVABILITY_ROUTE = "GET /api/creatives/briefing";
 const LOCAL_DECISION_CENTER_OBSERVABILITY_SALT =
@@ -310,6 +323,13 @@ function parseDateOnly(value: unknown): string | null {
   if (!text) return null;
   const date = new Date(`${text.slice(0, 10)}T00:00:00.000Z`);
   return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) : null;
+}
+
+function subtractDaysDateOnly(value: string, days: number): string | null {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  if (!Number.isFinite(date.getTime())) return null;
+  date.setUTCDate(date.getUTCDate() - days);
+  return date.toISOString().slice(0, 10);
 }
 
 function parseTextArray(value: unknown): string[] {
@@ -874,12 +894,15 @@ function decisionLane(
   ) {
     return "watching";
   }
+  if (decision.badges.some((badge) => badge.type === "pending_transition")) {
+    return "watching";
+  }
   if (decision.label === "keep") return "healthy";
   if (
     decision.label === "cut" &&
     decision.badges.some((badge) => badge.type === "stale_evidence")
   ) {
-    return "action";
+    return "watching";
   }
   if (
     decision.confidence >= 70 &&
@@ -1012,16 +1035,20 @@ function buildBridgedDecisionCenterSnapshot(input: {
 async function readCreativeRows(input: {
   request: NextRequest;
   businessId: string;
+  providerAccountId: string;
   start: string;
   end: string;
 }): Promise<MetaCreativeApiRow[]> {
   if (await isDemoBusiness(input.businessId)) {
-    return getDemoMetaCreatives().rows as unknown as MetaCreativeApiRow[];
+    return getDemoMetaCreatives().rows.filter(
+      (row) => row.account_id === input.providerAccountId,
+    ) as unknown as MetaCreativeApiRow[];
   }
   const basePayloadInput = {
     request: input.request,
     requestStartedAt: Date.now(),
     businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
     mediaMode: "full",
     format: "all",
     sort: "spend",
@@ -1078,6 +1105,48 @@ function usableMetaAdId(value: string | null | undefined) {
   return text;
 }
 
+async function readBriefSourceSnapshots(input: {
+  businessId: string;
+  providerAccountId: string;
+  asOf: string;
+  creativeIds: string[];
+}) {
+  if (input.creativeIds.length === 0) return new Map<string, BriefSourceSnapshotRow>();
+  const rows = await getDb().query<BriefSourceSnapshotRow>(
+    `
+      WITH account_creatives AS (
+        SELECT creative_id
+        FROM meta_creative_dimensions
+        WHERE business_id = $1
+          AND provider_account_id = $2
+        UNION
+        SELECT creative_id
+        FROM meta_creative_daily
+        WHERE business_id = $1
+          AND provider_account_id = $2
+      )
+      SELECT DISTINCT ON (snapshot.creative_id)
+        snapshot.id::text AS id,
+        snapshot.creative_id,
+        snapshot.engine_version,
+        snapshot.as_of_date::text AS as_of_date,
+        snapshot.label
+      FROM engine_v3_decision_snapshots_daily snapshot
+      WHERE (snapshot.business_id = $1 OR snapshot.business_ref_id::text = $1)
+        AND snapshot.creative_id = ANY($3::text[])
+        AND snapshot.as_of_date <= $4::date
+        AND EXISTS (
+          SELECT 1
+          FROM account_creatives account_creative
+          WHERE account_creative.creative_id = snapshot.creative_id
+        )
+      ORDER BY snapshot.creative_id, snapshot.as_of_date DESC, snapshot.computed_at DESC, snapshot.id DESC
+    `,
+    [input.businessId, input.providerAccountId, input.creativeIds, input.asOf],
+  );
+  return new Map(rows.map((row) => [row.creative_id, row]));
+}
+
 function hydrateCreativeRowsWithRealAdIds(
   creativeRows: MetaCreativeApiRow[],
   adRows: MetaCreativeApiRow[],
@@ -1105,8 +1174,21 @@ export async function GET(request: NextRequest) {
     request.nextUrl.searchParams.get("businessId")?.trim() ?? "";
   const asOf =
     request.nextUrl.searchParams.get("asOf")?.trim() || toISODate(new Date());
+  const requestedStart = parseDateOnly(
+    request.nextUrl.searchParams.get("start"),
+  );
+  const parsedAsOf = parseDateOnly(asOf);
+  const currentFallbackStart = new Date();
+  currentFallbackStart.setUTCDate(currentFallbackStart.getUTCDate() - 29);
+  const start =
+    requestedStart && (!parsedAsOf || requestedStart <= parsedAsOf)
+      ? requestedStart
+      : (parsedAsOf ? subtractDaysDateOnly(parsedAsOf, 29) : null) ??
+        toISODate(currentFallbackStart);
   const campaignId =
     request.nextUrl.searchParams.get("campaignId")?.trim() || undefined;
+  const requestedProviderAccountId =
+    request.nextUrl.searchParams.get("providerAccountId")?.trim() || null;
   const statusFilter = parseBriefingStatusFilter(
     request.nextUrl.searchParams.get("status_filter"),
   );
@@ -1132,6 +1214,41 @@ export async function GET(request: NextRequest) {
   if ("error" in access) return access.error;
 
   const resolvedBusinessId = access.membership.businessId;
+  const demoBusiness = await isDemoBusiness(resolvedBusinessId);
+  const assignedAccountIds = demoBusiness
+    ? getDemoProviderAccounts("meta").map((account) => account.id)
+    : await fetchAssignedAccountIds(resolvedBusinessId);
+  const accountScope = resolveMetaCreativesAccountScope({
+    assignedAccountIds,
+    requestedProviderAccountId,
+  });
+  if (!accountScope.ok) {
+    return NextResponse.json(
+      {
+        error: accountScope.status,
+        message:
+          accountScope.status === "account_not_assigned"
+            ? "The requested Meta account is not assigned to this business."
+            : accountScope.status === "provider_account_required"
+              ? "providerAccountId is required when multiple Meta accounts are assigned."
+              : "No Meta account is assigned to this business.",
+        actionNow: [],
+        watching: [],
+        healthy: [],
+        ...buildMetaCreativesAccountScopeMetadata(accountScope),
+      },
+      {
+        status:
+          accountScope.status === "account_not_assigned"
+            ? 403
+            : accountScope.status === "provider_account_required"
+              ? 400
+              : 200,
+      },
+    );
+  }
+  const providerAccountId = accountScope.providerAccountId;
+  const accountScopeMetadata = buildMetaCreativesAccountScopeMetadata(accountScope);
   const flags = await resolveEngineV3Flags(resolvedBusinessId);
   if (!flags.enabled) {
     const disabledBody: CreativesBriefingResponse & {
@@ -1159,7 +1276,7 @@ export async function GET(request: NextRequest) {
         dataHealthDegraded: false,
       });
     }
-    return NextResponse.json(disabledBody);
+    return NextResponse.json({ ...disabledBody, ...accountScopeMetadata });
   }
 
   const { instance: dataSource, label: dataSourceLabel } = resolveDataSource();
@@ -1175,7 +1292,8 @@ export async function GET(request: NextRequest) {
     readCreativeRows({
       request,
       businessId: resolvedBusinessId,
-      start: toISODate(nDaysAgo(29)),
+      providerAccountId,
+      start,
       end: asOf,
     }).catch(() => [] as MetaCreativeApiRow[]),
     readTriageState({
@@ -1264,12 +1382,14 @@ export async function GET(request: NextRequest) {
     businessId: resolvedBusinessId,
     asOf,
     creativeIds: enrichedInputs.map((input) => input.creativeId),
+    scopeType: profile.scope.type,
+    scopeId: profile.scope.id,
   }).catch((error) => {
     // Degrading to raw labels silently would recreate the live-vs-snapshot
     // divergence this wiring exists to prevent; keep serving but make the
     // degradation observable.
     console.error(
-      "[creative-decision-center] hysteresis baseline read failed; serving raw labels this request",
+      "[creative-decision-center] hysteresis baseline read failed; hard entries remain pending this request",
       error,
     );
     return new Map();
@@ -1340,10 +1460,11 @@ export async function GET(request: NextRequest) {
       `SELECT account_currency
        FROM meta_creative_daily
        WHERE (business_ref_id::text = $1 OR business_id = $1)
+         AND provider_account_id = $2
          AND account_currency IS NOT NULL
        ORDER BY date DESC
        LIMIT 1`,
-      [resolvedBusinessId],
+      [resolvedBusinessId, providerAccountId],
     )
     .then((rows) => rows[0]?.account_currency ?? null)
     .catch(() => null);
@@ -1367,6 +1488,12 @@ export async function GET(request: NextRequest) {
     });
     return stabilized.decision;
   });
+  const briefSourceSnapshots = await readBriefSourceSnapshots({
+    businessId: resolvedBusinessId,
+    providerAccountId,
+    asOf,
+    creativeIds: decisions.map((decision) => decision.creativeId),
+  }).catch(() => new Map<string, BriefSourceSnapshotRow>());
   const backtestSummary = await readCreativeDecisionBacktestSummary({
     businessId: resolvedBusinessId,
     asOf,
@@ -1392,7 +1519,7 @@ export async function GET(request: NextRequest) {
           maps: decisionCenterRowMaps,
         })
       : null;
-    const card = cardForDecision({
+    const cardBase = cardForDecision({
       decision,
       creativeInput,
       row,
@@ -1406,6 +1533,21 @@ export async function GET(request: NextRequest) {
       decisionHistory: decisionHistoryByCreative.get(decision.creativeId) ?? null,
       currency: accountCurrency,
     });
+    const sourceSnapshot = briefSourceSnapshots.get(decision.creativeId) ?? null;
+    const sourceSnapshotMatch = !sourceSnapshot
+      ? "unavailable"
+      : sourceSnapshot.engine_version === decision.engineVersion &&
+          sourceSnapshot.label === decision.label
+        ? "matched"
+        : "mismatch";
+    const card: BriefingCreativeCard = {
+      ...cardBase,
+      sourceDecisionSnapshotId:
+        sourceSnapshotMatch === "matched" ? sourceSnapshot?.id ?? null : null,
+      sourceDecisionSnapshotAsOf: sourceSnapshot?.as_of_date ?? null,
+      sourceDecisionSnapshotEngineVersion: sourceSnapshot?.engine_version ?? null,
+      sourceDecisionSnapshotMatch: sourceSnapshotMatch,
+    };
     const deferred =
       deferredIds.has(decision.creativeId) ||
       deferredIds.has(card.id) ||
@@ -1469,6 +1611,7 @@ export async function GET(request: NextRequest) {
   const responseBody: CreativesBriefingResponse & {
     statusFilter: typeof statusFilter;
   } = {
+    ...accountScopeMetadata,
     actionNow: lanes.action,
     watching: lanes.watching,
     healthy: lanes.healthy,

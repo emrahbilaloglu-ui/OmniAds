@@ -76,7 +76,7 @@ interface CampaignSnapshot {
   is_optimization_goal_mixed: boolean;
   is_bid_strategy_mixed: boolean;
   age_days: number | null;
-  currency: string;
+  currency: string | null;
   // Per-window metrics: spend_7d, spend_14d, spend_28d, spend_90d, etc.
   metrics: Partial<Record<`${MetricKey}_${WindowDays}d`, number>>;
   // Account-scope percentiles (per metric)
@@ -107,7 +107,7 @@ interface AdSetSnapshot {
   lifetime_budget: number | null;
   is_config_mixed: boolean;
   age_days: number | null;
-  currency: string;
+  currency: string | null;
   metrics: Partial<Record<`${MetricKey}_${WindowDays}d`, number>>;
   account_calibration: Record<string, CalibrationPercentiles>;
   engine_v3_label: string | null;
@@ -142,7 +142,11 @@ function dateOffset(asOf: string, deltaDays: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-async function fetchCampaignWindow(businessId: string, asOf: string, days: WindowDays) {
+async function fetchCampaignWindow(
+  businessId: string,
+  asOf: string,
+  days: WindowDays,
+) {
   const startDate = dateOffset(asOf, -(days - 1));
   const endDate = asOf;
   const result = await getMetaCampaignsForRange({
@@ -153,7 +157,11 @@ async function fetchCampaignWindow(businessId: string, asOf: string, days: Windo
   return result.rows ?? [];
 }
 
-async function fetchAdSetWindow(businessId: string, asOf: string, days: WindowDays) {
+async function fetchAdSetWindow(
+  businessId: string,
+  asOf: string,
+  days: WindowDays,
+) {
   const startDate = dateOffset(asOf, -(days - 1));
   const endDate = asOf;
   const result = await getMetaAdSetsForRange({
@@ -164,39 +172,68 @@ async function fetchAdSetWindow(businessId: string, asOf: string, days: WindowDa
   return result.rows ?? [];
 }
 
-function metricFromCampaign(row: MetaCampaignRow, key: MetricKey): number | undefined {
+function metricFromCampaign(
+  row: MetaCampaignRow,
+  key: MetricKey,
+): number | undefined {
   switch (key) {
-    case "spend": return row.spend;
-    case "revenue": return row.revenue;
-    case "purchases": return row.purchases;
-    case "impressions": return row.impressions;
-    case "linkClicks": return row.clicks;
-    case "frequency": return row.frequency;
-    case "cpm": return row.cpm;
-    case "ctr": return row.ctr;
-    case "roas": return row.roas;
-    case "cpa": return row.cpa;
+    case "spend":
+      return row.spend;
+    case "revenue":
+      return row.revenue;
+    case "purchases":
+      return row.purchases;
+    case "impressions":
+      return row.impressions;
+    case "linkClicks":
+      return row.clicks;
+    case "frequency":
+      return row.frequency;
+    case "cpm":
+      return row.cpm;
+    case "ctr":
+      return row.ctr;
+    case "roas":
+      return row.roas;
+    case "cpa":
+      return row.cpa;
   }
 }
 
-function metricFromAdSet(row: MetaAdSetData, key: MetricKey): number | undefined {
+function metricFromAdSet(
+  row: MetaAdSetData,
+  key: MetricKey,
+): number | undefined {
   // MetaAdSetData extends MetaMetricsData and shares many fields
   const r = row as unknown as Record<string, number | undefined>;
   switch (key) {
-    case "spend": return r.spend;
-    case "revenue": return r.revenue;
-    case "purchases": return r.purchases;
-    case "impressions": return r.impressions;
-    case "linkClicks": return r.clicks;
-    case "frequency": return r.frequency;
-    case "cpm": return r.cpm;
-    case "ctr": return r.ctr;
-    case "roas": return r.roas;
-    case "cpa": return r.cpa;
+    case "spend":
+      return r.spend;
+    case "revenue":
+      return r.revenue;
+    case "purchases":
+      return r.purchases;
+    case "impressions":
+      return r.impressions;
+    case "linkClicks":
+      return r.clicks;
+    case "frequency":
+      return r.frequency;
+    case "cpm":
+      return r.cpm;
+    case "ctr":
+      return r.ctr;
+    case "roas":
+      return r.roas;
+    case "cpa":
+      return r.cpa;
   }
 }
 
-async function fetchCampaignAge(businessId: string, campaignIds: string[]): Promise<Map<string, number | null>> {
+async function fetchCampaignAge(
+  businessId: string,
+  campaignIds: string[],
+): Promise<Map<string, number | null>> {
   const ageMap = new Map<string, number | null>();
   if (campaignIds.length === 0) return ageMap;
   try {
@@ -210,19 +247,27 @@ async function fetchCampaignAge(businessId: string, campaignIds: string[]): Prom
     const now = Date.now();
     for (const r of rows) {
       if (r.first_seen_at) {
-        const age = Math.floor((now - new Date(r.first_seen_at).getTime()) / 86400_000);
+        const age = Math.floor(
+          (now - new Date(r.first_seen_at).getTime()) / 86400_000,
+        );
         ageMap.set(r.campaign_id, age);
       } else {
         ageMap.set(r.campaign_id, null);
       }
     }
   } catch (e) {
-    console.warn("[meta-rnd] fetchCampaignAge failed (table may not exist):", String(e).slice(0, 120));
+    console.warn(
+      "[meta-rnd] fetchCampaignAge failed (table may not exist):",
+      String(e).slice(0, 120),
+    );
   }
   return ageMap;
 }
 
-async function fetchAdSetAge(businessId: string, adsetIds: string[]): Promise<Map<string, number | null>> {
+async function fetchAdSetAge(
+  businessId: string,
+  adsetIds: string[],
+): Promise<Map<string, number | null>> {
   const ageMap = new Map<string, number | null>();
   if (adsetIds.length === 0) return ageMap;
   try {
@@ -236,19 +281,27 @@ async function fetchAdSetAge(businessId: string, adsetIds: string[]): Promise<Ma
     const now = Date.now();
     for (const r of rows) {
       if (r.first_seen_at) {
-        const age = Math.floor((now - new Date(r.first_seen_at).getTime()) / 86400_000);
+        const age = Math.floor(
+          (now - new Date(r.first_seen_at).getTime()) / 86400_000,
+        );
         ageMap.set(r.adset_id, age);
       } else {
         ageMap.set(r.adset_id, null);
       }
     }
   } catch (e) {
-    console.warn("[meta-rnd] fetchAdSetAge failed (table may not exist):", String(e).slice(0, 120));
+    console.warn(
+      "[meta-rnd] fetchAdSetAge failed (table may not exist):",
+      String(e).slice(0, 120),
+    );
   }
   return ageMap;
 }
 
-async function fetchAccountCalibration(businessId: string, asOf: string): Promise<Record<string, CalibrationPercentiles>> {
+async function fetchAccountCalibration(
+  businessId: string,
+  asOf: string,
+): Promise<Record<string, CalibrationPercentiles>> {
   const calibration: Record<string, CalibrationPercentiles> = {};
   try {
     const sql = getDb();
@@ -284,7 +337,10 @@ async function fetchAccountCalibration(businessId: string, asOf: string): Promis
       };
     }
   } catch (e) {
-    console.warn("[meta-rnd] fetchAccountCalibration failed:", String(e).slice(0, 120));
+    console.warn(
+      "[meta-rnd] fetchAccountCalibration failed:",
+      String(e).slice(0, 120),
+    );
   }
   return calibration;
 }
@@ -303,7 +359,10 @@ interface EngineSnapshotRow {
   kind: string | null;
 }
 
-async function fetchEngineSnapshots(businessId: string, asOf: string): Promise<Map<string, EngineSnapshotRow>> {
+async function fetchEngineSnapshots(
+  businessId: string,
+  asOf: string,
+): Promise<Map<string, EngineSnapshotRow>> {
   const map = new Map<string, EngineSnapshotRow>();
   try {
     const sql = getDb();
@@ -330,7 +389,10 @@ async function fetchEngineSnapshots(businessId: string, asOf: string): Promise<M
       if (!map.has(key)) map.set(key, r);
     }
   } catch (e) {
-    console.warn("[meta-rnd] fetchEngineSnapshots failed:", String(e).slice(0, 120));
+    console.warn(
+      "[meta-rnd] fetchEngineSnapshots failed:",
+      String(e).slice(0, 120),
+    );
   }
   return map;
 }
@@ -344,33 +406,60 @@ function decisionLabelFromRecType(recType: string): string {
     recType === "scale_for_volume" ||
     recType === "scale_for_profitability" ||
     recType === "winner_promotion_flow"
-  ) return "scale";
+  )
+    return "scale";
   if (
     recType === "rebuild_with_constraints" ||
     recType === "campaign_structure" ||
     recType === "scaling_structure_fit"
-  ) return "rebuild";
+  )
+    return "rebuild";
   if (recType === "historical_bid_regime_fit") return "switch";
-  if (recType === "bid_strategy_fit" || recType === "bid_value_guidance" || recType === "bid_band_from_history") return "tune";
+  if (
+    recType === "bid_strategy_fit" ||
+    recType === "bid_value_guidance" ||
+    recType === "bid_band_from_history"
+  )
+    return "tune";
   if (recType === "geo_cluster_for_signal_density") return "swap";
   if (recType === "creative_test_structure") return "test_more";
-  if (recType === "seasonal_regime_shift" || recType === "optimization_fit") return "diagnose";
+  if (recType === "seasonal_regime_shift" || recType === "optimization_fit")
+    return "diagnose";
   return "unknown";
 }
 
 function engineDecisionLabel(row: EngineSnapshotRow | null | undefined) {
-  return row?.decision_label || (row ? decisionLabelFromRecType(row.rec_type) : null);
+  return (
+    row?.decision_label || (row ? decisionLabelFromRecType(row.rec_type) : null)
+  );
 }
 
-function isMature(spend28d: number | undefined, ageDays: number | null, accountSpendMedian: number | undefined): boolean {
+function isMature(
+  spend28d: number | undefined,
+  ageDays: number | null,
+  accountSpendMedian: number | undefined,
+): boolean {
   if (ageDays !== null && ageDays >= 14) return true;
-  if (spend28d !== undefined && accountSpendMedian !== undefined && spend28d >= accountSpendMedian * 0.3) return true;
+  if (
+    spend28d !== undefined &&
+    accountSpendMedian !== undefined &&
+    spend28d >= accountSpendMedian * 0.3
+  )
+    return true;
   // Fallback when both age and calibration unavailable: include if any meaningful 28d activity (>$50 spend)
-  if (ageDays === null && accountSpendMedian === undefined && (spend28d ?? 0) >= 50) return true;
+  if (
+    ageDays === null &&
+    accountSpendMedian === undefined &&
+    (spend28d ?? 0) >= 50
+  )
+    return true;
   return false;
 }
 
-async function buildCampaignSnapshots(business: { id: string; name: string }, asOf: string): Promise<{
+async function buildCampaignSnapshots(
+  business: { id: string; name: string },
+  asOf: string,
+): Promise<{
   rows: CampaignSnapshot[];
   totalFetched: number;
   filteredOut: number;
@@ -384,14 +473,21 @@ async function buildCampaignSnapshots(business: { id: string; name: string }, as
   };
   // Use 28d as canonical row inventory (most stable mid-window for status + config)
   const canonicalRows = windowResults[28];
-  console.log(`[meta-rnd] ${business.name} campaigns — ${canonicalRows.length} canonical rows (28d window)`);
+  console.log(
+    `[meta-rnd] ${business.name} campaigns — ${canonicalRows.length} canonical rows (28d window)`,
+  );
 
   const calibration = await fetchAccountCalibration(business.id, asOf);
-  const ageMap = await fetchCampaignAge(business.id, canonicalRows.map((r) => r.id));
+  const ageMap = await fetchCampaignAge(
+    business.id,
+    canonicalRows.map((r) => r.id),
+  );
   const snapshots = await fetchEngineSnapshots(business.id, asOf);
   const accountSpendMedian = calibration["spend_28d"]?.p50;
 
-  const buildMetricsForCampaign = (id: string): Partial<Record<`${MetricKey}_${WindowDays}d`, number>> => {
+  const buildMetricsForCampaign = (
+    id: string,
+  ): Partial<Record<`${MetricKey}_${WindowDays}d`, number>> => {
     const metrics: Partial<Record<`${MetricKey}_${WindowDays}d`, number>> = {};
     for (const days of WINDOW_DAYS) {
       const row = windowResults[days].find((r) => r.id === id);
@@ -468,14 +564,21 @@ async function buildAdSetSnapshots(
     90: await fetchAdSetWindow(business.id, asOf, 90),
   };
   const canonicalRows = windowResults[28];
-  console.log(`[meta-rnd] ${business.name} adsets — ${canonicalRows.length} canonical rows`);
+  console.log(
+    `[meta-rnd] ${business.name} adsets — ${canonicalRows.length} canonical rows`,
+  );
 
   const calibration = await fetchAccountCalibration(business.id, asOf);
-  const ageMap = await fetchAdSetAge(business.id, canonicalRows.map((r) => r.id));
+  const ageMap = await fetchAdSetAge(
+    business.id,
+    canonicalRows.map((r) => r.id),
+  );
   const snapshots = await fetchEngineSnapshots(business.id, asOf);
   const accountSpendMedian = calibration["spend_28d"]?.p50;
 
-  const buildMetricsForAdSet = (id: string): Partial<Record<`${MetricKey}_${WindowDays}d`, number>> => {
+  const buildMetricsForAdSet = (
+    id: string,
+  ): Partial<Record<`${MetricKey}_${WindowDays}d`, number>> => {
     const metrics: Partial<Record<`${MetricKey}_${WindowDays}d`, number>> = {};
     for (const days of WINDOW_DAYS) {
       const row = windowResults[days].find((r) => r.id === id);
@@ -534,7 +637,9 @@ async function buildAdSetSnapshots(
   };
 }
 
-function flattenForCsv(snap: CampaignSnapshot | AdSetSnapshot): Record<string, unknown> {
+function flattenForCsv(
+  snap: CampaignSnapshot | AdSetSnapshot,
+): Record<string, unknown> {
   const out: Record<string, unknown> = { ...snap };
   delete out.metrics;
   delete out.account_calibration;
@@ -560,16 +665,29 @@ async function main() {
   await withOperationalStartupLogsSilenced(async () => {
     const allCampaigns: CampaignSnapshot[] = [];
     const allAdsets: AdSetSnapshot[] = [];
-    const stats: Array<{ business: string; campaigns_total: number; campaigns_mature: number; adsets_total: number; adsets_mature: number; calibration_metrics: number; engine_snapshots: number }> = [];
+    const stats: Array<{
+      business: string;
+      campaigns_total: number;
+      campaigns_mature: number;
+      adsets_total: number;
+      adsets_mature: number;
+      calibration_metrics: number;
+      engine_snapshots: number;
+    }> = [];
 
     for (const business of BUSINESSES) {
       console.log(`\n[meta-rnd] === ${business.name} ===`);
       const campaignResult = await buildCampaignSnapshots(business, asOf);
       allCampaigns.push(...campaignResult.rows);
       const campaignNameById = new Map<string, string>();
-      for (const c of campaignResult.rows) campaignNameById.set(c.campaign_id, c.campaign_name);
+      for (const c of campaignResult.rows)
+        campaignNameById.set(c.campaign_id, c.campaign_name);
 
-      const adsetResult = await buildAdSetSnapshots(business, asOf, campaignNameById);
+      const adsetResult = await buildAdSetSnapshots(
+        business,
+        asOf,
+        campaignNameById,
+      );
       allAdsets.push(...adsetResult.rows);
 
       const calibration = await fetchAccountCalibration(business.id, asOf);
@@ -585,30 +703,46 @@ async function main() {
         engine_snapshots: snapshots.size,
       });
 
-      console.log(`[meta-rnd] ${business.name} — campaigns mature ${campaignResult.rows.length}/${campaignResult.totalFetched}, adsets mature ${adsetResult.rows.length}/${adsetResult.totalFetched}`);
+      console.log(
+        `[meta-rnd] ${business.name} — campaigns mature ${campaignResult.rows.length}/${campaignResult.totalFetched}, adsets mature ${adsetResult.rows.length}/${adsetResult.totalFetched}`,
+      );
     }
 
     // Write campaign CSV
     const campaignFlat = allCampaigns.map(flattenForCsv);
-    const campaignCols = Array.from(new Set(campaignFlat.flatMap((r) => Object.keys(r))));
+    const campaignCols = Array.from(
+      new Set(campaignFlat.flatMap((r) => Object.keys(r))),
+    );
     const campaignsCsv = [
       campaignCols.join(","),
       ...campaignFlat.map((r) => rowToCsvLine(r, campaignCols)),
     ].join("\n");
-    const campaignsPath = resolve(process.cwd(), "_analysis/phase-meta-rnd/00-raw-campaigns.csv");
+    const campaignsPath = resolve(
+      process.cwd(),
+      "_analysis/phase-meta-rnd/00-raw-campaigns.csv",
+    );
     writeFileSync(campaignsPath, campaignsCsv);
-    console.log(`\n[meta-rnd] wrote ${allCampaigns.length} campaign rows to ${campaignsPath}`);
+    console.log(
+      `\n[meta-rnd] wrote ${allCampaigns.length} campaign rows to ${campaignsPath}`,
+    );
 
     // Write adset CSV
     const adsetFlat = allAdsets.map(flattenForCsv);
-    const adsetCols = Array.from(new Set(adsetFlat.flatMap((r) => Object.keys(r))));
+    const adsetCols = Array.from(
+      new Set(adsetFlat.flatMap((r) => Object.keys(r))),
+    );
     const adsetsCsv = [
       adsetCols.join(","),
       ...adsetFlat.map((r) => rowToCsvLine(r, adsetCols)),
     ].join("\n");
-    const adsetsPath = resolve(process.cwd(), "_analysis/phase-meta-rnd/00-raw-adsets.csv");
+    const adsetsPath = resolve(
+      process.cwd(),
+      "_analysis/phase-meta-rnd/00-raw-adsets.csv",
+    );
     writeFileSync(adsetsPath, adsetsCsv);
-    console.log(`[meta-rnd] wrote ${allAdsets.length} adset rows to ${adsetsPath}`);
+    console.log(
+      `[meta-rnd] wrote ${allAdsets.length} adset rows to ${adsetsPath}`,
+    );
 
     // Write extraction notes
     const notes = `# Phase Meta R&D — Extraction Notes
@@ -679,7 +813,10 @@ Re-running this script with the same as-of date may produce slightly different o
 
 For deterministic R&D, use the same CSVs across Claude + Codex evaluations. Do not regenerate mid-evaluation.
 `;
-    const notesPath = resolve(process.cwd(), "_analysis/phase-meta-rnd/00-extraction-notes.md");
+    const notesPath = resolve(
+      process.cwd(),
+      "_analysis/phase-meta-rnd/00-extraction-notes.md",
+    );
     writeFileSync(notesPath, notes);
     console.log(`[meta-rnd] wrote extraction notes to ${notesPath}`);
   });

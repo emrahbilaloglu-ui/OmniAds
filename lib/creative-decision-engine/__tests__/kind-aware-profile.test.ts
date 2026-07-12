@@ -269,4 +269,40 @@ describe("selectKindAwareDecisionProfile", () => {
     expect(selection.profile).toBe(profile);
     expect(selection.decisionKindSource).toBe("all_fallback");
   });
+
+  it("does not mix a canonical format baseline into a selected kind profile", () => {
+    const baseFunnel = makeAccountFunnelCalibration();
+    const profile = makeProfileWithKind({
+      kind: "main",
+      funnel: {
+        campaignKind: "main",
+        byFormat: {
+          overall: {
+            ...baseFunnel.byFormat.overall!,
+            ctrP50: 4,
+          },
+        },
+      },
+    });
+    profile.funnelCalibration = {
+      ...profile.funnelCalibration,
+      byFormat: {
+        ...profile.funnelCalibration.byFormat,
+        video: {
+          ...baseFunnel.byFormat.overall!,
+          creativeFormat: "video",
+          ctrP50: 0.5,
+        },
+      },
+    };
+
+    const selection = selectKindAwareDecisionProfile(
+      makeCreativeInput({ campaignKind: "main", creativeFormat: "video" }),
+      profile,
+    );
+
+    expect(selection.decisionKindSource).toBe("kind_main");
+    expect(selection.profile.funnelCalibration.byFormat.video).toBeUndefined();
+    expect(selection.profile.funnelCalibration.byFormat.overall?.ctrP50).toBe(4);
+  });
 });

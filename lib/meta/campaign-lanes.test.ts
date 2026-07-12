@@ -3,6 +3,8 @@ import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import {
   buildMetaCampaignLaneSignals,
   buildMetaCampaignLaneSummary,
+  comparableMetaIntentKey,
+  metaCampaignLaneGroupKey,
   resolveMetaCampaignFamily,
 } from "@/lib/meta/campaign-lanes";
 
@@ -150,7 +152,9 @@ describe("campaign lanes", () => {
     ];
 
     const signals = buildMetaCampaignLaneSignals(rows);
-    const summary = buildMetaCampaignLaneSummary(rows).get("purchase_value");
+    const summary = buildMetaCampaignLaneSummary(rows).get(
+      metaCampaignLaneGroupKey(rows[0]),
+    );
 
     expect(signals.get("scale")?.lane).toBe("Scaling");
     expect(signals.get("validation")?.lane).toBe("Validation");
@@ -159,5 +163,48 @@ describe("campaign lanes", () => {
     expect(summary?.scalingCount).toBe(1);
     expect(summary?.validationCount).toBe(1);
     expect(summary?.testCount).toBe(2);
+  });
+
+  it("never creates lane separation across provider accounts", () => {
+    const rows = [
+      campaign({
+        id: "account-a-winner",
+        accountId: "act-a",
+        roas: 5,
+        purchases: 30,
+        spend: 2500,
+      }),
+      campaign({
+        id: "account-b-loser",
+        accountId: "act-b",
+        roas: 0.5,
+        purchases: 1,
+        spend: 500,
+      }),
+    ];
+
+    expect(buildMetaCampaignLaneSignals(rows).size).toBe(0);
+    expect(comparableMetaIntentKey(rows[0])).not.toBe(
+      comparableMetaIntentKey(rows[1]),
+    );
+  });
+
+  it("keeps currency and optimization cohort in the comparison key", () => {
+    const base = campaign({ id: "base", accountId: "act-a" });
+    expect(comparableMetaIntentKey(base)).not.toBe(
+      comparableMetaIntentKey({ ...base, currency: "TRY" }),
+    );
+    expect(comparableMetaIntentKey(base)).not.toBe(
+      comparableMetaIntentKey({
+        ...base,
+        optimizationGoal: "OFFSITE_CONVERSIONS",
+      }),
+    );
+    expect(metaCampaignLaneGroupKey(base)).not.toBe(
+      metaCampaignLaneGroupKey({
+        ...base,
+        optimizationGoal: "OFFSITE_CONVERSIONS",
+      }),
+    );
   });
 });

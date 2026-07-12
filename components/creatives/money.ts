@@ -1,5 +1,6 @@
 const CURRENCY_CODE_REGEX = /^[A-Z]{3}$/;
 const CURRENCY_DEBUG_ENV_KEY = "NEXT_PUBLIC_CREATIVE_CURRENCY_DEBUG";
+export const CURRENCY_UNAVAILABLE_LABEL = "Currency unavailable";
 
 const CURRENCY_LOCALE_MAP: Record<string, string> = {
   TRY: "tr-TR",
@@ -68,9 +69,10 @@ export function formatMoney(
   logCurrencyDebug(rowCurrency, defaultCurrency, resolvedCurrency);
 
   if (!resolvedCurrency) {
-    return value.toLocaleString(undefined, {
+    const unitless = value.toLocaleString(undefined, {
       maximumFractionDigits: 2,
     });
+    return `${unitless} (${CURRENCY_UNAVAILABLE_LABEL})`;
   }
 
   return value.toLocaleString(resolveCurrencyLocale(resolvedCurrency), {

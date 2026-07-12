@@ -235,6 +235,22 @@ Until enriched fields exist:
 
 The safe fallback is `diagnose_data`, `test_more`, or omit.
 
+### D035 Meta Decisions projection
+
+The V3-to-V2.1 bridge remains unchanged for compatibility. After the bridge,
+the account-scoped Meta Decisions read model applies a versioned presentation
+projection:
+
+- `diagnose_data` becomes `decisionState: blocked`, `buyerAction: null`, and a
+  non-null resolution selected from structured badges/blockers.
+- `out_of_scope` becomes `not_applicable` and is not admitted to an Ads lane.
+- `test_more` and ordinary `keep` remain Monitoring decisions and receive
+  Learning or Stable assessments rather than a generic fallback.
+- persisted `blocked_action_type` preserves a context-held Scale, Cut, or
+  Refresh signal without parsing reason text.
+
+This projection does not rewrite the bridge output or historical snapshots.
+
 ## Known PR7B-beta Coverage Gaps
 
 The first bridge does not fake proof fields that do not exist yet. These

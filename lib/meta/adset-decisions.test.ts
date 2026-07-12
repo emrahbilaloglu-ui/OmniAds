@@ -3,6 +3,7 @@ import { buildMetaAdsetRecommendations } from "@/lib/meta/adset-decisions";
 import type { MetaAdSetData } from "@/lib/api/meta";
 import { LEGACY_META_CALIBRATION_THRESHOLDS } from "@/lib/meta/calibration";
 import type { MetaCalibrationContext } from "@/lib/meta/recommendations";
+import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
 
 const commercialTargets = {
   source: "configured_targets" as const,
@@ -11,6 +12,8 @@ const commercialTargets = {
   targetCpa: 120,
   breakEvenCpa: 160,
   riskPosture: "balanced" as const,
+  freshness: "fresh" as const,
+  updatedAt: "2026-05-14T00:00:00.000Z",
 };
 
 function adset(overrides: Partial<MetaAdSetData> = {}): MetaAdSetData {
@@ -45,6 +48,65 @@ function adset(overrides: Partial<MetaAdSetData> = {}): MetaAdSetData {
   };
 }
 
+function readySignal(
+  scopeId = "adset-1",
+  overrides: Partial<MetaEntityDecisionSignal> = {},
+): MetaEntityDecisionSignal {
+  return {
+    businessId: "biz_1",
+    providerAccountId: "act_1",
+    scopeType: "adset",
+    scopeId,
+    asOfDate: "2026-05-14",
+    learningState: "OPTIMAL_LEARNING_DONE",
+    daysAtLearningState: 14,
+    lastSignificantEditAt: null,
+    daysSinceSignificantEdit: 14,
+    recentChangeCooldownUntil: null,
+    creativeAgeDays: 20,
+    creativeAgeDaysMax: 20,
+    frequencyP80: null,
+    ctrDecayPct: null,
+    sourceJson: { age_days: 20 },
+    qualityStatus: "ready",
+    ...overrides,
+  };
+}
+
+const purchaseContext: MetaCalibrationContext = {
+  thresholds: {
+    source: "calibrated",
+    hardCutSpend: 200,
+    minRequiredSample: 8,
+    metrics: {
+      ...LEGACY_META_CALIBRATION_THRESHOLDS.metrics,
+      roas_28d: {
+        p10: 0.5,
+        p25: 1.2,
+        p50: 2,
+        p75: 3,
+        p90: 4,
+        sampleSize: 20,
+      },
+      cpa_28d: {
+        p10: 40,
+        p25: 60,
+        p50: 90,
+        p75: 120,
+        p90: 180,
+        sampleSize: 20,
+      },
+    },
+  },
+  scope: {
+    type: "campaign",
+    id: "cmp-1",
+    snapshotDate: "2026-05-14",
+    cohort: "purchase",
+  },
+  cohort: "purchase",
+};
+
 const midFunnelContext: MetaCalibrationContext = {
   thresholds: {
     source: "calibrated",
@@ -52,14 +114,40 @@ const midFunnelContext: MetaCalibrationContext = {
     minRequiredSample: 8,
     metrics: {
       ...LEGACY_META_CALIBRATION_THRESHOLDS.metrics,
-      cost_per_atc_28d: { p10: 5, p25: 8, p50: 12, p75: 16, p90: 25, sampleSize: 20 },
+      cost_per_atc_28d: {
+        p10: 5,
+        p25: 8,
+        p50: 12,
+        p75: 16,
+        p90: 25,
+        sampleSize: 20,
+      },
       atc_rate_28d: { p10: 1, p25: 2, p50: 3, p75: 4, p90: 5, sampleSize: 20 },
-      atc_to_purchase_rate_28d: { p10: 1, p25: 3, p50: 6, p75: 8, p90: 11, sampleSize: 20 },
-      freq_14d: { p10: 1, p25: 1.3, p50: 1.8, p75: 2.5, p90: 3.5, sampleSize: 20 },
+      atc_to_purchase_rate_28d: {
+        p10: 1,
+        p25: 3,
+        p50: 6,
+        p75: 8,
+        p90: 11,
+        sampleSize: 20,
+      },
+      freq_14d: {
+        p10: 1,
+        p25: 1.3,
+        p50: 1.8,
+        p75: 2.5,
+        p90: 3.5,
+        sampleSize: 20,
+      },
       ctr_28d: { p10: 0.4, p25: 1, p50: 2, p75: 3, p90: 4, sampleSize: 20 },
     },
   },
-  scope: { type: "campaign", id: "cmp-1", snapshotDate: "2026-05-14", cohort: "mid_funnel" },
+  scope: {
+    type: "campaign",
+    id: "cmp-1",
+    snapshotDate: "2026-05-14",
+    cohort: "mid_funnel",
+  },
   cohort: "mid_funnel",
 };
 
@@ -70,13 +158,32 @@ const leadContext: MetaCalibrationContext = {
     minRequiredSample: 8,
     metrics: {
       ...LEGACY_META_CALIBRATION_THRESHOLDS.metrics,
-      cost_per_lead_28d: { p10: 5, p25: 10, p50: 20, p75: 30, p90: 35, sampleSize: 20 },
-      lead_to_purchase_rate_28d: { p10: 0, p25: 10, p50: 20, p75: 30, p90: 40, sampleSize: 20 },
+      cost_per_lead_28d: {
+        p10: 5,
+        p25: 10,
+        p50: 20,
+        p75: 30,
+        p90: 35,
+        sampleSize: 20,
+      },
+      lead_to_purchase_rate_28d: {
+        p10: 0,
+        p25: 10,
+        p50: 20,
+        p75: 30,
+        p90: 40,
+        sampleSize: 20,
+      },
       freq_14d: { p10: 1, p25: 1.3, p50: 2, p75: 3, p90: 4, sampleSize: 20 },
       ctr_28d: { p10: 0.4, p25: 1, p50: 2, p75: 3, p90: 4, sampleSize: 20 },
     },
   },
-  scope: { type: "campaign", id: "cmp-1", snapshotDate: "2026-05-14", cohort: "lead" },
+  scope: {
+    type: "campaign",
+    id: "cmp-1",
+    snapshotDate: "2026-05-14",
+    cohort: "lead",
+  },
   cohort: "lead",
 };
 
@@ -87,13 +194,32 @@ const trafficContext: MetaCalibrationContext = {
     minRequiredSample: 8,
     metrics: {
       ...LEGACY_META_CALIBRATION_THRESHOLDS.metrics,
-      cost_per_link_click_28d: { p10: 0.2, p25: 0.6, p50: 1.2, p75: 1.6, p90: 2.2, sampleSize: 20 },
-      cost_per_lpv_28d: { p10: 1, p25: 1.5, p50: 2, p75: 3, p90: 5, sampleSize: 20 },
+      cost_per_link_click_28d: {
+        p10: 0.2,
+        p25: 0.6,
+        p50: 1.2,
+        p75: 1.6,
+        p90: 2.2,
+        sampleSize: 20,
+      },
+      cost_per_lpv_28d: {
+        p10: 1,
+        p25: 1.5,
+        p50: 2,
+        p75: 3,
+        p90: 5,
+        sampleSize: 20,
+      },
       ctr_28d: { p10: 0.5, p25: 1, p50: 3, p75: 4, p90: 5.5, sampleSize: 20 },
       freq_14d: { p10: 1, p25: 1.3, p50: 2, p75: 3, p90: 4, sampleSize: 20 },
     },
   },
-  scope: { type: "campaign", id: "cmp-1", snapshotDate: "2026-05-14", cohort: "traffic" },
+  scope: {
+    type: "campaign",
+    id: "cmp-1",
+    snapshotDate: "2026-05-14",
+    cohort: "traffic",
+  },
   cohort: "traffic",
 };
 
@@ -104,12 +230,31 @@ const engagementContext: MetaCalibrationContext = {
     minRequiredSample: 8,
     metrics: {
       ...LEGACY_META_CALIBRATION_THRESHOLDS.metrics,
-      cost_per_engagement_28d: { p10: 0.2, p25: 0.6, p50: 1.2, p75: 1.6, p90: 2.2, sampleSize: 20 },
-      engagement_rate_28d: { p10: 0.5, p25: 1, p50: 3, p75: 4, p90: 5.5, sampleSize: 20 },
+      cost_per_engagement_28d: {
+        p10: 0.2,
+        p25: 0.6,
+        p50: 1.2,
+        p75: 1.6,
+        p90: 2.2,
+        sampleSize: 20,
+      },
+      engagement_rate_28d: {
+        p10: 0.5,
+        p25: 1,
+        p50: 3,
+        p75: 4,
+        p90: 5.5,
+        sampleSize: 20,
+      },
       freq_14d: { p10: 1, p25: 1.3, p50: 2, p75: 3, p90: 4, sampleSize: 20 },
     },
   },
-  scope: { type: "campaign", id: "cmp-1", snapshotDate: "2026-05-14", cohort: "engagement" },
+  scope: {
+    type: "campaign",
+    id: "cmp-1",
+    snapshotDate: "2026-05-14",
+    cohort: "engagement",
+  },
   cohort: "engagement",
 };
 
@@ -125,6 +270,8 @@ describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
         }),
       ],
       commercialTargets,
+      calibrationContext: purchaseContext,
+      entitySignalsByAdsetId: { "adset-1": readySignal() },
     });
 
     expect(recs.some((rec) => rec.type === "adset_cut_spend")).toBe(false);
@@ -145,6 +292,44 @@ describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
     });
 
     expect(recs.some((rec) => rec.type === "adset_cut_spend")).toBe(false);
+  });
+
+  it("does not grant hard-action authority to paused or unknown ad sets", () => {
+    for (const status of ["PAUSED", "UNKNOWN"] as const) {
+      const recs = buildMetaAdsetRecommendations({
+        adsets: [adset({ status, purchases: 12, spend: 1000, revenue: 4500, roas: 4.5, cpa: 83 })],
+        commercialTargets,
+        calibrationContext: purchaseContext,
+        entitySignalsByAdsetId: { "adset-1": readySignal() },
+      });
+
+      expect(recs.some((rec) => rec.decisionState === "act")).toBe(false);
+    }
+  });
+
+  it("does not scale when CPA is missing even if ROAS and purchases look strong", () => {
+    const recs = buildMetaAdsetRecommendations({
+      adsets: [adset({ purchases: 12, spend: 1000, revenue: 4500, roas: 4.5, cpa: 0 })],
+      commercialTargets,
+      calibrationContext: purchaseContext,
+      entitySignalsByAdsetId: { "adset-1": readySignal() },
+    });
+
+    expect(recs.some((rec) => rec.type === "adset_scale_budget")).toBe(false);
+  });
+
+  it("does not emit a hard purchase action without ready entity signals", () => {
+    const recs = buildMetaAdsetRecommendations({
+      adsets: [adset({ purchases: 12, spend: 1000, revenue: 4500, roas: 4.5, cpa: 83 })],
+      commercialTargets,
+      calibrationContext: purchaseContext,
+      entitySignalsByAdsetId: {
+        "adset-1": readySignal("adset-1", { qualityStatus: "partial" }),
+      },
+    });
+
+    expect(recs.some((rec) => rec.decisionState === "act")).toBe(false);
+    expect(recs.some((rec) => rec.type === "adset_scale_budget")).toBe(false);
   });
 
   it("still emits the existing fatigue recommendation for an ADD_TO_CART adset", () => {
@@ -183,6 +368,8 @@ describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
         }),
       ],
       commercialTargets,
+      calibrationContext: purchaseContext,
+      entitySignalsByAdsetId: { "adset-1": readySignal() },
     });
 
     const scaleRec = recs.find((rec) => rec.type === "adset_scale_budget");
@@ -215,10 +402,48 @@ describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
           cpa: 1000,
         }),
       ],
+      calibrationContext: purchaseContext,
+      entitySignalsByAdsetId: {
+        "scale-candidate": readySignal("scale-candidate"),
+        "cut-candidate": readySignal("cut-candidate"),
+      },
     });
 
     expect(recs.some((rec) => rec.type === "adset_scale_budget")).toBe(false);
     expect(recs.some((rec) => rec.type === "adset_cut_spend")).toBe(false);
+  });
+
+  it("keeps a stale break-even loss candidate visible but review-only", () => {
+    const recs = buildMetaAdsetRecommendations({
+      adsets: [
+        adset({
+          spend: 1000,
+          purchases: 1,
+          revenue: 500,
+          roas: 0.5,
+          cpa: 1000,
+        }),
+      ],
+      commercialTargets: {
+        ...commercialTargets,
+        freshness: "stale",
+      },
+      calibrationContext: purchaseContext,
+      entitySignalsByAdsetId: { "adset-1": readySignal() },
+    });
+
+    const cut = recs.find((rec) => rec.type === "adset_cut_spend");
+    expect(cut).toMatchObject({
+      decisionState: "watch",
+      signalQuality: {
+        hard_action_authority: "blocked",
+        hard_action_blocker: "commercial_target_stale",
+      },
+      automationReadiness: {
+        autoExecuteEligible: false,
+        tier: "read_only",
+      },
+    });
   });
 
   it("blocks hard purchase adset actions when signal diagnostics show click-to-LPV tracking risk", () => {
@@ -238,6 +463,7 @@ describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
         }),
       ],
       commercialTargets,
+      calibrationContext: purchaseContext,
       entitySignalsByAdsetId: {
         "scale-candidate": {
           businessId: "biz_1",
@@ -285,6 +511,9 @@ describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
           cpa: 83,
         }),
       ],
+      commercialTargets,
+      calibrationContext: purchaseContext,
+      entitySignalsByAdsetId: { "adset-1": readySignal() },
     });
 
     expect(recs.some((rec) => rec.type === "adset_scale_budget")).toBe(false);
@@ -330,7 +559,10 @@ describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
       },
     });
 
-    const rec = recs.find((candidate) => candidate.type === "scenario_m1_mid_funnel_efficient_scale");
+    const rec = recs.find(
+      (candidate) =>
+        candidate.type === "scenario_m1_mid_funnel_efficient_scale",
+    );
     expect(rec?.decisionLabel).toBe("scale");
     expect(rec?.cohort).toBe("mid_funnel");
   });
@@ -373,7 +605,9 @@ describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
       },
     });
 
-    const rec = recs.find((candidate) => candidate.type === "scenario_l1_lead_efficient_scale");
+    const rec = recs.find(
+      (candidate) => candidate.type === "scenario_l1_lead_efficient_scale",
+    );
     expect(rec?.decisionLabel).toBe("scale");
     expect(rec?.cohort).toBe("lead");
   });
@@ -419,7 +653,9 @@ describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
       },
     });
 
-    const rec = recs.find((candidate) => candidate.type === "scenario_t1_traffic_efficient_scale");
+    const rec = recs.find(
+      (candidate) => candidate.type === "scenario_t1_traffic_efficient_scale",
+    );
     expect(rec?.decisionLabel).toBe("scale");
     expect(rec?.cohort).toBe("traffic");
   });
@@ -465,8 +701,38 @@ describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
       },
     });
 
-    const rec = recs.find((candidate) => candidate.type === "scenario_eg1_engagement_efficient_scale");
+    const rec = recs.find(
+      (candidate) =>
+        candidate.type === "scenario_eg1_engagement_efficient_scale",
+    );
     expect(rec?.decisionLabel).toBe("scale");
     expect(rec?.cohort).toBe("engagement");
+  });
+
+  it("does not cut messaging optimization from post-engagement data", () => {
+    const recs = buildMetaAdsetRecommendations({
+      adsets: [
+        adset({
+          optimizationGoal: "CONVERSATIONS",
+          customEventType: null,
+          spend: 1_000,
+          postEngagement: 0,
+          purchases: 0,
+          roas: 0,
+        }),
+      ],
+      commercialTargets,
+      calibrationContextByAdsetId: {
+        "adset-1": engagementContext,
+      },
+    });
+
+    expect(
+      recs.some(
+        (candidate) =>
+          candidate.type === "scenario_eg3_engagement_inefficient_cut" ||
+          candidate.type === "adset_cut_spend",
+      ),
+    ).toBe(false);
   });
 });

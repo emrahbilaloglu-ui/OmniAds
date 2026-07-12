@@ -6,6 +6,10 @@ import { MOCK_SHARE_PAYLOAD } from "@/components/creatives/shareCreativeMock";
 import { getCreativeShareSnapshot } from "@/lib/creative-share-store";
 import { getLanguageFromCookieValue, LANGUAGE_COOKIE_NAME } from "@/lib/i18n";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
+
 export const metadata: Metadata = {
   title: "Shared Creatives",
   robots: { index: false, follow: false },

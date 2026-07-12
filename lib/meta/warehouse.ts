@@ -5818,7 +5818,7 @@ export async function listMetaRawSnapshotsForRun(input: {
     WHERE partition_id = ${input.partitionId}
       AND run_id = ${input.runId}
       AND endpoint_name = ${input.endpointName}
-    ORDER BY COALESCE(page_index, 0) ASC, fetched_at ASC
+    ORDER BY fetched_at ASC, id ASC
   ` as unknown) as Array<{
     id: string;
     page_index: number | null;

@@ -169,6 +169,7 @@ export function serverActionKindForRec(
   >,
 ): MetaRecActionKind {
   if (rec.kind === "anomaly" || rec.kind === "state") return "review_drill";
+  if (rec.decisionState !== "act") return "review_drill";
   if (rec.proposedAction?.kind === "pause") return "execute_pause";
   if (rec.proposedAction?.kind === "resume") return "execute_resume";
   if (rec.proposedAction?.kind === "apply_bid") return "execute_bid";

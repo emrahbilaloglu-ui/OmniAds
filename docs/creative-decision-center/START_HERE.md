@@ -71,7 +71,9 @@ Generated artifacts are planning and shadow-validation context. They are not pro
 
 - UI must not compute buyerAction.
 - No row-level brief_variation.
-- Missing data means `diagnose_data` or capped confidence.
+- Missing data may remain persisted as legacy `diagnose` / `diagnose_data`,
+  but buyer-facing Meta Decisions must serve it as a blocked resolution with a
+  nullable buyer action. See D035.
 - No high-confidence scale/cut on stale or missing data.
 - Policy and delivery blockers override performance.
 - Campaign/adset paused must not become `fix_delivery`.

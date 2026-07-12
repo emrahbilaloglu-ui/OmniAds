@@ -29,6 +29,44 @@ describe("targetResolutionGate", () => {
     expect(ctx.confidenceDeltas).toEqual([]);
   });
 
+  it("keeps a stale target visible but reduces its decision authority", () => {
+    const ctx = advanceContext(
+      targetResolutionGate(
+        makeGateContext({
+          input: makeCreativeInput({
+            targetRoas: 2.2,
+            commercialTargetFreshness: "stale",
+          }),
+        }),
+      ),
+    );
+
+    expect(ctx.truthSource).toBe("commercial_truth_stale");
+    expect(ctx.effectiveTargetRoas).toBe(2.2);
+    expect(ctx.badges).toContainEqual({
+      type: "truth_commercial_stale",
+      label: "Target stale - reduced authority",
+      severity: "warning",
+    });
+    expect(ctx.confidenceDeltas).toEqual([-15]);
+  });
+
+  it("treats unknown target freshness as stale-equivalent", () => {
+    const ctx = advanceContext(
+      targetResolutionGate(
+        makeGateContext({
+          input: makeCreativeInput({
+            targetRoas: 2.2,
+            commercialTargetFreshness: "unknown",
+          }),
+        }),
+      ),
+    );
+
+    expect(ctx.truthSource).toBe("commercial_truth_stale");
+    expect(ctx.confidenceDeltas).toEqual([-15]);
+  });
+
   it("falls back to mature account P75 baseline", () => {
     const ctx = advanceContext(
       targetResolutionGate(

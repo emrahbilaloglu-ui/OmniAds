@@ -222,17 +222,54 @@ function resolveSpendUnitProfile(input: {
       input.attributionAovAdjustmentMultiplier,
   });
 
+  const freshness = input.targetPack?.freshness ?? "unknown";
+  const targetUpdatedAt = input.targetPack?.updatedAt ?? null;
+  const commercialTruthFresh =
+    freshness === "fresh" &&
+    typeof targetUpdatedAt === "string" &&
+    Number.isFinite(Date.parse(targetUpdatedAt));
+  const usesCommercialThreshold =
+    resolution.source === "target_cpa" ||
+    resolution.source === "operator_aov" ||
+    resolution.source === "meta_derived_aov" ||
+    resolution.source === "break_even_aov";
+  const commercialThresholdHasReducedAuthority =
+    input.targetPack !== null &&
+    !commercialTruthFresh &&
+    usesCommercialThreshold;
+
   return {
     spendUnit: resolution.spendUnit,
     spendUnitSource: resolution.source,
-    spendUnitConfidence: resolution.confidence,
-    spendUnitEvidence: resolution.evidence,
-    hardEligibleByDefault: resolution.hardEligibleByDefault,
+    spendUnitConfidence: commercialThresholdHasReducedAuthority
+      ? "low"
+      : resolution.confidence,
+    spendUnitEvidence: commercialThresholdHasReducedAuthority
+      ? {
+          ...resolution.evidence,
+          confidenceBeforeFreshness: resolution.confidence,
+          warnings: Array.from(
+            new Set([
+              ...resolution.evidence.warnings,
+              freshness === "stale"
+                ? "commercial_target_stale"
+                : "commercial_target_freshness_unknown",
+            ]),
+          ),
+        }
+      : {
+          ...resolution.evidence,
+          confidenceBeforeFreshness: resolution.confidence,
+        },
+    hardEligibleByDefault:
+      resolution.hardEligibleByDefault &&
+      !commercialThresholdHasReducedAuthority,
   };
 }
 
 function resolveHardActionEligibility(input: {
   spendUnitProfile: SpendUnitProfile;
+  targetPack: BusinessTargetPack | null;
   metaAovQuality: MetaAovQuality;
   calibrationReady: boolean;
   shadowOnly: boolean;
@@ -256,24 +293,39 @@ function resolveHardActionEligibility(input: {
     (input.spendUnitProfile.spendUnitConfidence === "high" ||
       (input.spendUnitProfile.spendUnitConfidence === "medium" &&
         input.metaAovQuality === "ready"));
+  const targetUpdatedAt = input.targetPack?.updatedAt ?? null;
+  const targetPackFresh =
+    input.targetPack?.freshness === "fresh" &&
+    typeof targetUpdatedAt === "string" &&
+    Number.isFinite(Date.parse(targetUpdatedAt));
+  const scaleAnchorEligible =
+    targetPackFresh && positiveFinite(input.targetPack?.targetRoas ?? null);
+  const cutAnchorEligible =
+    targetPackFresh && positiveFinite(input.targetPack?.breakEvenRoas ?? null);
   const refreshEligible = commercialThresholdEligible;
-  const scaleEligible = commercialThresholdEligible && input.calibrationReady;
+  const scaleEligible =
+    commercialThresholdEligible && input.calibrationReady && scaleAnchorEligible;
   const scaleReason = scaleEligible
     ? null
-    : !input.calibrationReady
-      ? "scale calibration sample is below automation-quality floor"
-      : hardActionReason({
+    : !commercialThresholdEligible
+      ? hardActionReason({
           source: input.spendUnitProfile.spendUnitSource,
           confidence: input.spendUnitProfile.spendUnitConfidence,
           metaAovQuality: input.metaAovQuality,
-        });
-  const cutReason = commercialThresholdEligible
+        })
+      : !scaleAnchorEligible
+        ? "fresh explicit target ROAS is required for scale authority"
+        : "scale calibration sample is below automation-quality floor";
+  const cutEligible = commercialThresholdEligible && cutAnchorEligible;
+  const cutReason = cutEligible
     ? null
-    : hardActionReason({
-        source: input.spendUnitProfile.spendUnitSource,
-        confidence: input.spendUnitProfile.spendUnitConfidence,
-        metaAovQuality: input.metaAovQuality,
-      });
+    : !commercialThresholdEligible
+      ? hardActionReason({
+          source: input.spendUnitProfile.spendUnitSource,
+          confidence: input.spendUnitProfile.spendUnitConfidence,
+          metaAovQuality: input.metaAovQuality,
+        })
+      : "fresh explicit break-even ROAS is required for cut authority";
   const refreshReason = refreshEligible
     ? null
     : hardActionReason({
@@ -286,12 +338,12 @@ function resolveHardActionEligibility(input: {
     cut: cutReason,
     refresh: refreshReason,
   };
-  const hardEligible = scaleEligible && commercialThresholdEligible && refreshEligible;
+  const hardEligible = scaleEligible && cutEligible && refreshEligible;
   const firstBlockedReason = scaleReason ?? cutReason ?? refreshReason;
 
   return {
     scale: scaleEligible,
-    cut: commercialThresholdEligible,
+    cut: cutEligible,
     refresh: refreshEligible,
     reason: hardEligible ? null : firstBlockedReason,
     reasons,
@@ -330,7 +382,9 @@ export async function resolveAccountDecisionProfile(input: {
 }): Promise<AccountDecisionProfile> {
   const targetPack = await input.dataSource.getBusinessTargetPack({
     businessId: input.businessId,
+    asOf: input.asOf,
   });
+  const commercialTruthFreshness = targetPack?.freshness ?? "unknown";
   const profileConfig = await input.dataSource.getDecisionCalibrationProfile({
     businessId: input.businessId,
     channel: "meta",
@@ -449,6 +503,7 @@ export async function resolveAccountDecisionProfile(input: {
   });
   const finalHardActionEligibility = resolveHardActionEligibility({
     spendUnitProfile: canonicalSpendUnitProfile,
+    targetPack,
     metaAovQuality,
     calibrationReady:
       accountBaselines.matureCreativeCount >= MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
@@ -492,6 +547,7 @@ export async function resolveAccountDecisionProfile(input: {
       });
       hardActionEligibilityByKind[campaignKind] = resolveHardActionEligibility({
         spendUnitProfile,
+        targetPack,
         metaAovQuality: calibration.metaAovQuality,
         calibrationReady:
           calibration.matureCreativeCount >= MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
@@ -523,7 +579,11 @@ export async function resolveAccountDecisionProfile(input: {
     scope: scopedCalibration.scope,
     hardActionEligibility: finalHardActionEligibility,
     quality: {
-      commercialTruthReady: positiveFinite(targetPack?.targetRoas ?? null),
+      commercialTruthReady:
+        commercialTruthFreshness === "fresh" &&
+        positiveFinite(targetPack?.targetRoas ?? null) &&
+        positiveFinite(targetPack?.breakEvenRoas ?? null),
+      commercialTruthFreshness,
       calibrationReady:
         accountBaselines.matureCreativeCount >=
         MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,

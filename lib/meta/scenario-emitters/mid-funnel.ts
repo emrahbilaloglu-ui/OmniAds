@@ -1,6 +1,11 @@
 import type { MetaAdSetData } from "@/lib/api/meta";
 import { LEGACY_META_CALIBRATION_THRESHOLDS, type MetaCalibrationMetricName, type MetaMetricPercentiles } from "@/lib/meta/calibration";
 import { META_RECOMMENDATION_ENGINE_VERSION, type MetaRecommendation } from "@/lib/meta/recommendations";
+import {
+  evaluateCohortEvidence,
+  hasCohortFatigueEvidence,
+  type CohortEvidenceProfile,
+} from "@/lib/meta/scenario-emitters/cohort-evidence";
 import type { AdsetScenarioInput } from "@/lib/meta/scenario-emitters/high-priority";
 import { percentileRank, percentileRankInverted } from "@/lib/meta/scenario-emitters/scoring-utils";
 
@@ -16,7 +21,8 @@ function currencySymbol(currency: string | null | undefined) {
   return "$";
 }
 
-function fmtCurrency(value: number, currency: string | null | undefined) {
+function fmtCurrency(value: number | null, currency: string | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "No events";
   return `${currencySymbol(currency)}${value.toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -31,21 +37,14 @@ function fmtScore(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
-function confidenceFromScore(score: number): MetaRecommendation["confidence"] {
-  if (score >= 0.85 || score <= 0.15) return "high";
-  if ((score >= 0.7 && score < 0.85) || (score > 0.15 && score <= 0.3)) {
-    return "medium";
-  }
-  return "low";
-}
-
-function confidenceScoreFromScore(score: number) {
-  return r2(score >= 0.5 ? score : 1 - score);
-}
-
 function numberField(adset: MetaAdSetData, key: keyof MetaAdSetData) {
   const value = adset[key];
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function observedNumberField(adset: MetaAdSetData, key: keyof MetaAdSetData) {
+  const value = adset[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function threshold(
@@ -79,9 +78,9 @@ function midFunnelMetricKind(adset: MetaAdSetData): MidFunnelMetricKind {
 }
 
 function eventCount(adset: MetaAdSetData, kind: MidFunnelMetricKind) {
-  if (kind === "ic") return numberField(adset, "initiateCheckout");
-  if (kind === "vc") return numberField(adset, "viewContent");
-  return numberField(adset, "addToCart");
+  if (kind === "ic") return observedNumberField(adset, "initiateCheckout");
+  if (kind === "vc") return observedNumberField(adset, "viewContent");
+  return observedNumberField(adset, "addToCart");
 }
 
 function costThresholdNames(kind: MidFunnelMetricKind): MetaCalibrationMetricName[] {
@@ -114,20 +113,16 @@ function ageDays(input: AdsetScenarioInput) {
   return null;
 }
 
-function isMature(input: AdsetScenarioInput) {
-  const age = ageDays(input);
-  if (age == null || age < 14) return false;
-  return true;
-}
-
 function adsetFrequency(adset: MetaAdSetData) {
   return numberField(adset, "frequency");
 }
 
 function hasFatigue(input: AdsetScenarioInput) {
-  const frequencyThreshold = threshold(input, "freq_14d")?.p75 ?? 2.5;
-  const ctrThreshold = threshold(input, "ctr_28d")?.p25 ?? LEGACY_META_CALIBRATION_THRESHOLDS.metrics.ctr_28d.p25;
-  return adsetFrequency(input.adset) > frequencyThreshold && input.adset.ctr > 0 && input.adset.ctr < ctrThreshold;
+  return hasCohortFatigueEvidence({
+    context: input.context,
+    frequency: adsetFrequency(input.adset),
+    ctrDecayPct: input.signals?.ctrDecayPct,
+  });
 }
 
 function baseMidFunnelRecommendation(input: {
@@ -142,6 +137,7 @@ function baseMidFunnelRecommendation(input: {
   recommendedAction: string;
   expectedImpact: string;
   score: number;
+  evidenceProfile: CohortEvidenceProfile;
   evidence: MetaRecommendation["evidence"];
   targetValue?: unknown;
 }): MetaRecommendation {
@@ -157,8 +153,8 @@ function baseMidFunnelRecommendation(input: {
     decisionLabel: input.decisionLabel,
     lens: input.decisionLabel === "cut" ? "profitability" : "volume",
     priority: input.priority,
-    confidence: confidenceFromScore(input.score),
-    confidenceScore: confidenceScoreFromScore(input.score),
+    confidence: input.evidenceProfile.confidence,
+    confidenceScore: input.evidenceProfile.confidenceScore,
     confidenceReason: null,
     decisionState: input.decisionState,
     decision: input.title,
@@ -195,28 +191,35 @@ export function emitMidFunnelAdsetScenario(input: AdsetScenarioInput): MetaRecom
 
   const kind = midFunnelMetricKind(input.adset);
   const count = eventCount(input.adset, kind);
+  if (count == null) return null;
   const costThreshold = firstThreshold(input, costThresholdNames(kind));
   const rateThreshold = threshold(input, "atc_rate_28d");
   const purchaseRateThreshold = threshold(input, "atc_to_purchase_rate_28d");
   if (!costThreshold || !rateThreshold || !purchaseRateThreshold) return null;
-  if (input.adset.spend <= 0 || count <= 0) return null;
+  if (input.adset.spend <= 0) return null;
 
-  const costPerEvent = input.adset.spend / count;
+  const costPerEvent = count > 0 ? input.adset.spend / count : Number.POSITIVE_INFINITY;
   const eventRate = input.adset.impressions > 0 ? (count / input.adset.impressions) * 100 : 0;
   const eventToPurchaseRate = count > 0 ? (input.adset.purchases / count) * 100 : 0;
-  const costRank = percentileRankInverted(costPerEvent, costThreshold);
+  const costRank = count > 0 ? percentileRankInverted(costPerEvent, costThreshold) : 0;
   const rateRank = percentileRank(eventRate, rateThreshold);
   const purchaseRank = percentileRank(eventToPurchaseRate, purchaseRateThreshold);
   if (costRank == null || rateRank == null || purchaseRank == null) return null;
 
   const score = r2((0.5 * costRank) + (0.2 * rateRank) + (0.3 * purchaseRank));
   const currency = (input.adset as MetaAdSetData & { currency?: string | null }).currency ?? null;
-  const mature = isMature(input);
   const age = ageDays(input);
+  const evidenceProfile = evaluateCohortEvidence({
+    context: input.context,
+    score,
+    eventCount: count,
+    spend: input.adset.spend,
+    ageDays: age,
+  });
   const event = eventLabel(kind);
   const evidence: MetaRecommendation["evidence"] = [
     { label: "Mid-funnel score", value: fmtScore(score), tone: score >= 0.7 ? "positive" : score < 0.3 ? "warning" : "neutral" },
-    { label: costMetricLabel(kind), value: fmtCurrency(costPerEvent, currency), tone: costRank >= 0.7 ? "positive" : costRank <= 0.3 ? "warning" : "neutral" },
+    { label: costMetricLabel(kind), value: fmtCurrency(Number.isFinite(costPerEvent) ? costPerEvent : null, currency), tone: costRank >= 0.7 ? "positive" : costRank <= 0.3 ? "warning" : "neutral" },
     { label: `${event} rate`, value: fmtPercent(eventRate), tone: rateRank >= 0.7 ? "positive" : rateRank <= 0.3 ? "warning" : "neutral" },
     { label: `${event} to purchase`, value: fmtPercent(eventToPurchaseRate), tone: purchaseRank >= 0.7 ? "positive" : purchaseRank <= 0.3 ? "warning" : "neutral" },
   ];
@@ -230,7 +233,7 @@ export function emitMidFunnelAdsetScenario(input: AdsetScenarioInput): MetaRecom
     age_days: age,
   };
 
-  if (score >= 0.7 && mature) {
+  if (score >= 0.7 && evidenceProfile.scaleMature) {
     return baseMidFunnelRecommendation({
       scenarioType: "scenario_m1_mid_funnel_efficient_scale",
       decisionLabel: "scale",
@@ -244,11 +247,12 @@ export function emitMidFunnelAdsetScenario(input: AdsetScenarioInput): MetaRecom
       expectedImpact: "More mid-funnel signal volume while staying inside cohort-calibrated efficiency bands.",
       evidence,
       score,
+      evidenceProfile,
       targetValue,
     });
   }
 
-  if (score < 0.3 && mature && input.adset.spend > (input.context?.thresholds.hardCutSpend ?? LEGACY_META_CALIBRATION_THRESHOLDS.hardCutSpend)) {
+  if (score < 0.3 && evidenceProfile.cutMature) {
     return baseMidFunnelRecommendation({
       scenarioType: "scenario_m3_mid_funnel_inefficient_cut",
       decisionLabel: "cut",
@@ -262,6 +266,7 @@ export function emitMidFunnelAdsetScenario(input: AdsetScenarioInput): MetaRecom
       expectedImpact: "Stops spend from compounding into weak mid-funnel traffic.",
       evidence,
       score,
+      evidenceProfile,
       targetValue,
     });
   }
@@ -284,12 +289,12 @@ export function emitMidFunnelAdsetScenario(input: AdsetScenarioInput): MetaRecom
         { label: "CTR", value: fmtPercent(input.adset.ctr), tone: "warning" },
       ],
       score,
+      evidenceProfile,
       targetValue,
     });
   }
 
-  if (score >= 0.5) {
-    return baseMidFunnelRecommendation({
+  return baseMidFunnelRecommendation({
       scenarioType: "scenario_m2_mid_funnel_steady_keep",
       decisionLabel: "keep",
       decisionState: "watch",
@@ -302,9 +307,7 @@ export function emitMidFunnelAdsetScenario(input: AdsetScenarioInput): MetaRecom
       expectedImpact: "Preserves useful mid-funnel signal while avoiding premature budget moves.",
       evidence,
       score,
+      evidenceProfile,
       targetValue,
-    });
-  }
-
-  return null;
+  });
 }

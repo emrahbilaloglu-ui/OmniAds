@@ -15,6 +15,7 @@ import { getBusinessGuardFailure } from "./business-guard";
 import { ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS } from "./job-runtime";
 
 export const JOB_NAME = "engine_v3_calibration_job";
+export const FUNNEL_METRIC_SAMPLE_FLOOR = 20;
 const ACCOUNT_SCOPE_TYPE = "account";
 const CAMPAIGN_SCOPE_TYPE = "campaign";
 const ACCOUNT_SCOPE_ID = "*";
@@ -175,10 +176,16 @@ type CampaignScopeRow = Record<string, unknown> & {
 const COMPUTE_CALIBRATION_QUERY = `
 WITH target_pack AS (
   SELECT target_roas
-  FROM business_target_packs
-  WHERE business_id = $2::uuid
-  ORDER BY updated_at DESC
-  LIMIT 1
+  FROM (
+    SELECT *
+    FROM business_target_pack_history
+    WHERE business_id = $2::uuid
+      AND effective_at < ($1::date + INTERVAL '1 day')
+      AND recorded_at < ($1::date + INTERVAL '1 day')
+    ORDER BY effective_at DESC, recorded_at DESC, id DESC
+    LIMIT 1
+  ) target_history
+  WHERE operation = 'upsert'
 ),
 per_creative_raw AS (
   SELECT
@@ -343,24 +350,79 @@ percentiles AS (
 ),
 funnel_percentiles AS (
   SELECT
-    (SELECT percentile_cont(0.25) WITHIN GROUP (ORDER BY ctr_rate) FROM scoped_per_creative WHERE ctr_rate IS NOT NULL) AS ctr_p25,
-    (SELECT percentile_cont(0.50) WITHIN GROUP (ORDER BY ctr_rate) FROM scoped_per_creative WHERE ctr_rate IS NOT NULL) AS ctr_p50,
-    (SELECT percentile_cont(0.50) WITHIN GROUP (ORDER BY cpm) FROM scoped_per_creative WHERE cpm IS NOT NULL) AS cpm_p50,
-    (SELECT percentile_cont(0.75) WITHIN GROUP (ORDER BY cpm) FROM scoped_per_creative WHERE cpm IS NOT NULL) AS cpm_p75,
-    (SELECT percentile_cont(0.25) WITHIN GROUP (ORDER BY thumbstop_rate) FROM scoped_per_creative WHERE thumbstop_rate IS NOT NULL) AS thumbstop_p25,
-    (SELECT percentile_cont(0.50) WITHIN GROUP (ORDER BY thumbstop_rate) FROM scoped_per_creative WHERE thumbstop_rate IS NOT NULL) AS thumbstop_p50,
-    (SELECT percentile_cont(0.25) WITHIN GROUP (ORDER BY link_to_lpv_rate) FROM scoped_per_creative WHERE link_to_lpv_rate IS NOT NULL) AS link_to_lpv_p25,
-    (SELECT percentile_cont(0.50) WITHIN GROUP (ORDER BY link_to_lpv_rate) FROM scoped_per_creative WHERE link_to_lpv_rate IS NOT NULL) AS link_to_lpv_p50,
-    (SELECT percentile_cont(0.25) WITHIN GROUP (ORDER BY link_to_atc_rate) FROM scoped_per_creative WHERE link_to_atc_rate IS NOT NULL) AS link_to_atc_p25,
-    (SELECT percentile_cont(0.50) WITHIN GROUP (ORDER BY link_to_atc_rate) FROM scoped_per_creative WHERE link_to_atc_rate IS NOT NULL) AS link_to_atc_p50,
-    (SELECT percentile_cont(0.25) WITHIN GROUP (ORDER BY lpv_to_atc_rate) FROM scoped_per_creative WHERE lpv_to_atc_rate IS NOT NULL) AS lpv_to_atc_p25,
-    (SELECT percentile_cont(0.50) WITHIN GROUP (ORDER BY lpv_to_atc_rate) FROM scoped_per_creative WHERE lpv_to_atc_rate IS NOT NULL) AS lpv_to_atc_p50,
-    (SELECT percentile_cont(0.25) WITHIN GROUP (ORDER BY atc_to_ic_rate) FROM scoped_per_creative WHERE atc_to_ic_rate IS NOT NULL) AS atc_to_ic_p25,
-    (SELECT percentile_cont(0.50) WITHIN GROUP (ORDER BY atc_to_ic_rate) FROM scoped_per_creative WHERE atc_to_ic_rate IS NOT NULL) AS atc_to_ic_p50,
-    (SELECT percentile_cont(0.25) WITHIN GROUP (ORDER BY ic_to_purchase_rate) FROM scoped_per_creative WHERE ic_to_purchase_rate IS NOT NULL) AS ic_to_purchase_p25,
-    (SELECT percentile_cont(0.50) WITHIN GROUP (ORDER BY ic_to_purchase_rate) FROM scoped_per_creative WHERE ic_to_purchase_rate IS NOT NULL) AS ic_to_purchase_p50,
-    (SELECT percentile_cont(0.25) WITHIN GROUP (ORDER BY click_to_purchase_rate) FROM scoped_per_creative WHERE click_to_purchase_rate IS NOT NULL) AS click_to_purchase_p25,
-    (SELECT percentile_cont(0.50) WITHIN GROUP (ORDER BY click_to_purchase_rate) FROM scoped_per_creative WHERE click_to_purchase_rate IS NOT NULL) AS click_to_purchase_p50
+    CASE WHEN COUNT(ctr_rate) >= ${FUNNEL_METRIC_SAMPLE_FLOOR}
+      THEN percentile_cont(0.25) WITHIN GROUP (ORDER BY ctr_rate)
+        FILTER (WHERE ctr_rate IS NOT NULL)
+    END AS ctr_p25,
+    CASE WHEN COUNT(ctr_rate) >= ${FUNNEL_METRIC_SAMPLE_FLOOR}
+      THEN percentile_cont(0.50) WITHIN GROUP (ORDER BY ctr_rate)
+        FILTER (WHERE ctr_rate IS NOT NULL)
+    END AS ctr_p50,
+    CASE WHEN COUNT(cpm) >= ${FUNNEL_METRIC_SAMPLE_FLOOR}
+      THEN percentile_cont(0.50) WITHIN GROUP (ORDER BY cpm)
+        FILTER (WHERE cpm IS NOT NULL)
+    END AS cpm_p50,
+    CASE WHEN COUNT(cpm) >= ${FUNNEL_METRIC_SAMPLE_FLOOR}
+      THEN percentile_cont(0.75) WITHIN GROUP (ORDER BY cpm)
+        FILTER (WHERE cpm IS NOT NULL)
+    END AS cpm_p75,
+    CASE WHEN COUNT(thumbstop_rate) >= ${FUNNEL_METRIC_SAMPLE_FLOOR}
+      THEN percentile_cont(0.25) WITHIN GROUP (ORDER BY thumbstop_rate)
+        FILTER (WHERE thumbstop_rate IS NOT NULL)
+    END AS thumbstop_p25,
+    CASE WHEN COUNT(thumbstop_rate) >= ${FUNNEL_METRIC_SAMPLE_FLOOR}
+      THEN percentile_cont(0.50) WITHIN GROUP (ORDER BY thumbstop_rate)
+        FILTER (WHERE thumbstop_rate IS NOT NULL)
+    END AS thumbstop_p50,
+    CASE WHEN COUNT(link_to_lpv_rate) >= ${FUNNEL_METRIC_SAMPLE_FLOOR}
+      THEN percentile_cont(0.25) WITHIN GROUP (ORDER BY link_to_lpv_rate)
+        FILTER (WHERE link_to_lpv_rate IS NOT NULL)
+    END AS link_to_lpv_p25,
+    CASE WHEN COUNT(link_to_lpv_rate) >= ${FUNNEL_METRIC_SAMPLE_FLOOR}
+      THEN percentile_cont(0.50) WITHIN GROUP (ORDER BY link_to_lpv_rate)
+        FILTER (WHERE link_to_lpv_rate IS NOT NULL)
+    END AS link_to_lpv_p50,
+    CASE WHEN COUNT(link_to_atc_rate) >= ${FUNNEL_METRIC_SAMPLE_FLOOR}
+      THEN percentile_cont(0.25) WITHIN GROUP (ORDER BY link_to_atc_rate)
+        FILTER (WHERE link_to_atc_rate IS NOT NULL)
+    END AS link_to_atc_p25,
+    CASE WHEN COUNT(link_to_atc_rate) >= ${FUNNEL_METRIC_SAMPLE_FLOOR}
+      THEN percentile_cont(0.50) WITHIN GROUP (ORDER BY link_to_atc_rate)
+        FILTER (WHERE link_to_atc_rate IS NOT NULL)
+    END AS link_to_atc_p50,
+    CASE WHEN COUNT(lpv_to_atc_rate) >= ${FUNNEL_METRIC_SAMPLE_FLOOR}
+      THEN percentile_cont(0.25) WITHIN GROUP (ORDER BY lpv_to_atc_rate)
+        FILTER (WHERE lpv_to_atc_rate IS NOT NULL)
+    END AS lpv_to_atc_p25,
+    CASE WHEN COUNT(lpv_to_atc_rate) >= ${FUNNEL_METRIC_SAMPLE_FLOOR}
+      THEN percentile_cont(0.50) WITHIN GROUP (ORDER BY lpv_to_atc_rate)
+        FILTER (WHERE lpv_to_atc_rate IS NOT NULL)
+    END AS lpv_to_atc_p50,
+    CASE WHEN COUNT(atc_to_ic_rate) >= ${FUNNEL_METRIC_SAMPLE_FLOOR}
+      THEN percentile_cont(0.25) WITHIN GROUP (ORDER BY atc_to_ic_rate)
+        FILTER (WHERE atc_to_ic_rate IS NOT NULL)
+    END AS atc_to_ic_p25,
+    CASE WHEN COUNT(atc_to_ic_rate) >= ${FUNNEL_METRIC_SAMPLE_FLOOR}
+      THEN percentile_cont(0.50) WITHIN GROUP (ORDER BY atc_to_ic_rate)
+        FILTER (WHERE atc_to_ic_rate IS NOT NULL)
+    END AS atc_to_ic_p50,
+    CASE WHEN COUNT(ic_to_purchase_rate) >= ${FUNNEL_METRIC_SAMPLE_FLOOR}
+      THEN percentile_cont(0.25) WITHIN GROUP (ORDER BY ic_to_purchase_rate)
+        FILTER (WHERE ic_to_purchase_rate IS NOT NULL)
+    END AS ic_to_purchase_p25,
+    CASE WHEN COUNT(ic_to_purchase_rate) >= ${FUNNEL_METRIC_SAMPLE_FLOOR}
+      THEN percentile_cont(0.50) WITHIN GROUP (ORDER BY ic_to_purchase_rate)
+        FILTER (WHERE ic_to_purchase_rate IS NOT NULL)
+    END AS ic_to_purchase_p50,
+    CASE WHEN COUNT(click_to_purchase_rate) >= ${FUNNEL_METRIC_SAMPLE_FLOOR}
+      THEN percentile_cont(0.25) WITHIN GROUP (ORDER BY click_to_purchase_rate)
+        FILTER (WHERE click_to_purchase_rate IS NOT NULL)
+    END AS click_to_purchase_p25,
+    CASE WHEN COUNT(click_to_purchase_rate) >= ${FUNNEL_METRIC_SAMPLE_FLOOR}
+      THEN percentile_cont(0.50) WITHIN GROUP (ORDER BY click_to_purchase_rate)
+        FILTER (WHERE click_to_purchase_rate IS NOT NULL)
+    END AS click_to_purchase_p50
+  FROM scoped_per_creative
 ),
 winner_percentiles AS (
   SELECT

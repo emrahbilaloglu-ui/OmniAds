@@ -6,7 +6,9 @@ import { metaAnomaly, metaRec } from "@/components/meta/redesign/test-fixtures";
 
 describe("MetaActionCard lean decision row", () => {
   it("renders the entity, server decision label, chips, and a single confidence band pill", () => {
-    const html = renderToStaticMarkup(<MetaActionCard rec={metaRec()} selected onSelect={() => undefined} />);
+    const html = renderToStaticMarkup(
+      <MetaActionCard rec={metaRec()} selected onSelect={() => undefined} />,
+    );
     // Entity name (scope), not the long engine title, leads the row.
     expect(html).toContain("ASC Prospecting");
     expect(html).not.toContain("ASC Prospecting needs a cleaner rebuild");
@@ -15,10 +17,10 @@ describe("MetaActionCard lean decision row", () => {
     // Descriptor chips stay on the row, capped.
     expect(html).toContain("Prospecting Scale");
     expect(html).toContain("Lowest Cost");
-    // ONE confidence band pill carrying the server band + score.
+    // ONE confidence band pill. Numeric confidence stays in the inspector.
     expect(html).toContain('data-confidence-band="high"');
     expect(html).toContain("High");
-    expect(html).toContain("0.82");
+    expect(html).not.toContain("0.82");
     // Heavy card affordances are gone from the row.
     expect(html).not.toContain("metric-strip");
     expect(html).toContain('data-card="meta-action"');
@@ -27,7 +29,11 @@ describe("MetaActionCard lean decision row", () => {
   it("caps visible descriptor chips at three with a +N overflow", () => {
     const html = renderToStaticMarkup(
       <MetaActionCard
-        rec={metaRec({ campaignRole: "prospecting_scale", bidRegime: "lowest_cost", cohort: "upper_funnel" })}
+        rec={metaRec({
+          campaignRole: "prospecting_scale",
+          bidRegime: "lowest_cost",
+          cohort: "upper_funnel",
+        })}
       />,
     );
     // role + bidRegime + cohort = 3 visible, no overflow badge.
@@ -42,7 +48,15 @@ describe("MetaActionCard lean decision row", () => {
       <MetaActionCard
         moneyCurrency="EUR"
         targetRoas={2}
-        rec={metaRec({ metrics: { spend: 412, roas: 0.6, cpa: 38, purchases: 10, frequency: 3.8 } })}
+        rec={metaRec({
+          metrics: {
+            spend: 412,
+            roas: 0.6,
+            cpa: 38,
+            purchases: 10,
+            frequency: 3.8,
+          },
+        })}
       />,
     );
     expect(html).toContain("data-money-at-stake");
@@ -52,7 +66,9 @@ describe("MetaActionCard lean decision row", () => {
   });
 
   it("never fabricates a money figure — missing metrics render an em dash", () => {
-    const html = renderToStaticMarkup(<MetaActionCard rec={metaRec({ metrics: null })} />);
+    const html = renderToStaticMarkup(
+      <MetaActionCard rec={metaRec({ metrics: null })} />,
+    );
     const start = html.indexOf("data-money-at-stake");
     const stake = html.slice(start, html.indexOf("</span>", start));
     expect(stake).toContain("—");
@@ -63,9 +79,19 @@ describe("MetaActionCard lean decision row", () => {
       <MetaActionCard
         moneyCurrency="TRY"
         rec={metaRec({
-          metrics: { spend: 1250, roas: 3.2, cpa: 21.5, purchases: 44, frequency: 1.8 },
+          metrics: {
+            spend: 1250,
+            roas: 3.2,
+            cpa: 21.5,
+            purchases: 44,
+            frequency: 1.8,
+          },
           evidence: [
-            { label: "Spend", value: "$999,999 STALE DISPLAY", tone: "neutral" },
+            {
+              label: "Spend",
+              value: "$999,999 STALE DISPLAY",
+              tone: "neutral",
+            },
             { label: "ROAS", value: "0.01x STALE", tone: "warning" },
           ],
         })}
@@ -78,18 +104,25 @@ describe("MetaActionCard lean decision row", () => {
   });
 
   it("renders operator response telemetry badges", () => {
-    const acted = renderToStaticMarkup(<MetaActionCard rec={metaRec()} responseState="acted" />);
+    const acted = renderToStaticMarkup(
+      <MetaActionCard rec={metaRec()} responseState="acted" />,
+    );
     expect(acted).toContain('data-operator-response="acted"');
     expect(acted).toContain("Acted");
 
-    const ignored = renderToStaticMarkup(<MetaActionCard rec={metaRec()} responseState="ignored" />);
+    const ignored = renderToStaticMarkup(
+      <MetaActionCard rec={metaRec()} responseState="ignored" />,
+    );
     expect(ignored).toContain('data-operator-response="ignored"');
     expect(ignored).toContain("Ignored");
   });
 
   it("disables the primary action after a verified acted response", () => {
     const html = renderToStaticMarkup(
-      <MetaActionCard rec={metaRec({ type: "adset_cut_spend" })} responseState="acted" />,
+      <MetaActionCard
+        rec={metaRec({ type: "adset_cut_spend" })}
+        responseState="acted"
+      />,
     );
     expect(html).toContain('disabled=""');
     expect(html).toContain("Paused");
@@ -117,7 +150,11 @@ describe("MetaActionCard lean decision row", () => {
     const html = renderToStaticMarkup(
       <MetaActionCard
         rec={metaRec({ type: "adset_cut_spend" })}
-        actionFeedback={{ tone: "success", title: "Ad set paused in Meta.", detail: "Meta verified the ad set status." }}
+        actionFeedback={{
+          tone: "success",
+          title: "Ad set paused in Meta.",
+          detail: "Meta verified the ad set status.",
+        }}
       />,
     );
     expect(html).toContain('data-meta-action-feedback="success"');
@@ -138,7 +175,8 @@ describe("MetaActionCard lean decision row", () => {
             blockers: ["no_empirical_outcome_model"],
             missingEvidence: ["empirical_outcome_backtest"],
             requiredEvidence: ["empirical_outcome_backtest"],
-            reason: "Empirical outcome backtesting is required before automation.",
+            reason:
+              "Empirical outcome backtesting is required before automation.",
           },
         })}
       />,
@@ -188,7 +226,9 @@ describe("MetaActionCard lean decision row", () => {
     const html = renderToStaticMarkup(
       <MetaActionCard
         anomaly={metaAnomaly({
-          diagnosticLadder: [{ step: 1, label: "Tracking", detail: "Check events first." }],
+          diagnosticLadder: [
+            { step: 1, label: "Tracking", detail: "Check events first." },
+          ],
         })}
       />,
     );
@@ -199,18 +239,24 @@ describe("MetaActionCard lean decision row", () => {
   });
 
   it("renders non-purchase cohort chips on recommendation rows", () => {
-    const html = renderToStaticMarkup(<MetaActionCard rec={metaRec({ cohort: "upper_funnel" })} />);
+    const html = renderToStaticMarkup(
+      <MetaActionCard rec={metaRec({ cohort: "upper_funnel" })} />,
+    );
     expect(html).toContain("Upper Funnel");
     expect(html).toContain('data-cohort-chip="upper_funnel"');
   });
 
   it("does not render cohort chip for purchase recommendations", () => {
-    const html = renderToStaticMarkup(<MetaActionCard rec={metaRec({ cohort: "purchase" })} />);
+    const html = renderToStaticMarkup(
+      <MetaActionCard rec={metaRec({ cohort: "purchase" })} />,
+    );
     expect(html).not.toContain("data-cohort-chip");
   });
 
   it("does not render cohort chip when cohort is missing", () => {
-    const html = renderToStaticMarkup(<MetaActionCard rec={metaRec({ cohort: undefined })} />);
+    const html = renderToStaticMarkup(
+      <MetaActionCard rec={metaRec({ cohort: undefined })} />,
+    );
     expect(html).not.toContain("data-cohort-chip");
   });
 });

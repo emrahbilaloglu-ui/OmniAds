@@ -6,6 +6,11 @@ import {
   requireLaunchpadBusinessAccess,
   sanitizeErrorMessage,
 } from "../../route-utils";
+import {
+  metaLaunchAccountBlockerHttpStatus,
+  resolveAssignedMetaLaunchAccount,
+} from "@/lib/launchpad/meta-validation";
+import { getMetaLaunchStoreCapability } from "@/lib/launchpad/meta-store-capability";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -17,6 +22,25 @@ export async function DELETE(request: NextRequest, context: RouteParams) {
   if (!access.ok) return access.response;
   const reviewerBlocked = rejectIfLaunchpadReviewerReadOnly(access, "launchpad_template_delete");
   if (reviewerBlocked) return reviewerBlocked;
+  const account = await resolveAssignedMetaLaunchAccount({
+    businessId: access.businessId,
+    providerAccountId: request.nextUrl.searchParams.get("providerAccountId"),
+  });
+  if (!account.ok) {
+    return jsonError(
+      metaLaunchAccountBlockerHttpStatus(account.blocker.code),
+      account.blocker.code,
+      account.blocker.message,
+    );
+  }
+  const capability = await getMetaLaunchStoreCapability("templates");
+  if (!capability.canWrite) {
+    return jsonError(
+      503,
+      "launch_template_migration_required",
+      "Saved template storage requires the pending account-scope database migration.",
+    );
+  }
 
   const { id } = await context.params;
   const templateId = id?.trim() ?? "";
@@ -27,6 +51,7 @@ export async function DELETE(request: NextRequest, context: RouteParams) {
   try {
     const deleted = await deleteManualMetaLaunchTemplate({
       businessId: access.businessId,
+      providerAccountId: account.providerAccountId,
       id: templateId,
     });
     if (!deleted) {

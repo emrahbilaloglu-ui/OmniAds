@@ -3,6 +3,7 @@ import {
   buildDataLayerHealth,
   classifyStaleTier,
   composeDataHealth,
+  staleTierForDisplay,
   worstStaleTier,
 } from "../data-health";
 import type { DataLayerHealth } from "../types";
@@ -23,7 +24,7 @@ function makeLayer(
 
 describe("data health", () => {
   it.each([
-    [null, "none"],
+    [null, "unknown"],
     [0, "none"],
     [36, "none"],
     [37, "warning"],
@@ -35,6 +36,8 @@ describe("data health", () => {
 
   it.each([
     [["none", "warning", "none"], "warning"],
+    [["warning", "unknown", "none"], "unknown"],
+    [["unknown", "disabled", "warning"], "disabled"],
     [["warning", "disabled", "none"], "disabled"],
     [["none", "none"], "none"],
   ] as const)("returns worst tier for %j", (tiers, expected) => {
@@ -54,7 +57,7 @@ describe("data health", () => {
     });
   });
 
-  it("keeps unknown source freshness as fresh for Phase 3.0", () => {
+  it("keeps unknown source freshness explicit", () => {
     expect(
       buildDataLayerHealth({
         asOfDate: "2026-05-04",
@@ -64,7 +67,26 @@ describe("data health", () => {
       }),
     ).toMatchObject({
       sourceFreshnessHours: null,
-      staleTier: "none",
+      staleTier: "unknown",
+    });
+  });
+
+  it("maps unknown to warning for display without changing disabled semantics", () => {
+    expect(staleTierForDisplay("unknown")).toBe("warning");
+    expect(staleTierForDisplay("warning")).toBe("warning");
+    expect(staleTierForDisplay("disabled")).toBe("disabled");
+  });
+
+  it("does not mark unknown-only health as engine degraded", () => {
+    expect(
+      composeDataHealth({
+        calibration: makeLayer({ staleTier: "unknown" }),
+        lifecycle: makeLayer({ staleTier: "none" }),
+        decisions: makeLayer({ staleTier: "warning" }),
+      }),
+    ).toMatchObject({
+      worstTier: "unknown",
+      degraded: false,
     });
   });
 

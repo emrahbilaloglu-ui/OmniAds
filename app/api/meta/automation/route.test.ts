@@ -5,6 +5,10 @@ vi.mock("@/lib/access", () => ({
   requireBusinessAccess: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/creatives-fetchers", () => ({
+  fetchAssignedAccountIds: vi.fn(),
+}));
+
 vi.mock("@/lib/meta/automation-control-plane", () => ({
   engageMetaAutomationKillSwitch: vi.fn(),
   releaseMetaAutomationKillSwitch: vi.fn(),
@@ -14,16 +18,17 @@ vi.mock("@/lib/meta/automation-control-plane", () => ({
 }));
 
 const access = await import("@/lib/access");
+const accountAssignments = await import("@/lib/meta/creatives-fetchers");
 const controlPlane = await import("@/lib/meta/automation-control-plane");
 const { GET, POST } = await import("./route");
 
 const BUSINESS_ID = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
 
-function request(url = `http://localhost/api/meta/automation?businessId=${BUSINESS_ID}`) {
+function request(url = `http://localhost/api/meta/automation?businessId=${BUSINESS_ID}&providerAccountId=act_1`) {
   return new NextRequest(url);
 }
 
-function postRequest(body: unknown, url = `http://localhost/api/meta/automation?businessId=${BUSINESS_ID}`) {
+function postRequest(body: unknown, url = `http://localhost/api/meta/automation?businessId=${BUSINESS_ID}&providerAccountId=act_1`) {
   return new NextRequest(url, {
     method: "POST",
     body: JSON.stringify(body),
@@ -33,13 +38,15 @@ function postRequest(body: unknown, url = `http://localhost/api/meta/automation?
 describe("GET /api/meta/automation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(accountAssignments.fetchAssignedAccountIds).mockResolvedValue(["act_1"]);
     vi.mocked(access.requireBusinessAccess).mockResolvedValue({
       session: { user: { id: "user_1" } },
-      membership: { businessId: BUSINESS_ID },
+      membership: { businessId: BUSINESS_ID, role: "admin" },
     } as never);
     vi.mocked(controlPlane.getMetaAutomationControlPlane).mockResolvedValue({
       contractVersion: "meta-automation-control-plane.v1",
       businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
       globalKillSwitch: { engaged: false, reason: null },
       businessControl: {
         businessId: BUSINESS_ID,
@@ -131,6 +138,10 @@ describe("GET /api/meta/automation", () => {
     );
     expect(payload.automation.execution.writeEndpointsBlocked).toBe(true);
     expect(payload.automation.businessControl.killSwitchReason).toBe("Owner paused automation.");
+    expect(controlPlane.getMetaAutomationControlPlane).toHaveBeenCalledWith({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+    });
   });
 
   it("requires a business id", async () => {
@@ -140,6 +151,33 @@ describe("GET /api/meta/automation", () => {
     expect(response.status).toBe(400);
     expect(payload.error.code).toBe("missing_business_id");
     expect(controlPlane.getMetaAutomationControlPlane).not.toHaveBeenCalled();
+  });
+
+  it("requires explicit account scope when more than one account is assigned", async () => {
+    vi.mocked(accountAssignments.fetchAssignedAccountIds).mockResolvedValue([
+      "act_1",
+      "act_2",
+    ]);
+    const response = await GET(
+      request(`http://localhost/api/meta/automation?businessId=${BUSINESS_ID}`),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error.code).toBe("provider_account_required");
+    expect(controlPlane.getMetaAutomationControlPlane).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unassigned provider account", async () => {
+    const response = await GET(
+      request(
+        `http://localhost/api/meta/automation?businessId=${BUSINESS_ID}&providerAccountId=act_other`,
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(payload.error.code).toBe("account_not_assigned");
   });
 
   it("engages only the stop-side business kill switch", async () => {
@@ -192,6 +230,9 @@ describe("GET /api/meta/automation", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
+    expect(access.requireBusinessAccess).toHaveBeenCalledWith(
+      expect.objectContaining({ businessId: BUSINESS_ID, minRole: "admin" }),
+    );
     expect(controlPlane.releaseMetaAutomationKillSwitch).toHaveBeenCalledWith({
       businessId: BUSINESS_ID,
       userId: "user_1",
@@ -199,6 +240,28 @@ describe("GET /api/meta/automation", () => {
     // Release must not engage, and must re-read the freshly composed control plane.
     expect(controlPlane.engageMetaAutomationKillSwitch).not.toHaveBeenCalled();
     expect(payload.ok).toBe(true);
+  });
+
+  it("withholds release when the fresh persisted STOP preflight is not engaged", async () => {
+    const current = await controlPlane.getMetaAutomationControlPlane({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+    });
+    vi.mocked(controlPlane.getMetaAutomationControlPlane).mockResolvedValueOnce({
+      ...current,
+      businessControl: {
+        ...current.businessControl,
+        killSwitchEngaged: false,
+      },
+    });
+
+    const response = await POST(postRequest({ action: "release_kill_switch" }));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: { code: "kill_switch_release_preflight_failed" },
+    });
+    expect(controlPlane.releaseMetaAutomationKillSwitch).not.toHaveBeenCalled();
   });
 
   it("rejects reviewer read-only release attempts before persistence", async () => {

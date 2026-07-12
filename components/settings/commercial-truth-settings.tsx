@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Info } from "lucide-react";
+import { DatePicker } from "@/components/date-range/DateRangePicker";
 import {
   BUSINESS_COUNTRY_PRIORITY_TIERS,
   BUSINESS_COUNTRY_SCALE_OVERRIDES,
@@ -1021,19 +1022,25 @@ function PromoCalendarSection({
                 placeholder="e.g. Spring Sale"
                 disabled={disabled}
               />
-              <input
-                type="date"
-                value={r.startDate}
-                onChange={(e) => onUpdate(i, "startDate", e.target.value)}
+              <DatePicker
+                label="Start"
+                value={r.startDate || null}
+                onChange={(value) => onUpdate(i, "startDate", value ?? "")}
+                maxDate={r.endDate || null}
                 disabled={disabled}
-                className="h-10 w-full rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-3 text-[13px] font-medium text-[var(--adc-ink)] outline-none disabled:opacity-60"
+                className="w-full"
+                testId={`promo-start-date-${i}`}
               />
-              <input
-                type="date"
-                value={r.endDate}
-                onChange={(e) => onUpdate(i, "endDate", e.target.value)}
+              <DatePicker
+                label="End"
+                value={r.endDate || null}
+                onChange={(value) => onUpdate(i, "endDate", value ?? "")}
+                minDate={r.startDate || undefined}
+                maxDate={null}
                 disabled={disabled}
-                className="h-10 w-full rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-3 text-[13px] font-medium text-[var(--adc-ink)] outline-none disabled:opacity-60"
+                className="w-full"
+                testId={`promo-end-date-${i}`}
+                align="end"
               />
               <CtSelect
                 value={r.severity}

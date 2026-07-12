@@ -11,6 +11,8 @@ describe("LaunchpadProgress", () => {
         onDone={vi.fn()}
         result={{
           ok: false,
+          launchIntentId: "11111111-1111-4111-8111-111111111111",
+          launchIntentStatus: "silent_failure",
           campaignId: "cmp_1",
           adsetIds: ["adset_1"],
           adIds: [],
@@ -39,10 +41,17 @@ describe("LaunchpadProgress", () => {
     );
 
     expect(html).toContain("Partial launch stopped at ad:1:1");
-    expect(html).toContain("New-campaign mode HALTS on failure");
+    expect(html).toContain("New-campaign mode halts on the first failed object");
+    expect(html).toContain("No automatic rollback or delete-partial contract exists");
     expect(html).toContain("silent_failure:");
-    expect(html).toContain("Logged to Audit Trail");
-    expect(html).toContain("Ads Manager ↗");
+    expect(html).toContain("The outcome is unknown");
+    expect(html).toContain("No retry control is available");
+    expect(html).toContain("Open Ads Manager · link built from provider-returned ID");
+    expect(html).toContain("not represented as verified permalinks");
+    expect(html).toContain("Publish ACTIVE · Proposed/contract required");
+    expect(html).toContain("data-testid=\"launchpad-intent-receipt\"");
+    expect(html).toContain("11111111-1111-4111-8111-111111111111");
+    expect(html).toContain("status silent_failure");
   });
 
   it("renders launch-in-flight as a caution state instead of a blind retry error", () => {
@@ -61,6 +70,24 @@ describe("LaunchpadProgress", () => {
     );
 
     expect(html).toContain("Launch already in flight (409)");
-    expect(html).toContain("not an error to retry blindly");
+    expect(html).toContain("No retry action is rendered while the outcome is unresolved");
+  });
+
+  it("renders write-time validation blockers verbatim without a retry control", () => {
+    const html = renderToStaticMarkup(
+      <LaunchpadProgress
+        loading={false}
+        onDone={vi.fn()}
+        result={{
+          ok: false,
+          error: { code: "validation_blocked", message: "Launch validation failed." },
+          blockers: [{ code: "billing_not_ok", message: "Billing is not ready." }],
+        }}
+      />,
+    );
+
+    expect(html).toContain("Write-time validation blocked the request");
+    expect(html).toContain("billing_not_ok — Billing is not ready");
+    expect(html).not.toContain(">Retry<");
   });
 });

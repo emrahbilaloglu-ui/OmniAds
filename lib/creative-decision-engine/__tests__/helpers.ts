@@ -43,6 +43,7 @@ export function makeCreativeInput(
     fatigueStatus: "none",
     targetRoas: 2.2,
     breakevenRoas: 1.71,
+    commercialTargetFreshness: "fresh",
     cpm: 10,
     outboundClicks: 520,
     landingPageViews: 480,

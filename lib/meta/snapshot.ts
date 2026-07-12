@@ -55,6 +55,7 @@ import {
 import { resolveMetaFunnelCohort } from "@/lib/meta/funnel-cohort";
 import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
 import { readMetaCommercialTargets } from "@/lib/meta/commercial-targets";
+import { enforceMetaCommercialActionAuthority } from "@/lib/meta/commercial-action-authority";
 
 export interface RunMetaSnapshotResult {
   businessId: string;
@@ -112,7 +113,7 @@ interface SnapshotPayloadRow {
   rec_type: string;
   level: MetaRecommendationLevel;
   decision_state: MetaRecommendation["decisionState"];
-  confidence_score: number;
+  confidence_score: number | null;
   evidence: unknown;
   recommended_action: string;
   target_value: unknown;
@@ -213,7 +214,7 @@ function recommendationToSnapshotRow(
     rec_type: recommendation.type,
     level: recommendation.level,
     decision_state: recommendation.decisionState,
-    confidence_score: recommendation.confidenceScore ?? 0.4,
+    confidence_score: recommendation.confidenceScore ?? null,
     evidence: snapshotEvidencePayload(recommendationWithTrail),
     recommended_action: recommendation.recommendedAction,
     target_value: recommendation.targetValue ?? null,
@@ -741,7 +742,9 @@ async function buildSnapshotRecommendations(input: {
       })
     ).entries(),
   );
-  const commercialTargets = await readMetaCommercialTargets(input.businessId).catch(() => null);
+  const commercialTargets = await readMetaCommercialTargets(input.businessId, {
+    asOf: endDate,
+  }).catch(() => null);
 
   const campaignRecommendations = buildMetaRecommendations({
     windows: {
@@ -973,8 +976,19 @@ function storedRecommendation(value: unknown): MetaRecommendation | null {
 }
 
 function hydrateRecommendation(row: SnapshotDbRow): MetaRecommendation {
-  const score = Number(row.confidence_score ?? 0.4);
+  const parsedScore =
+    row.confidence_score == null ? null : Number(row.confidence_score);
+  const score =
+    parsedScore != null && Number.isFinite(parsedScore) ? parsedScore : null;
   const stored = storedRecommendation(row.evidence);
+  const confidence =
+    stored?.confidence === "low" ||
+    stored?.confidence === "medium" ||
+    stored?.confidence === "high"
+      ? stored.confidence
+      : score == null
+        ? "low"
+        : confidenceLabel(score);
   if (stored) {
     return {
       ...stored,
@@ -982,8 +996,10 @@ function hydrateRecommendation(row: SnapshotDbRow): MetaRecommendation {
       type: row.rec_type as MetaRecommendation["type"],
       level: row.level,
       decisionState: row.decision_state,
-      confidenceScore: score,
-      confidence: confidenceLabel(score),
+      confidenceScore: score ?? undefined,
+      confidence,
+      confidenceReason:
+        score == null ? "confidence_score_missing" : stored.confidenceReason,
       evidence: evidenceItems(row.evidence),
       recommendedAction: row.recommended_action,
       expectedImpact: row.expected_impact ?? stored.expectedImpact,
@@ -1016,10 +1032,10 @@ function hydrateRecommendation(row: SnapshotDbRow): MetaRecommendation {
     ...(row.level === "adset" ? { adsetId: row.scope_id } : {}),
     type: row.rec_type as MetaRecommendation["type"],
     lens: lensFromLevel(row.level),
-    priority: priorityFromScore(score),
-    confidence: confidenceLabel(score),
-    confidenceScore: score,
-    confidenceReason: null,
+    priority: score == null ? "low" : priorityFromScore(score),
+    confidence,
+    confidenceScore: score ?? undefined,
+    confidenceReason: score == null ? "confidence_score_missing" : null,
     decisionState: row.decision_state,
     decision: row.recommended_action,
     title: row.recommended_action,
@@ -1086,7 +1102,11 @@ function buildSnapshotSummary(recommendations: MetaRecommendation[]): MetaDecisi
   };
 }
 
-export async function readMetaDecisionSnapshotForRange(input: {
+/**
+ * Reads the latest persisted decision truth. startDate/endDate describe the
+ * metric context returned to the caller; they never time-travel buyer actions.
+ */
+export async function readLatestMetaDecisionSnapshot(input: {
   businessId: string;
   startDate: string;
   endDate: string;
@@ -1103,7 +1123,6 @@ export async function readMetaDecisionSnapshotForRange(input: {
       FROM meta_decision_snapshots_daily
       WHERE business_id = ${input.businessId}
         AND kind = 'recommendation'
-        AND snapshot_date BETWEEN ${normalizeDate(input.startDate)}::date AND ${normalizeDate(input.endDate)}::date
     )
     SELECT
       scope_type,
@@ -1146,9 +1165,19 @@ export async function readMetaDecisionSnapshotForRange(input: {
 
   if (rows.length === 0) return null;
   const hydratedRecommendations = rows.map(hydrateRecommendation);
+  const currentCommercialTargets = await readMetaCommercialTargets(
+    input.businessId,
+  ).catch(() => null);
+  const commerciallyGuardedRecommendations = hydratedRecommendations.map(
+    (recommendation) =>
+      enforceMetaCommercialActionAuthority(
+        recommendation,
+        currentCommercialTargets,
+      ),
+  );
   const campaignIds = Array.from(
     new Set(
-      hydratedRecommendations
+      commerciallyGuardedRecommendations
         .map((recommendation) => recommendation.campaignId)
         .filter((campaignId): campaignId is string => Boolean(campaignId)),
     ),
@@ -1158,7 +1187,7 @@ export async function readMetaDecisionSnapshotForRange(input: {
     campaignIds,
   });
   const guardedRecommendations = applyMetaCampaignLabelGuard({
-    recommendations: hydratedRecommendations,
+    recommendations: commerciallyGuardedRecommendations,
     campaignLabelsById,
     activeCampaignIds: campaignIds,
   }).recommendations;
@@ -1189,3 +1218,7 @@ export async function readMetaDecisionSnapshotForRange(input: {
     },
   };
 }
+
+// Compatibility export for existing callers and mocks. The selected range is
+// metric context only; the decision snapshot itself is always the latest one.
+export const readMetaDecisionSnapshotForRange = readLatestMetaDecisionSnapshot;

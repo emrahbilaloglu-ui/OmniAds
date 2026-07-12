@@ -56,7 +56,10 @@ function adset(overrides: Partial<MetaAdSetData> = {}): MetaAdSetData {
   };
 }
 
-function signal(ageDays = 20): MetaEntityDecisionSignal {
+function signal(
+  ageDays = 20,
+  overrides: Partial<MetaEntityDecisionSignal> = {},
+): MetaEntityDecisionSignal {
   return {
     businessId: "biz_1",
     providerAccountId: "act_1",
@@ -74,6 +77,7 @@ function signal(ageDays = 20): MetaEntityDecisionSignal {
     ctrDecayPct: null,
     sourceJson: { age_days: ageDays },
     qualityStatus: "ready",
+    ...overrides,
   };
 }
 
@@ -94,6 +98,22 @@ describe("emitLeadAdsetScenario", () => {
     expect(rec?.decisionLabel).toBe("scale");
     expect(rec?.confidence).toBe("high");
     expect(rec?.cohort).toBe("lead");
+  });
+
+  it("keeps an efficient $4 / 1-lead row on watch despite mature age", () => {
+    const rec = emitLeadAdsetScenario({
+      adset: adset({ spend: 4, leads: 1 }),
+      context,
+      cohort: "lead",
+      signals: signal(20),
+    });
+
+    expect(rec?.type).toBe("scenario_l2_lead_steady_keep");
+    expect(rec?.decisionLabel).toBe("keep");
+    expect(rec?.decisionState).toBe("watch");
+    expect(targetScore(rec)).toBe(0.93);
+    expect(rec?.confidence).toBe("low");
+    expect(rec?.confidenceScore).toBe(0.55375);
   });
 
   it("emits L3 cut for an inefficient mature lead adset above hard-cut spend", () => {
@@ -152,7 +172,7 @@ describe("emitLeadAdsetScenario", () => {
       adset: adset({ spend: 230, leads: 10, frequency: 4 }),
       context,
       cohort: "lead",
-      signals: signal(3),
+      signals: signal(3, { ctrDecayPct: -20 }),
     });
 
     expect(rec?.type).toBe("scenario_l4_lead_refresh");

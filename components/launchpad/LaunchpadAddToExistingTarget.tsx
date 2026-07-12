@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
+import { formatMoney as formatAccountMoney } from "@/components/meta/redesign/meta-card-utils";
 import { summarizeAttributionSpec, type MetaAttributionSpecItem } from "@/lib/launchpad/attribution-presets";
 import type { MetaAddToExistingCopyMode } from "@/lib/launchpad/meta";
 
@@ -122,14 +123,13 @@ export async function fetchLaunchpadCampaignAdsets({
   return { ok: false, adsets: [], attempts: retryDelaysMs.length + 1, error: lastError };
 }
 
-function formatMoneyMinor(value: number | null | undefined) {
-  if (!value) return "No budget";
-  return `$${(value / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+function formatMoneyMinor(value: number | null | undefined, currency: string | null) {
+  if (value == null || !Number.isFinite(value)) return "Budget unavailable";
+  return formatAccountMoney(value / 100, currency);
 }
 
-function formatMoney(value: number | null | undefined) {
-  if (!value) return "$0";
-  return `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+function formatMoney(value: number | null | undefined, currency: string | null) {
+  return formatAccountMoney(value, currency);
 }
 
 export function makeDefaultAddToExistingTargetState(): LaunchpadAddToExistingState {
@@ -184,6 +184,7 @@ export function LaunchpadAddToExistingTarget({
   businessId,
   value,
   selectedCreatives,
+  currency = null,
   onChange,
   campaignOptions,
   adsetOptions,
@@ -191,6 +192,7 @@ export function LaunchpadAddToExistingTarget({
   businessId: string;
   value: LaunchpadAddToExistingState;
   selectedCreatives: MetaCreativeRow[];
+  currency?: string | null;
   onChange: (value: LaunchpadAddToExistingState) => void;
   campaignOptions?: LaunchpadExistingCampaign[];
   adsetOptions?: LaunchpadExistingAdSet[];
@@ -424,7 +426,7 @@ export function LaunchpadAddToExistingTarget({
                     <span className="mono mt-1 block text-[11px] text-[var(--muted)]">
                       {campaign.objective ?? "unknown"} ·{" "}
                       {campaign.isAdsetBudgetSharingEnabled ? "CBO" : "ABO"} ·{" "}
-                      {campaign.adsetCount} ad sets · {formatMoney(campaign.lastSpend28d)} 28d
+                      {campaign.adsetCount} ad sets · {formatMoney(campaign.lastSpend28d, currency)} 28d
                     </span>
                   </span>
                 </label>
@@ -499,7 +501,7 @@ export function LaunchpadAddToExistingTarget({
                       <option key={adset.id} value={adset.id}>
                         {adset.name} / {adset.status ?? "unknown"} /{" "}
                         {adset.optimizationGoal ?? "unknown"} /{" "}
-                        {formatMoneyMinor(adset.dailyBudgetMinor ?? adset.lifetimeBudgetMinor)} / pixel{" "}
+                        {formatMoneyMinor(adset.dailyBudgetMinor ?? adset.lifetimeBudgetMinor, currency)} / pixel{" "}
                         {adset.pixelId ?? "n/a"} / ROAS{" "}
                         {adset.last7dRoas == null ? "n/a" : adset.last7dRoas.toFixed(2)}
                       </option>

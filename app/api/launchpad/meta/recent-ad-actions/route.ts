@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { requireLaunchpadBusinessAccess } from "../route-utils";
+import { jsonError, requireLaunchpadBusinessAccess } from "../route-utils";
+import {
+  metaLaunchAccountBlockerHttpStatus,
+  resolveAssignedMetaLaunchAccount,
+} from "@/lib/launchpad/meta-validation";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +44,17 @@ export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId")?.trim() ?? "";
   const access = await requireLaunchpadBusinessAccess({ request, businessId });
   if (!access.ok) return access.response;
+  const account = await resolveAssignedMetaLaunchAccount({
+    businessId: access.businessId,
+    providerAccountId: request.nextUrl.searchParams.get("providerAccountId"),
+  });
+  if (!account.ok) {
+    return jsonError(
+      metaLaunchAccountBlockerHttpStatus(account.blocker.code),
+      account.blocker.code,
+      account.blocker.message,
+    );
+  }
 
   const sinceDays = Math.max(
     1,
@@ -66,7 +81,11 @@ export async function GET(request: NextRequest) {
       source_ad.ad_name_current AS source_ad_name_current,
       source_ad.ad_name_historical AS source_ad_name_historical,
       source_ad.creative_id AS source_dim_creative_id,
-      ad.provider_account_id,
+      COALESCE(
+        ad.provider_account_id,
+        source_ad.provider_account_id,
+        launch_intent.provider_account_id
+      ) AS provider_account_id,
       campaign.campaign_id,
       campaign.campaign_name_current,
       campaign.campaign_name_historical,
@@ -90,6 +109,12 @@ export async function GET(request: NextRequest) {
       ORDER BY updated_at DESC
       LIMIT 1
     ) source_ad ON TRUE
+    LEFT JOIN meta_launch_intents launch_intent
+      ON launch_intent.business_id = log.business_id
+      AND launch_intent.id::text = COALESCE(
+        log.launch_intent_id::text,
+        log.payload_request->>'launch_intent_id'
+      )
     LEFT JOIN LATERAL (
       SELECT *
       FROM meta_campaign_dimensions
@@ -112,6 +137,11 @@ export async function GET(request: NextRequest) {
       AND log.action IN ('launch_ad', 'duplicate')
       AND log.status IN ('success', 'silent_failure')
       AND log.resulting_ad_id IS NOT NULL
+      AND COALESCE(
+        ad.provider_account_id,
+        source_ad.provider_account_id,
+        launch_intent.provider_account_id
+      ) = ${account.providerAccountId}
       AND log.requested_at > NOW() - (${sinceDays}::int * interval '1 day')
     ORDER BY log.requested_at DESC
     LIMIT ${limit}
@@ -119,6 +149,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json(
     {
+      providerAccountId: account.providerAccountId,
       actions: rows.map((row) => {
         const requestPayload = isRecord(row.payload_request) ? row.payload_request : {};
         const requestBody = isRecord(requestPayload.body) ? requestPayload.body : {};

@@ -9,6 +9,12 @@ import {
   type MetaLaunchCampaignInput,
 } from "@/lib/meta/launch-write";
 
+vi.mock("@/lib/meta/automation-control-plane", () => ({
+  getMetaWriteBlockState: vi.fn(),
+}));
+
+const controlPlane = await import("@/lib/meta/automation-control-plane");
+
 const ctx: MetaAdsWriteContext = {
   businessId: "172d0ab8-495b-4679-a4c6-ffa404c389d3",
   providerAccountId: "act_123",
@@ -76,6 +82,11 @@ describe("Meta launch write client", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.stubGlobal("fetch", vi.fn());
+    vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({
+      blocked: false,
+      reason: null,
+      message: null,
+    });
   });
 
   it("createCampaign creates a paused OUTCOME_SALES campaign and verifies it", async () => {
@@ -166,6 +177,34 @@ describe("Meta launch write client", () => {
 
     expect(result).toMatchObject({ ok: true, campaignId: "cmp_1" });
     expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("halts a campaign retry when the business kill switch engages", async () => {
+    vi.mocked(controlPlane.getMetaWriteBlockState)
+      .mockResolvedValueOnce({ blocked: false, reason: null, message: null })
+      .mockResolvedValueOnce({
+        blocked: true,
+        reason: "business_kill_switch",
+        message: "Owner stopped Meta writes.",
+      });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(
+        { error: { code: 17, message: "(#17) User request limit reached" } },
+        { status: 429 },
+      ),
+    );
+
+    const result = await createCampaign(ctx, campaignInput());
+
+    expect(result).toMatchObject({
+      ok: false,
+      httpStatus: 503,
+      error: {
+        code: "kill_switch_engaged",
+        message: "Owner stopped Meta writes.",
+      },
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("createAdSet creates a paused conversion ad set and verifies it", async () => {

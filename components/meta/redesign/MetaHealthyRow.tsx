@@ -2,7 +2,7 @@ import { CheckCircle2, SlidersHorizontal, Target } from "lucide-react";
 import type { MetaHealthyEntity } from "@/components/meta/redesign/types";
 import { MetaScopeChip } from "@/components/meta/redesign/MetaScopeChip";
 import { formatMoney } from "@/components/meta/redesign/meta-card-utils";
-import { formatCurrency, formatRoas } from "@/lib/briefing/utils";
+import { formatRoas } from "@/lib/briefing/utils";
 import { cn } from "@/lib/utils";
 
 interface MetaHealthyRowProps {
@@ -19,10 +19,14 @@ interface MetaHealthyRowProps {
   showPreviousBid?: boolean;
 }
 
-function formatBidValue(value: number | null | undefined, format: "currency" | "roas" | null | undefined) {
+function formatBidValue(
+  value: number | null | undefined,
+  format: "currency" | "roas" | null | undefined,
+  currency: string | null | undefined,
+) {
   if (value == null) return null;
   if (format === "roas") return formatRoas(value);
-  return formatCurrency(value / 100);
+  return formatMoney(value / 100, currency);
 }
 
 function formatConfigLabel(value: string | null | undefined) {
@@ -127,11 +131,12 @@ export function MetaHealthyRow({
   const bidValue = showBidValue && row.isBidValueMixed
     ? "Mixed bids"
     : showBidValue
-      ? formatBidValue(currentBidAmount, row.bidValueFormat)
+      ? formatBidValue(currentBidAmount, row.bidValueFormat, moneyCurrency)
       : null;
   const previousBidValue = formatBidValue(
     previousBidAmount,
     row.previousBidValueFormat ?? row.bidValueFormat,
+    moneyCurrency,
   );
   const previousBidChangedAt = formatChangedAt(row.previousBidValueCapturedAt);
   const hasDifferentPreviousBid =

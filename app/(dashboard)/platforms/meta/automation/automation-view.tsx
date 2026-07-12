@@ -1,898 +1,1504 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useAppStore } from "@/store/app-store";
+import {
+  Activity,
+  AlertTriangle,
+  ArrowLeft,
+  CheckCircle2,
+  CircleStop,
+  Clock3,
+  Database,
+  Lock,
+  RefreshCw,
+  Server,
+  ShieldAlert,
+  ShieldCheck,
+} from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type {
   MetaAutomationControlPlane,
+  MetaAutomationDecisionMode,
+  MetaAutomationDecisionType,
   MetaAutomationReadinessControlTier,
 } from "@/lib/meta/automation-control-plane";
+import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
+import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
+import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
+import { useAppStore } from "@/store/app-store";
+import styles from "./automation.module.css";
 
 type AutomationPayload = MetaAutomationControlPlane;
 
-// ---------------------------------------------------------------------------
-// Reference: "04 Automation.dc.html" — dense IBM Plex operator console.
-// Two objects, never conflated: the server grades each recommendation with a
-// readiness TIER, and the operator sets a standing MODE per decision type.
-// The real control plane models automation at the BUSINESS level (one tier +
-// guardrails + kill switches). Per-decision-type judged-outcome gates are NOT
-// in the read model, so this surface renders the reference composition but
-// shows honest "read model missing" gate states — never fabricated hit/judged
-// numbers — and stays strictly read-only (automation is not executable here).
-// Styled with the shell's --adc-* reference tokens (fallbacks for isolation).
-// ---------------------------------------------------------------------------
+type CanonicalMode =
+  "Observe" | "Recommend" | "Approval Required" | "Auto-execute";
 
-const TIER_ORDER: MetaAutomationReadinessControlTier[] = [
-  "read_only",
-  "manual_review",
-  "backtest_candidate",
-  "auto_execute",
+type EffectiveAuthority = {
+  mode: CanonicalMode;
+  reason: string;
+};
+
+type BadgeTone =
+  "neutral" | "danger" | "warning" | "success" | "info" | "automation";
+
+export type AutomationTab =
+  "authority" | "evidence" | "guardrails" | "activity";
+
+const AUTOMATION_TABS: Array<{
+  id: AutomationTab;
+  label: string;
+}> = [
+  { id: "authority", label: "Effective authority" },
+  { id: "evidence", label: "Evidence" },
+  { id: "guardrails", label: "Guardrails" },
+  { id: "activity", label: "Activity" },
 ];
 
-const TIER_LABEL: Record<MetaAutomationReadinessControlTier, string> = {
+const READINESS_LABELS: Record<MetaAutomationReadinessControlTier, string> = {
   read_only: "Read only",
   manual_review: "Manual review",
   backtest_candidate: "Backtest candidate",
   auto_execute: "Auto-execute",
 };
 
-const MODES = ["Manual", "Semi-auto", "Auto"] as const;
-const MODE_VALUES = ["manual", "semi_auto", "auto"] as const;
-// Maps the four action classes to the persisted decision_type key.
-const DECISION_TYPE_KEY: Record<string, "pause" | "bid" | "budget" | "creative"> = {
-  pause: "pause",
-  bid: "bid",
-  budget: "budget",
-  creative: "creative",
+const LEGACY_MODE_LABELS: Record<MetaAutomationDecisionMode, string> = {
+  manual: "manual",
+  semi_auto: "semi_auto",
+  auto: "auto",
 };
 
-// Known Meta action classes. Names/subs are static (the action classes are
-// real); no per-type evidence or numbers are invented. `contract` reflects
-// whether the write path is wired (guarded) or still pending a server contract.
-const DECISION_TYPES = [
+const ACTION_CLASSES: Array<{
+  id: string;
+  preferenceType: MetaAutomationDecisionType;
+  name: string;
+  detail: string;
+}> = [
   {
-    id: "pause",
-    name: "Pause bleeding ad set",
-    sub: "execute_pause on cut calls above the confidence act threshold",
-    contract: "live",
+    id: "pause_underperformer",
+    preferenceType: "pause",
+    name: "Pause underperformer",
+    detail: "Single campaign or ad-set containment after review",
   },
   {
-    id: "bid",
-    name: "Apply bid cap",
-    sub: "execute_bid within the engine's proposed-cap bounds",
-    contract: "live",
+    id: "cut_sustained_loss",
+    preferenceType: "pause",
+    name: "Cut sustained loss",
+    detail: "Single-ad pause after mature loss evidence",
   },
   {
-    id: "budget",
-    name: "Budget change",
-    sub: "apply ±% with caps",
-    contract: "pending",
+    id: "apply_bid_cap",
+    preferenceType: "bid",
+    name: "Apply bid or cost cap",
+    detail: "Ad-set-owned bid control with provider preflight",
   },
   {
-    id: "creative",
-    name: "Creative pause (bulk)",
-    sub: "bulk pause on cut creatives",
-    contract: "pending",
+    id: "promote_test_to_main",
+    preferenceType: "creative",
+    name: "Promote test to Main",
+    detail: "Budget-neutral PAUSED copy routed through Launchpad",
+  },
+  {
+    id: "refresh_fatigued",
+    preferenceType: "creative",
+    name: "Refresh fatigued",
+    detail: "Creative recommendation; no direct provider mutation",
+  },
+  {
+    id: "rebuild_structure",
+    preferenceType: "creative",
+    name: "Rebuild structure",
+    detail: "Launchpad-only rebuild with immutable source lineage",
+  },
+  {
+    id: "swap_placement",
+    preferenceType: "creative",
+    name: "Swap placement",
+    detail: "Observe-only until a provider contract exists",
+  },
+  {
+    id: "duplicate_winner",
+    preferenceType: "creative",
+    name: "Duplicate winner",
+    detail: "Contain-only duplicate path; never implies activation",
+  },
+  {
+    id: "scale_budget_step",
+    preferenceType: "budget",
+    name: "Scale budget step",
+    detail: "Campaign or ad-set budget owner; approval remains required",
+  },
+  {
+    id: "resume_paused",
+    preferenceType: "pause",
+    name: "Resume paused",
+    detail: "Fresh-state resume candidate with a new approval",
+  },
+];
+
+const PROMOTION_GATES = [
+  {
+    title: "Runtime sample",
+    requirement: "n >= 30 per calibration cell",
+    missing: "No per-class runtime sample in v1",
+  },
+  {
+    title: "Calibration",
+    requirement: "ECE <= 0.05 per label",
+    missing: "No per-label ECE in v1",
+  },
+  {
+    title: "Financial outcomes",
+    requirement: "Mature outcomes; unknown excluded",
+    missing: "No maturity evidence in v1",
+  },
+  {
+    title: "Critical failures",
+    requirement: "Zero critical or silent failures",
+    missing: "No per-class breaker evidence in v1",
   },
 ] as const;
 
+const BLOCK_REASON_LABELS: Record<string, string> = {
+  META_ADS_WRITE_KILL_SWITCH: "environment STOP",
+  business_kill_switch: "business STOP",
+  auto_execution_not_enabled: "auto execution disabled",
+  dry_run_only_guardrail: "dry-run-only posture",
+};
+
 function formatDateTime(value: string | null | undefined) {
-  if (!value) return "—";
+  if (!value) return "Not recorded";
   const time = Date.parse(value);
-  if (!Number.isFinite(time)) return "—";
+  if (!Number.isFinite(time)) return "Invalid timestamp";
   return new Intl.DateTimeFormat("en", {
     month: "short",
     day: "2-digit",
+    year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(time));
 }
 
-function formatMinorMoney(value: number | null | undefined, currency: string | null | undefined) {
-  if (value == null) return "not capped";
-  const normalizedCurrency = currency && /^[A-Z]{3}$/.test(currency) ? currency : "EUR";
+function formatMinorMoney(
+  value: number | null | undefined,
+  currency: string | null | undefined,
+) {
+  if (value == null) return "No cap configured";
+  if (!currency || !/^[A-Z]{3}$/.test(currency)) {
+    return `${new Intl.NumberFormat("en").format(value)} minor units - currency unknown`;
+  }
   return new Intl.NumberFormat("en", {
     style: "currency",
-    currency: normalizedCurrency,
-    maximumFractionDigits: 0,
+    currency,
+    maximumFractionDigits: 2,
   }).format(value / 100);
 }
 
-function notificationPolicyLabel(policy: AutomationPayload["businessControl"]["guardrails"]["notificationPolicy"]) {
-  return policy === "every_auto_action" ? "on every auto action" : "not configured";
+function notificationPolicyLabel(
+  policy: AutomationPayload["businessControl"]["guardrails"]["notificationPolicy"],
+) {
+  return policy === "every_auto_action"
+    ? "Every auto action"
+    : "None configured";
 }
 
-function severityTone(severity: AutomationPayload["activityLedger"][number]["severity"]) {
-  if (severity === "danger") return "text-[var(--adc-danger-fg,#a6224a)]";
-  if (severity === "warning") return "text-[var(--adc-caution-fg,#86590a)]";
-  if (severity === "success") return "text-[var(--adc-pos-fg,#0b6b4f)]";
-  return "text-[var(--adc-ink3,#7d838c)]";
+function requirementLabel(value: boolean) {
+  return value ? "Required" : "Not required";
 }
 
-// Current effective mode + capability ceiling, derived honestly from the
-// business control row. Auto is only "current" when the server actually allows
-// auto execution; the tier bounds which higher modes are unlocked at all.
-function modeState(payload: AutomationPayload | null) {
-  if (!payload) return { current: 0, ceiling: 0 };
-  const tierIndex = TIER_ORDER.indexOf(payload.businessControl.readinessTier);
-  const ceiling = tierIndex <= 1 ? 0 : tierIndex === 2 ? 1 : 2;
-  const current = payload.execution.autoExecutionAllowed
-    ? 2
-    : payload.businessControl.autoExecutionEnabled && ceiling >= 1
-      ? 1
-      : 0;
-  return { current: Math.min(current, ceiling), ceiling };
+function blockedReasonLabel(value: string) {
+  return BLOCK_REASON_LABELS[value] ?? value;
 }
 
-// --- token helpers (fallbacks keep the surface legible outside the shell) ---
-const CARD =
-  "rounded-[10px] border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s2,#fff)]";
-const INK = "text-[var(--adc-ink,#1a1c1f)]";
-const INK2 = "text-[var(--adc-ink2,#4a4f56)]";
-const INK3 = "text-[var(--adc-ink3,#7d838c)]";
+function modeRow(
+  payload: AutomationPayload | null,
+  decisionType: MetaAutomationDecisionType,
+) {
+  return (
+    payload?.decisionTypeModes.find(
+      (row) => row.decisionType === decisionType,
+    ) ?? null
+  );
+}
 
-const TONES = {
-  danger: "border-[var(--adc-danger-bd,#efc4d1)] bg-[var(--adc-danger-bg,#fbedf1)] text-[var(--adc-danger-fg,#a6224a)]",
-  caution: "border-[var(--adc-caution-bd,#e8d5a6)] bg-[var(--adc-caution-bg,#faf2df)] text-[var(--adc-caution-fg,#86590a)]",
-  info: "border-[var(--adc-info-bd,#c5d6f1)] bg-[var(--adc-info-bg,#ebf1fb)] text-[var(--adc-info-fg,#1d5fc4)]",
-  neutral: "border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s3,#ededea)] text-[var(--adc-ink2,#4a4f56)]",
-} as const;
+export function deriveEffectiveAuthority(
+  payload: AutomationPayload | null,
+  error: string | null = null,
+): EffectiveAuthority {
+  if (error) {
+    return {
+      mode: "Observe",
+      reason: "Control state is unreadable; authority fails closed.",
+    };
+  }
+  if (!payload) {
+    return {
+      mode: "Observe",
+      reason: "No business control payload is loaded.",
+    };
+  }
+  if (payload.businessControl.source !== "persisted") {
+    return {
+      mode: "Observe",
+      reason: "Persisted control state is not proven; authority fails closed.",
+    };
+  }
+  if (
+    payload.globalKillSwitch.engaged ||
+    payload.businessControl.killSwitchEngaged ||
+    payload.execution.writeEndpointsBlocked
+  ) {
+    return {
+      mode: "Observe",
+      reason: "A write STOP is engaged; execution authority is withheld.",
+    };
+  }
+  if (payload.businessControl.readinessTier === "read_only") {
+    return {
+      mode: "Observe",
+      reason: "The server readiness tier is read only.",
+    };
+  }
+  return {
+    mode: "Approval Required",
+    reason: payload.execution.autoExecutionAllowed
+      ? "A server policy flag is enabled, but executor and per-class release evidence are absent; Stage B remains person-initiated."
+      : "Stage B writes remain person-initiated while auto execution is blocked.",
+  };
+}
 
-function Banner({
+function controlReadState(
+  payload: AutomationPayload | null,
+  loading: boolean,
+  error: string | null,
+) {
+  if (loading) return { label: "Reading", tone: "neutral" as const };
+  if (error) return { label: "Unreadable", tone: "danger" as const };
+  if (!payload) return { label: "Not loaded", tone: "neutral" as const };
+  if (payload.businessControl.source !== "persisted") {
+    return { label: "Unverified", tone: "warning" as const };
+  }
+  return { label: "Readable", tone: "success" as const };
+}
+
+function Badge({
+  children,
+  tone = "neutral",
+}: {
+  children: ReactNode;
+  tone?: BadgeTone;
+}) {
+  return (
+    <span className={styles.badge} data-tone={tone}>
+      {children}
+    </span>
+  );
+}
+
+function AlertBand({
   tone,
   title,
   children,
+  action,
 }: {
-  tone: keyof typeof TONES;
+  tone: "danger" | "warning" | "neutral" | "info";
   title: string;
-  children?: React.ReactNode;
+  children: ReactNode;
+  action?: ReactNode;
 }) {
+  const Icon =
+    tone === "danger"
+      ? ShieldAlert
+      : tone === "warning"
+        ? AlertTriangle
+        : Server;
   return (
-    <div className={`flex items-start gap-2.5 rounded-[8px] border px-3 py-2.5 text-[12.5px] leading-5 ${TONES[tone]}`} role="alert">
-      <span className="mt-[5px] h-2 w-2 flex-none rounded-[2px] bg-current" aria-hidden="true" />
-      <div className="min-w-0">
-        <span className="font-semibold">{title}</span>
-        {children ? <span className="opacity-90"> {children}</span> : null}
-      </div>
-    </div>
-  );
-}
-
-function AutomationContextHeader({
-  businessName,
-  tier,
-}: {
-  businessName: string | null;
-  tier: MetaAutomationReadinessControlTier | null;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[var(--adc-b1,#e4e4e0)] pb-3">
-      <div className="min-w-0">
-        <div className="text-[13px] font-semibold text-[var(--adc-ink,#1a1c1f)]">
-          Automation
-        </div>
-        <div className="mt-0.5 font-mono text-[11px] text-[var(--adc-ink3,#7d838c)]">
-          Meta · {businessName ?? "select business"}
-        </div>
-      </div>
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--adc-auto-bd,#d9ccf1)] bg-[var(--adc-auto-bg,#f2edfb)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--adc-auto-fg,#6c41be)]">
-        <span className="h-1.5 w-1.5 rotate-45 bg-current" aria-hidden="true" />
-        autopilot earned gradually
-      </span>
-      {tier ? (
-        <span className="font-mono text-[11px] text-[var(--adc-ink3,#7d838c)]">
-          readiness: {TIER_LABEL[tier]}
-        </span>
-      ) : null}
-      <div className="min-w-0 flex-1" />
-      <Link
-        href="/platforms/meta"
-        className="text-[12px] text-[var(--adc-info-fg,#1d5fc4)] hover:underline"
-      >
-        ← Decisions
-      </Link>
-    </div>
-  );
-}
-
-function AutomationMobileSurface({
-  businessName,
-  payload,
-  loading,
-  error,
-}: {
-  businessName: string | null;
-  payload: AutomationPayload | null;
-  loading: boolean;
-  error: string | null;
-}) {
-  const killSwitchEngaged =
-    payload?.globalKillSwitch.engaged === true ||
-    payload?.businessControl.killSwitchEngaged === true;
-  const blockedReasons = payload?.execution.blockedReasons ?? [];
-  const autoAllowed = payload?.execution.autoExecutionAllowed === true;
-  const tier = payload?.businessControl.readinessTier ?? null;
-  const guardrails = payload?.businessControl.guardrails ?? null;
-  const mode = payload ? MODES[modeState(payload).current] : "—";
-  const postureTone = killSwitchEngaged ? "danger" : autoAllowed ? "info" : "caution";
-  const freshness =
-    payload?.businessControl.updatedAt
-      ? formatDateTime(payload.businessControl.updatedAt)
-      : payload
-        ? "persisted"
-        : "—";
-
-  return (
-    <section
-      className="meta-mobile-surface-stage"
-      data-testid="meta-mobile-automation"
-      aria-label="Automation mobile read-only"
+    <div
+      className={styles.alertBand}
+      data-tone={tone}
+      role={tone === "danger" ? "alert" : "status"}
     >
-      <div className="ad-mobile-device">
-        <div className="ad-mobile-screen">
-          <div className="ad-mobile-status">
-            <span>--:--</span>
-            <span>Automation · read-only</span>
-          </div>
-          <div className="ad-mobile-freshness">
-            synced {freshness} · tier {tier ? TIER_LABEL[tier] : "—"}
-          </div>
-          <div className="ad-mobile-title">
-            <h2>{businessName ?? "Select business"}</h2>
-            <p>Guardrails, readiness and stop posture only. Writes stay on desktop.</p>
-          </div>
-          {loading ? (
-            <article className="ad-mobile-row-card">
-              <h3>Automation contract</h3>
-              <p>loading server control plane —</p>
-            </article>
-          ) : error ? (
-            <article className="ad-mobile-anomaly" data-tone="danger">
-              <b>Automation contract failed.</b>
-              <div>{error}</div>
-            </article>
-          ) : payload ? (
-            <>
-              <article className="ad-mobile-anomaly" data-tone={postureTone}>
-                <b>
-                  {killSwitchEngaged
-                    ? "Kill switch engaged."
-                    : autoAllowed
-                      ? "Auto execution currently allowed."
-                      : "Automation is not executable yet."}
-                </b>
-                <div>
-                  {blockedReasons.length > 0
-                    ? `Blocked: ${blockedReasons.join(", ")}.`
-                    : "No blocked reason is stored in the payload."}
-                </div>
-              </article>
-              <article className="ad-mobile-row-card">
-                <h3>Standing mode</h3>
-                <p data-tone={autoAllowed ? "positive" : "caution"}>
-                  {mode} · business-scoped posture
-                </p>
-                <div className="ad-mobile-row-footer">
-                  <span>Per-type gates are read-model missing.</span>
-                  <span>View only</span>
-                </div>
-              </article>
-              <article className="ad-mobile-row-card">
-                <h3>Guardrails</h3>
-                <p>
-                  {guardrails
-                    ? `${guardrails.dailyAutoActionCap} / day · ${formatMinorMoney(
-                        guardrails.perActionSpendCeilingMinor,
-                        guardrails.perActionSpendCeilingCurrency,
-                      )} ceiling`
-                    : "guardrails missing —"}
-                </p>
-                <div className="ad-mobile-row-footer">
-                  <span>{guardrails ? notificationPolicyLabel(guardrails.notificationPolicy) : "not loaded"}</span>
-                  <span>STOP-only</span>
-                </div>
-              </article>
-            </>
-          ) : (
-            <article className="ad-mobile-anomaly">
-              <b>Select a business.</b>
-              <div>Automation state is business-scoped; no default account is assumed.</div>
-            </article>
-          )}
-          <div className="ad-mobile-desktop-note">
-            Mobile is read-only — stop, promote, demote and write controls stay on desktop.
-          </div>
-        </div>
+      <Icon aria-hidden="true" size={17} strokeWidth={1.8} />
+      <div className={styles.alertCopy}>
+        <strong>{title}</strong>
+        <span>{children}</span>
       </div>
-    </section>
+      {action ? <div className={styles.alertAction}>{action}</div> : null}
+    </div>
   );
+}
+
+function SummaryItem({
+  label,
+  value,
+  detail,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone?: BadgeTone;
+}) {
+  return (
+    <div className={styles.summaryItem} data-tone={tone}>
+      <span className={styles.summaryLabel}>{label}</span>
+      <strong>{value}</strong>
+      <span className={styles.summaryDetail}>{detail}</span>
+    </div>
+  );
+}
+
+function ActionClassRow({
+  actionClass,
+  payload,
+  authority,
+}: {
+  actionClass: (typeof ACTION_CLASSES)[number];
+  payload: AutomationPayload | null;
+  authority: EffectiveAuthority;
+}) {
+  const stored = modeRow(payload, actionClass.preferenceType);
+
+  return (
+    <article
+      className={styles.actionClassRow}
+      data-action-class={actionClass.id}
+    >
+      <div className={styles.actionClassHeading}>
+        <div>
+          <h3>{actionClass.name}</h3>
+          <p>{actionClass.detail}</p>
+        </div>
+        <Badge tone="warning">Promotion closed</Badge>
+      </div>
+
+      <dl className={styles.actionClassFacts}>
+        <div>
+          <dt>Configured preference</dt>
+          <dd>
+            {stored ? (
+              <code>{LEGACY_MODE_LABELS[stored.mode]}</code>
+            ) : (
+              "Not stored"
+            )}
+            <span>Raw v1 value</span>
+          </dd>
+        </div>
+        <div>
+          <dt>Effective authority</dt>
+          <dd>
+            <strong>{authority.mode}</strong>
+            <span>{authority.reason}</span>
+          </dd>
+        </div>
+      </dl>
+
+      <div className={styles.rowFootnotes}>
+        <span>
+          Last change:{" "}
+          {stored ? formatDateTime(stored.updatedAt) : "Not recorded"}
+          {stored?.updatedBy ? ` by ${stored.updatedBy}` : ""}
+        </span>
+        <span>Preference group: {actionClass.preferenceType}</span>
+        <span>Per-class release evidence: not in v1</span>
+        <span>Class STOP: not in v1</span>
+        {stored?.lockReason ? (
+          <span>Stored note: {stored.lockReason}</span>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+function parseAutomationTab(value: string | null): AutomationTab {
+  return AUTOMATION_TABS.some((tab) => tab.id === value)
+    ? (value as AutomationTab)
+    : "authority";
 }
 
 function GuardrailRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <span className={`text-[12.5px] ${INK2}`}>{label}</span>
-      <span className={`font-mono text-[12px] font-semibold tabular-nums ${INK}`}>{value}</span>
+    <div className={styles.guardrailRow}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <Badge tone="warning">Configured only</Badge>
     </div>
   );
 }
 
+function LedgerSourceLabel(
+  source: AutomationPayload["activityLedger"][number]["source"],
+) {
+  return source === "automation_ledger"
+    ? "Control ledger"
+    : "Provider action log";
+}
+
+function severityLabel(
+  severity: AutomationPayload["activityLedger"][number]["severity"],
+) {
+  if (severity === "success") return "Success record";
+  if (severity === "danger") return "Danger";
+  if (severity === "warning") return "Warning";
+  return "Info";
+}
+
 export function MetaAutomationView({
+  businessId = null,
   businessName,
+  providerAccounts = [],
+  providerAccountId = "",
+  providerAccountsLoading = false,
+  providerAccountsError = null,
   payload,
   loading = false,
   error = null,
+  initialTab = "authority",
   onAutomationChange,
+  onProviderAccountChange,
+  onRetry,
 }: {
+  businessId?: string | null;
   businessName: string | null;
+  providerAccounts?: MetaHistoryAccount[];
+  providerAccountId?: string;
+  providerAccountsLoading?: boolean;
+  providerAccountsError?: string | null;
   payload: AutomationPayload | null;
   loading?: boolean;
   error?: string | null;
+  initialTab?: AutomationTab;
   onAutomationChange?: (payload: AutomationPayload) => void;
+  onProviderAccountChange?: (providerAccountId: string) => void;
+  onRetry?: () => void;
 }) {
-  const [pendingAction, setPendingAction] = useState<string | null>(null);
-  const [toasts, setToasts] = useState<Array<{ id: number; text: string }>>([]);
-  const [promotionDialog, setPromotionDialog] = useState<{
-    decisionName: string;
-    decisionType: "pause" | "bid" | "budget" | "creative";
-    targetMode: string;
-    targetModeValue: (typeof MODE_VALUES)[number];
-    reason: string;
-  } | null>(null);
+  const [stopPending, setStopPending] = useState(false);
+  const [releaseArmed, setReleaseArmed] = useState(false);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<AutomationTab>(initialTab);
+  useEffect(() => setActiveTab(initialTab), [initialTab]);
+  const scopedBusinessId = payload?.businessId ?? businessId;
+  const scopedProviderAccountId =
+    (payload?.providerAccountId ?? providerAccountId) || null;
+  const routeScope = {
+    businessId: scopedBusinessId,
+    providerAccountId: scopedProviderAccountId,
+  };
+  const authority = deriveEffectiveAuthority(payload, error);
+  const readState = controlReadState(payload, loading, error);
+  const globalStop = payload?.globalKillSwitch.engaged === true;
+  const businessStop = payload?.businessControl.killSwitchEngaged === true;
+  const stopEngaged = globalStop || businessStop;
+  const businessControlVerified =
+    payload?.businessControl.source === "persisted";
+  const controlFailClosed =
+    Boolean(error) || Boolean(payload && !businessControlVerified);
   const blockedReasons = payload?.execution.blockedReasons ?? [];
-  const killSwitchEngaged =
-    payload?.globalKillSwitch.engaged === true ||
-    payload?.businessControl.killSwitchEngaged === true;
-  const autoAllowed = payload?.execution.autoExecutionAllowed === true;
-  const tier = payload?.businessControl.readinessTier ?? null;
-  const { current: currentMode, ceiling: modeCeiling } = modeState(payload);
   const guardrails = payload?.businessControl.guardrails ?? null;
-
-  function pushToast(text: string) {
-    const id = Date.now() + Math.random();
-    setToasts((items) => [...items, { id, text }]);
-    window.setTimeout(() => {
-      setToasts((items) => items.filter((item) => item.id !== id));
-    }, 5000);
+  const stopScopeCount = Number(globalStop) + Number(businessStop);
+  const canEngageBusinessStop =
+    Boolean(scopedBusinessId) &&
+    Boolean(scopedProviderAccountId) &&
+    !businessStop &&
+    !stopPending;
+  const canReleaseBusinessStop =
+    Boolean(scopedBusinessId) &&
+    Boolean(scopedProviderAccountId) &&
+    businessStop &&
+    businessControlVerified &&
+    !stopPending;
+  const effectiveSummaryTone: BadgeTone =
+    authority.mode === "Auto-execute"
+      ? "automation"
+      : stopEngaged || controlFailClosed
+        ? "danger"
+        : "neutral";
+  const writeStopSummary = (() => {
+    const tone: BadgeTone =
+      stopEngaged || controlFailClosed
+        ? "danger"
+        : payload
+          ? "success"
+          : "neutral";
+    if (error) {
+      return {
+        value: "Unverified",
+        detail:
+          "UI authority fails closed; provider block could not be verified",
+        tone,
+      };
+    }
+    if (payload && !businessControlVerified) {
+      return {
+        value: "Unverified",
+        detail:
+          "UI authority fails closed; persisted business control is not proven",
+        tone,
+      };
+    }
+    if (!payload) {
+      return { value: "Unknown", detail: "No control state loaded", tone };
+    }
+    return {
+      value:
+        stopScopeCount > 0
+          ? `${stopScopeCount} scope${stopScopeCount === 1 ? "" : "s"} engaged`
+          : "Clear",
+      detail:
+        blockedReasons.length > 0
+          ? blockedReasons.map(blockedReasonLabel).join("; ")
+          : "No engaged scope in the payload",
+      tone,
+    };
+  })();
+  const businessSwitchPresentation = (() => {
+    if (!payload) return { label: "Unknown", tone: "neutral" as BadgeTone };
+    if (!businessControlVerified) {
+      return { label: "Unverified", tone: "warning" as BadgeTone };
+    }
+    return businessStop
+      ? { label: "Engaged", tone: "danger" as BadgeTone }
+      : { label: "Clear", tone: "success" as BadgeTone };
+  })();
+  const desktopQuery = new URLSearchParams();
+  desktopQuery.set("automationTab", activeTab);
+  if (scopedBusinessId) {
+    desktopQuery.set("businessId", scopedBusinessId);
   }
+  if (scopedProviderAccountId) {
+    desktopQuery.set("providerAccountId", scopedProviderAccountId);
+  }
+  const desktopHref = `/platforms/meta/automation?${desktopQuery.toString()}`;
 
-  async function stopAllWrites() {
-    if (!payload || killSwitchEngaged || pendingAction) return;
-    setPendingAction("kill_switch");
+  async function engageBusinessStop() {
+    if (!scopedBusinessId || !canEngageBusinessStop) return;
+    setStopPending(true);
+    setActionNotice(null);
     try {
-      const response = await fetch(`/api/meta/automation?businessId=${encodeURIComponent(payload.businessId)}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          action: "engage_kill_switch",
-          reason: "Operator stopped all Meta writes from Automation.",
-        }),
-      });
-      const body = (await response.json().catch(() => null)) as
-        | { ok?: boolean; automation?: AutomationPayload; error?: { message?: string } }
-        | null;
+      const response = await fetch(
+        `/api/meta/automation?businessId=${encodeURIComponent(scopedBusinessId)}&providerAccountId=${encodeURIComponent(scopedProviderAccountId ?? "")}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            action: "engage_kill_switch",
+            reason:
+              "Operator engaged the business STOP from Automation supervision.",
+          }),
+        },
+      );
+      const body = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        automation?: AutomationPayload;
+        error?: { message?: string };
+      } | null;
       if (!response.ok || body?.ok === false || !body?.automation) {
-        throw new Error(body?.error?.message ?? "Kill switch could not be engaged.");
+        throw new Error(
+          body?.error?.message ?? "Business STOP could not be engaged.",
+        );
       }
       onAutomationChange?.(body.automation);
-      pushToast("Kill switch engaged — all Meta writes are stopped.");
+      setActionNotice(
+        "Business STOP engaged. New Meta mutations are blocked by that scope.",
+      );
     } catch (stopError) {
-      pushToast(
+      setActionNotice(
         stopError instanceof Error
           ? stopError.message
-          : "Kill switch could not be engaged.",
+          : "Business STOP could not be engaged.",
       );
     } finally {
-      setPendingAction(null);
+      setStopPending(false);
     }
   }
 
-  async function resumeWrites() {
-    if (!payload || !payload.businessControl.killSwitchEngaged || pendingAction) return;
-    setPendingAction("kill_switch");
+  async function releaseBusinessStop() {
+    if (!scopedBusinessId || !canReleaseBusinessStop || !releaseArmed) return;
+    setStopPending(true);
+    setActionNotice(null);
     try {
-      const response = await fetch(`/api/meta/automation?businessId=${encodeURIComponent(payload.businessId)}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "release_kill_switch" }),
-      });
-      const body = (await response.json().catch(() => null)) as
-        | { ok?: boolean; automation?: AutomationPayload; error?: { message?: string } }
-        | null;
+      const response = await fetch(
+        `/api/meta/automation?businessId=${encodeURIComponent(scopedBusinessId)}&providerAccountId=${encodeURIComponent(scopedProviderAccountId ?? "")}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "release_kill_switch" }),
+        },
+      );
+      const body = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        automation?: AutomationPayload;
+        error?: { message?: string };
+      } | null;
       if (!response.ok || body?.ok === false || !body?.automation) {
-        throw new Error(body?.error?.message ?? "Kill switch could not be released.");
+        throw new Error(
+          body?.error?.message ?? "Business STOP could not be released.",
+        );
       }
       onAutomationChange?.(body.automation);
-      pushToast("Business kill switch released — writes resume subject to the remaining gates.");
+      setReleaseArmed(false);
+      setActionNotice(
+        "Business STOP released after a fresh server preflight. Remaining global, readiness, and dry-run gates still apply.",
+      );
     } catch (releaseError) {
-      pushToast(
+      setActionNotice(
         releaseError instanceof Error
           ? releaseError.message
-          : "Kill switch could not be released.",
+          : "Business STOP could not be released.",
       );
     } finally {
-      setPendingAction(null);
-    }
-  }
-
-  // Persist a per-decision-type standing mode. Demotions apply immediately; promotions
-  // arrive here already confirmed via the dialog. This records the operator preference
-  // (with a real audit row) — it does NOT auto-execute; writes stay gated.
-  async function setDecisionMode(
-    decisionType: "pause" | "bid" | "budget" | "creative",
-    modeValue: (typeof MODE_VALUES)[number],
-  ) {
-    if (!payload || pendingAction) return;
-    setPendingAction(`mode:${decisionType}`);
-    try {
-      const response = await fetch(`/api/meta/automation?businessId=${encodeURIComponent(payload.businessId)}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "set_decision_type_mode", decisionType, mode: modeValue }),
-      });
-      const body = (await response.json().catch(() => null)) as
-        | { ok?: boolean; automation?: AutomationPayload; error?: { message?: string } }
-        | null;
-      if (!response.ok || body?.ok === false || !body?.automation) {
-        throw new Error(body?.error?.message ?? "Standing mode could not be saved.");
-      }
-      onAutomationChange?.(body.automation);
-      pushToast(`${decisionType} standing mode saved. Auto execution still honors the kill switch and gates.`);
-    } catch (modeError) {
-      pushToast(modeError instanceof Error ? modeError.message : "Standing mode could not be saved.");
-    } finally {
-      setPendingAction(null);
+      setStopPending(false);
     }
   }
 
   return (
     <div
-      className={`meta-automation-final flex min-h-[calc(100vh-46px)] flex-col bg-[var(--adc-s1,#f5f5f3)] text-[13px] leading-[1.45] ${INK}`}
+      className={`${styles.page} meta-automation-route`}
       data-screen-label="Automation"
     >
-      <AutomationMobileSurface
-        businessName={businessName}
-        payload={payload}
-        loading={loading}
-        error={error}
-      />
-      <main className="mx-auto flex w-full max-w-[1080px] flex-1 flex-col gap-4 px-4 py-[18px] sm:px-5">
-        <AutomationContextHeader businessName={businessName} tier={tier} />
-
-        {/* Two-objects explainer (educational, matches the reference intent) */}
-        <p className={`max-w-[760px] text-[12.5px] leading-6 ${INK2}`}>
-          Two different objects, never conflated: the server grades each{" "}
-          <b className="font-semibold">recommendation</b> with an automation-readiness tier
-          (read_only → manual_review → backtest_candidate → auto_execute), and you set a standing{" "}
-          <b className="font-semibold">mode</b> per decision type. An Auto mode still skips any
-          recommendation whose tier is below auto_execute. Promotion is never automatic; demotion
-          is always one click. This surface is read-only — it reflects server state and never issues
-          writes.
-        </p>
-
-      {/* Honest state banners */}
-      {!businessName ? (
-        <Banner tone="caution" title="Select a business.">
-          Automation state is business-scoped — no default account is assumed.
-        </Banner>
-      ) : null}
-      {error ? (
-        <Banner tone="danger" title="Automation contract failed.">
-          {error}
-        </Banner>
-      ) : null}
-      {loading ? (
-        <Banner tone="neutral" title="Loading automation contract…">
-          Reading persisted guardrails, promotion records, activity, and kill-switch posture.
-        </Banner>
-      ) : null}
-      {payload && killSwitchEngaged ? (
-        <Banner tone="danger" title="Kill switch engaged — all Meta writes are disabled.">
-          {payload.businessControl.killSwitchReason
-            ? `${payload.businessControl.killSwitchReason} `
-            : ""}
-          {blockedReasons.length > 0
-            ? `Blocked: ${blockedReasons.join(", ")}.`
-            : "Release the business switch from Guardrails below to resume; a global (env) stop clears only from configuration. The queue stays readable."}
-        </Banner>
-      ) : null}
-      {payload && !killSwitchEngaged && !autoAllowed ? (
-        <Banner tone="caution" title="Automation is not executable yet.">
-          {blockedReasons.length > 0
-            ? `The backend contract does not allow auto execution: ${blockedReasons.join(", ")}.`
-            : "The backend contract does not currently allow automatic execution."}
-        </Banner>
-      ) : null}
-
-      {/* ============ Standing mode — per decision type ============ */}
-      <section className="flex flex-col gap-2">
-        <div className="flex items-baseline gap-2">
-          <h2 className={`text-[13px] font-semibold ${INK}`}>Standing mode — per decision type</h2>
-          <span className={`text-[11px] ${INK3}`}>
-            posture is modeled per business today
-          </span>
-        </div>
-        <p className={`text-[11.5px] leading-5 ${INK3}`}>
-          Per-decision-type judged-outcome gates are not in the read model, so no hit/judged
-          numbers are shown until the server provides them — progress is never faked. Modes below
-          reflect the current business posture and are not editable from this page.
-        </p>
-
-        <div className="flex flex-col gap-2.5">
-          {DECISION_TYPES.map((type) => (
-            <div
-              key={type.id}
-              className={`flex flex-wrap items-center gap-4 px-4 py-3.5 ${CARD}`}
-            >
-              <div className="min-w-[220px] flex-1">
-                <div className="flex items-center gap-2">
-                  <span className={`text-[13.5px] font-semibold ${INK}`}>{type.name}</span>
-                  {type.contract === "pending" ? (
-                    <span className="rounded-[4px] border border-[var(--adc-b1,#e4e4e0)] px-1.5 py-px font-mono text-[10px] text-[var(--adc-ink3,#7d838c)]">
-                      write path pending server contract
-                    </span>
-                  ) : (
-                    <span className="rounded-[4px] border border-[var(--adc-pos-bd,#bfdfd1)] bg-[var(--adc-pos-bg,#e9f4ef)] px-1.5 py-px font-mono text-[10px] text-[var(--adc-pos-fg,#0b6b4f)]">
-                      write path wired · kill-switch guarded
-                    </span>
-                  )}
-                </div>
-                <div className={`mt-0.5 text-[11.5px] ${INK3}`}>{type.sub}</div>
-                {/* honest per-type gate: indeterminate track, no fabricated fill */}
-                <div className="mt-2 flex items-center gap-2">
-                  <div className="h-1.5 max-w-[260px] flex-1 overflow-hidden rounded-[3px] bg-[var(--adc-s3,#ededea)]">
-                    <div className="h-full w-full bg-[repeating-linear-gradient(45deg,var(--adc-b1,#e4e4e0)_0_5px,transparent_5px_10px)]" />
-                  </div>
-                  <span className={`font-mono text-[11px] ${INK3}`}>
-                    per-type evidence gate: read model missing
-                  </span>
-                </div>
-              </div>
-
-              {/* per-type standing mode: demote applies immediately, promote opens a confirm */}
-              {(() => {
-                const typeKey = DECISION_TYPE_KEY[type.id];
-                const typeModeRow = payload?.decisionTypeModes.find((m) => m.decisionType === typeKey);
-                const currentTypeMode = typeModeRow ? MODE_VALUES.indexOf(typeModeRow.mode) : 0;
-                const modePending = pendingAction === `mode:${typeKey}`;
-                return (
-                  <div className="flex flex-none gap-1" role="group" aria-label={`Standing mode for ${type.name}`}>
-                    {MODES.map((mode, i) => {
-                      const isCurrent = payload != null && i === currentTypeMode;
-                      const isLocked = payload != null && i > modeCeiling;
-                      const canDemote = payload != null && i < currentTypeMode && !isLocked && !modePending;
-                      const canPromote = payload != null && i > currentTypeMode && !isLocked && !modePending;
-                      const isAuto = i === 2;
-                      const cls = isCurrent
-                        ? isAuto
-                          ? "border-[var(--adc-auto-bd,#d9ccf1)] bg-[var(--adc-auto-bg,#f2edfb)] text-[var(--adc-auto-fg,#6c41be)] font-semibold"
-                          : "border-[var(--adc-b2,#cdcdc7)] bg-[var(--adc-s3,#ededea)] text-[var(--adc-ink,#1a1c1f)] font-semibold"
-                        : isLocked
-                          ? "border-dashed border-[var(--adc-b1,#e4e4e0)] text-[var(--adc-ink3,#7d838c)] opacity-70"
-                          : "border-[var(--adc-b1,#e4e4e0)] text-[var(--adc-ink2,#4a4f56)]";
-                      return (
-                        <button
-                          key={mode}
-                          type="button"
-                          data-decision-mode={`${typeKey}:${MODE_VALUES[i]}`}
-                          title={
-                            !payload
-                              ? "Not loaded"
-                              : isCurrent
-                                ? "Current standing mode"
-                                : isLocked
-                                  ? `Locked — requires a higher readiness tier than ${tier ? TIER_LABEL[tier] : "current"}`
-                                  : canDemote
-                                    ? "Demote — applies immediately"
-                                    : "Promote — opens the confirmation"
-                          }
-                          disabled={!canDemote && !canPromote}
-                          onClick={() => {
-                            if (canDemote) {
-                              void setDecisionMode(typeKey, MODE_VALUES[i]);
-                            } else if (canPromote) {
-                              setPromotionDialog({
-                                decisionName: type.name,
-                                decisionType: typeKey,
-                                targetMode: mode,
-                                targetModeValue: MODE_VALUES[i],
-                                reason:
-                                  "Recording a standing preference. Auto execution still requires the readiness tier, kill switch off and dry-run cleared.",
-                              });
-                            }
-                          }}
-                          className={`rounded-[6px] border px-3 py-[5px] text-[12px] disabled:cursor-not-allowed ${canDemote || canPromote ? "cursor-pointer" : ""} ${cls}`}
-                        >
-                          {mode}
-                        </button>
-                      );
-                    })}
-                  </div>
-                );
-              })()}
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ============ Guardrails + Activity ============ */}
-      <div className="grid gap-3 lg:grid-cols-[1fr_1.3fr]">
-        {/* Guardrails — server-enforced */}
-        <section className={`p-4 ${CARD}`}>
-          <h2 className={`mb-3 text-[13px] font-semibold ${INK}`}>Guardrails — server-enforced</h2>
-          {guardrails ? (
-            <div className="flex flex-col gap-2">
-              <GuardrailRow
-                label="Daily auto-action cap"
-                value={`${guardrails.dailyAutoActionCap} / day`}
-              />
-              <GuardrailRow
-                label="Per-action spend ceiling"
-                value={formatMinorMoney(
-                  guardrails.perActionSpendCeilingMinor,
-                  guardrails.perActionSpendCeilingCurrency,
-                )}
-              />
-              <GuardrailRow
-                label="Notification policy"
-                value={notificationPolicyLabel(guardrails.notificationPolicy)}
-              />
-              <div className="mt-1 flex items-center justify-between gap-3 border-t border-[var(--adc-b1,#e4e4e0)] pt-2.5">
-                <span className={`text-[12.5px] ${INK2}`}>Business kill switch</span>
-                {payload?.businessControl.killSwitchEngaged ? (
-                  <button
-                    type="button"
-                    disabled={!payload || pendingAction === "kill_switch"}
-                    onClick={resumeWrites}
-                    className="rounded-[6px] border border-[var(--adc-b2,#cdcdc7)] bg-white px-2.5 py-1 text-[12px] font-medium text-[var(--adc-ink,#1a1c1f)] hover:border-[var(--adc-ink3,#7d838c)] disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {pendingAction === "kill_switch" ? "Resuming…" : "Resume writes"}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={!payload || pendingAction === "kill_switch"}
-                    onClick={stopAllWrites}
-                    className="rounded-[6px] border border-[var(--adc-danger-bd,#efc4d1)] bg-[var(--adc-danger-bg,#fbedf1)] px-2.5 py-1 text-[12px] font-medium text-[var(--adc-danger-fg,#a6224a)] hover:border-[var(--adc-danger-fg,#a6224a)] disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {pendingAction === "kill_switch" ? "Stopping…" : "Stop all writes"}
-                  </button>
-                )}
-              </div>
-              <p className={`font-mono text-[11px] leading-5 ${INK3}`}>
-                backend prerequisites: max budget +{guardrails.maxBudgetIncreasePct}% · labels{" "}
-                {guardrails.requireCampaignLabel ? "required" : "optional"} · commercial anchor{" "}
-                {guardrails.requireCommercialAnchor ? "required" : "optional"} · live preflight{" "}
-                {guardrails.requireLivePreflight ? "required" : "optional"} · rollback plan{" "}
-                {guardrails.requireRollbackPlan ? "required" : "optional"} · dry-run{" "}
-                {guardrails.dryRunOnly ? "on" : "off"}
-              </p>
-            </div>
-          ) : (
-            <p className={`text-[12.5px] ${INK3}`}>
-              Guardrails are missing until the server returns a business-scoped control row.
-            </p>
-          )}
-          <p className={`mt-3 text-[11px] leading-5 ${INK3}`}>
-            The kill switch exists to STOP — there is deliberately no “enable all automation”
-            master switch. Auto actions run the same validation, audit log and Meta verification as
-            manual writes.
-          </p>
-        </section>
-
-        {/* Activity — auto-executed ledger */}
-        <section className={`p-4 ${CARD}`}>
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <h2 className={`text-[13px] font-semibold ${INK}`}>Activity — auto-executed ledger</h2>
-            <span className={`text-[11px] ${INK3}`}>a filtered Audit Trail view</span>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            {(payload?.activityLedger ?? []).map((item) => (
-              <div
-                key={item.id}
-                className="rounded-[8px] border border-[var(--adc-b1,#e4e4e0)] px-3 py-2.5 text-[12px]"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <span className={`min-w-0 ${INK}`}>
-                    <b className="font-semibold">{item.message}</b>{" "}
-                    <span className={INK3}>
-                      · {item.source === "automation_ledger" ? "Automation" : "Meta action log"}
-                    </span>
-                  </span>
-                  <span className={`flex-none font-medium ${severityTone(item.severity)}`}>
-                    {item.severity === "success" ? "verified" : item.severity === "warning" ? "no write" : item.severity}
-                  </span>
-                </div>
-                <div className={`mt-1 flex items-center justify-between gap-2 font-mono text-[11px] ${INK3}`}>
-                  <span>
-                    {item.activityType} · tier at action: unknown · daily cap check stored in payload when available
-                  </span>
-                  <span className="tabular-nums">{formatDateTime(item.createdAt)}</span>
-                </div>
-              </div>
-            ))}
-            {payload && payload.activityLedger.length === 0 ? (
-              <p className={`rounded-[8px] border border-dashed border-[var(--adc-b1,#e4e4e0)] px-3 py-3 text-[12px] ${INK3}`}>
-                No automation or Meta action activity is stored yet. Auto-executed actions and
-                skips will appear here once they occur — nothing is claimed until it happens.
-              </p>
-            ) : null}
-            {!payload && !loading ? (
-              <p className={`text-[12px] ${INK3}`}>Activity is not loaded.</p>
-            ) : null}
-          </div>
-        </section>
-      </div>
-
-      {/* ============ Promotion records ============ */}
-      <section className={`p-4 ${CARD}`}>
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <h2 className={`text-[13px] font-semibold ${INK}`}>Promotion records</h2>
-          <span className={`text-[11px] ${INK3}`}>evidence only — never triggers writes from here</span>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          {(payload?.promotionRecords ?? []).map((record) => (
-            <div
-              key={record.id}
-              className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[8px] border border-[var(--adc-b1,#e4e4e0)] px-3 py-2.5 text-[12px]"
-            >
-              <span className={`font-medium ${INK}`}>
-                {record.entityType} {record.entityId ?? "—"}
-              </span>
-              <span className={`font-mono text-[11px] ${INK3}`}>
-                {record.sourceTier ?? "—"} → {record.targetTier ?? "—"}
-              </span>
-              <span className={INK2}>{record.reason ?? "No reason stored"}</span>
-              <span className="flex-1" />
-              <span className={`font-medium ${INK2}`}>{record.status}</span>
-              <span className={`font-mono text-[11px] tabular-nums ${INK3}`}>
-                {formatDateTime(record.createdAt)}
-              </span>
-            </div>
-          ))}
-          {payload && payload.promotionRecords.length === 0 ? (
-            <p className={`rounded-[8px] border border-dashed border-[var(--adc-b1,#e4e4e0)] px-3 py-3 text-[12px] ${INK3}`}>
-              No promotion records stored yet. Promotion is operator-confirmed and logged — no
-              history is claimed until records exist.
-            </p>
-          ) : null}
-          {!payload && !loading ? (
-            <p className={`text-[12px] ${INK3}`}>Promotion records are not loaded.</p>
-          ) : null}
-        </div>
-      </section>
-
-      </main>
-
-      {promotionDialog ? (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(16,18,22,0.4)] px-4"
-          role="presentation"
-          onClick={() => setPromotionDialog(null)}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Promote ${promotionDialog.decisionName}`}
-            className={`${CARD} flex w-[460px] max-w-[92vw] flex-col gap-3 border-[var(--adc-b2,#cdcdc7)] p-5 shadow-[0_8px_28px_rgba(20,22,26,.14)]`}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className={`text-[15px] font-semibold ${INK}`}>
-              Promote “{promotionDialog.decisionName}” to {promotionDialog.targetMode}
-            </div>
-            <p className={`text-[12.5px] leading-6 ${INK2}`}>
-              {promotionDialog.reason} Confirming records this standing preference with an audit
-              row; it does not issue any Meta write on its own.
-            </p>
-            <div className="rounded-[8px] border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s1,#f5f5f3)] px-3 py-2.5 text-[12px] leading-6">
-              Guardrails restated:<br />
-              · max {guardrails?.dailyAutoActionCap ?? 3} auto actions/day ·{" "}
-              {formatMinorMoney(
-                guardrails?.perActionSpendCeilingMinor,
-                guardrails?.perActionSpendCeilingCurrency,
-              )}{" "}
-              per-action ceiling
-              <br />
-              · {guardrails ? notificationPolicyLabel(guardrails.notificationPolicy) : "notification policy missing"} ·
-              kill switch always live
-              <br />
-              · skips protected entities and tiers below auto_execute
-            </div>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setPromotionDialog(null)}
-                className="rounded-[6px] border border-[var(--adc-b2,#cdcdc7)] px-3 py-1.5 text-[12px]"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                data-testid="confirm-promotion"
-                disabled={pendingAction != null}
-                onClick={() => {
-                  const dialog = promotionDialog;
-                  setPromotionDialog(null);
-                  void setDecisionMode(dialog.decisionType, dialog.targetModeValue);
-                }}
-                className="rounded-[6px] border border-[var(--adc-auto-bd,#d9ccf1)] bg-[var(--adc-auto-bg,#f2edfb)] px-3 py-1.5 text-[12px] font-medium text-[var(--adc-auto-fg,#6c41be)] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Confirm promotion
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      <div
-        aria-live="polite"
-        className="fixed bottom-4 left-1/2 z-[120] flex -translate-x-1/2 flex-col items-center gap-2"
+      <section
+        className={styles.mobileSurface}
+        data-testid="meta-mobile-automation"
+        aria-labelledby="automation-mobile-title"
       >
-        {toasts.map((toast) => (
-          <div
-            key={toast.id}
-            className="rounded-[8px] bg-[var(--adc-ink,#1a1c1f)] px-3.5 py-2 text-[12.5px] text-[var(--adc-s1,#f5f5f3)] shadow-[0_8px_28px_rgba(20,22,26,.14)]"
-          >
-            {toast.text}
+        <div className={styles.mobileEyebrow}>
+          <span>Automation status</span>
+          <Badge tone={readState.tone}>{readState.label}</Badge>
+        </div>
+        <h1 id="automation-mobile-title">Meta authority</h1>
+        <p>
+          Read-only status for {businessName ?? "no selected business"}. Open
+          the desktop workspace for guarded controls and full receipts.
+        </p>
+        <dl className={styles.mobileFacts}>
+          <div>
+            <dt>Effective authority</dt>
+            <dd>{authority.mode}</dd>
           </div>
-        ))}
+          <div>
+            <dt>Business STOP</dt>
+            <dd>{businessSwitchPresentation.label}</dd>
+          </div>
+          <div>
+            <dt>Readiness</dt>
+            <dd>
+              {payload
+                ? READINESS_LABELS[payload.businessControl.readinessTier]
+                : "Not loaded"}
+            </dd>
+          </div>
+          <div>
+            <dt>Ad account</dt>
+            <dd>{scopedProviderAccountId ?? "Not selected"}</dd>
+          </div>
+        </dl>
+        {error ? (
+          <div className={styles.mobileWarning} role="alert">
+            <ShieldAlert aria-hidden="true" size={16} strokeWidth={1.8} />
+            Control state is unreadable. Authority remains Observe.
+          </div>
+        ) : null}
+        <Link href={desktopHref} className={styles.mobileDeepLink}>
+          Open {AUTOMATION_TABS.find((tab) => tab.id === activeTab)?.label} on
+          desktop
+        </Link>
+      </section>
+
+      <div className={styles.desktopSurface}>
+        <header className={styles.pageHeader}>
+          <div className={styles.titleBlock}>
+            <div className={styles.eyebrow}>
+              <Badge>Stage B</Badge>
+              <span>Meta supervision</span>
+            </div>
+            <h1>Automation</h1>
+            <p>Authority, evidence, guardrails, and persisted activity.</p>
+          </div>
+          <div className={styles.headerActions}>
+            <label className={styles.accountSelect}>
+              <span>Ad account</span>
+              <select
+                aria-label="Meta ad account for Automation"
+                value={providerAccountId}
+                disabled={providerAccountsLoading || !onProviderAccountChange}
+                onChange={(event) =>
+                  onProviderAccountChange?.(event.currentTarget.value)
+                }
+              >
+                <option value="">
+                  {providerAccountsLoading
+                    ? "Loading accounts"
+                    : providerAccounts.length === 0
+                      ? "No assigned account"
+                      : "Select account"}
+                </option>
+                {providerAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name ?? account.id}
+                    {account.currency ? ` · ${account.currency}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Badge tone={readState.tone}>{readState.label}</Badge>
+            <Link href={buildMetaScopedHref("/platforms/meta", routeScope)} className={styles.backLink}>
+              <ArrowLeft aria-hidden="true" size={14} strokeWidth={1.8} />
+              Decisions
+            </Link>
+          </div>
+        </header>
+
+        <nav className={styles.tabBar} aria-label="Automation views">
+          {AUTOMATION_TABS.map((tab) => (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              className={styles.tabButton}
+              data-active={activeTab === tab.id ? "true" : "false"}
+              key={tab.id}
+              onClick={() => {
+                setActiveTab(tab.id);
+                if (typeof window !== "undefined") {
+                  const url = new URL(window.location.href);
+                  url.searchParams.set("automationTab", tab.id);
+                  window.history.replaceState(null, "", url);
+                }
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+
+        <div className={styles.content}>
+          {!businessName ? (
+            <AlertBand tone="warning" title="Select a business.">
+              Automation controls are business-scoped. No default account is
+              assumed.
+            </AlertBand>
+          ) : null}
+
+          {businessName && providerAccountsError ? (
+            <AlertBand
+              tone="danger"
+              title="Account scope unreadable - fail closed."
+            >
+              {providerAccountsError}
+            </AlertBand>
+          ) : null}
+
+          {businessName &&
+          !providerAccountsLoading &&
+          !scopedProviderAccountId ? (
+            <AlertBand tone="warning" title="Select one Meta ad account.">
+              Account-scoped evidence and all write controls remain withheld.
+            </AlertBand>
+          ) : null}
+
+          {loading ? (
+            <AlertBand tone="neutral" title="Reading the control plane.">
+              Authority remains Observe until persisted state is available.
+            </AlertBand>
+          ) : null}
+
+          {error ? (
+            <AlertBand
+              tone="danger"
+              title="Control plane unreadable - fail closed."
+              action={
+                onRetry ? (
+                  <button
+                    type="button"
+                    className={styles.secondaryButton}
+                    onClick={onRetry}
+                  >
+                    <RefreshCw aria-hidden="true" size={14} strokeWidth={1.8} />
+                    Retry read
+                  </button>
+                ) : null
+              }
+            >
+              No authority or clearing action is inferred. {error}
+            </AlertBand>
+          ) : null}
+
+          {payload && payload.businessControl.source !== "persisted" ? (
+            <AlertBand
+              tone="warning"
+              title="Persisted business control is not proven."
+            >
+              The payload source is default. Effective authority is Observe and
+              mode changes stay unavailable.
+            </AlertBand>
+          ) : null}
+
+          {payload?.execution.autoExecutionAllowed ? (
+            <AlertBand
+              tone="warning"
+              title="Server policy allows Auto-execute; executor absent."
+            >
+              This is a policy flag, not proof that a scheduler, per-class
+              evidence gate, or provider executor exists.
+            </AlertBand>
+          ) : null}
+
+          {globalStop || businessStop ? (
+            <AlertBand tone="danger" title="STOP engaged.">
+              New mutations are blocked. A provider request already accepted may
+              still complete.
+              {payload?.businessControl.killSwitchReason
+                ? ` Business reason: ${payload.businessControl.killSwitchReason}`
+                : ""}
+            </AlertBand>
+          ) : null}
+
+          {scopedProviderAccountId ? (
+            <div className={styles.scopeLine}>
+              <span>Provider evidence</span>
+              <code>{scopedProviderAccountId}</code>
+              <span>Business controls cover all assigned Meta accounts.</span>
+            </div>
+          ) : null}
+
+          {actionNotice ? (
+            <div className={styles.actionNotice} aria-live="polite">
+              {actionNotice}
+            </div>
+          ) : null}
+
+          {activeTab === "authority" ? (
+            <section
+              className={styles.section}
+              data-testid="automation-authority-panel"
+              aria-labelledby="authority-title"
+            >
+              <div className={styles.sectionHeader}>
+                <div>
+                  <h2 id="authority-title">Effective authority</h2>
+                  <p>
+                    Stored preferences are evidence. Server gates determine the
+                    authority actually served.
+                  </p>
+                </div>
+                <Badge tone={effectiveSummaryTone}>{authority.mode}</Badge>
+              </div>
+
+              <div className={styles.summaryBand}>
+                <SummaryItem
+                  label="Effective authority"
+                  value={authority.mode}
+                  detail={authority.reason}
+                  tone={effectiveSummaryTone}
+                />
+                <SummaryItem
+                  label="Business STOP"
+                  value={writeStopSummary.value}
+                  detail={writeStopSummary.detail}
+                  tone={writeStopSummary.tone}
+                />
+                <SummaryItem
+                  label="Readiness tier"
+                  value={
+                    payload
+                      ? READINESS_LABELS[payload.businessControl.readinessTier]
+                      : "Not loaded"
+                  }
+                  detail={
+                    payload
+                      ? `Source: ${payload.businessControl.source}`
+                      : "No server tier available"
+                  }
+                  tone={
+                    payload?.businessControl.source === "persisted"
+                      ? "neutral"
+                      : "warning"
+                  }
+                />
+              </div>
+
+              <div className={styles.authorityLegend} role="note">
+                <strong>Canonical progression</strong>
+                <span>Observe</span>
+                <span>Recommend</span>
+                <span>Approval Required</span>
+                <span>Auto-execute</span>
+                <small>
+                  Auto-execute remains unavailable without an executor.
+                </small>
+              </div>
+
+              <div className={styles.actionClassList}>
+                {ACTION_CLASSES.map((actionClass) => (
+                  <ActionClassRow
+                    actionClass={actionClass}
+                    authority={authority}
+                    key={actionClass.id}
+                    payload={payload}
+                  />
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {activeTab === "evidence" ? (
+            <section
+              className={styles.section}
+              data-testid="automation-evidence-panel"
+              aria-labelledby="evidence-title"
+            >
+              <div className={styles.sectionHeader}>
+                <div>
+                  <h2 id="evidence-title">Evidence</h2>
+                  <p>
+                    Ten product action classes mapped to four persisted v1
+                    preference groups, with missing release evidence stated explicitly.
+                  </p>
+                </div>
+                <Badge tone="danger">10 promotions closed</Badge>
+              </div>
+
+              <div className={styles.evidenceTable} role="table">
+                <div className={styles.evidenceHeader} role="row">
+                  <span role="columnheader">Action class</span>
+                  <span role="columnheader">Configured</span>
+                  <span role="columnheader">Effective</span>
+                  <span role="columnheader">Promotion</span>
+                  <span role="columnheader">Class STOP</span>
+                </div>
+                {ACTION_CLASSES.map((actionClass) => {
+                  const stored = modeRow(payload, actionClass.preferenceType);
+                  return (
+                    <div
+                      className={styles.evidenceRow}
+                      data-action-class={actionClass.id}
+                      role="row"
+                      key={actionClass.id}
+                    >
+                      <span role="cell">
+                        <strong>{actionClass.name}</strong>
+                        <small>{actionClass.detail}</small>
+                      </span>
+                      <code role="cell">
+                        {stored
+                          ? LEGACY_MODE_LABELS[stored.mode]
+                          : "not_stored"}
+                      </code>
+                      <span role="cell">{authority.mode}</span>
+                      <span role="cell">Closed: per-class evidence absent</span>
+                      <span role="cell">Not in v1</span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className={styles.gateGrid}>
+                {PROMOTION_GATES.map((gate) => (
+                  <article className={styles.gateItem} key={gate.title}>
+                    <div className={styles.gateTitle}>
+                      <Lock aria-hidden="true" size={13} strokeWidth={2} />
+                      <strong>{gate.title}</strong>
+                    </div>
+                    <span className={styles.gateRequirement}>
+                      {gate.requirement}
+                    </span>
+                    <span className={styles.gateMissing}>{gate.missing}</span>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {activeTab === "guardrails" ? (
+            <div
+              className={styles.controlGrid}
+              data-testid="automation-guardrails-panel"
+            >
+              <section className={styles.panel} aria-labelledby="stop-title">
+                <div className={styles.panelHeader}>
+                  <div>
+                    <h2 id="stop-title">Business STOP</h2>
+                    <p>
+                      Engage is risk-reducing. Release is Admin-only, desktop-only,
+                      and requires a fresh persisted-state preflight.
+                    </p>
+                  </div>
+                  <ShieldAlert aria-hidden="true" size={18} strokeWidth={1.7} />
+                </div>
+
+                <div className={styles.switchList}>
+                  <div className={styles.switchRow}>
+                    <div className={styles.switchIdentity}>
+                      <Server aria-hidden="true" size={15} strokeWidth={1.7} />
+                      <span>
+                        <strong>Environment STOP</strong>
+                        <small>META_ADS_WRITE_KILL_SWITCH</small>
+                      </span>
+                    </div>
+                    <div className={styles.switchState}>
+                      <Badge
+                        tone={
+                          globalStop
+                            ? "danger"
+                            : payload
+                              ? "success"
+                              : "neutral"
+                        }
+                      >
+                        {payload
+                          ? globalStop
+                            ? "Engaged"
+                            : "Clear"
+                          : "Unknown"}
+                      </Badge>
+                      <Badge>Server-enforced</Badge>
+                    </div>
+                  </div>
+
+                  <div className={styles.switchRow}>
+                    <div className={styles.switchIdentity}>
+                      <Database
+                        aria-hidden="true"
+                        size={15}
+                        strokeWidth={1.7}
+                      />
+                      <span>
+                        <strong>Business STOP</strong>
+                        <small>{scopedBusinessId ?? "No business scope"}</small>
+                      </span>
+                    </div>
+                    <div className={styles.switchState}>
+                      <Badge tone={businessSwitchPresentation.tone}>
+                        {businessSwitchPresentation.label}
+                      </Badge>
+                      <Badge>Server-enforced</Badge>
+                    </div>
+                    {!businessStop ? (
+                      <button
+                        type="button"
+                        className={styles.stopButton}
+                        data-testid="engage-business-stop"
+                        disabled={!canEngageBusinessStop}
+                        onClick={() => void engageBusinessStop()}
+                      >
+                        <CircleStop
+                          aria-hidden="true"
+                          size={15}
+                          strokeWidth={1.9}
+                        />
+                        {stopPending
+                          ? "Engaging STOP..."
+                          : "Engage Business STOP"}
+                      </button>
+                    ) : (
+                      <div className={styles.releaseControl}>
+                        <div className={styles.releaseLimit}>
+                          <Lock aria-hidden="true" size={13} strokeWidth={2} />
+                          Releasing only clears the business STOP. It does not enable
+                          auto-execution and cannot bypass the environment STOP.
+                        </div>
+                        {releaseArmed ? (
+                          <div className={styles.releaseActions} role="group" aria-label="Confirm Business STOP release">
+                            <button
+                              type="button"
+                              className={styles.secondaryButton}
+                              disabled={stopPending}
+                              onClick={() => setReleaseArmed(false)}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              className={styles.releaseButton}
+                              data-testid="confirm-release-business-stop"
+                              disabled={!canReleaseBusinessStop}
+                              onClick={() => void releaseBusinessStop()}
+                            >
+                              {stopPending ? "Rechecking..." : "Confirm release (Admin)"}
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            className={styles.secondaryButton}
+                            data-testid="review-release-business-stop"
+                            disabled={!canReleaseBusinessStop}
+                            onClick={() => setReleaseArmed(true)}
+                          >
+                            Review release (Admin)
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              <section
+                className={styles.panel}
+                aria-labelledby="guardrails-title"
+              >
+                <div className={styles.panelHeader}>
+                  <div>
+                    <h2 id="guardrails-title">Guardrail configuration</h2>
+                    <p>
+                      Configured defaults, not yet enforced by an automation
+                      executor.
+                    </p>
+                  </div>
+                  <Badge tone="warning">Enforcement unproven</Badge>
+                </div>
+
+                {guardrails ? (
+                  <div className={styles.guardrailList}>
+                    <GuardrailRow
+                      label="Daily auto-action cap"
+                      value={`${guardrails.dailyAutoActionCap} / day`}
+                    />
+                    <GuardrailRow
+                      label="Per-action spend ceiling"
+                      value={formatMinorMoney(
+                        guardrails.perActionSpendCeilingMinor,
+                        guardrails.perActionSpendCeilingCurrency,
+                      )}
+                    />
+                    <GuardrailRow
+                      label="Maximum budget increase"
+                      value={`${guardrails.maxBudgetIncreasePct}%`}
+                    />
+                    <GuardrailRow
+                      label="Maximum daily budget change"
+                      value={formatMinorMoney(
+                        guardrails.maxDailyBudgetChangeMinor,
+                        guardrails.perActionSpendCeilingCurrency,
+                      )}
+                    />
+                    <GuardrailRow
+                      label="Notification policy"
+                      value={notificationPolicyLabel(
+                        guardrails.notificationPolicy,
+                      )}
+                    />
+                    <GuardrailRow
+                      label="Campaign label"
+                      value={requirementLabel(guardrails.requireCampaignLabel)}
+                    />
+                    <GuardrailRow
+                      label="Commercial anchor"
+                      value={requirementLabel(
+                        guardrails.requireCommercialAnchor,
+                      )}
+                    />
+                    <GuardrailRow
+                      label="Live preflight"
+                      value={requirementLabel(guardrails.requireLivePreflight)}
+                    />
+                    <GuardrailRow
+                      label="Rollback plan"
+                      value={requirementLabel(guardrails.requireRollbackPlan)}
+                    />
+                    <GuardrailRow
+                      label="Dry-run only"
+                      value={guardrails.dryRunOnly ? "On" : "Off"}
+                    />
+                  </div>
+                ) : (
+                  <div className={styles.emptyState}>
+                    Guardrail configuration is not loaded.
+                  </div>
+                )}
+              </section>
+            </div>
+          ) : null}
+
+          {activeTab === "activity" ? (
+            <div
+              className={styles.ledgerGrid}
+              data-testid="automation-activity-panel"
+            >
+              <section
+                className={styles.panel}
+                aria-labelledby="activity-title"
+              >
+                <div className={styles.panelHeader}>
+                  <div>
+                    <h2 id="activity-title">Activity ledger</h2>
+                    <p>
+                      Business control events plus provider action logs for
+                      {` ${scopedProviderAccountId ?? "no selected account"}`}.
+                    </p>
+                  </div>
+                  <Badge tone="warning">Partial receipt evidence</Badge>
+                </div>
+
+                <div className={styles.receiptLimit}>
+                  <AlertTriangle
+                    aria-hidden="true"
+                    size={14}
+                    strokeWidth={1.8}
+                  />
+                  v1 does not expose prior, intended, and observed state or
+                  verifiedAt in this list.
+                </div>
+
+                <div className={styles.ledgerList}>
+                  {(payload?.activityLedger ?? []).map((item) => (
+                    <article
+                      className={styles.ledgerRow}
+                      data-severity={item.severity}
+                      key={item.id}
+                    >
+                      <div className={styles.ledgerIcon} aria-hidden="true">
+                        {item.severity === "success" ? (
+                          <CheckCircle2 size={15} strokeWidth={1.8} />
+                        ) : item.severity === "danger" ? (
+                          <ShieldAlert size={15} strokeWidth={1.8} />
+                        ) : (
+                          <Activity size={15} strokeWidth={1.8} />
+                        )}
+                      </div>
+                      <div className={styles.ledgerBody}>
+                        <div className={styles.ledgerMessage}>
+                          <strong>{item.message}</strong>
+                          <Badge
+                            tone={
+                              item.severity === "danger"
+                                ? "danger"
+                                : item.severity === "warning"
+                                  ? "warning"
+                                  : item.severity === "success"
+                                    ? "success"
+                                    : "neutral"
+                            }
+                          >
+                            {severityLabel(item.severity)}
+                          </Badge>
+                        </div>
+                        <div className={styles.ledgerMeta}>
+                          <span>{LedgerSourceLabel(item.source)}</span>
+                          <code>{item.activityType}</code>
+                          <time dateTime={item.createdAt}>
+                            {formatDateTime(item.createdAt)}
+                          </time>
+                          {item.payload ? <span>Payload attached</span> : null}
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                  {payload && payload.activityLedger.length === 0 ? (
+                    <div className={styles.emptyState}>
+                      No activity records are stored for this business.
+                    </div>
+                  ) : null}
+                  {!payload && !loading ? (
+                    <div className={styles.emptyState}>
+                      Activity is not loaded.
+                    </div>
+                  ) : null}
+                </div>
+              </section>
+
+              <section className={styles.panel} aria-labelledby="records-title">
+                <div className={styles.panelHeader}>
+                  <div>
+                    <h2 id="records-title">Authority change records</h2>
+                    <p>
+                      Raw v1 promotion and mode-change records; not
+                      evidence-gated proposals.
+                    </p>
+                  </div>
+                  <Clock3 aria-hidden="true" size={18} strokeWidth={1.7} />
+                </div>
+
+                <div className={styles.ledgerList}>
+                  {(payload?.promotionRecords ?? []).map((record) => (
+                    <article className={styles.promotionRow} key={record.id}>
+                      <div className={styles.promotionTopline}>
+                        <strong>
+                          {record.entityType}{" "}
+                          {record.entityId ?? "Unknown entity"}
+                        </strong>
+                        <Badge>{record.status}</Badge>
+                      </div>
+                      <div className={styles.promotionTransition}>
+                        <code>{record.sourceTier ?? "unknown"}</code>
+                        <span aria-hidden="true">to</span>
+                        <code>{record.targetTier ?? "unknown"}</code>
+                      </div>
+                      <p>{record.reason ?? "No reason stored"}</p>
+                      <time dateTime={record.createdAt}>
+                        {formatDateTime(record.createdAt)}
+                      </time>
+                    </article>
+                  ))}
+                  {payload && payload.promotionRecords.length === 0 ? (
+                    <div className={styles.emptyState}>
+                      No authority change records are stored.
+                    </div>
+                  ) : null}
+                  {!payload && !loading ? (
+                    <div className={styles.emptyState}>
+                      Authority change records are not loaded.
+                    </div>
+                  ) : null}
+                </div>
+              </section>
+            </div>
+          ) : null}
+        </div>
       </div>
     </div>
   );
 }
 
 export default function MetaAutomationPage() {
+  const searchParams = useSearchParams();
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businesses = useAppStore((state) => state.businesses);
   const businessName = useMemo(
-    () => businesses.find((business) => business.id === selectedBusinessId)?.name ?? null,
+    () =>
+      businesses.find((business) => business.id === selectedBusinessId)?.name ??
+      null,
     [businesses, selectedBusinessId],
   );
   const [payload, setPayload] = useState<AutomationPayload | null>(null);
+  const [providerAccounts, setProviderAccounts] = useState<
+    MetaHistoryAccount[]
+  >([]);
+  const [selectedProviderAccountId, setSelectedProviderAccountId] =
+    useState("");
+  const [providerAccountsLoading, setProviderAccountsLoading] = useState(false);
+  const [providerAccountsError, setProviderAccountsError] = useState<
+    string | null
+  >(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const requestedProviderAccountId =
+    searchParams.get("providerAccountId") ?? "";
+  const requestedTab = parseAutomationTab(searchParams.get("automationTab"));
+
+  const providerAccountId =
+    selectedProviderAccountId ||
+    (providerAccounts.length === 1 ? providerAccounts[0]!.id : "");
 
   useEffect(() => {
     if (!selectedBusinessId) {
+      setProviderAccounts([]);
+      setSelectedProviderAccountId("");
+      setProviderAccountsError(null);
+      setProviderAccountsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setProviderAccountsLoading(true);
+    setProviderAccountsError(null);
+    fetchMetaHistoryAccounts({ businessId: selectedBusinessId })
+      .then((accounts) => {
+        if (cancelled) return;
+        setProviderAccounts(accounts);
+        setSelectedProviderAccountId((current) =>
+          current && accounts.some((account) => account.id === current)
+            ? current
+            : accounts.some(
+                  (account) => account.id === requestedProviderAccountId,
+                )
+              ? requestedProviderAccountId
+              : "",
+        );
+      })
+      .catch((accountError: unknown) => {
+        if (cancelled) return;
+        setProviderAccounts([]);
+        setSelectedProviderAccountId("");
+        setProviderAccountsError(
+          accountError instanceof Error
+            ? accountError.message
+            : "Assigned Meta accounts could not load.",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setProviderAccountsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [requestedProviderAccountId, selectedBusinessId]);
+
+  useEffect(() => {
+    if (!selectedBusinessId || !providerAccountId) {
       setPayload(null);
       setError(null);
       setLoading(false);
       return;
     }
+
     const controller = new AbortController();
     setLoading(true);
     setError(null);
-    fetch(`/api/meta/automation?businessId=${encodeURIComponent(selectedBusinessId)}`, {
-      signal: controller.signal,
-      cache: "no-store",
-    })
+    fetch(
+      `/api/meta/automation?businessId=${encodeURIComponent(selectedBusinessId)}&providerAccountId=${encodeURIComponent(providerAccountId)}`,
+      {
+        signal: controller.signal,
+        cache: "no-store",
+      },
+    )
       .then(async (response) => {
-        const body = (await response.json().catch(() => null)) as
-          | { ok?: boolean; automation?: AutomationPayload; error?: { message?: string } }
-          | null;
+        const body = (await response.json().catch(() => null)) as {
+          ok?: boolean;
+          automation?: AutomationPayload;
+          error?: { message?: string };
+        } | null;
         if (!response.ok || body?.ok === false || !body?.automation) {
-          throw new Error(body?.error?.message ?? "Automation contract failed.");
+          throw new Error(
+            body?.error?.message ?? "Automation control plane failed.",
+          );
         }
         setPayload(body.automation);
       })
       .catch((fetchError: unknown) => {
         if (controller.signal.aborted) return;
         setPayload(null);
-        setError(fetchError instanceof Error ? fetchError.message : "Automation contract failed.");
+        setError(
+          fetchError instanceof Error
+            ? fetchError.message
+            : "Automation control plane failed.",
+        );
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
+
     return () => controller.abort();
-  }, [selectedBusinessId]);
+  }, [providerAccountId, refreshKey, selectedBusinessId]);
 
   return (
     <MetaAutomationView
+      businessId={selectedBusinessId}
       businessName={businessName}
+      providerAccounts={providerAccounts}
+      providerAccountId={providerAccountId}
+      providerAccountsLoading={providerAccountsLoading}
+      providerAccountsError={providerAccountsError}
       payload={payload}
       loading={loading}
       error={error}
+      initialTab={requestedTab}
       onAutomationChange={setPayload}
+      onProviderAccountChange={(nextProviderAccountId) => {
+        setPayload(null);
+        setSelectedProviderAccountId(nextProviderAccountId);
+        if (typeof window !== "undefined") {
+          const url = new URL(window.location.href);
+          if (nextProviderAccountId) {
+            url.searchParams.set("providerAccountId", nextProviderAccountId);
+          } else {
+            url.searchParams.delete("providerAccountId");
+          }
+          window.history.replaceState(null, "", url);
+        }
+      }}
+      onRetry={() => setRefreshKey((value) => value + 1)}
     />
   );
 }

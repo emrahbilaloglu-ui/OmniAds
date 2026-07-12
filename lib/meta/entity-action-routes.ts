@@ -5,6 +5,10 @@ import { getIntegration } from "@/lib/integrations";
 import { rejectIfMetaWritesBlocked } from "@/lib/meta/automation-write-guard";
 import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
 import {
+  getMetaAccountContext,
+  normalizeMetaCurrencyCode,
+} from "@/lib/meta/account-context";
+import {
   completeMetaAdsActionLog,
   createMetaAdsActionLog,
   hasRecentPendingMetaAdsAction,
@@ -481,6 +485,20 @@ export async function handleMetaAdsetBidAction(
   });
   if (!prepared.ok) return prepared.response;
 
+  const accountContext = await getMetaAccountContext(
+    prepared.businessId,
+  ).catch(() => null);
+  const bidCurrency = normalizeMetaCurrencyCode(
+    accountContext?.accountProfiles[prepared.ctx.providerAccountId]?.currency,
+  );
+  if (!bidCurrency) {
+    return jsonError(
+      409,
+      "currency_unavailable",
+      "Meta account currency must be verified before applying a bid amount.",
+    );
+  }
+
   const log = await createMetaAdsActionLog({
     businessId: prepared.businessId,
     adId: prepared.target.entityId,
@@ -493,7 +511,7 @@ export async function handleMetaAdsetBidAction(
       endpoint: `/${prepared.target.entityId}`,
       scope_type: "adset",
       operation: "apply_bid",
-      body: { bid_amount: bidAmountMinor },
+      body: { bid_amount: bidAmountMinor, currency: bidCurrency },
       dry_run: dryRunFromBody(body),
       rec_id_origin: recIdOriginFromBody(body),
     },

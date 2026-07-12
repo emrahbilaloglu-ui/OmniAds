@@ -43,7 +43,8 @@ export type MetaAiTagKey = (typeof META_AI_TAG_KEYS)[number];
 export type MetaAiTags = Partial<Record<MetaAiTagKey, string[]>>;
 export type PreviewState = "preview" | "catalog" | "unavailable";
 export type PreviewRenderMode = "video" | "image" | "unavailable";
-export type PreviewSource = "preview_url" | "thumbnail_url" | "image_url" | "image_hash" | null;
+export type PreviewSource =
+  "preview_url" | "thumbnail_url" | "image_url" | "image_hash" | null;
 export type PreviewReadiness = "ready" | "pending" | "missing";
 export type PreviewOrigin = "snapshot" | "cache" | "live" | "fallback" | null;
 
@@ -84,6 +85,12 @@ export interface MetaCreativeRow {
     targetAdsetId: string | null;
     targetAdsetName: string | null;
   } | null;
+  /**
+   * Provider-result rows can exist before performance facts accrue. Numeric
+   * placeholders remain in the legacy row shape, but consumers must withhold
+   * them when this flag is unavailable.
+   */
+  metricsAvailability?: "available" | "unavailable";
   objectStoryId?: string | null;
   effectiveObjectStoryId?: string | null;
   postId?: string | null;
@@ -93,6 +100,8 @@ export interface MetaCreativeRow {
   descriptionVariants?: string[];
   name: string;
   associatedAdsCount: number;
+  /** False when the provider payload omitted usage-count evidence. */
+  associatedAdsCountAvailable?: boolean;
   accountId: string | null;
   accountName: string | null;
   campaignId?: string | null;
@@ -100,6 +109,10 @@ export interface MetaCreativeRow {
   adSetId?: string | null;
   adSetName?: string | null;
   effectiveStatus?: string | null;
+  objective?: string | null;
+  optimizationGoal?: string | null;
+  attributionSetting?: string | null;
+  bidStrategy?: string | null;
   currency: string | null;
   format: CreativeFormat;
   creativeType: CreativeType;
@@ -153,6 +166,7 @@ export interface MetaCreativeRow {
   initiateCheckout: number;
   leads: number;
   messages: number;
+  thruplayActions?: number;
   thumbstop: number;
   clickToAddToCart: number;
   clickToPurchase: number;

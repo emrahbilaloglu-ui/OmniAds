@@ -9,6 +9,7 @@ import {
 } from "./helpers";
 import { STALE_CONFIDENCE_CAP } from "../config-values";
 import { applyCreativeCampaignLabelGuard } from "../campaign-label-guard";
+import { initialConfidenceDeltas } from "../engine";
 import type {
   AccountCalibration,
   AccountDecisionProfile,
@@ -23,6 +24,34 @@ import type {
 
 describe("creative-decision-engine v3", () => {
   const mock = new MockDataSource();
+
+  it("deduplicates stale-target confidence cost while preserving independent low evidence", () => {
+    const base = makeAccountDecisionProfile();
+    const staleTargetOnly: AccountDecisionProfile = {
+      ...base,
+      spendUnitConfidence: "low",
+      spendUnitEvidence: {
+        ...base.spendUnitEvidence,
+        confidenceBeforeFreshness: "high",
+        warnings: ["commercial_target_stale"],
+      },
+      quality: {
+        ...base.quality,
+        commercialTruthFreshness: "stale",
+      },
+    };
+    const staleAndIndependentlyLow: AccountDecisionProfile = {
+      ...staleTargetOnly,
+      spendUnitEvidence: {
+        ...staleTargetOnly.spendUnitEvidence,
+        confidenceBeforeFreshness: "low",
+        warnings: ["commercial_target_stale", "meta_aov_low_sample"],
+      },
+    };
+
+    expect(initialConfidenceDeltas(staleTargetOnly)).toEqual([]);
+    expect(initialConfidenceDeltas(staleAndIndependentlyLow)).toEqual([-10]);
+  });
 
   async function getMockCreativeInput(creativeId: string) {
     const input = await mock.getCreativeInput({

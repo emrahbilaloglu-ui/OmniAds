@@ -1,16 +1,19 @@
 import React from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { applyRecentAdActionsToRows } from "@/lib/launchpad/recent-ad-actions";
 import { filterLaunchpadCreativeRows } from "@/components/launchpad/LaunchpadCreativeSelection";
 
+const appState = {
+  selectedBusinessId: "biz",
+  businesses: [{ id: "biz", name: "IwaStore", currency: "USD" }],
+};
+const navigationState = vi.hoisted(() => ({ query: "" }));
+
 vi.mock("@/store/app-store", () => ({
   useAppStore: (selector: (state: Record<string, unknown>) => unknown) =>
-    selector({
-      selectedBusinessId: "biz",
-      businesses: [{ id: "biz", name: "IwaStore", currency: "USD" }],
-    }),
+    selector(appState),
 }));
 
 vi.mock("@/app/(dashboard)/platforms/meta/creatives/page-support", () => ({
@@ -19,26 +22,112 @@ vi.mock("@/app/(dashboard)/platforms/meta/creatives/page-support", () => ({
   mapApiRowToUiRow: (row: unknown) => row,
 }));
 
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(navigationState.query),
+}));
+
 const { default: MetaLaunchpadPage } = await import("./page");
+const { launchpadLibraryCount } = await import("./launchpad-library-count");
 
 describe("MetaLaunchpadPage", () => {
-  it("renders the Launchpad index with mode cards and endpoint-backed library sections", () => {
+  beforeEach(() => {
+    navigationState.query = "";
+    appState.selectedBusinessId = "biz";
+    appState.businesses = [{ id: "biz", name: "IwaStore", currency: "USD" }];
+  });
+
+  it("withholds every Launchpad mode until an assigned account is explicit", () => {
     const html = renderToStaticMarkup(<MetaLaunchpadPage />);
 
-    expect(html).toContain('data-testid="meta-mobile-launchpad"');
+    expect(html).toContain('data-testid="launchpad-account-required"');
     expect(html).toContain("Launchpad · read-only");
-    expect(html).toContain("Writes and uploads stay on desktop");
-    expect(html).toContain("Write posture is guarded, not hydrated");
-    expect(html).toContain("Guarded write surface — everything launches PAUSED");
-    expect(html).toContain("Launch new campaign");
-    expect(html).toContain("Add ads to existing");
-    expect(html).toContain("Manage existing ads");
-    expect(html).toContain("everything launches PAUSED");
-    expect(html).toContain('href="/platforms/meta"');
-    expect(html).toContain("Drafts");
-    expect(html).toContain("Templates");
-    expect(html).toContain("No drafts yet.");
-    expect(html).toContain("No templates yet.");
+    expect(html).toContain(
+      "Guarded write surface — everything launches PAUSED",
+    );
+    expect(html).toContain("Select one assigned Meta ad account");
+    expect(html).not.toContain("From Decision");
+    expect(html).not.toContain("New Campaign");
+    expect(html).not.toContain("Create PAUSED · current");
+    expect(html).toContain('href="/platforms/meta?businessId=biz"');
+    expect(html).toContain('data-testid="meta-mobile-launchpad"');
+    expect(html).toContain("No write controls are rendered on mobile");
+    expect(html).toContain(
+      'href="/platforms/meta/launchpad?launchpadMode=new_campaign&amp;launchpadStep=source"',
+    );
+    expect(html).not.toContain('data-testid="launchpad-mode-selector"');
+    expect(html).not.toContain('data-testid="launchpad-source-step"');
+  });
+
+  it("preserves mode, step, account, and decision lineage in the mobile desktop link", () => {
+    navigationState.query = new URLSearchParams({
+      sourceDecisionId: "decision_1",
+      sourceDecisionSnapshotId: "snapshot_1",
+      creativeIds: "creative_1,creative_2",
+      mode: "duplicate",
+      providerAccountId: "act_1",
+      launchpadMode: "add_to_existing",
+      launchpadStep: "adsets",
+    }).toString();
+
+    const html = renderToStaticMarkup(<MetaLaunchpadPage />);
+    const href = html
+      .match(/href="([^"]*\/platforms\/meta\/launchpad\?[^"]*)"/)?.[1]
+      ?.replaceAll("&amp;", "&");
+    expect(href).toBeTruthy();
+    const deepLink = new URL(href!, "https://adsecute.local");
+
+    expect(deepLink.searchParams.get("launchpadMode")).toBe("add_to_existing");
+    expect(deepLink.searchParams.get("launchpadStep")).toBe("adsets");
+    expect(deepLink.searchParams.get("providerAccountId")).toBe("act_1");
+    expect(deepLink.searchParams.get("sourceDecisionId")).toBe("decision_1");
+    expect(deepLink.searchParams.get("sourceDecisionSnapshotId")).toBe(
+      "snapshot_1",
+    );
+    expect(deepLink.searchParams.get("creativeIds")).toBe(
+      "creative_1,creative_2",
+    );
+    expect(html).toContain("Current step");
+    expect(html).toContain("adsets");
+    expect(html).not.toContain("Launch action is in review");
+  });
+
+  it("renders an unavailable currency state instead of defaulting to USD", () => {
+    appState.businesses = [{ id: "biz", name: "IwaStore", currency: "" }];
+    const html = renderToStaticMarkup(<MetaLaunchpadPage />);
+
+    expect(html).toContain("currency unavailable");
+    expect(html).not.toContain("Meta · IwaStore · USD");
+  });
+
+  it("never reports unavailable launch storage as a zero count", () => {
+    expect(
+      launchpadLibraryCount({
+        rowCount: 0,
+        loading: false,
+        capabilityStatus: "migration_required",
+      }),
+    ).toBe("Unavailable");
+    expect(
+      launchpadLibraryCount({
+        rowCount: 0,
+        loading: false,
+        capabilityStatus: null,
+      }),
+    ).toBe("Unavailable");
+    expect(
+      launchpadLibraryCount({
+        rowCount: 0,
+        loading: true,
+        capabilityStatus: null,
+      }),
+    ).toBe("Loading");
+    expect(
+      launchpadLibraryCount({
+        rowCount: 5,
+        loading: false,
+        capabilityStatus: "migration_required",
+      }),
+    ).toBe(5);
   });
 
   it("shows the source creative name for recently duplicated target ads", () => {

@@ -30,7 +30,7 @@ describe("PublicCreativeSharePage", () => {
     expect(html).not.toContain("Evidence:");
   });
 
-  it("honors creative-team share controls by suppressing decision observations", () => {
+  it("renders creative-team shares without buyer financials or action history", () => {
     const payload: SharePayload = {
       ...MOCK_SHARE_PAYLOAD,
       audience: "creative_team" as const,
@@ -54,13 +54,35 @@ describe("PublicCreativeSharePage", () => {
       <PublicCreativeSharePage payload={payload} language="en" />,
     );
 
-    expect(html).toContain("Client view · read-only");
-    expect(html).toContain("This share does not include a client-safe action history");
+    expect(html).toContain("Creative view · read-only");
+    expect(html).toContain("Shared creatives");
+    expect(html).toContain("CTR 2.41%");
     expect(html).toContain("UGC Reel - Morning routine hook");
     expect(html).not.toContain("Paused an underperforming ad set");
+    expect(html).not.toContain("What we did and why");
+    expect(html).not.toContain("Spend (period)");
+    expect(html).not.toContain("Ad-attributed sales");
+    expect(html).not.toContain("3.79x");
+    expect(html).not.toContain("These creatives were selected based on ROAS");
     expect(html).not.toContain("Scale review: UGC Reel");
     expect(html).not.toContain("Confidence:");
     expect(html).not.toContain("Do not");
+  });
+
+  it("treats malformed audiences as non-buyer at the rendering boundary", () => {
+    const payload = {
+      ...MOCK_SHARE_PAYLOAD,
+      audience: "client",
+    } as unknown as SharePayload;
+
+    const html = renderToStaticMarkup(
+      <PublicCreativeSharePage payload={payload} language="en" />,
+    );
+
+    expect(html).toContain("Creative view · read-only");
+    expect(html).not.toContain("Spend (period)");
+    expect(html).not.toContain("3.79x");
+    expect(html).not.toContain("Paused an underperforming ad set");
   });
 
   it("does not fabricate a client action feed from internal analysis labels", () => {

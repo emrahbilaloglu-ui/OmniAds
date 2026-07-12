@@ -21,8 +21,28 @@ vi.mock("@/lib/meta/automation-write-guard", () => ({
 }));
 
 vi.mock("@/lib/launchpad/meta-validation", () => ({
+  metaLaunchAccountBlockerHttpStatus: vi.fn((code: string) =>
+    code === "provider_account_not_assigned" ? 403 : 400,
+  ),
+  resolveAssignedMetaLaunchAccount: vi.fn(),
   resolveMetaLaunchWriteContext: vi.fn(),
   validateMetaAddToExistingRequest: vi.fn(),
+}));
+
+vi.mock("@/lib/launchpad/meta-launch-intent-service", () => ({
+  prepareMetaLaunchIntentForExecution: vi.fn(),
+}));
+
+vi.mock("@/lib/launchpad/meta-launch-intent-capability", () => ({
+  getMetaLaunchIntentCapability: vi.fn(),
+}));
+
+vi.mock("@/lib/launchpad/meta-launch-intent-store", () => ({
+  markMetaLaunchIntentExecuting: vi.fn(),
+  recordMetaLaunchIntentOutcome: vi.fn(),
+  recordMetaLaunchIntentPreExecutionFailure: vi.fn(),
+  recordMetaLaunchIntentValidation: vi.fn(),
+  recordMetaLaunchIntentWriteBlocked: vi.fn(),
 }));
 
 const access = await import("@/lib/access");
@@ -30,6 +50,9 @@ const actionLog = await import("@/lib/meta/ads-action-log");
 const adsWrite = await import("@/lib/meta/ads-write");
 const writeGuard = await import("@/lib/meta/automation-write-guard");
 const validation = await import("@/lib/launchpad/meta-validation");
+const intentService = await import("@/lib/launchpad/meta-launch-intent-service");
+const intentCapability = await import("@/lib/launchpad/meta-launch-intent-capability");
+const intentStore = await import("@/lib/launchpad/meta-launch-intent-store");
 const { POST } = await import("./route");
 
 const BUSINESS_ID = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
@@ -46,6 +69,7 @@ function request(body: unknown) {
 function body() {
   return {
     businessId: BUSINESS_ID,
+    providerAccountId: "act_123",
     targetCampaignId: "cmp_1",
     targetAdsetId: "adset_1",
     targets: [{ targetCampaignId: "cmp_1", targetAdsetId: "adset_1" }],
@@ -110,6 +134,13 @@ function mockValid() {
 describe("POST /api/launchpad/meta/add-to-existing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(intentCapability.getMetaLaunchIntentCapability).mockResolvedValue({
+      status: "ready",
+      canRead: true,
+      canWrite: true,
+      missingTables: [],
+      checkedAt: "2026-07-11T00:00:00.000Z",
+    });
     vi.mocked(access.requireBusinessAccess).mockResolvedValue({
       session: { user: { id: USER_ID } },
       membership: { businessId: BUSINESS_ID },
@@ -120,6 +151,34 @@ describe("POST /api/launchpad/meta/add-to-existing", () => {
       id: `log_${vi.mocked(actionLog.createMetaAdsActionLog).mock.calls.length}`,
     }) as never);
     vi.mocked(actionLog.completeMetaAdsActionLog).mockResolvedValue({ id: "log" } as never);
+    vi.mocked(validation.resolveAssignedMetaLaunchAccount).mockResolvedValue({
+      ok: true,
+      providerAccountId: "act_123",
+    });
+    vi.mocked(intentService.prepareMetaLaunchIntentForExecution).mockResolvedValue({
+      ok: true,
+      created: true,
+      intent: { id: "intent_1", status: "prepared" },
+    } as never);
+    vi.mocked(intentStore.recordMetaLaunchIntentValidation).mockResolvedValue({
+      id: "intent_1",
+      status: "ready",
+    } as never);
+    vi.mocked(intentStore.markMetaLaunchIntentExecuting).mockResolvedValue({
+      id: "intent_1",
+      status: "executing",
+    } as never);
+    vi.mocked(intentStore.recordMetaLaunchIntentOutcome).mockImplementation(
+      async (input) => ({ id: "intent_1", status: input.status }) as never,
+    );
+    vi.mocked(intentStore.recordMetaLaunchIntentPreExecutionFailure).mockResolvedValue({
+      id: "intent_1",
+      status: "failed",
+    } as never);
+    vi.mocked(intentStore.recordMetaLaunchIntentWriteBlocked).mockResolvedValue({
+      id: "intent_1",
+      status: "write_blocked",
+    } as never);
     vi.mocked(validation.resolveMetaLaunchWriteContext).mockResolvedValue({
       ok: true,
       ctx: {
@@ -158,6 +217,8 @@ describe("POST /api/launchpad/meta/add-to-existing", () => {
       successCount: 2,
       failedCount: 0,
       adIds: ["ad_1", "ad_2"],
+      launchIntentId: "intent_1",
+      launchIntentStatus: "succeeded",
     });
     expect(payload.steps[0].adsManagerUrl).toBe(
       "https://adsmanager.facebook.com/adsmanager/manage/ads/edit?act=123&selected_ad_ids=ad_1",
@@ -168,24 +229,33 @@ describe("POST /api/launchpad/meta/add-to-existing", () => {
       expect.objectContaining({
         adId: "source_ad_1",
         targetAdsetId: "adset_1",
-        activateAfterCreate: false,
       }),
     );
+    const duplicateInput = vi.mocked(adsWrite.duplicateAd).mock.calls[0]?.[1];
+    expect(duplicateInput).not.toHaveProperty("activateAfterCreate");
     expect(actionLog.createMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({ action: "launch_ad", adId: "source_ad_1", creativeId: "creative_1" }),
     );
     expect(actionLog.createMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({
         payloadRequest: expect.objectContaining({
+          launch_intent_id: "intent_1",
           target_campaign_name: "Campaign",
           target_adset_name: "Ad set",
           source_name: "Creative 1",
           body: expect.objectContaining({
             copy_mode: "rebuild_creative",
             source_name: "Creative 1",
+            status_option: "PAUSED",
             name: "Creative 1 added",
           }),
         }),
+      }),
+    );
+    expect(validation.validateMetaAddToExistingRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: BUSINESS_ID,
+        providerAccountId: "act_123",
       }),
     );
     expect(actionLog.createMetaAdsActionLog).not.toHaveBeenCalledWith(
@@ -260,7 +330,7 @@ describe("POST /api/launchpad/meta/add-to-existing", () => {
     );
   });
 
-  it("creates ads across multiple selected campaign targets", async () => {
+  it("creates ads across multiple selected targets in one provider account", async () => {
     vi.mocked(validation.validateMetaAddToExistingRequest).mockResolvedValue({
       ok: true,
       payload: normalizeMetaAddToExistingPayload({
@@ -298,7 +368,7 @@ describe("POST /api/launchpad/meta/add-to-existing", () => {
           campaignName: "Campaign 2",
           adsetName: "Ad set 2",
           adsetStatus: "ACTIVE",
-          providerAccountId: "act_456",
+          providerAccountId: "act_123",
         },
       ],
       creatives: [
@@ -358,7 +428,7 @@ describe("POST /api/launchpad/meta/add-to-existing", () => {
     );
     expect(adsWrite.duplicateAd).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ providerAccountId: "act_456" }),
+      expect.objectContaining({ providerAccountId: "act_123" }),
       expect.objectContaining({ targetAdsetId: "adset_2", copyMode: "rebuild_creative" }),
     );
   });
@@ -373,6 +443,44 @@ describe("POST /api/launchpad/meta/add-to-existing", () => {
     expect(payload.error.code).toBe("launch_in_flight");
     expect(validation.validateMetaAddToExistingRequest).not.toHaveBeenCalled();
     expect(adsWrite.duplicateAd).not.toHaveBeenCalled();
+  });
+
+  it("halts remaining provider writes when the kill switch engages mid-launch", async () => {
+    vi.mocked(adsWrite.duplicateAd)
+      .mockReset()
+      .mockResolvedValueOnce({
+        ok: true,
+        newAdId: "ad_1",
+        verifiedStatus: "PAUSED",
+      } as never)
+      .mockResolvedValueOnce({
+        ok: false,
+        httpStatus: 503,
+        error: {
+          code: "kill_switch_engaged",
+          message: "Owner stopped Meta writes.",
+        },
+      } as never);
+
+    const response = await POST(
+      request({ ...body(), idempotencyKey: "idem_mid_kill" }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(payload).toMatchObject({
+      ok: false,
+      halted: true,
+      haltedReason: { code: "kill_switch_engaged" },
+      launchIntentStatus: "partially_succeeded",
+    });
+    expect(adsWrite.duplicateAd).toHaveBeenCalledTimes(2);
+    expect(intentStore.recordMetaLaunchIntentOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "partially_succeeded",
+        errorReceipt: expect.objectContaining({ code: "kill_switch_engaged" }),
+      }),
+    );
   });
 
   it("blocks add-to-existing writes before pending checks, validation, or Meta writes", async () => {
@@ -391,6 +499,25 @@ describe("POST /api/launchpad/meta/add-to-existing", () => {
     expect(actionLog.hasRecentPendingMetaAddToExistingAction).not.toHaveBeenCalled();
     expect(validation.validateMetaAddToExistingRequest).not.toHaveBeenCalled();
     expect(validation.resolveMetaLaunchWriteContext).not.toHaveBeenCalled();
+    expect(adsWrite.duplicateAd).not.toHaveBeenCalled();
+  });
+
+  it("blocks before intent preparation or provider writes when the intent migration is missing", async () => {
+    vi.mocked(intentCapability.getMetaLaunchIntentCapability).mockResolvedValue({
+      status: "migration_required",
+      canRead: false,
+      canWrite: false,
+      missingTables: ["meta_launch_intents"],
+      checkedAt: "2026-07-11T00:00:00.000Z",
+    });
+
+    const response = await POST(request({ ...body(), idempotencyKey: "idem_missing" }));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: { code: "launch_intent_migration_required" },
+    });
+    expect(intentService.prepareMetaLaunchIntentForExecution).not.toHaveBeenCalled();
     expect(adsWrite.duplicateAd).not.toHaveBeenCalled();
   });
 });

@@ -1,16 +1,26 @@
 import { describe, expect, it, vi } from "vitest";
-import { getBusinessCommercialTruthSnapshot } from "@/lib/business-commercial";
 import {
+  getBusinessCommercialTruthSnapshot,
+  getBusinessTargetPackHistoryAsOf,
+} from "@/lib/business-commercial";
+import {
+  hasMetaHardActionAnchor,
   metaCutRoasCeiling,
+  metaCutRoasReviewCeiling,
   metaLossBudgetMaturity,
   metaScaleRoasFloor,
   normalizeMetaCommercialTargets,
   readMetaCommercialTargets,
 } from "@/lib/meta/commercial-targets";
 
-vi.mock("@/lib/business-commercial", () => ({
-  getBusinessCommercialTruthSnapshot: vi.fn(),
-}));
+vi.mock("@/lib/business-commercial", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/business-commercial")>();
+  return {
+    ...actual,
+    getBusinessCommercialTruthSnapshot: vi.fn(),
+    getBusinessTargetPackHistoryAsOf: vi.fn(),
+  };
+});
 
 describe("Meta commercial target helpers", () => {
   it("normalizes missing targets as no hard-action anchor", () => {
@@ -19,6 +29,7 @@ describe("Meta commercial target helpers", () => {
       targetRoas: null,
       breakEvenRoas: null,
       riskPosture: "balanced",
+      freshness: "unknown",
     });
     expect(metaScaleRoasFloor(null)).toBeNull();
     expect(metaCutRoasCeiling(null)).toBeNull();
@@ -29,9 +40,94 @@ describe("Meta commercial target helpers", () => {
       targetRoas: 2.4,
       breakEvenRoas: 1.6,
       riskPosture: "aggressive",
+      freshness: "fresh",
+      updatedAt: "2026-05-14T00:00:00.000Z",
     });
     expect(metaScaleRoasFloor(targets)).toBe(2.4);
     expect(metaCutRoasCeiling(targets)).toBe(1.6);
+  });
+
+  it("does not invent a scale floor from break-even alone", () => {
+    const targets = normalizeMetaCommercialTargets({
+      breakEvenRoas: 1.6,
+      freshness: "fresh",
+      updatedAt: "2026-05-14T00:00:00.000Z",
+    });
+
+    expect(metaScaleRoasFloor(targets)).toBeNull();
+  });
+
+  it("does not invent a loss ceiling as a fixed fraction of target ROAS", () => {
+    const targets = normalizeMetaCommercialTargets({
+      targetRoas: 2.4,
+      freshness: "fresh",
+      updatedAt: "2026-05-14T00:00:00.000Z",
+    });
+
+    expect(metaCutRoasCeiling(targets)).toBeNull();
+    expect(metaCutRoasReviewCeiling(targets)).toBeNull();
+  });
+
+  it("keeps timestamp-less targets visible but never grants hard-action authority", () => {
+    const targets = normalizeMetaCommercialTargets({
+      targetRoas: 2.4,
+      breakEvenRoas: 1.6,
+      freshness: "fresh",
+    });
+
+    expect(targets).toMatchObject({
+      source: "configured_targets",
+      freshness: "unknown",
+      updatedAt: null,
+    });
+    expect(hasMetaHardActionAnchor(targets)).toBe(false);
+    expect(metaScaleRoasFloor(targets)).toBeNull();
+    expect(metaCutRoasCeiling(targets)).toBeNull();
+  });
+
+  it("rejects an invalid target timestamp", () => {
+    const targets = normalizeMetaCommercialTargets({
+      targetRoas: 2.4,
+      freshness: "fresh",
+      updatedAt: "not-a-date",
+    });
+
+    expect(targets.freshness).toBe("unknown");
+    expect(targets.updatedAt).toBeNull();
+    expect(hasMetaHardActionAnchor(targets)).toBe(false);
+  });
+
+  it("does not treat a stale configured target as a hard-action anchor", () => {
+    const targets = normalizeMetaCommercialTargets({
+      targetRoas: 2.4,
+      breakEvenRoas: 1.6,
+      freshness: "stale",
+    });
+
+    expect(targets.source).toBe("configured_targets");
+    expect(targets.freshness).toBe("stale");
+    expect(metaScaleRoasFloor(targets)).toBeNull();
+    expect(metaCutRoasCeiling(targets)).toBeNull();
+    expect(metaCutRoasReviewCeiling(targets)).toBe(1.6);
+    expect(hasMetaHardActionAnchor(targets)).toBe(false);
+  });
+
+  it("keeps unknown-age targets visible but removes hard-action thresholds", () => {
+    const targets = normalizeMetaCommercialTargets({
+      targetRoas: 2.4,
+      breakEvenRoas: 1.6,
+      freshness: "unknown",
+    });
+
+    expect(targets).toMatchObject({
+      source: "configured_targets",
+      targetRoas: 2.4,
+      breakEvenRoas: 1.6,
+      freshness: "unknown",
+    });
+    expect(hasMetaHardActionAnchor(targets)).toBe(false);
+    expect(metaScaleRoasFloor(targets)).toBeNull();
+    expect(metaCutRoasCeiling(targets)).toBeNull();
   });
 
   it("uses CPA baseline and risk posture for loss-budget maturity", () => {
@@ -39,10 +135,14 @@ describe("Meta commercial target helpers", () => {
       breakEvenCpa: 100,
       riskPosture: "conservative",
     });
-    expect(metaLossBudgetMaturity({ targets, currency: "USD" })).toMatchObject({
+    expect(metaLossBudgetMaturity({
+      targets,
+      calibratedHardCutSpend: 300,
+    })).toMatchObject({
       cpaBaseline: 100,
       multiplier: 2.5,
-      spendThreshold: 250,
+      calibratedSpendFloor: 300,
+      spendThreshold: 300,
       source: "break_even_cpa",
     });
   });
@@ -68,6 +168,42 @@ describe("Meta commercial target helpers", () => {
       breakEvenRoas: null,
       targetCpa: null,
       breakEvenCpa: null,
+    });
+  });
+
+  it("reads historical targets at the exact producer cutoff", async () => {
+    vi.mocked(getBusinessTargetPackHistoryAsOf).mockResolvedValue({
+      targetCpa: 100,
+      targetRoas: 2.4,
+      breakEvenCpa: 130,
+      breakEvenRoas: 1.6,
+      contributionMarginAssumption: null,
+      aovAssumption: null,
+      newCustomerWeight: null,
+      defaultRiskPosture: "balanced",
+      costStructure: {
+        cogsPercent: null,
+        shippingPercent: null,
+        fulfillmentPercent: null,
+        paymentProcessingPercent: null,
+      },
+      sourceLabel: "settings_manual_entry",
+      updatedAt: "2026-05-04T02:00:00.000Z",
+      updatedByUserId: null,
+    });
+
+    await expect(
+      readMetaCommercialTargets("business-1", { asOf: "2026-05-04" }),
+    ).resolves.toMatchObject({
+      source: "configured_targets",
+      targetRoas: 2.4,
+      breakEvenRoas: 1.6,
+      freshness: "fresh",
+      updatedAt: "2026-05-04T02:00:00.000Z",
+    });
+    expect(getBusinessTargetPackHistoryAsOf).toHaveBeenCalledWith({
+      businessId: "business-1",
+      asOf: "2026-05-04",
     });
   });
 });

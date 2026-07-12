@@ -38,10 +38,13 @@ async function readJson<T>(url: string): Promise<T> {
   if (!response.ok) {
     const message =
       payload && typeof payload === "object" && "error" in payload
-        ? String((payload as { error?: { message?: unknown } }).error?.message ?? `Request failed (${response.status})`)
+        ? String(
+            (payload as { error?: { message?: unknown } }).error?.message ??
+              `Request failed (${response.status})`,
+          )
         : payload && typeof payload === "object" && "message" in payload
           ? String((payload as { message?: unknown }).message)
-        : `Request failed (${response.status})`;
+          : `Request failed (${response.status})`;
     throw new Error(message);
   }
   return payload as T;
@@ -55,7 +58,9 @@ function fetchCampaigns(businessId: string) {
 function fetchLabels(businessId: string, campaignIds: string[]) {
   const params = new URLSearchParams({ businessId });
   if (campaignIds.length > 0) params.set("campaignIds", campaignIds.join(","));
-  return readJson<LabelsPayload>(`/api/meta/campaign-labels?${params.toString()}`);
+  return readJson<LabelsPayload>(
+    `/api/meta/campaign-labels?${params.toString()}`,
+  );
 }
 
 function isActiveCampaign(row: MetaCampaignRow) {
@@ -68,7 +73,8 @@ function isLabelableCampaign(row: MetaCampaignRow) {
 }
 
 function labelTone(kind: MetaCampaignKind | null) {
-  if (kind === "main") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (kind === "main")
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
   if (kind === "test") return "border-blue-200 bg-blue-50 text-blue-700";
   if (kind === "mixed") return "border-slate-200 bg-slate-50 text-slate-700";
   return "border-amber-200 bg-amber-50 text-amber-800";
@@ -76,7 +82,8 @@ function labelTone(kind: MetaCampaignKind | null) {
 
 function CampaignLabelBadge({ label }: { label: MetaCampaignLabel | null }) {
   const text = label ? labelKindDisplay(label.kind) : "Unlabeled";
-  const suffix = label?.kind === "test" ? testDimensionDisplay(label.testDimension) : null;
+  const suffix =
+    label?.kind === "test" ? testDimensionDisplay(label.testDimension) : null;
   return (
     <span
       className={cn(
@@ -87,7 +94,9 @@ function CampaignLabelBadge({ label }: { label: MetaCampaignLabel | null }) {
     >
       <Tags className="inline-block shrink-0" size={10} aria-hidden="true" />
       <span>{text}</span>
-      {suffix ? <span className="truncate text-[10px] opacity-75">· {suffix}</span> : null}
+      {suffix ? (
+        <span className="truncate text-[10px] opacity-75">· {suffix}</span>
+      ) : null}
     </span>
   );
 }
@@ -96,7 +105,9 @@ function compactCampaignName(row: MetaCampaignRow) {
   return row.name || row.id;
 }
 
-export function MetaCampaignLabelsSection({ businessId }: MetaCampaignLabelsSectionProps) {
+export function MetaCampaignLabelsSection({
+  businessId,
+}: MetaCampaignLabelsSectionProps) {
   const queryClient = useQueryClient();
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
@@ -108,22 +119,20 @@ export function MetaCampaignLabelsSection({ businessId }: MetaCampaignLabelsSect
   });
 
   const campaignRows = campaignsQuery.data?.rows ?? [];
-  const labelableCampaigns = useMemo(
-    () => {
-      const active = campaignRows.filter(isActiveCampaign);
-      return active.length > 0 ? active : campaignRows.filter(isLabelableCampaign);
-    },
-    [campaignRows],
-  );
+  const labelableCampaigns = useMemo(() => {
+    const active = campaignRows.filter(isActiveCampaign);
+    return active.length > 0
+      ? active
+      : campaignRows.filter(isLabelableCampaign);
+  }, [campaignRows]);
   const activeCount = useMemo(
     () => campaignRows.filter(isActiveCampaign).length,
     [campaignRows],
   );
   const campaignScopeLabel = activeCount > 0 ? "active" : "recent";
-  const campaignScopeText =
-    campaignsQuery.isLoading
-      ? "Loading campaign list."
-      : activeCount > 0
+  const campaignScopeText = campaignsQuery.isLoading
+    ? "Loading campaign list."
+    : activeCount > 0
       ? "Active campaigns need Main, Test, or Mixed context."
       : "No active campaigns were returned; showing recent non-archived campaigns so labels can still be managed.";
 
@@ -173,7 +182,10 @@ export function MetaCampaignLabelsSection({ businessId }: MetaCampaignLabelsSect
     try {
       const response = await fetch("/api/meta/campaign-labels", {
         method: "PUT",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
         cache: "no-store",
         body: JSON.stringify({ businessId, labels }),
       });
@@ -181,19 +193,32 @@ export function MetaCampaignLabelsSection({ businessId }: MetaCampaignLabelsSect
       if (!response.ok) {
         const message =
           payload && typeof payload === "object" && "error" in payload
-            ? String((payload as { error?: { message?: unknown } }).error?.message ?? "Campaign label update failed.")
+            ? String(
+                (payload as { error?: { message?: unknown } }).error?.message ??
+                  "Campaign label update failed.",
+              )
             : "Campaign label update failed.";
         throw new Error(message);
       }
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["meta-campaign-labels", businessId] }),
+        queryClient.invalidateQueries({
+          queryKey: ["meta-campaign-labels", businessId],
+        }),
         queryClient.invalidateQueries({ queryKey: ["meta-lanes", businessId] }),
-        queryClient.invalidateQueries({ queryKey: ["meta-decisions-workspace", businessId] }),
+        queryClient.invalidateQueries({
+          queryKey: ["meta-decisions-workspace", businessId],
+        }),
         // Label coverage renders in the pulse strip; it went stale after
         // label saves because the pulse query was never invalidated.
-        queryClient.invalidateQueries({ queryKey: ["meta-account-pulse", businessId] }),
+        queryClient.invalidateQueries({
+          queryKey: ["meta-account-pulse", businessId],
+        }),
       ]);
-      setNotice(labels.length === 1 ? "Campaign label saved." : `${labels.length} campaign labels saved.`);
+      setNotice(
+        labels.length === 1
+          ? "Campaign context correction saved."
+          : `${labels.length} campaign context corrections saved.`,
+      );
     } finally {
       setSavingIds((current) => {
         const next = new Set(current);
@@ -235,19 +260,6 @@ export function MetaCampaignLabelsSection({ businessId }: MetaCampaignLabelsSect
     ]);
   };
 
-  const markUnlabeledMixed = () => {
-    void writeLabels(
-      unlabeledCampaigns.map((campaign) => ({
-        campaignId: campaign.id,
-        providerAccountId: campaign.accountId,
-        campaignName: compactCampaignName(campaign),
-        kind: "mixed",
-        testDimension: null,
-        source: "bulk_apply_confirmed",
-      })),
-    );
-  };
-
   const loading = campaignsQuery.isLoading || labelsQuery.isLoading;
   const error = campaignsQuery.error ?? labelsQuery.error;
 
@@ -259,23 +271,31 @@ export function MetaCampaignLabelsSection({ businessId }: MetaCampaignLabelsSect
     >
       <div className="flex flex-wrap items-start gap-3">
         <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-700">
-          <Tags className="inline-block shrink-0" size={15} aria-hidden="true" />
+          <Tags
+            className="inline-block shrink-0"
+            size={15}
+            aria-hidden="true"
+          />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-[14px] font-semibold text-slate-950">Campaign labels</h2>
+            <h2 className="text-[14px] font-semibold text-slate-950">
+              Context corrections
+            </h2>
             {!loading && !error ? (
               unlabeledCampaigns.length > 0 ? (
                 <span className="rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10.5px] font-medium text-amber-800">
-                  {unlabeledCampaigns.length} unlabeled
+                  {unlabeledCampaigns.length} unresolved
                 </span>
               ) : (
                 <span className="rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10.5px] font-medium text-emerald-700">
-                  All shown campaigns labeled
+                  All shown campaigns have context
                 </span>
               )
             ) : null}
-            {notice ? <span className="text-[11.5px] text-emerald-700">{notice}</span> : null}
+            {notice ? (
+              <span className="text-[11.5px] text-emerald-700">{notice}</span>
+            ) : null}
             {!loading && !error ? (
               <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10.5px] font-medium text-slate-600">
                 {labelableCampaigns.length} {campaignScopeLabel}
@@ -283,34 +303,32 @@ export function MetaCampaignLabelsSection({ businessId }: MetaCampaignLabelsSect
             ) : null}
           </div>
           <p className="mt-1 text-[12px] leading-snug text-slate-500">
-            {campaignScopeText}
+            Automatic Main, Test, and Mixed context remains authoritative unless
+            you explicitly correct a row. {campaignScopeText}
           </p>
         </div>
-        {unlabeledCampaigns.length > 0 ? (
-          <button
-            type="button"
-            className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-[12px] font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={savingIds.size > 0}
-            onClick={markUnlabeledMixed}
-          >
-            <Tags className="mr-1 inline-block shrink-0" size={12} aria-hidden="true" />
-            Mark missing Mixed
-          </button>
-        ) : null}
       </div>
 
       {loading ? (
         <div className="mt-3 grid gap-2">
           {Array.from({ length: 3 }).map((_, index) => (
-            <div key={index} className="h-11 animate-pulse rounded-lg bg-slate-100" />
+            <div
+              key={index}
+              className="h-11 animate-pulse rounded-lg bg-slate-100"
+            />
           ))}
         </div>
       ) : error ? (
         <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700">
-          {error instanceof Error ? error.message : "Campaign labels failed to load."}
+          {error instanceof Error
+            ? error.message
+            : "Campaign context failed to load."}
         </div>
       ) : (
-        <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200" data-campaign-labels-list>
+        <div
+          className="mt-3 overflow-x-auto rounded-xl border border-slate-200"
+          data-campaign-labels-list
+        >
           <div className="grid min-w-[710px] grid-cols-[minmax(240px,1fr)_110px_120px_130px_110px] items-center gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2 text-[10.5px] font-semibold uppercase tracking-wider text-slate-400">
             <div>Campaign</div>
             <div>Current</div>
@@ -329,8 +347,12 @@ export function MetaCampaignLabelsSection({ businessId }: MetaCampaignLabelsSect
                   data-campaign-label-row={campaign.id}
                 >
                   <div className="min-w-0">
-                    <div className="truncate font-medium text-slate-900">{campaign.name}</div>
-                    <div className="truncate text-[11px] text-slate-500">{campaign.accountId}</div>
+                    <div className="truncate font-medium text-slate-900">
+                      {campaign.name}
+                    </div>
+                    <div className="truncate text-[11px] text-slate-500">
+                      {campaign.accountId}
+                    </div>
                   </div>
                   <CampaignLabelBadge label={label} />
                   <select
@@ -340,7 +362,10 @@ export function MetaCampaignLabelsSection({ businessId }: MetaCampaignLabelsSect
                     aria-label={`Campaign kind for ${campaign.name}`}
                     onChange={(event) => {
                       const next = event.currentTarget.value;
-                      if (!META_CAMPAIGN_KINDS.includes(next as MetaCampaignKind)) return;
+                      if (
+                        !META_CAMPAIGN_KINDS.includes(next as MetaCampaignKind)
+                      )
+                        return;
                       updateKind(campaign, next as MetaCampaignKind);
                     }}
                   >
@@ -355,14 +380,19 @@ export function MetaCampaignLabelsSection({ businessId }: MetaCampaignLabelsSect
                   </select>
                   <select
                     className="h-8 rounded-md border border-slate-200 bg-white px-2 text-[12px] text-slate-700 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
-                    value={label?.kind === "test" ? label.testDimension ?? "" : ""}
+                    value={
+                      label?.kind === "test" ? (label.testDimension ?? "") : ""
+                    }
                     disabled={saving || label?.kind !== "test"}
                     aria-label={`Test dimension for ${campaign.name}`}
                     onChange={(event) => {
                       const next = event.currentTarget.value;
                       updateTestDimension(
                         campaign,
-                        next && META_CAMPAIGN_TEST_DIMENSIONS.includes(next as MetaCampaignTestDimension)
+                        next &&
+                          META_CAMPAIGN_TEST_DIMENSIONS.includes(
+                            next as MetaCampaignTestDimension,
+                          )
                           ? (next as MetaCampaignTestDimension)
                           : null,
                       );
@@ -377,7 +407,9 @@ export function MetaCampaignLabelsSection({ businessId }: MetaCampaignLabelsSect
                   </select>
                   <div className="text-right font-mono tabular-nums text-slate-700">
                     {formatCurrency(campaign.spend)}
-                    <div className="text-[10.5px] text-slate-400">{formatRoas(campaign.roas)}</div>
+                    <div className="text-[10.5px] text-slate-400">
+                      {formatRoas(campaign.roas)}
+                    </div>
                   </div>
                 </div>
               );
@@ -385,7 +417,8 @@ export function MetaCampaignLabelsSection({ businessId }: MetaCampaignLabelsSect
           </div>
           {labelableCampaigns.length > 12 ? (
             <div className="border-t border-slate-100 px-3 py-2 text-[11.5px] text-slate-500">
-              Showing 12 of {labelableCampaigns.length} {campaignScopeLabel} campaigns.
+              Showing 12 of {labelableCampaigns.length} {campaignScopeLabel}{" "}
+              campaigns.
             </div>
           ) : null}
         </div>

@@ -15,6 +15,7 @@ import type {
   TruthSource,
 } from "@/lib/creative-decision-engine";
 import type { MetaAutomationReadiness } from "@/lib/meta/automation-readiness";
+import type { MetaCreativeAssessmentPresentation } from "@/lib/meta/creative-assessment";
 // Type-only imports so the response interface can carry the production-default
 // decisionCenter snapshot and its server-supplied row decision. UI components
 // must not import decision-center builders/adapters or compute buyerAction
@@ -40,6 +41,7 @@ export interface BriefingDecisionExplainability {
     refitDueAt: string | null;
     source:
       | "operator_target"
+      | "operator_target_stale"
       | "account_baseline"
       | "account_baseline_thin"
       | "global_default";
@@ -81,10 +83,7 @@ export interface BriefingCtrFunnel {
 }
 
 export type BriefingWatchingSubBucket =
-  | "near_action"
-  | "test_maturing"
-  | "diagnostic"
-  | "waiting_on_labels";
+  "near_action" | "test_maturing" | "diagnostic" | "waiting_on_labels";
 
 export interface BriefingLaneSummary {
   actionNow: number;
@@ -153,8 +152,7 @@ export interface BriefingCreativeCard {
   rawLabel?: DecisionLabel | string | null;
   pendingTransition?: boolean | null;
   /** Ad-account currency for this card's money fields; null = unknown.
-   * Load-bearing for cross-business surfaces (creative inbox) where rows
-   * from different businesses must not all render as USD. */
+   * Account-scoped surfaces still render the card currency and never infer USD. */
   currency?: string | null;
   decisionHistory?: Array<{
     date: string;
@@ -190,6 +188,14 @@ export interface BriefingCreativeCard {
   primary?: BriefingPrimaryAction | null;
   automationReadiness?: MetaAutomationReadiness | null;
   decisionCenterRow?: CreativeDecisionCenterRowDecision | null;
+  /** Server-owned assessment projection; clients render it without inference. */
+  assessment?: MetaCreativeAssessmentPresentation | null;
+  /** Immutable persisted source for Creative Brief lineage. Null means the
+   * live card could not be reconciled to an account-scoped snapshot. */
+  sourceDecisionSnapshotId?: string | null;
+  sourceDecisionSnapshotAsOf?: string | null;
+  sourceDecisionSnapshotEngineVersion?: string | null;
+  sourceDecisionSnapshotMatch?: "matched" | "unavailable" | "mismatch" | null;
   status?: string | null;
   ageDays?: number | null;
   firstSeenAt?: string | null;

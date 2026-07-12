@@ -62,6 +62,23 @@ describe("server-owned rec presentation", () => {
     expect(serverPrimaryActionLabelForRec(keep)).toBe("Review status");
   });
 
+  it("never exposes an execute CTA for test or watch decisions", () => {
+    const watchCut = rec({
+      type: "adset_cut_spend",
+      decisionState: "watch",
+    });
+    expect(serverActionKindForRec(watchCut)).toBe("review_drill");
+    expect(serverPrimaryActionLabelForRec(watchCut)).toBe("Review cut plan");
+
+    const testBid = rec({
+      type: "bid_value_guidance",
+      decisionState: "test",
+      proposedAction: { kind: "apply_bid", bidAmountMinor: 500 },
+    });
+    expect(serverActionKindForRec(testBid)).toBe("review_drill");
+    expect(serverPrimaryActionLabelForRec(testBid)).toBe("Review tuning");
+  });
+
   it("routes launchpad handoffs explicitly", () => {
     const rebuild = rec({ type: "rebuild_with_constraints" });
     expect(serverActionKindForRec(rebuild)).toBe("route_launchpad_rebuild");

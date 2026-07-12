@@ -1,18 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  DateRangePicker as AdvancedDateRangePicker,
+  dateWindowToRangeValue,
+  rangeValueToDateWindow,
+  type DateWindowKey,
+  type DateWindowValue,
+  type RangePreset,
+} from "@/components/date-range/DateRangePicker";
 
-export type DateRangePresetKey =
-  | "today"
-  | "yesterday"
-  | "7d"
-  | "14d"
-  | "28d"
-  | "90d"
-  | "this_month"
-  | "last_month"
-  | "custom";
+export type DateRangePresetKey = DateWindowKey;
 
 export interface DateRangeValue {
   preset: DateRangePresetKey;
@@ -28,37 +25,17 @@ interface DateRangePickerProps {
   testId?: string;
 }
 
-const PRESETS: ReadonlyArray<{
-  key: Exclude<DateRangePresetKey, "custom">;
-  label: string;
-  spanDays?: number;
-}> = [
-  { key: "today", label: "Today", spanDays: 1 },
-  { key: "yesterday", label: "Yesterday", spanDays: 1 },
-  { key: "7d", label: "Last 7d", spanDays: 7 },
-  { key: "14d", label: "Last 14d", spanDays: 14 },
-  { key: "28d", label: "Last 28d", spanDays: 28 },
-  { key: "90d", label: "Last 90d", spanDays: 90 },
-  { key: "this_month", label: "This month" },
-  { key: "last_month", label: "Last month" },
-];
-
-const MONTH_NAMES = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-];
-
-const DAY_HEADERS = ["S", "M", "T", "W", "T", "F", "S"];
+const PRESET_TO_RANGE: Record<DateRangePresetKey, RangePreset> = {
+  today: "today",
+  yesterday: "yesterday",
+  "7d": "7d",
+  "14d": "14d",
+  "28d": "28d",
+  "90d": "90d",
+  this_month: "thisMonth",
+  last_month: "lastMonth",
+  custom: "custom",
+};
 
 function toIso(date: Date): string {
   const yyyy = date.getFullYear();
@@ -67,28 +44,10 @@ function toIso(date: Date): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-function parseIso(iso: string): Date {
-  const [yyyy, mm, dd] = iso.split("-").map(Number);
-  return new Date(yyyy, (mm ?? 1) - 1, dd ?? 1);
-}
-
 function addDays(date: Date, days: number): Date {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
   return next;
-}
-
-function startOfMonth(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
-}
-
-function endOfMonth(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
-}
-
-function formatShortDate(iso: string): string {
-  const d = parseIso(iso);
-  return `${MONTH_NAMES[d.getMonth()]} ${d.getDate()}`;
 }
 
 export function computeRangeFromPreset(
@@ -104,25 +63,31 @@ export function computeRangeFromPreset(
     return { startDate: toIso(today), endDate: toIso(today) };
   }
   if (preset === "yesterday") {
-    const y = addDays(today, -1);
-    return { startDate: toIso(y), endDate: toIso(y) };
+    const yesterday = addDays(today, -1);
+    return { startDate: toIso(yesterday), endDate: toIso(yesterday) };
   }
   if (preset === "this_month") {
-    return { startDate: toIso(startOfMonth(today)), endDate: toIso(today) };
+    return {
+      startDate: toIso(new Date(today.getFullYear(), today.getMonth(), 1)),
+      endDate: toIso(today),
+    };
   }
   if (preset === "last_month") {
-    const prev = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-    return { startDate: toIso(startOfMonth(prev)), endDate: toIso(endOfMonth(prev)) };
+    return {
+      startDate: toIso(new Date(today.getFullYear(), today.getMonth() - 1, 1)),
+      endDate: toIso(new Date(today.getFullYear(), today.getMonth(), 0)),
+    };
   }
-  const days =
-    PRESETS.find((preset_) => preset_.key === preset)?.spanDays ?? 28;
+  const days = preset === "90d" ? 90 : preset === "28d" ? 28 : preset === "14d" ? 14 : 7;
   return { startDate: toIso(addDays(today, -(days - 1))), endDate: toIso(today) };
 }
 
-function rangeSpanDays(start: string, end: string): number {
-  const s = parseIso(start).getTime();
-  const e = parseIso(end).getTime();
-  return Math.max(1, Math.round((e - s) / 86_400_000) + 1);
+function toWindowValue(value: DateRangeValue): DateWindowValue {
+  return {
+    window: value.preset,
+    start: value.startDate,
+    end: value.endDate,
+  };
 }
 
 export function DateRangePicker({
@@ -132,297 +97,26 @@ export function DateRangePicker({
   label = "Date range",
   testId = "date-range-picker",
 }: DateRangePickerProps) {
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const [pending, setPending] = useState<DateRangeValue>(value);
-  const [activeMonth, setActiveMonth] = useState<Date>(() =>
-    parseIso(value.endDate || toIso(new Date())),
-  );
-  const [pickAnchor, setPickAnchor] = useState<string | null>(null);
-
-  useEffect(() => {
-    setPending(value);
-    setActiveMonth(parseIso(value.endDate || toIso(new Date())));
-  }, [value]);
-
-  useEffect(() => {
-    if (!open) return;
-    function onDocumentMouseDown(event: MouseEvent) {
-      if (!containerRef.current) return;
-      if (containerRef.current.contains(event.target as Node)) return;
-      setOpen(false);
-    }
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onDocumentMouseDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDocumentMouseDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  const spanLabel = useMemo(() => {
-    if (pending.preset && pending.preset !== "custom") {
-      const named = PRESETS.find((preset_) => preset_.key === pending.preset);
-      if (named) return named.label;
-    }
-    const days = rangeSpanDays(pending.startDate, pending.endDate);
-    return `${days}d`;
-  }, [pending]);
-
-  const chipLabel = `${formatShortDate(value.startDate)} – ${formatShortDate(
-    value.endDate,
-  )}`;
-  const chipSubtitle =
-    value.preset && value.preset !== "custom"
-      ? `· ${PRESETS.find((preset_) => preset_.key === value.preset)?.label ?? "Custom"}`
-      : `· ${rangeSpanDays(value.startDate, value.endDate)}d`;
-
-  function handlePresetClick(preset: Exclude<DateRangePresetKey, "custom">) {
-    const range = computeRangeFromPreset(preset);
-    setPending({ preset, ...range });
-    setActiveMonth(parseIso(range.endDate));
-    setPickAnchor(null);
-  }
-
-  function handleDayClick(iso: string) {
-    if (!pickAnchor) {
-      setPickAnchor(iso);
-      setPending({ preset: "custom", startDate: iso, endDate: iso });
-      return;
-    }
-    const [start, end] = pickAnchor < iso ? [pickAnchor, iso] : [iso, pickAnchor];
-    setPending({ preset: "custom", startDate: start, endDate: end });
-    setPickAnchor(null);
-  }
-
-  function handleApply() {
-    onChange(pending);
-    setOpen(false);
-  }
-
-  function handleCancel() {
-    setPending(value);
-    setOpen(false);
-  }
-
-  const left = activeMonth;
-  const right = new Date(activeMonth.getFullYear(), activeMonth.getMonth() + 1, 1);
-
   return (
-    <div
-      ref={containerRef}
-      className={"relative inline-block " + (className ?? "")}
-      data-testid={testId}
-    >
-      <button
-        type="button"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-label={label}
-        onClick={() => setOpen((next) => !next)}
-        className="inline-flex items-center gap-1.5 rounded-md border border-neutral-200 bg-white px-2.5 py-1.5 text-[12px] text-neutral-700 hover:bg-neutral-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-        data-testid={`${testId}-trigger`}
-      >
-        <Calendar size={12} aria-hidden="true" className="text-neutral-500" />
-        <span className="font-mono tabular-nums">{chipLabel}</span>
-        <span className="text-neutral-500">{chipSubtitle}</span>
-        <span aria-hidden="true" className="text-neutral-400">
-          ▾
-        </span>
-      </button>
-      {open ? (
-        <div
-          role="dialog"
-          aria-label={label}
-          className="absolute right-0 top-full z-50 mt-1.5 w-[640px] max-w-[calc(100vw-32px)] rounded-xl border border-neutral-200 bg-white p-4 shadow-2xl"
-          data-testid={`${testId}-popover`}
-        >
-          <div className="grid grid-cols-[170px_minmax(0,1fr)] gap-4">
-            <div className="flex flex-col gap-1 text-[12px]">
-              <div className="px-1 text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
-                Quick picks
-              </div>
-              {PRESETS.map((preset_) => {
-                const isActive = pending.preset === preset_.key;
-                return (
-                  <button
-                    key={preset_.key}
-                    type="button"
-                    onClick={() => handlePresetClick(preset_.key)}
-                    aria-pressed={isActive}
-                    className={
-                      "rounded-md px-2 py-1.5 text-left " +
-                      (isActive
-                        ? "bg-blue-50 font-semibold text-blue-700"
-                        : "text-neutral-700 hover:bg-neutral-50")
-                    }
-                  >
-                    {preset_.label}
-                  </button>
-                );
-              })}
-              <button
-                type="button"
-                onClick={() =>
-                  setPending((current) => ({ ...current, preset: "custom" }))
-                }
-                aria-pressed={pending.preset === "custom"}
-                className={
-                  "rounded-md px-2 py-1.5 text-left " +
-                  (pending.preset === "custom"
-                    ? "bg-blue-50 font-semibold text-blue-700"
-                    : "text-neutral-700 hover:bg-neutral-50")
-                }
-              >
-                Custom range
-              </button>
-            </div>
-            <div>
-              <div className="mb-2 flex items-center justify-between text-[12px] text-neutral-700">
-                <button
-                  type="button"
-                  aria-label="Previous month"
-                  onClick={() =>
-                    setActiveMonth(
-                      (current) =>
-                        new Date(current.getFullYear(), current.getMonth() - 1, 1),
-                    )
-                  }
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-neutral-200 text-neutral-600 hover:bg-neutral-50"
-                >
-                  <ChevronLeft size={12} aria-hidden="true" />
-                </button>
-                <div className="flex items-center gap-6 font-semibold tracking-tight">
-                  <span>
-                    {MONTH_NAMES[left.getMonth()]} {left.getFullYear()}
-                  </span>
-                  <span>
-                    {MONTH_NAMES[right.getMonth()]} {right.getFullYear()}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  aria-label="Next month"
-                  onClick={() =>
-                    setActiveMonth(
-                      (current) =>
-                        new Date(current.getFullYear(), current.getMonth() + 1, 1),
-                    )
-                  }
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-neutral-200 text-neutral-600 hover:bg-neutral-50"
-                >
-                  <ChevronRight size={12} aria-hidden="true" />
-                </button>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <CalendarMonth
-                  monthDate={left}
-                  range={{ startDate: pending.startDate, endDate: pending.endDate }}
-                  onDayClick={handleDayClick}
-                />
-                <CalendarMonth
-                  monthDate={right}
-                  range={{ startDate: pending.startDate, endDate: pending.endDate }}
-                  onDayClick={handleDayClick}
-                />
-              </div>
-              <div className="mt-3 flex items-center gap-2 text-[11.5px] text-neutral-600">
-                <span>Selected:</span>
-                <span className="font-mono tabular-nums">
-                  {formatShortDate(pending.startDate)} – {formatShortDate(pending.endDate)}
-                </span>
-                <span>· {spanLabel}</span>
-              </div>
-            </div>
-          </div>
-          <div className="mt-4 flex justify-end gap-2 border-t border-neutral-200 pt-3">
-            <button
-              type="button"
-              onClick={handleCancel}
-              className="inline-flex items-center gap-1 rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-[12px] font-medium text-neutral-700 hover:bg-neutral-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleApply}
-              className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700"
-            >
-              Apply
-            </button>
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function CalendarMonth({
-  monthDate,
-  range,
-  onDayClick,
-}: {
-  monthDate: Date;
-  range: { startDate: string; endDate: string };
-  onDayClick: (iso: string) => void;
-}) {
-  const first = startOfMonth(monthDate);
-  const startOffset = first.getDay();
-  const daysInMonth = endOfMonth(monthDate).getDate();
-  const cells: Array<{ iso?: string; day?: number }> = [];
-  for (let i = 0; i < startOffset; i += 1) cells.push({});
-  for (let day = 1; day <= daysInMonth; day += 1) {
-    const iso = toIso(new Date(monthDate.getFullYear(), monthDate.getMonth(), day));
-    cells.push({ iso, day });
-  }
-  return (
-    <div>
-      <div className="mb-1 grid grid-cols-7 text-center text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
-        {DAY_HEADERS.map((label, idx) => (
-          <span key={`${label}-${idx}`}>{label}</span>
-        ))}
-      </div>
-      <div className="grid grid-cols-7 gap-y-0.5 text-center text-[11.5px]">
-        {cells.map((cell, idx) => {
-          if (!cell.iso || cell.day == null) {
-            return <span key={idx} aria-hidden="true" />;
-          }
-          const inRange = cell.iso >= range.startDate && cell.iso <= range.endDate;
-          const isStart = cell.iso === range.startDate;
-          const isEnd = cell.iso === range.endDate;
-          const isEdge = isStart || isEnd;
-          const cellClasses = [
-            "inline-flex h-7 w-9 items-center justify-center font-mono tabular-nums",
-            isEdge
-              ? "bg-blue-600 text-white font-semibold"
-              : inRange
-                ? "bg-blue-50 text-blue-700"
-                : "text-neutral-700 hover:bg-neutral-100",
-            isStart ? "rounded-l-md" : "",
-            isEnd ? "rounded-r-md" : "",
-            !inRange ? "rounded-md" : "",
-          ]
-            .filter(Boolean)
-            .join(" ");
-          return (
-            <button
-              key={cell.iso}
-              type="button"
-              onClick={() => onDayClick(cell.iso!)}
-              aria-pressed={isEdge}
-              aria-label={cell.iso}
-              className={cellClasses}
-            >
-              {cell.day}
-            </button>
-          );
-        })}
-      </div>
-    </div>
+    <AdvancedDateRangePicker
+      value={dateWindowToRangeValue(toWindowValue(value))}
+      onChange={(next) => {
+        const resolved = rangeValueToDateWindow(next, undefined, {
+          includeCurrentDay: true,
+        });
+        onChange({
+          preset: resolved.window,
+          startDate: resolved.start,
+          endDate: resolved.end,
+        });
+      }}
+      className={className}
+      label={label}
+      testId={testId}
+      showComparisonTrigger={false}
+      rangePresets={Object.values(PRESET_TO_RANGE)}
+      referenceDate={value.endDate}
+      includeCurrentDayInRollingRanges
+    />
   );
 }

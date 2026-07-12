@@ -11,8 +11,7 @@ function formatSpend(value: number): string {
 export function zeroConvBurnerGate(ctx: GateContext): GateResult {
   const purchases = ctx.input.purchases ?? 0;
   const ageDays = ctx.input.ageDays ?? 0;
-  const confirmedInactiveDelivery =
-    ctx.input.effectiveStatus !== null && ctx.input.effectiveStatus !== "ACTIVE";
+  const confirmedActiveDelivery = ctx.input.effectiveStatus === "ACTIVE";
   const zeroConvThreshold = ctx.profile.thresholds.zeroConvBurnerSpend;
   const spendThreshold =
     zeroConvThreshold === null
@@ -20,7 +19,7 @@ export function zeroConvBurnerGate(ctx: GateContext): GateResult {
       : Math.max(zeroConvThreshold, commercialMaturitySpendThreshold(ctx));
 
   if (
-    !confirmedInactiveDelivery &&
+    confirmedActiveDelivery &&
     purchases === 0 &&
     ctx.input.spend >= spendThreshold &&
     ageDays >= ZERO_CONV_MIN_AGE_DAYS

@@ -22,6 +22,7 @@ function makeInput(overrides: Partial<FatigueInput> = {}): FatigueInput {
     historicalWindows: {},
     spendConcentration: null,
     frequency: 1.5,
+    frequencyPressureThreshold: 2.5,
     benchmarkRoasStatus: null,
     benchmarkClickToPurchaseStatus: null,
     ...overrides,
@@ -81,6 +82,7 @@ describe("computeFatigue", () => {
         ctr: 1.5,
         roas: 4.0,
         clickToPurchaseRate: 0.08,
+        spendConcentration: 0.6,
         historicalWindows: {
           last30: strongWindow,
           last90: {
@@ -129,7 +131,11 @@ describe("computeFatigue", () => {
         effectiveTargetRoas: 2.2,
         historicalWindows: {
           last30: targetStrongWindow,
-          last90: targetStrongWindow,
+          last90: {
+            ...targetStrongWindow,
+            spend: targetStrongWindow.spend * 2,
+            purchases: targetStrongWindow.purchases * 2,
+          },
         },
       }),
     );
@@ -150,7 +156,11 @@ describe("computeFatigue", () => {
         breakevenRoas: null,
         historicalWindows: {
           last30: fallbackStrongWindow,
-          last90: fallbackStrongWindow,
+          last90: {
+            ...fallbackStrongWindow,
+            spend: fallbackStrongWindow.spend * 2,
+            purchases: fallbackStrongWindow.purchases * 2,
+          },
         },
       }),
     );
@@ -171,7 +181,11 @@ describe("computeFatigue", () => {
         breakevenRoas: 2.0,
         historicalWindows: {
           last30: breakevenStrongWindow,
-          last90: breakevenStrongWindow,
+          last90: {
+            ...breakevenStrongWindow,
+            spend: breakevenStrongWindow.spend * 2,
+            purchases: breakevenStrongWindow.purchases * 2,
+          },
         },
       }),
     );
@@ -221,7 +235,7 @@ describe("computeFatigue", () => {
     expect(output.winnerMemory).toBe(false);
   });
 
-  it("keeps two decay signals at watch without pressure or benchmark weakening", () => {
+  it("does not call performance decay fatigue without exposure pressure or benchmark weakening", () => {
     const output = computeFatigue(
       makeInput({
         ctr: 1.2,
@@ -241,9 +255,140 @@ describe("computeFatigue", () => {
       }),
     );
 
-    expect(output.status).toBe("watch");
+    expect(output.status).toBe("none");
     expect(output.ctrDecay).toBeGreaterThan(0.18);
     expect(output.roasDecay).toBeGreaterThan(0.18);
+  });
+
+  it("uses the account-relative frequency p75 instead of a global frequency cliff", () => {
+    const historicalWindows = {
+      last30: strongWindow,
+      last90: {
+        ...strongWindow,
+        spend: strongWindow.spend * 2,
+        purchases: strongWindow.purchases * 2,
+        roas: 3.5,
+        ctr: 1.8,
+        clickToPurchaseRate: 0.07,
+      },
+    };
+    const common = {
+      ctr: 1.2,
+      roas: 2.6,
+      clickToPurchaseRate: 0.04,
+      spendConcentration: 0.3,
+      frequency: 3,
+      historicalWindows,
+    };
+
+    expect(
+      computeFatigue(
+        makeInput({ ...common, frequencyPressureThreshold: 2.5 }),
+      ).status,
+    ).toBe("fatigued");
+    expect(
+      computeFatigue(
+        makeInput({ ...common, frequencyPressureThreshold: 3.5 }),
+      ).status,
+    ).toBe("none");
+  });
+
+  it("does not call an improving recent period fatigued even when cumulative windows are weaker", () => {
+    const output = computeFatigue(
+      makeInput({
+        ctr: 1.5,
+        roas: 3.2,
+        clickToPurchaseRate: 0.07,
+        frequency: 3,
+        historicalWindows: {
+          last14: {
+            spend: 400,
+            purchases: 4,
+            roas: 4,
+            ctr: 2,
+            clickToPurchaseRate: 0.1,
+          },
+          last30: {
+            spend: 800,
+            purchases: 8,
+            roas: 3.5,
+            ctr: 1.8,
+            clickToPurchaseRate: 0.08,
+          },
+          last90: {
+            spend: 1200,
+            purchases: 12,
+            roas: 3.5,
+            ctr: 1.8,
+            clickToPurchaseRate: 0.08,
+          },
+        },
+      }),
+    );
+
+    expect(output.status).toBe("none");
+    expect(output.ctrDecay).toBeNull();
+    expect(output.roasDecay).toBeNull();
+    expect(output.missingContext).toContain(
+      "Directly preceding disjoint window unavailable or below evidence floor; decay not assessable",
+    );
+  });
+
+  it("uses only the directly preceding disjoint period when recent14 is available", () => {
+    const output = computeFatigue(
+      makeInput({
+        frequency: 3,
+        historicalWindows: {
+          last14: {
+            spend: 500,
+            purchases: 8,
+            roas: 3.2,
+            ctr: 2.2,
+            clickToPurchaseRate: 0.08,
+          },
+          prior14: {
+            spend: 500,
+            purchases: 7,
+            roas: 2.8,
+            ctr: 1.9,
+            clickToPurchaseRate: 0.07,
+          },
+          last90: {
+            spend: 4000,
+            purchases: 50,
+            roas: 6,
+            ctr: 4,
+            clickToPurchaseRate: 0.16,
+          },
+        },
+      }),
+    );
+
+    expect(output.status).toBe("none");
+    expect(output.roasDecay).toBeLessThanOrEqual(0);
+    expect(output.ctrDecay).toBeLessThanOrEqual(0);
+  });
+
+  it("does not let benchmark weakening replace an actual decay signal", () => {
+    const output = computeFatigue(
+      makeInput({
+        frequency: 1.2,
+        benchmarkRoasStatus: "worse",
+        benchmarkClickToPurchaseStatus: "worse",
+        historicalWindows: {
+          last30: strongWindow,
+          last90: {
+            ...strongWindow,
+            spend: 1000,
+            purchases: 8,
+          },
+        },
+      }),
+    );
+
+    expect(output.winnerMemory).toBe(true);
+    expect(output.roasDecay).toBe(0);
+    expect(output.status).toBe("none");
   });
 
   it("watches non-winners when composite decay and pressure are present", () => {
@@ -455,9 +600,8 @@ describe("disjoint winner-memory shadow metric", () => {
         },
       }),
     );
-    // The LIVE metric counts all three nested windows as separate strong
-    // windows - the exact double-count defect; the shadow metric does not.
-    expect(output.winnerMemory).toBe(true);
+    // The published winner-memory flag now uses disjoint evidence.
+    expect(output.winnerMemory).toBe(false);
     expect(output.disjointStrongWindows).toBe(1);
     expect(output.disjointWinnerMemory).toBe(false);
   });

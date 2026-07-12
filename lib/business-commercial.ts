@@ -49,6 +49,11 @@ const COMMERCIAL_TRUTH_TABLES = [
   "business_decision_calibration_profiles",
 ];
 
+const COMMERCIAL_TRUTH_WRITE_TABLES = [
+  ...COMMERCIAL_TRUTH_TABLES,
+  "business_target_pack_history",
+];
+
 type MetaRow = {
   source_label: string | null;
   updated_at: string | Date | null;
@@ -75,6 +80,12 @@ type TargetPackRow = {
   cost_fulfillment_percent: number | null;
   cost_payment_processing_percent: number | null;
 } & MetaRow;
+
+type TargetPackHistoryRow = TargetPackRow & {
+  operation: "upsert" | "delete";
+  effective_at: string | Date;
+  recorded_at: string | Date;
+};
 
 type CountryEconomicsRow = {
   country_code: string;
@@ -146,6 +157,29 @@ function normalizeDate(value: unknown) {
   return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : null;
 }
 
+function normalizeAsOfCutoff(value: string | Date) {
+  if (value instanceof Date) {
+    if (!Number.isFinite(value.getTime())) {
+      throw new Error("asOf must be a valid date or timestamp");
+    }
+    return value.toISOString();
+  }
+
+  const normalized = value.trim();
+  const dateOnly = normalizeDate(normalized);
+  const candidate = dateOnly
+    ? `${dateOnly}T03:00:00.000Z`
+    : normalized;
+  const parsed = new Date(candidate);
+  if (!Number.isFinite(parsed.getTime())) {
+    throw new Error("asOf must be a valid YYYY-MM-DD date or timestamp");
+  }
+  if (dateOnly && parsed.toISOString().slice(0, 10) !== dateOnly) {
+    throw new Error("asOf must be a valid calendar date");
+  }
+  return parsed.toISOString();
+}
+
 function normalizeNumber(value: unknown) {
   if (value === null || value === undefined || value === "") return null;
   const parsed = typeof value === "number" ? value : Number(value);
@@ -170,11 +204,18 @@ function normalizeEnum<T extends readonly string[]>(
     : fallback;
 }
 
-function differenceInHours(updatedAt: string | null | undefined) {
+function differenceInHours(
+  updatedAt: string | null | undefined,
+  referenceTime: Date = new Date(),
+) {
   if (!updatedAt) return null;
   const parsed = Date.parse(updatedAt);
-  if (!Number.isFinite(parsed)) return null;
-  return Number((Math.max(0, Date.now() - parsed) / 3_600_000).toFixed(1));
+  const referenceTimeMs = referenceTime.getTime();
+  if (!Number.isFinite(parsed) || !Number.isFinite(referenceTimeMs))
+    return null;
+  const differenceMs = referenceTimeMs - parsed;
+  if (differenceMs < 0) return null;
+  return Number((differenceMs / 3_600_000).toFixed(1));
 }
 
 function dedupeStringList(values: Array<string | null | undefined>) {
@@ -245,12 +286,29 @@ function readMetaValue(
   return row.updatedByUserId;
 }
 
+export const BUSINESS_TARGET_PACK_STALE_AFTER_HOURS = 24 * 30;
+
+export function resolveBusinessTargetPackFreshness(
+  updatedAt: string | Date | null | undefined,
+  referenceTime: Date = new Date(),
+): "fresh" | "stale" | "unknown" {
+  const normalized = normalizeTimestampValue(updatedAt);
+  if (!normalized) return "unknown";
+  const updatedAtMs = Date.parse(normalized);
+  const referenceTimeMs = referenceTime.getTime();
+  if (!Number.isFinite(updatedAtMs) || !Number.isFinite(referenceTimeMs)) {
+    return "unknown";
+  }
+  if (updatedAtMs > referenceTimeMs) return "unknown";
+  const ageHours = (referenceTimeMs - updatedAtMs) / 3_600_000;
+  return ageHours > BUSINESS_TARGET_PACK_STALE_AFTER_HOURS ? "stale" : "fresh";
+}
+
 const SECTION_META_RULES = {
   targetPack: {
     blocking: true,
-    staleAfterHours: 24 * 30,
-    missingReason:
-      "Target pack thresholds are not configured yet.",
+    staleAfterHours: BUSINESS_TARGET_PACK_STALE_AFTER_HOURS,
+    missingReason: "Target pack thresholds are not configured yet.",
     staleReason:
       "Target pack thresholds are older than 30 days and should be reviewed.",
   },
@@ -1250,13 +1308,56 @@ export async function getBusinessCommercialTruthSnapshot(
   }
 }
 
+export async function getBusinessTargetPackHistoryAsOf(input: {
+  businessId: string;
+  asOf: string | Date;
+}): Promise<BusinessTargetPackData | null> {
+  await assertDbSchemaReady({
+    tables: ["business_target_pack_history"],
+    context: "business_target_pack_history_as_of_read",
+  });
+
+  const asOfCutoff = normalizeAsOfCutoff(input.asOf);
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      target_cpa,
+      target_roas,
+      break_even_cpa,
+      break_even_roas,
+      contribution_margin_assumption,
+      aov_assumption,
+      new_customer_weight,
+      default_risk_posture,
+      cost_cogs_percent,
+      cost_shipping_percent,
+      cost_fulfillment_percent,
+      cost_payment_processing_percent,
+      source_label,
+      effective_at AS updated_at,
+      updated_by_user_id,
+      operation,
+      effective_at,
+      recorded_at
+    FROM business_target_pack_history
+    WHERE business_id = ${input.businessId}
+      AND effective_at <= ${asOfCutoff}::timestamptz
+      AND recorded_at <= ${asOfCutoff}::timestamptz
+    ORDER BY effective_at DESC, recorded_at DESC, id DESC
+    LIMIT 1
+  `;
+  const row = (rows as TargetPackHistoryRow[])[0];
+  if (!row || row.operation !== "upsert") return null;
+  return mapTargetPackRow(row);
+}
+
 export async function upsertBusinessCommercialTruthSnapshot(input: {
   businessId: string;
   updatedByUserId: string | null;
   snapshot: Partial<BusinessCommercialTruthSnapshot> | null | undefined;
 }) {
   await assertDbSchemaReady({
-    tables: COMMERCIAL_TRUTH_TABLES,
+    tables: COMMERCIAL_TRUTH_WRITE_TABLES,
     context: "business_commercial_truth_upsert",
   });
 
@@ -1267,7 +1368,117 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
 
   if (sanitized.targetPack) {
     await sql`
-      INSERT INTO business_target_packs (
+      WITH write_clock AS (
+        SELECT now() AS effective_at
+      ), current_write AS (
+        INSERT INTO business_target_packs (
+          business_id,
+          business_ref_id,
+          target_cpa,
+          target_roas,
+          break_even_cpa,
+          break_even_roas,
+          contribution_margin_assumption,
+          aov_assumption,
+          new_customer_weight,
+          default_risk_posture,
+          cost_cogs_percent,
+          cost_shipping_percent,
+          cost_fulfillment_percent,
+          cost_payment_processing_percent,
+          source_label,
+          updated_by_user_id,
+          updated_at
+        )
+        SELECT
+          ${sanitized.businessId},
+          ${businessRefId},
+          ${sanitized.targetPack.targetCpa},
+          ${sanitized.targetPack.targetRoas},
+          ${sanitized.targetPack.breakEvenCpa},
+          ${sanitized.targetPack.breakEvenRoas},
+          ${sanitized.targetPack.contributionMarginAssumption},
+          ${sanitized.targetPack.aovAssumption},
+          ${sanitized.targetPack.newCustomerWeight},
+          ${sanitized.targetPack.defaultRiskPosture},
+          ${sanitized.targetPack.costStructure?.cogsPercent ?? null},
+          ${sanitized.targetPack.costStructure?.shippingPercent ?? null},
+          ${sanitized.targetPack.costStructure?.fulfillmentPercent ?? null},
+          ${sanitized.targetPack.costStructure?.paymentProcessingPercent ?? null},
+          ${sanitized.targetPack.sourceLabel},
+          ${input.updatedByUserId},
+          write_clock.effective_at
+        FROM write_clock
+        WHERE true
+        ON CONFLICT (business_id)
+        DO UPDATE SET
+          business_ref_id = COALESCE(business_target_packs.business_ref_id, EXCLUDED.business_ref_id),
+          target_cpa = EXCLUDED.target_cpa,
+          target_roas = EXCLUDED.target_roas,
+          break_even_cpa = EXCLUDED.break_even_cpa,
+          break_even_roas = EXCLUDED.break_even_roas,
+          contribution_margin_assumption = EXCLUDED.contribution_margin_assumption,
+          aov_assumption = EXCLUDED.aov_assumption,
+          new_customer_weight = EXCLUDED.new_customer_weight,
+          default_risk_posture = EXCLUDED.default_risk_posture,
+          cost_cogs_percent = EXCLUDED.cost_cogs_percent,
+          cost_shipping_percent = EXCLUDED.cost_shipping_percent,
+          cost_fulfillment_percent = EXCLUDED.cost_fulfillment_percent,
+          cost_payment_processing_percent = EXCLUDED.cost_payment_processing_percent,
+          source_label = EXCLUDED.source_label,
+          updated_by_user_id = EXCLUDED.updated_by_user_id,
+          updated_at = EXCLUDED.updated_at
+        WHERE ROW(
+          business_target_packs.business_ref_id,
+          business_target_packs.target_cpa,
+          business_target_packs.target_roas,
+          business_target_packs.break_even_cpa,
+          business_target_packs.break_even_roas,
+          business_target_packs.contribution_margin_assumption,
+          business_target_packs.aov_assumption,
+          business_target_packs.new_customer_weight,
+          business_target_packs.default_risk_posture,
+          business_target_packs.cost_cogs_percent,
+          business_target_packs.cost_shipping_percent,
+          business_target_packs.cost_fulfillment_percent,
+          business_target_packs.cost_payment_processing_percent,
+          business_target_packs.source_label
+        ) IS DISTINCT FROM ROW(
+          COALESCE(business_target_packs.business_ref_id, EXCLUDED.business_ref_id),
+          EXCLUDED.target_cpa,
+          EXCLUDED.target_roas,
+          EXCLUDED.break_even_cpa,
+          EXCLUDED.break_even_roas,
+          EXCLUDED.contribution_margin_assumption,
+          EXCLUDED.aov_assumption,
+          EXCLUDED.new_customer_weight,
+          EXCLUDED.default_risk_posture,
+          EXCLUDED.cost_cogs_percent,
+          EXCLUDED.cost_shipping_percent,
+          EXCLUDED.cost_fulfillment_percent,
+          EXCLUDED.cost_payment_processing_percent,
+          EXCLUDED.source_label
+        )
+        RETURNING
+          business_id,
+          business_ref_id,
+          target_cpa,
+          target_roas,
+          break_even_cpa,
+          break_even_roas,
+          contribution_margin_assumption,
+          aov_assumption,
+          new_customer_weight,
+          default_risk_posture,
+          cost_cogs_percent,
+          cost_shipping_percent,
+          cost_fulfillment_percent,
+          cost_payment_processing_percent,
+          source_label,
+          updated_by_user_id,
+          updated_at
+      )
+      INSERT INTO business_target_pack_history (
         business_id,
         business_ref_id,
         target_cpa,
@@ -1283,49 +1494,108 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
         cost_fulfillment_percent,
         cost_payment_processing_percent,
         source_label,
-        updated_by_user_id,
-        updated_at
+        operation,
+        effective_at,
+        recorded_at,
+        updated_by_user_id
       )
-      VALUES (
-        ${sanitized.businessId},
-        ${businessRefId},
-        ${sanitized.targetPack.targetCpa},
-        ${sanitized.targetPack.targetRoas},
-        ${sanitized.targetPack.breakEvenCpa},
-        ${sanitized.targetPack.breakEvenRoas},
-        ${sanitized.targetPack.contributionMarginAssumption},
-        ${sanitized.targetPack.aovAssumption},
-        ${sanitized.targetPack.newCustomerWeight},
-        ${sanitized.targetPack.defaultRiskPosture},
-        ${sanitized.targetPack.costStructure?.cogsPercent ?? null},
-        ${sanitized.targetPack.costStructure?.shippingPercent ?? null},
-        ${sanitized.targetPack.costStructure?.fulfillmentPercent ?? null},
-        ${sanitized.targetPack.costStructure?.paymentProcessingPercent ?? null},
-        ${sanitized.targetPack.sourceLabel},
-        ${input.updatedByUserId},
-        now()
-      )
-      ON CONFLICT (business_id)
-      DO UPDATE SET
-        business_ref_id = COALESCE(business_target_packs.business_ref_id, EXCLUDED.business_ref_id),
-        target_cpa = EXCLUDED.target_cpa,
-        target_roas = EXCLUDED.target_roas,
-        break_even_cpa = EXCLUDED.break_even_cpa,
-        break_even_roas = EXCLUDED.break_even_roas,
-        contribution_margin_assumption = EXCLUDED.contribution_margin_assumption,
-        aov_assumption = EXCLUDED.aov_assumption,
-        new_customer_weight = EXCLUDED.new_customer_weight,
-        default_risk_posture = EXCLUDED.default_risk_posture,
-        cost_cogs_percent = EXCLUDED.cost_cogs_percent,
-        cost_shipping_percent = EXCLUDED.cost_shipping_percent,
-        cost_fulfillment_percent = EXCLUDED.cost_fulfillment_percent,
-        cost_payment_processing_percent = EXCLUDED.cost_payment_processing_percent,
-        source_label = EXCLUDED.source_label,
-        updated_by_user_id = EXCLUDED.updated_by_user_id,
-        updated_at = now()
+      SELECT
+        business_id,
+        business_ref_id,
+        target_cpa,
+        target_roas,
+        break_even_cpa,
+        break_even_roas,
+        contribution_margin_assumption,
+        aov_assumption,
+        new_customer_weight,
+        default_risk_posture,
+        cost_cogs_percent,
+        cost_shipping_percent,
+        cost_fulfillment_percent,
+        cost_payment_processing_percent,
+        source_label,
+        'upsert',
+        updated_at,
+        updated_at,
+        updated_by_user_id
+      FROM current_write
     `;
   } else {
-    await sql`DELETE FROM business_target_packs WHERE business_id = ${sanitized.businessId}`;
+    await sql`
+      WITH write_clock AS (
+        SELECT now() AS effective_at
+      ), current_row AS (
+        SELECT
+          target.business_id,
+          target.business_ref_id,
+          target.target_cpa,
+          target.target_roas,
+          target.break_even_cpa,
+          target.break_even_roas,
+          target.contribution_margin_assumption,
+          target.aov_assumption,
+          target.new_customer_weight,
+          target.default_risk_posture,
+          target.cost_cogs_percent,
+          target.cost_shipping_percent,
+          target.cost_fulfillment_percent,
+          target.cost_payment_processing_percent,
+          target.source_label,
+          write_clock.effective_at
+        FROM business_target_packs target
+        CROSS JOIN write_clock
+        WHERE target.business_id = ${sanitized.businessId}
+        FOR UPDATE OF target
+      ), history_write AS (
+        INSERT INTO business_target_pack_history (
+          business_id,
+          business_ref_id,
+          target_cpa,
+          target_roas,
+          break_even_cpa,
+          break_even_roas,
+          contribution_margin_assumption,
+          aov_assumption,
+          new_customer_weight,
+          default_risk_posture,
+          cost_cogs_percent,
+          cost_shipping_percent,
+          cost_fulfillment_percent,
+          cost_payment_processing_percent,
+          source_label,
+          operation,
+          effective_at,
+          recorded_at,
+          updated_by_user_id
+        )
+        SELECT
+          business_id,
+          business_ref_id,
+          target_cpa,
+          target_roas,
+          break_even_cpa,
+          break_even_roas,
+          contribution_margin_assumption,
+          aov_assumption,
+          new_customer_weight,
+          default_risk_posture,
+          cost_cogs_percent,
+          cost_shipping_percent,
+          cost_fulfillment_percent,
+          cost_payment_processing_percent,
+          source_label,
+          'delete',
+          effective_at,
+          effective_at,
+          ${input.updatedByUserId}
+        FROM current_row
+        RETURNING business_id
+      )
+      DELETE FROM business_target_packs target
+      USING history_write
+      WHERE target.business_id = history_write.business_id
+    `;
   }
 
   await sql`DELETE FROM business_country_economics WHERE business_id = ${sanitized.businessId}`;

@@ -14,7 +14,7 @@ import { computeFunnelDiagnosis } from "../funnel";
 import { applyTestCohortRefreshOverride } from "../test-cohort-semantic";
 import {
   STALE_CONFIDENCE_CAP,
-  STALE_HARD_ACTION_CEILING_HOURS,
+  STALE_SOURCE_UPDATED_AT_HOURS,
 } from "../config-values";
 
 export interface GateContext {
@@ -44,6 +44,7 @@ interface BuildDecisionOutputInput {
   ratioToTarget?: number | null;
   badges?: DecisionBadge[];
   blockers?: DecisionPredicateBlocker[];
+  blockedActionType?: DecisionLabel | null;
   labelTransform?: DecisionLabelTransform | null;
 }
 
@@ -403,6 +404,7 @@ export function buildDecisionOutput(
       recent7dRoas: ctx.input.recent7dRoas,
     },
     labelTransform: output.labelTransform ?? null,
+    blockedActionType: output.blockedActionType ?? null,
     engineVersion: ENGINE_VERSION,
     generatedAt: ctx.generatedAt,
   };
@@ -424,33 +426,65 @@ export function finalizeDecision(
     badges: ctx.badges,
     profile: ctx.profile,
   });
-  // v-next: a hard action computed from a feed older than the stale ceiling
-  // is advice about a data outage, not about the creative - the correct
-  // label is diagnose. Shadow badge in v3-2026-07-06 (live impact: 11
-  // published cuts, all on a dead feed); label-active from this version.
-  const staleCeilingDemoted =
-    (softOnly.label === "cut" || softOnly.label === "scale") &&
-    typeof ctx.input.dataFreshnessHours === "number" &&
-    ctx.input.dataFreshnessHours > STALE_HARD_ACTION_CEILING_HOURS;
-  const finalLabel: DecisionLabel = staleCeilingDemoted
-    ? "diagnose"
-    : softOnly.label;
-  const finalReason = staleCeilingDemoted
-    ? `[stale ceiling - hard action demoted] Data ${Math.round(
-        (ctx.input.dataFreshnessHours ?? 0) / 24,
-      )}d stale; fix the data feed before acting on this creative. ${softOnly.reason}`
+  const hardLabel = isHardActionLabel(softOnly.label)
+    ? softOnly.label
+    : null;
+  const freshnessUnknown =
+    ctx.input.dataFreshnessHours === null ||
+    hasDecisionBadge(softOnly.badges, "unknown_freshness");
+  const freshnessStale =
+    hasDecisionBadge(softOnly.badges, "stale_evidence") ||
+    (typeof ctx.input.dataFreshnessHours === "number" &&
+      ctx.input.dataFreshnessHours > STALE_SOURCE_UPDATED_AT_HOURS);
+  const freshnessBlocksHardAuthority =
+    hardLabel !== null && (freshnessUnknown || freshnessStale);
+  const hardLabelNeedsFreshEvidence =
+    hardLabel === "scale" || hardLabel === "refresh";
+  const finalLabel: DecisionLabel =
+    freshnessBlocksHardAuthority && hardLabelNeedsFreshEvidence
+      ? "keep"
+      : softOnly.label;
+  const finalReason = freshnessBlocksHardAuthority
+    ? hardLabelNeedsFreshEvidence
+      ? `[${hardLabel} verdict held - fresh data required] ${softOnly.reason}`
+      : `[stop-loss verdict visible - fresh data required before action] ${softOnly.reason}`
     : softOnly.reason;
 
-  const nextCtx = { ...ctx, badges: softOnly.badges };
+  let authorityBadges = [...softOnly.badges];
+  if (freshnessBlocksHardAuthority) {
+    authorityBadges = appendDecisionBadgeOnce(
+      authorityBadges,
+      freshnessUnknown
+        ? {
+            type: "unknown_freshness",
+            label:
+              "Unknown freshness: refresh the decision data before applying.",
+            severity: "warning",
+          }
+        : {
+            type: "stale_evidence",
+            label: `Stale evidence: last sync ${Math.round(
+              ctx.input.dataFreshnessHours ?? 0,
+            )}h ago - refresh before applying.`,
+            severity: "warning",
+          },
+    );
+  }
+  if (freshnessBlocksHardAuthority && hardLabel === "scale") {
+    authorityBadges = appendDecisionBadgeOnce(
+      authorityBadges,
+      SCALE_READINESS_BLOCKED_BADGE,
+    );
+  }
+
+  const nextCtx = { ...ctx, badges: authorityBadges };
   const { badges, confidenceDeltas } = applyPostProcess(nextCtx, finalLabel);
-  const finalBadges = staleCeilingDemoted
+  const finalBadges = freshnessBlocksHardAuthority
     ? [
         ...badges,
         {
           type: "stale_hard_ceiling_advisory" as const,
-          label: `Data ${Math.round(
-            (ctx.input.dataFreshnessHours ?? 0) / 24,
-          )}d stale - hard action demoted to diagnose`,
+          label: `${hardLabel} verdict is review-only until decision data is fresh`,
           severity: "warning" as const,
         },
       ]
@@ -464,6 +498,7 @@ export function finalizeDecision(
       confidenceCapForBadges(finalBadges),
     ),
     badges: finalBadges,
+    blockedActionType: freshnessBlocksHardAuthority ? hardLabel : null,
     labelTransform: transformed.labelTransform,
   });
 }

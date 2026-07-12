@@ -204,66 +204,11 @@ export async function mutateMetaAdSetExecution(input: {
   adSetId: string;
   requestedStatus?: string | null;
   requestedDailyBudget?: number | null;
-}) {
-  if (isDemoBusinessId(input.businessId)) {
-    throw new Error("Demo businesses are manual-only for execution.");
-  }
-
-  const credentials = await resolveMetaCredentials(input.businessId);
-  if (!credentials) {
-    throw new Error("Meta integration is not connected for this workspace.");
-  }
-
-  const body = new URLSearchParams();
-  if (input.requestedStatus) {
-    body.set("status", input.requestedStatus);
-  }
-  if (input.requestedDailyBudget != null) {
-    body.set("daily_budget", `${Math.round(input.requestedDailyBudget)}`);
-  }
-  body.set("access_token", credentials.accessToken);
-
-  const response = await fetch(`https://graph.facebook.com/v25.0/${input.adSetId}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-    },
-    body: body.toString(),
-    cache: "no-store",
-  });
-
-  const bodyJson = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  const traceId =
-    response.headers.get("x-fb-trace-id") ??
-    (typeof bodyJson.fbtrace_id === "string" ? bodyJson.fbtrace_id : null) ??
-    (typeof bodyJson.error === "object" &&
-    bodyJson.error &&
-    typeof (bodyJson.error as { fbtrace_id?: unknown }).fbtrace_id === "string"
-      ? ((bodyJson.error as { fbtrace_id: string }).fbtrace_id)
-      : null);
-
-  const result: MetaExecutionMutationResult = {
-    statusCode: response.status,
-    ok: response.ok,
-    body: bodyJson,
-    traceId,
-  };
-
-  if (!response.ok) {
-    const message =
-      typeof bodyJson.error === "object" &&
-      bodyJson.error &&
-      typeof (bodyJson.error as { message?: unknown }).message === "string"
-        ? ((bodyJson.error as { message: string }).message)
-        : `Meta execution mutation failed with status ${response.status}.`;
-    const error = new Error(message) as Error & {
-      code?: string;
-      providerResult?: MetaExecutionMutationResult;
-    };
-    error.code = "meta_execution_failed";
-    error.providerResult = result;
-    throw error;
-  }
-
-  return result;
+}): Promise<never> {
+  void input;
+  const error = new Error(
+    "Legacy Command Center execution is archived and cannot write to Meta.",
+  ) as Error & { code?: string };
+  error.code = "archived_execution_disabled";
+  throw error;
 }

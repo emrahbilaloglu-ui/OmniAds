@@ -57,7 +57,10 @@ function adset(overrides: Partial<MetaAdSetData> = {}): MetaAdSetData {
   };
 }
 
-function signal(ageDays = 20): MetaEntityDecisionSignal {
+function signal(
+  ageDays = 20,
+  overrides: Partial<MetaEntityDecisionSignal> = {},
+): MetaEntityDecisionSignal {
   return {
     businessId: "biz_1",
     providerAccountId: "act_1",
@@ -75,6 +78,7 @@ function signal(ageDays = 20): MetaEntityDecisionSignal {
     ctrDecayPct: null,
     sourceJson: { age_days: ageDays },
     qualityStatus: "ready",
+    ...overrides,
   };
 }
 
@@ -97,6 +101,26 @@ describe("emitEngagementAdsetScenario", () => {
     expect(rec?.decisionLabel).toBe("scale");
     expect(rec?.confidence).toBe("high");
     expect(rec?.cohort).toBe("engagement");
+  });
+
+  it("keeps an efficient one-event engagement row on watch", () => {
+    const rec = emitEngagementAdsetScenario({
+      adset: adset({
+        spend: context.thresholds.metrics.cost_per_engagement_28d.p10,
+        postEngagement: 1,
+        impressions: 10,
+      }),
+      context,
+      cohort: "engagement",
+      signals: signal(20),
+    });
+
+    expect(rec?.type).toBe("scenario_eg2_engagement_steady_keep");
+    expect(rec?.decisionLabel).toBe("keep");
+    expect(rec?.decisionState).toBe("watch");
+    expect(targetValue(rec)?.score).toBe(0.94);
+    expect(rec?.confidence).toBe("low");
+    expect(rec?.confidenceScore).toBeCloseTo(0.555);
   });
 
   it("emits EG3 cut for inefficient mature engagement above hard-cut spend", () => {
@@ -156,7 +180,7 @@ describe("emitEngagementAdsetScenario", () => {
       adset: adset({ spend: 98, postEngagement: 70, impressions: 2800, frequency: 4 }),
       context,
       cohort: "engagement",
-      signals: signal(3),
+      signals: signal(3, { ctrDecayPct: -20 }),
     });
 
     expect(rec?.type).toBe("scenario_eg4_engagement_refresh");

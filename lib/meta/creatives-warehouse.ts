@@ -44,6 +44,94 @@ import {
 import type { MetaAdDailyRow, MetaCreativeDailyRow, MetaCreativeMediaRow } from "@/lib/meta/warehouse-types";
 import { getCreativeMediaRetentionStart } from "@/lib/meta/history";
 import { pruneMetaCreativeMediaOutsideRetention } from "@/lib/meta/cleanup";
+import { normalizeMetaCurrencyCode } from "@/lib/meta/account-context";
+
+export type MetaCreativesAccountScopeResolution =
+  | {
+      ok: true;
+      providerAccountId: string;
+      assignedAccountIds: string[];
+      assignedAccountCount: number;
+      resolution: "explicit" | "single_assigned_account";
+    }
+  | {
+      ok: false;
+      status:
+        | "no_accounts_assigned"
+        | "provider_account_required"
+        | "account_not_assigned";
+      requestedProviderAccountId: string | null;
+      assignedAccountCount: number;
+    };
+
+export function resolveMetaCreativesAccountScope(input: {
+  assignedAccountIds: string[];
+  requestedProviderAccountId?: string | null;
+}): MetaCreativesAccountScopeResolution {
+  const assignedAccountIds = Array.from(
+    new Set(input.assignedAccountIds.map((value) => value.trim()).filter(Boolean)),
+  );
+  const requestedProviderAccountId = input.requestedProviderAccountId?.trim() || null;
+
+  if (assignedAccountIds.length === 0) {
+    return {
+      ok: false,
+      status: "no_accounts_assigned",
+      requestedProviderAccountId,
+      assignedAccountCount: 0,
+    };
+  }
+  if (
+    requestedProviderAccountId &&
+    !assignedAccountIds.includes(requestedProviderAccountId)
+  ) {
+    return {
+      ok: false,
+      status: "account_not_assigned",
+      requestedProviderAccountId,
+      assignedAccountCount: assignedAccountIds.length,
+    };
+  }
+  if (requestedProviderAccountId) {
+    return {
+      ok: true,
+      providerAccountId: requestedProviderAccountId,
+      assignedAccountIds: [requestedProviderAccountId],
+      assignedAccountCount: assignedAccountIds.length,
+      resolution: "explicit",
+    };
+  }
+  if (assignedAccountIds.length === 1) {
+    return {
+      ok: true,
+      providerAccountId: assignedAccountIds[0]!,
+      assignedAccountIds: [assignedAccountIds[0]!],
+      assignedAccountCount: 1,
+      resolution: "single_assigned_account",
+    };
+  }
+  return {
+    ok: false,
+    status: "provider_account_required",
+    requestedProviderAccountId: null,
+    assignedAccountCount: assignedAccountIds.length,
+  };
+}
+
+export function buildMetaCreativesAccountScopeMetadata(
+  scope: MetaCreativesAccountScopeResolution,
+) {
+  return {
+    providerAccountId: scope.ok
+      ? scope.providerAccountId
+      : scope.requestedProviderAccountId,
+    account_scope: {
+      status: scope.ok ? ("resolved" as const) : ("blocked" as const),
+      resolution: scope.ok ? scope.resolution : scope.status,
+      assigned_account_count: scope.assignedAccountCount,
+    },
+  };
+}
 
 function toIsoDate(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -114,6 +202,24 @@ function buildUnavailablePreview(isCatalog: boolean): NormalizedRenderPreviewPay
 
 function round2(value: number) {
   return Math.round(value * 100) / 100;
+}
+
+function requireCreativeWarehouseCurrency(
+  rows: RawCreativeRow[],
+  accountId: string
+): string {
+  const currencies = Array.from(
+    new Set(
+      rows
+        .map((row) => normalizeMetaCurrencyCode(row.currency))
+        .filter((currency): currency is string => currency != null)
+    )
+  );
+  if (currencies.length === 1) return currencies[0];
+  if (currencies.length > 1) {
+    throw new Error(`meta_currency_conflict:creative_warehouse:${accountId}`);
+  }
+  throw new Error(`meta_currency_unavailable:creative_warehouse:${accountId}`);
 }
 
 function readProjectionString(value: unknown, key: string) {
@@ -770,6 +876,11 @@ async function syncMetaCreativesAccountDay(input: {
   const rawRows = apiRows
     .map((row) => coerceRawCreativeRow(row))
     .filter((row): row is RawCreativeRow => Boolean(row));
+  if (rawRows.length === 0) return;
+  const accountCurrency = requireCreativeWarehouseCurrency(
+    rawRows,
+    input.accountId
+  );
   await hydrateCreativeLandingUrls(rawRows, input.accessToken);
   const creativeUsageMap = buildCreativeUsageMap(rawRows);
   const creativeRows = groupRows(rawRows, "creative", creativeUsageMap);
@@ -786,7 +897,7 @@ async function syncMetaCreativesAccountDay(input: {
     adNameHistorical: row.name,
     adStatus: null,
     accountTimezone: "UTC",
-    accountCurrency: row.currency ?? "USD",
+    accountCurrency,
     spend: row.spend,
     impressions: row.impressions,
     clicks: row.clicks,
@@ -876,7 +987,7 @@ async function syncMetaCreativesAccountDay(input: {
       creativeSecondaryType: row.creative_secondary_type ?? null,
       imageHash: row.image_hash ?? row.image_hashes?.[0] ?? null,
       accountTimezone: "UTC",
-      accountCurrency: row.currency ?? "USD",
+      accountCurrency,
       spend: row.spend,
       impressions: row.impressions,
       clicks: row.clicks,
@@ -1031,6 +1142,8 @@ export async function ensureMetaCreativesWarehouseRangeFilled(input: {
 
 export async function getMetaCreativesWarehousePayload(input: {
   businessId: string;
+  providerAccountId?: string | null;
+  creativeId?: string | null;
   start: string;
   end: string;
   groupBy: GroupBy;
@@ -1039,46 +1152,83 @@ export async function getMetaCreativesWarehousePayload(input: {
   mediaMode: "metadata" | "full";
 }) {
   const assignedAccountIds = await fetchAssignedAccountIds(input.businessId);
-  if (assignedAccountIds.length === 0) {
-    return { status: "no_accounts_assigned", rows: [] as MetaCreativeApiRow[] };
+  const accountScope = resolveMetaCreativesAccountScope({
+    assignedAccountIds,
+    requestedProviderAccountId: input.providerAccountId,
+  });
+  if (!accountScope.ok) {
+    return {
+      status: accountScope.status,
+      rows: [] as MetaCreativeApiRow[],
+      ...buildMetaCreativesAccountScopeMetadata(accountScope),
+    };
   }
+  const scopedAccountIds = accountScope.assignedAccountIds;
+  const creativeId = input.creativeId?.trim() || null;
 
   const useCreativeWarehouse = input.groupBy === "creative" || input.groupBy === "adSet";
-  const sourceRows = useCreativeWarehouse
+  const queriedSourceRows = useCreativeWarehouse
     ? await getMetaCreativeDailyRange({
         businessId: input.businessId,
         startDate: input.start,
         endDate: input.end,
-        providerAccountIds: assignedAccountIds,
+        providerAccountIds: scopedAccountIds,
       })
     : await getMetaAdDailyRange({
         businessId: input.businessId,
         startDate: input.start,
         endDate: input.end,
-        providerAccountIds: assignedAccountIds,
+        providerAccountIds: scopedAccountIds,
       });
-  const creativeSourceRows = useCreativeWarehouse ? (sourceRows as MetaCreativeDailyRow[]) : null;
-  const adSourceRows = useCreativeWarehouse ? null : (sourceRows as MetaAdDailyRow[]);
+  const accountScopedSourceRows = queriedSourceRows.filter(
+    (row) => row.providerAccountId === accountScope.providerAccountId,
+  );
+  const sourceRowsBeforeAdCreativeFilter =
+    useCreativeWarehouse && creativeId
+      ? (accountScopedSourceRows as MetaCreativeDailyRow[]).filter(
+          (row) => row.creativeId === creativeId,
+        )
+      : accountScopedSourceRows;
+  const creativeSourceRowsForDimensions = useCreativeWarehouse
+    ? (sourceRowsBeforeAdCreativeFilter as MetaCreativeDailyRow[])
+    : null;
+  const adSourceRowsForDimensions = useCreativeWarehouse
+    ? null
+    : (sourceRowsBeforeAdCreativeFilter as MetaAdDailyRow[]);
   const dimensionRows = useCreativeWarehouse
     ? await readMetaCreativeDimensions({
         businessId: input.businessId,
-        creativeIds: creativeSourceRows
+        creativeIds: creativeSourceRowsForDimensions
           ?.map((row) => row.creativeId)
           .filter((value): value is string => Boolean(value)) ?? [],
       })
     : await readMetaAdDimensions({
         businessId: input.businessId,
-        adIds: adSourceRows
+        adIds: adSourceRowsForDimensions
           ?.map((row) => row.adId)
           .filter((value): value is string => Boolean(value)) ?? [],
       });
+  const sourceRows =
+    !useCreativeWarehouse && creativeId
+      ? (sourceRowsBeforeAdCreativeFilter as MetaAdDailyRow[]).filter(
+          (row) =>
+            resolveAdCreativeId(
+              row,
+              (dimensionRows as Map<string, MetaAdDimensionRecord>).get(row.adId),
+            ) === creativeId,
+        )
+      : sourceRowsBeforeAdCreativeFilter;
+  const creativeSourceRows = useCreativeWarehouse
+    ? (sourceRows as MetaCreativeDailyRow[])
+    : null;
+  const adSourceRows = useCreativeWarehouse ? null : (sourceRows as MetaAdDailyRow[]);
   const adFunnelFallbacks =
     !useCreativeWarehouse && adSourceRows?.length
       ? await readUniqueAdFunnelFallbacks({
           businessId: input.businessId,
           start: input.start,
           end: input.end,
-          providerAccountIds: assignedAccountIds,
+          providerAccountIds: scopedAccountIds,
           adRows: adSourceRows,
           adDimensions: dimensionRows as Map<string, MetaAdDimensionRecord>,
         })
@@ -1100,7 +1250,7 @@ export async function getMetaCreativesWarehousePayload(input: {
       businessId: input.businessId,
       startDate: input.start,
       endDate: input.end,
-      providerAccountIds: assignedAccountIds,
+      providerAccountIds: scopedAccountIds,
       creativeIds: useCreativeWarehouse ? creativeIds : null,
       adIds: useCreativeWarehouse ? null : adIds,
     }).catch(() => []);
@@ -1159,7 +1309,10 @@ export async function getMetaCreativesWarehousePayload(input: {
       return acc;
     }, []);
 
-  const filteredRows = normalizeCreativeRows(rawRows, input.format);
+  const exactCreativeRows = creativeId
+    ? rawRows.filter((row) => row.creative_id === creativeId)
+    : rawRows;
+  const filteredRows = normalizeCreativeRows(exactCreativeRows, input.format);
   const creativeUsageMap = buildCreativeUsageMap(filteredRows);
   const groupedRows =
     input.groupBy === "adName"
@@ -1187,6 +1340,7 @@ export async function getMetaCreativesWarehousePayload(input: {
   return {
     status: "ok",
     rows: responseRows,
+    ...buildMetaCreativesAccountScopeMetadata(accountScope),
     media_mode: input.mediaMode,
     media_hydrated: input.mediaMode === "full" && previewMissingCount === 0,
     snapshot_source: "persisted" as const,

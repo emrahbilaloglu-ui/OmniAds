@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildHistoricalSupport,
   buildMetaRecommendations,
+  buildWeightedCampaignSnapshot,
   calculateMetaStatisticalConfidence,
+  deriveMetaCampaignDisjointSegments,
+  metaHistoryRecencyWeight,
   type MetaCalibrationContext,
 } from "@/lib/meta/recommendations";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
@@ -125,6 +129,8 @@ const commercialTargets = {
   targetCpa: 120,
   breakEvenCpa: 160,
   riskPosture: "balanced" as const,
+  freshness: "fresh" as const,
+  updatedAt: "2026-05-08T00:00:00.000Z",
 };
 
 const calibrationContext: MetaCalibrationContext = {
@@ -136,16 +142,32 @@ const calibrationContext: MetaCalibrationContext = {
       ...LEGACY_META_CALIBRATION_THRESHOLDS.metrics,
       roas_28d: { p10: 0.5, p25: 1, p50: 2, p75: 3, p90: 4, sampleSize: 20 },
       cpa_28d: { p10: 20, p25: 30, p50: 50, p75: 80, p90: 120, sampleSize: 20 },
-      freq_14d: { p10: 1, p25: 1.3, p50: 1.8, p75: 2.5, p90: 3.5, sampleSize: 20 },
+      freq_14d: {
+        p10: 1,
+        p25: 1.3,
+        p50: 1.8,
+        p75: 2.5,
+        p90: 3.5,
+        sampleSize: 20,
+      },
       cpm_14d: { p10: 5, p25: 8, p50: 12, p75: 18, p90: 25, sampleSize: 20 },
       ctr_28d: { p10: 0.5, p25: 1, p50: 2, p75: 3, p90: 4, sampleSize: 20 },
-      win_rate_28d: { p10: 0.1, p25: 0.2, p50: 0.4, p75: 0.6, p90: 0.8, sampleSize: 20 },
+      win_rate_28d: {
+        p10: 0.1,
+        p25: 0.2,
+        p50: 0.4,
+        p75: 0.6,
+        p90: 0.8,
+        sampleSize: 20,
+      },
     },
   },
   scope: { type: "account", id: "biz-1", snapshotDate: "2026-05-15" },
 };
 
-function entitySignal(overrides: Partial<MetaEntityDecisionSignal> = {}): MetaEntityDecisionSignal {
+function entitySignal(
+  overrides: Partial<MetaEntityDecisionSignal> = {},
+): MetaEntityDecisionSignal {
   return {
     businessId: "biz-1",
     providerAccountId: "act-1",
@@ -286,6 +308,116 @@ const creativeIntelligence: MetaCreativeIntelligenceSummary = {
 };
 
 describe("buildMetaRecommendations", () => {
+  it("turns identical cumulative snapshots into one independent segment", () => {
+    const nested = campaign({ spend: 1000, revenue: 3000, purchases: 20, roas: 3 });
+    const window = {
+      last3: nested,
+      last7: nested,
+      last14: nested,
+      last30: nested,
+      last90: nested,
+    };
+
+    expect(deriveMetaCampaignDisjointSegments(window).map((segment) => segment.label)).toEqual([
+      "days_0_3",
+    ]);
+    expect(buildHistoricalSupport(window, () => true)).toEqual({
+      supportCount: 1,
+      total: 1,
+    });
+  });
+
+  it("does not count nested strong windows as repeated confirmation", () => {
+    const strong = campaign({ spend: 1200, revenue: 4800, purchases: 24, roas: 4 });
+    const support = buildHistoricalSupport(
+      {
+        last3: strong,
+        last7: strong,
+        last14: strong,
+        last30: strong,
+        last90: strong,
+      },
+      (segment) => segment.roas >= 3,
+    );
+
+    expect(support).toEqual({ supportCount: 1, total: 1 });
+  });
+
+  it("derives ROAS and CPA from recency-weighted additive totals", () => {
+    const recent = campaign({ spend: 100, revenue: 1000, purchases: 2, roas: 10, cpa: 50 });
+    const cumulative7 = campaign({ spend: 1000, revenue: 1100, purchases: 20, roas: 1.1, cpa: 50 });
+    const selected = campaign({ spend: 1, revenue: 99, purchases: 1, roas: 99, cpa: 1 });
+    const recentWeight = metaHistoryRecencyWeight(1.5);
+    const priorWeight = metaHistoryRecencyWeight(5.5);
+    const expectedSpend = 100 * recentWeight + 900 * priorWeight;
+    const expectedRevenue = 1000 * recentWeight + 100 * priorWeight;
+    const expectedPurchases = 2 * recentWeight + 18 * priorWeight;
+
+    const core = buildWeightedCampaignSnapshot({
+      selected,
+      last3: recent,
+      last7: cumulative7,
+    });
+
+    expect(metaHistoryRecencyWeight(14)).toBeCloseTo(0.5, 10);
+    expect(core.spend).toBeCloseTo(expectedSpend, 10);
+    expect(core.roas).toBeCloseTo(expectedRevenue / expectedSpend, 10);
+    expect(core.cpa).toBeCloseTo(expectedSpend / expectedPurchases, 10);
+    expect(core.roas).not.toBeCloseTo(
+      (10 * recentWeight + (100 / 900) * priorWeight) / (recentWeight + priorWeight),
+      2,
+    );
+    expect(core.roas).not.toBe(99);
+  });
+
+  it("fails closed at the first non-monotonic cumulative window", () => {
+    const segments = deriveMetaCampaignDisjointSegments({
+      last3: campaign({ spend: 100, revenue: 300, purchases: 3 }),
+      last7: campaign({ spend: 90, revenue: 400, purchases: 4 }),
+      last14: campaign({ spend: 500, revenue: 1500, purchases: 15 }),
+    });
+
+    expect(segments).toHaveLength(1);
+    expect(segments[0]?.label).toBe("days_0_3");
+  });
+
+  it("does not use older cumulative windows when the recent chain is missing", () => {
+    expect(
+      deriveMetaCampaignDisjointSegments({
+        last7: campaign({ spend: 200, revenue: 600, purchases: 6 }),
+        last14: campaign({ spend: 400, revenue: 1200, purchases: 12 }),
+        last30: campaign({ spend: 800, revenue: 2400, purchases: 24 }),
+      }),
+    ).toEqual([]);
+  });
+
+  it("lets a recent shift affect the core without repeating its vote", () => {
+    const recent = campaign({ spend: 100, revenue: 500, purchases: 10, roas: 5 });
+    const cumulative7 = campaign({ spend: 200, revenue: 600, purchases: 20, roas: 3 });
+    const support = buildHistoricalSupport(
+      {
+        last3: recent,
+        last7: cumulative7,
+        last14: cumulative7,
+        last30: cumulative7,
+        last90: cumulative7,
+      },
+      (segment) => segment.roas >= 2,
+    );
+    const core = buildWeightedCampaignSnapshot({
+      selected: campaign({ spend: 200, revenue: 600, purchases: 20, roas: 3 }),
+      last3: recent,
+      last7: cumulative7,
+      last14: cumulative7,
+      last30: cumulative7,
+      last90: cumulative7,
+    });
+
+    expect(support).toEqual({ supportCount: 1, total: 2 });
+    expect(core.roas).toBeGreaterThan(3);
+    expect(core.roas).toBeLessThan(5);
+  });
+
   it("calculates statistical confidence from sample and magnitude factors", () => {
     expect(
       calculateMetaStatisticalConfidence({
@@ -296,8 +428,8 @@ describe("buildMetaRecommendations", () => {
         minRequiredSample: 8,
       }),
     ).toEqual({
-      score: 0.7,
-      label: "high",
+      score: 0.63,
+      label: "medium",
     });
   });
 
@@ -318,7 +450,7 @@ describe("buildMetaRecommendations", () => {
     });
   });
 
-  it("floors severe loser confidence so high-spend losers surface", () => {
+  it("does not manufacture high confidence for a severe loser with thin support", () => {
     expect(
       calculateMetaStatisticalConfidence({
         level: "campaign",
@@ -329,10 +461,22 @@ describe("buildMetaRecommendations", () => {
         severeLoser: true,
       }),
     ).toEqual({
-      score: 0.7,
-      label: "high",
+      score: 0.46,
+      label: "low",
       reason: "severe_loser_bypass",
     });
+  });
+
+  it("keeps zero-sample confidence at the low-information floor", () => {
+    expect(
+      calculateMetaStatisticalConfidence({
+        level: "adset",
+        metricValue: 10,
+        threshold: 1,
+        sampleSize: 0,
+        minRequiredSample: 8,
+      }),
+    ).toEqual({ score: 0.4, label: "low" });
   });
 
   it("returns test instead of act when selected signal is strong but historical support is weak", () => {
@@ -355,36 +499,69 @@ describe("buildMetaRecommendations", () => {
       commercialTargets,
     });
 
-    const rec = result.recommendations.find((item) => item.type === "scale_for_volume");
+    const rec = result.recommendations.find(
+      (item) => item.type === "scale_for_volume",
+    );
     expect(rec?.decisionState).toBe("test");
   });
 
   it("returns act for scale when selected and historical windows all support it", () => {
     const strong = campaign({ roas: 3.6, purchases: 32, spend: 1800 });
+    const cumulative = (multiple: number) =>
+      campaign({
+        roas: 3.6,
+        purchases: 20 * multiple,
+        spend: 1000 * multiple,
+        revenue: 3600 * multiple,
+        cpa: 50,
+      });
 
     const result = buildMetaRecommendations({
       windows: {
         selected: [strong],
         previousSelected: [],
-        last3: [strong],
-        last7: [strong],
-        last14: [campaign({ roas: 3.35, purchases: 29, spend: 1720 })],
-        last30: [campaign({ roas: 3.3, purchases: 28, spend: 1700 })],
-        last90: [campaign({ roas: 3.1, purchases: 26, spend: 1650 })],
-        allHistory: [campaign({ roas: 3.05, purchases: 25, spend: 1600 })],
+        last3: [cumulative(1)],
+        last7: [cumulative(2)],
+        last14: [cumulative(3)],
+        last30: [cumulative(4)],
+        last90: [cumulative(5)],
+        allHistory: [cumulative(6)],
       },
       breakdowns,
       commercialTargets,
     });
 
-    const rec = result.recommendations.find((item) => item.type === "scale_for_volume");
+    const rec = result.recommendations.find(
+      (item) => item.type === "scale_for_volume",
+    );
     expect(rec?.decisionState).toBe("act");
   });
 
   it("does not emit hard campaign scale or profitability actions without commercial targets", () => {
-    const strong = campaign({ roas: 3.8, purchases: 32, spend: 1800, revenue: 6840 });
-    const weak = campaign({ id: "weak", name: "Weak", roas: 0.8, purchases: 10, spend: 3000, revenue: 2400, cpa: 300 });
-    const peer = campaign({ id: "peer", name: "Peer", roas: 3.4, purchases: 35, spend: 2000, revenue: 6800, cpa: 57.14 });
+    const strong = campaign({
+      roas: 3.8,
+      purchases: 32,
+      spend: 1800,
+      revenue: 6840,
+    });
+    const weak = campaign({
+      id: "weak",
+      name: "Weak",
+      roas: 0.8,
+      purchases: 10,
+      spend: 3000,
+      revenue: 2400,
+      cpa: 300,
+    });
+    const peer = campaign({
+      id: "peer",
+      name: "Peer",
+      roas: 3.4,
+      purchases: 35,
+      spend: 2000,
+      revenue: 6800,
+      cpa: 57.14,
+    });
 
     const result = buildMetaRecommendations({
       windows: {
@@ -400,13 +577,33 @@ describe("buildMetaRecommendations", () => {
       breakdowns,
     });
 
-    expect(result.recommendations.some((item) => item.type === "scale_for_volume")).toBe(false);
-    expect(result.recommendations.some((item) => item.type === "scale_for_profitability")).toBe(false);
+    expect(
+      result.recommendations.some((item) => item.type === "scale_for_volume"),
+    ).toBe(false);
+    expect(
+      result.recommendations.some(
+        (item) => item.type === "scale_for_profitability",
+      ),
+    ).toBe(false);
   });
 
   it("produces profitability recommendation for weak high-spend campaign", () => {
-    const weak = campaign({ roas: 1.2, purchases: 18, spend: 3000, revenue: 3600, cpa: 166.67 });
-    const strongPeer = campaign({ id: "cmp-2", name: "Campaign 2", roas: 3.4, purchases: 35, spend: 2000, revenue: 6800, cpa: 57.14 });
+    const weak = campaign({
+      roas: 1.2,
+      purchases: 18,
+      spend: 3000,
+      revenue: 3600,
+      cpa: 166.67,
+    });
+    const strongPeer = campaign({
+      id: "cmp-2",
+      name: "Campaign 2",
+      roas: 3.4,
+      purchases: 35,
+      spend: 2000,
+      revenue: 6800,
+      cpa: 57.14,
+    });
 
     const result = buildMetaRecommendations({
       windows: {
@@ -414,30 +611,98 @@ describe("buildMetaRecommendations", () => {
         previousSelected: [],
         last3: [weak, strongPeer],
         last7: [weak, strongPeer],
-        last14: [campaign({ roas: 1.28, purchases: 19, spend: 2925, revenue: 3740, cpa: 154 }), strongPeer],
-        last30: [campaign({ roas: 1.3, purchases: 20, spend: 2900, revenue: 3770, cpa: 145 }), strongPeer],
-        last90: [campaign({ roas: 1.35, purchases: 19, spend: 2800, revenue: 3780, cpa: 147 }), strongPeer],
-        allHistory: [campaign({ roas: 1.4, purchases: 21, spend: 2750, revenue: 3850, cpa: 131 }), strongPeer],
+        last14: [
+          campaign({
+            roas: 1.28,
+            purchases: 19,
+            spend: 2925,
+            revenue: 3740,
+            cpa: 154,
+          }),
+          strongPeer,
+        ],
+        last30: [
+          campaign({
+            roas: 1.3,
+            purchases: 20,
+            spend: 2900,
+            revenue: 3770,
+            cpa: 145,
+          }),
+          strongPeer,
+        ],
+        last90: [
+          campaign({
+            roas: 1.35,
+            purchases: 19,
+            spend: 2800,
+            revenue: 3780,
+            cpa: 147,
+          }),
+          strongPeer,
+        ],
+        allHistory: [
+          campaign({
+            roas: 1.4,
+            purchases: 21,
+            spend: 2750,
+            revenue: 3850,
+            cpa: 131,
+          }),
+          strongPeer,
+        ],
       },
       breakdowns,
       commercialTargets,
     });
 
-    expect(result.recommendations.some((item) => item.type === "scale_for_profitability")).toBe(true);
+    expect(
+      result.recommendations.some(
+        (item) => item.type === "scale_for_profitability",
+      ),
+    ).toBe(true);
   });
 
   it("does not produce insights for add to cart campaigns without explicit recent purchase signal", () => {
-    const row = campaign({ optimizationGoal: "Add To Cart", purchases: 28, roas: 2.9 });
+    const row = campaign({
+      optimizationGoal: "Add To Cart",
+      purchases: 28,
+      roas: 2.9,
+    });
     const result = buildMetaRecommendations({
       windows: {
         selected: [row],
         previousSelected: [],
         last3: [row],
         last7: [row],
-        last14: [campaign({ optimizationGoal: "Add To Cart", purchases: 25, roas: 2.6 })],
-        last30: [campaign({ optimizationGoal: "Add To Cart", purchases: 26, roas: 2.7 })],
-        last90: [campaign({ optimizationGoal: "Add To Cart", purchases: 24, roas: 2.5 })],
-        allHistory: [campaign({ optimizationGoal: "Add To Cart", purchases: 23, roas: 2.4 })],
+        last14: [
+          campaign({
+            optimizationGoal: "Add To Cart",
+            purchases: 25,
+            roas: 2.6,
+          }),
+        ],
+        last30: [
+          campaign({
+            optimizationGoal: "Add To Cart",
+            purchases: 26,
+            roas: 2.7,
+          }),
+        ],
+        last90: [
+          campaign({
+            optimizationGoal: "Add To Cart",
+            purchases: 24,
+            roas: 2.5,
+          }),
+        ],
+        allHistory: [
+          campaign({
+            optimizationGoal: "Add To Cart",
+            purchases: 23,
+            roas: 2.4,
+          }),
+        ],
       },
       breakdowns,
       commercialTargets,
@@ -474,7 +739,9 @@ describe("buildMetaRecommendations", () => {
       },
     });
 
-    const rec = result.recommendations.find((item) => item.type === "scenario_g2_downshift_to_purchase");
+    const rec = result.recommendations.find(
+      (item) => item.type === "scenario_g2_downshift_to_purchase",
+    );
     expect(rec).toMatchObject({
       type: "scenario_g2_downshift_to_purchase",
       decisionLabel: "switch",
@@ -499,13 +766,53 @@ describe("buildMetaRecommendations", () => {
     const result = buildMetaRecommendations({
       windows: {
         selected: [row],
-        previousSelected: [campaign({ objective: null, optimizationGoal: null, purchases: 10, revenue: 1200, roas: 2.1 })],
+        previousSelected: [
+          campaign({
+            objective: null,
+            optimizationGoal: null,
+            purchases: 10,
+            revenue: 1200,
+            roas: 2.1,
+          }),
+        ],
         last3: [row],
         last7: [row],
-        last14: [campaign({ objective: null, optimizationGoal: null, purchases: 10, revenue: 1500, roas: 2.2 })],
-        last30: [campaign({ objective: null, optimizationGoal: null, purchases: 9, revenue: 1400, roas: 2.0 })],
-        last90: [campaign({ objective: null, optimizationGoal: null, purchases: 8, revenue: 1300, roas: 1.9 })],
-        allHistory: [campaign({ objective: null, optimizationGoal: null, purchases: 11, revenue: 1600, roas: 2.1 })],
+        last14: [
+          campaign({
+            objective: null,
+            optimizationGoal: null,
+            purchases: 10,
+            revenue: 1500,
+            roas: 2.2,
+          }),
+        ],
+        last30: [
+          campaign({
+            objective: null,
+            optimizationGoal: null,
+            purchases: 9,
+            revenue: 1400,
+            roas: 2.0,
+          }),
+        ],
+        last90: [
+          campaign({
+            objective: null,
+            optimizationGoal: null,
+            purchases: 8,
+            revenue: 1300,
+            roas: 1.9,
+          }),
+        ],
+        allHistory: [
+          campaign({
+            objective: null,
+            optimizationGoal: null,
+            purchases: 11,
+            revenue: 1600,
+            roas: 2.1,
+          }),
+        ],
       },
       breakdowns,
       commercialTargets,
@@ -516,24 +823,37 @@ describe("buildMetaRecommendations", () => {
   });
 
   it("flags seasonality when selected period diverges sharply from history", () => {
-    const selected = campaign({ roas: 5.5, purchases: 40, spend: 3500, revenue: 19250 });
-    const baseline = campaign({ roas: 2, purchases: 20, spend: 1400, revenue: 2800 });
+    const selected = campaign({
+      roas: 5.5,
+      purchases: 40,
+      spend: 3500,
+      revenue: 19250,
+    });
+    const baseline = (multiple: number) =>
+      campaign({
+        roas: 2,
+        purchases: 20 * multiple,
+        spend: 1000 * multiple,
+        revenue: 2000 * multiple,
+      });
 
     const result = buildMetaRecommendations({
       windows: {
         selected: [selected],
         previousSelected: [],
-        last3: [selected],
-        last7: [selected],
-        last14: [baseline],
-        last30: [baseline],
-        last90: [baseline],
-        allHistory: [baseline],
+        last3: [baseline(1)],
+        last7: [baseline(2)],
+        last14: [baseline(3)],
+        last30: [baseline(4)],
+        last90: [baseline(5)],
+        allHistory: [baseline(6)],
       },
       breakdowns,
     });
 
-    expect(result.recommendations[0]?.timeframeContext.seasonalityFlag).not.toBe("none");
+    expect(
+      result.recommendations[0]?.timeframeContext.seasonalityFlag,
+    ).not.toBe("none");
   });
 
   it("includes a suggested bid range for manual bid recommendations using historical AOV and ROAS", () => {
@@ -554,17 +874,29 @@ describe("buildMetaRecommendations", () => {
         previousSelected: [],
         last3: [row],
         last7: [row],
-        last14: [campaign({ revenue: 7800, purchases: 52, roas: 3.1, spend: 2516 })],
-        last30: [campaign({ revenue: 7500, purchases: 50, roas: 3, spend: 2500 })],
-        last90: [campaign({ revenue: 8400, purchases: 56, roas: 3.2, spend: 2625 })],
-        allHistory: [campaign({ revenue: 9000, purchases: 60, roas: 3, spend: 3000 })],
+        last14: [
+          campaign({ revenue: 7800, purchases: 52, roas: 3.1, spend: 2516 }),
+        ],
+        last30: [
+          campaign({ revenue: 7500, purchases: 50, roas: 3, spend: 2500 }),
+        ],
+        last90: [
+          campaign({ revenue: 8400, purchases: 56, roas: 3.2, spend: 2625 }),
+        ],
+        allHistory: [
+          campaign({ revenue: 9000, purchases: 60, roas: 3, spend: 3000 }),
+        ],
       },
       breakdowns,
     });
 
-    const rec = result.recommendations.find((item) => item.type === "bid_strategy_fit");
+    const rec = result.recommendations.find(
+      (item) => item.type === "bid_strategy_fit",
+    );
     expect(rec?.recommendedAction).toContain("reference bid range");
-    expect(rec?.evidence.some((item) => item.label === "Suggested bid range")).toBe(true);
+    expect(
+      rec?.evidence.some((item) => item.label === "Suggested bid range"),
+    ).toBe(true);
   });
 
   it("still produces target roas guidance when current target value is missing", () => {
@@ -584,17 +916,31 @@ describe("buildMetaRecommendations", () => {
         selected: [row],
         previousSelected: [],
         last3: [row],
-        last7: [campaign({ roas: 2.2, revenue: 4400, purchases: 28, spend: 2000 })],
-        last14: [campaign({ roas: 2.3, revenue: 4600, purchases: 29, spend: 2000 })],
-        last30: [campaign({ roas: 2.5, revenue: 5000, purchases: 31, spend: 2000 })],
-        last90: [campaign({ roas: 2.6, revenue: 5200, purchases: 32, spend: 2000 })],
-        allHistory: [campaign({ roas: 2.45, revenue: 4900, purchases: 30, spend: 2000 })],
+        last7: [
+          campaign({ roas: 2.2, revenue: 4400, purchases: 28, spend: 2000 }),
+        ],
+        last14: [
+          campaign({ roas: 2.3, revenue: 4600, purchases: 29, spend: 2000 }),
+        ],
+        last30: [
+          campaign({ roas: 2.5, revenue: 5000, purchases: 31, spend: 2000 }),
+        ],
+        last90: [
+          campaign({ roas: 2.6, revenue: 5200, purchases: 32, spend: 2000 }),
+        ],
+        allHistory: [
+          campaign({ roas: 2.45, revenue: 4900, purchases: 30, spend: 2000 }),
+        ],
       },
       breakdowns,
     });
 
-    const rec = result.recommendations.find((item) => item.type === "bid_value_guidance");
-    expect(rec?.evidence.some((item) => item.label === "Suggested target range")).toBe(true);
+    const rec = result.recommendations.find(
+      (item) => item.type === "bid_value_guidance",
+    );
+    expect(
+      rec?.evidence.some((item) => item.label === "Suggested target range"),
+    ).toBe(true);
   });
 
   it("does not suggest budget reallocation across incompatible optimization groups", () => {
@@ -646,7 +992,9 @@ describe("buildMetaRecommendations", () => {
       breakdowns,
     });
 
-    expect(result.recommendations.some((item) => item.type === "budget_allocation")).toBe(false);
+    expect(
+      result.recommendations.some((item) => item.type === "budget_allocation"),
+    ).toBe(false);
   });
 
   it("does not merge add to cart and purchase campaigns into the same comparison cohort even if objective matches", () => {
@@ -687,7 +1035,9 @@ describe("buildMetaRecommendations", () => {
       breakdowns,
     });
 
-    expect(result.recommendations.some((item) => item.type === "budget_allocation")).toBe(false);
+    expect(
+      result.recommendations.some((item) => item.type === "budget_allocation"),
+    ).toBe(false);
   });
 
   it("keeps offsite conversions with purchase event in the purchase recommendation window", () => {
@@ -798,16 +1148,26 @@ describe("buildMetaRecommendations", () => {
       cpa: 125,
     });
 
+    const historical = (multiple: number) =>
+      campaign({
+        id: "cmp-rebuild",
+        roas: 2.2,
+        revenue: 2200 * multiple,
+        purchases: 20 * multiple,
+        spend: 1000 * multiple,
+        cpa: 50,
+      });
+
     const result = buildMetaRecommendations({
       windows: {
         selected: [row],
         previousSelected: [],
-        last3: [campaign({ id: "cmp-rebuild", roas: 1.3, revenue: 3900, purchases: 23, spend: 3000 })],
-        last7: [campaign({ id: "cmp-rebuild", roas: 1.4, revenue: 4200, purchases: 25, spend: 3000 })],
-        last14: [campaign({ id: "cmp-rebuild", roas: 1.55, revenue: 4650, purchases: 27, spend: 3000 })],
-        last30: [campaign({ id: "cmp-rebuild", roas: 1.8, revenue: 5400, purchases: 31, spend: 3000 })],
-        last90: [campaign({ id: "cmp-rebuild", roas: 2.1, revenue: 6300, purchases: 36, spend: 3000 })],
-        allHistory: [campaign({ id: "cmp-rebuild", roas: 2.2, revenue: 6600, purchases: 38, spend: 3000 })],
+        last3: [historical(1)],
+        last7: [historical(2)],
+        last14: [historical(3)],
+        last30: [historical(4)],
+        last90: [historical(5)],
+        allHistory: [historical(6)],
       },
       breakdowns,
       historicalBidRegimes: {
@@ -821,9 +1181,19 @@ describe("buildMetaRecommendations", () => {
       },
     });
 
-    expect(result.recommendations.some((item) => item.type === "historical_bid_regime_fit")).toBe(true);
-    expect(result.recommendations.some((item) => item.type === "rebuild_with_constraints")).toBe(true);
-    const rebuild = result.recommendations.find((item) => item.type === "rebuild_with_constraints");
+    expect(
+      result.recommendations.some(
+        (item) => item.type === "historical_bid_regime_fit",
+      ),
+    ).toBe(true);
+    expect(
+      result.recommendations.some(
+        (item) => item.type === "rebuild_with_constraints",
+      ),
+    ).toBe(true);
+    const rebuild = result.recommendations.find(
+      (item) => item.type === "rebuild_with_constraints",
+    );
     expect(rebuild?.title).toContain("Bid Cap");
     expect(rebuild?.rebuildReason).toContain("Bid Cap");
     expect(result.summary.operatingMode).toContain("reset");
@@ -846,16 +1216,58 @@ describe("buildMetaRecommendations", () => {
         selected: [row],
         previousSelected: [],
         last3: [row],
-        last7: [campaign({ id: "cmp-band", revenue: 4200, purchases: 28, roas: 2.1, spend: 2000 })],
-        last14: [campaign({ id: "cmp-band", revenue: 5200, purchases: 34, roas: 2.6, spend: 2000 })],
-        last30: [campaign({ id: "cmp-band", revenue: 5000, purchases: 32, roas: 2.5, spend: 2000 })],
-        last90: [campaign({ id: "cmp-band", revenue: 5400, purchases: 35, roas: 2.7, spend: 2000 })],
-        allHistory: [campaign({ id: "cmp-band", revenue: 5600, purchases: 36, roas: 2.8, spend: 2000 })],
+        last7: [
+          campaign({
+            id: "cmp-band",
+            revenue: 4200,
+            purchases: 28,
+            roas: 2.1,
+            spend: 2000,
+          }),
+        ],
+        last14: [
+          campaign({
+            id: "cmp-band",
+            revenue: 5200,
+            purchases: 34,
+            roas: 2.6,
+            spend: 2000,
+          }),
+        ],
+        last30: [
+          campaign({
+            id: "cmp-band",
+            revenue: 5000,
+            purchases: 32,
+            roas: 2.5,
+            spend: 2000,
+          }),
+        ],
+        last90: [
+          campaign({
+            id: "cmp-band",
+            revenue: 5400,
+            purchases: 35,
+            roas: 2.7,
+            spend: 2000,
+          }),
+        ],
+        allHistory: [
+          campaign({
+            id: "cmp-band",
+            revenue: 5600,
+            purchases: 36,
+            roas: 2.8,
+            spend: 2000,
+          }),
+        ],
       },
       breakdowns,
     });
 
-    const rec = result.recommendations.find((item) => item.type === "bid_band_from_history");
+    const rec = result.recommendations.find(
+      (item) => item.type === "bid_band_from_history",
+    );
     expect(rec?.defensiveBidBand).toBeTruthy();
     expect(rec?.scaleBidBand).toBeTruthy();
   });
@@ -864,21 +1276,87 @@ describe("buildMetaRecommendations", () => {
     const localBreakdowns: MetaBreakdownsResponse = {
       ...breakdowns,
       location: [
-        { key: "sa", label: "Saudi Arabia", spend: 4000, purchases: 24, revenue: 9200, clicks: 0, impressions: 0 },
-        { key: "ae", label: "United Arab Emirates", spend: 2600, purchases: 13, revenue: 5200, clicks: 0, impressions: 0 },
-        { key: "de", label: "Germany", spend: 800, purchases: 1, revenue: 260, clicks: 0, impressions: 0 },
-        { key: "fr", label: "France", spend: 700, purchases: 1, revenue: 210, clicks: 0, impressions: 0 },
-        { key: "nl", label: "Netherlands", spend: 600, purchases: 0, revenue: 0, clicks: 0, impressions: 0 },
-        { key: "be", label: "Belgium", spend: 500, purchases: 1, revenue: 180, clicks: 0, impressions: 0 },
+        {
+          key: "sa",
+          label: "Saudi Arabia",
+          spend: 4000,
+          purchases: 24,
+          revenue: 9200,
+          clicks: 0,
+          impressions: 0,
+        },
+        {
+          key: "ae",
+          label: "United Arab Emirates",
+          spend: 2600,
+          purchases: 13,
+          revenue: 5200,
+          clicks: 0,
+          impressions: 0,
+        },
+        {
+          key: "de",
+          label: "Germany",
+          spend: 800,
+          purchases: 1,
+          revenue: 260,
+          clicks: 0,
+          impressions: 0,
+        },
+        {
+          key: "fr",
+          label: "France",
+          spend: 700,
+          purchases: 1,
+          revenue: 210,
+          clicks: 0,
+          impressions: 0,
+        },
+        {
+          key: "nl",
+          label: "Netherlands",
+          spend: 600,
+          purchases: 0,
+          revenue: 0,
+          clicks: 0,
+          impressions: 0,
+        },
+        {
+          key: "be",
+          label: "Belgium",
+          spend: 500,
+          purchases: 1,
+          revenue: 180,
+          clicks: 0,
+          impressions: 0,
+        },
       ],
     };
 
     const result = buildMetaRecommendations({
       windows: {
         selected: [
-          campaign({ id: "prod-1", name: "Purchase Prod 1", purchases: 24, roas: 2.8, spend: 2500 }),
-          campaign({ id: "prod-2", name: "Purchase Prod 2", purchases: 7, roas: 1.6, spend: 900 }),
-          campaign({ id: "prod-3", name: "Purchase Prod 3", purchases: 5, roas: 1.4, spend: 700 }),
+          campaign({
+            id: "prod-1",
+            name: "Purchase Prod 1",
+            purchases: 24,
+            roas: 2.8,
+            spend: 2500,
+          }),
+          campaign({
+            id: "prod-2",
+            name: "Purchase Prod 2",
+            purchases: 7,
+            roas: 1.6,
+            spend: 900,
+          }),
+          campaign({
+            id: "prod-3",
+            name: "Purchase Prod 3",
+            purchases: 5,
+            roas: 1.4,
+            spend: 700,
+          }),
         ],
         previousSelected: [],
         last3: [],
@@ -892,7 +1370,9 @@ describe("buildMetaRecommendations", () => {
       creativeIntelligence,
     });
 
-    const geo = result.recommendations.find((item) => item.type === "geo_cluster_for_signal_density");
+    const geo = result.recommendations.find(
+      (item) => item.type === "geo_cluster_for_signal_density",
+    );
     expect(geo).toBeTruthy();
     expect(geo?.scalingGeoCluster).toContain("Saudi Arabia");
     expect(geo?.testingGeoCluster).toContain("Germany");
@@ -902,10 +1382,34 @@ describe("buildMetaRecommendations", () => {
 
   it("produces scaling-vs-test structure guidance when strong and low-signal campaigns coexist", () => {
     const selectedRows = [
-      campaign({ id: "prod-a", name: "Purchase Winner", purchases: 24, roas: 3.1, spend: 2200 }),
-      campaign({ id: "prod-b", name: "Purchase Stable", purchases: 18, roas: 2.7, spend: 1800 }),
-      campaign({ id: "test-a", name: "Purchase Exploration 1", purchases: 4, roas: 1.3, spend: 700 }),
-      campaign({ id: "test-b", name: "Purchase Exploration 2", purchases: 3, roas: 1.1, spend: 650 }),
+      campaign({
+        id: "prod-a",
+        name: "Purchase Winner",
+        purchases: 24,
+        roas: 3.1,
+        spend: 2200,
+      }),
+      campaign({
+        id: "prod-b",
+        name: "Purchase Stable",
+        purchases: 18,
+        roas: 2.7,
+        spend: 1800,
+      }),
+      campaign({
+        id: "test-a",
+        name: "Purchase Exploration 1",
+        purchases: 4,
+        roas: 1.3,
+        spend: 700,
+      }),
+      campaign({
+        id: "test-b",
+        name: "Purchase Exploration 2",
+        purchases: 3,
+        roas: 1.1,
+        spend: 650,
+      }),
     ];
 
     const result = buildMetaRecommendations({
@@ -923,22 +1427,78 @@ describe("buildMetaRecommendations", () => {
       creativeIntelligence,
     });
 
-    expect(result.recommendations.some((item) => item.type === "scaling_structure_fit")).toBe(true);
-    expect(result.recommendations.some((item) => item.type === "creative_test_structure")).toBe(true);
-    expect(result.recommendations.some((item) => item.type === "winner_promotion_flow")).toBe(true);
-    expect(result.recommendations.find((item) => item.type === "winner_promotion_flow")?.recommendedAction).toContain("UGC Winner 1");
-    expect(result.recommendations.find((item) => item.type === "scaling_structure_fit")?.recommendedAction).toContain("UGC Winner 1");
-    expect(result.recommendations.find((item) => item.type === "winner_promotion_flow")?.promoteCreatives).toContain("UGC Winner 1");
-    expect(result.recommendations.find((item) => item.type === "creative_test_structure")?.keepTestingCreatives).toContain("Concept Test 1");
-    expect(result.recommendations.find((item) => item.type === "creative_test_structure")?.doNotDeployCreatives).toContain("Blocked Angle 1");
+    expect(
+      result.recommendations.some(
+        (item) => item.type === "scaling_structure_fit",
+      ),
+    ).toBe(true);
+    expect(
+      result.recommendations.some(
+        (item) => item.type === "creative_test_structure",
+      ),
+    ).toBe(true);
+    expect(
+      result.recommendations.some(
+        (item) => item.type === "winner_promotion_flow",
+      ),
+    ).toBe(true);
+    expect(
+      result.recommendations.find(
+        (item) => item.type === "winner_promotion_flow",
+      )?.recommendedAction,
+    ).toContain("UGC Winner 1");
+    expect(
+      result.recommendations.find(
+        (item) => item.type === "scaling_structure_fit",
+      )?.recommendedAction,
+    ).toContain("UGC Winner 1");
+    expect(
+      result.recommendations.find(
+        (item) => item.type === "winner_promotion_flow",
+      )?.promoteCreatives,
+    ).toContain("UGC Winner 1");
+    expect(
+      result.recommendations.find(
+        (item) => item.type === "creative_test_structure",
+      )?.keepTestingCreatives,
+    ).toContain("Concept Test 1");
+    expect(
+      result.recommendations.find(
+        (item) => item.type === "creative_test_structure",
+      )?.doNotDeployCreatives,
+    ).toContain("Blocked Angle 1");
   });
 
   it("excludes test lanes from budget transfer recommendations", () => {
     const selectedRows = [
-      campaign({ id: "winner-a", name: "Purchase Winner", purchases: 28, roas: 3.2, spend: 2400 }),
-      campaign({ id: "stable-a", name: "Purchase Stable", purchases: 18, roas: 2.6, spend: 1800 }),
-      campaign({ id: "validation-a", name: "Purchase Validation", purchases: 9, roas: 2.05, spend: 1500 }),
-      campaign({ id: "test-a", name: "Purchase Exploration", purchases: 3, roas: 0.9, spend: 600 }),
+      campaign({
+        id: "winner-a",
+        name: "Purchase Winner",
+        purchases: 28,
+        roas: 3.2,
+        spend: 2400,
+      }),
+      campaign({
+        id: "stable-a",
+        name: "Purchase Stable",
+        purchases: 18,
+        roas: 2.6,
+        spend: 1800,
+      }),
+      campaign({
+        id: "validation-a",
+        name: "Purchase Validation",
+        purchases: 9,
+        roas: 2.05,
+        spend: 1500,
+      }),
+      campaign({
+        id: "test-a",
+        name: "Purchase Exploration",
+        purchases: 3,
+        roas: 0.9,
+        spend: 600,
+      }),
     ];
 
     const result = buildMetaRecommendations({
@@ -954,20 +1514,60 @@ describe("buildMetaRecommendations", () => {
       },
       breakdowns,
       creativeIntelligence,
+      commercialTargets,
     });
 
-    const budgetShift = result.recommendations.find((item) => item.type === "budget_allocation");
+    const budgetShift = result.recommendations.find(
+      (item) => item.type === "budget_allocation",
+    );
     expect(budgetShift).toBeTruthy();
-    expect(budgetShift?.recommendedAction).not.toContain("Purchase Exploration");
-    expect(budgetShift?.evidence.some((item) => item.label === "Lane filter" && item.value === "Scaling + validation only")).toBe(true);
+    expect(budgetShift?.recommendedAction).not.toContain(
+      "Purchase Exploration",
+    );
+    expect(
+      budgetShift?.evidence.some(
+        (item) =>
+          item.label === "Lane filter" &&
+          item.value === "Scaling + validation only",
+      ),
+    ).toBe(true);
   });
 
   it("moves budget from validation lanes into scaling lanes", () => {
     const selectedRows = [
-      campaign({ id: "scale-a", name: "Purchase Scale A", purchases: 30, roas: 3.9, spend: 2400, revenue: 9360 }),
-      campaign({ id: "scale-b", name: "Purchase Scale B", purchases: 21, roas: 3.05, spend: 1900, revenue: 5795 }),
-      campaign({ id: "validation-a", name: "Purchase Validation", purchases: 11, roas: 2.3, spend: 2100, revenue: 4830, cpa: 190.91 }),
-      campaign({ id: "test-a", name: "Purchase Test", purchases: 2, roas: 0.8, spend: 500, revenue: 400 }),
+      campaign({
+        id: "scale-a",
+        name: "Purchase Scale A",
+        purchases: 30,
+        roas: 3.9,
+        spend: 2400,
+        revenue: 9360,
+      }),
+      campaign({
+        id: "scale-b",
+        name: "Purchase Scale B",
+        purchases: 21,
+        roas: 3.05,
+        spend: 1900,
+        revenue: 5795,
+      }),
+      campaign({
+        id: "validation-a",
+        name: "Purchase Validation",
+        purchases: 11,
+        roas: 2.3,
+        spend: 2100,
+        revenue: 4830,
+        cpa: 190.91,
+      }),
+      campaign({
+        id: "test-a",
+        name: "Purchase Test",
+        purchases: 2,
+        roas: 0.8,
+        spend: 500,
+        revenue: 400,
+      }),
     ];
 
     const result = buildMetaRecommendations({
@@ -985,16 +1585,27 @@ describe("buildMetaRecommendations", () => {
       creativeIntelligence,
     });
 
-    const budgetShift = result.recommendations.find((item) => item.type === "budget_allocation");
+    const budgetShift = result.recommendations.find(
+      (item) => item.type === "budget_allocation",
+    );
     expect(budgetShift).toBeTruthy();
     expect(budgetShift?.recommendedAction).toContain("Purchase Validation");
     expect(budgetShift?.recommendedAction).toContain("Purchase Scale A");
-    expect(budgetShift?.evidence.some((item) => item.label === "Lane mix")).toBe(true);
+    expect(
+      budgetShift?.evidence.some((item) => item.label === "Lane mix"),
+    ).toBe(true);
   });
 
   it("still produces creative deployment recommendations when there is only one clear scaling lane", () => {
     const selectedRows = [
-      campaign({ id: "solo-scale", name: "Solo Purchase Scale", purchases: 18, roas: 2.9, spend: 1800, revenue: 5220 }),
+      campaign({
+        id: "solo-scale",
+        name: "Solo Purchase Scale",
+        purchases: 18,
+        roas: 2.9,
+        spend: 1800,
+        revenue: 5220,
+      }),
       campaign({
         id: "awareness-side",
         name: "Awareness Side Campaign",
@@ -1023,8 +1634,12 @@ describe("buildMetaRecommendations", () => {
       creativeIntelligence,
     });
 
-    const winnerPromotion = result.recommendations.find((item) => item.type === "winner_promotion_flow");
-    const testStructure = result.recommendations.find((item) => item.type === "creative_test_structure");
+    const winnerPromotion = result.recommendations.find(
+      (item) => item.type === "winner_promotion_flow",
+    );
+    const testStructure = result.recommendations.find(
+      (item) => item.type === "creative_test_structure",
+    );
     expect(winnerPromotion?.promoteCreatives).toContain("UGC Winner 1");
     expect(winnerPromotion?.targetScalingLane).toBe("Solo Purchase Scale");
     expect(testStructure?.keepTestingCreatives).toContain("Concept Test 1");
@@ -1114,7 +1729,9 @@ describe("buildMetaRecommendations", () => {
       creativeIntelligence,
     });
 
-    expect(result.recommendations.every((item) => item.comparisonCohort !== "Reach")).toBe(true);
+    expect(
+      result.recommendations.every((item) => item.comparisonCohort !== "Reach"),
+    ).toBe(true);
     expect(result.summary.title).not.toContain("No purchase-focused");
   });
 
@@ -1138,10 +1755,46 @@ describe("buildMetaRecommendations", () => {
         previousSelected: [],
         last3: [row],
         last7: [row],
-        last14: [campaign({ id: "promo-14", name: row.name, roas: 2.5, revenue: 5000, purchases: 31, spend: 2000 })],
-        last30: [campaign({ id: "promo-30", name: row.name, roas: 2.4, revenue: 4800, purchases: 30, spend: 2000 })],
-        last90: [campaign({ id: "promo-90", name: row.name, roas: 2.7, revenue: 5400, purchases: 33, spend: 2000 })],
-        allHistory: [campaign({ id: "promo-history", name: row.name, roas: 2.55, revenue: 5100, purchases: 32, spend: 2000 })],
+        last14: [
+          campaign({
+            id: "promo-14",
+            name: row.name,
+            roas: 2.5,
+            revenue: 5000,
+            purchases: 31,
+            spend: 2000,
+          }),
+        ],
+        last30: [
+          campaign({
+            id: "promo-30",
+            name: row.name,
+            roas: 2.4,
+            revenue: 4800,
+            purchases: 30,
+            spend: 2000,
+          }),
+        ],
+        last90: [
+          campaign({
+            id: "promo-90",
+            name: row.name,
+            roas: 2.7,
+            revenue: 5400,
+            purchases: 33,
+            spend: 2000,
+          }),
+        ],
+        allHistory: [
+          campaign({
+            id: "promo-history",
+            name: row.name,
+            roas: 2.55,
+            revenue: 5100,
+            purchases: 32,
+            spend: 2000,
+          }),
+        ],
       },
       breakdowns,
     });
@@ -1151,5 +1804,58 @@ describe("buildMetaRecommendations", () => {
     );
     expect(rec?.campaignRole).toBe("promo_clearance");
     expect(rec?.bidRegime).toBe("minimum_roas");
+  });
+
+  it("fails closed on business-wide recommendations when selected rows span accounts or currencies", () => {
+    const accountA = campaign({
+      id: "account-a",
+      accountId: "act-a",
+      currency: "USD",
+      roas: 4,
+      spend: 2000,
+      revenue: 8000,
+      purchases: 30,
+    });
+    const accountB = campaign({
+      id: "account-b",
+      accountId: "act-b",
+      currency: "EUR",
+      roas: 0.8,
+      spend: 1800,
+      revenue: 1440,
+      purchases: 6,
+    });
+    const rows = [accountA, accountB];
+
+    const result = buildMetaRecommendations({
+      windows: {
+        selected: rows,
+        previousSelected: rows,
+        last3: rows,
+        last7: rows,
+        last14: rows,
+        last30: rows,
+        last90: rows,
+        allHistory: rows,
+      },
+      breakdowns,
+      creativeIntelligence,
+      commercialTargets,
+    });
+
+    expect(result.recommendations.some((item) => item.level === "account")).toBe(
+      false,
+    );
+    expect(
+      result.recommendations.some((item) =>
+        [
+          "seasonal_regime_shift",
+          "bid_band_from_history",
+          "rebuild_with_constraints",
+          "geo_cluster_for_signal_density",
+          "budget_allocation",
+        ].includes(item.type),
+      ),
+    ).toBe(false);
   });
 });

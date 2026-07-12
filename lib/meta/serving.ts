@@ -52,6 +52,7 @@ import {
 } from "@/lib/meta/history";
 import { buildConfigSnapshotPayload } from "@/lib/meta/configuration";
 import { isMetaAuthoritativeFinalizationV2EnabledForBusiness } from "@/lib/meta/authoritative-finalization-config";
+import { normalizeMetaCurrencyCode } from "@/lib/meta/account-context";
 
 function getTodayIsoForTimeZoneServer(timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -68,6 +69,17 @@ function getTodayIsoForTimeZoneServer(timeZone: string): string {
 
 function r2(value: number) {
   return Math.round(value * 100) / 100;
+}
+
+function requireMetaWarehouseCurrency(
+  candidates: Array<string | null | undefined>,
+  context: string
+): string {
+  for (const candidate of candidates) {
+    const currency = normalizeMetaCurrencyCode(candidate);
+    if (currency) return currency;
+  }
+  throw new Error(`meta_currency_unavailable:${context}`);
 }
 
 function buildFreshnessFromRows(
@@ -146,7 +158,7 @@ export interface MetaWarehouseSummaryResponse {
   accounts: Array<{
     providerAccountId: string;
     accountName: string | null;
-    currency: string;
+    currency: string | null;
     timezone: string;
     spend: number;
     revenue: number;
@@ -181,11 +193,16 @@ export interface MetaWarehouseCampaignResponse {
   verification?: MetaWarehouseSummaryResponse["verification"];
   rows: Array<{
     providerAccountId: string;
+    accountCurrency: string | null;
     campaignId: string;
     campaignName: string | null;
     campaignStatus: string | null;
     statusUpdatedAt?: string | null;
     objective: string | null;
+    firstDeliveryDate?: string | null;
+    activeDayCount?: number | null;
+    ageDays?: number | null;
+    asOfDate?: string | null;
     buyingType: string | null;
     optimizationGoal?: string | null;
     customEventType?: string | null;
@@ -221,6 +238,10 @@ export interface MetaWarehouseCampaignTableRow {
   status: string;
   statusUpdatedAt?: string | null;
   objective?: string | null;
+  firstDeliveryDate?: string | null;
+  activeDayCount?: number | null;
+  ageDays?: number | null;
+  asOfDate?: string | null;
   budgetLevel?: "campaign" | "adset" | null;
   spend: number;
   purchases: number;
@@ -287,7 +308,7 @@ export interface MetaWarehouseCampaignTableRow {
   videoViews95: number;
   videoViews100: number;
   costPerVideoView: number;
-  currency: string;
+  currency: string | null;
   optimizationGoal: string | null;
   customEventType?: string | null;
   bidStrategyType: string | null;
@@ -428,6 +449,86 @@ function normalizeMetaServingDate(value: string | Date) {
     return `${year}-${month}-${day}`;
   }
   return text.slice(0, 10);
+}
+
+const META_SERVING_DAY_MS = 86_400_000;
+
+function parseMetaServingDateOnly(value: unknown) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+  const timestamp = Date.parse(`${value}T00:00:00Z`);
+  if (!Number.isFinite(timestamp)) return null;
+  return new Date(timestamp).toISOString().slice(0, 10) === value
+    ? timestamp
+    : null;
+}
+
+function campaignDeliveryDepth(input: {
+  rows: MetaCampaignDailyRow[];
+  startDate: string;
+  endDate: string;
+}) {
+  const startTimestamp = parseMetaServingDateOnly(input.startDate);
+  const endTimestamp = parseMetaServingDateOnly(input.endDate);
+  if (
+    startTimestamp == null ||
+    endTimestamp == null ||
+    endTimestamp < startTimestamp
+  ) {
+    return {
+      firstDeliveryDate: null,
+      activeDayCount: 0,
+      ageDays: 0,
+      asOfDate: null,
+    };
+  }
+
+  const activeDates = new Set<string>();
+  for (const row of input.rows) {
+    if (!(row.spend > 0 || row.impressions > 0)) continue;
+    const date = normalizeMetaServingDate(row.date);
+    const timestamp = parseMetaServingDateOnly(date);
+    if (
+      timestamp == null ||
+      timestamp < startTimestamp ||
+      timestamp > endTimestamp
+    ) {
+      continue;
+    }
+    activeDates.add(date);
+  }
+
+  const firstDeliveryDate = Array.from(activeDates).sort()[0] ?? null;
+  if (!firstDeliveryDate) {
+    return {
+      firstDeliveryDate: null,
+      activeDayCount: 0,
+      ageDays: 0,
+      asOfDate: input.endDate,
+    };
+  }
+
+  const firstDeliveryTimestamp = parseMetaServingDateOnly(firstDeliveryDate);
+  if (firstDeliveryTimestamp == null || firstDeliveryTimestamp > endTimestamp) {
+    return {
+      firstDeliveryDate: null,
+      activeDayCount: 0,
+      ageDays: 0,
+      asOfDate: input.endDate,
+    };
+  }
+
+  const queriedHistoryDepth =
+    Math.floor((endTimestamp - startTimestamp) / META_SERVING_DAY_MS) + 1;
+  const calendarAge =
+    Math.floor((endTimestamp - firstDeliveryTimestamp) / META_SERVING_DAY_MS) + 1;
+  return {
+    firstDeliveryDate,
+    activeDayCount: activeDates.size,
+    ageDays: Math.max(0, Math.min(calendarAge, queriedHistoryDepth)),
+    asOfDate: input.endDate,
+  };
 }
 
 function filterRowsToPublishedKeys<T extends { providerAccountId: string; date: string | Date }>(
@@ -748,7 +849,7 @@ export async function getMetaWarehouseSummary(input: {
     {
       providerAccountId: string;
       accountName: string | null;
-      currency: string;
+      currency: string | null;
       timezone: string;
       spend: number;
       revenue: number;
@@ -767,7 +868,7 @@ export async function getMetaWarehouseSummary(input: {
       accountsMap.set(row.providerAccountId, {
         providerAccountId: row.providerAccountId,
         accountName: row.accountName,
-        currency: row.accountCurrency,
+        currency: normalizeMetaCurrencyCode(row.accountCurrency),
         timezone: row.accountTimezone,
         spend: row.spend,
         revenue: row.revenue,
@@ -915,13 +1016,17 @@ export function rebuildAccountRowsFromCampaignRows(input: {
     const impressions = campaignRows.reduce((sum, row) => sum + row.impressions, 0);
     const clicks = campaignRows.reduce((sum, row) => sum + row.clicks, 0);
     const reach = campaignRows.reduce((sum, row) => sum + row.reach, 0);
+    const accountCurrency = requireMetaWarehouseCurrency(
+      [latest.accountCurrency, existing?.accountCurrency, profile?.currency],
+      `account_rebuild:${latest.providerAccountId}:${latest.date}`
+    );
     return {
       businessId: latest.businessId,
       providerAccountId: latest.providerAccountId,
       date: latest.date,
       accountName: existing?.accountName ?? profile?.name ?? null,
       accountTimezone: latest.accountTimezone ?? existing?.accountTimezone ?? profile?.timezone ?? "UTC",
-      accountCurrency: latest.accountCurrency ?? existing?.accountCurrency ?? profile?.currency ?? "USD",
+      accountCurrency,
       spend,
       impressions,
       clicks,
@@ -1046,6 +1151,11 @@ export async function getMetaWarehouseCampaigns(input: {
 
   let aggregated = Array.from(byCampaign.entries()).map(([, campaignRows]) => {
     const latest = campaignRows.at(-1) ?? campaignRows[0];
+    const deliveryDepth = campaignDeliveryDepth({
+      rows: campaignRows,
+      startDate: input.startDate,
+      endDate: input.endDate,
+    });
     const spend = r2(campaignRows.reduce((sum, row) => sum + row.spend, 0));
     const revenue = r2(campaignRows.reduce((sum, row) => sum + row.revenue, 0));
     const conversions = campaignRows.reduce((sum, row) => sum + row.conversions, 0);
@@ -1053,11 +1163,13 @@ export async function getMetaWarehouseCampaigns(input: {
     const clicks = campaignRows.reduce((sum, row) => sum + row.clicks, 0);
     return {
       providerAccountId: latest.providerAccountId,
+      accountCurrency: normalizeMetaCurrencyCode(latest.accountCurrency),
       campaignId: latest.campaignId,
       campaignName: latest.campaignNameCurrent ?? latest.campaignNameHistorical,
       campaignStatus: latest.campaignStatus,
       statusUpdatedAt: latest.updatedAt ?? null,
       objective: latest.objective,
+      ...deliveryDepth,
       buyingType: latest.buyingType,
       optimizationGoal: latest.optimizationGoal ?? null,
       customEventType: latest.customEventType ?? null,
@@ -1735,6 +1847,10 @@ function buildCampaignTableRow(input: {
     status: input.row.campaignStatus ?? "UNKNOWN",
     statusUpdatedAt: input.row.statusUpdatedAt ?? null,
     objective: latest?.objective ?? null,
+    firstDeliveryDate: input.row.firstDeliveryDate ?? null,
+    activeDayCount: input.row.activeDayCount ?? null,
+    ageDays: input.row.ageDays ?? null,
+    asOfDate: input.row.asOfDate ?? null,
     budgetLevel: latest?.dailyBudget != null || latest?.lifetimeBudget != null ? "campaign" : null,
     spend: input.row.spend,
     purchases: input.row.conversions,
@@ -1749,7 +1865,7 @@ function buildCampaignTableRow(input: {
     reach: input.row.impressions,
     frequency: 0,
     clicks: input.row.clicks,
-    currency: "USD",
+    currency: input.row.accountCurrency,
     optimizationGoal: latest?.optimizationGoal ?? null,
     customEventType: latest?.customEventType ?? null,
     bidStrategyType: latest?.bidStrategyType ?? null,

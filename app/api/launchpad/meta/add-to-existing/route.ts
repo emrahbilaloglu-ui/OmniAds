@@ -10,9 +10,29 @@ import {
   type MetaAdsWriteFailure,
 } from "@/lib/meta/ads-write";
 import { rejectIfMetaWritesBlocked } from "@/lib/meta/automation-write-guard";
-import { adsManagerUrl } from "@/lib/launchpad/meta";
+import {
+  adsManagerUrl,
+  normalizeMetaAddToExistingPayload,
+} from "@/lib/launchpad/meta";
 import type { MetaAddToExistingCopyMode } from "@/lib/launchpad/meta";
 import {
+  buildMetaLaunchIntentErrorReceipt,
+  buildMetaLaunchIntentResultReceipt,
+  buildMetaLaunchIntentValidationReceipt,
+} from "@/lib/launchpad/meta-launch-intent";
+import { MetaLaunchIntentLineageError } from "@/lib/launchpad/meta-launch-intent-lineage";
+import { prepareMetaLaunchIntentForExecution } from "@/lib/launchpad/meta-launch-intent-service";
+import { getMetaLaunchIntentCapability } from "@/lib/launchpad/meta-launch-intent-capability";
+import {
+  markMetaLaunchIntentExecuting,
+  recordMetaLaunchIntentOutcome,
+  recordMetaLaunchIntentPreExecutionFailure,
+  recordMetaLaunchIntentValidation,
+  recordMetaLaunchIntentWriteBlocked,
+} from "@/lib/launchpad/meta-launch-intent-store";
+import {
+  metaLaunchAccountBlockerHttpStatus,
+  resolveAssignedMetaLaunchAccount,
   resolveMetaLaunchWriteContext,
   validateMetaAddToExistingRequest,
 } from "@/lib/launchpad/meta-validation";
@@ -26,6 +46,7 @@ import {
 
 type AddToExistingBody = {
   businessId?: string;
+  providerAccountId?: string;
   targetCampaignId?: string;
   targetAdsetId?: string;
   targets?: Array<{
@@ -53,6 +74,11 @@ type AddToExistingBody = {
   sourceAdIds?: Record<string, string>;
   copyMode?: MetaAddToExistingCopyMode;
   idempotencyKey?: string;
+  launchIntentId?: string | null;
+  sourceDecisionId?: string | null;
+  sourceDecisionSnapshotId?: string | null;
+  creativeBriefId?: string | null;
+  sourceDraftId?: string | null;
 };
 
 type NormalizedBodyTarget = {
@@ -106,6 +132,37 @@ function targetKey(target: { campaignId?: string | null; targetCampaignId?: stri
   return `${campaignId}:${adsetId}`;
 }
 
+type AddToExistingStep = {
+  kind: "ad";
+  index: number;
+  name: string;
+  status: "success" | "failure" | "silent_failure";
+  id?: string;
+  creativeId: string;
+  adsManagerUrl?: string;
+  error?: { code: string; message: string };
+};
+
+function stepsAsRecords(steps: AddToExistingStep[]): Array<Record<string, unknown>> {
+  return steps.map((step) => ({ ...step }));
+}
+
+function intentErrorResponse(input: {
+  status: number;
+  error: { code: string; message: string };
+  intent?: { id: string; status: string };
+}) {
+  return NextResponse.json(
+    {
+      ok: false,
+      error: input.error,
+      launchIntentId: input.intent?.id ?? null,
+      launchIntentStatus: input.intent?.status ?? null,
+    },
+    { status: input.status },
+  );
+}
+
 async function completeFailure(input: {
   logId: string;
   startedAt: number;
@@ -141,13 +198,103 @@ export async function POST(request: NextRequest) {
   if (!access.ok) return access.response;
   const reviewerBlocked = rejectIfLaunchpadReviewerReadOnly(access, "launchpad_add_to_existing");
   if (reviewerBlocked) return reviewerBlocked;
-  const blocked = await rejectIfMetaWritesBlocked({ businessId: access.businessId });
-  if (blocked) return blocked;
   if (!idempotencyKey) {
     return jsonError(400, "idempotency_key_required", "idempotencyKey is required.");
   }
   if (requestedTargets.length === 0 || requestedTargets.some((target) => !target.targetAdsetId)) {
     return jsonError(400, "target_adset_required", "At least one target ad set is required.");
+  }
+
+  const account = await resolveAssignedMetaLaunchAccount({
+    businessId: access.businessId,
+    providerAccountId: body?.providerAccountId,
+  });
+  if (!account.ok) {
+    return jsonError(
+      metaLaunchAccountBlockerHttpStatus(account.blocker.code),
+      account.blocker.code,
+      account.blocker.message,
+    );
+  }
+  const providerAccountId = account.providerAccountId;
+  const intentCapability = await getMetaLaunchIntentCapability();
+  if (!intentCapability.canWrite) {
+    return intentErrorResponse({
+      status: 503,
+      error: {
+        code: "launch_intent_migration_required",
+        message:
+          "LaunchIntent storage is unavailable until the pending database migration is applied.",
+      },
+    });
+  }
+  const normalizedPayload = normalizeMetaAddToExistingPayload({
+    mode: "add_to_existing",
+    targetCampaignId,
+    targetAdsetId,
+    copyMode,
+    targets: requestedTargets,
+    creativeIds: body?.creativeIds ?? [],
+    creatives: body?.creatives ?? [],
+    names: body?.names ?? {},
+    sourceAdIds: body?.sourceAdIds ?? {},
+  });
+  const prepared = await prepareMetaLaunchIntentForExecution({
+    businessId: access.businessId,
+    providerAccountId,
+    operation: "add_to_existing",
+    idempotencyKey,
+    requestPayload: normalizedPayload,
+    launchIntentId: body?.launchIntentId,
+    sourceDecisionId: body?.sourceDecisionId,
+    sourceDecisionSnapshotId: body?.sourceDecisionSnapshotId,
+    creativeBriefId: body?.creativeBriefId,
+    sourceDraftId: body?.sourceDraftId,
+    createdBy: access.userId,
+  }).catch((error) => ({
+    ok: false as const,
+    status: error instanceof MetaLaunchIntentLineageError ? 422 : 500,
+    intent: undefined,
+    error: {
+      code:
+        error instanceof MetaLaunchIntentLineageError
+          ? error.code
+          : "launch_intent_prepare_failed",
+      message:
+        error instanceof MetaLaunchIntentLineageError
+          ? error.message
+          : sanitizeErrorMessage(error),
+    },
+  }));
+  if (!prepared.ok) {
+    return intentErrorResponse({
+      status: prepared.status,
+      error: prepared.error,
+      intent: prepared.intent,
+    });
+  }
+  const launchIntentId = prepared.intent.id;
+
+  const blocked = await rejectIfMetaWritesBlocked({ businessId: access.businessId });
+  if (blocked) {
+    const intent = await recordMetaLaunchIntentWriteBlocked({
+      businessId: access.businessId,
+      id: launchIntentId,
+      receipt: buildMetaLaunchIntentErrorReceipt({
+        providerAccountId,
+        code: "kill_switch_engaged",
+        message: "Meta writes are disabled by kill switch.",
+        failedAt: "write_guard",
+      }),
+    });
+    const payload = (await blocked.clone().json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+    return NextResponse.json(
+      { ...payload, launchIntentId, launchIntentStatus: intent.status },
+      { status: blocked.status },
+    );
   }
 
   const inFlightChecks = await Promise.all(
@@ -161,26 +308,62 @@ export async function POST(request: NextRequest) {
     ),
   );
   if (inFlightChecks.some(Boolean)) {
-    return jsonError(
-      409,
-      "launch_in_flight",
-      "A Meta add-to-existing launch with this idempotency key is already pending for one of these ad sets.",
-    );
+    const intent = await recordMetaLaunchIntentWriteBlocked({
+      businessId: access.businessId,
+      id: launchIntentId,
+      receipt: buildMetaLaunchIntentErrorReceipt({
+        providerAccountId,
+        code: "launch_in_flight",
+        message:
+          "A Meta add-to-existing launch with this idempotency key is already pending for one of these ad sets.",
+        failedAt: "idempotency_guard",
+      }),
+    });
+    return intentErrorResponse({
+      status: 409,
+      error: {
+        code: "launch_in_flight",
+        message:
+          "A Meta add-to-existing launch with this idempotency key is already pending for one of these ad sets.",
+      },
+      intent,
+    });
   }
 
-  const validation = await validateMetaAddToExistingRequest({
+  let validation: Awaited<ReturnType<typeof validateMetaAddToExistingRequest>>;
+  try {
+    validation = await validateMetaAddToExistingRequest({
+      businessId: access.businessId,
+      providerAccountId,
+      payload: normalizedPayload,
+    });
+  } catch (error) {
+    const message = sanitizeErrorMessage(error);
+    const intent = await recordMetaLaunchIntentPreExecutionFailure({
+      businessId: access.businessId,
+      id: launchIntentId,
+      receipt: buildMetaLaunchIntentErrorReceipt({
+        providerAccountId,
+        code: "launch_validation_failed",
+        message,
+        failedAt: "validation",
+      }),
+    });
+    return intentErrorResponse({
+      status: 500,
+      error: { code: "launch_validation_failed", message },
+      intent,
+    });
+  }
+  const validatedIntent = await recordMetaLaunchIntentValidation({
     businessId: access.businessId,
-    payload: {
-      mode: "add_to_existing",
-      targetCampaignId,
-      targetAdsetId,
-      copyMode,
-      targets: requestedTargets,
-      creativeIds: body?.creativeIds ?? [],
-      creatives: body?.creatives ?? [],
-      names: body?.names ?? {},
-      sourceAdIds: body?.sourceAdIds ?? {},
-    },
+    id: launchIntentId,
+    receipt: buildMetaLaunchIntentValidationReceipt({
+      providerAccountId,
+      ok: validation.ok,
+      blockers: validation.blockers,
+      warnings: validation.warnings,
+    }),
   });
   if (!validation.ok) {
     return NextResponse.json(
@@ -192,17 +375,34 @@ export async function POST(request: NextRequest) {
         },
         blockers: validation.blockers,
         warnings: validation.warnings,
+        launchIntentId,
+        launchIntentStatus: validatedIntent.status,
       },
       { status: 400 },
     );
   }
 
-  const ctxResult = await resolveMetaLaunchWriteContext(access.businessId);
+  const ctxResult = await resolveMetaLaunchWriteContext(
+    access.businessId,
+    providerAccountId,
+  );
   if (!ctxResult.ok) {
+    const intent = await recordMetaLaunchIntentWriteBlocked({
+      businessId: access.businessId,
+      id: launchIntentId,
+      receipt: buildMetaLaunchIntentErrorReceipt({
+        providerAccountId,
+        code: ctxResult.blocker.code,
+        message: ctxResult.blocker.message,
+        failedAt: "write_context",
+      }),
+    });
     return NextResponse.json(
       {
         ok: false,
         error: ctxResult.blocker,
+        launchIntentId,
+        launchIntentStatus: intent.status,
       },
       { status: 502 },
     );
@@ -225,27 +425,27 @@ export async function POST(request: NextRequest) {
     adId?: string;
     error?: { code: string; message: string };
   }> = [];
-  const steps: Array<{
-    kind: "ad";
-    index: number;
-    name: string;
-    status: "success" | "failure" | "silent_failure";
-    id?: string;
-    creativeId: string;
-    adsManagerUrl?: string;
-    error?: { code: string; message: string };
-  }> = [];
+  const steps: AddToExistingStep[] = [];
   const adIds: string[] = [];
+  let haltedReason: { code: string; message: string } | null = null;
+  let providerOutcomeStatus:
+    | "succeeded"
+    | "partially_succeeded"
+    | "failed"
+    | "silent_failure"
+    | null = null;
+
+  await markMetaLaunchIntentExecuting({
+    businessId: access.businessId,
+    id: launchIntentId,
+  });
 
   try {
-    for (let targetIndex = 0; targetIndex < validation.payload.targets.length; targetIndex += 1) {
+    targetLoop: for (let targetIndex = 0; targetIndex < validation.payload.targets.length; targetIndex += 1) {
       const target = validation.payload.targets[targetIndex];
       if (!target) continue;
       const resolvedTarget = targetMeta.get(targetKey(target));
-      const targetProviderAccountId = resolvedTarget?.providerAccountId?.trim() ?? "";
-      const ctx = targetProviderAccountId
-        ? { ...ctxResult.ctx, providerAccountId: targetProviderAccountId }
-        : ctxResult.ctx;
+      const ctx = ctxResult.ctx;
       const accountNumericId = ctx.providerAccountId.replace(/^act_/, "");
       const targetAdsetName =
         target.targetAdsetName || resolvedTarget?.adsetName || target.targetAdsetId;
@@ -294,7 +494,9 @@ export async function POST(request: NextRequest) {
           creativeId,
           action: "launch_ad",
           requestedBy: access.userId,
+          launchIntentId,
           payloadRequest: {
+            launch_intent_id: launchIntentId,
             idempotency_key: idempotencyKey,
             target_campaign_id: target.targetCampaignId,
             target_adset_id: target.targetAdsetId,
@@ -320,7 +522,6 @@ export async function POST(request: NextRequest) {
           adId: sourceAdId,
           targetAdsetId: target.targetAdsetId,
           name: adName,
-          activateAfterCreate: false,
           copyMode,
         });
         if (!adResult.ok) {
@@ -345,6 +546,10 @@ export async function POST(request: NextRequest) {
               : undefined,
             error: adResult.error,
           });
+          if (adResult.error.code === "kill_switch_engaged") {
+            haltedReason = adResult.error;
+            break targetLoop;
+          }
           continue;
         }
         adIds.push(adResult.newAdId);
@@ -378,27 +583,113 @@ export async function POST(request: NextRequest) {
 
     const failedCount = results.filter((result) => !result.ok).length;
     const successCount = results.length - failedCount;
-    return NextResponse.json({
-      ok: failedCount === 0,
-      targetCampaignId,
-      targetAdsetId,
-      targets: validation.payload.targets,
-      results,
-      failedCount,
-      successCount,
-      adIds,
-      steps,
+    const firstFailure = results.find((result) => !result.ok)?.error ?? null;
+    const hasSilentFailure = steps.some(
+      (step) => step.status === "silent_failure",
+    );
+    providerOutcomeStatus =
+      failedCount === 0
+        ? "succeeded"
+        : successCount > 0
+          ? "partially_succeeded"
+          : hasSilentFailure
+            ? "silent_failure"
+            : "failed";
+    const completedIntent = await recordMetaLaunchIntentOutcome({
+      businessId: access.businessId,
+      id: launchIntentId,
+      status: providerOutcomeStatus,
+      resultReceipt: buildMetaLaunchIntentResultReceipt({
+        providerAccountId,
+        adIds,
+        steps: stepsAsRecords(steps),
+      }),
+      errorReceipt:
+        failedCount > 0
+          ? buildMetaLaunchIntentErrorReceipt({
+              providerAccountId,
+              code:
+                haltedReason?.code ??
+                firstFailure?.code ??
+                "add_to_existing_partial_failure",
+              message:
+                haltedReason?.message ??
+                firstFailure?.message ??
+                `${failedCount} add-to-existing operation(s) failed.`,
+              failedAt: "ad",
+              adIds,
+              steps: stepsAsRecords(steps),
+            })
+          : null,
     });
+    return NextResponse.json(
+      {
+        ok: failedCount === 0 && !haltedReason,
+        targetCampaignId,
+        targetAdsetId,
+        targets: validation.payload.targets,
+        results,
+        failedCount,
+        successCount,
+        adIds,
+        steps,
+        halted: Boolean(haltedReason),
+        haltedReason,
+        omittedCount:
+          validation.payload.targets.length *
+            validation.payload.creativeIds.length -
+          results.length,
+        launchIntentId,
+        launchIntentStatus: completedIntent.status,
+      },
+      { status: haltedReason ? 503 : 200 },
+    );
   } catch (error) {
-    return jsonError(500, "add_to_existing_failed", sanitizeErrorMessage(error), {
-      targetCampaignId,
-      targetAdsetId,
-      targets: validation.payload.targets,
-      results,
-      failedCount: results.filter((result) => !result.ok).length,
-      successCount: results.filter((result) => result.ok).length,
-      adIds,
-      steps,
-    });
+    const rawMessage = sanitizeErrorMessage(error);
+    const errorCode = providerOutcomeStatus
+      ? "add_to_existing_receipt_persist_failed"
+      : "add_to_existing_failed";
+    const message = providerOutcomeStatus
+      ? `Meta add-to-existing completed, but its LaunchIntent receipt could not be persisted: ${rawMessage}`
+      : rawMessage;
+    const intent = await recordMetaLaunchIntentOutcome({
+      businessId: access.businessId,
+      id: launchIntentId,
+      status:
+        providerOutcomeStatus ??
+        (adIds.length > 0 ? "partially_succeeded" : "failed"),
+      resultReceipt: providerOutcomeStatus || adIds.length > 0
+        ? buildMetaLaunchIntentResultReceipt({
+            providerAccountId,
+            adIds,
+            steps: stepsAsRecords(steps),
+          })
+        : null,
+      errorReceipt: buildMetaLaunchIntentErrorReceipt({
+        providerAccountId,
+        code: errorCode,
+        message,
+        failedAt: "orchestration",
+        adIds,
+        steps: stepsAsRecords(steps),
+      }),
+    }).catch(() => null);
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: errorCode, message },
+        targetCampaignId,
+        targetAdsetId,
+        targets: validation.payload.targets,
+        results,
+        failedCount: results.filter((result) => !result.ok).length,
+        successCount: results.filter((result) => result.ok).length,
+        adIds,
+        steps,
+        launchIntentId,
+        launchIntentStatus: intent?.status ?? "receipt_write_failed",
+      },
+      { status: 500 },
+    );
   }
 }

@@ -26,6 +26,7 @@ const campaigns = await import("@/lib/meta/campaigns-source");
 const campaignLabels = await import("@/lib/meta/campaign-labels");
 const canonicalOverview = await import("@/lib/meta/canonical-overview");
 const db = await import("@/lib/db");
+const { META_RECOMMENDATION_ENGINE_VERSION } = await import("@/lib/meta/recommendations");
 const { GET } = await import("@/app/api/meta/account-pulse/route");
 
 function campaign(overrides: Record<string, unknown> = {}) {
@@ -44,6 +45,7 @@ function campaign(overrides: Record<string, unknown> = {}) {
 
 function mockSql(input: {
   targetRoas?: number | null;
+  targetUpdatedAt?: string | null;
   calibrationP50?: number | null;
   trackingScore?: number | null;
   lastSyncAt?: string | null;
@@ -51,13 +53,25 @@ function mockSql(input: {
   const sql = vi.fn(async (strings: TemplateStringsArray) => {
     const text = strings.join(" ");
     if (text.includes("FROM business_target_packs")) {
-      return input.targetRoas == null ? [] : [{ target_roas: input.targetRoas }];
+      return input.targetRoas == null
+        ? []
+        : [
+            {
+              target_roas: input.targetRoas,
+              updated_at:
+                input.targetUpdatedAt ?? new Date().toISOString(),
+            },
+          ];
     }
     if (text.includes("FROM meta_decision_calibration_daily")) {
       return input.calibrationP50 == null ? [] : [{ p50: input.calibrationP50 }];
     }
     if (text.includes("meta_decision_snapshots_daily")) {
-      return [{ latest_snapshot_date: "2026-05-07", engine_last_run: new Date().toISOString(), engine_version: "v1.0.0" }];
+      return [{
+        latest_snapshot_date: "2026-05-07",
+        engine_last_run: new Date().toISOString(),
+        engine_version: META_RECOMMENDATION_ENGINE_VERSION,
+      }];
     }
     if (text.includes("engine_v3_creative_lifecycle_daily")) {
       return [{ row_count: 1, tracking_anomaly_score: input.trackingScore ?? 0.1 }];
@@ -133,7 +147,7 @@ describe("GET /api/meta/account-pulse", () => {
     expect(payload.roas.selected).toBe(3);
     expect(payload.roas.d28).toBe(3);
     expect(payload.roasHistory).toEqual([2.5, 3.5]);
-    expect(payload.engineVersion).toBe("v1.0.0");
+    expect(payload.engineVersion).toBe(META_RECOMMENDATION_ENGINE_VERSION);
     expect(payload.snapshotHealth.status).toBe("fresh");
     expect(payload.labelCoverage).toMatchObject({
       activeCampaigns: 1,
@@ -205,6 +219,30 @@ describe("GET /api/meta/account-pulse", () => {
     expect(payload.roas.target).toBe(1.8);
     expect(payload.roas.median).toBe(4.55);
     expect(payload.roas.target_source).toBe("commercial_truth");
+    expect(payload.roas.targetFreshness).toBe("fresh");
+  });
+
+  it("keeps a stale target visible but marks its authority as reduced", async () => {
+    mockSql({
+      targetRoas: 1.8,
+      calibrationP50: 4.55,
+      targetUpdatedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/account-pulse?businessId=biz_1&window=28d",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(payload.roas.target).toBe(1.8);
+    expect(payload.roas.target_source).toBe("commercial_truth_stale");
+    expect(payload.roas.targetFreshness).toBe("stale");
+    expect(payload.targetAnchor).toMatchObject({
+      configured: true,
+      freshness: "stale",
+    });
   });
 
   it("falls back to account-history median without pretending it is a target", async () => {
@@ -267,6 +305,54 @@ describe("GET /api/meta/account-pulse", () => {
     expect(payload.statusFilter).toBe("all");
     expect(payload.pacing.mtdSpend).toBe(1000);
     expect(payload.revenue.current).toBe(2100);
+  });
+
+  it("uses one account-scoped warehouse series for the Decisions workspace fast path", async () => {
+    const sql = mockSql({ targetRoas: 2.4, calibrationP50: 3.1 });
+    (sql as unknown as { query: ReturnType<typeof vi.fn> }).query = vi.fn(
+      async (text: string, params: unknown[]) => {
+        if (text.includes("GROUP BY date")) {
+          expect(params.slice(0, 2)).toEqual(["biz_1", "act_1"]);
+          return [
+            { date: "2026-07-04", spend: 70, revenue: 140, purchases: 2 },
+            { date: "2026-07-10", spend: 100, revenue: 300, purchases: 3 },
+          ];
+        }
+        if (text.includes("WITH selected AS")) {
+          expect(params).toEqual(["biz_1", "act_1", "2026-07-04", "2026-07-10"]);
+          return [
+            {
+              id: "cmp_iwa",
+              status: "ACTIVE",
+              bid_strategy_type: "cost_cap",
+              account_currency: "USD",
+              spend: 170,
+              revenue: 440,
+              purchases: 5,
+            },
+          ];
+        }
+        if (text.includes("MAX(updated_at)")) {
+          return [{ last_sync_at: "2026-07-10T23:00:00.000Z" }];
+        }
+        return [];
+      },
+    );
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/account-pulse?businessId=biz_1&providerAccountId=act_1&window=7d&status_filter=all&endDate=2026-07-10&decision_workspace=1",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(campaigns.getMetaCampaignsForRange).not.toHaveBeenCalled();
+    expect(payload.pacing.windowSpend).toBe(170);
+    expect(payload.roas.selected).toBeCloseTo(440 / 170);
+    expect(payload.currency).toBe("USD");
+    expect(payload.dataReadiness.evidenceSource).toBe("warehouse");
+    expect(payload.lastSyncAt).toBe("2026-07-10T23:00:00.000Z");
   });
 
 

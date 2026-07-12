@@ -11,11 +11,12 @@ import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
 import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
 import type { MetaFunnelCohort } from "@/lib/meta/funnel-cohort";
 import {
-  metaCutRoasCeiling,
+  metaCutRoasReviewCeiling,
   metaLossBudgetMaturity,
   metaScaleRoasFloor,
   type MetaCommercialTargets,
 } from "@/lib/meta/commercial-targets";
+import { enforceMetaCommercialActionAuthority } from "@/lib/meta/commercial-action-authority";
 import {
   META_ENGINE_V1_SCENARIOS,
   type MetaEngineScenarioCohortScope,
@@ -137,12 +138,41 @@ function confidence(input: {
 function historyAgeDays(window: CampaignScenarioWindow) {
   const rows = [window.allHistory, window.last90, window.last30, window.last14, window.last7, window.selected]
     .filter((row): row is MetaCampaignRow => Boolean(row));
-  const activeDays = rows.filter((row) => row.spend > 0 || row.impressions > 0 || row.purchases > 0).length;
-  if (window.last90 && (window.last90.spend > 0 || window.last90.impressions > 0)) return 90;
-  if (window.last30 && (window.last30.spend > 0 || window.last30.impressions > 0)) return 30;
-  if (window.last14 && (window.last14.spend > 0 || window.last14.impressions > 0)) return 14;
-  if (window.last7 && (window.last7.spend > 0 || window.last7.impressions > 0)) return 7;
-  return activeDays > 0 ? 7 : 0;
+  return rows.reduce((deepestEvidence, row) => {
+    const explicitAge = Number(row.ageDays);
+    const activeDayCount = Number(row.activeDayCount);
+    if (
+      !Number.isInteger(explicitAge) ||
+      explicitAge <= 0 ||
+      !Number.isInteger(activeDayCount) ||
+      activeDayCount <= 0 ||
+      typeof row.firstDeliveryDate !== "string" ||
+      typeof row.asOfDate !== "string" ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(row.firstDeliveryDate) ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(row.asOfDate)
+    ) {
+      return deepestEvidence;
+    }
+
+    const firstDeliveryTimestamp = Date.parse(`${row.firstDeliveryDate}T00:00:00Z`);
+    const asOfTimestamp = Date.parse(`${row.asOfDate}T00:00:00Z`);
+    if (
+      !Number.isFinite(firstDeliveryTimestamp) ||
+      !Number.isFinite(asOfTimestamp) ||
+      new Date(firstDeliveryTimestamp).toISOString().slice(0, 10) !== row.firstDeliveryDate ||
+      new Date(asOfTimestamp).toISOString().slice(0, 10) !== row.asOfDate ||
+      firstDeliveryTimestamp > asOfTimestamp
+    ) {
+      return deepestEvidence;
+    }
+
+    const calendarAge =
+      Math.floor((asOfTimestamp - firstDeliveryTimestamp) / 86_400_000) + 1;
+    return Math.max(
+      deepestEvidence,
+      Math.min(explicitAge, activeDayCount, calendarAge),
+    );
+  }, 0);
 }
 
 function budgetAmount(row: MetaCampaignRow) {
@@ -792,20 +822,22 @@ export function maybeA2StructuralRebuild(input: CampaignScenarioInput): MetaReco
   const row = input.window.selected;
   const roas = metric(input.context, "roas_28d");
   const cpa = metric(input.context, "cpa_28d");
-  const cutCeiling = metaCutRoasCeiling(input.commercialTargets);
+  const cutCeiling = metaCutRoasReviewCeiling(input.commercialTargets);
   if (!roas || !sampleReady(input.context, "roas_28d")) return null;
   if (!cutCeiling) return null;
   if (recentEditCooldownActive(input.signals) || trackingQualityIssue(input.signals)) return null;
   const maturity = metaLossBudgetMaturity({
     targets: input.commercialTargets,
     accountCpaBaseline: cpa?.p50 ?? null,
-    currency: row.currency,
+    calibratedHardCutSpend:
+      input.context?.thresholds.hardCutSpend ??
+      LEGACY_META_CALIBRATION_THRESHOLDS.hardCutSpend,
   });
   if (!maturity || row.spend < maturity.spendThreshold) return null;
   if (!input.signals?.learningState || input.signals.learningState === "LEARNING") return null;
   if (historyAgeDays(input.window) < 7 || row.roas >= roas.p25 || row.roas >= cutCeiling) return null;
   const conf = confidence({ level: "campaign", context: input.context, metricValue: row.roas, threshold: Math.min(roas.p25, cutCeiling), severeLoser: row.roas <= Math.min(roas.p10, cutCeiling) });
-  return baseCampaignRec({
+  return enforceMetaCommercialActionAuthority(baseCampaignRec({
     row,
     type: "scenario_a2_learning_weak_structural",
     lens: "structure",
@@ -828,7 +860,7 @@ export function maybeA2StructuralRebuild(input: CampaignScenarioInput): MetaReco
     bidRegime: input.bidRegime,
     cohort: input.cohort,
     signals: input.signals,
-  });
+  }), input.commercialTargets);
 }
 
 export function maybeA3LearningOnPaceWait(input: CampaignScenarioInput): MetaRecommendation | null {
@@ -993,13 +1025,15 @@ export function maybeA5PostLearningUnderperformer(input: CampaignScenarioInput):
   if (recentEditCooldownActive(input.signals) || trackingQualityIssue(input.signals)) return null;
   const roas = metric(input.context, "roas_28d");
   const cpa = metric(input.context, "cpa_28d");
-  const cutCeiling = metaCutRoasCeiling(input.commercialTargets);
+  const cutCeiling = metaCutRoasReviewCeiling(input.commercialTargets);
   if (!roas || !sampleReady(input.context, "roas_28d") || !cutCeiling) return null;
   if (historyAgeDays(input.window) < 14 || row.roas >= roas.p50 || row.roas >= cutCeiling) return null;
   const maturity = metaLossBudgetMaturity({
     targets: input.commercialTargets,
     accountCpaBaseline: cpa?.p50 ?? null,
-    currency: row.currency,
+    calibratedHardCutSpend:
+      input.context?.thresholds.hardCutSpend ??
+      LEGACY_META_CALIBRATION_THRESHOLDS.hardCutSpend,
   });
   if (!maturity || row.spend < maturity.spendThreshold) return null;
   const threshold = Math.min(roas.p50, cutCeiling);
@@ -1010,7 +1044,7 @@ export function maybeA5PostLearningUnderperformer(input: CampaignScenarioInput):
     threshold,
     severeLoser: row.roas <= Math.min(roas.p25, cutCeiling),
   });
-  return baseCampaignRec({
+  return enforceMetaCommercialActionAuthority(baseCampaignRec({
     row,
     type: "scenario_a5_post_learning_underperformer",
     lens: "profitability",
@@ -1046,7 +1080,7 @@ export function maybeA5PostLearningUnderperformer(input: CampaignScenarioInput):
     bidRegime: input.bidRegime,
     cohort: input.cohort,
     signals: input.signals,
-  });
+  }), input.commercialTargets);
 }
 
 export function maybeK4CatalogFeedFirst(input: CampaignScenarioInput): MetaRecommendation | null {
@@ -1098,7 +1132,7 @@ export function maybeC3ScaleSampleGate(input: CampaignScenarioInput): MetaRecomm
   if (row.roas < scaleThreshold) return null;
   const ageDays = historyAgeDays(input.window);
   const purchaseSampleThin = row.purchases > 0 && row.purchases < 8;
-  const historyTooYoung = ageDays > 0 && ageDays < 28;
+  const historyTooYoung = ageDays < 28;
   if (!purchaseSampleThin && !historyTooYoung) return null;
   const conf = confidence({
     level: "campaign",

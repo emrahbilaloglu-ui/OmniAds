@@ -149,7 +149,14 @@ async function main() {
   const dataDir = path.join(tempDir, "data");
   const logFile = path.join(tempDir, "postgres.log");
   const worktreeDir = path.join(tempDir, "worktree");
-  const artifactDir = path.join(repoRoot, "docs", "full-ui-redesign", "playwright-smoke-artifacts");
+  const artifactSet = process.env.FULL_UI_SMOKE_ARTIFACT_SET?.trim();
+  const artifactDir = path.join(
+    repoRoot,
+    "docs",
+    "full-ui-redesign",
+    "playwright-smoke-artifacts",
+    ...(artifactSet ? [artifactSet] : []),
+  );
   const databaseUrl = `postgresql://${DB_USER}@127.0.0.1:${dbPort}/${DB_NAME}`;
   const baseUrl = `http://127.0.0.1:${webPort}`;
 

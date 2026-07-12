@@ -53,6 +53,7 @@ async function insertBusinessFixture(suffix: string): Promise<string> {
 
 async function checkTemplates(bizA: string, bizB: string) {
   const db = getDb();
+  const providerAccountId = "act_seam";
   const rawPayload = {
     currencyCode: "try",
     campaign: { name: "Seam Campaign", objective: "OUTCOME_TRAFFIC" },
@@ -63,6 +64,7 @@ async function checkTemplates(bizA: string, bizB: string) {
 
   const created = await createManualMetaLaunchTemplate({
     businessId: bizA,
+    providerAccountId,
     name: "Seam Template",
     description: "seam",
     payload: rawPayload,
@@ -76,42 +78,43 @@ async function checkTemplates(bizA: string, bizB: string) {
     "template payload normalization round-trip",
   );
 
-  const listedA = await listManualMetaLaunchTemplates({ businessId: bizA });
+  const listedA = await listManualMetaLaunchTemplates({ businessId: bizA, providerAccountId });
   expectEqual(listedA.map((t) => t.id), [created.id], "template list for owner business");
-  const listedB = await listManualMetaLaunchTemplates({ businessId: bizB });
+  const listedB = await listManualMetaLaunchTemplates({ businessId: bizB, providerAccountId });
   expectEqual(listedB.length, 0, "template business isolation on list");
 
   // source='manual' filter: an auto_recent row must never surface in the
   // manual list nor be deletable through the manual delete.
   const autoRows = await db.query<{ id: string }>(
-    `INSERT INTO meta_launch_templates (business_id, name, payload_json, source)
-     VALUES ($1, 'Auto Recent', '{}'::jsonb, 'auto_recent') RETURNING id`,
-    [bizA],
+    `INSERT INTO meta_launch_templates
+       (business_id, provider_account_id, name, payload_json, source)
+     VALUES ($1, $2, 'Auto Recent', '{}'::jsonb, 'auto_recent') RETURNING id`,
+    [bizA, providerAccountId],
   );
-  const listedAfterAuto = await listManualMetaLaunchTemplates({ businessId: bizA });
+  const listedAfterAuto = await listManualMetaLaunchTemplates({ businessId: bizA, providerAccountId });
   expectEqual(
     listedAfterAuto.map((t) => t.id),
     [created.id],
     "manual list excludes source=auto_recent",
   );
   expectEqual(
-    await deleteManualMetaLaunchTemplate({ businessId: bizA, id: autoRows[0]!.id }),
+    await deleteManualMetaLaunchTemplate({ businessId: bizA, providerAccountId, id: autoRows[0]!.id }),
     false,
     "manual delete refuses auto_recent rows",
   );
 
   expectEqual(
-    await deleteManualMetaLaunchTemplate({ businessId: bizB, id: created.id }),
+    await deleteManualMetaLaunchTemplate({ businessId: bizB, providerAccountId, id: created.id }),
     false,
     "template business isolation on delete",
   );
   expectEqual(
-    await deleteManualMetaLaunchTemplate({ businessId: bizA, id: created.id }),
+    await deleteManualMetaLaunchTemplate({ businessId: bizA, providerAccountId, id: created.id }),
     true,
     "template delete within business",
   );
   expectEqual(
-    await deleteManualMetaLaunchTemplate({ businessId: bizA, id: created.id }),
+    await deleteManualMetaLaunchTemplate({ businessId: bizA, providerAccountId, id: created.id }),
     false,
     "template double delete",
   );
@@ -120,9 +123,11 @@ async function checkTemplates(bizA: string, bizB: string) {
 
 async function checkDrafts(bizA: string, bizB: string) {
   const db = getDb();
+  const providerAccountId = "act_seam";
 
   const first = await upsertMetaLaunchDraft({
     businessId: bizA,
+    providerAccountId,
     name: "Draft One",
     payload: { campaign: { name: "One" } },
   });
@@ -138,6 +143,7 @@ async function checkDrafts(bizA: string, bizB: string) {
   };
   const second = await upsertMetaLaunchDraft({
     businessId: bizA,
+    providerAccountId,
     name: "Draft Two",
     payload: addToExistingRaw,
   });
@@ -152,6 +158,7 @@ async function checkDrafts(bizA: string, bizB: string) {
   await db.query(`UPDATE meta_launch_drafts SET status = 'failed' WHERE id = $1`, [first.id]);
   const updated = await upsertMetaLaunchDraft({
     businessId: bizA,
+    providerAccountId,
     id: first.id,
     name: "Draft One v2",
     payload: { campaign: { name: "One v2" } },
@@ -160,7 +167,7 @@ async function checkDrafts(bizA: string, bizB: string) {
   expectEqual(updated.name, "Draft One v2", "upsert-with-id renames");
   expectEqual(updated.status, "draft", "upsert-with-id resets failed back to draft");
 
-  const listed = await listMetaLaunchDrafts({ businessId: bizA });
+  const listed = await listMetaLaunchDrafts({ businessId: bizA, providerAccountId });
   expectEqual(
     listed.map((d) => d.id),
     [first.id, second.id],
@@ -170,13 +177,13 @@ async function checkDrafts(bizA: string, bizB: string) {
   // status IN ('draft','failed') filter.
   await db.query(`UPDATE meta_launch_drafts SET status = 'launched' WHERE id = $1`, [second.id]);
   expectEqual(
-    (await listMetaLaunchDrafts({ businessId: bizA })).map((d) => d.id),
+    (await listMetaLaunchDrafts({ businessId: bizA, providerAccountId })).map((d) => d.id),
     [first.id],
     "launched drafts excluded from list",
   );
   await db.query(`UPDATE meta_launch_drafts SET status = 'failed' WHERE id = $1`, [second.id]);
   expectEqual(
-    (await listMetaLaunchDrafts({ businessId: bizA })).map((d) => d.id).sort(),
+    (await listMetaLaunchDrafts({ businessId: bizA, providerAccountId })).map((d) => d.id).sort(),
     [first.id, second.id].sort(),
     "failed drafts included in list",
   );
@@ -186,6 +193,7 @@ async function checkDrafts(bizA: string, bizB: string) {
   try {
     await upsertMetaLaunchDraft({
       businessId: bizB,
+      providerAccountId,
       id: first.id,
       name: "Hijack",
       payload: {},
@@ -196,12 +204,12 @@ async function checkDrafts(bizA: string, bizB: string) {
   expectTrue(crossThrew, "cross-business upsert-with-id throws");
 
   expectEqual(
-    await deleteMetaLaunchDraft({ businessId: bizB, id: first.id }),
+    await deleteMetaLaunchDraft({ businessId: bizB, providerAccountId, id: first.id }),
     false,
     "draft business isolation on delete",
   );
   expectEqual(
-    await deleteMetaLaunchDraft({ businessId: bizA, id: first.id }),
+    await deleteMetaLaunchDraft({ businessId: bizA, providerAccountId, id: first.id }),
     true,
     "draft delete within business",
   );
@@ -274,7 +282,7 @@ async function checkRecentTemplates(bizA: string) {
     );
   }
 
-  const recents = await listRecentMetaLaunchTemplates({ businessId: bizA });
+  const recents = await listRecentMetaLaunchTemplates({ businessId: bizA, providerAccountId: account });
   expectEqual(
     recents.map((t) => t.id),
     ["cmp_sales_6", "cmp_sales_5", "cmp_sales_4", "cmp_sales_3", "cmp_sales_2"],

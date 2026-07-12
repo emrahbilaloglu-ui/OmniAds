@@ -15,7 +15,11 @@
  * - They must not be used for normal historical campaign/adset UI serving.
  */
 
-import { resolveMetaCredentials, getAdSets } from "@/lib/api/meta";
+import {
+  resolveMetaCredentials,
+  resolveMetaCurrencyForAccount,
+  getAdSets,
+} from "@/lib/api/meta";
 import { fetchWithTimeout } from "@/lib/http-fetch-with-timeout";
 import {
   readLatestMetaConfigSnapshots,
@@ -147,7 +151,7 @@ export async function getMetaLiveCampaignRows(input: {
     accountIds.map(async (accountId) => {
       const { accessToken } = credentials;
       const profile = credentials.accountProfiles[accountId];
-      const currency = profile?.currency ?? credentials.currency ?? "USD";
+      const currency = resolveMetaCurrencyForAccount(credentials, accountId);
 
       // Fetch campaign insights (metrics), campaign config, and ad set config in parallel.
       const insightUrl = new URL(`https://graph.facebook.com/v25.0/${accountId}/insights`);
@@ -532,6 +536,7 @@ export async function getMetaLiveAdSets(input: {
   startDate: string;
   endDate: string;
   includePrev?: boolean;
+  providerAccountIds?: string[] | null;
 }): Promise<MetaAdSetData[]> {
   const credentials = await resolveMetaCredentials(input.businessId);
   if (!credentials) return [];
@@ -542,6 +547,7 @@ export async function getMetaLiveAdSets(input: {
     input.startDate,
     input.endDate,
     input.businessId,
-    input.includePrev ?? false
+    input.includePrev ?? false,
+    input.providerAccountIds,
   );
 }

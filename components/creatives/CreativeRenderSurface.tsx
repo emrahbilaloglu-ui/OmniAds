@@ -123,7 +123,7 @@ function PreviewFallback({ frameClass, name }: { frameClass: string; name: strin
         "flex flex-col items-center justify-center gap-2 bg-neutral-100 p-2 text-neutral-600"
       )}
     >
-      <div className="flex h-9 w-9 items-center justify-center rounded-full border border-neutral-300 bg-white text-xs font-semibold">
+      <div className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--adc-b2,#cdcdc7)] bg-white text-xs font-semibold">
         {initials || "NA"}
       </div>
       <div className="line-clamp-2 px-1 text-center text-[10px] font-medium">
@@ -135,7 +135,11 @@ function PreviewFallback({ frameClass, name }: { frameClass: string; name: strin
 
 function PreviewLoadingPlaceholder({ frameClass }: { frameClass: string }) {
   return (
-    <div className={cn(frameClass, "animate-pulse bg-neutral-100")} aria-hidden="true" />
+    <div
+      className={cn(frameClass, "animate-pulse bg-neutral-100")}
+      data-testid="creative-preview-loading"
+      aria-hidden="true"
+    />
   );
 }
 
@@ -153,7 +157,7 @@ function PreviewPendingState({
         "flex flex-col items-center justify-center gap-3 bg-neutral-100 p-3 text-neutral-600"
       )}
     >
-      <div className="h-6 w-6 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-500" aria-hidden="true" />
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-neutral-300 border-t-[var(--adc-ink3,#7d838c)]" aria-hidden="true" />
       <div className="text-center text-[11px] font-medium">{label}</div>
     </div>
   );

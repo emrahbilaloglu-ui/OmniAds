@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/api/meta", () => ({
   getAdSets: vi.fn(),
   resolveMetaCredentials: vi.fn(),
+  resolveMetaCurrencyForAccount: vi.fn(),
 }));
 
 vi.mock("@/lib/meta/config-snapshots", () => ({
@@ -29,6 +30,11 @@ describe("meta live serving", () => {
         act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
       },
     });
+    vi.mocked(api.resolveMetaCurrencyForAccount).mockImplementation(
+      (credentials, accountId) =>
+        credentials.accountProfiles[accountId]?.currency ??
+        (credentials.accountIds[0] === accountId ? credentials.currency : null)
+    );
     vi.mocked(configSnapshots.readLatestMetaConfigSnapshots).mockResolvedValue(new Map());
     vi.mocked(configSnapshots.readPreviousDifferentMetaConfigDiffs).mockResolvedValue(new Map());
   });
@@ -86,6 +92,55 @@ describe("meta live serving", () => {
 
     expect(configSnapshots.readLatestMetaConfigSnapshots).toHaveBeenCalledTimes(2);
     expect(configSnapshots.readPreviousDifferentMetaConfigDiffs).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps live campaign currency null when account currency is unavailable", async () => {
+    vi.mocked(api.resolveMetaCredentials).mockResolvedValue({
+      businessId: "biz-1",
+      accessToken: "token-1",
+      accountIds: ["act_1"],
+      currency: null,
+      accountProfiles: {
+        act_1: { currency: null, timezone: "UTC", name: "Account 1" },
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("/insights")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  campaign_id: "cmp-1",
+                  campaign_name: "Campaign 1",
+                  spend: "10",
+                  impressions: "100",
+                  clicks: "1",
+                  actions: [],
+                  action_values: [],
+                  purchase_roas: [],
+                },
+              ],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      })
+    );
+
+    const rows = await getMetaLiveCampaignRows({
+      businessId: "biz-1",
+      startDate: "2026-04-05",
+      endDate: "2026-04-05",
+      providerAccountIds: ["act_1"],
+    });
+
+    expect(rows[0]?.currency).toBeNull();
   });
 
   it("summarizes live campaign bid fields from ad set configs when campaign config is sparse", async () => {

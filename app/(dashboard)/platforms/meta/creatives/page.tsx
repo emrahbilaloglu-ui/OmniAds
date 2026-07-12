@@ -1,50 +1,90 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, ExternalLink, ImageIcon, Info, X } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ExternalLink, ImageIcon, X } from "lucide-react";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
-import { CreativesTableSection } from "@/components/creatives/CreativesTableSection";
+import { CreativeBriefPanel } from "@/components/creatives/CreativeBriefPanel";
 import {
-  applyCreativeFilters,
-  DEFAULT_TOP_METRIC_IDS,
-  type CreativeFilterRule,
-  type CreativeGroupBy,
-  CreativesTopSection,
-  getCreativeMetricDefinition,
-  resolveCreativeDateRange,
+  StudioOsView,
+  type StudioOsDatePreset,
+  type StudioOsDecisionsData,
+  type StudioOsTab,
+} from "@/components/creatives/StudioOsView";
+import { DEFAULT_TOP_METRIC_IDS } from "@/components/creatives/CreativesTopSection";
+import type {
+  CreativeGroupBy,
+  CreativeDatePreset,
+  CreativeDateRangeValue,
 } from "@/components/creatives/CreativesTopSection";
+import { resolveCreativeDateRange } from "@/components/creatives/CreativesTopSection";
 import { formatMoney, resolveCreativeCurrency } from "@/components/creatives/money";
-import { hasCreativeVideoEvidence } from "@/components/creatives/creative-truth";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
-import { EmptyState } from "@/components/states/empty-state";
-import { ErrorState } from "@/components/states/error-state";
-import { LoadingSkeleton } from "@/components/states/loading-skeleton";
+import type {
+  BriefingCreativeCard,
+  CreativesBriefingResponse,
+} from "@/components/creatives/briefing/types";
 import { PlanGate } from "@/components/pricing/PlanGate";
 import { usePersistentCreativeDateRange } from "@/hooks/use-persistent-date-range";
 import { useAppStore } from "@/store/app-store";
-import type { ShareMetricKey } from "@/components/creatives/shareCreativeTypes";
+import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
+import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
+import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
+import { getTodayIsoForTimeZone } from "@/components/date-range/DateRangePicker";
 import {
-  SHARE_METRIC_IDS,
-  fetchCreativeDecisionEngineV3,
+  creativeDateRangeToStandard,
+  standardDateRangeToCreative,
+} from "@/components/creatives/creatives-top-section-support";
+import type {
+  MetaCreativeBrief,
+  MetaCreativeBriefCapability,
+} from "@/lib/meta/creative-brief-contract";
+import type {
+  CreativeShareLedgerEntry,
+  CreativeShareLedgerCapability,
+  ShareAudience,
+} from "@/components/creatives/shareCreativeTypes";
+import {
   fetchMetaCreatives,
   hasRenderablePreview,
   mapApiRowToUiRow,
-  toCsv,
+  toCreatorTier0SharedCreative,
   toSharedCreative,
 } from "@/app/(dashboard)/platforms/meta/creatives/page-support";
+import {
+  findCreativeStudioCard,
+  flattenCreativeStudioBriefingCards,
+  indexCreativeStudioBriefingCards,
+  qualifyCurrentWinner,
+  resolveCreativeStudioSharePolicy,
+  resolveServerDecisionBadge,
+} from "@/app/(dashboard)/platforms/meta/creatives/studio-truth";
 
 const DECISIONS_HREF = "/platforms/meta";
-const COPY_HREF = "/platforms/meta/copies";
-const LANDING_PAGES_HREF = "/platforms/meta/landing-pages";
-const INBOX_HREF = "/platforms/meta/creative-inbox";
-const AUDIENCES_HREF = "/platforms/meta/audiences";
+const LAUNCHPAD_HREF = "/platforms/meta/launchpad";
+const AUTOMATION_HREF = "/platforms/meta/automation";
+
+const DATE_PRESETS: Array<{ key: CreativeDatePreset; label: string; lastDays: number }> = [
+  { key: "last7Days", label: "Last 7 days", lastDays: 7 },
+  { key: "last14Days", label: "Last 14 days", lastDays: 14 },
+  { key: "last30Days", label: "Last 30 days", lastDays: 30 },
+  { key: "lastMonth", label: "Last month", lastDays: 30 },
+  { key: "last365Days", label: "Last 365 days", lastDays: 365 },
+];
 
 function creativeGroupByToApi(value: CreativeGroupBy): "adName" | "ad" | "creative" | "adSet" {
   if (value === "adName" || value === "creative" || value === "adSet") return value;
   return "creative";
+}
+
+function studioTabFromQuery(value: string | null | undefined): StudioOsTab {
+  if (value === "winners" || value === "briefs" || value === "shares") {
+    return value;
+  }
+  return "assets";
 }
 
 function finite(value: number | null | undefined) {
@@ -61,66 +101,201 @@ function formatRoas(value: number | null | undefined) {
   return numeric === null ? "--" : `${numeric.toFixed(2)}x`;
 }
 
-function supportedShareMetrics(ids: string[]): ShareMetricKey[] {
-  const next = ids.filter((id): id is ShareMetricKey => SHARE_METRIC_IDS.has(id as ShareMetricKey));
-  return next.length > 0 ? next : ["spend", "roas", "purchases"];
+function briefingCardAccountId(card: BriefingCreativeCard): string {
+  return (
+    card.providerAccountId?.trim() ||
+    card.accountId?.trim() ||
+    card.metaAccountId?.trim() ||
+    ""
+  );
 }
 
-function currencySet(rows: MetaCreativeRow[], defaultCurrency: string | null) {
-  return Array.from(
-    new Set(
-      rows
-        .map((row) => resolveCreativeCurrency(row.currency ?? null, defaultCurrency))
-        .filter((value): value is string => Boolean(value)),
-    ),
-  ).sort();
+async function fetchCreativeStudioBriefing(input: {
+  businessId: string;
+  providerAccountId: string;
+  start: string;
+  asOf: string;
+}): Promise<CreativesBriefingResponse> {
+  const query = new URLSearchParams({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    start: input.start,
+    asOf: input.asOf,
+    decisionCenter: "1",
+    status_filter: "all",
+  });
+  const response = await fetch(`/api/creatives/briefing?${query.toString()}`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | (CreativesBriefingResponse & { message?: string })
+    | null;
+  if (!response.ok || !payload) {
+    throw new Error(payload?.message ?? `Creative decision context could not load (${response.status}).`);
+  }
+  return payload;
 }
 
-function spendSummary(rows: MetaCreativeRow[], defaultCurrency: string | null) {
-  const currencies = currencySet(rows, defaultCurrency);
-  if (rows.length === 0) return "--";
-  if (currencies.length !== 1) return "Mixed currencies";
-  const total = rows.reduce((sum, row) => sum + row.spend, 0);
-  return formatMoney(total, currencies[0], defaultCurrency);
+async function fetchDecisionsWorkspace(input: {
+  businessId: string;
+  providerAccountId: string;
+}): Promise<StudioOsDecisionsData> {
+  const query = new URLSearchParams({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    window: "28d",
+    status_filter: "all",
+  });
+  const response = await fetch(`/api/meta/decisions-workspace?${query.toString()}`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | (StudioOsDecisionsData & { error?: string; message?: string })
+    | null;
+  if (!response.ok || !payload || !payload.lanes) {
+    throw new Error(payload?.message ?? payload?.error ?? `Decisions workspace could not load (${response.status}).`);
+  }
+  return payload;
+}
+
+async function fetchCreativeBriefs(input: {
+  businessId: string;
+  providerAccountId: string;
+}): Promise<{
+  briefs: MetaCreativeBrief[];
+  capability: MetaCreativeBriefCapability;
+}> {
+  const query = new URLSearchParams({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+  });
+  const response = await fetch(`/api/meta/creative-briefs?${query.toString()}`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | {
+        briefs?: MetaCreativeBrief[];
+        capability?: MetaCreativeBriefCapability;
+        message?: string;
+        error?: { message?: string };
+      }
+    | null;
+  if (!response.ok || !Array.isArray(payload?.briefs) || !payload.capability) {
+    throw new Error(
+      payload?.error?.message ??
+        payload?.message ??
+        `Creative briefs could not load (${response.status}).`,
+    );
+  }
+  return { briefs: payload.briefs, capability: payload.capability };
+}
+
+async function fetchCreativeShareLedger(input: {
+  businessId: string;
+  providerAccountId: string;
+}): Promise<{
+  grants: CreativeShareLedgerEntry[];
+  capability: CreativeShareLedgerCapability;
+}> {
+  const query = new URLSearchParams(input);
+  const response = await fetch(`/api/creatives/share?${query.toString()}`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | {
+        grants?: CreativeShareLedgerEntry[];
+        capability?: CreativeShareLedgerCapability;
+        message?: string;
+      }
+    | null;
+  if (!response.ok || !Array.isArray(payload?.grants) || !payload.capability) {
+    throw new Error(payload?.message ?? `Creator share ledger could not load (${response.status}).`);
+  }
+  return { grants: payload.grants, capability: payload.capability };
 }
 
 export default function MetaCreativeStudioPage() {
+  const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
-  const businesses = useAppStore((state) => state.businesses);
   const businessId = selectedBusinessId ?? "";
-  const selectedBusinessCurrency =
-    businesses.find((business) => business.id === selectedBusinessId)?.currency ?? null;
 
   const [dateRangeValue, setDateRangeValue] = usePersistentCreativeDateRange();
   const [groupBy, setGroupBy] = useState<CreativeGroupBy>("creative");
-  const [topFilters, setTopFilters] = useState<CreativeFilterRule[]>([]);
-  const [topMetricIds, setTopMetricIds] = useState<string[]>(DEFAULT_TOP_METRIC_IDS);
+  const [topMetricIds] = useState<string[]>(DEFAULT_TOP_METRIC_IDS);
   const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
   const [detailRowId, setDetailRowId] = useState<string | null>(null);
-  const [detailNotes, setDetailNotes] = useState("");
-  const [sortedRows, setSortedRows] = useState<MetaCreativeRow[]>([]);
+  const [briefEditorBriefId, setBriefEditorBriefId] = useState<string | null | undefined>(undefined);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
   const [shareLoading, setShareLoading] = useState(false);
-  const [csvError, setCsvError] = useState<string | null>(null);
-  const [csvLoading, setCsvLoading] = useState(false);
-  const [compareOpen, setCompareOpen] = useState(false);
+  const [shareMutationToken, setShareMutationToken] = useState<string | null>(null);
+  const [shareMutationError, setShareMutationError] = useState<string | null>(null);
   const [shareModalOpen, setShareModalOpen] = useState(false);
-  const [shareAudience, setShareAudience] = useState<"buyer" | "creative_team" | "external">("buyer");
+  const [shareAudience, setShareAudience] = useState<ShareAudience>("buyer");
   const [anonymize, setAnonymize] = useState(true);
   const [allowCsv, setAllowCsv] = useState(true);
-  const hasInitializedDefaultSelectionRef = useRef(false);
-  const hasUserInteractedSelectionRef = useRef(false);
+  const requestedProviderAccountId = searchParams?.get("providerAccountId")?.trim() ?? "";
+  const requestedCreativeId = searchParams?.get("creativeId")?.trim() ?? "";
+  const activeStudioTab = studioTabFromQuery(searchParams?.get("tab"));
+  const [selectedProviderAccountId, setSelectedProviderAccountId] = useState(requestedProviderAccountId);
 
-  const { start: drStart, end: drEnd } = resolveCreativeDateRange(dateRangeValue);
   const apiGroupBy = creativeGroupByToApi(groupBy);
 
-  const creativesQuery = useQuery({
-    queryKey: ["meta-creative-studio", businessId, drStart, drEnd, apiGroupBy],
+  const providerAccountsQuery = useQuery({
+    queryKey: ["meta-provider-accounts", businessId],
     enabled: Boolean(selectedBusinessId),
+    queryFn: () => fetchMetaHistoryAccounts({ businessId }),
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+  const providerAccounts = providerAccountsQuery.data ?? [];
+  const providerAccountId =
+    (selectedProviderAccountId &&
+    providerAccounts.some((account) => account.id === selectedProviderAccountId)
+      ? selectedProviderAccountId
+      : "") ||
+    (providerAccounts.length === 1 ? providerAccounts[0]!.id : "");
+
+  useEffect(() => {
+    setSelectedProviderAccountId((current) => {
+      if (current && providerAccounts.some((account) => account.id === current)) {
+        return current;
+      }
+      if (
+        requestedProviderAccountId &&
+        providerAccounts.some((account) => account.id === requestedProviderAccountId)
+      ) {
+        return requestedProviderAccountId;
+      }
+      return "";
+    });
+  }, [businessId, providerAccounts, requestedProviderAccountId]);
+
+  const selectedProviderAccount = useMemo<MetaHistoryAccount | null>(
+    () => providerAccounts.find((account) => account.id === providerAccountId) ?? null,
+    [providerAccountId, providerAccounts],
+  );
+  const accountTimeZone = selectedProviderAccount?.timezone || "UTC";
+  const accountReferenceDate = getTodayIsoForTimeZone(accountTimeZone);
+  const { start: drStart, end: drEnd } = resolveCreativeDateRange(
+    dateRangeValue,
+    accountReferenceDate,
+  );
+  const accountCurrency = selectedProviderAccount?.currency ?? null;
+  const hasExplicitAccountScope = Boolean(selectedBusinessId && providerAccountId);
+
+  const creativesQuery = useQuery({
+    queryKey: ["meta-creative-studio", businessId, providerAccountId, drStart, drEnd, apiGroupBy],
+    enabled: hasExplicitAccountScope,
     queryFn: () =>
       fetchMetaCreatives({
         businessId,
+        providerAccountId,
         start: drStart,
         end: drEnd,
         groupBy: apiGroupBy,
@@ -130,150 +305,200 @@ export default function MetaCreativeStudioPage() {
       }),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
-    placeholderData: (previousData) => previousData,
   });
 
-  // Real server-truth creative decisions (Engine v3). Creative Studio stays "analysis
-  // only" — these labels are context, not execution — but they were previously never
-  // fetched, so the decision surface rendered empty. Wire the live source; honesty gates
-  // (missing → no badge, engine-disabled → null) are enforced downstream.
-  const decisionsQuery = useQuery({
-    queryKey: ["meta-creative-decisions-v3", businessId, drEnd],
-    enabled: Boolean(selectedBusinessId),
-    queryFn: () => fetchCreativeDecisionEngineV3({ businessId, asOf: drEnd }),
-    staleTime: 5 * 60 * 1000,
+  const briefingQuery = useQuery({
+    queryKey: [
+      "meta-creative-studio-briefing",
+      businessId,
+      providerAccountId,
+      drStart,
+      drEnd,
+    ],
+    enabled: hasExplicitAccountScope,
+    queryFn: () =>
+      fetchCreativeStudioBriefing({
+        businessId,
+        providerAccountId,
+        start: drStart,
+        asOf: drEnd,
+      }),
+    staleTime: 30 * 1000,
     refetchOnWindowFocus: false,
   });
-  const decisionResponse = decisionsQuery.data ?? null;
-  const v3Decisions =
-    decisionResponse && decisionResponse.status !== "disabled"
-      ? decisionResponse.decisions
-      : null;
-  const v3Flags = decisionResponse?.flags ?? null;
-  // Buyer-decision-language overlay (reference "02 Creative Studio"): off by default —
-  // Creative Studio stays analysis-only; toggling reveals the server DECISION column.
-  const [buyerDecisionLanguage, setBuyerDecisionLanguage] = useState(false);
+  const decisionsWorkspaceQuery = useQuery({
+    queryKey: ["meta-decisions-workspace-studio", businessId, providerAccountId],
+    enabled: hasExplicitAccountScope,
+    queryFn: () => fetchDecisionsWorkspace({ businessId, providerAccountId }),
+    staleTime: 30 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  const creativeBriefsQueryKey = ["meta-creative-briefs", businessId, providerAccountId] as const;
+  const creativeBriefsQuery = useQuery({
+    queryKey: creativeBriefsQueryKey,
+    enabled: hasExplicitAccountScope,
+    queryFn: () => fetchCreativeBriefs({ businessId, providerAccountId }),
+    staleTime: 30 * 1000,
+    refetchOnWindowFocus: false,
+  });
+  const creativeShareLedgerQueryKey = ["creative-share-ledger", businessId, providerAccountId] as const;
+  const creativeShareLedgerQuery = useQuery({
+    queryKey: creativeShareLedgerQueryKey,
+    enabled: hasExplicitAccountScope,
+    queryFn: () => fetchCreativeShareLedger({ businessId, providerAccountId }),
+    staleTime: 30 * 1000,
+    refetchOnWindowFocus: false,
+  });
 
   const allRows = useMemo(
-    () => (creativesQuery.data?.rows ?? []).map(mapApiRowToUiRow),
-    [creativesQuery.data?.rows],
+    () =>
+      (creativesQuery.data?.rows ?? [])
+        .map(mapApiRowToUiRow)
+        .filter((row) => row.accountId === providerAccountId),
+    [creativesQuery.data?.rows, providerAccountId],
   );
 
-  const filteredRows = useMemo(
-    () => applyCreativeFilters(allRows, topFilters),
-    [allRows, topFilters],
-  );
+  const loadUsageRows = (creativeId: string) =>
+    queryClient.fetchQuery({
+      queryKey: [
+        "meta-creative-studio-usages",
+        businessId,
+        providerAccountId,
+        creativeId,
+        drStart,
+        drEnd,
+      ],
+      queryFn: async () => {
+        const payload = await fetchMetaCreatives({
+          businessId,
+          providerAccountId,
+          creativeId,
+          start: drStart,
+          end: drEnd,
+          groupBy: "ad",
+          format: "all",
+          sort: "spend",
+          mediaMode: "metadata",
+        });
+        return payload.rows
+          .map(mapApiRowToUiRow)
+          .filter(
+            (row) =>
+              row.accountId === providerAccountId &&
+              row.creativeId === creativeId &&
+              Boolean(row.realAdId?.trim()),
+          );
+      },
+      staleTime: 5 * 60 * 1000,
+    });
 
   useEffect(() => {
     setSelectedRowIds((previous) => {
-      const visibleIds = new Set(filteredRows.map((row) => row.id));
+      const visibleIds = new Set(allRows.map((row) => row.id));
       const kept = previous.filter((id) => visibleIds.has(id));
-      if (
-        !hasInitializedDefaultSelectionRef.current &&
-        !hasUserInteractedSelectionRef.current &&
-        kept.length === 0 &&
-        filteredRows.length > 0
-      ) {
-        hasInitializedDefaultSelectionRef.current = true;
-        return filteredRows.slice(0, 5).map((row) => row.id);
-      }
       return kept.length === previous.length ? previous : kept;
     });
-  }, [filteredRows]);
+  }, [allRows]);
+
+  useEffect(() => {
+    if (!requestedCreativeId || detailRowId) return;
+    const requestedRow = allRows.find(
+      (row) => row.creativeId === requestedCreativeId || row.id === requestedCreativeId,
+    );
+    if (requestedRow) setDetailRowId(requestedRow.id);
+  }, [allRows, detailRowId, requestedCreativeId]);
+
+  const activeDetailRow = useMemo(
+    () => allRows.find((row) => row.id === detailRowId) ?? null,
+    [detailRowId, allRows],
+  );
+  const briefingCards = useMemo(
+    () =>
+      flattenCreativeStudioBriefingCards(briefingQuery.data).filter(
+        (card) => briefingCardAccountId(card) === providerAccountId,
+      ),
+    [briefingQuery.data, providerAccountId],
+  );
+  const briefingCardIndex = useMemo(
+    () => indexCreativeStudioBriefingCards(briefingCards),
+    [briefingCards],
+  );
+  const activeDecisionCard = useMemo(
+    () => (activeDetailRow ? findCreativeStudioCard(activeDetailRow, briefingCardIndex) : null),
+    [activeDetailRow, briefingCardIndex],
+  );
+  const activeCreativeBrief = useMemo(() => {
+    const creativeId = activeDetailRow?.creativeId || activeDetailRow?.id;
+    if (!creativeId) return null;
+    if (briefEditorBriefId === null) return null;
+    if (typeof briefEditorBriefId === "string") {
+      return creativeBriefsQuery.data?.briefs.find((brief) => brief.id === briefEditorBriefId) ?? null;
+    }
+    const activeSnapshotId = activeDecisionCard?.sourceDecisionSnapshotId ?? null;
+    if (!activeSnapshotId) return null;
+    return (
+      creativeBriefsQuery.data?.briefs.find(
+        (brief) =>
+          brief.sourceDecision.creativeId === creativeId &&
+          brief.sourceDecision.snapshotId === activeSnapshotId,
+      ) ?? null
+    );
+  }, [activeDecisionCard, activeDetailRow, briefEditorBriefId, creativeBriefsQuery.data]);
+
+  const handleCreativeBriefChanged = (brief: MetaCreativeBrief) => {
+    queryClient.setQueryData<{
+      briefs: MetaCreativeBrief[];
+      capability: MetaCreativeBriefCapability;
+    }>(creativeBriefsQueryKey, (current) =>
+      current
+        ? {
+            ...current,
+            briefs: [brief, ...current.briefs.filter((item) => item.id !== brief.id)],
+          }
+        : current,
+    );
+    setBriefEditorBriefId(brief.id);
+  };
+
+  const openBriefCard = (card: BriefingCreativeCard) => {
+    const creativeId = card.creativeId?.trim() || card.id;
+    const row = allRows.find(
+      (candidate) => candidate.creativeId === creativeId || candidate.id === creativeId,
+    );
+    if (!row) return;
+    setBriefEditorBriefId(null);
+    setDetailRowId(row.id);
+  };
+
+  const editCreativeBrief = (brief: MetaCreativeBrief) => {
+    const row = allRows.find(
+      (candidate) =>
+        candidate.creativeId === brief.sourceDecision.creativeId ||
+        candidate.id === brief.sourceDecision.creativeId,
+    );
+    if (!row) return;
+    setBriefEditorBriefId(brief.id);
+    setDetailRowId(row.id);
+  };
 
   const selectedRows = useMemo(
-    () => filteredRows.filter((row) => selectedRowIds.includes(row.id)),
-    [filteredRows, selectedRowIds],
+    () => allRows.filter((row) => selectedRowIds.includes(row.id)),
+    [allRows, selectedRowIds],
   );
-
-  const topPanelRows = selectedRows.length > 0 ? selectedRows : filteredRows.slice(0, 8);
-  const activeDetailRow = useMemo(
-    () => filteredRows.find((row) => row.id === detailRowId) ?? null,
-    [detailRowId, filteredRows],
-  );
-  const tableRows = sortedRows.length > 0 ? sortedRows : filteredRows;
-  const previewReadyCount = filteredRows.filter(hasRenderablePreview).length;
-  const previewSummary = creativesQuery.data?.preview_coverage
-    ? {
-        total: creativesQuery.data.preview_coverage.totalCreatives,
-        ready: creativesQuery.data.preview_coverage.previewReadyCount,
-        pending: creativesQuery.data.preview_coverage.previewWaitingCount,
-        missing: creativesQuery.data.preview_coverage.previewMissingCount,
-        minimumReady: 1,
-      }
-    : {
-        total: filteredRows.length,
-        ready: previewReadyCount,
-        pending: 0,
-        missing: Math.max(0, filteredRows.length - previewReadyCount),
-        minimumReady: 1,
-      };
-  const previewStripState =
-    creativesQuery.isLoading || creativesQuery.isFetching
-      ? "data_loading"
-      : previewSummary.ready > 0
-        ? "ready"
-        : "missing";
-  const visibleCurrencies = currencySet(filteredRows, selectedBusinessCurrency);
-  const meanRoas = useMemo(() => {
-    const values = filteredRows
-      .map((row) => finite(row.roas))
-      .filter((value): value is number => value !== null);
-    if (values.length === 0) return null;
-    return values.reduce((sum, value) => sum + value, 0) / values.length;
-  }, [filteredRows]);
-  const compareTotals = useMemo(
-    () => ({
-      totalSpend: filteredRows.reduce((sum, row) => sum + row.spend, 0),
-      totalPurchaseValue: filteredRows.reduce((sum, row) => sum + row.purchaseValue, 0),
-    }),
-    [filteredRows],
-  );
-  const compareRows = useMemo(() => selectedRows.slice(0, 3), [selectedRows]);
 
   const toggleRowSelection = (rowId: string) => {
-    hasUserInteractedSelectionRef.current = true;
     setSelectedRowIds((previous) =>
       previous.includes(rowId) ? previous.filter((id) => id !== rowId) : [...previous, rowId],
     );
   };
 
-  const toggleAllRows = () => {
-    hasUserInteractedSelectionRef.current = true;
-    const allIds = filteredRows.map((row) => row.id);
-    setSelectedRowIds((previous) =>
-      allIds.every((id) => previous.includes(id)) ? [] : allIds,
-    );
-  };
-
-  const handleCsvExport = () => {
-    if (typeof document === "undefined") return;
-    setCsvError(null);
-    setCsvLoading(true);
-    try {
-      const csv = toCsv(tableRows);
-      const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `creative-studio-${new Date().toISOString().slice(0, 10)}.csv`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      document.body.removeChild(anchor);
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      setCsvError(error instanceof Error ? error.message : "CSV export failed.");
-    } finally {
-      setCsvLoading(false);
-    }
-  };
-
-  // Creative Studio share is now audience-aware: the toolbar Share action opens a
-  // preset modal instead of firing a hardcoded creative_team POST. The real POST
-  // still carries backend-supported ShareLinkConfig fields (audience, campaign-name
-  // anonymization, CSV permission, decision language) — no fabricated config.
+  // The Studio Share action mints an audience-aware, frozen snapshot link. The
+  // POST carries only backend-supported ShareLinkConfig fields — no fabricated
+  // config, and Tier-0 audiences structurally remove financial fields.
   const openShareModal = () => {
     setShareError(null);
+    setShareAudience("creative_team");
     setShareModalOpen(true);
   };
 
@@ -281,34 +506,40 @@ export default function MetaCreativeStudioPage() {
     setShareError(null);
     setShareLoading(true);
     try {
-      const rows = selectedRows.length > 0 ? selectedRows : tableRows.slice(0, 12);
-      if (rows.length === 0) throw new Error("Select at least one creative or load visible rows first.");
+      const rows = selectedRows;
+      if (rows.length === 0) throw new Error("Select at least one creative first.");
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-      // Creative-team / external presets structurally remove decision language at
-      // create-time; only the buyer preset may carry it, and only when the buyer
-      // decision-language toggle is already on. Never invent decision state.
-      const includeDecisionLanguage = shareAudience === "buyer" && buyerDecisionLanguage;
+      const sharePolicy = resolveCreativeStudioSharePolicy({
+        audience: shareAudience,
+        selectedMetricIds: topMetricIds,
+        buyerDecisionLanguage: false,
+        allowCsv,
+        anonymizeCampaignNames: anonymize,
+      });
       const response = await fetch("/api/creatives/share", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({
           title: "Creative Studio snapshot",
           businessId,
+          providerAccountId,
           dateRange: `${drStart} - ${drEnd}`,
           expiresAt,
-          metrics: supportedShareMetrics(topMetricIds),
+          metrics: sharePolicy.metrics,
           includeNotes: false,
           audience: shareAudience,
           presetId: "creative-studio",
           presetLabel: "Creative Studio",
-          includeCampaignNames: !anonymize,
-          includeDecisionLanguage,
-          allowCsv,
+          includeCampaignNames: sharePolicy.includeCampaignNames,
+          includeDecisionLanguage: sharePolicy.includeDecisionLanguage,
+          allowCsv: sharePolicy.allowCsv,
           snapshotOnly: true,
-          filters: ["Creative Studio", selectedRows.length > 0 ? "selected rows" : "visible rows"],
+          filters: ["Creative Studio", "selected assets"],
           selectedRowIds: rows.map((row) => row.id),
-          totalRows: filteredRows.length,
-          creatives: rows.map((row) => toSharedCreative(row)),
+          totalRows: allRows.length,
+          creatives: rows.map((row) =>
+            sharePolicy.creatorTier0 ? toCreatorTier0SharedCreative(row) : toSharedCreative(row),
+          ),
         }),
       });
       const payload = (await response.json().catch(() => null)) as { url?: string; message?: string } | null;
@@ -316,12 +547,41 @@ export default function MetaCreativeStudioPage() {
         throw new Error(payload?.message ?? "Share link could not be created.");
       }
       setShareUrl(payload.url);
+      await queryClient.invalidateQueries({ queryKey: creativeShareLedgerQueryKey });
       return payload.url;
     } catch (error) {
       setShareError(error instanceof Error ? error.message : "Share link could not be created.");
       return null;
     } finally {
       setShareLoading(false);
+    }
+  };
+
+  const mutateShareGrant = async (token: string, action: "revoke" | "rotate") => {
+    setShareMutationToken(token);
+    setShareMutationError(null);
+    try {
+      const response = await fetch(`/api/creatives/share/${encodeURIComponent(token)}`, {
+        method: action === "revoke" ? "DELETE" : "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(
+          action === "revoke"
+            ? { businessId }
+            : { businessId, action: "rotate" },
+        ),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { token?: string; url?: string; message?: string }
+        | null;
+      if (!response.ok) throw new Error(payload?.message ?? `Share ${action} failed (${response.status}).`);
+      await queryClient.invalidateQueries({ queryKey: creativeShareLedgerQueryKey });
+      if (action === "rotate" && payload?.url) setShareUrl(payload.url);
+      return action === "rotate" ? payload?.token ?? null : null;
+    } catch (error) {
+      setShareMutationError(error instanceof Error ? error.message : `Share ${action} failed.`);
+      return null;
+    } finally {
+      setShareMutationToken(null);
     }
   };
 
@@ -332,262 +592,209 @@ export default function MetaCreativeStudioPage() {
     }
   };
 
+  const datePresets = useMemo<StudioOsDatePreset[]>(
+    () =>
+      DATE_PRESETS.map((preset) => ({
+        key: preset.key,
+        label: preset.label,
+        value: {
+          preset: preset.key,
+          customStart: "",
+          customEnd: "",
+          lastDays: preset.lastDays,
+          sinceDate: "",
+        } satisfies CreativeDateRangeValue,
+      })),
+    [],
+  );
+
+  const account = providerAccountId
+    ? {
+        name: selectedProviderAccount?.name ?? providerAccountId,
+        id: providerAccountId,
+        currency: accountCurrency,
+      }
+    : null;
+
+  const asOf = briefingQuery.data?.source?.asOf ?? null;
+  const freshnessLabel = asOf ? `as of ${asOf}` : "as of —";
+  const engineVersion =
+    briefingQuery.data?.pulse?.engineVersion ??
+    briefingQuery.data?.source?.measurementReconciliation?.snapshotLatest?.engineVersion ??
+    null;
+  const dataSource = briefingQuery.data?.source?.dataSource ?? null;
+
+  const rowsState: "loading" | "error" | "ready" = creativesQuery.isError
+    ? "error"
+    : creativesQuery.isLoading
+      ? "loading"
+      : "ready";
+  const rowsError = creativesQuery.error instanceof Error ? creativesQuery.error.message : null;
+
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
   return (
     <PlanGate requiredPlan="growth">
-      <div className="ad-final ad-studio-console px-4 py-4" data-testid="creative-studio-page">
-        {/*
-          Scoped reference-token migration for the Creative Studio surface.
-          CreativesTopSection / CreativesTableSection are shared (copies,
-          CreativeDetailExperience) and use raw neutral-* Tailwind, so instead of
-          blind-editing 4600 lines we remap their palette/radius/font to the
-          reference (--adc / IBM Plex) ONLY within this page's scope. Unlayered
-          rules outrank Tailwind's @layer utilities, so no !important is needed.
-          Interim: the structural table grammar / DECISION column / drawer /
-          compare / share still need real component work.
-        */}
-        <style>{`
-          .ad-studio-console { font-family: var(--font-ibm-plex-sans), system-ui, sans-serif; }
-          .ad-studio-console .mono, .ad-studio-console .font-mono, .ad-studio-console .tabular-nums {
-            font-family: var(--font-ibm-plex-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+      <div
+        data-testid="creative-studio-page"
+        data-creatives-query-status={creativesQuery.status}
+        data-creatives-fetch-status={creativesQuery.fetchStatus}
+      >
+        <StudioOsView
+          businessId={businessId}
+          allRows={allRows}
+          briefingCards={briefingCards}
+          creativeBriefs={creativeBriefsQuery.data?.briefs ?? []}
+          creativeBriefsState={
+            creativeBriefsQuery.isError
+              ? "error"
+              : creativeBriefsQuery.data?.capability.status === "migration_required"
+                ? "migration_required"
+                : creativeBriefsQuery.data
+                  ? "ready"
+                  : "loading"
           }
-          .ad-studio-console .bg-white { background-color: #ffffff; }
-          .ad-studio-console .bg-neutral-50 { background-color: #f5f5f3; }
-          .ad-studio-console .bg-neutral-100 { background-color: #ededea; }
-          .ad-studio-console .border-neutral-100 { border-color: #ededea; }
-          .ad-studio-console .border-neutral-200 { border-color: #e4e4e0; }
-          .ad-studio-console .border-neutral-300 { border-color: #cdcdc7; }
-          .ad-studio-console .text-neutral-400 { color: #7d838c; }
-          .ad-studio-console .text-neutral-500 { color: #7d838c; }
-          .ad-studio-console .text-neutral-600 { color: #4a4f56; }
-          .ad-studio-console .text-neutral-700 { color: #4a4f56; }
-          .ad-studio-console .text-neutral-800 { color: #1a1c1f; }
-          .ad-studio-console .text-neutral-900 { color: #1a1c1f; }
-          .ad-studio-console .rounded-xl { border-radius: 8px; }
-          .ad-studio-console .rounded-lg { border-radius: 8px; }
-          .ad-studio-console .rounded-md { border-radius: 6px; }
-        `}</style>
-        <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4">
-          <header className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--surface)]">
-            <div className="flex flex-col gap-3 border-b border-[var(--border)] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-              <div className="min-w-0">
-                <div className="crumbs">
-                  Platforms · <b>Meta</b>
-                </div>
-                <div className="mt-0.5 flex flex-wrap items-center gap-2">
-                  <h1 className="page-title">Creative Studio</h1>
-                  <span className="chip chip--info">
-                    <Info className="h-3.5 w-3.5" />
-                    Analysis only - decisions live in <Link href={DECISIONS_HREF}>Decisions</Link>
-                  </span>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--muted)]">
-                <span className="mono">window {drStart} to {drEnd}</span>
-                <span className="chip chip--ghost">
-                  currency {visibleCurrencies.length === 0 ? "--" : visibleCurrencies.join(", ")}
-                </span>
-                <label
-                  className="chip chip--ghost cursor-pointer select-none"
-                  title="Reveal the server decision label per creative in the table. Analysis only — execution stays in Decisions."
-                >
-                  <input
-                    type="checkbox"
-                    checked={buyerDecisionLanguage}
-                    onChange={(event) => setBuyerDecisionLanguage(event.target.checked)}
-                    className="mr-1.5 align-middle accent-[var(--adc-ink,#1a1c1f)]"
-                  />
-                  buyer decision language
-                </label>
-                <Link className="btn btn--sm" href={DECISIONS_HREF}>
-                  Decisions
-                  <ArrowRight className="h-3.5 w-3.5" />
-                </Link>
-              </div>
-            </div>
-            <nav className="flex flex-wrap items-center gap-1 border-t border-[var(--adc-b1,#e4e4e0)] px-3 [font-family:var(--font-ibm-plex-sans)]">
-              <span
-                className="border-b-2 border-[var(--adc-ink,#1a1c1f)] px-3 py-2 text-[12.5px] font-semibold text-[var(--adc-ink,#1a1c1f)]"
-                aria-current="page"
-              >
-                Library
-              </span>
-              <Link className="border-b-2 border-transparent px-3 py-2 text-[12.5px] text-[var(--adc-ink2,#4a4f56)] hover:text-[var(--adc-ink,#1a1c1f)]" href={COPY_HREF}>Copy</Link>
-              <Link className="border-b-2 border-transparent px-3 py-2 text-[12.5px] text-[var(--adc-ink2,#4a4f56)] hover:text-[var(--adc-ink,#1a1c1f)]" href={LANDING_PAGES_HREF}>Landing pages</Link>
-              <Link className="border-b-2 border-transparent px-3 py-2 text-[12.5px] text-[var(--adc-ink2,#4a4f56)] hover:text-[var(--adc-ink,#1a1c1f)]" href={INBOX_HREF}>Inbox</Link>
-              <Link className="border-b-2 border-transparent px-3 py-2 text-[12.5px] text-[var(--adc-ink2,#4a4f56)] hover:text-[var(--adc-ink,#1a1c1f)]" href={AUDIENCES_HREF}>Audiences</Link>
-              <span className="ml-2 inline-flex items-center gap-1.5 self-center rounded-[4px] border border-[var(--adc-auto-bd,#d9ccf1)] bg-[var(--adc-auto-bg,#f2edfb)] px-2 py-0.5 text-[10.5px] font-medium text-[var(--adc-auto-fg,#6c41be)]" title="Angles need the ai_tags pivot contract before they become executable.">
-                Angles · needs server contract
-              </span>
-              <span className="inline-flex items-center gap-1.5 self-center rounded-[4px] border border-[var(--adc-auto-bd,#d9ccf1)] bg-[var(--adc-auto-bg,#f2edfb)] px-2 py-0.5 text-[10.5px] font-medium text-[var(--adc-auto-fg,#6c41be)]" title="Usage Map needs multi-context payloads before it can be shown honestly.">
-                Usage Map · needs server contract
-              </span>
-            </nav>
-          </header>
-
-          <section
-            className="flex flex-wrap items-center gap-x-5 gap-y-1.5 rounded-[8px] border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s2,#fff)] px-4 py-2.5 text-[12.5px] text-[var(--adc-ink2,#4a4f56)] [font-family:var(--font-ibm-plex-sans)]"
-            data-testid="studio-metric-strip"
-          >
-            <span>
-              Creatives{" "}
-              <b className="font-semibold tabular-nums text-[var(--adc-ink,#1a1c1f)] [font-family:var(--font-ibm-plex-mono)]">
-                {formatNumber(filteredRows.length)}
-              </b>
-            </span>
-            <span className="h-3.5 w-px bg-[var(--adc-b1,#e4e4e0)]" aria-hidden="true" />
-            <span>
-              Spend{" "}
-              <b className="font-semibold tabular-nums text-[var(--adc-ink,#1a1c1f)] [font-family:var(--font-ibm-plex-mono)]">
-                {spendSummary(filteredRows, selectedBusinessCurrency)}
-              </b>
-            </span>
-            <span className="h-3.5 w-px bg-[var(--adc-b1,#e4e4e0)]" aria-hidden="true" />
-            <span>
-              Mean ROAS{" "}
-              <b className="font-semibold tabular-nums text-[var(--adc-ink,#1a1c1f)] [font-family:var(--font-ibm-plex-mono)]">
-                {formatRoas(meanRoas)}
-              </b>
-            </span>
-            <span className="ml-auto text-[11px] text-[var(--adc-ink3,#7d838c)] [font-family:var(--font-ibm-plex-mono)]">
-              {formatNumber(selectedRows.length)} selected · preview {previewSummary.ready}/{previewSummary.total} · currency{" "}
-              {visibleCurrencies.length === 0 ? "—" : visibleCurrencies.join(", ")}
-            </span>
-          </section>
-
-          <section className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--surface)] p-3">
-            <CreativesTopSection
-              businessId={businessId}
-              showHeader={false}
-              v3Decisions={v3Decisions}
-              v3Flags={v3Flags}
-              title="Creative Library"
-              description="Inspect creative assets, sortable metrics, taxonomy, copy, and shareable evidence without issuing ad actions."
-              dateRange={dateRangeValue}
-              onDateRangeChange={setDateRangeValue}
-              groupBy={groupBy}
-              onGroupByChange={setGroupBy}
-              filters={topFilters}
-              onFiltersChange={setTopFilters}
-              selectedMetricIds={topMetricIds}
-              onSelectedMetricIdsChange={setTopMetricIds}
-              selectedRows={topPanelRows}
-              allRowsForHeatmap={filteredRows}
-              defaultCurrency={selectedBusinessCurrency}
-              onOpenRow={(rowId) => setDetailRowId(rowId)}
-              onShareExport={openShareModal}
-              onCsvExport={handleCsvExport}
-              shareExportLoading={shareLoading}
-              csvExportLoading={csvLoading}
-              shareUrl={shareUrl}
-              shareError={shareError}
-              csvError={csvError}
-              previewStripState={previewStripState}
-              previewStripSummary={previewSummary}
-              belowToolbar={
-                <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--muted)]">
-                  <span className="chip chip--ghost">Gallery and table use the same visible rows</span>
-                  <span className="chip chip--ghost">Decision labels are context only</span>
-                  <span className="chip chip--ghost">Ad actions stay in Decisions or Launchpad</span>
-                </div>
-              }
-            />
-          </section>
-
-          {creativesQuery.isLoading ? (
-            <LoadingSkeleton rows={6} />
-          ) : creativesQuery.isError ? (
-            <ErrorState
-              title="Could not load creative library"
-              description={
-                creativesQuery.error instanceof Error
-                  ? creativesQuery.error.message
-                  : "Could not load creative performance data."
-              }
-              onRetry={() => creativesQuery.refetch()}
-            />
-          ) : filteredRows.length === 0 ? (
-            <EmptyState
-              title="No creatives found for this scope"
-              description="Try a wider date range or remove filters. Missing data is not replaced with zero rows."
-            />
-          ) : (
-            <CreativesTableSection
-              rows={filteredRows}
-              initialPresetName="Creative Studio"
-              selectedMetricIds={topMetricIds}
-              onSelectedMetricIdsChange={setTopMetricIds}
-              selectedRowIds={selectedRowIds}
-              defaultCurrency={selectedBusinessCurrency}
-              v3Decisions={v3Decisions}
-              v3Flags={v3Flags}
-              buyerDecisionLanguage={buyerDecisionLanguage}
-              onToggleRow={toggleRowSelection}
-              onToggleAll={toggleAllRows}
-              onOpenRow={(rowId) => setDetailRowId(rowId)}
-              onSortedRowsChange={setSortedRows}
-            />
+          shareGrants={creativeShareLedgerQuery.data?.grants ?? []}
+          shareGrantsCapability={creativeShareLedgerQuery.data?.capability ?? null}
+          shareGrantsState={
+            creativeShareLedgerQuery.isError
+              ? "error"
+              : creativeShareLedgerQuery.data
+                ? "ready"
+                : "loading"
+          }
+          shareMutationToken={shareMutationToken}
+          shareMutationError={shareMutationError}
+          defaultCurrency={accountCurrency}
+          account={account}
+          providerAccounts={providerAccounts.map((entry) => ({
+            id: entry.id,
+            name: entry.name,
+            currency: entry.currency,
+          }))}
+          providerAccountId={providerAccountId}
+          accountsLoading={providerAccountsQuery.isLoading}
+          onSelectAccount={(nextProviderAccountId) => {
+            if (typeof window !== "undefined") {
+              const url = new URL(window.location.href);
+              url.searchParams.set("providerAccountId", nextProviderAccountId);
+              url.searchParams.delete("creativeId");
+              window.history.replaceState(null, "", url);
+            }
+            setSelectedProviderAccountId(nextProviderAccountId);
+            setSelectedRowIds([]);
+            setDetailRowId(null);
+            setBriefEditorBriefId(undefined);
+            setShareUrl(null);
+            setShareError(null);
+          }}
+          dateRangeLabel={`${drStart} → ${drEnd}`}
+          dateStart={drStart}
+          dateEnd={drEnd}
+          windowLabel={`window ${drStart} to ${drEnd}`}
+          freshnessLabel={freshnessLabel}
+          engineVersion={engineVersion}
+          dataSource={dataSource}
+          groupBy={groupBy}
+          onGroupByChange={setGroupBy}
+          datePresets={datePresets}
+          currentDatePresetKey={dateRangeValue.preset}
+          onDatePreset={setDateRangeValue}
+          dateRangePickerValue={creativeDateRangeToStandard(
+            dateRangeValue,
+            accountReferenceDate,
           )}
+          onDateRangePickerChange={(next) =>
+            setDateRangeValue(standardDateRangeToCreative(next))
+          }
+          dateReferenceDate={accountReferenceDate}
+          dateTimeZoneLabel={accountTimeZone}
+          activeTab={activeStudioTab}
+          selectedRowIds={selectedRowIds}
+          onToggleRow={toggleRowSelection}
+          onClearSelection={() => setSelectedRowIds([])}
+          loadUsageRows={loadUsageRows}
+          rowsState={rowsState}
+          rowsError={rowsError}
+          briefingState={
+            briefingQuery.isError ? "error" : briefingQuery.data ? "ready" : "loading"
+          }
+          briefingError={
+            briefingQuery.error instanceof Error ? briefingQuery.error.message : null
+          }
+          decisionsHref={buildMetaScopedHref(DECISIONS_HREF, {
+            businessId,
+            providerAccountId,
+          })}
+          launchpadHref={buildMetaScopedHref(LAUNCHPAD_HREF, {
+            businessId,
+            providerAccountId,
+          })}
+          automationHref={buildMetaScopedHref(AUTOMATION_HREF, {
+            businessId,
+            providerAccountId,
+          })}
+          onEditBrief={editCreativeBrief}
+          onNewBrief={
+            creativeBriefsQuery.data?.capability.canWrite && briefingCards.length > 0
+              ? () => openBriefCard(briefingCards[0]!)
+              : null
+          }
+          onOpenGrant={openShareModal}
+          onRevokeShare={async (token) => {
+            await mutateShareGrant(token, "revoke");
+          }}
+          onRotateShare={(token) => mutateShareGrant(token, "rotate")}
+          decisions={decisionsWorkspaceQuery.data ?? null}
+          decisionsState={
+            decisionsWorkspaceQuery.isError ? "error" : decisionsWorkspaceQuery.data ? "ready" : "loading"
+          }
+        />
 
-          {!creativesQuery.isLoading && !creativesQuery.isError && filteredRows.length > 0 ? (
-            <div
-              className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[8px] border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s2,#fff)] px-4 py-2.5 text-[11px] text-[var(--adc-ink3,#7d838c)] [font-family:var(--font-ibm-plex-sans)]"
-              data-testid="studio-compare-footer"
-            >
-              <span>
-                Showing {filteredRows.length} of {allRows.length} active creatives · CSV export matches
-                on-screen labels · video metrics blank without video evidence
-              </span>
-              <div className="flex-1" aria-hidden="true" />
-              <button
-                type="button"
-                onClick={() => setCompareOpen(true)}
-                disabled={selectedRows.length < 2}
-                className="rounded-[6px] border border-[var(--adc-b2,#cdcdc7)] bg-transparent px-2.5 py-1 text-[11.5px] text-[var(--adc-ink,#1a1c1f)] transition-colors hover:bg-[var(--adc-s3,#ededea)] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent"
-              >
-                Compare {selectedRows.length} selected
-              </button>
-            </div>
-          ) : null}
+        <ReadOnlyCreativeDrawer
+          businessId={businessId}
+          providerAccountId={providerAccountId}
+          row={activeDetailRow}
+          decisionCard={activeDecisionCard}
+          creativeBrief={activeCreativeBrief}
+          creativeBriefState={
+            creativeBriefsQuery.isError
+              ? "error"
+              : creativeBriefsQuery.data?.capability.status === "migration_required"
+                ? "migration_required"
+                : creativeBriefsQuery.data
+                  ? "ready"
+                  : "loading"
+          }
+          creativeBriefError={
+            creativeBriefsQuery.error instanceof Error ? creativeBriefsQuery.error.message : null
+          }
+          defaultCurrency={accountCurrency}
+          onCreativeBriefChanged={handleCreativeBriefChanged}
+          onClose={() => {
+            setDetailRowId(null);
+            setBriefEditorBriefId(undefined);
+          }}
+        />
 
-          <ReadOnlyCreativeDrawer
-            businessId={businessId}
-            row={activeDetailRow}
-            notes={detailNotes}
-            defaultCurrency={selectedBusinessCurrency}
-            onNotesChange={setDetailNotes}
-            onClose={() => setDetailRowId(null)}
+        {shareModalOpen ? (
+          <ShareSnapshotModal
+            audience={shareAudience}
+            anonymize={anonymize}
+            allowCsv={allowCsv}
+            decisionLanguageAvailable={false}
+            shareLoading={shareLoading}
+            shareError={shareError}
+            shareUrl={shareUrl}
+            selectedCount={selectedRows.length}
+            onAudienceChange={setShareAudience}
+            onAnonymizeChange={setAnonymize}
+            onAllowCsvChange={setAllowCsv}
+            onCopyLink={handleShareCopyLink}
+            onPreview={submitShare}
+            onClose={() => setShareModalOpen(false)}
           />
-
-          {compareOpen ? (
-            <CreativeCompareModal
-              rows={compareRows}
-              defaultCurrency={selectedBusinessCurrency}
-              totals={compareTotals}
-              window={`${drStart} to ${drEnd}`}
-              onClose={() => setCompareOpen(false)}
-            />
-          ) : null}
-
-          {shareModalOpen ? (
-            <ShareSnapshotModal
-              audience={shareAudience}
-              anonymize={anonymize}
-              allowCsv={allowCsv}
-              decisionLanguageAvailable={buyerDecisionLanguage}
-              shareLoading={shareLoading}
-              shareError={shareError}
-              shareUrl={shareUrl}
-              onAudienceChange={setShareAudience}
-              onAnonymizeChange={setAnonymize}
-              onAllowCsvChange={setAllowCsv}
-              onCopyLink={handleShareCopyLink}
-              onPreview={submitShare}
-              onClose={() => setShareModalOpen(false)}
-            />
-          ) : null}
-        </div>
+        ) : null}
       </div>
     </PlanGate>
   );
@@ -595,20 +802,30 @@ export default function MetaCreativeStudioPage() {
 
 function ReadOnlyCreativeDrawer({
   businessId,
+  providerAccountId,
   row,
-  notes,
+  decisionCard,
+  creativeBrief,
+  creativeBriefState,
+  creativeBriefError,
   defaultCurrency,
-  onNotesChange,
+  onCreativeBriefChanged,
   onClose,
 }: {
   businessId: string;
+  providerAccountId: string;
   row: MetaCreativeRow | null;
-  notes: string;
+  decisionCard: BriefingCreativeCard | null;
+  creativeBrief: MetaCreativeBrief | null;
+  creativeBriefState: "loading" | "error" | "migration_required" | "ready";
+  creativeBriefError: string | null;
   defaultCurrency: string | null;
-  onNotesChange: (value: string) => void;
+  onCreativeBriefChanged: (brief: MetaCreativeBrief) => void;
   onClose: () => void;
 }) {
   if (!row) return null;
+  const decisionBadge = resolveServerDecisionBadge(decisionCard);
+  const winnerQualification = qualifyCurrentWinner(decisionCard);
   const currency = resolveCreativeCurrency(row.currency ?? null, defaultCurrency);
   const metrics = [
     ["Spend", formatMoney(row.spend, currency, defaultCurrency)],
@@ -618,14 +835,14 @@ function ReadOnlyCreativeDrawer({
     ["Impressions", formatNumber(row.impressions)],
     ["Link clicks", formatNumber(row.linkClicks)],
   ];
-  const decisionHref = `${DECISIONS_HREF}?businessId=${encodeURIComponent(businessId)}&creativeId=${encodeURIComponent(row.creativeId || row.id)}`;
+  const decisionHref = `${DECISIONS_HREF}?businessId=${encodeURIComponent(businessId)}&providerAccountId=${encodeURIComponent(providerAccountId)}&creativeId=${encodeURIComponent(row.creativeId || row.id)}`;
 
   return (
     <div className="fixed inset-0 z-[90]">
       <button
         type="button"
         aria-label="Close creative detail"
-        className="absolute inset-0 cursor-default bg-neutral-950/40"
+        className="absolute inset-0 cursor-default bg-[rgba(16,18,22,0.4)]"
         onClick={onClose}
       />
       <aside className="absolute right-0 top-0 flex h-full w-full max-w-[520px] flex-col border-l border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-lg)]">
@@ -663,6 +880,31 @@ function ReadOnlyCreativeDrawer({
             />
           </div>
           <section className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--surface)] p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-[13px] font-semibold text-[var(--ink)]">Server decision context</h3>
+                <p className="mt-1 text-[11px] text-[var(--muted)]">
+                  {decisionCard?.engineVersion ?? "Engine era unavailable"} · {decisionCard?.sourceAsOf ?? "as-of unavailable"}
+                </p>
+              </div>
+              {decisionBadge ? (
+                <span className="chip chip--info" data-decision-source="server">{decisionBadge.label}</span>
+              ) : (
+                <span className="chip chip--ghost">No server badge</span>
+              )}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-[var(--muted)]">
+              <span className="chip chip--ghost">truth {decisionCard?.truthSource ?? "unavailable"}</span>
+              <span className="chip chip--ghost">threshold {decisionCard?.thresholdQuality ?? "unavailable"}</span>
+              <span className="chip chip--ghost">source {decisionCard?.sourceDataSource ?? "unavailable"}</span>
+            </div>
+            {winnerQualification.candidate && !winnerQualification.qualified ? (
+              <p className="mt-2 rounded-[var(--r-sm)] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-2.5 py-2 text-[11px] leading-4 text-[var(--warn)]">
+                {winnerQualification.explanation}
+              </p>
+            ) : null}
+          </section>
+          <section className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--surface)] p-3">
             <div className="mb-2 flex items-center gap-2 text-[13px] font-semibold text-[var(--ink)]">
               <ImageIcon className="h-4 w-4 text-[var(--muted)]" />
               Performance
@@ -693,18 +935,27 @@ function ReadOnlyCreativeDrawer({
               </p>
             ) : null}
           </section>
-          <section className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--surface)] p-3">
-            <label className="text-[13px] font-semibold text-[var(--ink)]" htmlFor="creative-studio-notes">
-              Notes
-            </label>
-            <textarea
-              id="creative-studio-notes"
-              value={notes}
-              onChange={(event) => onNotesChange(event.target.value)}
-              placeholder="Write hypotheses or handoff notes. These are local to this view."
-              className="mt-2 min-h-[94px] w-full rounded-[var(--r-sm)] border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[13px] outline-none focus:border-[var(--border-3)]"
+          {creativeBriefState === "ready" ? (
+            <CreativeBriefPanel
+              businessId={businessId}
+              providerAccountId={providerAccountId}
+              creativeId={row.creativeId || row.id}
+              decisionCard={decisionCard}
+              existingBrief={creativeBrief}
+              onBriefChanged={onCreativeBriefChanged}
             />
-          </section>
+          ) : (
+            <section className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--surface)] p-3 text-[11px] leading-4 text-[var(--muted)]">
+              <h3 className="text-[13px] font-semibold text-[var(--ink)]">Creative Brief</h3>
+              <p className="mt-1">
+                {creativeBriefState === "error"
+                  ? creativeBriefError ?? "Creative briefs are unavailable; editing is withheld."
+                  : creativeBriefState === "migration_required"
+                    ? "Creative Brief storage needs the pending database migration. Analysis remains available; creating and editing briefs is disabled."
+                    : "Loading account-scoped creative briefs..."}
+              </p>
+            </section>
+          )}
         </div>
         <footer className="border-t border-[var(--border)] bg-[var(--surface)] px-4 py-3">
           <Link className="btn btn--primary w-full" href={decisionHref}>
@@ -717,228 +968,7 @@ function ReadOnlyCreativeDrawer({
   );
 }
 
-// Metrics compared side-by-side. Video-derived rows are structurally blanked when a
-// creative has no video evidence (honesty law: no fabricated video metrics).
-const COMPARE_METRIC_IDS = ["spend", "roas", "costPerPurchase", "purchases", "ctrAll", "thumbstopRatio"];
-const COMPARE_VIDEO_METRIC_IDS = new Set([
-  "thumbstopRatio",
-  "firstFrameRetention",
-  "video25Rate",
-  "video50Rate",
-  "video75Rate",
-  "video100Rate",
-  "watchScore",
-  "holdRate",
-]);
-
-function CreativeCompareModal({
-  rows,
-  defaultCurrency,
-  totals,
-  window: windowLabel,
-  onClose,
-}: {
-  rows: MetaCreativeRow[];
-  defaultCurrency: string | null;
-  totals: { totalSpend: number; totalPurchaseValue: number };
-  window: string;
-  onClose: () => void;
-}) {
-  const columns = rows.slice(0, 3);
-  const gridTemplate = `120px repeat(${columns.length}, minmax(0, 1fr))`;
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(16,18,22,0.4)]">
-      <button type="button" aria-label="Close compare overlay" className="absolute inset-0 cursor-default" onClick={onClose} />
-      <div
-        role="dialog"
-        aria-modal="true"
-        data-testid="studio-compare-modal"
-        className="relative max-h-[88vh] w-[900px] max-w-[94vw] overflow-y-auto rounded-[10px] border border-[var(--adc-b2,#cdcdc7)] bg-[var(--adc-s2,#fff)] p-5 shadow-[var(--shadow-lg)] [font-family:var(--font-ibm-plex-sans)]"
-      >
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <span className="text-[15px] font-semibold text-[var(--adc-ink,#1a1c1f)]">
-              Compare · {columns.length} {columns.length === 1 ? "creative" : "creatives"}
-            </span>{" "}
-            <span className="text-[11px] text-[var(--adc-ink3,#7d838c)]">
-              · review-only — no writes here · window {windowLabel}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="flex h-[26px] w-[26px] items-center justify-center rounded-[6px] border border-[var(--adc-b1,#e4e4e0)] text-[var(--adc-ink2,#4a4f56)]"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="grid items-start gap-2.5" style={{ gridTemplateColumns: gridTemplate }}>
-          {/* Thumbnail header row */}
-          <div />
-          {columns.map((row) => (
-            <div key={`head-${row.id}`} className="text-center">
-              <div className="mx-auto w-[76px] overflow-hidden rounded-[6px] border border-[var(--adc-b1,#e4e4e0)]">
-                <CreativeRenderSurface
-                  id={row.id}
-                  name={row.name}
-                  preview={row.preview}
-                  size="thumb"
-                  mode="asset"
-                  assetState={hasRenderablePreview(row) ? "ready" : "missing"}
-                  assetFallbacks={[
-                    row.cardPreviewUrl,
-                    row.imageUrl,
-                    row.cachedThumbnailUrl,
-                    row.thumbnailUrl,
-                    row.previewUrl,
-                  ]}
-                  className="aspect-[4/5] w-full"
-                />
-              </div>
-              <div className="mt-1.5 truncate text-[12px] font-semibold text-[var(--adc-ink,#1a1c1f)]" title={row.name}>
-                {row.name}
-              </div>
-              <div className="text-[10.5px] text-[var(--adc-ink3,#7d838c)]">
-                {(row.format || "—").toUpperCase()} · ratio-true
-              </div>
-            </div>
-          ))}
-
-          {/* Metric rows */}
-          {COMPARE_METRIC_IDS.map((metricId) => {
-            const def = getCreativeMetricDefinition(metricId);
-            if (!def) return null;
-            const values = columns.map((row) => {
-              const videoBlank = COMPARE_VIDEO_METRIC_IDS.has(metricId) && !hasCreativeVideoEvidence(row);
-              return {
-                row,
-                videoBlank,
-                value: videoBlank ? null : finite(def.getValue(row, totals)),
-              };
-            });
-            const baseline = values[0]?.value ?? null;
-            return (
-              <CompareMetricRow
-                key={metricId}
-                label={def.label}
-                cells={values.map((entry) => {
-                  const currency = resolveCreativeCurrency(entry.row.currency ?? null, defaultCurrency);
-                  const display = entry.value === null ? "—" : def.format(entry.value, currency, defaultCurrency);
-                  return {
-                    id: entry.row.id,
-                    display,
-                    ...resolveCompareDelta({
-                      value: entry.value,
-                      baseline,
-                      isBaselineColumn: entry.row.id === values[0]?.row.id,
-                      direction: def.direction,
-                      videoBlank: entry.videoBlank,
-                      currency,
-                      defaultCurrency,
-                      format: def.format,
-                    }),
-                  };
-                })}
-              />
-            );
-          })}
-
-          {/* Copy row (context, not a metric) */}
-          <CompareMetricRow
-            label="Copy"
-            cells={columns.map((row) => ({
-              id: row.id,
-              display: row.copyText?.trim() ? row.copyText.trim() : "—",
-              deltaLabel: "",
-              deltaColor: "var(--adc-ink3,#7d838c)",
-              compact: true,
-            }))}
-          />
-        </div>
-
-        <div className="mt-2.5 text-[11px] text-[var(--adc-ink3,#7d838c)]">
-          Deltas vs the first column (baseline). Missing values render “—”; ranking is omitted where the
-          server does not supply it.
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function resolveCompareDelta({
-  value,
-  baseline,
-  isBaselineColumn,
-  direction,
-  videoBlank,
-  currency,
-  defaultCurrency,
-  format,
-}: {
-  value: number | null;
-  baseline: number | null;
-  isBaselineColumn: boolean;
-  direction: "high" | "low" | "neutral";
-  videoBlank: boolean;
-  currency: string | null;
-  defaultCurrency: string | null;
-  format: (n: number, rowCurrency?: string | null, defaultCurrency?: string | null) => string;
-}): { deltaLabel: string; deltaColor: string } {
-  const neutral = "var(--adc-ink3,#7d838c)";
-  if (isBaselineColumn) return { deltaLabel: "baseline", deltaColor: neutral };
-  if (value === null) return { deltaLabel: videoBlank ? "no video" : "—", deltaColor: neutral };
-  if (baseline === null) return { deltaLabel: "", deltaColor: neutral };
-  const delta = value - baseline;
-  if (delta === 0) return { deltaLabel: "±0", deltaColor: neutral };
-  const sign = delta > 0 ? "+" : "−";
-  const label = `${sign}${format(Math.abs(delta), currency, defaultCurrency)}`;
-  const improved = direction === "high" ? delta > 0 : direction === "low" ? delta < 0 : null;
-  const color =
-    improved === null
-      ? neutral
-      : improved
-        ? "var(--adc-pos-fg,#0b6b4f)"
-        : "var(--adc-danger-fg,#a6224a)";
-  return { deltaLabel: label, deltaColor: color };
-}
-
-function CompareMetricRow({
-  label,
-  cells,
-}: {
-  label: string;
-  cells: Array<{ id: string; display: string; deltaLabel: string; deltaColor: string; compact?: boolean }>;
-}) {
-  return (
-    <>
-      <div className="border-t border-[var(--adc-b1,#e4e4e0)] py-1.5 text-[11.5px] text-[var(--adc-ink3,#7d838c)]">
-        {label}
-      </div>
-      {cells.map((cell) => (
-        <div
-          key={`${label}-${cell.id}`}
-          className={`border-t border-[var(--adc-b1,#e4e4e0)] py-1.5 tabular-nums ${
-            cell.compact
-              ? "text-left text-[11.5px] leading-[1.4] text-[var(--adc-ink2,#4a4f56)]"
-              : "text-center text-[12.5px]"
-          }`}
-        >
-          <b className="font-semibold text-[var(--adc-ink,#1a1c1f)]">{cell.display}</b>
-          {cell.deltaLabel ? (
-            <span className="ml-1 text-[10.5px]" style={{ color: cell.deltaColor }}>
-              {cell.deltaLabel}
-            </span>
-          ) : null}
-        </div>
-      ))}
-    </>
-  );
-}
-
-const SHARE_AUDIENCES: Array<{ value: "buyer" | "creative_team" | "external"; label: string; note: string }> = [
+const SHARE_AUDIENCES: Array<{ value: ShareAudience; label: string; note: string }> = [
   {
     value: "buyer",
     label: "Buyer",
@@ -947,12 +977,12 @@ const SHARE_AUDIENCES: Array<{ value: "buyer" | "creative_team" | "external"; la
   {
     value: "creative_team",
     label: "Creative team",
-    note: "Creative-team preset: decision language is structurally removed at create-time and cannot be re-enabled on the share. Ships as a feedback package, not a table.",
+    note: "Tier 0 only: thumbstop, CTR, and video completion. Financials, delivery totals, targets, campaign names, and decision language are removed.",
   },
   {
     value: "external",
     label: "External",
-    note: "External preset: decision language structurally removed, campaign names anonymized by default, plain-language results page + print PDF.",
+    note: "Tier 0 only: thumbstop, CTR, and video completion. Campaign names, financials, delivery totals, targets, decision language, and CSV are removed.",
   },
 ];
 
@@ -964,6 +994,7 @@ function ShareSnapshotModal({
   shareLoading,
   shareError,
   shareUrl,
+  selectedCount,
   onAudienceChange,
   onAnonymizeChange,
   onAllowCsvChange,
@@ -971,14 +1002,15 @@ function ShareSnapshotModal({
   onPreview,
   onClose,
 }: {
-  audience: "buyer" | "creative_team" | "external";
+  audience: ShareAudience;
   anonymize: boolean;
   allowCsv: boolean;
   decisionLanguageAvailable: boolean;
   shareLoading: boolean;
   shareError: string | null;
   shareUrl: string | null;
-  onAudienceChange: (value: "buyer" | "creative_team" | "external") => void;
+  selectedCount: number;
+  onAudienceChange: (value: ShareAudience) => void;
   onAnonymizeChange: (value: boolean) => void;
   onAllowCsvChange: (value: boolean) => void;
   onCopyLink: () => void;
@@ -986,11 +1018,12 @@ function ShareSnapshotModal({
   onClose: () => void;
 }) {
   const activeNote = SHARE_AUDIENCES.find((entry) => entry.value === audience)?.note ?? "";
+  const creatorTier0 = audience !== "buyer";
   const decisionLanguageState =
     audience === "buyer"
       ? decisionLanguageAvailable
-        ? "carried (buyer toggle on)"
-        : "off (buyer toggle off)"
+        ? "carried from server evidence"
+        : "not included from Studio"
       : "structurally removed";
 
   return (
@@ -1012,6 +1045,10 @@ function ShareSnapshotModal({
           >
             <X className="h-4 w-4" />
           </button>
+        </div>
+
+        <div className="text-[11.5px] text-[var(--adc-ink3,#7d838c)]">
+          {selectedCount} creative{selectedCount === 1 ? "" : "s"} selected.
         </div>
 
         <div className="flex gap-1.5">
@@ -1042,7 +1079,8 @@ function ShareSnapshotModal({
         <label className="flex items-center gap-2 text-[12px] text-[var(--adc-ink,#1a1c1f)]">
           <input
             type="checkbox"
-            checked={anonymize}
+            checked={creatorTier0 || anonymize}
+            disabled={creatorTier0}
             onChange={(event) => onAnonymizeChange(event.target.checked)}
             className="m-0 accent-[var(--adc-ink,#1a1c1f)]"
           />
@@ -1051,7 +1089,8 @@ function ShareSnapshotModal({
         <label className="flex items-center gap-2 text-[12px] text-[var(--adc-ink,#1a1c1f)]">
           <input
             type="checkbox"
-            checked={allowCsv}
+            checked={!creatorTier0 && allowCsv}
+            disabled={creatorTier0}
             onChange={(event) => onAllowCsvChange(event.target.checked)}
             className="m-0 accent-[var(--adc-ink,#1a1c1f)]"
           />

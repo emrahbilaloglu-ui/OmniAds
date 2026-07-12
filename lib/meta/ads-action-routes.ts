@@ -323,18 +323,22 @@ export async function handleMetaAdDuplicateAction(
       "targetAdsetId is required.",
     );
   }
+  if (body?.activateAfterCreate === true) {
+    return jsonError(
+      400,
+      "active_create_not_supported",
+      "Duplicate ads must be created PAUSED and resumed separately.",
+    );
+  }
 
   const prepared = await prepareAction({ request, adId: inputAdId, body, action: "duplicate" });
   if (!prepared.ok) return prepared.response;
 
   const resolvedAdId = prepared.target.adId;
-  const activateAfterCreate = body?.activateAfterCreate === true;
-  const statusOption = activateAfterCreate ? "ACTIVE" : "PAUSED";
   const existingDuplicate = await findRecentDuplicateActionResult({
     businessId: prepared.businessId,
     adId: resolvedAdId,
     targetAdsetId,
-    statusOption,
     sinceMinutes: 10,
   });
   if (existingDuplicate?.resultingAdId) {
@@ -357,7 +361,7 @@ export async function handleMetaAdDuplicateAction(
     body: {
       adset_id: targetAdsetId,
       target_adset_id: targetAdsetId,
-      status_option: statusOption,
+      status_option: "PAUSED",
       name: trimmedName ?? null,
       dry_run: dryRunFromBody(body),
     },
@@ -380,7 +384,6 @@ export async function handleMetaAdDuplicateAction(
       adId: resolvedAdId,
       targetAdsetId,
       name: trimmedName,
-      activateAfterCreate,
       ...(dryRunFromBody(body) ? { dryRun: true } : {}),
     });
 

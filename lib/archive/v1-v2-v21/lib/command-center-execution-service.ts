@@ -56,7 +56,7 @@ import {
   mutateMetaAdSetExecution,
   type MetaExecutionAdSetState,
   type MetaExecutionMutationResult,
-} from "@/lib/meta/execution";
+} from "./meta-execution";
 
 class CommandCenterExecutionError extends Error {
   readonly code: string;

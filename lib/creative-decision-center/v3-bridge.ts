@@ -121,6 +121,7 @@ const PERFORMANCE_BADGES = new Set<V3BadgeType>([
 ]);
 
 const REVIEW_WORTHY_KEEP_BADGES = new Set<V3BadgeType>([
+  "pending_transition",
   "unlabeled_campaign_context",
   "scale_readiness_blocked",
   "scale_calibration_thin",
@@ -262,6 +263,15 @@ function deriveProblemClass(
 function mapKeep(
   decision: DecisionOutput,
 ): MappingDecision | V3BridgeOmitReason {
+  if (hasBadge(decision, "pending_transition")) {
+    return {
+      primaryDecision: "Test More",
+      problemClass: "insufficient_signal",
+      actionability: "review_only",
+      reasonTags: ["pending_hard_action"],
+    };
+  }
+
   if (hasCampaignLabelGap(decision)) {
     return {
       primaryDecision: "Diagnose",
@@ -301,10 +311,20 @@ function mapKeep(
   }
 
   if (!hasAnyBadge(decision, REVIEW_WORTHY_KEEP_BADGES)) {
-    return "plain_keep_no_action";
+    return {
+      primaryDecision: "Protect",
+      problemClass: "performance",
+      actionability: "review_only",
+      reasonTags: ["v3_keep", "stable_keep_running"],
+    };
   }
 
-  return "plain_keep_no_action";
+  return {
+    primaryDecision: "Protect",
+    problemClass: deriveProblemClass(decision, decision.label),
+    actionability: "review_only",
+    reasonTags: ["v3_keep", "stable_keep_running"],
+  };
 }
 
 function mapDecision(
@@ -367,7 +387,12 @@ function mapDecision(
     case "keep":
       return mapKeep(decision);
     case "out_of_scope":
-      return "out_of_scope";
+      return {
+        primaryDecision: "Protect",
+        problemClass: "performance",
+        actionability: "review_only",
+        reasonTags: ["v3_out_of_scope", "compat_not_applicable"],
+      };
   }
 }
 

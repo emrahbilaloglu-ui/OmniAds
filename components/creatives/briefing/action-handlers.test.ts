@@ -68,6 +68,19 @@ describe("briefing action handlers", () => {
     );
   });
 
+  it("refuses to POST when the server card exposes review instead of cut authority", async () => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+
+    await expect(
+      pauseBriefingCard({
+        businessId: "biz_1",
+        card: card({ primary: { kind: "review", label: "Refresh evidence" } }),
+        fetchImpl,
+      }),
+    ).rejects.toThrow("server-authorized cut action");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("tries the next action id when the first Briefing id is not resolvable", async () => {
     const fetchImpl = vi
       .fn()

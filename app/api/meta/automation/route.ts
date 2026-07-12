@@ -10,6 +10,8 @@ import {
   type MetaAutomationDecisionMode,
 } from "@/lib/meta/automation-control-plane";
 import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
+import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
+import { resolveMetaCreativesAccountScope } from "@/lib/meta/creatives-warehouse";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +25,42 @@ function sanitizeErrorMessage(error: unknown) {
     .replace(/Bearer\s+[A-Za-z0-9._~-]+/gi, "Bearer [redacted]");
 }
 
+async function resolveAutomationAccountScope(input: {
+  businessId: string;
+  providerAccountId: string | null;
+}) {
+  try {
+    const result = resolveMetaCreativesAccountScope({
+      assignedAccountIds: await fetchAssignedAccountIds(input.businessId),
+      requestedProviderAccountId: input.providerAccountId,
+    });
+    if (result.ok) return { ok: true as const, providerAccountId: result.providerAccountId };
+    return {
+      ok: false as const,
+      response: jsonError(
+        result.status === "account_not_assigned" ? 403 : 400,
+        result.status,
+        result.status === "account_not_assigned"
+          ? "The requested Meta account is not assigned to this business."
+          : "Select one assigned Meta account before reading or changing Automation.",
+      ),
+    };
+  } catch {
+    return {
+      ok: false as const,
+      response: jsonError(
+        503,
+        "provider_account_scope_unavailable",
+        "Meta account assignments are unavailable; Automation fails closed.",
+      ),
+    };
+  }
+}
+
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId")?.trim() ?? "";
+  const requestedProviderAccountId =
+    request.nextUrl.searchParams.get("providerAccountId")?.trim() || null;
   if (!businessId) return jsonError(400, "missing_business_id", "businessId is required.");
 
   const access = await requireBusinessAccess({
@@ -34,9 +70,16 @@ export async function GET(request: NextRequest) {
   });
   if ("error" in access) return access.error;
 
+  const accountScope = await resolveAutomationAccountScope({
+    businessId: access.membership.businessId,
+    providerAccountId: requestedProviderAccountId,
+  });
+  if (!accountScope.ok) return accountScope.response;
+
   try {
     const automation = await getMetaAutomationControlPlane({
       businessId: access.membership.businessId,
+      providerAccountId: accountScope.providerAccountId,
     });
     return NextResponse.json({ ok: true, automation });
   } catch (error) {
@@ -46,14 +89,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId")?.trim() ?? "";
+  const requestedProviderAccountId =
+    request.nextUrl.searchParams.get("providerAccountId")?.trim() || null;
   if (!businessId) return jsonError(400, "missing_business_id", "businessId is required.");
-
-  const access = await requireBusinessAccess({
-    request,
-    businessId,
-    minRole: "collaborator",
-  });
-  if ("error" in access) return access.error;
 
   const body = (await request.json().catch(() => null)) as
     | { action?: unknown; reason?: unknown; decisionType?: unknown; mode?: unknown }
@@ -70,6 +108,19 @@ export async function POST(request: NextRequest) {
       "Only engage_kill_switch, release_kill_switch and set_decision_type_mode are supported from Automation.",
     );
   }
+
+  const access = await requireBusinessAccess({
+    request,
+    businessId,
+    minRole: action === "release_kill_switch" ? "admin" : "collaborator",
+  });
+  if ("error" in access) return access.error;
+
+  const accountScope = await resolveAutomationAccountScope({
+    businessId: access.membership.businessId,
+    providerAccountId: requestedProviderAccountId,
+  });
+  if (!accountScope.ok) return accountScope.response;
 
   const reviewerBlocked = rejectIfReviewerReadOnly(
     access,
@@ -101,6 +152,20 @@ export async function POST(request: NextRequest) {
 
   try {
     if (action === "release_kill_switch") {
+      const preflight = await getMetaAutomationControlPlane({
+        businessId: access.membership.businessId,
+        providerAccountId: accountScope.providerAccountId,
+      });
+      if (
+        preflight.businessControl.source !== "persisted" ||
+        !preflight.businessControl.killSwitchEngaged
+      ) {
+        return jsonError(
+          409,
+          "kill_switch_release_preflight_failed",
+          "Business STOP release was withheld because a fresh persisted engaged state could not be verified.",
+        );
+      }
       await releaseMetaAutomationKillSwitch({
         businessId: access.membership.businessId,
         userId: access.session.user.id,
@@ -122,6 +187,7 @@ export async function POST(request: NextRequest) {
     }
     const automation = await getMetaAutomationControlPlane({
       businessId: access.membership.businessId,
+      providerAccountId: accountScope.providerAccountId,
     });
     return NextResponse.json({ ok: true, automation });
   } catch (error) {

@@ -22,6 +22,7 @@ import type {
   BriefingPriorityScore,
   BriefingWatchingSubBucket,
 } from "@/components/creatives/briefing/types";
+import { classifyMetaCreativeAssessment } from "@/lib/meta/creative-assessment";
 
 type DecisionCenterRowForCard = NonNullable<
   BriefingCreativeCard["decisionCenterRow"]
@@ -85,6 +86,24 @@ function primaryActionForDecision(decision: DecisionOutput): {
   return { kind: "review", label: "Review" };
 }
 
+function hardActionAuthorityBlocked(decision: DecisionOutput) {
+  return (
+    decision.truthSource === "commercial_truth_stale" ||
+    decision.badges.some(
+      (badge) =>
+        badge.type === "stale_evidence" ||
+        badge.type === "pending_transition",
+    )
+  );
+}
+
+function blockedHardActionReview(decision: DecisionOutput) {
+  if (decision.badges.some((badge) => badge.type === "pending_transition")) {
+    return { kind: "review", label: "Review pending signal" };
+  }
+  return { kind: "review", label: "Refresh evidence" };
+}
+
 function primaryActionForDecisionCenterRow(
   row: DecisionCenterRowForCard | null | undefined,
 ): {
@@ -114,7 +133,9 @@ function safeString(value: unknown) {
 
 function previewForRow(row: MetaCreativeApiRow | null | undefined) {
   const source =
-    row?.preview && typeof row.preview === "object" && !Array.isArray(row.preview)
+    row?.preview &&
+    typeof row.preview === "object" &&
+    !Array.isArray(row.preview)
       ? (row.preview as unknown as Record<string, unknown>)
       : null;
   const image =
@@ -128,7 +149,11 @@ function previewForRow(row: MetaCreativeApiRow | null | undefined) {
     safeString(row?.table_thumbnail_url);
   const video = safeString(source?.video_url);
   return {
-    render_mode: video ? ("video" as const) : image ? ("image" as const) : ("unavailable" as const),
+    render_mode: video
+      ? ("video" as const)
+      : image
+        ? ("image" as const)
+        : ("unavailable" as const),
     image_url: image,
     video_url: video,
     poster_url:
@@ -231,10 +256,7 @@ export function deriveWatchingSubBucket(
   ) {
     return "near_action";
   }
-  if (
-    decision.label === "test_more" &&
-    !badgeTypes.has("launch_monitoring")
-  ) {
+  if (decision.label === "test_more" && !badgeTypes.has("launch_monitoring")) {
     return "test_maturing";
   }
   return null;
@@ -311,10 +333,14 @@ function addDaysToIso(value: string | null | undefined, days: number) {
 
 function thresholdProvenanceSource(
   decision: DecisionOutput,
-): NonNullable<BriefingDecisionExplainability["thresholdProvenance"]>["source"] {
+): NonNullable<
+  BriefingDecisionExplainability["thresholdProvenance"]
+>["source"] {
   switch (decision.truthSource) {
     case "commercial_truth":
       return "operator_target";
+    case "commercial_truth_stale":
+      return "operator_target_stale";
     case "account_baseline":
       return "account_baseline";
     case "account_baseline_thin":
@@ -368,8 +394,7 @@ export function buildBriefingPriorityScore(
       conf *
       severity *
       action
-    )
-      .toFixed(2),
+    ).toFixed(2),
   );
 
   return {
@@ -450,7 +475,10 @@ function buildBriefingDecisionExplainability(input: {
     // The decision's own confidence decade, answered empirically: how often
     // hard decisions at this confidence were realized positive.
     bucketObservedRate: (() => {
-      const decade = Math.min(9, Math.floor(Math.max(0, input.decision.confidence) / 10));
+      const decade = Math.min(
+        9,
+        Math.floor(Math.max(0, input.decision.confidence) / 10),
+      );
       const bucket = `${decade * 10}_${decade * 10 + 9}`;
       const cell = backtest?.hardConfidenceBuckets.find(
         (item) => item.bucket === bucket,
@@ -458,7 +486,10 @@ function buildBriefingDecisionExplainability(input: {
       return cell ? cell.observedRate : null;
     })(),
     bucketObservedSampleSize: (() => {
-      const decade = Math.min(9, Math.floor(Math.max(0, input.decision.confidence) / 10));
+      const decade = Math.min(
+        9,
+        Math.floor(Math.max(0, input.decision.confidence) / 10),
+      );
       const bucket = `${decade * 10}_${decade * 10 + 9}`;
       const cell = backtest?.hardConfidenceBuckets.find(
         (item) => item.bucket === bucket,
@@ -503,6 +534,12 @@ export function cardForDecision(input: {
   const priorityScore = buildBriefingPriorityScore(decision);
 
   const decisionCenterRow = input.decisionCenterRow ?? null;
+  const assessment = classifyMetaCreativeAssessment({
+    label: decision.label,
+    truthSource: decision.truthSource,
+    badgeCodes: badgeLabels(decision.badges),
+    heldAction: decision.blockedActionType ?? null,
+  });
   return {
     id: row?.id || decision.creativeId,
     creativeId: decision.creativeId,
@@ -558,14 +595,16 @@ export function cardForDecision(input: {
       value: ctr,
       p50: null,
     },
-    primary:
-      primaryActionForDecisionCenterRow(decisionCenterRow) ??
-      primaryActionForDecision(decision),
+    primary: hardActionAuthorityBlocked(decision)
+      ? blockedHardActionReview(decision)
+      : primaryActionForDecisionCenterRow(decisionCenterRow) ??
+        primaryActionForDecision(decision),
     automationReadiness: creativeAutomationReadiness({
       decision,
       backtestSummary: input.backtestSummary ?? null,
     }),
     ...(decisionCenterRow ? { decisionCenterRow } : {}),
+    assessment,
     status: creativeInput?.effectiveStatus ?? row?.effective_status ?? null,
     ageDays: creativeInput?.ageDays ?? null,
     firstSeenAt: creativeInput?.firstSeenAt ?? null,
@@ -608,7 +647,12 @@ export function cardForDecision(input: {
     previewState:
       row?.preview_state === "preview" || row?.preview_state === "catalog"
         ? row.preview_state
-        : row?.card_preview_url || row?.preview_url || row?.thumbnail_url || row?.image_url || row?.cached_thumbnail_url || row?.table_thumbnail_url
+        : row?.card_preview_url ||
+            row?.preview_url ||
+            row?.thumbnail_url ||
+            row?.image_url ||
+            row?.cached_thumbnail_url ||
+            row?.table_thumbnail_url
           ? "preview"
           : "unavailable",
     isCatalog: row?.is_catalog ?? false,

@@ -1262,7 +1262,7 @@ export function CreativesTableSection({
   }, [tooltip]);
 
   return (
-    <section className="space-y-2 rounded-xl border border-neutral-200 bg-white p-3">
+    <section className="space-y-2 rounded-xl border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s2,#ffffff)] p-3">
       {/* A) controls row */}
       <div className="flex flex-wrap items-center gap-2">
         <div ref={presetWrapRef} className="relative">
@@ -1270,14 +1270,14 @@ export function CreativesTableSection({
             ref={presetTriggerRef}
             type="button"
             onClick={() => setShowPresetMenu((prev) => !prev)}
-            className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50"
+            className="inline-flex items-center gap-2 rounded-lg border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s2,#ffffff)] px-3 py-1.5 text-xs text-[var(--adc-ink2,#4a4f56)] hover:bg-[var(--adc-s1,#f5f5f3)]"
           >
             {tablePreset.presetName}
             <ChevronDown className="h-3.5 w-3.5" />
           </button>
 
           {showPresetMenu && (
-            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-80 rounded-xl border border-neutral-200 bg-white p-3 shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)] duration-150">
+            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-80 rounded-xl border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s2,#ffffff)] p-3 shadow-[var(--shadow-lg)] duration-150">
               <div className="mb-2 flex items-center gap-2 rounded-md border px-2 py-1.5">
                 <Search className="h-3.5 w-3.5 text-muted-foreground" />
                 <input
@@ -1315,7 +1315,7 @@ export function CreativesTableSection({
             ref={settingsTriggerRef}
             type="button"
             onClick={() => setShowSettings((prev) => !prev)}
-            className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50"
+            className="inline-flex items-center gap-2 rounded-lg border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s2,#ffffff)] px-3 py-1.5 text-xs text-[var(--adc-ink2,#4a4f56)] hover:bg-[var(--adc-s1,#f5f5f3)]"
           >
             <Settings2 className="h-3.5 w-3.5" />
             Table settings
@@ -1323,7 +1323,7 @@ export function CreativesTableSection({
           </button>
 
           {showSettings && (
-            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-[360px] rounded-xl border border-neutral-200 bg-white p-3 shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)] duration-150">
+            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-[360px] rounded-xl border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s2,#ffffff)] p-3 shadow-[var(--shadow-lg)] duration-150">
               <div className="space-y-2 border-b pb-3">
                 <label className="flex items-center justify-between text-xs">
                   <span>Color formatting</span>
@@ -1426,14 +1426,14 @@ export function CreativesTableSection({
             ref={tagsTriggerRef}
             type="button"
             onClick={() => setShowTagsMenu((prev) => !prev)}
-            className="inline-flex items-center gap-1 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50"
+            className="inline-flex items-center gap-1 rounded-lg border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s2,#ffffff)] px-3 py-1.5 text-xs text-[var(--adc-ink2,#4a4f56)] hover:bg-[var(--adc-s1,#f5f5f3)]"
           >
             <Tag className="h-3.5 w-3.5" />
             + AI tags
           </button>
 
           {showTagsMenu && (
-            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-[300px] rounded-xl border border-neutral-200 bg-white p-3 shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)] duration-150">
+            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-[300px] rounded-xl border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s2,#ffffff)] p-3 shadow-[var(--shadow-lg)] duration-150">
               <div className="mb-2 flex items-center gap-2 rounded-md border px-2 py-1.5">
                 <Search className="h-3.5 w-3.5 text-muted-foreground" />
                 <input
@@ -1458,7 +1458,7 @@ export function CreativesTableSection({
                         onClick={() => toggleAiTagColumn(item.value)}
                         className={cn(
                           "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-xs transition-colors",
-                          selectedAiTagColumns.includes(item.value) ? "bg-emerald-50 text-emerald-700" : "hover:bg-accent/60"
+                          selectedAiTagColumns.includes(item.value) ? "bg-[var(--adc-pos-bg,#e9f4ef)] text-[var(--adc-pos-fg,#0b6b4f)]" : "hover:bg-accent/60"
                         )}
                       >
                         <span>{item.label}</span>
@@ -1477,7 +1477,7 @@ export function CreativesTableSection({
         <button
           type="button"
           onClick={openMetricModal}
-          className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50"
+          className="rounded-lg border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s2,#ffffff)] px-3 py-1.5 text-xs text-[var(--adc-ink2,#4a4f56)] hover:bg-[var(--adc-s1,#f5f5f3)]"
         >
           + Add metric
         </button>
@@ -1485,7 +1485,7 @@ export function CreativesTableSection({
         {tablePreset.colorFormatting === "heatmap" ? (
           <div className="flex flex-wrap items-center gap-2">
             <div
-              className="inline-flex flex-wrap items-center gap-3 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-[11px] text-neutral-600"
+              className="inline-flex flex-wrap items-center gap-3 rounded-lg border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s1,#f5f5f3)] px-3 py-1.5 text-[11px] text-[var(--adc-ink2,#4a4f56)]"
               title={heatmapGuideTitle}
             >
               <span className="inline-flex items-center gap-1.5">
@@ -1509,7 +1509,7 @@ export function CreativesTableSection({
                 />
                 Below baseline
               </span>
-              <span className="text-neutral-500">Stronger tint = larger gap</span>
+              <span className="text-[var(--adc-ink3,#7d838c)]">Stronger tint = larger gap</span>
             </div>
           </div>
         ) : null}
@@ -1535,10 +1535,10 @@ export function CreativesTableSection({
         }}
       >
         <table className="table-fixed text-[10px]" style={{ width: totalTableWidth }}>
-          <thead className="sticky top-0 z-20 bg-neutral-50">
-            <tr className="border-b border-neutral-200">
+          <thead className="sticky top-0 z-20 bg-[var(--adc-s1,#f5f5f3)]">
+            <tr className="border-b border-[var(--adc-b1,#e4e4e0)]">
               <th
-                className="sticky left-0 z-30 border-r border-neutral-200 bg-neutral-50 px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-neutral-500"
+                className="sticky left-0 z-30 border-r border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s1,#f5f5f3)] px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-[var(--adc-ink3,#7d838c)]"
                 style={{
                   minWidth: STATIC_COLUMN_SPECS.creativeName.minWidth,
                   width: getColumnWidth(
@@ -1557,7 +1557,7 @@ export function CreativesTableSection({
                       className="inline-flex items-center gap-1 text-left"
                     >
                       <span>Creative / Ad Name</span>
-                      <span className="text-[10px] text-neutral-400">{sortIndicator("name")}</span>
+                      <span className="text-[10px] text-[var(--adc-ink3,#7d838c)]">{sortIndicator("name")}</span>
                     </button>
                   </label>
                   <button
@@ -1573,14 +1573,14 @@ export function CreativesTableSection({
                       )
                     }
                   >
-                    <span className="mx-auto block h-full w-px bg-neutral-300" />
+                    <span className="mx-auto block h-full w-px bg-[var(--adc-b2,#cdcdc7)]" />
                   </button>
                 </div>
               </th>
 
               {tablePreset.showLaunchDate && (
                 <th
-                  className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-neutral-500"
+                  className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-[var(--adc-ink3,#7d838c)]"
                   style={{
                     minWidth: STATIC_COLUMN_SPECS.launchDate.minWidth,
                     width: getColumnWidth(
@@ -1592,7 +1592,7 @@ export function CreativesTableSection({
                 >
                   <button type="button" className="inline-flex items-center gap-1" onClick={() => cycleSort("launchDate")}>
                     <span>Launch date</span>
-                    <span className="text-[10px] text-neutral-400">{sortIndicator("launchDate")}</span>
+                    <span className="text-[10px] text-[var(--adc-ink3,#7d838c)]">{sortIndicator("launchDate")}</span>
                   </button>
                   <button
                     type="button"
@@ -1607,14 +1607,14 @@ export function CreativesTableSection({
                       )
                     }
                   >
-                    <span className="mx-auto block h-full w-px bg-neutral-300" />
+                    <span className="mx-auto block h-full w-px bg-[var(--adc-b2,#cdcdc7)]" />
                   </button>
                 </th>
               )}
 
               {tablePreset.showActiveStatus && (
                 <th
-                  className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-neutral-500"
+                  className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-[var(--adc-ink3,#7d838c)]"
                   style={{
                     minWidth: STATIC_COLUMN_SPECS.activeStatus.minWidth,
                     width: getColumnWidth(
@@ -1638,14 +1638,14 @@ export function CreativesTableSection({
                       )
                     }
                   >
-                    <span className="mx-auto block h-full w-px bg-neutral-300" />
+                    <span className="mx-auto block h-full w-px bg-[var(--adc-b2,#cdcdc7)]" />
                   </button>
                 </th>
               )}
 
               {tablePreset.showAdLength && (
                 <th
-                  className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-neutral-500"
+                  className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-[var(--adc-ink3,#7d838c)]"
                   style={{
                     minWidth: STATIC_COLUMN_SPECS.adLength.minWidth,
                     width: getColumnWidth(
@@ -1669,7 +1669,7 @@ export function CreativesTableSection({
                       )
                     }
                   >
-                    <span className="mx-auto block h-full w-px bg-neutral-300" />
+                    <span className="mx-auto block h-full w-px bg-[var(--adc-b2,#cdcdc7)]" />
                   </button>
                 </th>
               )}
@@ -1682,7 +1682,7 @@ export function CreativesTableSection({
                 return (
                   <th
                     key={`ai_tag_header_${tagKey}`}
-                    className="group relative px-2.5 py-1.5 text-left text-[9px] font-medium leading-tight tracking-[0.01em] text-neutral-500"
+                    className="group relative px-2.5 py-1.5 text-left text-[9px] font-medium leading-tight tracking-[0.01em] text-[var(--adc-ink3,#7d838c)]"
                     style={{
                       minWidth: widthSpec.minWidth,
                       width: getColumnWidth(
@@ -1697,9 +1697,9 @@ export function CreativesTableSection({
                       className="inline-flex items-center gap-1.5 align-middle"
                       onClick={() => cycleSort(sortKey)}
                     >
-                      <Icon className="h-3.5 w-3.5 text-neutral-400" />
+                      <Icon className="h-3.5 w-3.5 text-[var(--adc-ink3,#7d838c)]" />
                       <span className="truncate">{label}</span>
-                      <span className="text-[10px] text-neutral-400">{sortIndicator(sortKey)}</span>
+                      <span className="text-[10px] text-[var(--adc-ink3,#7d838c)]">{sortIndicator(sortKey)}</span>
                     </button>
                     <button
                       type="button"
@@ -1714,7 +1714,7 @@ export function CreativesTableSection({
                         )
                       }
                     >
-                      <span className="mx-auto block h-full w-px bg-neutral-300" />
+                      <span className="mx-auto block h-full w-px bg-[var(--adc-b2,#cdcdc7)]" />
                     </button>
                   </th>
                 );
@@ -1723,7 +1723,7 @@ export function CreativesTableSection({
               {selectedColumns.map((column) => (
                 <th
                   key={column.key}
-                  className="group relative px-2.5 py-1 text-left text-[9px] font-medium leading-tight tracking-[0.01em] text-neutral-500"
+                  className="group relative px-2.5 py-1 text-left text-[9px] font-medium leading-tight tracking-[0.01em] text-[var(--adc-ink3,#7d838c)]"
                   style={{
                     minWidth: column.minWidth,
                     width: getColumnWidth(column.key, column.minWidth, column.preferredWidth),
@@ -1743,14 +1743,14 @@ export function CreativesTableSection({
                           className={cn(
                             "mt-[1px] inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border transition-colors",
                             isSelected
-                              ? "border-emerald-500 bg-emerald-500/20"
-                              : "border-neutral-300 bg-white hover:border-neutral-400",
+                              ? "border-[var(--adc-pos-bd,#bfdfd1)] bg-[var(--adc-pos-bg,#e9f4ef)]"
+                              : "border-[var(--adc-b2,#cdcdc7)] bg-[var(--adc-s2,#ffffff)] hover:border-[var(--adc-b2,#cdcdc7)]",
                             topMetricId ? "cursor-pointer" : "cursor-default"
                           )}
                           disabled={!topMetricId}
                           aria-label={`${column.label} metric visibility`}
                         >
-                          {isSelected && <span className="h-1.5 w-1.5 rounded-[2px] bg-emerald-600" />}
+                          {isSelected && <span className="h-1.5 w-1.5 rounded-[2px] bg-[var(--adc-pos-fg,#0b6b4f)]" />}
                         </button>
                         <button
                           type="button"
@@ -1767,7 +1767,7 @@ export function CreativesTableSection({
                           className="inline-flex min-w-0 items-start gap-1 text-left"
                         >
                           <span className="line-clamp-2">{column.label}</span>
-                          <span className="mt-px text-[10px] text-neutral-400">{sortIndicator(column.key)}</span>
+                          <span className="mt-px text-[10px] text-[var(--adc-ink3,#7d838c)]">{sortIndicator(column.key)}</span>
                         </button>
                       </div>
                     );
@@ -1778,14 +1778,14 @@ export function CreativesTableSection({
                     className="absolute right-0 top-0 h-full w-2 cursor-col-resize opacity-0 transition-opacity group-hover:opacity-100"
                     onMouseDown={(event) => startColumnResize(event, column.key, column.minWidth, column.preferredWidth)}
                   >
-                    <span className="mx-auto block h-full w-px bg-neutral-300" />
+                    <span className="mx-auto block h-full w-px bg-[var(--adc-b2,#cdcdc7)]" />
                   </button>
                 </th>
               ))}
 
               {showDecisionColumn ? (
                 <th
-                  className="px-2.5 py-1.5 text-right text-[9px] font-medium tracking-[0.01em] text-neutral-500"
+                  className="px-2.5 py-1.5 text-right text-[9px] font-medium tracking-[0.01em] text-[var(--adc-ink3,#7d838c)]"
                   style={{ minWidth: DECISION_COLUMN_WIDTH, width: DECISION_COLUMN_WIDTH }}
                 >
                   DECISION
@@ -1833,10 +1833,10 @@ export function CreativesTableSection({
               </tr>
             )}
           </tbody>
-          <tfoot className="sticky bottom-0 z-10 bg-neutral-50/95 backdrop-blur">
-            <tr className="border-t border-neutral-200">
+          <tfoot className="sticky bottom-0 z-10 bg-[var(--adc-s1,#f5f5f3)]/95 backdrop-blur">
+            <tr className="border-t border-[var(--adc-b1,#e4e4e0)]">
               <td
-                className="sticky left-0 z-20 border-r bg-neutral-50 px-2.5 py-1.5 text-[9px] font-semibold text-neutral-500"
+                className="sticky left-0 z-20 border-r bg-[var(--adc-s1,#f5f5f3)] px-2.5 py-1.5 text-[9px] font-semibold text-[var(--adc-ink3,#7d838c)]"
                 style={{
                   minWidth: STATIC_COLUMN_SPECS.creativeName.minWidth,
                   width: getColumnWidth(
@@ -1995,7 +1995,7 @@ const CreativeTableRow = memo(function CreativeTableRow({
       id={`creative-row-${rowId}`}
       data-testid={`creative-row-${rowId}`}
       onClick={() => onOpenRow(rowId)}
-      className={cn("group cursor-pointer", highlighted && "bg-emerald-500/10")}
+      className={cn("group cursor-pointer", highlighted && "bg-[var(--adc-pos-bg,#e9f4ef)]")}
     >
       <td className="sticky left-0 z-10 border-b border-r bg-background px-2.5 py-1.5">
         <div className="flex items-center gap-2.5">
@@ -2158,13 +2158,13 @@ function MetricHeaderTooltip({ tooltip }: { tooltip: MetricTooltipState | null }
     <div
       id={`metric-tooltip-${tooltip.key}`}
       role="tooltip"
-      className="pointer-events-none fixed z-[90] w-[260px] -translate-y-full rounded-lg bg-[#111111] px-3 py-2 shadow-[0_8px_20px_-10px_rgba(0,0,0,0.45)]"
+      className="pointer-events-none fixed z-[90] w-[260px] -translate-y-full rounded-lg bg-[var(--adc-ink,#1a1c1f)] px-3 py-2 shadow-[0_8px_20px_-10px_rgba(0,0,0,0.45)]"
       style={{ left, top }}
     >
       <p className="text-[15px] font-semibold text-white">{content.label}</p>
-      <p className="mt-1 text-[13px] leading-snug text-zinc-300">{content.description}</p>
+      <p className="mt-1 text-[13px] leading-snug text-[var(--adc-b1,#e4e4e0)]">{content.description}</p>
       <span
-        className="absolute -bottom-1.5 h-3 w-3 rotate-45 bg-[#111111]"
+        className="absolute -bottom-1.5 h-3 w-3 rotate-45 bg-[var(--adc-ink,#1a1c1f)]"
         style={{ left: `${caretLeft - 6}px` }}
         aria-hidden="true"
       />
@@ -2223,8 +2223,8 @@ function MetricModal({
   const hoveredDef = hoveredMetric ? TABLE_COLUMN_MAP[hoveredMetric] : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 p-4">
-      <div className="flex h-[78vh] w-[min(1240px,96vw)] flex-col overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(16,18,22,0.4)] p-4">
+      <div className="flex h-[78vh] w-[min(1240px,96vw)] flex-col overflow-hidden rounded-xl border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s2,#ffffff)] shadow-[var(--shadow-lg)]">
         <div className="flex items-center justify-between border-b px-4 py-3">
           <div className="flex items-center gap-2 rounded-md border px-2 py-1.5">
             <Search className="h-3.5 w-3.5 text-muted-foreground" />
@@ -2367,7 +2367,7 @@ function MetricGroup({
               onClick={() => onAdd(key as TableColumnKey)}
               className={cn(
                 "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs",
-                added ? "bg-emerald-50 text-emerald-700" : "hover:bg-accent/60"
+                added ? "bg-[var(--adc-pos-bg,#e9f4ef)] text-[var(--adc-pos-fg,#0b6b4f)]" : "hover:bg-accent/60"
               )}
             >
               <span>{resolveMetricLabel(key)}</span>

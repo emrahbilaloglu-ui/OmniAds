@@ -9,6 +9,17 @@ import type {
 import { findMembership } from "@/lib/access";
 import { getSessionFromRequest } from "@/lib/auth";
 import { getDb } from "@/lib/db";
+import {
+  META_DECISIONS_AD_CANDIDATE_LIMIT,
+  META_DECISIONS_AD_CANDIDATE_MAX_LIMIT,
+  type MetaDecisionsWorkspaceReadModel,
+} from "@/lib/meta/decisions-workspace-contract";
+import {
+  buildUnavailableMetaDecisionsWorkspaceReadModel,
+  readMetaDecisionsWorkspaceReadModel,
+} from "@/lib/meta/decisions-workspace-read-model";
+import { buildMetaOsDecisionsPresentation } from "@/lib/meta/decisions-os-presentation";
+import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { isReviewerEmail } from "@/lib/reviewer-access";
 
 export const dynamic = "force-dynamic";
@@ -42,13 +53,134 @@ function forwardedHeaders(request: NextRequest) {
   return headers;
 }
 
-function workspaceParams(source: URLSearchParams) {
+function workspaceParams(source: URLSearchParams, resolvedEndDate: string) {
   const params = new URLSearchParams();
-  for (const key of ["businessId", "window", "status_filter", "startDate", "endDate"]) {
+  for (const key of [
+    "businessId",
+    "providerAccountId",
+    "window",
+    "status_filter",
+    "startDate",
+    "endDate",
+  ]) {
     const value = source.get(key);
     if (value) params.set(key, value);
   }
+  if (!params.has("endDate")) params.set("endDate", resolvedEndDate);
+  params.set("decision_workspace", "1");
   return params;
+}
+
+function previousUtcDate() {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
+}
+
+async function resolveWorkspaceEndDate(input: {
+  businessId: string;
+  providerAccountId: string | null;
+  explicitEndDate: string | null;
+}) {
+  if (input.explicitEndDate?.trim()) return input.explicitEndDate.trim();
+  if (!input.providerAccountId) return previousUtcDate();
+  try {
+    const rows = await getDb().query<{ latest_as_of: string | null }>(
+      `
+        SELECT MAX(as_of_date)::text AS latest_as_of
+        FROM engine_v3_decision_snapshots_daily
+        WHERE business_id::text = $1
+          AND provider_account_id = $2
+      `,
+      [input.businessId, input.providerAccountId],
+    );
+    const latest = rows[0]?.latest_as_of?.trim() ?? "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(latest)) return latest;
+  } catch {
+    // Older schemas still get the previous completed UTC day. Decisions never
+    // need seven parallel current-day provider reads to serve a daily snapshot.
+  }
+  return previousUtcDate();
+}
+
+async function canonicalDecisionReadModel(input: {
+  businessId: string;
+  providerAccountId: string | null;
+  adCandidateLimit: number;
+}): Promise<
+  | { ok: true; model: MetaDecisionsWorkspaceReadModel }
+  | { ok: false; status: 403; payload: Record<string, unknown> }
+> {
+  if (!input.providerAccountId) {
+    return {
+      ok: true,
+      model: buildUnavailableMetaDecisionsWorkspaceReadModel({
+        businessId: input.businessId,
+        providerAccountId: null,
+        code: "provider_account_required",
+        message: "providerAccountId is required for the canonical Meta Decisions read model.",
+        adCandidateLimit: input.adCandidateLimit,
+      }),
+    };
+  }
+
+  let assignments: Awaited<ReturnType<typeof getProviderAccountAssignments>>;
+  try {
+    assignments = await getProviderAccountAssignments(input.businessId, "meta");
+  } catch {
+    return {
+      ok: true,
+      model: buildUnavailableMetaDecisionsWorkspaceReadModel({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        code: "provider_account_scope_unverified",
+        message: "The provider-account assignment source is unavailable; no canonical decisions were read.",
+        adCandidateLimit: input.adCandidateLimit,
+      }),
+    };
+  }
+
+  if (!assignments?.account_ids.includes(input.providerAccountId)) {
+    return {
+      ok: false,
+      status: 403,
+      payload: {
+        error: "provider_account_not_assigned",
+        message: "The requested Meta account is not assigned to this business.",
+      },
+    };
+  }
+
+  try {
+    return {
+      ok: true,
+      model: await readMetaDecisionsWorkspaceReadModel({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        adCandidateLimit: input.adCandidateLimit,
+      }),
+    };
+  } catch {
+    return {
+      ok: true,
+      model: buildUnavailableMetaDecisionsWorkspaceReadModel({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        code: "source_read_failed",
+        message: "The account-scoped decision sources could not be read; no decision values were fabricated.",
+        adCandidateLimit: input.adCandidateLimit,
+      }),
+    };
+  }
+}
+
+function requestedAdCandidateLimit(searchParams: URLSearchParams) {
+  const parsed = Number(searchParams.get("adLimit"));
+  if (!Number.isFinite(parsed)) return META_DECISIONS_AD_CANDIDATE_LIMIT;
+  return Math.max(
+    META_DECISIONS_AD_CANDIDATE_LIMIT,
+    Math.min(Math.trunc(parsed), META_DECISIONS_AD_CANDIDATE_MAX_LIMIT),
+  );
 }
 
 async function readInternalJson<T>(
@@ -230,6 +362,9 @@ function digestSince(snapshotDate: string | null, fallbackEndDate: string | null
 
 async function readDecisionDigest(input: {
   businessId: string;
+  providerAccountId: string | null;
+  recommendationIds: string[];
+  entityIds: string[];
   snapshotDate: string | null;
   endDate: string | null;
 }): Promise<DecisionDigest> {
@@ -251,6 +386,7 @@ async function readDecisionDigest(input: {
           JOIN target_date ON target_date.snapshot_date = snapshot.snapshot_date
           WHERE snapshot.business_id = ${input.businessId}
             AND COALESCE(snapshot.kind, 'recommendation') = 'recommendation'
+            AND snapshot.rec_id = ANY(${input.recommendationIds}::text[])
         )
         SELECT
           latest.rec_id,
@@ -311,6 +447,16 @@ async function readDecisionDigest(input: {
         ) ad ON TRUE
         WHERE log.business_id::text = ${input.businessId}
           AND log.status IN ('success', 'silent_failure')
+          AND (
+            ${input.providerAccountId}::text IS NULL
+            OR EXISTS (
+              SELECT 1
+              FROM meta_ad_dimensions scoped_ad
+              WHERE scoped_ad.business_id = ${input.businessId}
+                AND scoped_ad.provider_account_id = ${input.providerAccountId}
+                AND scoped_ad.ad_id = COALESCE(log.resulting_ad_id, log.ad_id)
+            )
+          )
           AND (${since}::timestamptz IS NULL OR log.requested_at >= ${since}::timestamptz)
         ORDER BY COALESCE(log.verified_at, log.updated_at, log.requested_at, log.created_at) DESC
         LIMIT 20
@@ -329,6 +475,7 @@ async function readDecisionDigest(input: {
         FROM meta_decision_snapshots_daily snapshot
         WHERE snapshot.business_id = ${input.businessId}
           AND COALESCE(snapshot.kind, 'recommendation') = 'anomaly'
+          AND snapshot.scope_id = ANY(${input.entityIds}::text[])
           AND (${since}::timestamptz IS NULL OR COALESCE(snapshot.detected_at, snapshot.created_at) >= ${since}::timestamptz)
         ORDER BY COALESCE(snapshot.detected_at, snapshot.created_at) DESC
         LIMIT 20
@@ -344,6 +491,7 @@ async function readDecisionDigest(input: {
             ROW_NUMBER() OVER (PARTITION BY response.rec_id ORDER BY response.timestamp DESC) AS row_number
           FROM meta_decision_responses response
           WHERE response.business_id = ${input.businessId}
+            AND response.rec_id = ANY(${input.recommendationIds}::text[])
         )
         SELECT
           ranked.rec_id,
@@ -490,8 +638,18 @@ export async function GET(request: NextRequest) {
   if (!businessId) {
     return NextResponse.json({ error: "businessId is required" }, { status: 400 });
   }
+  const providerAccountId =
+    request.nextUrl.searchParams.get("providerAccountId")?.trim() || null;
+  const adCandidateLimit = requestedAdCandidateLimit(
+    request.nextUrl.searchParams,
+  );
 
-  const params = workspaceParams(request.nextUrl.searchParams);
+  const resolvedEndDate = await resolveWorkspaceEndDate({
+    businessId,
+    providerAccountId,
+    explicitEndDate: request.nextUrl.searchParams.get("endDate"),
+  });
+  const params = workspaceParams(request.nextUrl.searchParams, resolvedEndDate);
 
   try {
     const [pulse, lanes] = await Promise.all([
@@ -500,13 +658,41 @@ export async function GET(request: NextRequest) {
     ]);
     const trackingBlocked = isTrackingBlocked(pulse);
     const killSwitchEngaged = isMetaWritesKillSwitchEngaged();
-    const viewer = await workspaceViewer(request, businessId);
-    const digest = await readDecisionDigest({
-      businessId,
-      snapshotDate: lanes.snapshotDate,
-      endDate: lanes.endDate ?? pulse.endDate,
-    });
-    const payload: MetaDecisionsWorkspacePayload = {
+    const scopedRecommendations = [
+      ...lanes.actionNow,
+      ...lanes.watching,
+      ...lanes.nonSales,
+    ];
+    const [viewer, decisionRead, digest] = await Promise.all([
+      workspaceViewer(request, businessId),
+      canonicalDecisionReadModel({
+        businessId,
+        providerAccountId,
+        adCandidateLimit,
+      }),
+      readDecisionDigest({
+        businessId,
+        providerAccountId,
+        recommendationIds: [
+          ...new Set(scopedRecommendations.map((rec) => rec.id).filter(Boolean)),
+        ],
+        entityIds: [
+          ...new Set(
+            scopedRecommendations
+              .flatMap((rec) => [rec.campaignId, rec.adsetId])
+              .filter((value): value is string => Boolean(value)),
+          ),
+        ],
+        snapshotDate: lanes.snapshotDate,
+        endDate: lanes.endDate ?? pulse.endDate,
+      }),
+    ]);
+    if (!decisionRead.ok) {
+      return NextResponse.json(decisionRead.payload, { status: decisionRead.status });
+    }
+    const payload: MetaDecisionsWorkspacePayload & {
+      decisionReadModel: MetaDecisionsWorkspaceReadModel;
+    } = {
       businessId: pulse.businessId,
       window: pulse.window as MetaWindowKey,
       statusFilter: pulse.statusFilter,
@@ -532,6 +718,14 @@ export async function GET(request: NextRequest) {
       viewer,
       banners: workspaceBanners({ pulse, lanes, trackingBlocked, killSwitchEngaged, viewer }),
       digest,
+      decisionReadModel: decisionRead.model,
+      os: buildMetaOsDecisionsPresentation({
+        actionNow: lanes.actionNow,
+        watching: lanes.watching,
+        nonSales: lanes.nonSales,
+        decisionReadModel: decisionRead.model,
+        currency: pulse.currency ?? null,
+      }),
     };
     return NextResponse.json(payload);
   } catch (error) {

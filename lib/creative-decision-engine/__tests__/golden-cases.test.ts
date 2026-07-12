@@ -85,7 +85,12 @@ const PROBLEM_CLASSES = [
 ] as const;
 const PRIORITY_BANDS = ["high", "medium", "low"] as const;
 const CONFIDENCE_BANDS = ["high", "medium", "low"] as const;
-const MATURITY_BANDS = ["too_early", "learning", "actionable", "mature"] as const;
+const MATURITY_BANDS = [
+  "too_early",
+  "learning",
+  "actionable",
+  "mature",
+] as const;
 const SAFE_FALLBACKS = [
   "diagnose_data",
   "disable_aggregate",
@@ -128,6 +133,9 @@ const EXECUTABLE_PRIMARY_CASE_IDS = new Set([
   "GC-069",
   "GC-070",
   "GC-071",
+  "GC-077",
+  "GC-078",
+  "GC-079",
 ]);
 
 function parseCanonicalGoldenCases(): GoldenCase[] {
@@ -287,7 +295,9 @@ function unknownFunnelIssueInput(
   });
 }
 
-function severeLoserInput(overrides: Partial<CreativeInput> = {}): CreativeInput {
+function severeLoserInput(
+  overrides: Partial<CreativeInput> = {},
+): CreativeInput {
   return makeCreativeInput({
     targetRoas: 2.5,
     spend: 620,
@@ -314,7 +324,9 @@ function severeStopLossProfile(): AccountDecisionProfile {
   });
 }
 
-function scaleReadyInput(overrides: Partial<CreativeInput> = {}): CreativeInput {
+function scaleReadyInput(
+  overrides: Partial<CreativeInput> = {},
+): CreativeInput {
   return makeCreativeInput({
     spend: 1000,
     purchases: 15,
@@ -700,6 +712,36 @@ function decideGoldenPrimary(caseId: string): DecisionOutput {
         }),
         baseProfile,
       );
+    case "GC-077":
+      return decideCreative(
+        scaleReadyInput({ commercialTargetFreshness: "fresh" }),
+        baseProfile,
+      );
+    case "GC-078":
+    case "GC-079": {
+      const commercialTruthFreshness =
+        caseId === "GC-078" ? "stale" : "unknown";
+      return decideCreative(
+        scaleReadyInput({
+          commercialTargetFreshness: commercialTruthFreshness,
+        }),
+        makeAccountDecisionProfile({
+          hardActionEligibility: {
+            scale: false,
+            cut: false,
+            refresh: false,
+            reason: "commercial_truth_stale",
+          },
+          quality: {
+            commercialTruthReady: false,
+            commercialTruthFreshness,
+            calibrationReady: true,
+            metaAovQuality: "ready",
+            thresholdQuality: "ready",
+          },
+        }),
+      );
+    }
     default:
       throw new Error(`Golden case ${caseId} is not executable in active V3.`);
   }
@@ -757,7 +799,7 @@ const pendingCases = fixtureCases.filter(
 describe("Creative Decision Center golden cases", () => {
   it("keeps the executable fixture in lockstep with GOLDEN_CASES.md", () => {
     expect(fixtureCases).toEqual(parseCanonicalGoldenCases());
-    expect(fixtureCases).toHaveLength(72);
+    expect(fixtureCases).toHaveLength(75);
   });
 
   it("asserts the full contract surface for every canonical case", () => {
@@ -768,7 +810,9 @@ describe("Creative Decision Center golden cases", () => {
       expect(caseIds.has(item.caseId)).toBe(false);
       caseIds.add(item.caseId);
       expect(item.inputSummary.length).toBeGreaterThan(0);
-      expect(PRIMARY_DECISIONS).toContain(item.expectedPrimaryDecision as never);
+      expect(PRIMARY_DECISIONS).toContain(
+        item.expectedPrimaryDecision as never,
+      );
       expect(BUYER_ACTIONS).toContain(item.expectedBuyerAction as never);
       expect(ACTIONABILITIES).toContain(item.expectedActionability as never);
       expect(PROBLEM_CLASSES).toContain(item.expectedProblemClass as never);
@@ -819,11 +863,16 @@ describe("Creative Decision Center golden cases", () => {
       "GC-069",
       "GC-070",
       "GC-071",
+      "GC-077",
+      "GC-078",
+      "GC-079",
     ]);
 
     expect(pendingCases).toHaveLength(37);
     for (const item of pendingCases) {
-      expect(pendingReason(item), item.caseId).not.toMatch(/undefined|unknown/i);
+      expect(pendingReason(item), item.caseId).not.toMatch(
+        /undefined|unknown/i,
+      );
     }
   });
 
@@ -846,7 +895,9 @@ describe("Creative Decision Center golden cases", () => {
     const recovery = decideGoldenPrimary("GC-059");
     expect(recovery.label).toBe("keep");
     expect(recovery.reason).toContain("[recovery hold]");
-    expect(recovery.reason).toContain("do not hard cut while recovery is holding");
+    expect(recovery.reason).toContain(
+      "do not hard cut while recovery is holding",
+    );
     expect(recovery.badges.map((badge) => badge.type)).toContain(
       "weak_performance",
     );
@@ -881,7 +932,8 @@ describe("Creative Decision Center golden cases", () => {
       unknownFunnelIssueInput({ dataFreshnessHours: 6 }),
       makeAccountDecisionProfile(),
     );
-    expect(freshFunnel.label).toBe("diagnose");
+    expect(freshFunnel.label).toBe("keep");
+    expect(freshFunnel.reason).toContain("near scale");
     expect(freshFunnel.badges.map((badge) => badge.type)).toContain(
       "landing_page_issue",
     );
@@ -907,9 +959,7 @@ describe("Creative Decision Center golden cases", () => {
 
     const staleSevereCut = decideGoldenPrimary("GC-064");
     expect(staleSevereCut.label).toBe("cut");
-    expect(staleSevereCut.confidence).toBeLessThanOrEqual(
-      STALE_CONFIDENCE_CAP,
-    );
+    expect(staleSevereCut.confidence).toBeLessThanOrEqual(STALE_CONFIDENCE_CAP);
     expect(staleSevereCut.badges.map((badge) => badge.type)).toContain(
       "stale_evidence",
     );
@@ -919,9 +969,9 @@ describe("Creative Decision Center golden cases", () => {
     expect(unknownFreshnessSevereCut.confidence).toBeLessThanOrEqual(
       STALE_CONFIDENCE_CAP,
     );
-    expect(unknownFreshnessSevereCut.badges.map((badge) => badge.type)).toContain(
-      "unknown_freshness",
-    );
+    expect(
+      unknownFreshnessSevereCut.badges.map((badge) => badge.type),
+    ).toContain("unknown_freshness");
 
     const staleScale = decideGoldenPrimary("GC-066");
     expect(staleScale.label).toBe("keep");
@@ -952,6 +1002,28 @@ describe("Creative Decision Center golden cases", () => {
     const exactTargetRecoveryBoundary = decideGoldenPrimary("GC-071");
     expect(exactTargetRecoveryBoundary.label).toBe("cut");
     expect(exactTargetRecoveryBoundary.reason).not.toContain("[recovery hold]");
+
+    const freshCommercialTruth = decideGoldenPrimary("GC-077");
+    expect(freshCommercialTruth.label).toBe("scale");
+    expect(freshCommercialTruth.truthSource).toBe("commercial_truth");
+    expect(
+      freshCommercialTruth.badges.map((badge) => badge.type),
+    ).not.toContain("truth_commercial_stale");
+
+    for (const caseId of ["GC-078", "GC-079"]) {
+      const reducedAuthority = decideGoldenPrimary(caseId);
+      expect(reducedAuthority.label).toBe("keep");
+      expect(reducedAuthority.truthSource).toBe("commercial_truth_stale");
+      expect(reducedAuthority.confidence).toBeLessThan(
+        freshCommercialTruth.confidence,
+      );
+      expect(reducedAuthority.badges.map((badge) => badge.type)).toEqual(
+        expect.arrayContaining([
+          "truth_commercial_stale",
+          "scale_readiness_blocked",
+        ]),
+      );
+    }
   });
 
   it("keeps canonical fallback cases equal to canonical all-account behavior", () => {
@@ -1081,7 +1153,9 @@ describe("Hysteresis sequence golden cases (GS series)", () => {
         return {
           caseId,
           source,
-          rawSequence: raw.split(",").map((label) => label.trim()) as DecisionLabel[],
+          rawSequence: raw
+            .split(",")
+            .map((label) => label.trim()) as DecisionLabel[],
           publishedSequence: published
             .split(",")
             .map((label) => label.trim()) as DecisionLabel[],
@@ -1096,7 +1170,7 @@ describe("Hysteresis sequence golden cases (GS series)", () => {
   const sequenceGoldens = parseSequenceGoldens();
 
   it("keeps the GS table populated with the named live flip creatives", () => {
-    expect(sequenceGoldens.length).toBeGreaterThanOrEqual(6);
+    expect(sequenceGoldens.length).toBeGreaterThanOrEqual(8);
     const sources = sequenceGoldens.map((item) => item.source).join(" ");
     expect(sources).toContain("946471284944193");
     expect(sources).toContain("1962656064410174");

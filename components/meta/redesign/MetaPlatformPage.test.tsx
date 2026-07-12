@@ -1,9 +1,17 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { metaAnomaly, metaHealthy, metaLanePayload, metaPulse, metaRec } from "@/components/meta/redesign/test-fixtures";
+import {
+  metaAnomaly,
+  metaHealthy,
+  metaLanePayload,
+  metaPulse,
+  metaRec,
+} from "@/components/meta/redesign/test-fixtures";
 import {
   MetaPlatformPage,
+  META_MONITOR_PAGE_SIZE,
+  paginateMetaMonitorRows,
   campaignKindMatchesMetaLabelFilter,
   metaActionFailureMessage,
   metaAdsetPauseNotice,
@@ -27,12 +35,28 @@ const state = vi.hoisted(() => ({
   storeBusinesses: [] as Array<{ id: string; name: string; currency: string }>,
   workspaceBanners: [] as any[],
   workspaceViewer: null as any,
+  providerAccounts: [
+    {
+      id: "act_1",
+      name: "Main Meta",
+      currency: "USD",
+      timezone: "Europe/Istanbul",
+    },
+  ] as any[],
+  decisionReadModel: null as any,
   selectBusiness: vi.fn(),
-  queryOverrides: {} as Record<string, { data?: unknown; isLoading?: boolean; error?: Error | null }>,
+  queryOverrides: {} as Record<
+    string,
+    { data?: unknown; isLoading?: boolean; error?: Error | null }
+  >,
 }));
 
-function queryState(data: unknown, override?: { data?: unknown; isLoading?: boolean; error?: Error | null }) {
-  const hasDataOverride = override && Object.prototype.hasOwnProperty.call(override, "data");
+function queryState(
+  data: unknown,
+  override?: { data?: unknown; isLoading?: boolean; error?: Error | null },
+) {
+  const hasDataOverride =
+    override && Object.prototype.hasOwnProperty.call(override, "data");
   const error = override?.error ?? null;
   return {
     data: hasDataOverride ? override?.data : data,
@@ -71,7 +95,10 @@ function workspacePayload() {
       },
     },
     system: {
-      trackingBlocked: pulse.trackingAnomalyActive === true || pulse.trackingHealth.status === "blocked" || pulse.trackingHealth.status === "degraded",
+      trackingBlocked:
+        pulse.trackingAnomalyActive === true ||
+        pulse.trackingHealth.status === "blocked" ||
+        pulse.trackingHealth.status === "degraded",
       dataReadiness: pulse.dataReadiness ?? null,
       snapshotHealth: pulse.snapshotHealth ?? lanes.snapshotHealth ?? null,
       laneSnapshotDate: lanes.snapshotDate,
@@ -147,6 +174,70 @@ function workspacePayload() {
         ],
       },
     },
+    decisionReadModel:
+      state.decisionReadModel ?? emptyCanonicalDecisionReadModel(),
+  };
+}
+
+function emptyCanonicalSection(key: string): any {
+  return {
+    key,
+    label: key,
+    topN: 5,
+    preCapCount: 0,
+    selectedCount: 0,
+    rankablePreCapCount: 0,
+    unrankablePreCapCount: 0,
+    items: [],
+    exposureDigest: {
+      basis: "pre_cap",
+      byCurrency: [],
+      unavailableCount: 0,
+      crossCurrencyTotal: null,
+    },
+    suppressionReceipt: {
+      receiptId: `receipt_${key}`,
+      selectionVersion: "meta-decisions-section-selection.v1",
+      topN: 5,
+      preCapCount: 0,
+      selectedCount: 0,
+      suppressedCount: 0,
+      reasons: [],
+    },
+  };
+}
+
+function emptyCanonicalDecisionReadModel(): any {
+  return {
+    contractVersion: "meta-decisions-workspace.read.v1",
+    status: "available",
+    generatedAt: "2026-07-10T12:00:00.000Z",
+    scope: {
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      decisionMode: "current",
+      metricsRangeAffectsDecisionSnapshot: false,
+    },
+    unavailable: null,
+    source: {
+      status: "available",
+      table: "engine_v3_decision_snapshots_daily",
+      snapshotAsOf: "2026-05-07",
+      computedAt: "2026-05-07T06:00:00.000Z",
+      engineVersion: "v3-test",
+    },
+    queue: {
+      deduplicationGrain: "creative",
+      sourcePreCapCount: 0,
+      queuedPreCapCount: 0,
+      sections: {
+        integrity_fires: emptyCanonicalSection("integrity_fires"),
+        money_moves: emptyCanonicalSection("money_moves"),
+        creative_rotation: emptyCanonicalSection("creative_rotation"),
+      },
+      omittedFromQueue: { count: 0, reasons: [] },
+    },
+    capabilities: {},
   };
 }
 
@@ -157,7 +248,10 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/store/app-store", () => ({
   useAppStore: (selector: (input: unknown) => unknown) =>
-    selector({ businesses: state.storeBusinesses, selectBusiness: state.selectBusiness }),
+    selector({
+      businesses: state.storeBusinesses,
+      selectBusiness: state.selectBusiness,
+    }),
 }));
 
 vi.mock("@tanstack/react-query", () => ({
@@ -166,13 +260,22 @@ vi.mock("@tanstack/react-query", () => ({
     state.queryKeys.push(input.queryKey);
     const key = String(input.queryKey[0]);
     const override = state.queryOverrides[key];
-    if (key === "meta-decisions-workspace") return queryState(workspacePayload(), override);
+    if (key === "meta-decisions-workspace")
+      return queryState(workspacePayload(), override);
+    if (key === "meta-provider-accounts")
+      return queryState(state.providerAccounts, override);
     if (key === "meta-anomalies") {
-      return queryState({ anomalies: [metaAnomaly()], snapshotDate: "2026-05-07", count: 1 }, override);
+      return queryState(
+        { anomalies: [metaAnomaly()], snapshotDate: "2026-05-07", count: 1 },
+        override,
+      );
     }
-    if (key === "meta-campaigns-for-labels") return queryState({ rows: state.labelCampaigns }, override);
-    if (key === "meta-campaign-labels") return queryState({ labels: state.campaignLabels }, override);
-    if (key === "triage-state") return queryState({ rows: [], deferredCount: 0 }, override);
+    if (key === "meta-campaigns-for-labels")
+      return queryState({ rows: state.labelCampaigns }, override);
+    if (key === "meta-campaign-labels")
+      return queryState({ labels: state.campaignLabels }, override);
+    if (key === "triage-state")
+      return queryState({ rows: [], deferredCount: 0 }, override);
     return queryState(null, override);
   },
 }));
@@ -198,23 +301,44 @@ describe("MetaPlatformPage", () => {
     state.storeBusinesses = [];
     state.workspaceBanners = [];
     state.workspaceViewer = null;
+    state.providerAccounts = [
+      {
+        id: "act_1",
+        name: "Main Meta",
+        currency: "USD",
+        timezone: "Europe/Istanbul",
+      },
+    ];
+    state.decisionReadModel = null;
     state.queryOverrides = {};
     state.selectBusiness.mockClear();
     state.routerPush.mockClear();
     state.routerReplace.mockClear();
   });
 
-  it("renders pulse, alerts strip, lanes, and cards from snapshot payloads", () => {
+  it("keeps a 300-row Monitor lane within the 48-row DOM window", () => {
+    const rows = Array.from({ length: 300 }, (_, index) => index + 1);
+
+    expect(META_MONITOR_PAGE_SIZE).toBe(48);
+    expect(paginateMetaMonitorRows(rows, 1)).toEqual(rows.slice(0, 48));
+    expect(paginateMetaMonitorRows(rows, 7)).toEqual(rows.slice(288, 300));
+    expect(paginateMetaMonitorRows(rows, 0)).toEqual(rows.slice(0, 48));
+  });
+
+  it("renders the Decisions operating surface and permanent Act Now sections", () => {
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
-    expect(html).toContain("Meta · Decision Center");
+    expect(html).toContain("Meta operating system");
+    expect(html).toContain("<h1>Decisions</h1>");
     expect(html).toContain("Policy delivery block");
-    expect(html).toContain("Action Now");
-    expect(html).toContain("Watching");
-    expect(html).toContain("Healthy");
-    expect(html).toContain("Non-sales");
-    expect(html).toContain("Archive");
+    expect(html).toContain("Act Now");
+    expect(html).toContain("Monitor");
+    expect(html).toContain("History");
     // Fixture endDate is historical, so the honest label names the day.
     expect(html).toContain("Spend · 2026-05-07");
     expect(html).toContain("avg $350.00/day");
@@ -224,8 +348,12 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain("Since last snapshot");
     expect(html).toContain("2 label flips (2 published)");
     expect(html).toContain("1 action verified");
-    expect(html).toContain("ANOMALIES · 1 · counted separately");
-    expect(html).toContain("CAMPAIGNS &amp; AD SETS · 1");
+    expect(html).toContain(">Scope</button>");
+    expect(html).not.toContain('data-testid="meta-scope-rail"');
+    expect(html).toContain('data-testid="meta-decision-board"');
+    expect(html).toContain("Integrity fires");
+    expect(html).toContain("Money moves");
+    expect(html).toContain("Creative rotation");
     expect(html).toContain("Run snapshot");
     expect(html).toContain('data-testid="meta-mobile-decisions"');
     expect(html).toContain("TheSwaf · Act now 2");
@@ -233,9 +361,145 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain("ASC Prospecting");
     expect(html).toContain("Writes are desktop-only");
     expect(html).not.toContain("Mobile diagnostic summary unavailable");
-    expect(state.queryKeys).toContainEqual(["meta-decisions-workspace", "biz_1", "28d", "active", expect.any(String), expect.any(String)]);
-    expect(state.queryKeys.map((key) => key[0])).not.toContain("meta-account-pulse");
+    expect(state.queryKeys).toContainEqual([
+      "meta-decisions-workspace",
+      "biz_1",
+      "act_1",
+      "28d",
+      "active",
+      expect.any(String),
+      expect.any(String),
+    ]);
+    expect(state.queryKeys.map((key) => key[0])).not.toContain(
+      "meta-account-pulse",
+    );
     expect(state.queryKeys.map((key) => key[0])).not.toContain("meta-lanes");
+  });
+
+  it("renders creative rotation only from the server-selected canonical section", () => {
+    const model = emptyCanonicalDecisionReadModel();
+    model.queue.sections.creative_rotation = {
+      ...emptyCanonicalSection("creative_rotation"),
+      preCapCount: 8,
+      selectedCount: 1,
+      rankablePreCapCount: 7,
+      unrankablePreCapCount: 1,
+      items: [
+        {
+          decisionId: "mdd_1",
+          episodeId: "mde_1",
+          episodeStartedAt: "2026-07-08",
+          providerAccountId: "act_1",
+          identityGrain: "creative",
+          sourceSnapshotId: "snapshot_1",
+          sourceDecision: {
+            label: "scale",
+            rawLabel: "scale",
+            reason: "Fresh commercial truth supports the call.",
+            confidence: 87,
+            confidenceBand: "high",
+            truthSource: "commercial_truth",
+            engineVersion: "v3-test",
+            snapshotAsOf: "2026-07-10",
+            computedAt: "2026-07-10T05:00:00.000Z",
+            badges: [],
+            provenance: {},
+          },
+          parentChain: {
+            account: { id: "act_1", name: "Main Meta" },
+            campaign: { id: "cmp_1", name: "Prospecting" },
+            adset: { id: "adset_1", name: "Broad" },
+            ad: { id: "ad_1", name: "UGC 1" },
+            creative: { id: "creative_1", name: "Hook Variant A" },
+            provenance: {},
+          },
+          media: {
+            state: "missing",
+            missingMedia: true,
+            thumbnail: { state: "missing", url: null },
+            provenance: {},
+          },
+          classification: {
+            overlayVersion: "meta-decisions-classification-overlay.v2",
+            queueSection: "creative_rotation",
+            lifecycleRole: { value: "test" },
+            assessment: { value: "proven_winner" },
+            buyerAction: "scale",
+            buyerLabel: "Scale",
+            executionAction: "promote_to_main",
+            blockers: [],
+            provenance: {},
+          },
+          riskTier: null,
+          confirmationCeremony: "highest",
+          riskTierProvenance: {},
+          promotionBasis: {},
+          metrics: {
+            spend: 250,
+            purchases: 6,
+            roas: 3.2,
+            recent7dRoas: 3.4,
+            effectiveTargetRoas: 2.4,
+            ratioToTarget: 1.33,
+            currency: "USD",
+            attribution: "meta_attributed",
+            provenance: {},
+          },
+          exposure: null,
+          exposureUnavailableReason: null,
+          history: {
+            responses: { status: "unavailable" },
+            providerWrites: { status: "unavailable" },
+          },
+        },
+      ],
+      suppressionReceipt: {
+        ...emptyCanonicalSection("creative_rotation").suppressionReceipt,
+        preCapCount: 8,
+        selectedCount: 1,
+        suppressedCount: 7,
+      },
+    };
+    state.decisionReadModel = model;
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+    );
+    expect(html).toContain("Hook Variant A");
+    expect(html).toContain("Scale · Promote To Main");
+    expect(html).toContain("high confidence");
+    expect(html).toContain("Server selected 1 of 8");
+    expect(html).not.toContain("87% confidence");
+    expect(state.queryKeys.map((key) => key[0])).not.toContain(
+      "meta-decisions-creative-engine",
+    );
+  });
+
+  it("withholds Decisions until a provider account is explicit when multiple are assigned", () => {
+    state.providerAccounts = [
+      { id: "act_1", name: "US", currency: "USD", timezone: "UTC" },
+      { id: "act_2", name: "EU", currency: "EUR", timezone: "UTC" },
+    ];
+
+    const unscoped = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+    );
+    expect(unscoped).toContain('data-testid="meta-account-required"');
+    expect(unscoped).toContain("Decisions stay withheld");
+
+    state.search = "window=28d&providerAccountId=act_2";
+    renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+    );
+    expect(state.queryKeys).toContainEqual([
+      "meta-decisions-workspace",
+      "biz_1",
+      "act_2",
+      "28d",
+      "active",
+      expect.any(String),
+      expect.any(String),
+    ]);
   });
 
   it("withholds false summary zeros while the pulse and lane briefing are loading", () => {
@@ -245,44 +509,62 @@ describe("MetaPlatformPage", () => {
     };
 
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
 
     expect(html).toContain('data-testid="meta-pulse-loading"');
     expect(html).toContain("briefing loading");
-    expect(html).toContain("queue is loading the latest decision snapshot");
-    expect(html).toContain('<span class="count">—</span>');
+    expect(html).toContain("Loading the latest persisted decision snapshot");
+    expect(html).toContain("<b>—</b>");
     expect(html).not.toContain("Snapshot missing");
     expect(html).not.toContain("sync unknown snapshot — engine");
   });
 
   it("surfaces workspace query errors before rendering briefing summaries", () => {
     state.queryOverrides = {
-      "meta-decisions-workspace": { data: undefined, error: new Error("workspace request failed") },
+      "meta-decisions-workspace": {
+        data: undefined,
+        error: new Error("workspace request failed"),
+      },
     };
 
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
 
     expect(html).toContain('data-testid="meta-briefing-error"');
     expect(html).toContain('data-testid="meta-pulse-error"');
     expect(html).toContain("briefing unavailable");
     expect(html).toContain("workspace request failed");
-    expect(html).toContain('<span class="count">—</span>');
+    expect(html).toContain("<b>—</b>");
     expect(html).not.toContain("queue reflects");
   });
 
   it("surfaces anomaly query errors without hiding a healthy pulse and lane briefing", () => {
     state.queryOverrides = {
-      "meta-anomalies": { data: undefined, error: new Error("anomaly scan failed") },
+      "meta-anomalies": {
+        data: undefined,
+        error: new Error("anomaly scan failed"),
+      },
     };
 
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
 
-    expect(html).toContain("queue reflects");
+    expect(html).toContain("Snapshot 2026-05-07");
     expect(html).toContain("Spend · 2026-05-07");
     expect(html).toContain("anomaly scan failed");
     expect(html).not.toContain('data-testid="meta-briefing-error"');
@@ -323,25 +605,36 @@ describe("MetaPlatformPage", () => {
         }),
       ],
       watching: [],
-      counts: { actionNow: 1, watching: 0, healthy: 1, nonSales: 0, archive: 0 },
+      counts: {
+        actionNow: 1,
+        watching: 0,
+        healthy: 1,
+        nonSales: 0,
+        archive: 0,
+      },
     });
 
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
 
+    // The board keeps server-owned action authority and a stable spend anchor;
+    // opening the card still routes to the evidence drawer.
+    expect(html).toContain('data-testid="meta-decision-board"');
+    expect(html).toContain('data-card="meta-action"');
+    expect(html).toContain('data-layout="board"');
     expect(html).toContain('data-action-authority="execute"');
     expect(html).toContain('data-action-kind="execute_pause"');
-    expect(html).toContain("Execute · pause");
-    expect(html).toContain('data-row-signal="blocker"');
-    expect(html).toContain("Missing Live Preflight");
-    expect(html).toContain("Automation blocked");
-    expect(html).toContain("evidence 9d");
-    expect(html).toContain("Read evidence");
+    expect(html).toContain('data-spend-anchor="true"');
     expect(html).toContain("Pause adset");
+    expect(html).toContain("Cold Prospecting - Broad");
   });
 
-  it("exposes campaign label management as a modal trigger without rendering the manager inline", () => {
+  it("exposes automatic context exceptions without rendering the correction manager inline", () => {
     state.pulsePayload = metaPulse({
       labelCoverage: {
         activeCampaigns: 2,
@@ -384,26 +677,38 @@ describe("MetaPlatformPage", () => {
     ];
 
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
 
-    expect(html).toContain("Manage labels");
-    expect(html).toContain('aria-label="Manage campaign labels"');
+    expect(html).toContain("Review exceptions");
+    expect(html).toContain('aria-label="Review campaign context exceptions"');
     expect(html).not.toContain('href="#campaign-labels"');
     expect(html).not.toContain("data-meta-campaign-labels-section");
     expect(html).not.toContain("data-meta-label-management-modal");
     expect(html).not.toContain("Main ASC");
     expect(html).not.toContain("Creative Test");
-    expect(html).toContain("1/2 active campaigns labeled");
-    expect(state.queryKeys.map((key) => key[0])).not.toContain("meta-campaigns-for-labels");
-    expect(state.queryKeys.map((key) => key[0])).not.toContain("meta-campaign-labels");
+    expect(html).toContain("campaign context 1/2");
+    expect(state.queryKeys.map((key) => key[0])).not.toContain(
+      "meta-campaigns-for-labels",
+    );
+    expect(state.queryKeys.map((key) => key[0])).not.toContain(
+      "meta-campaign-labels",
+    );
   });
 
   it("formats verified ad set pause success without duplicating the action name", () => {
     expect(metaAdsetPauseNotice("PAUSED")).toBe("Ad set paused in Meta.");
     expect(metaAdsetPauseNotice(undefined)).toBe("Ad set paused in Meta.");
-    expect(metaAdsetPauseNotice("ACTIVE")).toBe("Ad set pause verified with status ACTIVE.");
-    expect(metaAdsetPauseNotice("ACTIVE", true)).toBe("Dry run: ad set would pause.");
+    expect(metaAdsetPauseNotice("ACTIVE")).toBe(
+      "Ad set pause verified with status ACTIVE.",
+    );
+    expect(metaAdsetPauseNotice("ACTIVE", true)).toBe(
+      "Dry run: ad set would pause.",
+    );
   });
 
   it("keeps apply-bid dry-run feedback distinct from a real write", () => {
@@ -430,7 +735,9 @@ describe("MetaPlatformPage", () => {
         },
         "Action failed.",
       ),
-    ).toBe("Meta writes are temporarily disabled (kill switch). Try again later.");
+    ).toBe(
+      "Meta writes are temporarily disabled (kill switch). Try again later.",
+    );
   });
 
   it("matches Main/Test/Mixed filters from campaignKind instead of recommendation text", () => {
@@ -441,7 +748,7 @@ describe("MetaPlatformPage", () => {
     expect(campaignKindMatchesMetaLabelFilter(null, "main")).toBe(false);
   });
 
-  it("renders persisted acted ad set recommendations with a resume affordance", () => {
+  it("renders persisted acted ad set recommendations as resumable decision cards", () => {
     state.lanePayload = metaLanePayload({
       actionNow: [
         metaRec({
@@ -454,27 +761,51 @@ describe("MetaPlatformPage", () => {
         }),
       ],
       watching: [],
-      counts: { actionNow: 1, watching: 0, healthy: 1, nonSales: 0, archive: 0 },
+      counts: {
+        actionNow: 1,
+        watching: 0,
+        healthy: 1,
+        nonSales: 0,
+        archive: 0,
+      },
     });
 
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
 
+    expect(html).toContain('data-testid="meta-decision-board"');
+    expect(html).toContain('data-card="meta-action"');
+    expect(html).toContain("Paused Adset");
     expect(html).toContain('data-operator-response="acted"');
     expect(html).toContain("Resume adset");
-    expect(html).not.toContain('disabled=""');
   });
 
   it("threads the selected status filter into the Decisions workspace query", () => {
     state.search = "window=28d&status_filter=all";
 
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
 
     expect(html).toContain('data-status-filter-option="all"');
-    expect(state.queryKeys).toContainEqual(["meta-decisions-workspace", "biz_1", "28d", "all", expect.any(String), expect.any(String)]);
+    expect(state.queryKeys).toContainEqual([
+      "meta-decisions-workspace",
+      "biz_1",
+      "act_1",
+      "28d",
+      "all",
+      expect.any(String),
+      expect.any(String),
+    ]);
   });
 
   it("uses endpoint-provided selected ROAS for custom ranges", () => {
@@ -495,16 +826,62 @@ describe("MetaPlatformPage", () => {
     });
 
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
 
     expect(html).toContain("ROAS · custom");
     expect(html).toContain("4.20×");
     expect(html).not.toContain("1.10×");
-    expect(state.queryKeys).toContainEqual(["meta-decisions-workspace", "biz_1", "custom", "active", "2026-05-01", "2026-05-07"]);
+    expect(state.queryKeys).toContainEqual([
+      "meta-decisions-workspace",
+      "biz_1",
+      "act_1",
+      "custom",
+      "active",
+      "2026-05-01",
+      "2026-05-07",
+    ]);
   });
 
-  it("renders closed entities in the archive surface without action cards", () => {
+  it("surfaces stale commercial targets with reduced authority", () => {
+    state.pulsePayload = metaPulse({
+      roas: {
+        selected: 3.2,
+        d7: 2.8,
+        d14: 3,
+        d28: 3.2,
+        target: 2.5,
+        median: 2.1,
+        target_source: "commercial_truth_stale",
+        targetFreshness: "stale",
+        targetUpdatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      targetAnchor: {
+        configured: true,
+        source: "configured_targets",
+        targetRoas: 2.5,
+        breakEvenRoas: 1.7,
+        targetCpa: null,
+        breakEvenCpa: null,
+        freshness: "stale",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    });
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+    );
+
+    expect(html).toContain("Target stale - reduced authority");
+    expect(html).toContain("Review target pack");
+    expect(html).toContain('data-target-freshness="stale"');
+  });
+
+  it("routes closed structures to the additive History surface", () => {
     state.search = "window=28d&lane=archive";
     state.lanePayload = metaLanePayload({
       archive: [
@@ -537,20 +914,27 @@ describe("MetaPlatformPage", () => {
           diagnosticNote: null,
         },
       ],
-      counts: { actionNow: 1, watching: 1, healthy: 1, nonSales: 0, archive: 2 },
+      counts: {
+        actionNow: 1,
+        watching: 1,
+        healthy: 1,
+        nonSales: 0,
+        archive: 2,
+      },
     });
 
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
 
-    expect(html).toContain("data-meta-archive");
-    expect(html).toContain("Paused ASC");
-    expect(html).toContain("Paused 12d");
-    expect(html).toContain("Resume campaign");
-    expect(html).toContain("Archived Adset");
-    expect(html).not.toContain("Resume adset");
-    expect(html).toContain("$640");
+    expect(html).toContain("Closed structures now live in History.");
+    expect(html).toContain('href="/platforms/meta/history?kind=structures"');
+    expect(html).not.toContain("data-meta-archive");
+    expect(html).not.toContain('data-quiet-row="archive"');
   });
 
   it("renders the Out of Sales Scope lane when nonSales entries are present", () => {
@@ -565,13 +949,23 @@ describe("MetaPlatformPage", () => {
           cohort: "upper_funnel",
         }),
       ],
-      counts: { actionNow: 1, watching: 1, healthy: 1, nonSales: 1, archive: 0 },
+      counts: {
+        actionNow: 1,
+        watching: 1,
+        healthy: 1,
+        nonSales: 1,
+        archive: 0,
+      },
     });
 
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
-    expect(html).toContain("Non-sales");
+    expect(html).toContain("Out of sales scope");
     expect(html).toContain("Video Views");
     expect(html).not.toContain('type="checkbox"');
   });
@@ -580,18 +974,29 @@ describe("MetaPlatformPage", () => {
     state.search = "window=28d&lane=nonSales";
     state.lanePayload = metaLanePayload({
       nonSales: [],
-      counts: { actionNow: 1, watching: 1, healthy: 1, nonSales: 0, archive: 0 },
+      counts: {
+        actionNow: 1,
+        watching: 1,
+        healthy: 1,
+        nonSales: 0,
+        archive: 0,
+      },
     });
 
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
-    expect(html).toContain("Non-sales");
-    expect(html).toContain(">0</span>");
-    expect(html).toContain("No non-purchase entities in the current window.");
+    expect(html).toContain("Out of sales scope · 0");
+    expect(html).toContain(
+      "No out-of-sales-scope entities match the current filters.",
+    );
   });
 
-  it("renders the cohort chip inside the Out of Sales Scope lane", () => {
+  it("renders nonSales entries without selection controls", () => {
     state.search = "window=28d&lane=nonSales";
     state.lanePayload = metaLanePayload({
       nonSales: [
@@ -602,16 +1007,28 @@ describe("MetaPlatformPage", () => {
           cohort: "upper_funnel",
         }),
       ],
-      counts: { actionNow: 1, watching: 1, healthy: 1, nonSales: 1, archive: 0 },
+      counts: {
+        actionNow: 1,
+        watching: 1,
+        healthy: 1,
+        nonSales: 1,
+        archive: 0,
+      },
     });
 
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
-    expect(html).toContain('data-cohort-chip="upper_funnel"');
+    expect(html).toContain('data-card="meta-upper-funnel-informational"');
+    expect(html).toContain("Video Views");
+    expect(html).not.toContain('type="checkbox"');
   });
 
-  it("renders upper-funnel nonSales entries with the informational card", () => {
+  it("renders upper-funnel nonSales entries as informational cards", () => {
     state.search = "window=28d&lane=nonSales";
     state.lanePayload = metaLanePayload({
       nonSales: [
@@ -632,16 +1049,28 @@ describe("MetaPlatformPage", () => {
           },
         }),
       ],
-      counts: { actionNow: 1, watching: 1, healthy: 1, nonSales: 1, archive: 0 },
+      counts: {
+        actionNow: 1,
+        watching: 1,
+        healthy: 1,
+        nonSales: 1,
+        archive: 0,
+      },
     });
 
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
+    expect(html).toContain("ThruPlay Broad");
     expect(html).toContain('data-card="meta-upper-funnel-informational"');
+    expect(html).not.toContain('type="checkbox"');
   });
 
-  it("keeps non-upper-funnel nonSales entries on MetaActionCard", () => {
+  it("renders non-upper-funnel nonSales entries as evidence cards", () => {
     state.search = "window=28d&lane=nonSales";
     state.lanePayload = metaLanePayload({
       nonSales: [
@@ -655,17 +1084,29 @@ describe("MetaPlatformPage", () => {
           cohort: "mid_funnel",
         }),
       ],
-      counts: { actionNow: 1, watching: 1, healthy: 1, nonSales: 1, archive: 0 },
+      counts: {
+        actionNow: 1,
+        watching: 1,
+        healthy: 1,
+        nonSales: 1,
+        archive: 0,
+      },
     });
 
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
     expect(html).toContain('data-card="meta-action"');
+    expect(html).toContain('data-layout="board"');
+    expect(html).toContain("ATC Broad");
     expect(html).not.toContain('data-card="meta-upper-funnel-informational"');
   });
 
-  it("rolls mixed adset decisions up without duplicating individual cards", () => {
+  it("renders each mixed ad set as its own decision card", () => {
     state.lanePayload = metaLanePayload({
       actionNow: [
         metaRec({
@@ -692,17 +1133,22 @@ describe("MetaPlatformPage", () => {
     });
 
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
 
-    expect(html).toContain("data-card=\"cross-adset-rollup\"");
+    expect(html).toContain('data-testid="meta-decision-board"');
+    expect(countText(html, 'data-card="meta-action"')).toBe(2);
+    expect(countText(html, 'data-layout="board"')).toBe(2);
     expect(html).toContain("Weak Adset");
     expect(html).toContain("Strong Adset");
-    expect(html).not.toContain("Cut weak adset");
-    expect(html).not.toContain("Scale strong adset");
+    expect(html).not.toContain('data-card="cross-adset-rollup"');
   });
 
-  it("nests healthy adsets under their campaign group", () => {
+  it("renders healthy campaign and adsets as compact quiet rows", () => {
     state.search = "window=28d&lane=healthy";
     state.lanePayload = metaLanePayload({
       healthy: [
@@ -738,23 +1184,36 @@ describe("MetaPlatformPage", () => {
           status: "ACTIVE",
         },
       ],
-      counts: { actionNow: 1, watching: 1, healthy: 3, nonSales: 0, archive: 0 },
+      counts: {
+        actionNow: 1,
+        watching: 1,
+        healthy: 3,
+        nonSales: 0,
+        archive: 0,
+      },
     });
 
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
 
-    expect(html).toContain('data-healthy-campaign-group="cmp_parent"');
-    expect(html).toContain('data-healthy-adsets-for-campaign="cmp_parent"');
-    expect(html).toContain('data-healthy-row="adset_child_a"');
-    expect(html).toContain('data-healthy-depth="child"');
-    expect(html.indexOf('data-healthy-row="cmp_parent"')).toBeLessThan(
-      html.indexOf('data-healthy-row="adset_child_a"'),
+    expect(countText(html, 'data-quiet-row="healthy"')).toBe(3);
+    expect(html).toContain(">CMP</span>");
+    expect(html).toContain(">SET</span>");
+    expect(html).toContain("Parent Campaign");
+    expect(html).toContain("Bathroom-USA-BC");
+    expect(html).toContain("Claude-MAF-G1-LP");
+    expect(countText(html, ">Healthy</span>")).toBe(3);
+    expect(html.indexOf("Parent Campaign")).toBeLessThan(
+      html.indexOf("Bathroom-USA-BC"),
     );
   });
 
-  it("shows uniform optimization and bid strategy only on the campaign row while keeping adset bid values", () => {
+  it("renders every healthy entity as its own quiet row", () => {
     state.search = "window=28d&lane=healthy";
     state.lanePayload = metaLanePayload({
       healthy: [
@@ -796,20 +1255,31 @@ describe("MetaPlatformPage", () => {
           bidValueFormat: "currency",
         }),
       ],
-      counts: { actionNow: 1, watching: 1, healthy: 3, nonSales: 0, archive: 0 },
+      counts: {
+        actionNow: 1,
+        watching: 1,
+        healthy: 3,
+        nonSales: 0,
+        archive: 0,
+      },
     });
 
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
 
-    expect(countText(html, ">Optimization</span>")).toBe(1);
-    expect(countText(html, ">Purchase</span>")).toBe(1);
-    expect(countText(html, ">Cost Cap</span>")).toBe(1);
-    expect(countText(html, ">$30</span>")).toBe(2);
+    expect(countText(html, 'data-quiet-row="healthy"')).toBe(3);
+    expect(html).toContain("Uniform Campaign");
+    expect(html).toContain("Uniform Adset A");
+    expect(html).toContain("Uniform Adset B");
+    expect(countText(html, ">Healthy</span>")).toBe(3);
   });
 
-  it("marks mixed optimization at campaign level and shows each adset event", () => {
+  it("renders each healthy adset of a mixed-optimization campaign as a quiet row", () => {
     state.search = "window=28d&lane=healthy";
     state.lanePayload = metaLanePayload({
       healthy: [
@@ -843,20 +1313,31 @@ describe("MetaPlatformPage", () => {
           bidStrategyLabel: "Lowest Cost",
         }),
       ],
-      counts: { actionNow: 1, watching: 1, healthy: 3, nonSales: 0, archive: 0 },
+      counts: {
+        actionNow: 1,
+        watching: 1,
+        healthy: 3,
+        nonSales: 0,
+        archive: 0,
+      },
     });
 
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
 
-    expect(countText(html, ">Optimization</span>")).toBe(3);
-    expect(html).toContain(">Mix</span>");
-    expect(html).toContain(">Purchase</span>");
-    expect(html).toContain(">Add to Cart</span>");
+    expect(countText(html, 'data-quiet-row="healthy"')).toBe(3);
+    expect(html).toContain("Mixed Event Campaign");
+    expect(html).toContain("Purchase Adset");
+    expect(html).toContain("ATC Adset");
+    expect(countText(html, ">Healthy</span>")).toBe(3);
   });
 
-  it("marks mixed bid strategy at campaign level and keeps adset strategy details", () => {
+  it("renders each healthy adset of a mixed-bid campaign as a quiet row", () => {
     state.search = "window=28d&lane=healthy";
     state.lanePayload = metaLanePayload({
       healthy: [
@@ -894,22 +1375,31 @@ describe("MetaPlatformPage", () => {
           bidValueFormat: "currency",
         }),
       ],
-      counts: { actionNow: 1, watching: 1, healthy: 3, nonSales: 0, archive: 0 },
+      counts: {
+        actionNow: 1,
+        watching: 1,
+        healthy: 3,
+        nonSales: 0,
+        archive: 0,
+      },
     });
 
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
 
-    expect(countText(html, ">Optimization</span>")).toBe(1);
-    expect(html).toContain(">Mix</span>");
-    expect(html).toContain(">Cost Cap</span>");
-    expect(html).toContain(">Bid Cap</span>");
-    expect(html).toContain(">$30</span>");
-    expect(html).toContain(">$24</span>");
+    expect(countText(html, 'data-quiet-row="healthy"')).toBe(3);
+    expect(html).toContain("Mixed Bid Campaign");
+    expect(html).toContain("Cost Cap Adset");
+    expect(html).toContain("Bid Cap Adset");
+    expect(countText(html, ">Healthy</span>")).toBe(3);
   });
 
-  it("shows uniform optimization on synthetic campaign headers inferred from adsets", () => {
+  it("renders an orphan healthy adset as a quiet row with its campaign as context", () => {
     state.search = "window=28d&lane=healthy";
     state.lanePayload = metaLanePayload({
       healthy: [
@@ -926,19 +1416,30 @@ describe("MetaPlatformPage", () => {
           bidStrategyLabel: "Lowest Cost",
         }),
       ],
-      counts: { actionNow: 1, watching: 1, healthy: 1, nonSales: 0, archive: 0 },
+      counts: {
+        actionNow: 1,
+        watching: 1,
+        healthy: 1,
+        nonSales: 0,
+        archive: 0,
+      },
     });
 
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="IwaStore" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="IwaStore"
+        currency="USD"
+      />,
     );
 
-    expect(html).toContain('data-healthy-synthetic-campaign="cmp_adtc"');
-    expect(html).toContain(">ADTC</div>");
-    expect(html).toContain(">Add to Cart</span>");
-    expect(countText(html, ">Optimization</span>")).toBe(1);
-    expect(html).toContain(">Lowest Cost</span>");
-    expect(html).toContain(">1 adset</div>");
+    // No synthetic campaign header: the orphan ad set remains a single row.
+    expect(html).not.toContain("data-healthy-synthetic-campaign");
+    expect(html).toContain('data-quiet-row="healthy"');
+    expect(html).toContain(">SET</span>");
+    expect(html).toContain(">25Video<");
+    expect(html).toContain("ADTC");
+    expect(countText(html, ">Healthy</span>")).toBe(1);
   });
 });
 
@@ -954,7 +1455,11 @@ describe("header as-of cluster and queue-scope note", () => {
     state.pulsePayload = metaPulse({ lastSyncAt: "2020-01-01T00:00:00.000Z" });
 
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
 
     expect(html).toContain('data-testid="meta-asof-cluster"');
@@ -967,7 +1472,11 @@ describe("header as-of cluster and queue-scope note", () => {
 
   it("renders sync unknown when ingest freshness is absent, never a fabricated time", () => {
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
 
     expect(html).toContain("sync unknown");
@@ -975,24 +1484,32 @@ describe("header as-of cluster and queue-scope note", () => {
 
   it("pins the queue to the served snapshot date, scoping metrics not decisions", () => {
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
 
     expect(html).toContain('data-testid="meta-queue-scope-note"');
-    expect(html).toContain("queue reflects");
+    expect(html).toContain("Snapshot 2026-05-07");
     expect(html).toContain("2026-05-07");
-    expect(html).toContain("the date range scopes metrics, not decisions");
+    expect(html).toContain("date range scopes metrics, not decisions");
   });
 });
 
 describe("decision row sort and search", () => {
   it("renders the sort control and free-text search over the lanes", () => {
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
     expect(html).toContain('data-testid="meta-row-sort"');
     expect(html).toContain('data-testid="meta-row-search"');
-    expect(html).toContain("Money at stake");
+    expect(html).toContain('data-spend-anchor="true"');
   });
 
   it("sorts by money at stake and keeps missing-metric rows last", () => {
@@ -1013,11 +1530,20 @@ describe("decision row sort and search", () => {
       metaRec({ id: "mid", priority: "medium" }),
       metaRec({ id: "hi2", priority: "high" }),
     ];
-    expect(sortMetaRecs(rows, "priority").map((rec) => rec.id)).toEqual(["hi1", "hi2", "mid", "lo"]);
+    expect(sortMetaRecs(rows, "priority").map((rec) => rec.id)).toEqual([
+      "hi1",
+      "hi2",
+      "mid",
+      "lo",
+    ]);
   });
 
   it("matches search across entity name, campaign, and decision label", () => {
-    const rec = metaRec({ campaignName: "Prospecting ASC", adsetName: "Broad EU", decisionLabel: "cut" });
+    const rec = metaRec({
+      campaignName: "Prospecting ASC",
+      adsetName: "Broad EU",
+      decisionLabel: "cut",
+    });
     expect(metaRecSearchMatch(rec, "")).toBe(true);
     expect(metaRecSearchMatch(rec, "broad")).toBe(true);
     expect(metaRecSearchMatch(rec, "CUT")).toBe(true);
@@ -1055,14 +1581,28 @@ describe("tracking write gate (regression: dismissal must not unlock writes)", (
 describe("compare math uses structured metrics, never display strings", () => {
   it("keeps numbers identical when formatted evidence strings change arbitrarily", () => {
     const base = metaRec({
-      metrics: { spend: 812.5, roas: 2.4, cpa: 18, ctr: 1.3, purchases: 44, frequency: 2.1 },
+      metrics: {
+        spend: 812.5,
+        roas: 2.4,
+        cpa: 18,
+        ctr: 1.3,
+        purchases: 44,
+        frequency: 2.1,
+      },
       evidence: [
         { label: "Spend", value: "$812.50", tone: "neutral" },
         { label: "ROAS", value: "2.40x", tone: "positive" },
       ],
     });
     const reformatted = metaRec({
-      metrics: { spend: 812.5, roas: 2.4, cpa: 18, ctr: 1.3, purchases: 44, frequency: 2.1 },
+      metrics: {
+        spend: 812.5,
+        roas: 2.4,
+        cpa: 18,
+        ctr: 1.3,
+        purchases: 44,
+        frequency: 2.1,
+      },
       evidence: [
         { label: "Spend", value: "₺99.999,99 !!", tone: "neutral" },
         { label: "ROAS", value: "banded 0.70x-0.83x", tone: "warning" },
@@ -1102,7 +1642,11 @@ describe("data readiness banner", () => {
       },
     });
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
     expect(html).toContain("Data is not fully ready.");
     expect(html).toContain("No Meta ad account is assigned");
@@ -1123,19 +1667,26 @@ describe("workspace posture banners", () => {
         id: "meta_write_kill_switch",
         tone: "danger",
         title: "Kill switch engaged.",
-        detail: "All active Meta write endpoints are blocked by META_ADS_WRITE_KILL_SWITCH.",
+        detail:
+          "All active Meta write endpoints are blocked by META_ADS_WRITE_KILL_SWITCH.",
         blocking: true,
       },
     ];
 
     const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" currency="USD" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
     );
 
     expect(html).toContain('data-testid="meta-posture-banners"');
     expect(html).toContain('data-banner-id="meta_write_kill_switch"');
     expect(html).toContain('data-banner-id="tracking_write_gate"');
-    expect(html.indexOf("Kill switch engaged.")).toBeLessThan(html.indexOf("Tracking degraded"));
+    expect(html.indexOf("Kill switch engaged.")).toBeLessThan(
+      html.indexOf("Tracking degraded"),
+    );
     expect(html).toContain('href="/platforms/meta/automation"');
     expect(html).toContain("System Status");
     expect(html).toContain("Hiding this banner does not unlock writes");
@@ -1146,14 +1697,16 @@ describe("workspace posture banners", () => {
       role: "collaborator",
       isReviewer: true,
       readOnly: true,
-      readOnlyReason: "You have read-only access: all evidence is visible, write controls are downgraded to review.",
+      readOnlyReason:
+        "You have read-only access: all evidence is visible, write controls are downgraded to review.",
     };
     state.workspaceBanners = [
       {
         id: "reviewer_read_only",
         tone: "info",
         title: "Reviewer access is read-only.",
-        detail: "You have read-only access: all evidence is visible, write controls are downgraded to review.",
+        detail:
+          "You have read-only access: all evidence is visible, write controls are downgraded to review.",
         blocking: false,
       },
     ];
@@ -1171,20 +1724,26 @@ describe("workspace posture banners", () => {
       healthy: [],
       nonSales: [],
       archive: [],
-      counts: { actionNow: 1, watching: 0, healthy: 0, nonSales: 0, archive: 0 },
+      counts: {
+        actionNow: 1,
+        watching: 0,
+        healthy: 0,
+        nonSales: 0,
+        archive: 0,
+      },
     });
 
     const html = renderToStaticMarkup(<MetaPlatformPage businessId="biz_1" />);
 
     expect(html).toContain('data-banner-id="reviewer_read_only"');
     expect(html).toContain("Reviewer access is read-only.");
-    expect(html).toContain('data-action-kind="execute_pause"');
+    expect(html).toContain('data-testid="meta-decision-board"');
     expect(html).toContain('data-action-authority="review"');
     expect(html).toContain('data-read-only-action="true"');
     expect(html).toContain("Review evidence");
+    expect(html).not.toContain('data-action-authority="execute"');
     expect(html).toContain("Snapshot read-only");
     expect(html).not.toContain(">Run snapshot<");
-    expect(html).toContain("Reappears tomorrow 9am");
     expect(html).not.toContain('data-action="undefer"');
     expect(html).not.toContain(">Pause weakest<");
   });

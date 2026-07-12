@@ -171,8 +171,11 @@ export function formatCreativeDateLabel(value: CreativeDateRangeValue): string {
   return `${formatDate(start)} - ${formatDate(end)}`;
 }
 
-export function creativeDateRangeToStandard(value: CreativeDateRangeValue): DateRangeValue {
-  const resolved = resolveCreativeDateRange(value);
+export function creativeDateRangeToStandard(
+  value: CreativeDateRangeValue,
+  referenceDate?: string | null,
+): DateRangeValue {
+  const resolved = resolveCreativeDateRange(value, referenceDate);
 
   switch (value.preset) {
     case "today":
@@ -267,6 +270,7 @@ export function standardDateRangeToCreative(value: DateRangeValue): CreativeDate
     case "lastMonth":
       return { preset: "lastMonth", customStart: "", customEnd: "", lastDays: 30, sinceDate: "" };
     case "3d":
+    case "28d":
     case "90d":
     case "custom":
       return {
@@ -276,6 +280,8 @@ export function standardDateRangeToCreative(value: DateRangeValue): CreativeDate
         lastDays: getRangeDayCount(value.customStart, value.customEnd),
         sinceDate: value.customStart,
       };
+    case "thisMonth":
+      return { preset: "thisMonth", customStart: "", customEnd: "", lastDays: 30, sinceDate: "" };
   }
 }
 

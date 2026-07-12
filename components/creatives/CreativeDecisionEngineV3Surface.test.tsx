@@ -319,6 +319,23 @@ describe("CreativeDecisionEngineV3Surface", () => {
     expect(html).toContain("data: degraded");
   });
 
+  it("renders unknown freshness as warning-equivalent without calling it degraded", () => {
+    const html = renderSurface({
+      dataHealth: makeDataHealth({
+        decisions: makeLayer({
+          sourceFreshnessHours: null,
+          staleTier: "unknown",
+        }),
+        worstTier: "unknown",
+      }),
+    });
+
+    expect(html).toContain('data-health-tier="unknown"');
+    expect(html).toContain("bg-amber-500/15");
+    expect(html).toContain("data: freshness unknown");
+    expect(html).not.toContain("data: degraded");
+  });
+
   it("renders badge chips when decisions include badges", () => {
     const html = renderSurface();
 

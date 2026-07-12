@@ -9,7 +9,9 @@ import { buildCreativesResponse, type CreativesApiResponse } from "@/lib/meta/cr
 import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import type { FormatFilter, GroupBy, SortKey } from "@/lib/meta/creatives-types";
 import {
+  buildMetaCreativesAccountScopeMetadata,
   getMetaCreativesWarehousePayload,
+  resolveMetaCreativesAccountScope,
 } from "@/lib/meta/creatives-warehouse";
 import { dayCountInclusive } from "@/lib/meta/history";
 import {
@@ -25,6 +27,8 @@ export interface MetaCreativesLivePayloadInput {
   request: NextRequest;
   requestStartedAt: number;
   businessId: string;
+  providerAccountId?: string | null;
+  creativeId?: string | null;
   mediaMode: "metadata" | "full";
   groupBy: GroupBy;
   format: FormatFilter;
@@ -58,6 +62,8 @@ export interface MetaCreativeDetailPayloadInput {
 
 export interface MetaCreativesWarehousePayloadInput {
   businessId: string;
+  providerAccountId?: string | null;
+  creativeId?: string | null;
   mediaMode: "metadata" | "full";
   groupBy: GroupBy;
   format: FormatFilter;
@@ -83,9 +89,13 @@ function getRequestScopedLiveFallbackCache(request: NextRequest) {
 function getLiveFallbackCacheKey(
   input: MetaCreativesLivePayloadInput,
   readSource: "live_fallback" | "current_day_live",
+  providerAccountId: string,
+  creativeId: string | null,
 ) {
   return JSON.stringify({
     businessId: input.businessId,
+    providerAccountId,
+    creativeId,
     readSource,
     mediaMode: input.mediaMode,
     groupBy: input.groupBy,
@@ -164,6 +174,21 @@ type WarehouseCreativePayload = {
   media_hydrated?: boolean;
   [key: string]: unknown;
 };
+
+function scopeCreativePayloadRows<T extends WarehouseCreativePayload>(
+  payload: T,
+  providerAccountId: string,
+  creativeId: string | null = null,
+): T {
+  return {
+    ...payload,
+    rows: payload.rows.filter(
+      (row) =>
+        row.account_id === providerAccountId &&
+        (!creativeId || row.creative_id === creativeId),
+    ),
+  };
+}
 
 async function hydrateWarehouseMediaWithFreshThumbnails<T extends WarehouseCreativePayload>(
   payload: T,
@@ -260,6 +285,8 @@ export async function getMetaCreativesApiPayload(input: MetaCreativesLivePayload
     request,
     requestStartedAt,
     businessId,
+    providerAccountId: requestedProviderAccountId,
+    creativeId: requestedCreativeId,
     mediaMode,
     groupBy,
     format,
@@ -282,21 +309,33 @@ export async function getMetaCreativesApiPayload(input: MetaCreativesLivePayload
     enableDeepAudit,
     perAccountSampleLimit,
   } = input;
+  const creativeId = requestedCreativeId?.trim() || null;
   const enableFullMediaHydration = mediaMode === "full";
+
+  const assignedAccountIds = await fetchAssignedAccountIds(businessId);
+  const accountScope = resolveMetaCreativesAccountScope({
+    assignedAccountIds,
+    requestedProviderAccountId,
+  });
+  if (!accountScope.ok) {
+    return {
+      status: accountScope.status,
+      rows: [],
+      ...buildMetaCreativesAccountScopeMetadata(accountScope),
+    };
+  }
+  const providerAccountId = accountScope.providerAccountId;
+  const scopedAccountIds = accountScope.assignedAccountIds;
+  const accountScopeMetadata = buildMetaCreativesAccountScopeMetadata(accountScope);
 
   const integration = await getIntegration(businessId, "meta").catch(() => null);
   if (!integration || integration.status !== "connected") {
-    return { status: "no_connection", rows: [] };
+    return { status: "no_connection", rows: [], ...accountScopeMetadata };
   }
   if (!integration.access_token) {
-    return { status: "no_access_token", rows: [] };
+    return { status: "no_access_token", rows: [], ...accountScopeMetadata };
   }
   const accessToken = integration.access_token;
-
-  const assignedAccountIds = await fetchAssignedAccountIds(businessId);
-  if (assignedAccountIds.length === 0) {
-    return { status: "no_accounts_assigned", rows: [] };
-  }
 
   const rangeContext = await getMetaRangePreparationContext({
     businessId,
@@ -320,7 +359,7 @@ export async function getMetaCreativesApiPayload(input: MetaCreativesLivePayload
     !shouldBypassCreativeWarehouse(input) &&
     (await hasCreativeWarehouseCoverage({
       businessId,
-      assignedAccountIds,
+      assignedAccountIds: scopedAccountIds,
       groupBy,
       start,
       end: effectiveEnd,
@@ -328,6 +367,8 @@ export async function getMetaCreativesApiPayload(input: MetaCreativesLivePayload
   ) {
     const warehousePayload = await getMetaCreativesWarehousePayload({
       businessId,
+      providerAccountId,
+      creativeId,
       start,
       end: effectiveEnd,
       groupBy,
@@ -335,29 +376,46 @@ export async function getMetaCreativesApiPayload(input: MetaCreativesLivePayload
       sort,
       mediaMode,
     });
+    if (warehousePayload.status !== "ok") {
+      return {
+        ...warehousePayload,
+        readSource: "warehouse",
+      };
+    }
+    const scopedWarehousePayload = scopeCreativePayloadRows(
+      warehousePayload,
+      providerAccountId,
+      creativeId,
+    );
     const mediaHydratedPayload =
       mediaMode === "full"
         ? await hydrateWarehouseMediaWithFreshThumbnails(
-            warehousePayload,
+            scopedWarehousePayload,
             mediaMode,
             accessToken,
             debugPreview || debugThumbnail,
           )
-        : warehousePayload;
+        : scopedWarehousePayload;
     return {
       ...mediaHydratedPayload,
       readSource: "warehouse",
+      ...accountScopeMetadata,
     };
   }
 
   const fallbackCache = getRequestScopedLiveFallbackCache(request);
-  const fallbackKey = getLiveFallbackCacheKey(input, liveReadSource);
+  const fallbackKey = getLiveFallbackCacheKey(
+    input,
+    liveReadSource,
+    providerAccountId,
+    creativeId,
+  );
   let fallbackPromise = fallbackCache.get(fallbackKey);
   if (!fallbackPromise) {
     fallbackPromise = buildCreativesResponse(
       {
         businessId,
-        assignedAccountIds,
+        assignedAccountIds: scopedAccountIds,
         accessToken,
         mediaMode,
         enableFullMediaHydration,
@@ -388,13 +446,23 @@ export async function getMetaCreativesApiPayload(input: MetaCreativesLivePayload
       request,
     )
       .then((payload) => {
-        const rows = Array.isArray(payload.rows) ? payload.rows : [];
+        const accountScopedPayload = scopeCreativePayloadRows(
+          payload,
+          providerAccountId,
+        );
+        const scopedPayload = scopeCreativePayloadRows(
+          accountScopedPayload,
+          providerAccountId,
+          creativeId,
+        );
+        const rows = scopedPayload.rows;
         const isCurrentDayPartial =
-          selectedRangeNeedsCurrentDayLive && rows.length === 0;
+          selectedRangeNeedsCurrentDayLive && accountScopedPayload.rows.length === 0;
         return {
-          ...payload,
+          ...scopedPayload,
           snapshot_source: "live",
           readSource: liveReadSource,
+          ...accountScopeMetadata,
           ...(selectedRangeNeedsCurrentDayLive
             ? {
                 isPartial: isCurrentDayPartial,
@@ -421,6 +489,7 @@ export async function getMetaCreativesApiPayload(input: MetaCreativesLivePayload
           media_hydrated: false,
           snapshot_source: "live",
           readSource: "current_day_live",
+          ...accountScopeMetadata,
           isPartial: true,
           notReadyReason: buildCurrentDayCreativeNotReadyReason({
             currentDateInTimezone: rangeContext.currentDateInTimezone,
@@ -500,6 +569,8 @@ export async function getMetaCreativeDetailPayload(input: MetaCreativeDetailPayl
 export async function getMetaCreativesDbPayload(input: MetaCreativesWarehousePayloadInput) {
   const {
     businessId,
+    providerAccountId: requestedProviderAccountId,
+    creativeId: requestedCreativeId,
     mediaMode,
     groupBy,
     format,
@@ -507,22 +578,34 @@ export async function getMetaCreativesDbPayload(input: MetaCreativesWarehousePay
     start,
     end,
   } = input;
+  const creativeId = requestedCreativeId?.trim() || null;
+
+  const assignedAccountIds = await fetchAssignedAccountIds(businessId);
+  const accountScope = resolveMetaCreativesAccountScope({
+    assignedAccountIds,
+    requestedProviderAccountId,
+  });
+  if (!accountScope.ok) {
+    return {
+      status: accountScope.status,
+      rows: [],
+      ...buildMetaCreativesAccountScopeMetadata(accountScope),
+    };
+  }
+  const accountScopeMetadata = buildMetaCreativesAccountScopeMetadata(accountScope);
 
   const integration = await getIntegration(businessId, "meta").catch(() => null);
   if (!integration || integration.status !== "connected") {
-    return { status: "no_connection", rows: [] };
+    return { status: "no_connection", rows: [], ...accountScopeMetadata };
   }
   if (!integration.access_token) {
-    return { status: "no_access_token", rows: [] };
-  }
-
-  const assignedAccountIds = await fetchAssignedAccountIds(businessId);
-  if (assignedAccountIds.length === 0) {
-    return { status: "no_accounts_assigned", rows: [] };
+    return { status: "no_access_token", rows: [], ...accountScopeMetadata };
   }
 
   const payload = await getMetaCreativesWarehousePayload({
     businessId,
+    providerAccountId: accountScope.providerAccountId,
+    creativeId,
     start,
     end,
     groupBy,
@@ -530,8 +613,19 @@ export async function getMetaCreativesDbPayload(input: MetaCreativesWarehousePay
     sort,
     mediaMode,
   });
+  if (payload.status !== "ok") {
+    return {
+      ...payload,
+      readSource: "warehouse",
+    };
+  }
   return {
-    ...payload,
+    ...scopeCreativePayloadRows(
+      payload,
+      accountScope.providerAccountId,
+      creativeId,
+    ),
     readSource: "warehouse",
+    ...accountScopeMetadata,
   };
 }

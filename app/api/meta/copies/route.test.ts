@@ -13,6 +13,7 @@ vi.mock("@/lib/access", () => ({
 
 vi.mock("@/lib/demo-business", () => ({
   getDemoMetaCopies: vi.fn(() => ({ status: "ok", rows: [] })),
+  getDemoProviderAccounts: vi.fn(() => [{ id: "act_1" }]),
 }));
 
 vi.mock("@/lib/meta/creatives-api", () => ({
@@ -115,6 +116,18 @@ describe("GET /api/meta/copies", () => {
     vi.mocked(businessMode.isDemoBusiness).mockResolvedValue(false);
   });
 
+  it("requires an explicit provider account scope", async () => {
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/copies?businessId=biz"),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "missing_provider_account_id",
+    });
+    expect(creativesApi.getMetaCreativesApiPayload).not.toHaveBeenCalled();
+  });
+
   it("derives copy rows from the shared snapshot/live creatives payload", async () => {
     vi.mocked(creativesApi.getMetaCreativesApiPayload).mockResolvedValue({
       status: "ok",
@@ -124,7 +137,7 @@ describe("GET /api/meta/copies", () => {
 
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/meta/copies?businessId=biz&start=2026-03-01&end=2026-03-31&groupBy=copy"
+        "http://localhost/api/meta/copies?businessId=biz&providerAccountId=act_1&start=2026-03-01&end=2026-03-31&groupBy=copy"
       )
     );
     const payload = await response.json();
@@ -135,6 +148,7 @@ describe("GET /api/meta/copies", () => {
     expect(creativesApi.getMetaCreativesApiPayload).toHaveBeenCalledWith(
       expect.objectContaining({
         businessId: "biz",
+        providerAccountId: "act_1",
         mediaMode: "metadata",
         enableCopyRecovery: true,
         enableCreativeDetails: false,
@@ -143,6 +157,29 @@ describe("GET /api/meta/copies", () => {
         enableMediaRecovery: false,
       })
     );
+  });
+
+  it("defensively excludes rows from other provider accounts before grouping", async () => {
+    vi.mocked(creativesApi.getMetaCreativesApiPayload).mockResolvedValue({
+      status: "ok",
+      rows: [
+        buildCreativeRow({ id: "ad_1", account_id: "act_1", spend: 100 }),
+        buildCreativeRow({ id: "ad_2", account_id: "act_2", spend: 900 }),
+      ],
+      snapshot_source: "persisted",
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/copies?businessId=biz&providerAccountId=act_1&start=2026-03-01&end=2026-03-31&groupBy=copy",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.meta.provider_account_id).toBe("act_1");
+    expect(payload.rows).toHaveLength(1);
+    expect(payload.rows[0]).toMatchObject({ account_id: "act_1", spend: 100 });
   });
 
   it("maps real funnel/video metrics from the source rows and never fabricates see_more_rate", async () => {
@@ -166,7 +203,7 @@ describe("GET /api/meta/copies", () => {
 
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/meta/copies?businessId=biz&start=2026-03-01&end=2026-03-31&groupBy=adName"
+        "http://localhost/api/meta/copies?businessId=biz&providerAccountId=act_1&start=2026-03-01&end=2026-03-31&groupBy=adName"
       )
     );
     const payload = await response.json();
@@ -214,7 +251,7 @@ describe("GET /api/meta/copies", () => {
 
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/meta/copies?businessId=biz&start=2026-03-01&end=2026-03-31&groupBy=copy"
+        "http://localhost/api/meta/copies?businessId=biz&providerAccountId=act_1&start=2026-03-01&end=2026-03-31&groupBy=copy"
       )
     );
     const payload = await response.json();
@@ -243,7 +280,7 @@ describe("GET /api/meta/copies", () => {
 
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/meta/copies?businessId=biz&start=2026-03-01&end=2026-03-31&groupBy=copy"
+        "http://localhost/api/meta/copies?businessId=biz&providerAccountId=act_1&start=2026-03-01&end=2026-03-31&groupBy=copy"
       )
     );
     const payload = await response.json();
@@ -265,7 +302,7 @@ describe("GET /api/meta/copies", () => {
 
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/meta/copies?businessId=biz&start=2026-03-01&end=2026-03-31&groupBy=copy"
+        "http://localhost/api/meta/copies?businessId=biz&providerAccountId=act_1&start=2026-03-01&end=2026-03-31&groupBy=copy"
       )
     );
     const payload = await response.json();
@@ -283,7 +320,7 @@ describe("GET /api/meta/copies", () => {
 
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/meta/copies?businessId=biz&start=2026-03-01&end=2026-03-31&groupBy=copy"
+        "http://localhost/api/meta/copies?businessId=biz&providerAccountId=act_1&start=2026-03-01&end=2026-03-31&groupBy=copy"
       )
     );
     const payload = await response.json();
@@ -321,7 +358,7 @@ describe("GET /api/meta/copies", () => {
 
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/meta/copies?businessId=biz&start=2026-03-21&end=2026-04-03&groupBy=copy"
+        "http://localhost/api/meta/copies?businessId=biz&providerAccountId=act_1&start=2026-03-21&end=2026-04-03&groupBy=copy"
       )
     );
     const payload = await response.json();
@@ -359,7 +396,7 @@ describe("GET /api/meta/copies", () => {
 
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/meta/copies?businessId=biz&start=2026-03-21&end=2026-04-03&groupBy=copy"
+        "http://localhost/api/meta/copies?businessId=biz&providerAccountId=act_1&start=2026-03-21&end=2026-04-03&groupBy=copy"
       )
     );
     const payload = await response.json();

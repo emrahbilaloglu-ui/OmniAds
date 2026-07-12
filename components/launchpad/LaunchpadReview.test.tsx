@@ -6,6 +6,7 @@ import type { DecisionOutput } from "@/lib/creative-decision-engine";
 import { normalizeMetaLaunchPayload } from "@/lib/launchpad/meta";
 import {
   LaunchpadReview,
+  buildLaunchpadBudgetReview,
   buildEngineAggregate,
 } from "@/components/launchpad/LaunchpadReview";
 
@@ -96,6 +97,7 @@ function makeDecision(overrides: Partial<DecisionOutput>): DecisionOutput {
 
 const payload = normalizeMetaLaunchPayload({
   campaign: { name: "Launch", objective: "OUTCOME_SALES", specialAdCategories: [] },
+  currencyCode: "USD",
   budget: {
     mode: "CBO",
     schedule: "daily",
@@ -168,11 +170,24 @@ describe("LaunchpadReview", () => {
     expect(aggregate.averageRoas).toBe(1.5);
   });
 
+  it("builds review budget math in the real account currency", () => {
+    expect(buildLaunchpadBudgetReview(payload, "USD")).toMatchObject({
+      amount: "$50.00/day",
+      detail: "CBO · LOWEST_COST_WITHOUT_CAP",
+      complete: true,
+    });
+    expect(buildLaunchpadBudgetReview(payload, null)).toMatchObject({
+      amount: "50 (Currency unavailable)/day",
+      complete: false,
+    });
+  });
+
   it("renders aggregate banner and disables launch until validation passes", () => {
     const html = renderToStaticMarkup(
       <LaunchpadReview
         businessId="biz"
         payload={payload}
+        currencyCode="USD"
         selectedCreatives={[makeCreative("creative_1", 100, 3)]}
         decisionByCreativeId={new Map([["creative_1", makeDecision({})]])}
         onSaveTemplate={vi.fn()}
@@ -182,11 +197,31 @@ describe("LaunchpadReview", () => {
     );
 
     expect(html).toContain("1 of 1 selected creatives are engine-flagged");
-    expect(html).toContain("SERVER VALIDATION · real blocker vocabulary");
-    expect(html).toContain("campaign_name_required");
+    expect(html).toContain("$50.00/day");
+    expect(html).toContain("Validation unavailable until the server returns a result");
     expect(html).toContain("raw launch JSON");
     expect(html).not.toContain("&quot;campaign&quot;:");
-    expect(html).toContain("Launch (paused)");
+    expect(html).toContain("Create PAUSED");
+    expect(html).toContain("Publish ACTIVE");
+    expect(html).toContain("Proposed/contract required");
+    expect(html).toContain("disabled");
+  });
+
+  it("blocks review when the account currency is unavailable", () => {
+    const html = renderToStaticMarkup(
+      <LaunchpadReview
+        businessId="biz"
+        payload={payload}
+        currencyCode={null}
+        selectedCreatives={[makeCreative("creative_1", 100, 3)]}
+        decisionByCreativeId={new Map()}
+        onLaunch={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("currency_unavailable");
+    expect(html).toContain("50 (Currency unavailable)/day");
+    expect(html).toContain("Create PAUSED");
     expect(html).toContain("disabled");
   });
 
@@ -215,9 +250,22 @@ describe("LaunchpadReview", () => {
         mode="add_to_existing"
         businessId="biz"
         payload={modeBPayload}
+        currencyCode="USD"
         selectedCreatives={[makeCreative("creative_1", 100, 3)]}
         decisionByCreativeId={new Map([["creative_1", makeDecision({})]])}
-        targetSummary={{ campaignName: "Campaign", adsetName: "Ad set", currentAdCount: 4 }}
+        targetSummary={{
+          campaignName: "Campaign",
+          adsetName: "Ad set",
+          currentAdCount: 4,
+          budgetLines: [
+            {
+              label: "Campaign / Ad set",
+              amountMinor: 2500,
+              schedule: "daily",
+              source: "ad set",
+            },
+          ],
+        }}
         onSaveDraft={vi.fn()}
         onLaunch={vi.fn()}
       />,
@@ -226,6 +274,7 @@ describe("LaunchpadReview", () => {
     expect(html).toContain("1 creatives -&gt; existing ad set Ad set under campaign Campaign");
     expect(html).toContain("Creative copy: recreate exact ad");
     expect(html).toContain("after launch: 5");
+    expect(html).toContain("$25.00/day");
     expect(html).not.toContain("Save as template");
     expect(html).toContain("Save draft");
   });

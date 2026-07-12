@@ -28,7 +28,7 @@ vi.mock("@/lib/meta/decision-os-source", () => ({
   getMetaDecisionOsForRange: vi.fn(),
 }));
 
-vi.mock("@/lib/meta/execution", () => ({
+vi.mock("./meta-execution", () => ({
   getMetaAdSetExecutionState: vi.fn(),
   mutateMetaAdSetExecution: vi.fn(),
 }));
@@ -37,7 +37,7 @@ const commandCenterStore = await import("@/lib/command-center-store");
 const executionStore = await import("@/lib/command-center-execution-store");
 const executionConfig = await import("@/lib/command-center-execution-config");
 const decisionSource = await import("@/lib/meta/decision-os-source");
-const metaExecution = await import("@/lib/meta/execution");
+const metaExecution = await import("./meta-execution");
 const executionService = await import("@/lib/command-center-execution-service");
 
 const permissions: CommandCenterPermissions = {

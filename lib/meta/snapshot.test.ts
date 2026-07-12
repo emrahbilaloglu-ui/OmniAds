@@ -79,6 +79,8 @@ vi.mock("@/lib/meta/commercial-targets", async (importOriginal) => {
       targetCpa: 120,
       breakEvenCpa: 160,
       riskPosture: "balanced",
+      freshness: "fresh",
+      updatedAt: "2026-05-06T02:00:00.000Z",
     })),
   };
 });
@@ -96,6 +98,7 @@ const anomalies = await import("@/lib/meta/anomalies");
 const evidenceTrail = await import("@/lib/meta/evidence-trail");
 const entitySignals = await import("@/lib/meta/entity-signals");
 const entitySignalsBackfill = await import("@/lib/meta/entity-signals-backfill");
+const commercialTargets = await import("@/lib/meta/commercial-targets");
 
 function makeSqlMock(tagRows: unknown[] = []) {
   const calls: string[] = [];
@@ -147,6 +150,16 @@ function campaign(overrides: Partial<MetaCampaignRow> = {}) {
 describe("meta snapshot job", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(commercialTargets.readMetaCommercialTargets).mockResolvedValue({
+      source: "configured_targets",
+      targetRoas: 2.2,
+      breakEvenRoas: 1.5,
+      targetCpa: 120,
+      breakEvenCpa: 160,
+      riskPosture: "balanced",
+      freshness: "fresh",
+      updatedAt: "2026-05-06T02:00:00.000Z",
+    });
     const sql = makeSqlMock();
     vi.mocked(db.getDb).mockReturnValue(sql.tag);
     vi.mocked(calibration.runMetaCalibrationForBusiness).mockResolvedValue({
@@ -257,7 +270,7 @@ describe("meta snapshot job", () => {
     expect(sql.calls.filter((text) => text.includes("INSERT INTO meta_decision_snapshots_daily"))).toHaveLength(2);
   });
 
-  it("holds act-boundary state flips for one snapshot (hysteresis)", async () => {
+  it("publishes an act-to-watch safety exit immediately in the snapshot path", async () => {
     vi.mocked(decisionStability.readPreviousMetaDecisionStates).mockResolvedValue(new Map());
     const firstRun = makeSqlMock();
     vi.mocked(db.getDb).mockReturnValue(firstRun.tag);
@@ -284,15 +297,14 @@ describe("meta snapshot job", () => {
       });
     }
 
-    // Second run: yesterday published the OPPOSITE state for one key, so
-    // today's (unchanged) raw state is a first flip and must be held.
-    const target = firstRows[0]!;
-    const heldState = target.decision_state === "act" ? "watch" : "act";
+    // Hard-action entry confirmation must never delay a safety exit. Model a
+    // previously published act state while today's raw recommendation is watch.
+    const target = firstRows.find((row) => row.decision_state === "watch") ?? firstRows[0]!;
     vi.mocked(decisionStability.readPreviousMetaDecisionStates).mockResolvedValue(
       new Map([
         [
           `${target.scope_type}|${target.scope_id}|${target.rec_type}`,
-          { publishedState: heldState as "act" | "watch", rawState: heldState as "act" | "watch" },
+          { publishedState: "act", rawState: "act" },
         ],
       ]),
     );
@@ -310,12 +322,12 @@ describe("meta snapshot job", () => {
         row.rec_type === target.rec_type,
     );
     expect(held).toBeDefined();
-    expect(held!.decision_state).toBe(heldState);
+    expect(held!.decision_state).toBe(target.decision_state);
     expect(held!.signal_quality.stability).toEqual({
       raw_decision_state: target.decision_state,
-      suppressed: true,
+      suppressed: false,
     });
-    expect(held!.state_reason ?? "").toContain("Pending transition");
+    expect(held!.state_reason ?? "").not.toContain("Pending transition");
   });
 
   it("runs calibration before fetching decision inputs", async () => {
@@ -638,6 +650,112 @@ describe("meta snapshot job", () => {
       campaignRole: "retargeting",
       bidRegime: "lowest_cost",
     });
+    const latestSnapshotQuery = sql.calls.find((call) =>
+      call.includes("WITH latest AS"),
+    );
+    expect(latestSnapshotQuery).not.toContain("snapshot_date BETWEEN");
+  });
+
+  it("preserves a persisted confidence cap instead of re-inflating it from the raw score", async () => {
+    const storedRecommendation = {
+      id: "watch-cmp_1",
+      kind: "state",
+      level: "campaign",
+      campaignId: "cmp_1",
+      type: "campaign_state",
+      lens: "structure",
+      priority: "medium",
+      confidence: "medium",
+      confidenceScore: 0.96,
+      confidenceReason: "thin_data_watching",
+      decisionState: "test",
+      decision: "Keep testing",
+      title: "Evidence is still forming",
+      why: "The confidence label is policy-capped.",
+      summary: "Do not act yet.",
+      recommendedAction: "Review after more evidence.",
+      expectedImpact: "Avoid premature action.",
+      evidence: [],
+    };
+    const sql = makeSqlMock([
+      {
+        scope_type: "campaign",
+        scope_id: "cmp_1",
+        business_id: "biz_1",
+        snapshot_date: "2026-05-06",
+        rec_id: "watch-cmp_1",
+        rec_type: "campaign_state",
+        level: "campaign",
+        decision_state: "test",
+        confidence_score: "0.96",
+        evidence: { recommendation: storedRecommendation, items: [] },
+        recommended_action: "Review after more evidence.",
+        target_value: null,
+        expected_impact: "Avoid premature action.",
+        reasoning: "The confidence label is policy-capped.",
+        predictive_overlay: null,
+        engine_version: "v1.0.0",
+        evidence_trail: {},
+        campaign_role: null,
+        bid_regime: null,
+        created_at: "2026-05-06T03:00:00.000Z",
+      },
+    ]);
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+
+    const result = await readMetaDecisionSnapshotForRange({
+      businessId: "biz_1",
+      startDate: "2026-05-01",
+      endDate: "2026-05-06",
+    });
+
+    expect(result?.recommendations[0]).toMatchObject({
+      confidence: "medium",
+      confidenceScore: 0.96,
+      confidenceReason: "thin_data_watching",
+      decisionState: "test",
+    });
+  });
+
+  it("keeps missing persisted confidence unknown instead of inventing 0.4", async () => {
+    const sql = makeSqlMock([
+      {
+        scope_type: "campaign",
+        scope_id: "cmp_1",
+        business_id: "biz_1",
+        snapshot_date: "2026-05-06",
+        rec_id: "watch-cmp_1",
+        rec_type: "campaign_state",
+        level: "campaign",
+        decision_state: "watch",
+        confidence_score: null,
+        evidence: { items: [] },
+        recommended_action: "Review campaign state",
+        target_value: null,
+        expected_impact: null,
+        reasoning: "Confidence evidence is unavailable.",
+        predictive_overlay: null,
+        engine_version: "v1.0.0",
+        evidence_trail: {},
+        campaign_role: null,
+        bid_regime: null,
+        created_at: "2026-05-06T03:00:00.000Z",
+      },
+    ]);
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+
+    const result = await readMetaDecisionSnapshotForRange({
+      businessId: "biz_1",
+      startDate: "2026-05-01",
+      endDate: "2026-05-06",
+    });
+
+    expect(result?.recommendations[0]).toMatchObject({
+      confidence: "low",
+      confidenceReason: "confidence_score_missing",
+      priority: "low",
+    });
+    expect(result?.recommendations[0]?.confidenceScore).toBeUndefined();
   });
 
   it("guards pre-existing persisted hard actions at read time when campaign label is missing", async () => {
@@ -740,6 +858,76 @@ describe("meta snapshot job", () => {
       confidence: "high",
     });
     expect(result?.recommendations[0]?.confidenceReason).not.toBe("unlabeled_campaign_soft_only");
+  });
+
+  it("revokes persisted spend authority when the current commercial target is stale", async () => {
+    const sql = makeSqlMock([
+      {
+        scope_type: "campaign",
+        scope_id: "cmp_1",
+        business_id: "biz_1",
+        snapshot_date: "2026-05-06",
+        rec_id: "scale-cmp_1",
+        rec_type: "scale_for_volume",
+        level: "campaign",
+        decision_state: "act",
+        confidence_score: "0.9",
+        evidence: { items: [] },
+        recommended_action: "Increase budget 10-15%.",
+        target_value: 15,
+        expected_impact: "More volume.",
+        reasoning: "Strong scale signal.",
+        predictive_overlay: "Persisted snapshot.",
+        engine_version: "v1.0.0",
+        evidence_trail: {},
+        campaign_role: "prospecting_scale",
+        bid_regime: "lowest_cost",
+        created_at: "2026-05-06T03:00:00.000Z",
+      },
+    ]);
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+    vi.mocked(commercialTargets.readMetaCommercialTargets).mockResolvedValue({
+      source: "configured_targets",
+      targetRoas: 2.2,
+      breakEvenRoas: 1.5,
+      targetCpa: 120,
+      breakEvenCpa: 160,
+      riskPosture: "balanced",
+      freshness: "stale",
+      updatedAt: "2026-03-01T00:00:00.000Z",
+    });
+    vi.mocked(campaignLabels.readMetaCampaignLabels).mockResolvedValue([
+      {
+        businessId: "biz_1",
+        campaignId: "cmp_1",
+        kind: "main",
+        testDimension: null,
+        source: "user",
+        providerAccountId: "act_1",
+        campaignName: "Campaign 1",
+        labeledBy: "user_1",
+        labeledAt: "2026-05-15T00:00:00.000Z",
+        updatedAt: "2026-05-15T00:00:00.000Z",
+      },
+    ]);
+
+    const result = await readMetaDecisionSnapshotForRange({
+      businessId: "biz_1",
+      startDate: "2026-05-01",
+      endDate: "2026-05-06",
+    });
+
+    expect(result?.recommendations[0]).toMatchObject({
+      type: "scale_for_volume",
+      decisionState: "watch",
+      signalQuality: {
+        hard_action_authority: "blocked",
+        hard_action_blocker: "commercial_target_stale",
+        commercial_target_freshness: "stale",
+      },
+    });
+    expect(result?.recommendations[0]?.proposedAction).toBeUndefined();
+    expect(result?.recommendations[0]?.targetValue).toBeUndefined();
   });
 
   it("marks previously active anomalies resolved when absent on rerun", async () => {

@@ -37,9 +37,24 @@ const REQUIRED_TABLES = [
   "engine_v3_campaign_context_daily",
   "engine_v3_job_runs",
   "engine_v3_decision_events",
+  "business_target_pack_history",
+  "meta_creative_briefs",
+  "meta_launch_intents",
 ] as const;
 const REQUIRED_COLUMNS: ReadonlyArray<{ table: string; column: string }> = [
   { table: "engine_v3_decision_snapshots_daily", column: "raw_label" },
+  {
+    table: "engine_v3_decision_snapshots_daily",
+    column: "blocked_action_type",
+  },
+  { table: "meta_creative_briefs", column: "source_snapshot_id" },
+  { table: "meta_creative_briefs", column: "idempotency_key" },
+  { table: "meta_creative_briefs", column: "version" },
+  { table: "meta_launch_drafts", column: "provider_account_id" },
+  { table: "meta_launch_templates", column: "provider_account_id" },
+  { table: "meta_launch_intents", column: "requested_status" },
+  { table: "meta_ads_action_log", column: "launch_intent_id" },
+  { table: "creative_share_snapshots", column: "provider_account_id" },
 ];
 
 function log(message: string) {
@@ -335,6 +350,18 @@ async function main() {
       databaseUrl,
       path.join("scripts", "ephemeral-postgres-meta-store-seam-child.ts"),
       "launchpad meta-store DB seam check",
+    );
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join("scripts", "ephemeral-postgres-creative-brief-seam-child.ts"),
+      "creative brief DB seam check",
+    );
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join("scripts", "ephemeral-postgres-launch-intent-seam-child.ts"),
+      "launch intent DB seam check",
     );
 
     log("PASS: migrations build the schema from zero and are idempotent.");

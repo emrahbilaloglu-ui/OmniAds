@@ -165,7 +165,7 @@ describe("decisions job SQL contracts", () => {
     expect(calibrationLookup).toContain("creative_format = 'overall'");
   });
 
-  it("persists label transform diagnostics in the snapshot upsert contract", () => {
+  it("persists label transform and held-action diagnostics in the snapshot upsert contract", () => {
     const source = readFileSync(
       "lib/creative-decision-engine/jobs/decisions-job.ts",
       "utf8",
@@ -182,9 +182,16 @@ describe("decisions job SQL contracts", () => {
     expect(snapshotUpsert).toContain(
       "label_transform = EXCLUDED.label_transform",
     );
+    expect(snapshotUpsert).toContain("blocked_action_type text");
+    expect(snapshotUpsert).toContain("blocked_action_type,");
+    expect(snapshotUpsert).toContain(
+      "blocked_action_type = EXCLUDED.blocked_action_type",
+    );
     expect(mapper).toContain(
       "label_transform: input.decision.labelTransform ?? null",
     );
+    expect(mapper).toContain("blocked_action_type:");
+    expect(mapper).toContain("input.decision.blockedActionType");
   });
 
   it("prunes only stale current-day decision materialization for the same scope", () => {

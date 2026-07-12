@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db";
 import { getIntegration } from "@/lib/integrations";
+import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import type { MetaAdsWriteContext } from "@/lib/meta/ads-write";
 import {
   normalizeMetaAddToExistingPayload,
@@ -45,6 +46,17 @@ export interface MetaAddToExistingCreativeStatus {
   providerAccountId: string | null;
 }
 
+export interface MetaBulkResumePreflightTarget {
+  adId: string;
+  creativeId: string | null;
+  providerAccountId: string | null;
+}
+
+export interface MetaBulkResumePreflightResult {
+  ok: boolean;
+  blockers: Array<LaunchpadIssue & { adId?: string }>;
+}
+
 export interface MetaAddToExistingValidationResult {
   ok: boolean;
   payload: MetaAddToExistingPayload;
@@ -69,12 +81,79 @@ function accountNumericId(providerAccountId: string) {
   return providerAccountId.trim().replace(/^act_/, "");
 }
 
+export function normalizeMetaLaunchProviderAccountId(value: string | null | undefined) {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) return "";
+  const numericId = trimmed.replace(/^act_/i, "");
+  return /^\d+$/.test(numericId) ? `act_${numericId}` : trimmed;
+}
+
+export function metaLaunchAccountBlockerHttpStatus(code: string): 400 | 403 | 503 {
+  if (code === "provider_account_not_assigned") return 403;
+  if (code === "provider_account_scope_unavailable") return 503;
+  return 400;
+}
+
+export async function resolveAssignedMetaLaunchAccount(input: {
+  businessId: string;
+  providerAccountId: string | null | undefined;
+}): Promise<
+  | { ok: true; providerAccountId: string }
+  | { ok: false; blocker: LaunchpadIssue }
+> {
+  const providerAccountId = normalizeMetaLaunchProviderAccountId(
+    input.providerAccountId,
+  );
+  if (!providerAccountId) {
+    return {
+      ok: false,
+      blocker: {
+        code: "provider_account_id_required",
+        message: "providerAccountId is required for every Meta Launchpad action.",
+      },
+    };
+  }
+
+  let assignments;
+  try {
+    assignments = await getProviderAccountAssignments(input.businessId, "meta");
+  } catch {
+    return {
+      ok: false,
+      blocker: {
+        code: "provider_account_scope_unavailable",
+        message: "Meta account assignments are unavailable right now.",
+      },
+    };
+  }
+  const assigned = new Set(
+    (assignments?.account_ids ?? []).map(normalizeMetaLaunchProviderAccountId),
+  );
+  if (!assigned.has(providerAccountId)) {
+    return {
+      ok: false,
+      blocker: {
+        code: "provider_account_not_assigned",
+        message: "providerAccountId is not assigned to this business.",
+      },
+    };
+  }
+  return { ok: true, providerAccountId };
+}
+
 export async function resolveMetaLaunchWriteContext(
   businessId: string,
+  requestedProviderAccountId: string | null | undefined,
 ): Promise<
   | { ok: true; ctx: MetaAdsWriteContext }
   | { ok: false; blocker: LaunchpadIssue }
 > {
+  const account = await resolveAssignedMetaLaunchAccount({
+    businessId,
+    providerAccountId: requestedProviderAccountId,
+  });
+  if (!account.ok) return account;
+
   const integration = await getIntegration(businessId, "meta").catch(() => null);
   if (integration?.status !== "connected" || !integration.access_token) {
     return {
@@ -85,21 +164,11 @@ export async function resolveMetaLaunchWriteContext(
       },
     };
   }
-  const providerAccountId = integration.provider_account_id ?? null;
-  if (!providerAccountId) {
-    return {
-      ok: false,
-      blocker: {
-        code: "meta_account_unresolved",
-        message: "Meta ad account is not assigned.",
-      },
-    };
-  }
   return {
     ok: true,
     ctx: {
       businessId,
-      providerAccountId,
+      providerAccountId: account.providerAccountId,
       accessToken: integration.access_token,
     },
   };
@@ -164,29 +233,56 @@ async function readPixels(ctx: MetaAdsWriteContext): Promise<MetaLaunchPixel[]> 
 
 async function readLatestCreativeStatuses(input: {
   businessId: string;
+  providerAccountId: string;
   creativeIds: string[];
 }) {
-  if (input.creativeIds.length === 0) return new Map<string, string | null>();
+  if (input.creativeIds.length === 0) {
+    return new Map<string, { found: boolean; status: string | null }>();
+  }
   const sql = getDb();
   const rows = (await sql`
-    SELECT target.creative_id, latest.effective_status
+    SELECT
+      target.creative_id,
+      COALESCE(latest.creative_id, dimension.creative_id) AS resolved_creative_id,
+      latest.effective_status
     FROM unnest(${input.creativeIds}::text[]) AS target(creative_id)
     LEFT JOIN LATERAL (
-      SELECT effective_status
+      SELECT creative_id, effective_status
       FROM meta_creative_daily
       WHERE business_id = ${input.businessId}
+        AND provider_account_id = ${input.providerAccountId}
         AND creative_id = target.creative_id
       ORDER BY date DESC, updated_at DESC
       LIMIT 1
     ) latest ON TRUE
-  `) as Array<{ creative_id: string; effective_status: string | null }>;
+    LEFT JOIN LATERAL (
+      SELECT creative_id
+      FROM meta_creative_dimensions
+      WHERE business_id = ${input.businessId}
+        AND provider_account_id = ${input.providerAccountId}
+        AND creative_id = target.creative_id
+      ORDER BY updated_at DESC
+      LIMIT 1
+    ) dimension ON TRUE
+  `) as Array<{
+    creative_id: string;
+    resolved_creative_id: string | null;
+    effective_status: string | null;
+  }>;
   return new Map(
-    rows.map((row) => [row.creative_id, row.effective_status ?? null]),
+    rows.map((row) => [
+      row.creative_id,
+      {
+        found: Boolean(row.resolved_creative_id),
+        status: row.effective_status ?? null,
+      },
+    ]),
   );
 }
 
 async function readLatestCreativeStatusesWithNames(input: {
   businessId: string;
+  providerAccountId: string;
   creativeIds: string[];
 }) {
   if (input.creativeIds.length === 0) return [];
@@ -203,6 +299,7 @@ async function readLatestCreativeStatusesWithNames(input: {
       SELECT creative_name, effective_status, ad_id, provider_account_id
       FROM meta_creative_daily
       WHERE business_id = ${input.businessId}
+        AND provider_account_id = ${input.providerAccountId}
         AND creative_id = target.creative_id
       ORDER BY date DESC, updated_at DESC
       LIMIT 1
@@ -211,6 +308,7 @@ async function readLatestCreativeStatusesWithNames(input: {
       SELECT creative_name, ad_id, provider_account_id
       FROM meta_creative_dimensions
       WHERE business_id = ${input.businessId}
+        AND provider_account_id = ${input.providerAccountId}
         AND creative_id = target.creative_id
       ORDER BY updated_at DESC
       LIMIT 1
@@ -233,6 +331,7 @@ async function readLatestCreativeStatusesWithNames(input: {
 
 async function readAddToExistingTarget(input: {
   businessId: string;
+  providerAccountId: string;
   targetCampaignId: string;
   targetAdsetId: string;
 }): Promise<MetaAddToExistingTargetValidation | null> {
@@ -254,6 +353,7 @@ async function readAddToExistingTarget(input: {
       AND campaign.provider_account_id = adset.provider_account_id
       AND campaign.campaign_id = adset.campaign_id
     WHERE adset.business_id = ${input.businessId}
+      AND adset.provider_account_id = ${input.providerAccountId}
       AND adset.campaign_id = ${input.targetCampaignId}
       AND adset.adset_id = ${input.targetAdsetId}
     ORDER BY adset.updated_at DESC
@@ -282,6 +382,7 @@ async function readAddToExistingTarget(input: {
 
 export async function validateMetaLaunchRequest(input: {
   businessId: string;
+  providerAccountId: string;
   payload: unknown;
 }): Promise<MetaLaunchValidationResult> {
   const payload = normalizeMetaLaunchPayload(input.payload);
@@ -290,7 +391,10 @@ export async function validateMetaLaunchRequest(input: {
   const warnings = [...shape.warnings];
   let pixels: MetaLaunchPixel[] = [];
 
-  const ctxResult = await resolveMetaLaunchWriteContext(input.businessId);
+  const ctxResult = await resolveMetaLaunchWriteContext(
+    input.businessId,
+    input.providerAccountId,
+  );
   if (!ctxResult.ok) {
     blockers.push(ctxResult.blocker);
   } else {
@@ -340,10 +444,19 @@ export async function validateMetaLaunchRequest(input: {
 
   const statuses = await readLatestCreativeStatuses({
     businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
     creativeIds: payload.creativeIds,
   });
   payload.creativeIds.forEach((creativeId) => {
-    const status = statuses.get(creativeId);
+    const creative = statuses.get(creativeId);
+    if (!creative?.found) {
+      blockers.push({
+        code: "creative_not_found_in_account",
+        message: `Creative ${creativeId} is not available in the selected Meta ad account.`,
+      });
+      return;
+    }
+    const status = creative.status;
     const normalized = status?.trim().toUpperCase() ?? "";
     if (normalized === "REJECTED" || normalized === "DISAPPROVED") {
       blockers.push({
@@ -364,6 +477,7 @@ export async function validateMetaLaunchRequest(input: {
 
 export async function validateMetaAddToExistingRequest(input: {
   businessId: string;
+  providerAccountId: string;
   payload: unknown;
 }): Promise<MetaAddToExistingValidationResult> {
   const payload = normalizeMetaAddToExistingPayload(input.payload);
@@ -375,6 +489,7 @@ export async function validateMetaAddToExistingRequest(input: {
     payload.targets.map((target) =>
       readAddToExistingTarget({
         businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
         targetCampaignId: target.targetCampaignId,
         targetAdsetId: target.targetAdsetId,
       }),
@@ -405,12 +520,21 @@ export async function validateMetaAddToExistingRequest(input: {
           code: "target_account_unresolved",
           message: `Target ${index + 1} ad set account could not be resolved.`,
         });
+      } else if (
+        normalizeMetaLaunchProviderAccountId(target.providerAccountId) !==
+        normalizeMetaLaunchProviderAccountId(input.providerAccountId)
+      ) {
+        blockers.push({
+          code: "target_account_mismatch",
+          message: `Target ${index + 1} does not belong to the selected Meta ad account.`,
+        });
       }
     }
   });
 
   const creatives = await readLatestCreativeStatusesWithNames({
     businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
     creativeIds: payload.creativeIds,
   });
   const byCreativeId = new Map(creatives.map((creative) => [creative.creativeId, creative]));
@@ -419,6 +543,20 @@ export async function validateMetaAddToExistingRequest(input: {
   );
   payload.creativeIds.forEach((creativeId) => {
     const creative = byCreativeId.get(creativeId);
+    if (!creative?.providerAccountId) {
+      blockers.push({
+        code: "creative_not_found_in_account",
+        message: `Creative ${creativeId} is not available in the selected Meta ad account.`,
+      });
+    } else if (
+      normalizeMetaLaunchProviderAccountId(creative.providerAccountId) !==
+      normalizeMetaLaunchProviderAccountId(input.providerAccountId)
+    ) {
+      blockers.push({
+        code: "creative_account_mismatch",
+        message: `Creative ${creativeId} does not belong to the selected Meta ad account.`,
+      });
+    }
     const status = creative?.effectiveStatus;
     const normalized = status?.trim().toUpperCase() ?? "";
     if (normalized === "REJECTED" || normalized === "DISAPPROVED") {
@@ -472,4 +610,193 @@ export async function validateMetaAddToExistingRequest(input: {
     targets,
     creatives,
   };
+}
+
+const NON_RESUMABLE_EFFECTIVE_STATUSES = new Set([
+  "ARCHIVED",
+  "DELETED",
+  "DISAPPROVED",
+  "PENDING_REVIEW",
+  "PREAPPROVED",
+  "WITH_ISSUES",
+]);
+
+function readProviderString(
+  payload: Record<string, unknown> | null,
+  key: string,
+) {
+  const value = payload?.[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function readPromotedObjectField(
+  promotedObject: Record<string, unknown> | null,
+  snakeKey: string,
+  camelKey: string,
+) {
+  const value = promotedObject?.[snakeKey] ?? promotedObject?.[camelKey];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+export async function validateMetaBulkResumePreflight(input: {
+  ctx: MetaAdsWriteContext;
+  targets: MetaBulkResumePreflightTarget[];
+}): Promise<MetaBulkResumePreflightResult> {
+  const blockers: MetaBulkResumePreflightResult["blockers"] = [];
+  const accountState = new Map<
+    string,
+    { ctx: MetaAdsWriteContext; activePixelIds: Set<string> }
+  >();
+
+  for (const providerAccountId of Array.from(
+    new Set(
+      input.targets
+        .map((target) => target.providerAccountId?.trim())
+        .filter((value): value is string => Boolean(value)),
+    ),
+  )) {
+    const ctx = { ...input.ctx, providerAccountId };
+    try {
+      const billingBlocker = await readBillingStatus(ctx);
+      if (billingBlocker) blockers.push(billingBlocker);
+      const pixels = await readPixels(ctx);
+      accountState.set(providerAccountId, {
+        ctx,
+        activePixelIds: new Set(
+          pixels.filter((pixel) => pixel.active).map((pixel) => pixel.id),
+        ),
+      });
+    } catch (error) {
+      blockers.push({
+        code: "account_preflight_failed",
+        message: sanitizeMetaMessage(
+          error instanceof Error ? error.message : String(error),
+        ),
+      });
+    }
+  }
+
+  for (const target of input.targets) {
+    const providerAccountId = target.providerAccountId?.trim() ?? "";
+    const state = accountState.get(providerAccountId);
+    if (!providerAccountId || !state) {
+      blockers.push({
+        code: "target_account_unresolved",
+        message: `Ad ${target.adId} account could not be verified.`,
+        adId: target.adId,
+      });
+      continue;
+    }
+
+    try {
+      const adPayload = await graphGet(
+        state.ctx,
+        target.adId,
+        "id,account_id,status,effective_status,creative{id},adset_id",
+      );
+      if (!isRecord(adPayload) || readProviderString(adPayload, "id") !== target.adId) {
+        blockers.push({
+          code: "ad_live_state_unresolved",
+          message: `Ad ${target.adId} live state could not be verified.`,
+          adId: target.adId,
+        });
+        continue;
+      }
+      const liveAccountId = readProviderString(adPayload, "account_id").replace(
+        /^act_/,
+        "",
+      );
+      if (
+        liveAccountId &&
+        liveAccountId !== providerAccountId.replace(/^act_/, "")
+      ) {
+        blockers.push({
+          code: "target_account_mismatch",
+          message: `Ad ${target.adId} belongs to a different Meta account.`,
+          adId: target.adId,
+        });
+      }
+      const effectiveStatus = (
+        readProviderString(adPayload, "effective_status") ||
+        readProviderString(adPayload, "status")
+      ).toUpperCase();
+      if (NON_RESUMABLE_EFFECTIVE_STATUSES.has(effectiveStatus)) {
+        blockers.push({
+          code: "creative_not_resumable",
+          message: `Ad ${target.adId} is ${effectiveStatus.toLowerCase()} and cannot be resumed.`,
+          adId: target.adId,
+        });
+      }
+      const liveCreativeId = readProviderString(
+        isRecord(adPayload.creative) ? adPayload.creative : null,
+        "id",
+      );
+      if (
+        target.creativeId &&
+        (!liveCreativeId || liveCreativeId !== target.creativeId)
+      ) {
+        blockers.push({
+          code: "creative_identity_mismatch",
+          message: `Ad ${target.adId} no longer references the expected creative.`,
+          adId: target.adId,
+        });
+      }
+
+      const adsetId = readProviderString(adPayload, "adset_id");
+      if (!adsetId) {
+        blockers.push({
+          code: "parent_adset_unresolved",
+          message: `Ad ${target.adId} parent ad set could not be verified.`,
+          adId: target.adId,
+        });
+        continue;
+      }
+      const adsetPayload = await graphGet(
+        state.ctx,
+        adsetId,
+        "id,status,effective_status,promoted_object",
+      );
+      const adsetStatus = readProviderString(
+        isRecord(adsetPayload) ? adsetPayload : null,
+        "status",
+      ).toUpperCase();
+      const adsetEffectiveStatus = readProviderString(
+        isRecord(adsetPayload) ? adsetPayload : null,
+        "effective_status",
+      ).toUpperCase();
+      if (adsetStatus !== "ACTIVE" || adsetEffectiveStatus !== "ACTIVE") {
+        blockers.push({
+          code: "parent_adset_not_active",
+          message: `Ad ${target.adId} parent ad set must be fully active before the ad can be resumed.`,
+          adId: target.adId,
+        });
+      }
+      const promotedObject =
+        isRecord(adsetPayload) && isRecord(adsetPayload.promoted_object)
+          ? adsetPayload.promoted_object
+          : null;
+      const pixelId = readPromotedObjectField(
+        promotedObject,
+        "pixel_id",
+        "pixelId",
+      );
+      if (!pixelId || !state.activePixelIds.has(pixelId)) {
+        blockers.push({
+          code: "pixel_not_active",
+          message: `Ad ${target.adId} conversion pixel is missing or inactive.`,
+          adId: target.adId,
+        });
+      }
+    } catch (error) {
+      blockers.push({
+        code: "ad_live_preflight_failed",
+        message: sanitizeMetaMessage(
+          error instanceof Error ? error.message : String(error),
+        ),
+        adId: target.adId,
+      });
+    }
+  }
+
+  return { ok: blockers.length === 0, blockers };
 }

@@ -33,7 +33,6 @@ const PUBLIC_API_PREFIXES = [
   "/api/healthz",
   "/api/release-authority",
   "/api/invite",
-  "/api/creatives/share",
   "/api/webhooks/shopify",
   "/api/ai/cron",
   "/api/sync/cron",
@@ -48,6 +47,9 @@ const INTERNAL_CRON_SECRET_API_PREFIXES = [
   "/api/sync/refresh",
 ] as const;
 
+const CREATIVE_SHARE_PAGE_PREFIX = "/share/creative/";
+const CREATIVE_SHARE_API_PREFIX = "/api/creatives/share/";
+
 function getBearerToken(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
   return authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
@@ -59,10 +61,26 @@ function isPublicPage(pathname: string): boolean {
   );
 }
 
-function isPublicApi(pathname: string): boolean {
-  return PUBLIC_API_PREFIXES.some(
+function isPublicCreativeShareRead(request: NextRequest): boolean {
+  if (request.method !== "GET") return false;
+  const { pathname } = request.nextUrl;
+  if (!pathname.startsWith(CREATIVE_SHARE_API_PREFIX)) return false;
+  const token = pathname.slice(CREATIVE_SHARE_API_PREFIX.length);
+  return Boolean(token) && !token.includes("/");
+}
+
+function isPublicApi(request: NextRequest): boolean {
+  const { pathname } = request.nextUrl;
+  return isPublicCreativeShareRead(request) || PUBLIC_API_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
+}
+
+function withCreativeShareNoStore(response: NextResponse) {
+  response.headers.set("Cache-Control", "private, no-store, max-age=0");
+  response.headers.set("Pragma", "no-cache");
+  response.headers.set("Expires", "0");
+  return response;
 }
 
 function isAllowedInternalApiRequest(request: NextRequest): boolean {
@@ -84,8 +102,11 @@ export function proxy(request: NextRequest) {
   const hasLanguage = Boolean(request.cookies.get(LANGUAGE_COOKIE)?.value);
 
   if (pathname.startsWith("/api/")) {
-    if (isPublicApi(pathname) || isAllowedInternalApiRequest(request)) {
-      return NextResponse.next();
+    if (isPublicApi(request) || isAllowedInternalApiRequest(request)) {
+      const response = NextResponse.next();
+      return isPublicCreativeShareRead(request)
+        ? withCreativeShareNoStore(response)
+        : response;
     }
     if (!hasSession) {
       return NextResponse.json(
@@ -121,7 +142,10 @@ export function proxy(request: NextRequest) {
     }
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next();
+  return pathname.startsWith(CREATIVE_SHARE_PAGE_PREFIX)
+    ? withCreativeShareNoStore(response)
+    : response;
 }
 
 export const config = {

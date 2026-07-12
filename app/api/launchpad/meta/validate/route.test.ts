@@ -13,9 +13,14 @@ vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
 }));
 
+vi.mock("@/lib/provider-account-assignments", () => ({
+  getProviderAccountAssignments: vi.fn(),
+}));
+
 const access = await import("@/lib/access");
 const integrations = await import("@/lib/integrations");
 const db = await import("@/lib/db");
+const assignments = await import("@/lib/provider-account-assignments");
 const { POST } = await import("./route");
 
 const BUSINESS_ID = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
@@ -64,16 +69,24 @@ function payload(overrides: Record<string, unknown> = {}) {
 }
 
 function request(body: unknown) {
+  const scopedBody =
+    body && typeof body === "object" && !Array.isArray(body)
+      ? { providerAccountId: "act_123", ...body }
+      : body;
   return new NextRequest("http://localhost/api/launchpad/meta/validate", {
     method: "POST",
-    body: JSON.stringify(body),
+    body: JSON.stringify(scopedBody),
     headers: { "Content-Type": "application/json" },
   });
 }
 
 function mockDbStatus(status: string | null) {
   const sql = vi.fn(async () => [
-    { creative_id: "creative_1", effective_status: status },
+    {
+      creative_id: "creative_1",
+      resolved_creative_id: "creative_1",
+      effective_status: status,
+    },
   ]);
   vi.mocked(db.getDb).mockReturnValue(sql as never);
 }
@@ -126,6 +139,9 @@ describe("POST /api/launchpad/meta/validate", () => {
       status: "connected",
       provider_account_id: "act_123",
       access_token: "secret-token",
+    } as never);
+    vi.mocked(assignments.getProviderAccountAssignments).mockResolvedValue({
+      account_ids: ["act_123", "act_222"],
     } as never);
     mockDbStatus("ACTIVE");
   });
@@ -205,6 +221,7 @@ describe("POST /api/launchpad/meta/validate", () => {
     const response = await POST(
       request({
         businessId: BUSINESS_ID,
+        providerAccountId: "act_222",
         payload: {
           mode: "add_to_existing",
           copyMode: "reuse_creative",
@@ -225,7 +242,7 @@ describe("POST /api/launchpad/meta/validate", () => {
     );
   });
 
-  it("allows recreate mode when source and target ad accounts differ", async () => {
+  it("blocks recreate mode until the source creative is explicitly in account scope", async () => {
     mockAddToExistingDb({
       targetProviderAccountId: "act_222",
       sourceProviderAccountId: "act_111",
@@ -234,6 +251,7 @@ describe("POST /api/launchpad/meta/validate", () => {
     const response = await POST(
       request({
         businessId: BUSINESS_ID,
+        providerAccountId: "act_222",
         payload: {
           mode: "add_to_existing",
           copyMode: "rebuild_creative",
@@ -246,7 +264,12 @@ describe("POST /api/launchpad/meta/validate", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toMatchObject({ ok: true, blockers: [] });
+    expect(body.ok).toBe(false);
+    expect(body.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "creative_account_mismatch" }),
+      ]),
+    );
   });
 
   it("returns auth errors before validation work", async () => {

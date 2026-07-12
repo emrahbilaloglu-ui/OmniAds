@@ -10,6 +10,7 @@ import { getMetaCanonicalOverviewTrends } from "@/lib/meta/canonical-overview";
 import { isInBriefing, parseBriefingStatusFilter } from "@/lib/meta/briefing-filter";
 import { META_RECOMMENDATION_ENGINE_VERSION } from "@/lib/meta/recommendations";
 import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
+import { resolveBusinessTargetPackFreshness } from "@/lib/business-commercial";
 import type {
   MetaLabelCoverage,
   MetaSnapshotHealth,
@@ -19,7 +20,11 @@ import type {
 export const dynamic = "force-dynamic";
 
 type PulseWindow = "7d" | "14d" | "28d" | "90d" | "custom";
-type RoasTargetSource = "commercial_truth" | "account_median" | "none";
+type RoasTargetSource =
+  | "commercial_truth"
+  | "commercial_truth_stale"
+  | "account_median"
+  | "none";
 
 function parseWindow(value: string | null): PulseWindow {
   if (value === "7d" || value === "14d" || value === "90d" || value === "custom") {
@@ -79,12 +84,22 @@ function median(values: number[]) {
 async function readCommercialTruthTargetRoas(businessId: string) {
   const sql = getDb();
   const [row] = (await sql`
-    SELECT target_roas
+    SELECT target_roas, updated_at
     FROM business_target_packs
     WHERE business_id = ${businessId}
     LIMIT 1
-  `) as Array<{ target_roas: number | string | null }>;
-  return positiveNumberOrNull(row?.target_roas);
+  `) as Array<{
+    target_roas: number | string | null;
+    updated_at: string | Date | null;
+  }>;
+  return {
+    target: positiveNumberOrNull(row?.target_roas),
+    freshness: resolveBusinessTargetPackFreshness(row?.updated_at),
+    updatedAt:
+      row?.updated_at instanceof Date
+        ? row.updated_at.toISOString()
+        : row?.updated_at ?? null,
+  };
 }
 
 async function readCommercialTruthTargetAnchor(businessId: string): Promise<MetaTargetAnchor> {
@@ -94,7 +109,8 @@ async function readCommercialTruthTargetAnchor(businessId: string): Promise<Meta
       target_roas,
       break_even_roas,
       target_cpa,
-      break_even_cpa
+      break_even_cpa,
+      updated_at
     FROM business_target_packs
     WHERE business_id = ${businessId}
     LIMIT 1
@@ -103,6 +119,7 @@ async function readCommercialTruthTargetAnchor(businessId: string): Promise<Meta
     break_even_roas: number | string | null;
     target_cpa: number | string | null;
     break_even_cpa: number | string | null;
+    updated_at: string | Date | null;
   }>;
   const targetRoas = positiveNumberOrNull(row?.target_roas);
   const breakEvenRoas = positiveNumberOrNull(row?.break_even_roas);
@@ -116,10 +133,18 @@ async function readCommercialTruthTargetAnchor(businessId: string): Promise<Meta
     breakEvenRoas,
     targetCpa,
     breakEvenCpa,
+    freshness: resolveBusinessTargetPackFreshness(row?.updated_at),
+    updatedAt:
+      row?.updated_at instanceof Date
+        ? row.updated_at.toISOString()
+        : row?.updated_at ?? null,
   };
 }
 
-async function readAccountMedianRoas(businessId: string) {
+async function readAccountMedianRoas(
+  businessId: string,
+  providerAccountId: string | null,
+) {
   const sql = getDb();
   const rows = (await sql`
     WITH latest_account_rows AS (
@@ -130,6 +155,7 @@ async function readAccountMedianRoas(businessId: string) {
       WHERE business_id = ${businessId}
         AND scope_type = 'account'
         AND metric_name = 'roas_28d'
+        AND (${providerAccountId}::text IS NULL OR scope_id = ${providerAccountId})
       ORDER BY scope_id, snapshot_date DESC
     )
     SELECT p50
@@ -138,23 +164,53 @@ async function readAccountMedianRoas(businessId: string) {
   return median(rows.map((row) => Number(row.p50)));
 }
 
-async function resolveBusinessTargetRoas(businessId: string): Promise<{
+async function resolveBusinessTargetRoas(
+  businessId: string,
+  providerAccountId: string | null,
+): Promise<{
   target: number | null;
   median: number | null;
   target_source: RoasTargetSource;
+  targetFreshness: "fresh" | "stale" | "unknown";
+  targetUpdatedAt: string | null;
 }> {
-  const [target, accountMedian] = await Promise.all([
-    readCommercialTruthTargetRoas(businessId).catch(() => null),
-    readAccountMedianRoas(businessId).catch(() => null),
+  const [commercialTarget, accountMedian] = await Promise.all([
+    readCommercialTruthTargetRoas(businessId).catch(() => ({
+      target: null,
+      freshness: "unknown" as const,
+      updatedAt: null,
+    })),
+    readAccountMedianRoas(businessId, providerAccountId).catch(() => null),
   ]);
 
-  if (target != null) {
-    return { target, median: accountMedian, target_source: "commercial_truth" };
+  if (commercialTarget.target != null) {
+    return {
+      target: commercialTarget.target,
+      median: accountMedian,
+      target_source:
+        commercialTarget.freshness === "fresh"
+          ? "commercial_truth"
+          : "commercial_truth_stale",
+      targetFreshness: commercialTarget.freshness,
+      targetUpdatedAt: commercialTarget.updatedAt,
+    };
   }
   if (accountMedian != null) {
-    return { target: null, median: accountMedian, target_source: "account_median" };
+    return {
+      target: null,
+      median: accountMedian,
+      target_source: "account_median",
+      targetFreshness: commercialTarget.freshness,
+      targetUpdatedAt: commercialTarget.updatedAt,
+    };
   }
-  return { target: null, median: null, target_source: "none" };
+  return {
+    target: null,
+    median: null,
+    target_source: "none",
+    targetFreshness: commercialTarget.freshness,
+    targetUpdatedAt: commercialTarget.updatedAt,
+  };
 }
 
 async function readEngineMetadata(businessId: string) {
@@ -263,7 +319,10 @@ async function readCampaignLabelCoverage(input: {
   };
 }
 
-async function readTrackingHealth(businessId: string) {
+async function readTrackingHealth(
+  businessId: string,
+  providerAccountId: string | null,
+) {
   const sql = getDb();
   const [row] = (await sql`
     SELECT
@@ -271,6 +330,7 @@ async function readTrackingHealth(businessId: string) {
       MAX(tracking_anomaly_score)::double precision AS tracking_anomaly_score
     FROM engine_v3_creative_lifecycle_daily
     WHERE business_id = ${businessId}
+      AND (${providerAccountId}::text IS NULL OR provider_account_id = ${providerAccountId})
       AND as_of_date >= CURRENT_DATE - INTERVAL '6 days'
   `) as Array<{ row_count: number | string | null; tracking_anomaly_score: number | string | null }>;
   const rowCount = toNumber(row?.row_count);
@@ -291,6 +351,7 @@ async function readRoasHistory(input: {
   businessId: string;
   startDate: string;
   endDate: string;
+  providerAccountId: string | null;
 }) {
   const trends = await getMetaCanonicalOverviewTrends(input);
   return trends.points
@@ -298,9 +359,134 @@ async function readRoasHistory(input: {
     .filter((value) => Number.isFinite(value));
 }
 
+type PulseDailyRollup = {
+  date: string;
+  spend: number;
+  revenue: number;
+  purchases: number;
+};
+
+type PulseCampaignRow = {
+  id: string;
+  status: string | null;
+  bidStrategyType: string | null;
+  bidStrategyLabel: string | null;
+  currency: string | null;
+  spend: number;
+  revenue: number;
+  purchases: number;
+};
+
+async function readDecisionWorkspaceWarehousePulse(input: {
+  businessId: string;
+  providerAccountId: string;
+  selectedStart: string;
+  selectedEnd: string;
+  earliestStart: string;
+}) {
+  const sql = getDb();
+  const [dailyRows, campaignRows, syncRows] = await Promise.all([
+    sql.query<{
+      date: string;
+      spend: number | string | null;
+      revenue: number | string | null;
+      purchases: number | string | null;
+    }>(
+      `
+        SELECT
+          date::text AS date,
+          SUM(spend)::double precision AS spend,
+          SUM(revenue)::double precision AS revenue,
+          SUM(conversions)::double precision AS purchases
+        FROM meta_campaign_daily
+        WHERE business_id = $1
+          AND provider_account_id = $2
+          AND date BETWEEN $3::date AND $4::date
+        GROUP BY date
+        ORDER BY date ASC
+      `,
+      [input.businessId, input.providerAccountId, input.earliestStart, input.selectedEnd],
+    ),
+    sql.query<{
+      id: string;
+      status: string | null;
+      bid_strategy_type: string | null;
+      account_currency: string | null;
+      spend: number | string | null;
+      revenue: number | string | null;
+      purchases: number | string | null;
+    }>(
+      `
+        WITH selected AS (
+          SELECT *
+          FROM meta_campaign_daily
+          WHERE business_id = $1
+            AND provider_account_id = $2
+            AND date BETWEEN $3::date AND $4::date
+        ), latest AS (
+          SELECT DISTINCT ON (campaign_id)
+            campaign_id,
+            campaign_status,
+            bid_strategy_type,
+            account_currency
+          FROM selected
+          ORDER BY campaign_id, date DESC
+        )
+        SELECT
+          selected.campaign_id AS id,
+          latest.campaign_status AS status,
+          latest.bid_strategy_type,
+          latest.account_currency,
+          SUM(selected.spend)::double precision AS spend,
+          SUM(selected.revenue)::double precision AS revenue,
+          SUM(selected.conversions)::double precision AS purchases
+        FROM selected
+        JOIN latest USING (campaign_id)
+        GROUP BY selected.campaign_id, latest.campaign_status, latest.bid_strategy_type, latest.account_currency
+        ORDER BY SUM(selected.spend) DESC
+      `,
+      [input.businessId, input.providerAccountId, input.selectedStart, input.selectedEnd],
+    ),
+    sql.query<{ last_sync_at: string | null }>(
+      `
+        SELECT MAX(updated_at)::text AS last_sync_at
+        FROM meta_campaign_daily
+        WHERE business_id = $1
+          AND provider_account_id = $2
+      `,
+      [input.businessId, input.providerAccountId],
+    ),
+  ]);
+  return {
+    daily: dailyRows.map<PulseDailyRollup>((row) => ({
+      date: row.date,
+      spend: toNumber(row.spend),
+      revenue: toNumber(row.revenue),
+      purchases: toNumber(row.purchases),
+    })),
+    campaigns: campaignRows.map<PulseCampaignRow>((row) => ({
+      id: row.id,
+      status: row.status,
+      bidStrategyType: row.bid_strategy_type,
+      bidStrategyLabel: null,
+      currency: row.account_currency,
+      spend: toNumber(row.spend),
+      revenue: toNumber(row.revenue),
+      purchases: toNumber(row.purchases),
+    })),
+    lastSyncAt: syncRows[0]?.last_sync_at ?? null,
+  };
+}
+
+function pulseRollupTotals(rows: PulseDailyRollup[], startDate: string, endDate: string) {
+  return totals(rows.filter((row) => row.date >= startDate && row.date <= endDate));
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const businessId = searchParams.get("businessId")?.trim() ?? "";
+  const providerAccountId =
+    searchParams.get("providerAccountId")?.trim() || null;
   const window = parseWindow(searchParams.get("window"));
   const statusFilter = parseBriefingStatusFilter(searchParams.get("status_filter"));
   const endDate = searchParams.get("endDate")?.trim() || todayISO();
@@ -324,31 +510,67 @@ export async function GET(request: NextRequest) {
   }
 
   const monthStart = `${endDate.slice(0, 8)}01`;
+  const decisionWorkspaceFastPath =
+    searchParams.get("decision_workspace") === "1" &&
+    statusFilter === "all" &&
+    Boolean(providerAccountId);
+  const earliestRollupStart = [
+    previousStart,
+    monthStart,
+    addDaysToISO(endDate, -27),
+  ].sort()[0]!;
+  const fastWarehousePromise = decisionWorkspaceFastPath
+    ? readDecisionWorkspaceWarehousePulse({
+        businessId,
+        providerAccountId: providerAccountId!,
+        selectedStart: startDate,
+        selectedEnd: endDate,
+        earliestStart: earliestRollupStart,
+      })
+    : Promise.resolve(null);
   const [current, previous, today, d7, d14, d28, engineMetadata, trackingHealth, roasBenchmark, targetAnchor, roasHistory, monthToDate, warehouseLastSyncAt] =
     await Promise.all([
-      getMetaCampaignsForRange({ businessId, startDate, endDate }),
-      getMetaCampaignsForRange({
+      decisionWorkspaceFastPath
+        ? fastWarehousePromise.then((warehouse) => ({
+            status: "ok" as const,
+            rows: warehouse?.campaigns ?? [],
+            isPartial: (warehouse?.campaigns.length ?? 0) === 0,
+            notReadyReason: warehouse?.campaigns.length ? null : "Campaign warehouse data is unavailable for the decision snapshot range.",
+            evidenceSource: "warehouse" as const,
+          }))
+        : getMetaCampaignsForRange({
+            businessId,
+            accountId: providerAccountId,
+            startDate,
+            endDate,
+          }),
+      decisionWorkspaceFastPath ? Promise.resolve({ rows: [] }) : getMetaCampaignsForRange({
         businessId,
+        accountId: providerAccountId,
         startDate: previousStart,
         endDate: previousEnd,
       }),
-      getMetaCampaignsForRange({
+      decisionWorkspaceFastPath ? Promise.resolve({ rows: [] }) : getMetaCampaignsForRange({
         businessId,
+        accountId: providerAccountId,
         startDate: endDate,
         endDate,
       }),
-      getMetaCampaignsForRange({
+      decisionWorkspaceFastPath ? Promise.resolve({ rows: [] }) : getMetaCampaignsForRange({
         businessId,
+        accountId: providerAccountId,
         startDate: addDaysToISO(endDate, -6),
         endDate,
       }),
-      getMetaCampaignsForRange({
+      decisionWorkspaceFastPath ? Promise.resolve({ rows: [] }) : getMetaCampaignsForRange({
         businessId,
+        accountId: providerAccountId,
         startDate: addDaysToISO(endDate, -13),
         endDate,
       }),
-      getMetaCampaignsForRange({
+      decisionWorkspaceFastPath ? Promise.resolve({ rows: [] }) : getMetaCampaignsForRange({
         businessId,
+        accountId: providerAccountId,
         startDate: addDaysToISO(endDate, -27),
         endDate,
       }),
@@ -362,11 +584,11 @@ export async function GET(request: NextRequest) {
           engineVersion: META_RECOMMENDATION_ENGINE_VERSION,
         }),
       })),
-      readTrackingHealth(businessId).catch(() => ({
+      readTrackingHealth(businessId, providerAccountId).catch(() => ({
         status: "unknown" as const,
         detail: "Tracking health is unavailable.",
       })),
-      resolveBusinessTargetRoas(businessId),
+      resolveBusinessTargetRoas(businessId, providerAccountId),
       readCommercialTruthTargetAnchor(businessId).catch(() => ({
         configured: false,
         source: "none" as const,
@@ -374,18 +596,39 @@ export async function GET(request: NextRequest) {
         breakEvenRoas: null,
         targetCpa: null,
         breakEvenCpa: null,
+        freshness: "unknown" as const,
+        updatedAt: null,
       })),
-      readRoasHistory({ businessId, startDate, endDate }).catch(() => []),
-      getMetaCampaignsForRange({ businessId, startDate: monthStart, endDate }),
+      decisionWorkspaceFastPath
+        ? fastWarehousePromise.then((warehouse) =>
+            (warehouse?.daily ?? [])
+              .filter((row) => row.date >= startDate && row.date <= endDate)
+              .map((row) => (row.spend > 0 ? row.revenue / row.spend : 0)),
+          )
+        : readRoasHistory({
+            businessId,
+            providerAccountId,
+            startDate,
+            endDate,
+          }).catch(() => []),
+      decisionWorkspaceFastPath ? Promise.resolve({ rows: [] }) : getMetaCampaignsForRange({
+        businessId,
+        accountId: providerAccountId,
+        startDate: monthStart,
+        endDate,
+      }),
       // Real ingest freshness: the newest warehouse write for this business.
       // Never fabricate "now" - unknown is unknown.
-      Promise.resolve()
+      decisionWorkspaceFastPath
+        ? fastWarehousePromise.then((warehouse) => warehouse?.lastSyncAt ?? null)
+        : Promise.resolve()
         .then(() =>
           getDb().query<{ last_sync_at: string | null }>(
             `SELECT MAX(updated_at)::text AS last_sync_at
              FROM meta_campaign_daily
-             WHERE business_ref_id::text = $1 OR business_id = $1`,
-            [businessId],
+             WHERE (business_ref_id::text = $1 OR business_id = $1)
+               AND ($2::text IS NULL OR provider_account_id = $2)`,
+            [businessId, providerAccountId],
           ),
         )
         .then((rows) => rows[0]?.last_sync_at ?? null)
@@ -408,24 +651,29 @@ export async function GET(request: NextRequest) {
     latestUpdatedAt: null,
   }));
 
-  const currentTotals = totals(currentRows);
-  const previousTotals = totals(previousRows);
+  const fastWarehouse = await fastWarehousePromise;
+  const currentTotals = fastWarehouse
+    ? pulseRollupTotals(fastWarehouse.daily, startDate, endDate)
+    : totals(currentRows);
+  const previousTotals = fastWarehouse
+    ? pulseRollupTotals(fastWarehouse.daily, previousStart, previousEnd)
+    : totals(previousRows);
   const currentDayOfMonth = Math.max(1, new Date(`${endDate}T00:00:00.000Z`).getUTCDate());
   // True month-to-date (month start .. endDate), not the selected window
   // relabeled: the previous implementation extrapolated the selected-window
   // spend and called it MTD, which was wrong for every non-28d window.
-  const mtdTotals = totals(
-    (monthToDate.rows ?? []).filter((row) => isInBriefing(row, statusFilter)),
-  );
+  const mtdTotals = fastWarehouse
+    ? pulseRollupTotals(fastWarehouse.daily, monthStart, endDate)
+    : totals((monthToDate.rows ?? []).filter((row) => isInBriefing(row, statusFilter)));
   const mtdTarget = Math.max(mtdTotals.spend, (mtdTotals.spend / currentDayOfMonth) * 30);
   const matureCampaigns = currentRows.filter(
     (row) => toNumber(row.spend) >= 250 || toNumber(row.purchases) >= 5,
   ).length;
   const learningCampaigns = Math.max(0, currentRows.length - matureCampaigns);
-  const d7Totals = totals(d7Rows);
-  const d14Totals = totals(d14Rows);
-  const d28Totals = totals(d28Rows);
-  const todayTotals = totals(todayRows);
+  const d7Totals = fastWarehouse ? pulseRollupTotals(fastWarehouse.daily, addDaysToISO(endDate, -6), endDate) : totals(d7Rows);
+  const d14Totals = fastWarehouse ? pulseRollupTotals(fastWarehouse.daily, addDaysToISO(endDate, -13), endDate) : totals(d14Rows);
+  const d28Totals = fastWarehouse ? pulseRollupTotals(fastWarehouse.daily, addDaysToISO(endDate, -27), endDate) : totals(d28Rows);
+  const todayTotals = fastWarehouse ? pulseRollupTotals(fastWarehouse.daily, endDate, endDate) : totals(todayRows);
   const avg7dSpend = d7Totals.spend / 7;
   const avg7dConversions = d7Totals.purchases / 7;
   const targetForMode = roasBenchmark.target ?? roasBenchmark.median ?? currentTotals.roas ?? 1;
@@ -453,6 +701,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json(
     {
       businessId,
+      providerAccountId,
       window,
       statusFilter,
       startDate,
@@ -476,6 +725,8 @@ export async function GET(request: NextRequest) {
         target: roasBenchmark.target,
         median: roasBenchmark.median,
         target_source: roasBenchmark.target_source,
+        targetFreshness: roasBenchmark.targetFreshness,
+        targetUpdatedAt: roasBenchmark.targetUpdatedAt,
       },
       roasHistory,
       spend: { current: currentTotals.spend, prev: previousTotals.spend },

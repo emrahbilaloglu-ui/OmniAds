@@ -1,5 +1,11 @@
 # Adsecute Full UI Redesign Route Coverage Ledger
 
+> Current Meta status, 2026-07-10: the owner-discovery and joint Meta OS
+> direction supersedes the original ZIP as the product-design authority for
+> authenticated Meta routes. See
+> `META_OS_LOCAL_IMPLEMENTATION_COMPLETION_2026-07-10.md`. The older phase
+> entries below remain an audit trail; they are not the current Meta status.
+>
 > Status correction, 2026-07-08: this file is a route/render coverage ledger only.
 > It is not a design-completion ledger and must not be used as proof that a
 > surface matches the Claude Design reference. The authoritative fidelity audit
@@ -47,10 +53,10 @@ Design source: `/Users/harmelek/Downloads/Create a complete from-scratch product
 | Auth and onboarding | `/login`, `/signup`, `/invite/[token]`, `/select-language`, `/shopify/connect`, `/businesses/new`, `/select-business` | New auth/onboarding visuals, truthful connection and first-sync states | covered by Phase 7 auth/onboarding shell |
 | Integrations callback | `/integrations/callback/[provider]` | Token-normalized callback status surface | covered by Phase 7 callback shell |
 | Workspace | `/commercial-truth`, `/reports`, `/reports/new`, `/reports/[reportId]`, `/reports/[reportId]/edit`, `/reports/[reportId]/print`, `/integrations`, `/settings`, `/team`, `/insights`, `/insights/analytics`, `/insights/ai-visibility`, `/insights/seo` | Workspace visual family aligned to design, no behavior rewrite unless contract truthfulness requires it | covered by Phase 7 workspace shell and report wrapper normalization |
-| Meta Decisions | `/platforms/meta` | Decisions workspace with urgency rail, account status, queue groups, evidence inspector, kill-switch/tracking/dry-run banners | server workspace contract covered by Phase 3; visual refinement continues in Meta family pass |
-| Meta Creative Studio | `/platforms/meta/creatives`, `/platforms/meta/copies`, `/platforms/meta/landing-pages`, `/platforms/meta/creative-inbox`, `/platforms/meta/audiences` | Analysis-first Studio family; decision labels only as server-provided context/deep links | covered by Phase 4 Studio pass |
-| Meta Launchpad | `/platforms/meta/launchpad` | Guarded write surface, drafts/templates, validation, review, progress, partial/silent failure, paused launches | covered by Phase 5 Launchpad pass |
-| Meta Automation | `/platforms/meta/automation` | New route with kill switch, guardrails, readiness tiers, promotion records, activity ledger, honest blocked states | covered by Phase 6 Automation contract |
+| Meta Decisions and History | `/platforms/meta`, `/platforms/meta/history` | Sectioned Act Now, Monitor, persistent/overlay evidence inspector, explicit account/currency scope, read-only History and Historical Replay | current Meta OS local design and account-scoped read contracts covered 2026-07-10 |
+| Meta Creative Studio | `/platforms/meta/creatives`, `/platforms/meta/copies`, `/platforms/meta/landing-pages`, `/platforms/meta/creative-inbox`, `/platforms/meta/audiences` | Analysis-first Studio family; decision labels only as server-provided context/deep links | current Meta OS local design covered 2026-07-10; unavailable producers remain visibly contract-required |
+| Meta Launchpad | `/platforms/meta/launchpad` | Guarded write surface, drafts/templates, immutable LaunchIntent lineage, validation, receipts, partial/silent failure, PAUSED launches | current PAUSED contract covered 2026-07-10; ACTIVE and budget execution remain locked |
+| Meta Automation | `/platforms/meta/automation` | Kill switch, guardrails, readiness, promotion records, activity ledger, honest blocked states | current supervision contract covered 2026-07-10; per-action promotion/auto-execute remains locked |
 | Google Ads | `/platforms/google`, `/platforms/google/pulse`, `/platforms/google/launchpad`, `/platforms/google/ads`, `/platforms/google/keywords`, `/platforms/google/audiences` | Token-normalized platform family and visible "Decisions" naming where pulse was product language | covered by Phase 7 ComingSoonState family |
 | Klaviyo | `/platforms/klaviyo`, `/platforms/klaviyo/flows`, `/platforms/klaviyo/campaigns`, `/platforms/klaviyo/templates`, `/platforms/klaviyo/segments` | Token-normalized beta platform family | covered by Phase 7 ComingSoonState family |
 | Soon platforms | `/platforms/tiktok`, `/platforms/pinterest`, `/platforms/snapchat` | Calm placeholder states aligned to design | covered by Phase 7 PlatformTablePage shell |
@@ -113,3 +119,31 @@ Route/render gate passed by Claude Code on 2026-07-07 after fixing two real bloc
 
 - `lib/meta/launch-write.ts` `createCampaign/createAdSet/createAd` lack the inline `META_ADS_WRITE_KILL_SWITCH` guard that `lib/meta/ads-write.ts` write primitives have. Protected today because the sole caller `app/api/launchpad/meta/launch/route.ts` invokes `rejectIfMetaWritesBlocked` unconditionally before any create. Follow-up: add the inline early-return (`create*` already return `... | MetaAdsWriteFailure`, so it is contract-compatible) for uniform defense-in-depth.
 - `lib/meta/execution.ts:227` `mutateMetaAdSetExecution` issues a Graph POST with no kill-switch check. Not a live bypass: its only callers live under `lib/archive/v1-v2-v21/**`, which Next does not serve and no active code imports. Follow-up: guard or delete when the archive is pruned.
+
+## 2026-07-10 Meta OS Current-Design Addendum
+
+This addendum supersedes the older Meta route statuses above without rewriting
+their historical gate record.
+
+- `/platforms/meta/history` is now part of the route inventory and is exercised
+  by request smoke and desktop/mobile visual smoke.
+- Decisions, History, Studio Assets, Studio Copy, Studio Landing Pages, Studio
+  Inbox, Studio Audiences, Launchpad, and Automation all have route-specific
+  loaded/empty/error readiness assertions in Playwright.
+- Every account-bearing Meta read requires or resolves an explicitly assigned
+  `providerAccountId`; Copy was corrected so rows cannot merge across accounts
+  or currencies.
+- The former orphaned active write implementation was removed from
+  `lib/meta/execution.ts` and retained only as an archive artifact. Current Meta
+  write routes continue through shared authorization, account scope, write
+  guard, and kill-switch checks.
+- Responsive evidence covers 390, 768, 1280, 1440, and 1728 widths in both
+  light and dark themes. Dark primary-action contrast is asserted at WCAG AA
+  and the Adsecute mark is checked for dark-topbar visibility.
+- `/overview` and `components/overview/*` remain protected. Public marketing
+  routes remain excluded.
+
+The route ledger says where a user can go. It does not turn an intentionally
+locked provider capability into a current feature. ACTIVE publication, budget
+mutation, per-action auto-execution promotion, and an executable media upload
+pipeline remain labelled `Proposed/contract required` rather than simulated.

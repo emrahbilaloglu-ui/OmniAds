@@ -5,19 +5,19 @@ import { MetaWatchingCard } from "@/components/meta/redesign/MetaWatchingCard";
 import { metaRec } from "@/components/meta/redesign/test-fixtures";
 
 describe("MetaWatchingCard", () => {
-  it("shows the real action when no defer handler exists (no false Let-cook)", () => {
+  it("shows the server-owned review action when no defer handler exists", () => {
     const html = renderToStaticMarkup(
       <MetaWatchingCard rec={metaRec({ decisionState: "watch", confidenceScore: 0.44 })} />,
     );
-    // Without an onDefer handler the primary click opens the real flow, so
-    // the label must name it - "Let cook" would promise a defer that the
-    // control cannot perform (Codex review: CTA copy must match the click).
-    expect(html).toContain("Rebuild in Launchpad");
+    // The watch projection is server-owned review_drill. The card must not
+    // recover a Launchpad action from the legacy rebuild label.
+    expect(html).toContain("Open diagnostics");
     expect(html).not.toContain("Let cook");
-    // Confidence renders as the server score inside one band pill (0.44),
-    // not a client-derived percentage.
+    // Cards expose the server confidence band without leaking a numeric score;
+    // detailed evidence remains in the inspector.
     expect(html).toContain('data-confidence-band');
-    expect(html).toContain("0.44");
+    expect(html).toContain("High");
+    expect(html).not.toContain("0.44");
   });
 
   it("labels the primary Let cook only when it actually defers", () => {

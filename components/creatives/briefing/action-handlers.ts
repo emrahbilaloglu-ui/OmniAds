@@ -151,6 +151,9 @@ export async function pauseBriefingCard(input: {
   card: BriefingCreativeCard;
   fetchImpl?: FetchLike;
 }): Promise<PauseBriefingCardResult> {
+  if (!isCutPrimaryAction(input.card)) {
+    throw new Error("This card does not carry a server-authorized cut action.");
+  }
   const candidateIds = getBriefingAdActionCandidateIds(input.card);
   const fetcher = input.fetchImpl ?? fetch;
   if (candidateIds.length === 0) {

@@ -25,6 +25,10 @@ vi.mock("@/lib/meta/automation-write-guard", () => ({
   rejectIfMetaWritesBlocked: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/decision-origin-action-preflight", () => ({
+  runServerDecisionOriginAdActionPreflight: vi.fn(),
+}));
+
 vi.mock("@/lib/launchpad/meta-validation", () => ({
   metaLaunchAccountBlockerHttpStatus: vi.fn((code: string) =>
     code === "provider_account_not_assigned" ? 403 : 400,
@@ -41,6 +45,9 @@ const access = await import("@/lib/access");
 const actionLog = await import("@/lib/meta/ads-action-log");
 const adsWrite = await import("@/lib/meta/ads-write");
 const writeGuard = await import("@/lib/meta/automation-write-guard");
+const decisionPreflight = await import(
+  "@/lib/meta/decision-origin-action-preflight"
+);
 const validation = await import("@/lib/launchpad/meta-validation");
 const { POST } = await import("./route");
 
@@ -117,6 +124,18 @@ describe("POST /api/launchpad/meta/bulk-ad-status", () => {
     });
     vi.mocked(writeGuard.rejectIfMetaWritesBlocked).mockResolvedValue(null);
     vi.mocked(actionLog.hasRecentPendingMetaAdsAction).mockResolvedValue(false);
+    vi.mocked(
+      decisionPreflight.runServerDecisionOriginAdActionPreflight,
+    ).mockResolvedValue({
+      ok: true,
+      disposition: "proceed",
+      shouldMutate: true,
+      blockers: [],
+      errorCode: null,
+      duplicateReceipt: null,
+      decisionAgeHours: 1,
+      currentAdStateAgeMinutes: 0,
+    });
     vi.mocked(actionLog.readLaunchpadCreatedAdIds).mockResolvedValue(
       new Set(["ad_1", "ad_2"]),
     );
@@ -224,6 +243,69 @@ describe("POST /api/launchpad/meta/bulk-ad-status", () => {
     ).toHaveBeenCalledTimes(2);
     expect(actionLog.createMetaAdsActionLog).not.toHaveBeenCalled();
     expect(actionLog.completeMetaAdsActionLog).not.toHaveBeenCalled();
+  });
+
+  it("blocks stale exact bulk actions before any provider write", async () => {
+    vi.mocked(
+      decisionPreflight.runServerDecisionOriginAdActionPreflight,
+    ).mockResolvedValue({
+      ok: false,
+      disposition: "reject",
+      shouldMutate: false,
+      blockers: ["decision_stale"],
+      errorCode: "decision_stale",
+      duplicateReceipt: null,
+      decisionAgeHours: 13,
+      currentAdStateAgeMinutes: 0,
+    });
+
+    const response = await POST(request(decisionBody()));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ ok: false, successCount: 0, failedCount: 2 });
+    expect(adsWrite.pauseAd).not.toHaveBeenCalled();
+    expect(actionLog.createDecisionOriginMetaAdsActionLog).not.toHaveBeenCalled();
+  });
+
+  it("replays an exact bulk receipt without another provider write", async () => {
+    const retryBody = decisionBody();
+    retryBody.ads = retryBody.ads.slice(0, 1);
+    vi.mocked(
+      decisionPreflight.runServerDecisionOriginAdActionPreflight,
+    ).mockResolvedValue({
+      ok: true,
+      disposition: "duplicate",
+      shouldMutate: false,
+      blockers: [],
+      errorCode: null,
+      duplicateReceipt: {
+        actionLogId: "decision_log_1",
+        businessId: BUSINESS_ID,
+        providerAccountId: "act_123",
+        adId: "ad_1",
+        snapshotId: retryBody.ads[0]!.snapshotId,
+        evaluationId: retryBody.ads[0]!.evaluationId,
+        engineVersion: retryBody.ads[0]!.engineVersion,
+        decisionHash: retryBody.ads[0]!.decisionHash,
+        action: "pause",
+        idempotencyKey: retryBody.ads[0]!.idempotencyKey,
+        status: "success",
+        dryRun: false,
+        providerVerified: true,
+        treatmentEligible: true,
+      },
+      decisionAgeHours: null,
+      currentAdStateAgeMinutes: null,
+    });
+
+    const response = await POST(request(retryBody));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ ok: true, successCount: 1, failedCount: 0 });
+    expect(adsWrite.pauseAd).not.toHaveBeenCalled();
+    expect(actionLog.createDecisionOriginMetaAdsActionLog).not.toHaveBeenCalled();
   });
 
   it("continues after a failed ad and returns partial results", async () => {

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   duplicateAd,
   pauseAd,
+  readMetaAdExecutionState,
   resumeAdset,
   resumeCampaign,
   updateAdsetBidAmount,
@@ -54,6 +55,46 @@ describe("Meta ads write client", () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v22.0/ad_1?");
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("access_token=secret-token");
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "POST" });
+  });
+
+  it("reads current ad execution state without issuing a provider write", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        id: "ad_1",
+        status: "ACTIVE",
+        effective_status: "ACTIVE",
+      }),
+    );
+
+    const result = await readMetaAdExecutionState(ctx, "ad_1");
+
+    expect(result).toMatchObject({
+      ok: true,
+      adId: "ad_1",
+      configuredStatus: "ACTIVE",
+      effectiveStatus: "ACTIVE",
+      policyEligible: true,
+      reviewStatus: null,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
+  });
+
+  it("marks provider policy states ineligible for exact execution", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        id: "ad_1",
+        status: "ACTIVE",
+        effective_status: "DISAPPROVED",
+      }),
+    );
+
+    await expect(readMetaAdExecutionState(ctx, "ad_1")).resolves.toMatchObject({
+      ok: true,
+      policyEligible: false,
+      reviewStatus: "DISAPPROVED",
+    });
   });
 
   it("pauseAd returns silent_failure when verification shows unchanged status", async () => {

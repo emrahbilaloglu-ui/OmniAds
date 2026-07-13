@@ -21,9 +21,16 @@ vi.mock("@/lib/meta/ads-action-log", () => ({
   listRecentMetaAdsActionLogs: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/decision-origin-action-preflight", () => ({
+  runServerDecisionOriginAdActionPreflight: vi.fn(),
+}));
+
 const access = await import("@/lib/access");
 const integrations = await import("@/lib/integrations");
 const actionLog = await import("@/lib/meta/ads-action-log");
+const decisionPreflight = await import(
+  "@/lib/meta/decision-origin-action-preflight"
+);
 const { POST } = await import("./route");
 
 const BUSINESS_ID = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
@@ -90,6 +97,18 @@ describe("POST /api/meta/ads/[adId]/resume", () => {
       },
     } as never);
     vi.mocked(actionLog.hasRecentPendingMetaAdsAction).mockResolvedValue(false);
+    vi.mocked(
+      decisionPreflight.runServerDecisionOriginAdActionPreflight,
+    ).mockResolvedValue({
+      ok: true,
+      disposition: "proceed",
+      shouldMutate: true,
+      blockers: [],
+      errorCode: null,
+      duplicateReceipt: null,
+      decisionAgeHours: 1,
+      currentAdStateAgeMinutes: 0,
+    });
     vi.mocked(actionLog.createMetaAdsActionLog).mockResolvedValue({
       id: "log_1",
     } as never);

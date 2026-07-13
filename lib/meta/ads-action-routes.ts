@@ -8,6 +8,7 @@ import {
   completeMetaAdsActionLog,
   createDecisionOriginMetaAdsActionLog,
   createMetaAdsActionLog,
+  decisionOriginIdempotencyReceiptFromLog,
   findRecentDuplicateActionResult,
   hasRecentPendingMetaAdsAction,
   listRecentMetaAdsActionLogs,
@@ -16,10 +17,12 @@ import {
   type MetaAdsActionKind,
   type MetaAdsActionStatus,
 } from "@/lib/meta/ads-action-log";
+import { runServerDecisionOriginAdActionPreflight } from "@/lib/meta/decision-origin-action-preflight";
 import {
   DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION,
   validateDecisionOriginAdExecutionRequest,
   type DecisionOriginAdExecutionRequest,
+  type DecisionOriginIdempotencyReceipt,
 } from "@/lib/creative-decision-engine/execution-safety";
 import {
   duplicateAd,
@@ -207,6 +210,52 @@ async function resolveWriteContext(input: {
   };
 }
 
+function decisionOriginReplayResponse(input: {
+  action: MetaAdsActionKind;
+  adId: string;
+  receipt: DecisionOriginIdempotencyReceipt;
+}) {
+  const succeeded = input.receipt.status === "success";
+  const pending = input.receipt.status === "pending";
+  return NextResponse.json(
+    {
+      ok: succeeded,
+      action: input.action,
+      adId: input.adId,
+      status:
+        succeeded && input.action === "pause"
+          ? "PAUSED"
+          : succeeded && input.action === "resume"
+            ? "ACTIVE"
+            : null,
+      duplicate: true,
+      receipt: input.receipt,
+      ...(!succeeded
+        ? {
+            error: {
+              code: pending
+                ? "action_in_flight"
+                : "idempotent_action_failed",
+              message: `The existing idempotent action is ${input.receipt.status}; no new provider write was attempted.`,
+            },
+          }
+        : {}),
+    },
+    { status: pending ? 409 : 200 },
+  );
+}
+
+function decisionOriginPreflightStatus(errorCode: string | null) {
+  if (
+    errorCode === "kill_switch_engaged" ||
+    errorCode === "kill_switch_state_unavailable"
+  ) {
+    return 503;
+  }
+  if (errorCode === "ad_not_found") return 404;
+  return 409;
+}
+
 async function prepareAction(input: {
   request: NextRequest;
   adId: string;
@@ -271,6 +320,52 @@ async function prepareAction(input: {
     };
   }
 
+  const ctxResult = await resolveWriteContext({
+    businessId: access.membership.businessId,
+    providerAccountId: targetResult.target.providerAccountId,
+  });
+  if (!ctxResult.ok) return { ok: false as const, response: ctxResult.response };
+
+  if (parsedDecisionOrigin.request) {
+    let preflight;
+    try {
+      preflight = await runServerDecisionOriginAdActionPreflight({
+        request: parsedDecisionOrigin.request,
+        ctx: ctxResult.ctx,
+      });
+    } catch (error) {
+      return {
+        ok: false as const,
+        response: jsonError(
+          503,
+          "decision_preflight_unavailable",
+          sanitizeErrorMessage(error),
+        ),
+      };
+    }
+    if (preflight.disposition === "duplicate" && preflight.duplicateReceipt) {
+      return {
+        ok: false as const,
+        response: decisionOriginReplayResponse({
+          action: input.action,
+          adId: targetResult.target.adId,
+          receipt: preflight.duplicateReceipt,
+        }),
+      };
+    }
+    if (!preflight.shouldMutate) {
+      return {
+        ok: false as const,
+        response: jsonError(
+          decisionOriginPreflightStatus(preflight.errorCode),
+          preflight.errorCode ?? "decision_preflight_blocked",
+          `Decision-origin preflight blocked the provider write (${preflight.blockers.join(", ")}).`,
+          { blockers: preflight.blockers },
+        ),
+      };
+    }
+  }
+
   const pending = await hasRecentPendingMetaAdsAction({
     businessId: access.membership.businessId,
     adId: targetResult.target.adId,
@@ -286,12 +381,6 @@ async function prepareAction(input: {
       ),
     };
   }
-
-  const ctxResult = await resolveWriteContext({
-    businessId: access.membership.businessId,
-    providerAccountId: targetResult.target.providerAccountId,
-  });
-  if (!ctxResult.ok) return { ok: false as const, response: ctxResult.response };
 
   return {
     ok: true as const,
@@ -371,6 +460,17 @@ export async function handleMetaAdStatusAction(
         recIdOrigin: recIdOriginFromBody(body),
         payloadRequest,
       });
+
+  if (prepared.decisionOriginRequest && log.idempotentReplay) {
+    return decisionOriginReplayResponse({
+      action,
+      adId: resolvedAdId,
+      receipt: decisionOriginIdempotencyReceiptFromLog(
+        log,
+        prepared.decisionOriginRequest.idempotencyKey,
+      ),
+    });
+  }
 
   const startedAt = Date.now();
   try {

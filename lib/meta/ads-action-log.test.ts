@@ -478,6 +478,9 @@ describe("resolveMetaAdActionTarget", () => {
     expect(CREATE_DECISION_ORIGIN_META_ADS_ACTION_LOG_QUERY).not.toContain(
       "authorizedAdAction",
     );
+    expect(CREATE_DECISION_ORIGIN_META_ADS_ACTION_LOG_QUERY).toContain(
+      "ON CONFLICT (business_id, idempotency_key)",
+    );
     const params = query.mock.calls[0]?.[1] as unknown[];
     const payloadJson = params[9];
     expect(JSON.parse(String(payloadJson))).toMatchObject({
@@ -491,6 +494,44 @@ describe("resolveMetaAdActionTarget", () => {
       idempotency_key: "decision-action-1",
       dry_run: false,
     });
+  });
+
+  it("returns the exact existing log when the idempotency insert races", async () => {
+    const query = vi.fn().mockResolvedValueOnce([]);
+    const sql = vi.fn().mockResolvedValueOnce([decisionLogRow()]);
+    Object.assign(sql, { query });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const row = await createDecisionOriginMetaAdsActionLog({
+      request: decisionRequest(),
+      requestedBy: "user_1",
+      payloadRequest: { endpoint: "/ad_1", body: { status: "PAUSED" } },
+    });
+
+    expect(row).toMatchObject({
+      id: "log_1",
+      status: "success",
+      idempotencyKey: "decision-action-1",
+      idempotentReplay: true,
+    });
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(sql).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects an idempotency retry with conflicting action lineage", async () => {
+    const query = vi.fn().mockResolvedValueOnce([]);
+    const sql = vi.fn().mockResolvedValueOnce([
+      decisionLogRow({ ad_id: "different_ad" }),
+    ]);
+    Object.assign(sql, { query });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await expect(
+      createDecisionOriginMetaAdsActionLog({
+        request: decisionRequest(),
+        requestedBy: "user_1",
+      }),
+    ).rejects.toThrow("idempotency key conflicts");
   });
 
   it("locks, verifies, updates and inserts the mandatory receipt in one transaction", async () => {

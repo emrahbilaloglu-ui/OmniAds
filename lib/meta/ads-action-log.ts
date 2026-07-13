@@ -73,6 +73,7 @@ export interface MetaAdsActionLogRow {
   verificationStatus: string | null;
   terminalFinalizedAt: string | null;
   treatmentEligible: boolean;
+  idempotentReplay?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -572,10 +573,10 @@ export function decisionOriginIdempotencyReceiptFromLog(
   };
 }
 
-export async function findDecisionOriginActionByIdempotency(input: {
+async function findDecisionOriginActionLogByIdempotency(input: {
   businessId: string;
   idempotencyKey: string;
-}): Promise<DecisionOriginIdempotencyReceipt | null> {
+}): Promise<MetaAdsActionLogRow | null> {
   const sql = getDb();
   const rows = (await sql`
     SELECT *
@@ -586,11 +587,16 @@ export async function findDecisionOriginActionByIdempotency(input: {
     ORDER BY requested_at DESC
     LIMIT 1
   `) as MetaAdsActionLogDbRow[];
-  return rows[0]
-    ? decisionOriginIdempotencyReceiptFromLog(
-        mapActionLogRow(rows[0]),
-        input.idempotencyKey,
-      )
+  return rows[0] ? mapActionLogRow(rows[0]) : null;
+}
+
+export async function findDecisionOriginActionByIdempotency(input: {
+  businessId: string;
+  idempotencyKey: string;
+}): Promise<DecisionOriginIdempotencyReceipt | null> {
+  const row = await findDecisionOriginActionLogByIdempotency(input);
+  return row
+    ? decisionOriginIdempotencyReceiptFromLog(row, input.idempotencyKey)
     : null;
 }
 
@@ -800,8 +806,31 @@ SELECT
   source_lineage.engine_version, source_lineage.decision_hash,
   $11, $12::boolean, false
 FROM source_lineage
+ON CONFLICT (business_id, idempotency_key)
+  WHERE source = 'decision_origin'
+DO NOTHING
 RETURNING *
 `;
+
+function decisionOriginLogMatchesRequest(
+  row: MetaAdsActionLogRow,
+  request: DecisionOriginAdExecutionRequest,
+) {
+  const origin = row.decisionOrigin;
+  return Boolean(
+    origin &&
+      origin.businessId === request.businessId &&
+      origin.providerAccountId === request.providerAccountId &&
+      origin.adId === request.adId &&
+      origin.snapshotId === request.snapshotId &&
+      origin.evaluationId === request.evaluationId &&
+      origin.engineVersion === request.engineVersion &&
+      origin.decisionHash === request.decisionHash &&
+      origin.action === request.action &&
+      origin.idempotencyKey === request.idempotencyKey &&
+      (origin.dryRun === true) === (request.dryRun === true),
+  );
+}
 
 export async function createDecisionOriginMetaAdsActionLog(input: {
   request: DecisionOriginAdExecutionRequest;
@@ -848,12 +877,23 @@ export async function createDecisionOriginMetaAdsActionLog(input: {
     ],
   );
   const row = rows[0];
-  if (!row) {
-    throw new Error(
-      "Decision-origin log creation found no exact authorized native ad episode.",
-    );
+  if (row) return mapActionLogRow(row);
+
+  const existing = await findDecisionOriginActionLogByIdempotency({
+    businessId: input.request.businessId,
+    idempotencyKey: input.request.idempotencyKey,
+  });
+  if (existing) {
+    if (!decisionOriginLogMatchesRequest(existing, input.request)) {
+      throw new Error(
+        "Decision-origin idempotency key conflicts with an existing action lineage.",
+      );
+    }
+    return { ...existing, idempotentReplay: true };
   }
-  return mapActionLogRow(row);
+  throw new Error(
+    "Decision-origin log creation found no exact authorized native ad episode.",
+  );
 }
 
 export async function completeMetaAdsActionLog(input: {

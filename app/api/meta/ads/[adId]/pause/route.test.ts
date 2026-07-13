@@ -21,9 +21,16 @@ vi.mock("@/lib/meta/ads-action-log", () => ({
   listRecentMetaAdsActionLogs: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/decision-origin-action-preflight", () => ({
+  runServerDecisionOriginAdActionPreflight: vi.fn(),
+}));
+
 const access = await import("@/lib/access");
 const integrations = await import("@/lib/integrations");
 const actionLog = await import("@/lib/meta/ads-action-log");
+const decisionPreflight = await import(
+  "@/lib/meta/decision-origin-action-preflight"
+);
 const { POST } = await import("./route");
 
 const BUSINESS_ID = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
@@ -90,6 +97,18 @@ describe("POST /api/meta/ads/[adId]/pause", () => {
       },
     } as never);
     vi.mocked(actionLog.hasRecentPendingMetaAdsAction).mockResolvedValue(false);
+    vi.mocked(
+      decisionPreflight.runServerDecisionOriginAdActionPreflight,
+    ).mockResolvedValue({
+      ok: true,
+      disposition: "proceed",
+      shouldMutate: true,
+      blockers: [],
+      errorCode: null,
+      duplicateReceipt: null,
+      decisionAgeHours: 1,
+      currentAdStateAgeMinutes: 0,
+    });
     vi.mocked(actionLog.createMetaAdsActionLog).mockResolvedValue({
       id: "log_1",
     } as never);
@@ -228,6 +247,95 @@ describe("POST /api/meta/ads/[adId]/pause", () => {
       expect.objectContaining({ id: "log_decision_1", status: "success" }),
     );
     expect(actionLog.completeMetaAdsActionLog).not.toHaveBeenCalled();
+  });
+
+  it("blocks a stale exact decision before creating a log or writing to Meta", async () => {
+    vi.mocked(
+      decisionPreflight.runServerDecisionOriginAdActionPreflight,
+    ).mockResolvedValue({
+      ok: false,
+      disposition: "reject",
+      shouldMutate: false,
+      blockers: ["decision_stale"],
+      errorCode: "decision_stale",
+      duplicateReceipt: null,
+      decisionAgeHours: 13,
+      currentAdStateAgeMinutes: 0,
+    });
+
+    const response = await POST(
+      request({
+        contractVersion: "meta-decision-origin-ad-execution.v1",
+        businessId: BUSINESS_ID,
+        providerAccountId: "act_123",
+        adId: "ad_1",
+        snapshotId: "00000000-0000-4000-8000-000000000011",
+        evaluationId: "00000000-0000-4000-8000-000000000012",
+        engineVersion: "v3-ad-2026-07-12-native-provenance-shadow",
+        decisionHash: "d".repeat(64),
+        action: "pause",
+        idempotencyKey: "decision-pause-stale",
+      }),
+      params(),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error.code).toBe("decision_stale");
+    expect(actionLog.createDecisionOriginMetaAdsActionLog).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("returns an existing exact receipt without another Meta write", async () => {
+    vi.mocked(
+      decisionPreflight.runServerDecisionOriginAdActionPreflight,
+    ).mockResolvedValue({
+      ok: true,
+      disposition: "duplicate",
+      shouldMutate: false,
+      blockers: [],
+      errorCode: null,
+      duplicateReceipt: {
+        actionLogId: "log_decision_1",
+        businessId: BUSINESS_ID,
+        providerAccountId: "act_123",
+        adId: "ad_1",
+        snapshotId: "00000000-0000-4000-8000-000000000011",
+        evaluationId: "00000000-0000-4000-8000-000000000012",
+        engineVersion: "v3-ad-2026-07-12-native-provenance-shadow",
+        decisionHash: "d".repeat(64),
+        action: "pause",
+        idempotencyKey: "decision-pause-1",
+        status: "success",
+        dryRun: false,
+        providerVerified: true,
+        treatmentEligible: true,
+      },
+      decisionAgeHours: null,
+      currentAdStateAgeMinutes: null,
+    });
+
+    const response = await POST(
+      request({
+        contractVersion: "meta-decision-origin-ad-execution.v1",
+        businessId: BUSINESS_ID,
+        providerAccountId: "act_123",
+        adId: "ad_1",
+        snapshotId: "00000000-0000-4000-8000-000000000011",
+        evaluationId: "00000000-0000-4000-8000-000000000012",
+        engineVersion: "v3-ad-2026-07-12-native-provenance-shadow",
+        decisionHash: "d".repeat(64),
+        action: "pause",
+        idempotencyKey: "decision-pause-1",
+      }),
+      params(),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ ok: true, duplicate: true, status: "PAUSED" });
+    expect(actionLog.createDecisionOriginMetaAdsActionLog).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("logs silent_failure when Meta success verifies unchanged", async () => {

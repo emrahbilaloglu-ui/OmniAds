@@ -39,6 +39,21 @@ export type MetaAdStatusWriteSuccess = {
   verificationPayload?: Record<string, unknown> | null;
 };
 
+export type MetaAdExecutionStateRead =
+  | {
+      ok: true;
+      adId: string;
+      configuredStatus: string | null;
+      effectiveStatus: string | null;
+      policyEligible: boolean | null;
+      reviewStatus: string | null;
+      observedAt: string;
+    }
+  | {
+      ok: false;
+      error: MetaAdsWriteError;
+    };
+
 export type MetaAdsetBidWriteSuccess = {
   ok: true;
   verifiedBidAmount: number;
@@ -552,6 +567,73 @@ async function verifyAd(input: {
     httpStatus: status,
     payload: result.payload,
     error: null,
+  };
+}
+
+const POLICY_BLOCKED_AD_STATUSES = new Set([
+  "DISAPPROVED",
+  "PENDING_BILLING_INFO",
+  "PENDING_REVIEW",
+  "WITH_ISSUES",
+]);
+
+/** Live, read-only state used by the exact decision-origin write preflight. */
+export async function readMetaAdExecutionState(
+  ctx: MetaAdsWriteContext,
+  adId: string,
+): Promise<MetaAdExecutionStateRead> {
+  const result = await metaFetch({
+    ctx,
+    path: adId,
+    method: "GET",
+    fields: "id,status,effective_status",
+  });
+  if (
+    result.error ||
+    !result.response?.ok ||
+    isFailureBody(result.payload)
+  ) {
+    return {
+      ok: false,
+      error:
+        result.error ??
+        getMetaError(result.payload, {
+          code: "current_ad_state_unverified",
+          message: "Meta current ad state could not be verified.",
+        }),
+    };
+  }
+  const resolvedAdId = readStringField(result.payload, "id");
+  if (!resolvedAdId || resolvedAdId !== adId) {
+    return {
+      ok: false,
+      error: {
+        code: "ad_identity_mismatch",
+        message: "Meta current ad state resolved to a different ad.",
+      },
+    };
+  }
+  const configuredStatus = readStringField(result.payload, "status");
+  const effectiveStatus = readStringField(
+    result.payload,
+    "effective_status",
+  );
+  const normalizedEffectiveStatus = effectiveStatus?.toUpperCase() ?? null;
+  return {
+    ok: true,
+    adId: resolvedAdId,
+    configuredStatus,
+    effectiveStatus,
+    policyEligible:
+      normalizedEffectiveStatus === null
+        ? null
+        : !POLICY_BLOCKED_AD_STATUSES.has(normalizedEffectiveStatus),
+    reviewStatus: POLICY_BLOCKED_AD_STATUSES.has(
+      normalizedEffectiveStatus ?? "",
+    )
+      ? normalizedEffectiveStatus
+      : null,
+    observedAt: new Date().toISOString(),
   };
 }
 

@@ -20,6 +20,7 @@ import {
   resumeAd,
   type MetaAdsWriteFailure,
 } from "@/lib/meta/ads-write";
+import { runServerDecisionOriginAdActionPreflight } from "@/lib/meta/decision-origin-action-preflight";
 import { rejectIfMetaWritesBlocked } from "@/lib/meta/automation-write-guard";
 import { adsManagerUrl } from "@/lib/launchpad/meta";
 import {
@@ -430,6 +431,7 @@ export async function POST(request: NextRequest) {
       );
     }
   }
+  const ctx = ctxResult.ctx;
   const results: Array<{
     inputAdId: string;
     adId?: string;
@@ -516,6 +518,67 @@ export async function POST(request: NextRequest) {
         });
         continue;
       }
+      if (ad.decisionOriginRequest) {
+        const preflight = await runServerDecisionOriginAdActionPreflight({
+          request: ad.decisionOriginRequest,
+          ctx,
+        });
+        if (!preflight.shouldMutate) {
+          const receipt = preflight.duplicateReceipt;
+          const replaySucceeded =
+            preflight.disposition === "duplicate" &&
+            receipt?.status === "success";
+          const error = replaySucceeded
+            ? null
+            : {
+                code:
+                  preflight.disposition === "duplicate"
+                    ? receipt?.status === "pending"
+                      ? "action_in_flight"
+                      : "idempotent_action_failed"
+                    : preflight.errorCode ?? "decision_preflight_blocked",
+                message:
+                  preflight.disposition === "duplicate"
+                    ? `The existing idempotent action is ${receipt?.status ?? "unavailable"}; no new provider write was attempted.`
+                    : `Decision-origin preflight blocked the provider write (${preflight.blockers.join(", ")}).`,
+              };
+          results.push({
+            inputAdId: ad.adId,
+            adId: resolvedAdId,
+            creativeId: targetResult.target.creativeId ?? ad.creativeId,
+            ok: replaySucceeded,
+            status: replaySucceeded ? statusOption : undefined,
+            attemptedIds: targetResult.attemptedIds,
+            ...(error ? { error } : {}),
+          });
+          steps.push({
+            kind: "ad",
+            index,
+            name: stepName,
+            status: replaySucceeded ? "success" : "failure",
+            id: resolvedAdId,
+            creativeId:
+              targetResult.target.creativeId ?? ad.creativeId ?? undefined,
+            ...(replaySucceeded
+              ? {
+                  adsManagerUrl: adsManagerUrl(
+                    ctx.providerAccountId,
+                    "ad",
+                    resolvedAdId,
+                  ),
+                }
+              : { error: error! }),
+          });
+          if (
+            error?.code === "kill_switch_engaged" ||
+            error?.code === "kill_switch_state_unavailable"
+          ) {
+            haltedReason = error;
+            break;
+          }
+          continue;
+        }
+      }
       const pending = await hasRecentPendingMetaAdsAction({
         businessId: access.businessId,
         adId: resolvedAdId,
@@ -546,7 +609,6 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const ctx = ctxResult.ctx;
       const payloadRequest = {
           idempotency_key: idempotencyKey,
           method: "POST",
@@ -570,6 +632,47 @@ export async function POST(request: NextRequest) {
             requestedBy: access.userId,
             payloadRequest,
           });
+
+      if (ad.decisionOriginRequest && log.idempotentReplay) {
+        const replaySucceeded = log.status === "success";
+        const error = replaySucceeded
+          ? null
+          : {
+              code:
+                log.status === "pending"
+                  ? "action_in_flight"
+                  : "idempotent_action_failed",
+              message: `The existing idempotent action is ${log.status}; no new provider write was attempted.`,
+            };
+        results.push({
+          inputAdId: ad.adId,
+          adId: resolvedAdId,
+          creativeId: targetResult.target.creativeId ?? ad.creativeId,
+          ok: replaySucceeded,
+          status: replaySucceeded ? statusOption : undefined,
+          attemptedIds: targetResult.attemptedIds,
+          ...(error ? { error } : {}),
+        });
+        steps.push({
+          kind: "ad",
+          index,
+          name: stepName,
+          status: replaySucceeded ? "success" : "failure",
+          id: resolvedAdId,
+          creativeId:
+            targetResult.target.creativeId ?? ad.creativeId ?? undefined,
+          ...(replaySucceeded
+            ? {
+                adsManagerUrl: adsManagerUrl(
+                  ctx.providerAccountId,
+                  "ad",
+                  resolvedAdId,
+                ),
+              }
+            : { error: error! }),
+        });
+        continue;
+      }
 
       const startedAt = Date.now();
       const result =
